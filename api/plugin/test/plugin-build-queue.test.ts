@@ -138,7 +138,7 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
       version: '1.0.0',
       orgId: 'org-1',
       buildType: 'build_image',
-      registry: { host: 'registry', port: 5000, network: '', http: true, insecure: true },
+      registry: { host: 'registry', port: 5000, network: '', http: true },
     },
     pluginRecord: {
       orgId: 'org-1',

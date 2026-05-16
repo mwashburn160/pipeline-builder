@@ -82,7 +82,6 @@ echo ""
 echo "=== Step 1: Ensure TLS certificate exists ==="
 CERT_OUTPUT=$(bash "$SCRIPT_DIR/init-cert.sh" --domain "$DOMAIN" --region "$REGION")
 CERTIFICATE_ARN=$(echo "$CERT_OUTPUT" | grep "^CERTIFICATE_ARN=" | cut -d= -f2)
-CERTIFICATE_PEM_B64=$(echo "$CERT_OUTPUT" | grep "^CERTIFICATE_PEM_B64=" | cut -d= -f2)
 if [ -z "$CERTIFICATE_ARN" ]; then
   echo "  WARNING: Failed to obtain certificate. HTTPS will be disabled."
 else
@@ -99,26 +98,9 @@ if ! aws secretsmanager describe-secret --secret-id "$APP_SECRETS_NAME" --region
   bash "$SCRIPT_DIR/init-secrets.sh" \
     --ghcr-token "$GHCR_TOKEN" \
     --ghcr-user "$GHCR_USER" \
-    --platform-ca-cert-b64 "$CERTIFICATE_PEM_B64" \
     --region "$REGION"
 else
   echo "  Secrets already exist in Secrets Manager"
-  # The ALB cert can rotate independently of the random secrets — refresh
-  # only the PLATFORM_CA_CERT field so the plugin task trusts the current
-  # cert without invalidating JWT_SECRET / DB passwords.
-  if [ -n "$CERTIFICATE_PEM_B64" ]; then
-    echo "  Refreshing PLATFORM_CA_CERT in app-secrets..."
-    CURRENT=$(aws secretsmanager get-secret-value \
-      --secret-id "$APP_SECRETS_NAME" \
-      --region "$REGION" \
-      --query "SecretString" --output text)
-    UPDATED=$(printf '%s' "$CURRENT" | jq --arg cert "$CERTIFICATE_PEM_B64" \
-      '.PLATFORM_CA_CERT = $cert')
-    aws secretsmanager put-secret-value \
-      --secret-id "$APP_SECRETS_NAME" \
-      --secret-string "$UPDATED" \
-      --region "$REGION" >/dev/null
-  fi
 fi
 
 # -----------------------------------------------------------------------

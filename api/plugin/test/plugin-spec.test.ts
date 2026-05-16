@@ -22,15 +22,13 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   tokenize: () => [],
   Config: (() => {
     const get = (section: string) => {
-      if (section === 'registry') return { insecure: true };
+      if (section === 'registry') return { http: true };
       if (section === 'dockerConfig') {
         return {
-          strategy: 'podman',
           tempRoot: path.join(process.cwd(), 'tmp'),
           timeoutMs: 900000,
           pushTimeoutMs: 300000,
-          kanikoExecutor: '/kaniko/executor',
-          kanikoCacheDir: '/kaniko/cache',
+          buildkitAddr: 'unix:///run/buildkit/buildkitd.sock',
         };
       }
       return {};

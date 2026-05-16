@@ -15,8 +15,8 @@ import { getComputeType } from '../core/pipeline-helpers';
  * - `IMAGE_REGISTRY_HOST` — Registry hostname (default: `'registry'`)
  * - `IMAGE_REGISTRY_PORT` — Registry port (default: `5000`)
  * - `DOCKER_NETWORK` — Docker network for build/push (default: `''`)
- * - `DOCKER_REGISTRY_HTTP` — Use plain HTTP (default: `true`). Set `false` for HTTPS.
- * - `DOCKER_REGISTRY_INSECURE` — Skip TLS verification (default: `true`). Set `false` for production.
+ * - `IMAGE_REGISTRY_HTTP` — Use plain HTTP instead of HTTPS (default: `true`,
+ *   the in-cluster registry has no TLS).
  *
  * @returns Registry configuration
  */
@@ -25,8 +25,7 @@ export function loadRegistryConfig(): RegistryConfig {
     host: process.env.IMAGE_REGISTRY_HOST || 'registry',
     port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10),
     network: process.env.DOCKER_NETWORK || '',
-    http: process.env.DOCKER_REGISTRY_HTTP !== 'false',
-    insecure: process.env.DOCKER_REGISTRY_INSECURE !== 'false',
+    http: process.env.IMAGE_REGISTRY_HTTP !== 'false',
   };
 }
 
@@ -93,26 +92,22 @@ export function loadComplianceConfig(): ComplianceConfig {
 }
 
 /**
- * Load Docker/Podman/Kaniko build configuration.
+ * Load plugin build configuration. Builds run against a rootless `moby/buildkit`
+ * sidecar — see `BUILDKIT_HOST`.
  *
  * Environment variables:
- * - `DOCKER_BUILD_STRATEGY` — Build strategy: `podman`, `docker`, or `kaniko` (default: `podman`)
  * - `DOCKER_BUILD_TEMP_ROOT` — Temp directory for build contexts (default: `<cwd>/tmp`)
  * - `DOCKER_BUILD_TIMEOUT_MS` — Build timeout in milliseconds (default: `900000` / 15 min)
  * - `DOCKER_PUSH_TIMEOUT_MS` — Push timeout in milliseconds (default: `300000` / 5 min)
- * - `KANIKO_EXECUTOR_PATH` — Path to Kaniko executor binary (default: `/kaniko/executor`)
- * - `KANIKO_CACHE_DIR` — Kaniko layer cache directory (default: `/kaniko/cache`)
+ * - `BUILDKIT_HOST` — buildctl `--addr` value for the buildkitd sidecar
+ *   (default: `unix:///run/buildkit/buildkitd.sock`)
  */
 export function loadDockerConfig(): BuildConfig {
-  const validStrategies = new Set(['docker', 'kaniko', 'podman']);
-  const strategyEnv = (process.env.DOCKER_BUILD_STRATEGY || '').toLowerCase();
   return {
-    strategy: validStrategies.has(strategyEnv) ? strategyEnv as BuildConfig['strategy'] : 'docker',
     tempRoot: process.env.DOCKER_BUILD_TEMP_ROOT || path.join(process.cwd(), 'tmp'),
     timeoutMs: parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '900000', 10),
     pushTimeoutMs: parseInt(process.env.DOCKER_PUSH_TIMEOUT_MS || '300000', 10),
-    kanikoExecutor: process.env.KANIKO_EXECUTOR_PATH || '/kaniko/executor',
-    kanikoCacheDir: process.env.KANIKO_CACHE_DIR || '/kaniko/cache',
+    buildkitAddr: process.env.BUILDKIT_HOST || 'unix:///run/buildkit/buildkitd.sock',
   };
 }
 

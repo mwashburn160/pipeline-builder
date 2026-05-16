@@ -35,7 +35,7 @@ XAI_API_KEY=your-key
 | platform | 3000 (internal) | Auth + user management |
 | pipeline | 3000 (internal) | Pipeline CRUD + AI generation |
 | plugin | 3000 (internal) | Plugin CRUD + builds |
-| plugin-dind | 2376 (internal) | Docker-in-Docker sidecar for isolated plugin builds |
+| buildkitd | unix socket (internal) | Rootless BuildKit sidecar for isolated plugin builds |
 | quota | 3000 (internal) | Quota enforcement |
 | billing | 3000 (internal) | Subscription management |
 | message | 3000 (internal) | Message routing + WebSocket |

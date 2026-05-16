@@ -70,82 +70,58 @@ spec:
               echo "Waiting for redis..."
               until nc -z redis 6379; do sleep 3; done
               echo "Dependencies ready"
-        # dind sidecar (k8s 1.28+ native sidecar — restartPolicy: Always in initContainers).
-        # Runs alongside the main container but is guaranteed READY before plugin starts,
-        # eliminating the startup race where the build worker hits 2375 before dind is up.
-        - name: dind
-          image: docker:27-dind
+        # Rootless buildkitd as a native sidecar (k8s 1.28+: restartPolicy: Always
+        # in initContainers). Replaces the previous privileged dind container —
+        # no SYS_ADMIN, no privileged mode, no CA-trust shell wrapper. buildkitd
+        # uses the system CA bundle baked into moby/buildkit:rootless directly.
+        - name: buildkitd
+          image: moby/buildkit:v0.16.0-rootless
           restartPolicy: Always
-          # Trust the platform's self-signed cert before dockerd starts so the
-          # docker daemon can follow the registry's bearer-token challenge to
-          # https://<PLATFORM_BASE_URL>/image-registry/token. `--insecure-registry`
-          # only covers the registry itself, NOT the realm host — without
-          # this step the realm fetch fails with TLS verify error and the
-          # subsequent push goes anonymous, yielding `denied` from the registry.
-          command: ["/bin/sh", "-c"]
           args:
-            - |
-              set -e
-              # Alpine's `update-ca-certificates` requires the `ca-certificates`
-              # package, which docker:27-dind doesn't always ship with. Append
-              # directly to the bundle — that's where libssl/wget actually read
-              # from on Alpine.
-              cp /etc/platform-ca/tls.crt /usr/local/share/ca-certificates/platform.crt
-              cat /etc/platform-ca/tls.crt >> /etc/ssl/certs/ca-certificates.crt
-              if command -v update-ca-certificates >/dev/null 2>&1; then
-                update-ca-certificates
-              fi
-              exec dockerd-entrypoint.sh --insecure-registry=registry:5000
+            - --addr
+            - unix:///run/user/1000/buildkit/buildkitd.sock
+            # rootless workers spawn their own subprocess sandbox; in unprivileged
+            # k8s this is disabled in favor of the outer pod-level isolation.
+            - --oci-worker-no-process-sandbox
           securityContext:
-            privileged: true
-          env:
-            - name: DOCKER_TLS_CERTDIR  # disable TLS (plain TCP on port 2375)
-              value: ''
-            - name: TMPDIR
-              value: "/tmp"
+            runAsUser: 1000
+            runAsGroup: 1000
+            # Required for rootless newuidmap/newgidmap to set up uid mappings.
+            seccompProfile:
+              type: Unconfined
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
-            - name: tmp
-              mountPath: /app/tmp
-            - name: dind-storage
-              mountPath: /var/lib/docker
-            - name: platform-ca
-              mountPath: /etc/platform-ca
-              readOnly: true
+            - name: buildkit-socket
+              mountPath: /run/user/1000/buildkit
+            - name: buildkit-cache
+              mountPath: /home/user/.local/share/buildkit
           resources:
             limits:
-              cpu: "1000m"
-              memory: 1024Mi
+              cpu: "1500m"
+              memory: 2048Mi
             requests:
               cpu: "500m"
               memory: 512Mi
           startupProbe:
             exec:
-              command: ["docker", "info"]
-            initialDelaySeconds: 5
+              command: ["buildctl", "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock", "debug", "workers"]
+            initialDelaySeconds: 3
             periodSeconds: 5
             timeoutSeconds: 5
-            failureThreshold: 30   # 5 + 30*5 = 155s budget for dind to come up
-          readinessProbe:
-            exec:
-              command: ["docker", "info"]
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 5
+            failureThreshold: 20
           livenessProbe:
             exec:
-              command: ["docker", "info"]
-            initialDelaySeconds: 30
+              command: ["buildctl", "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock", "debug", "workers"]
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:3.4.17-docker
+          image: ghcr.io/mwashburn160/plugin:3.4.18
           securityContext:
-            readOnlyRootFilesystem: false
-            allowPrivilegeEscalation: true
+            allowPrivilegeEscalation: false
             capabilities:
-              add: ["SYS_ADMIN", "SETUID", "SETGID"]
               drop: ["ALL"]
           ports:
             - containerPort: 3000
@@ -164,11 +140,10 @@ spec:
               value: "registry"
             - name: IMAGE_REGISTRY_PORT
               value: "5000"
-            # DOCKER_BUILD_STRATEGY comes from app-env ConfigMap (set during startup prompt)
-            - name: DOCKER_REGISTRY_HTTP
+            - name: IMAGE_REGISTRY_HTTP
               value: "true"
-            - name: DOCKER_REGISTRY_INSECURE
-              value: "true"
+            - name: BUILDKIT_HOST
+              value: "unix:///run/buildkit/buildkitd.sock"
             - name: REDIS_HOST
               value: "redis"
             - name: REDIS_PORT
@@ -183,18 +158,15 @@ spec:
               value: "4096"
             - name: DOCKER_BUILD_TIMEOUT_MS
               value: "900000"
-            - name: DIND_HOST
-              value: "localhost"
             - name: TMPDIR
               value: "/tmp"
-            # DOCKER_HOST and DOCKER_CERT_PATH set per-process by docker-build.ts
-            # (avoids TLS validation at startup before dind generates certs)
           volumeMounts:
             - name: tmp
               mountPath: /app/tmp
             - name: uploads
               mountPath: /app/uploads
-            # DOCKER_HOST and dind connection handled by docker-build.ts via DIND_HOST env var
+            - name: buildkit-socket
+              mountPath: /run/buildkit
           resources:
             limits:
               cpu: "1500m"
@@ -203,11 +175,9 @@ spec:
               cpu: "750m"
               memory: 1024Mi
           readinessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - "curl -sf http://localhost:3000/health > /dev/null && curl -sf http://localhost:2375/version > /dev/null"
+            httpGet:
+              path: /health
+              port: 3000
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
@@ -237,18 +207,16 @@ spec:
           hostPath:
             path: /mnt/data/plugins-data/uploads
             type: DirectoryOrCreate
-        - name: dind-storage
+        # Shared socket between buildkitd sidecar and plugin container.
+        - name: buildkit-socket
+          emptyDir:
+            medium: Memory
+        # buildkitd's layer cache. emptyDir loses cache on pod restart —
+        # acceptable for the EC2 single-node deploy. For multi-node, switch
+        # to a PVC or the `--export-cache=type=registry` flag.
+        - name: buildkit-cache
           emptyDir:
             sizeLimit: 20Gi
-        # Platform's nginx TLS cert — mounted into dind so the docker daemon
-        # trusts https://<PLATFORM_BASE_URL>/image-registry/token during the
-        # bearer-challenge fetch. Same secret nginx serves to clients.
-        - name: platform-ca
-          secret:
-            secretName: nginx-tls-secret
-            items:
-              - key: tls.crt
-                path: tls.crt
 
 ---
 # =============================================================================

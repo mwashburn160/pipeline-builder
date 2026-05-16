@@ -9,11 +9,13 @@
 #
 # Targets:
 #   - deploy/minikube/k8s/*.yaml       (Kubernetes Deployment manifests)
+#   - deploy/aws/ec2/k8s/*.yaml        (EC2 single-node k8s manifests)
 #   - deploy/local/docker-compose.yml  (Docker Compose for local dev)
 #   - deploy/aws/fargate/.env.example  (Fargate env defaults)
+#   - deploy/aws/fargate/stacks/04-services.yaml
 #
-# Build-strategy suffixes on the plugin image (`-docker`, `-kaniko`) are
-# preserved; only the version portion is rewritten.
+# Plugin image is a single target (no `-docker`/`-kaniko`/`-podman` suffix).
+# Builds run on a rootless buildkitd sidecar across every deploy target.
 
 set -euo pipefail
 
@@ -64,13 +66,11 @@ for entry in "${SERVICES[@]}"; do
   fi
   echo "→ $svc: $ver"
 
-  # Match `ghcr.io/mwashburn160/<svc>:<old-version>[-<suffix>]` and replace
-  # only the version. The version is `[A-Za-z0-9._-]+?` until either the end
-  # of the tag or a `-<suffix>` (suffixes use letters only: `-docker`,
-  # `-kaniko`). `latest` is also rewritten so all environments converge.
+  # Match `ghcr.io/mwashburn160/<svc>:<old-version>` and replace the version.
+  # `latest` is also rewritten so all environments converge.
   for f in "${FILES[@]}"; do
     [ -f "$f" ] || continue
-    sed_i "s|(ghcr\\.io/mwashburn160/${svc}:)[A-Za-z0-9._]+(-[a-z]+)?|\\1${ver}\\2|g" "$f"
+    sed_i "s|(ghcr\\.io/mwashburn160/${svc}:)[A-Za-z0-9._]+|\\1${ver}|g" "$f"
   done
 done
 

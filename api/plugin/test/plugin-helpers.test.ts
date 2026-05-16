@@ -65,7 +65,7 @@ describe('plugin-helpers', () => {
           
           orgId: 'org-1',
           buildType: 'build_image',
-          registry: { host: 'reg', port: 5000, network: '', http: true, insecure: true },
+          registry: { host: 'reg', port: 5000, network: '', http: true },
         },
         pluginRecord: {
           orgId: 'org-1',
@@ -98,7 +98,7 @@ describe('plugin-helpers', () => {
           
           orgId: 'org-1',
           buildType: 'build_image',
-          registry: { host: 'reg', port: 5000, network: '', http: true, insecure: true },
+          registry: { host: 'reg', port: 5000, network: '', http: true },
         },
         pluginRecord: {
           orgId: 'org-1',

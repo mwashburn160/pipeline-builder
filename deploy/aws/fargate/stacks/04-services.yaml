@@ -36,7 +36,7 @@ Parameters:
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:3.4.17-kaniko
+    Default: ghcr.io/mwashburn160/plugin:3.4.18
     Description: Docker image for the Plugin service
 
   QuotaImage:
@@ -684,14 +684,17 @@ Resources:
       Volumes:
         - Name: plugins-builds
         - Name: plugins-uploads
-        - Name: kaniko-cache
+        # Shared between the plugin container (writes buildctl auth config,
+        # spawns buildctl) and the buildkitd sidecar (serves the build).
+        - Name: buildkit-socket
+        - Name: buildkit-cache
           EFSVolumeConfiguration:
             FilesystemId:
               Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
             TransitEncryption: ENABLED
             AuthorizationConfig:
               AccessPointId:
-                Fn::ImportValue: !Sub "${StackPrefix}-KanikoCacheAccessPointArn"
+                Fn::ImportValue: !Sub "${StackPrefix}-BuildkitCacheAccessPointArn"
               IAM: ENABLED
       ExecutionRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
@@ -701,22 +704,11 @@ Resources:
         - Name: plugin
           Image: !Ref PluginImage
           Essential: true
-          # Trust the ALB's self-signed cert (passed in via PLATFORM_CA_CERT,
-          # base64-encoded) before launching node, so kaniko can follow the
-          # registry's bearer-token challenge to ${PlatformBaseUrl}/image-registry/token.
-          # `--skip-tls-verify` on kaniko only covers the registry endpoint —
-          # the realm host is validated against the system CA bundle, which
-          # must include our self-signed cert. Append to both /etc/ssl/certs
-          # and /kaniko/ssl/certs since kaniko bundles its own root store.
-          EntryPoint: ["/bin/bash", "-c"]
-          Command:
-            - |
-              if [ -n "$PLATFORM_CA_CERT" ]; then
-                echo "$PLATFORM_CA_CERT" | base64 -d > /usr/local/share/ca-certificates/platform.crt
-                update-ca-certificates >/dev/null 2>&1 || true
-                cat /usr/local/share/ca-certificates/platform.crt >> /kaniko/ssl/certs/ca-certificates.crt
-              fi
-              exec node index.js
+          # Wait for the buildkitd sidecar to be HEALTHY before launching node,
+          # so the build worker doesn't race the buildkitd startup.
+          DependsOn:
+            - ContainerName: buildkitd
+              Condition: HEALTHY
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -763,16 +755,14 @@ Resources:
               Value: "5000"
             - Name: PLUGIN_BUILD_CONCURRENCY
               Value: "2"
-            - Name: DOCKER_BUILD_STRATEGY
-              Value: "kaniko"
             - Name: DOCKER_BUILD_TIMEOUT_MS
               Value: "900000"
             - Name: PLUGIN_MAX_UPLOAD_MB
               Value: "4096"
-            - Name: DOCKER_REGISTRY_HTTP
+            - Name: IMAGE_REGISTRY_HTTP
               Value: "true"
-            - Name: DOCKER_REGISTRY_INSECURE
-              Value: "true"
+            - Name: BUILDKIT_HOST
+              Value: "unix:///run/buildkit/buildkitd.sock"
             - Name: COMPLIANCE_SERVICE_HOST
               Value: compliance.pipeline-builder.local
             - Name: COMPLIANCE_SERVICE_PORT
@@ -780,12 +770,12 @@ Resources:
             - Name: COMPLIANCE_BYPASS
               Value: "false"
           MountPoints:
-            - ContainerPath: /kaniko/cache
-              SourceVolume: kaniko-cache
             - ContainerPath: /app/tmp
               SourceVolume: plugins-builds
             - ContainerPath: /app/uploads
               SourceVolume: plugins-uploads
+            - ContainerPath: /run/buildkit
+              SourceVolume: buildkit-socket
           Secrets:
             - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
@@ -807,8 +797,6 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GOOGLE_GENERATIVE_AI_API_KEY::"
             - Name: XAI_API_KEY
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:XAI_API_KEY::"
-            - Name: PLATFORM_CA_CERT
-              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:PLATFORM_CA_CERT::"
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -824,6 +812,41 @@ Resources:
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=plugin
+              Line_Format: json
+        # Rootless buildkitd sidecar. Replaces in-process kaniko. No privileged
+        # mode, no CA-trust workarounds (buildkitd carries the system CA bundle
+        # and honors a real public cert end-to-end).
+        - Name: buildkitd
+          Image: moby/buildkit:v0.16.0-rootless
+          Essential: true
+          User: "1000:1000"
+          EntryPoint: ["buildkitd"]
+          Command:
+            - --addr
+            - unix:///run/buildkit/buildkitd.sock
+            # Fargate's seccomp profile permits unshare, but rootless workers
+            # still need the no-process-sandbox flag in unprivileged contexts.
+            - --oci-worker-no-process-sandbox
+          MountPoints:
+            - ContainerPath: /run/buildkit
+              SourceVolume: buildkit-socket
+            - ContainerPath: /home/user/.local/share/buildkit
+              SourceVolume: buildkit-cache
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - buildctl --addr unix:///run/buildkit/buildkitd.sock debug workers || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              Name: loki
+              Host: loki.pipeline-builder.local
+              Port: "3100"
+              Labels: job=fluent-bit, service=buildkitd
               Line_Format: json
         - Name: log-router
           Image: !Ref FluentBitImage

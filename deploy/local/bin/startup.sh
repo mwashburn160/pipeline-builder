@@ -109,51 +109,8 @@ mkdir -p "$DOCKER_BUILD_TEMP_ROOT"
 # Plugin container runs as node (UID 1000) — ensure writable volume mounts
 chmod 1777 "$DEPLOY_DIR/data/uploads" "$DOCKER_BUILD_TEMP_ROOT"
 
-# Docker-in-Docker TLS certs (dind auto-generates certs on first start)
-mkdir -p "$DEPLOY_DIR/certs/dind"
-
-# -----------------------------------------------------------------------
-# Plugin build target selection
-# -----------------------------------------------------------------------
-set -a; . "$DEPLOY_DIR/.env"; set +a
-CURRENT_STRATEGY="${DOCKER_BUILD_STRATEGY:-docker}"
-
-echo ""
-echo "=== Plugin Build Strategy ==="
-echo "  Current: $CURRENT_STRATEGY"
-echo ""
-echo "  1) docker  — Docker daemon via dind sidecar"
-echo "  2) podman  — Podman standard"
-echo ""
-read -rp "Select strategy [1-2] or press Enter to keep '$CURRENT_STRATEGY': " choice
-
-case "$choice" in
-  1) SELECTED_STRATEGY="docker" ;;
-  2) SELECTED_STRATEGY="podman" ;;
-  *) SELECTED_STRATEGY="$CURRENT_STRATEGY" ;;
-esac
-
-_sed_i() { if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
-
-if [ "$SELECTED_STRATEGY" != "$CURRENT_STRATEGY" ]; then
-  _sed_i "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED_STRATEGY/" "$DEPLOY_DIR/.env"
-  # Update plugin image tag to match selected strategy
-  # Match plugin:VERSION (with or without strategy suffix). VERSION must be x.y.z or x.y.z.w
-  PLUGIN_VERSION=$(grep -oE 'ghcr\.io/mwashburn160/plugin:[0-9]+(\.[0-9]+)+' "$DEPLOY_DIR/docker-compose.yml" | head -1 | sed 's|.*plugin:||')
-  if [ -n "$PLUGIN_VERSION" ]; then
-    _sed_i "s|ghcr.io/mwashburn160/plugin:${PLUGIN_VERSION}\(-[a-z]*\)\{0,1\}|ghcr.io/mwashburn160/plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}|" "$DEPLOY_DIR/docker-compose.yml"
-  else
-    echo "  WARNING: Could not extract plugin version from docker-compose.yml"
-  fi
-  echo "  Updated: strategy=$SELECTED_STRATEGY, image=plugin:${PLUGIN_VERSION}-${SELECTED_STRATEGY}"
-fi
-
-if [ "$SELECTED_STRATEGY" = "docker" ]; then
-  echo "  Using dind sidecar for isolated Docker builds"
-else
-  echo "  Using podman standard (requires SYS_ADMIN capability)"
-fi
-echo ""
+# Plugin builds run via a rootless buildkitd sidecar — no strategy choice,
+# no dind, no certs to generate. See deploy/local/docker-compose.yml.
 
 # -----------------------------------------------------------------------
 # Create plugin working directories

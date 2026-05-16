@@ -120,32 +120,13 @@ kubectl apply --server-side -f https://github.com/kedacore/keda/releases/downloa
 kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  KEDA not ready yet"
 echo "  Addons + KEDA installed"
 
-# -- Build strategy (must run before ConfigMap creation) ----------------------
-
-CURRENT_STRATEGY="${DOCKER_BUILD_STRATEGY:-docker}"
-log "Plugin Build Strategy: $CURRENT_STRATEGY"
-if [ -t 0 ]; then
-  echo "  1) docker — dind sidecar (default)   2) podman — daemonless"
-  read -rp "  Select [1-2] or Enter to keep '$CURRENT_STRATEGY': " choice
-  case "$choice" in
-    1) SELECTED="docker" ;; 2) SELECTED="podman" ;; *) SELECTED="$CURRENT_STRATEGY" ;;
-  esac
-  _sed_i() { if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi; }
-  if [ "$SELECTED" != "$CURRENT_STRATEGY" ]; then
-    _sed_i "s/^DOCKER_BUILD_STRATEGY=.*/DOCKER_BUILD_STRATEGY=$SELECTED/" "$DEPLOY_DIR/.env"
-    export DOCKER_BUILD_STRATEGY="$SELECTED"
-    echo "  Updated to $SELECTED"
-  fi
-else
-  echo "  Using $CURRENT_STRATEGY (non-interactive)"
-fi
-
 # -- Namespace + Secrets + ConfigMaps -----------------------------------------
 
 log "Creating namespace + secrets + configmaps"
 kube create namespace "$NS"
 
-# app-env ConfigMap (includes DOCKER_BUILD_STRATEGY from prompt above)
+# app-env ConfigMap from .env. The plugin service uses a rootless buildkitd
+# sidecar (single build path — no strategy switch).
 # Use envsubst to safely expand variables without eval
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
 grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | envsubst > "$CLEAN_ENV"

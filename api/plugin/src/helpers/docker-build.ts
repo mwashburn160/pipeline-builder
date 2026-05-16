@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { execFileSync, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -14,23 +14,23 @@ const logger = createLogger('docker-build');
 // Types
 // -----------------------------------------------------------------------------
 
-export type BuildStrategy = 'docker' | 'kaniko' | 'podman';
-
 interface DockerBuildCfg {
-  strategy: BuildStrategy;
   tempRoot: string;
   timeoutMs: number;
   pushTimeoutMs: number;
-  kanikoExecutor: string;
-  kanikoCacheDir: string;
+  /** buildctl `--addr` (unix:// or tcp://) for the buildkitd sidecar. */
+  buildkitAddr: string;
 }
 
 export interface RegistryInfo {
   host: string;
   port: number;
   network: string;
+  /**
+   * BuildKit speaks plain HTTP to the registry when true (in-cluster registry
+   * with no TLS). Pushed via `registry.insecure=true` on the buildctl output.
+   */
   http: boolean;
-  insecure: boolean;
 }
 
 export type BuildType = 'build_image' | 'prebuilt' | 'metadata_only';
@@ -58,115 +58,9 @@ export interface BuildResult {
   fullImage: string;
 }
 
-// -----------------------------------------------------------------------------
-// Strategy definitions
-// -----------------------------------------------------------------------------
-
-interface StrategyDef {
-  binary: (cfg: DockerBuildCfg) => string;
-  setupAuth: (contextDir: string, registry: RegistryInfo, orgId: string) => string[];
-  buildCli: (cfg: DockerBuildCfg, req: BuildRequest, image: string, authArgs: string[]) => string[];
-  pushCli: (image: string, registry: RegistryInfo, authArgs: string[]) => string[] | null;
-  cleanup: (binary: string, image: string) => void;
-  patchConfnew: boolean;
-}
-
-function ociAuthDir(contextDir: string, registry: RegistryInfo, orgId: string): string {
-  const dir = path.join(contextDir, '.docker');
-  fs.mkdirSync(dir, { recursive: true });
-  writeAuthJson(dir, registry, orgId);
-  return dir;
-}
-
-function ociCleanup(binary: string, image: string) {
-  try { execFileSync(binary, ['rmi', image], { stdio: 'ignore' }); } catch { /* best-effort */ }
-}
-
-function dockerCleanup(binary: string, image: string) {
-  ociCleanup(binary, image);
-  // Prune dangling images and build cache to prevent disk exhaustion during bulk uploads
-  try { execFileSync(binary, ['system', 'prune', '-f'], { stdio: 'ignore', timeout: 30_000 }); } catch { /* best-effort */ }
-}
-
-function podmanTls(registry: RegistryInfo): string[] {
-  return (registry.insecure || registry.http) ? ['--tls-verify=false'] : [];
-}
-
-const strategies: Record<BuildStrategy, StrategyDef> = {
-  docker: {
-    binary: () => 'docker',
-    setupAuth(contextDir: string, registry: RegistryInfo, orgId: string) {
-      const dir = ociAuthDir(contextDir, registry, orgId);
-      process.env.DOCKER_CONFIG = dir;
-      // Detect dind sidecar via DIND_HOST env var (set by docker-compose/K8s)
-      const dindHost = process.env.DIND_HOST;
-      if (dindHost && !process.env.DOCKER_HOST) {
-        process.env.DOCKER_HOST = `tcp://${dindHost}:2375`;
-      }
-      return [];
-    },
-    buildCli(_cfg: DockerBuildCfg, req: BuildRequest, image: string) {
-      return [
-        'build', '--progress', 'plain',
-        ...(req.registry.network ? [`--network=${req.registry.network}`] : []),
-        ...flagBuildArgs(req.buildArgs),
-        '-f', path.join(req.contextDir, req.dockerfile), '-t', image, req.contextDir,
-      ];
-    },
-    pushCli: (image: string) => ['push', image],
-    cleanup: dockerCleanup,
-    patchConfnew: true,
-  },
-
-  podman: {
-    binary: () => 'podman',
-    setupAuth(contextDir: string, registry: RegistryInfo, orgId: string) {
-      const dir = ociAuthDir(contextDir, registry, orgId);
-      return [`--authfile=${path.join(dir, 'config.json')}`];
-    },
-    buildCli(_cfg: DockerBuildCfg, req: BuildRequest, image: string, authArgs: string[]) {
-      return [
-        'build', '--progress', 'plain', '--layers',
-        ...podmanTls(req.registry), ...authArgs,
-        ...flagBuildArgs(req.buildArgs),
-        '-f', path.join(req.contextDir, req.dockerfile), '-t', image, req.contextDir,
-      ];
-    },
-    pushCli(image: string, registry: RegistryInfo, authArgs: string[]) {
-      return ['push', ...podmanTls(registry), ...authArgs, image];
-    },
-    cleanup: ociCleanup,
-    patchConfnew: false,
-  },
-
-  kaniko: {
-    binary: (cfg: DockerBuildCfg) => cfg.kanikoExecutor,
-    setupAuth(_contextDir: string, registry: RegistryInfo, orgId: string) {
-      const dir = process.env.DOCKER_CONFIG || '/kaniko/.docker';
-      fs.mkdirSync(dir, { recursive: true });
-      process.env.DOCKER_CONFIG = dir;
-      writeAuthJson(dir, registry, orgId);
-      return [];
-    },
-    buildCli(cfg: DockerBuildCfg, req: BuildRequest, image: string) {
-      return [
-        `--context=${req.contextDir}`,
-        `--dockerfile=${path.join(req.contextDir, req.dockerfile)}`,
-        `--destination=${image}`,
-        '--verbosity=info', '--log-format=json',
-        '--cache=true', `--cache-dir=${cfg.kanikoCacheDir}`,
-        '--cleanup', '--reproducible', '--snapshot-mode=redo',
-        '--push-retry=2', '--image-fs-extract-retry=2', '--image-download-retry=3',
-        ...(req.registry.http ? ['--insecure', '--insecure-pull'] : []),
-        ...(req.registry.insecure ? ['--skip-tls-verify', '--skip-tls-verify-pull'] : []),
-        ...flagBuildArgs(req.buildArgs, true),
-      ];
-    },
-    pushCli: () => null,
-    cleanup: () => {},
-    patchConfnew: true,
-  },
-};
+// Path inside the plugin container for the per-build docker auth dir. Set on
+// `process.env.DOCKER_CONFIG` before buildctl/crane run — both honor it.
+const SYSTEM_ORG_ID = 'system';
 
 // -----------------------------------------------------------------------------
 // Config
@@ -179,143 +73,121 @@ function getConfig(): DockerBuildCfg {
 export const BUILD_TEMP_ROOT = getConfig().tempRoot;
 
 // -----------------------------------------------------------------------------
-// Shared setup
-// -----------------------------------------------------------------------------
-
-interface BuildContext {
-  cfg: DockerBuildCfg;
-  image: string;
-  strategy: StrategyDef;
-  bin: string;
-}
-
-/**
- * Compute the registry-side image reference for a plugin. Namespace by
- * owning org so the token service's per-org scopes apply correctly:
- *   - `system` org → `system/<name>:<version>`
- *   - any tenant org → `org-<orgId>/<name>:<version>`
- *
- * `orgId` is optional only on the prebuilt `loadAndPush` path; new
- * `buildAndPush` callers always supply it via BuildRequest.
- */
-function resolveContext(name: string, version: string, registry: RegistryInfo, orgId?: string): BuildContext {
-  const cfg = getConfig();
-  const strategy = strategies[cfg.strategy];
-  const SYSTEM_ORG_ID = 'system';
-  const namespace = !orgId || orgId === SYSTEM_ORG_ID ? 'system' : `org-${orgId}`;
-  return {
-    cfg,
-    image: `${registry.host}:${registry.port}/${namespace}/${name}:${version}`,
-    strategy,
-    bin: strategy.binary(cfg),
-  };
-}
-
-// -----------------------------------------------------------------------------
 // Public API
 // -----------------------------------------------------------------------------
 
 export async function buildAndPush(req: BuildRequest): Promise<BuildResult> {
   validate(req);
-  const ctx = resolveContext(req.name, req.version, req.registry, req.orgId);
+  const cfg = getConfig();
+  const image = resolveImage(req.name, req.version, req.registry, req.orgId);
 
-  logger.info('Building image', { strategy: ctx.cfg.strategy, image: ctx.image });
+  writeAuthConfig(req.contextDir, req.registry, req.orgId);
+  patchDockerfile(req.contextDir, req.dockerfile);
 
-  const authArgs = ctx.strategy.setupAuth(req.contextDir, req.registry, req.orgId);
-  patchDockerfile(req.contextDir, req.dockerfile, ctx.strategy.patchConfnew);
+  logger.info('Building image', { image });
 
-  await run(ctx.bin, ctx.strategy.buildCli(ctx.cfg, req, ctx.image, authArgs), ctx.cfg.timeoutMs);
-  await pushImage(ctx, req.registry, authArgs);
+  await run('buildctl', [
+    '--addr', cfg.buildkitAddr,
+    'build',
+    '--frontend', 'dockerfile.v0',
+    '--local', `context=${req.contextDir}`,
+    '--local', `dockerfile=${path.dirname(path.join(req.contextDir, req.dockerfile))}`,
+    '--opt', `filename=${path.basename(req.dockerfile)}`,
+    ...flagBuildArgs(req.buildArgs),
+    '--output', outputSpec(image, req.registry),
+  ], cfg.timeoutMs);
 
-  return { fullImage: ctx.image };
+  return { fullImage: image };
 }
 
 /**
- * Load a prebuilt image tar, tag it for the registry, and push.
- * Used when buildType is 'prebuilt' — the image.tar is already extracted from the ZIP.
+ * Push a prebuilt image tarball (produced by `docker save`) to the registry.
+ * Uses `crane` — buildctl can build but cannot push a pre-existing tarball.
  */
 export async function loadAndPush(
   tarPath: string, name: string, version: string, registry: RegistryInfo, orgId: string,
 ): Promise<BuildResult> {
   validateRegistryAndName(name, registry);
-  const ctx = resolveContext(name, version, registry, orgId);
-
-  if (ctx.cfg.strategy === 'kaniko') {
-    throw new ValidationError('prebuilt build type is not supported with kaniko strategy');
+  if (!fs.existsSync(tarPath)) {
+    throw new ValidationError(`Tarball not found: ${tarPath}`);
   }
+  const cfg = getConfig();
+  const image = resolveImage(name, version, registry, orgId);
 
-  const authArgs = ctx.strategy.setupAuth(path.dirname(tarPath), registry, orgId);
-  logger.info('Loading prebuilt image', { image: ctx.image, tarPath });
+  writeAuthConfig(path.dirname(tarPath), registry, orgId);
 
-  // Load tar → parse loaded image name
-  const loadOutput = await runCapture(ctx.bin, ['load', '-i', tarPath], ctx.cfg.timeoutMs);
-  const match = loadOutput.match(/Loaded image(?:\(s\))?:\s*(.+)/i);
-  const loadedName = match?.[1]?.trim();
-  if (!loadedName) {
-    throw new Error(`Could not parse loaded image name from: ${loadOutput.slice(0, 200)}`);
-  }
+  logger.info('Pushing prebuilt image', { image, tarPath });
 
-  // Tag to registry target
-  execFileSync(ctx.bin, ['tag', loadedName, ctx.image], { timeout: 30_000 });
+  await run('crane', [
+    ...(registry.http ? ['--insecure'] : []),
+    'push', tarPath, image,
+  ], cfg.pushTimeoutMs);
 
-  await pushImage(ctx, registry, authArgs, loadedName);
-
-  return { fullImage: ctx.image };
+  return { fullImage: image };
 }
 
-/** Push image to registry and clean up. */
-async function pushImage(
-  { cfg, image, strategy: s, bin }: BuildContext,
-  registry: RegistryInfo,
-  authArgs: string[],
-  extraCleanup?: string,
-): Promise<void> {
-  const push = s.pushCli(image, registry, authArgs);
-  if (push) {
-    try {
-      await run(bin, push, cfg.pushTimeoutMs);
-    } finally {
-      s.cleanup(bin, image);
-      if (extraCleanup) {
-        try { execFileSync(bin, ['rmi', extraCleanup], { stdio: 'ignore' }); } catch { /* best-effort */ }
-      }
-    }
-  }
+// -----------------------------------------------------------------------------
+// Internals
+// -----------------------------------------------------------------------------
+
+/**
+ * Compute the registry-side image reference for a plugin. Namespace by
+ * owning org so the token service's per-org scopes apply correctly:
+ *   - `system` org → `<host>:<port>/system/<name>:<version>`
+ *   - any tenant org → `<host>:<port>/org-<orgId>/<name>:<version>`
+ */
+function resolveImage(name: string, version: string, registry: RegistryInfo, orgId?: string): string {
+  const namespace = !orgId || orgId === SYSTEM_ORG_ID ? 'system' : `org-${orgId}`;
+  return `${registry.host}:${registry.port}/${namespace}/${name}:${version}`;
 }
 
+/**
+ * Build the `--output` value for buildctl. `registry.insecure=true` tells
+ * buildkitd to use plain HTTP — required for the in-cluster registry which
+ * doesn't terminate TLS on its NodePort.
+ */
+function outputSpec(image: string, registry: RegistryInfo): string {
+  const parts = [
+    'type=image',
+    `name=${image}`,
+    'push=true',
+  ];
+  if (registry.http) parts.push('registry.insecure=true');
+  return parts.join(',');
+}
 
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
-
-function writeAuthJson(dir: string, registry: RegistryInfo, orgId: string) {
+/**
+ * Mint a short-lived platform JWT and write it to ~/.docker/config.json as
+ * Basic-auth credentials for the registry. buildctl and crane both read
+ * $DOCKER_CONFIG/config.json — image-registry's /token endpoint verifies the
+ * JWT and mints a scoped Bearer token in response to the registry's bearer
+ * challenge. Username is informational; auth-resolver path 1 uses the
+ * password only.
+ */
+function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: string) {
+  const dir = path.join(contextDir, '.docker');
+  fs.mkdirSync(dir, { recursive: true });
+  process.env.DOCKER_CONFIG = dir;
   const addr = `${registry.host}:${registry.port}`;
-  // Mint a short-lived platform JWT scoped to this build's org and present
-  // it as the Basic-auth password. image-registry's /token endpoint verifies
-  // the JWT (auth-resolver path 1) and mints a Bearer registry token scoped
-  // to `org-<orgId>` (or `system` for system-org plugins). The Docker/
-  // podman/kaniko client handles the Basic→Bearer handoff transparently.
-  // Username is informational only — auth-resolver doesn't read it on the
-  // JWT path. We use `_token` per the convention Docker uses internally.
   const password = signServiceToken({ serviceName: 'platform', orgId });
   const auth = Buffer.from(`_token:${password}`).toString('base64');
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ auths: { [addr]: { auth } } }));
 }
 
-function patchDockerfile(contextDir: string, dockerfile: string, forceConfnew: boolean) {
+/**
+ * Inject DEBIAN_FRONTEND=noninteractive after each FROM so apt-get inside
+ * the plugin's Dockerfile doesn't prompt for confnew-style decisions. Only
+ * touches Debian/Ubuntu builds in practice; harmless on other bases.
+ */
+function patchDockerfile(contextDir: string, dockerfile: string) {
   const file = path.join(contextDir, dockerfile);
   const src = fs.readFileSync(file, 'utf-8');
-  const inject = forceConfnew
-    ? 'ENV DEBIAN_FRONTEND=noninteractive\nRUN echo "force-confnew" > /etc/dpkg/dpkg.cfg.d/kaniko-force-confnew 2>/dev/null || true'
-    : 'ENV DEBIAN_FRONTEND=noninteractive';
-  fs.writeFileSync(file, src.replace(/^(FROM\s+[^\n]+)/gm, `$1\n${inject}`));
+  fs.writeFileSync(file, src.replace(/^(FROM\s+[^\n]+)/gm, '$1\nENV DEBIAN_FRONTEND=noninteractive'));
 }
 
-function flagBuildArgs(args?: Record<string, string>, joined = false): string[] {
+function flagBuildArgs(args?: Record<string, string>): string[] {
   if (!args) return [];
-  return Object.entries(args).flatMap(([k, v]) =>
-    joined ? [`--build-arg=${k}=${v}`] : ['--build-arg', `${k}=${v}`],
-  );
+  return Object.entries(args).flatMap(([k, v]) => ['--opt', `build-arg:${k}=${v}`]);
 }
 
 // -----------------------------------------------------------------------------
@@ -384,30 +256,3 @@ function run(binary: string, args: string[], timeoutMs: number): Promise<void> {
     child.on('error', (err) => { clearTimeout(timer); reject(err); });
   });
 }
-
-/** Like run() but captures and returns stdout. */
-function runCapture(binary: string, args: string[], timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let timedOut = false;
-    const chunks: Buffer[] = [];
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
-
-    child.stdout.on('data', (data: Buffer) => {
-      chunks.push(data);
-      for (const line of data.toString().split('\n').filter(Boolean)) logger.info(maskSecrets(line), { stream: 'stdout' });
-    });
-    child.stderr.on('data', (data: Buffer) => {
-      for (const line of data.toString().split('\n').filter(Boolean)) logger.info(maskSecrets(line), { stream: 'stderr' });
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (timedOut) reject(new Error(`Command timed out after ${timeoutMs}ms`));
-      else if (code !== 0) reject(new Error(`Command failed with exit code ${code}`));
-      else resolve(Buffer.concat(chunks).toString());
-    });
-    child.on('error', (err) => { clearTimeout(timer); reject(err); });
-  });
-}
-

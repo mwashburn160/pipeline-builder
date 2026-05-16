@@ -310,7 +310,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:3.4.17-docker'
+    image: 'ghcr.io/mwashburn160/plugin:3.4.18'
     container_name: plugin
     restart: always
     stop_grace_period: 10s
@@ -324,19 +324,18 @@ services:
       IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
       IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
       IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
-      DOCKER_REGISTRY_HTTP: ${DOCKER_REGISTRY_HTTP:-false}
-      DOCKER_REGISTRY_INSECURE: ${DOCKER_REGISTRY_INSECURE:-true}
+      IMAGE_REGISTRY_HTTP: ${IMAGE_REGISTRY_HTTP:-true}
+      BUILDKIT_HOST: unix:///run/buildkit/buildkitd.sock
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      DOCKER_BUILD_STRATEGY: ${DOCKER_BUILD_STRATEGY:-docker}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-900000}
       DOCKER_PUSH_TIMEOUT_MS: ${DOCKER_PUSH_TIMEOUT_MS:-300000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
-      DIND_HOST: plugin-dind
       TMPDIR: /tmp
     volumes:
       - './data/plugins-data/builds:/tmp:rw'
       - './data/plugins-data/uploads:/app/uploads:rw'
+      - 'buildkit-socket:/run/buildkit:rw'
     networks:
       - backend-network
     depends_on:
@@ -344,7 +343,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      plugin-dind:
+      buildkitd:
         condition: service_healthy
     healthcheck: *api-healthcheck
     deploy:
@@ -357,45 +356,34 @@ services:
           memory: 1024M
 
   # ---------------------------------------------------------------------------
-  # Docker-in-Docker sidecar for isolated plugin builds
+  # Rootless BuildKit daemon — replaces dind, no privileged mode, no
+  # CA-trust workaround (buildkitd carries the system CA bundle).
   # ---------------------------------------------------------------------------
-  plugin-dind:
-    image: 'docker:27-dind'
-    container_name: plugin-dind
+  buildkitd:
+    image: 'moby/buildkit:v0.16.0-rootless'
+    container_name: buildkitd
     restart: always
-    privileged: true
     stop_grace_period: 5s
-    # Trust the platform's self-signed cert before dockerd starts so the docker
-    # daemon can follow the registry's bearer-token challenge to
-    # ${PLATFORM_BASE_URL}/image-registry/token. --insecure-registry only
-    # covers the registry itself, NOT the realm host — without this step the
-    # realm fetch fails TLS verify and the push goes anonymous, yielding
-    # `denied` from the registry.
-    entrypoint: ["/bin/sh", "-c"]
+    user: "1000:1000"
+    # Required for rootless newuidmap/newgidmap and `unshare` setup.
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
     command:
-      - |
-        set -e
-        cp /etc/platform-ca/nginx.crt /usr/local/share/ca-certificates/platform.crt
-        cat /etc/platform-ca/nginx.crt >> /etc/ssl/certs/ca-certificates.crt
-        if command -v update-ca-certificates >/dev/null 2>&1; then
-          update-ca-certificates
-        fi
-        exec dockerd-entrypoint.sh --insecure-registry=registry:5000
-    environment:
-      DOCKER_TLS_CERTDIR: ${DOCKER_TLS_CERTDIR:-}
-      TMPDIR: /tmp
+      - --addr
+      - unix:///run/buildkit/buildkitd.sock
+      - --oci-worker-no-process-sandbox
     volumes:
-      - './data/plugins-data/builds:/tmp:rw'
-      - 'plugin-dind-data:/var/lib/docker'
-      - './certs/nginx.crt:/etc/platform-ca/nginx.crt:ro'
+      - 'buildkit-socket:/run/buildkit:rw'
+      - 'buildkit-cache:/home/user/.local/share/buildkit:rw'
     networks:
       - backend-network
     healthcheck:
-      test: ["CMD", "docker", "info"]
+      test: ["CMD", "buildctl", "--addr", "unix:///run/buildkit/buildkitd.sock", "debug", "workers"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 15s
     deploy:
       resources:
         limits:
@@ -928,7 +916,8 @@ volumes:
   promtail-positions:
   mongodb-data:
   postgres-data:
-  plugin-dind-data:
+  buildkit-socket:
+  buildkit-cache:
 
 networks:
   proxy-network:

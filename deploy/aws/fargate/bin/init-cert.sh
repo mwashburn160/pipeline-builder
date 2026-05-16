@@ -15,7 +15,6 @@
 #
 # Outputs:
 #   CERTIFICATE_ARN=arn:aws:acm:...
-#   CERTIFICATE_PEM_B64=<base64-encoded PEM>
 # =============================================================================
 set -euo pipefail
 
@@ -74,15 +73,6 @@ if [ -n "$EXISTING_ARN" ] && [ "$EXISTING_ARN" != "None" ]; then
     if [ "$DAYS_LEFT" -gt 30 ]; then
       echo "  Reusing existing certificate ($DAYS_LEFT days remaining)" >&2
       echo "CERTIFICATE_ARN=${EXISTING_ARN}"
-      # Re-emit the existing cert's PEM so callers can trust it downstream
-      # (e.g. init-secrets.sh injects PLATFORM_CA_CERT into app-secrets).
-      EXISTING_PEM=$(aws acm get-certificate \
-        --certificate-arn "$EXISTING_ARN" \
-        --region "$REGION" \
-        --query "Certificate" --output text 2>/dev/null || true)
-      if [ -n "$EXISTING_PEM" ]; then
-        echo "CERTIFICATE_PEM_B64=$(printf '%s' "$EXISTING_PEM" | base64 -w0 2>/dev/null || printf '%s' "$EXISTING_PEM" | base64 | tr -d '\n')"
-      fi
       exit 0
     fi
   fi
@@ -120,8 +110,3 @@ fi
 
 echo "  Certificate imported: $CERT_ARN" >&2
 echo "CERTIFICATE_ARN=${CERT_ARN}"
-# Emit the PEM as base64 so deploy.sh can pipe it through shell vars and
-# pass it to init-secrets.sh. The PEM is mounted into the plugin container
-# at runtime so kaniko trusts the ALB's self-signed cert when following
-# bearer-token challenges to ${PlatformBaseUrl}/image-registry/token.
-echo "CERTIFICATE_PEM_B64=$(base64 -w0 < "$CERT_DIR/cert.pem" 2>/dev/null || base64 < "$CERT_DIR/cert.pem" | tr -d '\n')"

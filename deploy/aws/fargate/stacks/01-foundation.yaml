@@ -527,22 +527,24 @@ Resources:
         - Key: Name
           Value: !Sub "${StackPrefix}-efs-pgadmin"
 
-  KanikoCacheAccessPoint:
+  # buildkitd's layer cache. UID/GID 1000 to match the rootless buildkitd
+  # sidecar in 04-services.yaml.
+  BuildkitCacheAccessPoint:
     Type: AWS::EFS::AccessPoint
     Properties:
       FileSystemId: !Ref EFSFileSystem
       PosixUser:
-        Uid: "0"
-        Gid: "0"
+        Uid: "1000"
+        Gid: "1000"
       RootDirectory:
-        Path: /kaniko-cache
+        Path: /buildkit-cache
         CreationInfo:
-          OwnerUid: "0"
-          OwnerGid: "0"
+          OwnerUid: "1000"
+          OwnerGid: "1000"
           Permissions: "0755"
       AccessPointTags:
         - Key: Name
-          Value: !Sub "${StackPrefix}-efs-kaniko-cache"
+          Value: !Sub "${StackPrefix}-efs-buildkit-cache"
 
   # ---------------------------------------------------------------------------
   # Config Storage - S3 Bucket
@@ -690,11 +692,11 @@ Outputs:
     Export:
       Name: !Sub "${StackPrefix}-PgadminAccessPointArn"
 
-  KanikoCacheAccessPointArn:
-    Description: EFS Access Point ARN for Kaniko build cache
-    Value: !GetAtt KanikoCacheAccessPoint.Arn
+  BuildkitCacheAccessPointArn:
+    Description: EFS Access Point ARN for the rootless buildkitd layer cache
+    Value: !GetAtt BuildkitCacheAccessPoint.Arn
     Export:
-      Name: !Sub "${StackPrefix}-KanikoCacheAccessPointArn"
+      Name: !Sub "${StackPrefix}-BuildkitCacheAccessPointArn"
 
   # S3
   ConfigBucketName:

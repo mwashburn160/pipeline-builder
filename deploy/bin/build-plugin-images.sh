@@ -64,13 +64,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# ---- Fargate guard ----
-
-if [ "${DOCKER_BUILD_STRATEGY:-}" = "kaniko" ]; then
-  echo "ERROR: prebuilt is not supported with kaniko (Fargate). Use build_image." >&2
-  exit 1
-fi
-
 # ---- Build base images FIRST (dependency order) ----
 #
 # All base images live under `_base/`:

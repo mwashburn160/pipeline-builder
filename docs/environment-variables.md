@@ -16,7 +16,7 @@ Complete reference for all environment variables used across Pipeline Builder se
 - [Authentication](#authentication) -- JWT, OAuth, password policy
 - [Databases](#databases) -- PostgreSQL, MongoDB, Redis
 - [Docker Registry](#docker-registry) -- Image registry for plugin builds
-- [Plugin Builds](#plugin-builds) -- Build strategy, dind, queue config
+- [Plugin Builds](#plugin-builds) -- buildkit sidecar, queue config
 - [Quotas & Rate Limiting](#quotas--rate-limiting) -- Per-org resource limits
 - [Service Discovery](#service-discovery) -- Inter-service hostnames and ports
 - [Compliance](#compliance) -- Compliance bypass and scan scheduling
@@ -130,39 +130,38 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `IMAGE_REGISTRY_PORT` | `5000` | Registry port |
 | `IMAGE_REGISTRY_USER` | `admin` | Registry username |
 | `IMAGE_REGISTRY_TOKEN` | — | Registry password/token |
-| `DOCKER_REGISTRY_HTTP` | `false` | Use plain HTTP for registry push (no TLS) |
-| `DOCKER_REGISTRY_INSECURE` | `true` | Skip TLS certificate verification |
+| `IMAGE_REGISTRY_HTTP` | `true` | Plugin builds talk to the in-cluster registry over plain HTTP. Set `false` only if the registry is exposed via a TLS-terminating proxy with a publicly trusted cert. |
 
 ---
 
 ## Plugin Builds
 
-### Build Strategy
+Every deploy target (Fargate, EC2/k8s, minikube, local docker-compose) runs
+plugin builds against a **rootless `moby/buildkit` sidecar**. The plugin
+service's `buildctl` connects via the Unix socket exposed by the sidecar —
+there is no docker daemon, no kaniko binary, no podman, and no strategy switch.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOCKER_BUILD_STRATEGY` | `docker` | Build strategy: `docker` (dind sidecar, default for local/K8s), `podman` (daemonless), `kaniko` (daemonless, Fargate) |
+| `BUILDKIT_HOST` | `unix:///run/buildkit/buildkitd.sock` | buildctl `--addr` for the buildkitd sidecar |
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Build timeout (15 min) |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Push timeout (5 min) |
 | `PLUGIN_UPLOAD_TIMEOUT_MS` | `300000` | Upload HTTP timeout (5 min) — overrides `HANDLER_TIMEOUT_MS` for the upload route |
-| `PLUGIN_IMAGE_PREFIX` | `p-` | Image tag prefix |
 | `PLUGIN_MAX_UPLOAD_MB` | `4096` | Max plugin ZIP upload size in MB (supports prebuilt image.tar) |
 
-The plugin Docker image is published with target-specific tags: `plugin:<version>-podman`, `plugin:<version>-kaniko`, `plugin:<version>-docker`. Each deploy target pulls the image matching its strategy.
+The plugin image is published with a single tag (`plugin:<version>`) — no
+target suffixes (`-docker`, `-kaniko`, `-podman` are gone).
 
-### Strategy Details
+### How the build runs
 
-| Strategy | How it works | Requires | Used by |
-|----------|-------------|----------|---------|
-| `docker` | Docker CLI connecting to a dind sidecar | `docker:27-dind` sidecar (privileged) | Local, Minikube, EC2 (default) |
-| `podman` | Standard podman with `SYS_ADMIN` capability | Pod with `SYS_ADMIN`, `SETUID`, `SETGID` capabilities | Alternative for K8s |
-| `kaniko` | Daemonless image builder | EFS mount for layer cache | Fargate (ECS) |
+- **Build from source** (`buildType: build_image`): `buildctl build --frontend dockerfile.v0 --local context=<dir> --local dockerfile=<dir> --output type=image,name=<image>,push=true[,registry.insecure=true]`. buildkitd handles the Dockerfile parse, layer cache, registry push, and bearer-token negotiation.
+- **Prebuilt tarball** (`buildType: prebuilt`): `crane push <tar> <image>`. buildctl can build but cannot push pre-existing `docker save` tarballs; the plugin image bundles `crane` for this path only.
 
-**Docker (dind sidecar)** runs an isolated Docker daemon as a sidecar container. Plugin builds cannot see or affect host containers. The dind connection (`DOCKER_HOST`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH`) is configured per-process by `docker-build.ts` at build time — do **not** set these in `.env` files as they override the host Docker CLI and break `docker compose`. Each pod gets its own `emptyDir` for dind storage (isolated, auto-cleaned on pod termination).
+### Why no dind / kaniko / podman
 
-**Podman** runs as a standard (non-rootless) container build tool inside the plugin pod. The pod requires `SYS_ADMIN` capability for namespace creation and overlayfs mounts. No Docker daemon or sidecar needed.
-
-**Kaniko** builds images without a daemon or elevated privileges. Used on Fargate where privileged containers and podman are not available.
+- **No privileged containers**: `moby/buildkit:rootless` runs as uid 1000, no `SYS_ADMIN`, no `privileged: true`.
+- **No CA-trust workarounds**: buildkitd carries the system CA bundle and follows realm-URL bearer challenges with the host's trust store — no per-container cert mounts, no `update-ca-certificates` shell wrappers.
+- **One code path everywhere**: the same `docker-build.ts` runs on Fargate, EC2, minikube, and local. Deploy target only changes the sidecar's hosting (ECS task / k8s pod / compose service).
 
 ### Build Queue
 

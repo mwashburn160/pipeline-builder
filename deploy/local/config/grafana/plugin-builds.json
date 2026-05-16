@@ -101,12 +101,12 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "DinD Container Activity",
+      "title": "BuildKit Container Activity",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
-        { "refId": "A", "expr": "count_over_time({container=\"plugin-dind\"} |~ `level=info` [5m])", "legendFormat": "DinD Events" },
-        { "refId": "B", "expr": "count_over_time({container=\"plugin-dind\"} |~ `level=error|level=warning` [5m])", "legendFormat": "DinD Errors" }
+        { "refId": "A", "expr": "count_over_time({container=\"buildkitd\"} |~ `level=info` [5m])", "legendFormat": "BuildKit Events" },
+        { "refId": "B", "expr": "count_over_time({container=\"buildkitd\"} |~ `level=error|level=warning` [5m])", "legendFormat": "BuildKit Errors" }
       ],
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15 }, "unit": "short" }, "overrides": [] },
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }

@@ -35,7 +35,7 @@ flowchart TB
     end
 
     subgraph Build
-        DIND[dind Sidecar<br/>Docker Daemon]
+        BK[buildkitd Sidecar<br/>Rootless BuildKit]
         REG[Registry<br/>Plugin Images]
     end
 
@@ -46,8 +46,8 @@ flowchart TB
     PLATFORM --> MONGO
     PIPELINE & PLUGIN & COMPLIANCE & REPORTING --> PG
     PLUGIN --> REDIS
-    PLUGIN --> DIND
-    DIND --> REG
+    PLUGIN -->|buildctl| BK
+    BK --> REG
 ```
 
 ---
@@ -61,7 +61,7 @@ sequenceDiagram
     participant Dev as Developer
     participant API as Plugin API
     participant Queue as Build Queue<br/>(BullMQ)
-    participant Dind as dind Sidecar
+    participant BK as buildkitd Sidecar
     participant Reg as Registry
     participant DB as PostgreSQL
 
@@ -72,8 +72,8 @@ sequenceDiagram
 
     API->>Queue: Enqueue build job
 
-    Queue->>Dind: docker build
-    Dind->>Reg: docker push
+    Queue->>BK: buildctl build --frontend dockerfile.v0
+    BK->>Reg: push (bearer-token auth)
     Queue->>DB: Store plugin (name, version, commands, env)
     Queue-->>Dev: SSE: build complete
 ```
@@ -93,11 +93,11 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph build_image
-        DF2[Dockerfile] --> Build[docker build] --> Push1[docker push] --> R1[Registry]
+        DF2[Dockerfile] --> Build[buildctl build] --> Push1[buildkit push] --> R1[Registry]
     end
 
     subgraph prebuilt
-        TAR2[image.tar] --> Load[docker load] --> Push2[docker push] --> R2[Registry]
+        TAR2[image.tar] --> Push2[crane push] --> R2[Registry]
     end
 
     subgraph metadata_only
@@ -280,7 +280,7 @@ flowchart LR
 | **pipeline-core** | CDK constructs, plugin lookup | `packages/pipeline-core/src/pipeline/` |
 | **pipeline-data** | DB schemas (Drizzle ORM) | `packages/pipeline-data/src/database/` |
 | **pipeline-manager** | CLI for cdk synth/deploy | `packages/pipeline-manager/` |
-| **dind sidecar** | Docker daemon for plugin builds | K8s sidecar container |
+| **buildkitd sidecar** | Rootless BuildKit daemon for plugin builds | K8s native sidecar / ECS sidecar / compose service |
 | **Registry** | Docker image storage | Docker Registry v2 |
 
 ---

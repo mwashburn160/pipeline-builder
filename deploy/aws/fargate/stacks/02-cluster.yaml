@@ -148,7 +148,7 @@ Resources:
                       - !ImportValue
                         Fn::Sub: "${StackPrefix}-PgadminAccessPointArn"
                       - !ImportValue
-                        Fn::Sub: "${StackPrefix}-KanikoCacheAccessPointArn"
+                        Fn::Sub: "${StackPrefix}-BuildkitCacheAccessPointArn"
       Tags:
         - Key: Project
           Value: pipeline-builder

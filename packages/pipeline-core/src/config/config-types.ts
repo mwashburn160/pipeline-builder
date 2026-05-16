@@ -120,10 +120,12 @@ export interface RegistryConfig {
   readonly port: number;
   /** Docker network for build/push (empty string = default). */
   readonly network: string;
-  /** Use plain HTTP instead of HTTPS (env: `DOCKER_REGISTRY_HTTP`). Defaults to true. */
+  /**
+   * BuildKit talks to the registry over plain HTTP when true; HTTPS with the
+   * system CA bundle otherwise. Env: `IMAGE_REGISTRY_HTTP` (defaults true —
+   * the in-cluster registry has no TLS).
+   */
   readonly http: boolean;
-  /** Skip TLS certificate verification for self-signed certs (env: `DOCKER_REGISTRY_INSECURE`). Defaults to true. */
-  readonly insecure: boolean;
 }
 
 export interface RedisConfig {
@@ -143,18 +145,18 @@ export interface PluginBuildConfig {
 }
 
 export interface BuildConfig {
-  /** Build strategy: 'podman' (default), 'docker', or 'kaniko'. */
-  readonly strategy: 'docker' | 'kaniko' | 'podman';
   /** Root directory for build temp files. */
   readonly tempRoot: string;
   /** Build timeout in milliseconds. */
   readonly timeoutMs: number;
   /** Push timeout in milliseconds. */
   readonly pushTimeoutMs: number;
-  /** Path to Kaniko executor binary (only used when strategy=kaniko). */
-  readonly kanikoExecutor: string;
-  /** Kaniko layer cache directory (only used when strategy=kaniko). */
-  readonly kanikoCacheDir: string;
+  /**
+   * Path to the buildkitd socket the plugin's `buildctl` connects to. In k8s
+   * and compose this is a shared emptyDir/tmpfs volume mounted from the
+   * buildkitd sidecar.
+   */
+  readonly buildkitAddr: string;
 }
 
 export interface ObservabilityConfig {
