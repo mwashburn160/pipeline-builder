@@ -26,7 +26,7 @@ ARG CRANE_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL "https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-amd64.tar.gz" \
-        | tar -xz -C /usr/local --strip-components=1 ./bin/buildctl \
+        | tar -xz -C /usr/local bin/buildctl \
     && curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
         | tar -xz -C /usr/local/bin crane
 
