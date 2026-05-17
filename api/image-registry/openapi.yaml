@@ -1,0 +1,523 @@
+openapi: 3.0.3
+info:
+  title: Image Registry Service API
+  description: |
+    Sysadmin-facing image-registry management API. Proxies the underlying
+    Docker Distribution registry using the service-account credentials —
+    customers never reach the underlying registry through these routes.
+
+    Also exposes `/token`, which implements the Docker Distribution
+    token-auth challenge flow. That endpoint authenticates via Basic
+    (platform-JWT-as-password OR `docker login` proxied to the platform
+    service) — not via the Bearer JWT used elsewhere.
+  version: 0.1.0
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://image-registry:3000
+    description: Internal Docker network
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns service health status and dependency connectivity
+      operationId: healthCheck
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+
+  /token:
+    get:
+      summary: Docker Distribution token endpoint
+      description: |
+        Implements the Distribution token-auth spec. Clients hit this URL
+        after the registry responds with `WWW-Authenticate: Bearer realm=...`.
+        Authenticates via Basic — either a platform-issued JWT as the
+        password (path 1: the plugin service's own pushes + customer
+        CodeBuild + plugin-lookup Lambda), or platform credentials proxied
+        to `/auth/login` (path 2: interactive `docker login`).
+      operationId: getRegistryToken
+      tags: [Token]
+      security:
+        - basicAuth: []
+      parameters:
+        - name: service
+          in: query
+          required: true
+          schema:
+            type: string
+            example: pipeline-image-registry
+        - name: scope
+          in: query
+          required: false
+          description: |
+            One or more scope strings of the form `<type>:<name>:<actions>`
+            (repeatable). Empty scope is permitted — `docker login` probes
+            the endpoint without a scope to verify creds.
+          schema:
+            type: array
+            items: { type: string }
+            example:
+              - 'repository:org-acme/foo:pull,push'
+        - name: account
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, access_token, expires_in, issued_at]
+                properties:
+                  token: { type: string, description: JWT for use as Bearer token by the registry client }
+                  access_token: { type: string, description: Duplicate of `token` (newer clients prefer this field) }
+                  expires_in: { type: integer, example: 300 }
+                  issued_at: { type: string, format: date-time }
+        '401':
+          description: Missing or invalid Basic credentials
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: 'Basic realm="pipeline-image-registry"'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/images:
+    get:
+      summary: List all repositories
+      description: |
+        Cursor-paginated proxy over the underlying registry's `_catalog`.
+        The response's `next` field, when present, is the last repo name
+        from the current page — pass it back as `?last=` to fetch the next
+        page. Sysadmin only.
+      operationId: listImages
+      tags: [Images]
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/last'
+      responses:
+        '200':
+          description: Repository list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [repositories]
+                        properties:
+                          repositories:
+                            type: array
+                            items: { type: string }
+                            example: [system/eslint, system/nodejs, org-acme/my-plugin]
+                          next:
+                            type: string
+                            description: Cursor for the next page (last repo name from this page)
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/images/{name}/tags:
+    get:
+      summary: List tags for one repository
+      description: Sysadmin only. No pagination on the underlying tag listing — caller sorts/filters client-side.
+      operationId: listImageTags
+      tags: [Images]
+      parameters:
+        - $ref: '#/components/parameters/name'
+      responses:
+        '200':
+          description: Tag list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TagList'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/images/{name}/manifests/{reference}:
+    get:
+      summary: Fetch a manifest
+      description: |
+        Returns the manifest body plus the resolved digest from the
+        upstream `Docker-Content-Digest` header. Works for both single-arch
+        manifests (image manifest media types) and multi-arch indexes.
+      operationId: getImageManifest
+      tags: [Images]
+      parameters:
+        - $ref: '#/components/parameters/name'
+        - $ref: '#/components/parameters/reference'
+      responses:
+        '200':
+          description: Manifest envelope
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Manifest'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Delete a manifest
+      description: |
+        Resolves `reference` (tag or digest) to a digest, then deletes the
+        manifest. Distribution deletes by digest, so every tag pointing to
+        the same digest stops working. Emits a `registry.tag.delete` audit
+        event on success.
+      operationId: deleteImageManifest
+      tags: [Images]
+      parameters:
+        - $ref: '#/components/parameters/name'
+        - $ref: '#/components/parameters/reference'
+      responses:
+        '200':
+          description: Manifest deleted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [name, digest, deleted]
+                        properties:
+                          name: { type: string }
+                          digest: { type: string }
+                          deleted: { type: boolean, enum: [true] }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/images/{name}/blobs/{digest}:
+    get:
+      summary: Proxy a config blob
+      description: |
+        Streams a small config blob from the underlying registry. Capped at
+        5 MB — larger payloads (layer blobs, attestations) are rejected
+        with 413 before the stream opens. The endpoint is intended for the
+        registry UI's manifest summary; the cap is enforced at the
+        upstream `Content-Length` first, then by byte-counting the stream
+        as a fallback.
+      operationId: getImageBlob
+      tags: [Images]
+      parameters:
+        - $ref: '#/components/parameters/name'
+        - name: digest
+          in: path
+          required: true
+          schema:
+            type: string
+            example: sha256:abc123...
+      responses:
+        '200':
+          description: Blob bytes (typically OCI image config JSON)
+          content:
+            application/vnd.oci.image.config.v1+json:
+              schema:
+                type: object
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: Blob exceeds the 5 MB cap
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/images/copy:
+    post:
+      summary: Cross-repo tag-copy (multi-arch aware)
+      description: |
+        Copies a manifest from `source` to `target`. Source/target are
+        `<repo>:<ref>` strings; the repo may contain `/` so the parser
+        splits on the LAST `:`.
+
+        Multi-arch indexes are handled recursively: every referenced child
+        manifest is copied, every unique blob digest across all children
+        is cross-mounted once, then the index manifest itself is PUT at
+        `target`. Same-registry cross-mount avoids transferring layer
+        bytes.
+
+        Idempotent: re-running with the same args is a no-op. Emits a
+        `registry.tag.copy` audit event on success — `isPromotionToSystem`
+        flags promotions into the `system/*` namespace.
+      operationId: copyImage
+      tags: [Images]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopyImageRequest'
+      responses:
+        '200':
+          description: Copy succeeded
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CopyImageResult'
+        '400':
+          description: |
+            Validation failure. `details.reason` is `source-equals-target`
+            when source and target are identical, or absent for other
+            schema-validation errors.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - type: object
+                    properties:
+                      details:
+                        type: object
+                        properties:
+                          reason:
+                            type: string
+                            enum: [source-equals-target]
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: Source manifest not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: |
+            Two reasons, discriminated by `details.reason`:
+            - `target-exists` — `overwrite=false` and a different digest is at the target. Includes `details.existing` + `details.requested`.
+            - `source-incomplete` — a layer or child manifest referenced by the source went missing mid-copy. Includes `details.missingDigest`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - type: object
+                    properties:
+                      details:
+                        type: object
+                        properties:
+                          reason:
+                            type: string
+                            enum: [target-exists, source-incomplete]
+                          existing:
+                            type: object
+                            properties:
+                              ref: { type: string }
+                              digest: { type: string }
+                          requested:
+                            type: object
+                            properties:
+                              digest: { type: string }
+                          missingDigest:
+                            type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    basicAuth:
+      type: http
+      scheme: basic
+
+  parameters:
+    name:
+      name: name
+      in: path
+      required: true
+      description: Repository name (may contain `/`, e.g. `org-acme/foo`)
+      schema:
+        type: string
+        example: org-acme/foo
+    reference:
+      name: reference
+      in: path
+      required: true
+      description: Tag or digest
+      schema:
+        type: string
+        example: '1.0.0'
+    limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 100
+    last:
+      name: last
+      in: query
+      required: false
+      description: Cursor — last repo name from the previous page
+      schema:
+        type: string
+
+  schemas:
+    HealthCheckResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+
+    SuccessEnvelope:
+      type: object
+      required: [success, statusCode]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        statusCode:
+          type: integer
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [success, statusCode, message]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        statusCode:
+          type: integer
+        message:
+          type: string
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        details:
+          description: Structured error payload — shape varies per `code`
+          type: object
+
+    TagList:
+      type: object
+      required: [name, tags]
+      properties:
+        name:
+          type: string
+        tags:
+          description: Tag names; `null` when the repo exists but is empty
+          type: array
+          nullable: true
+          items: { type: string }
+
+    Manifest:
+      type: object
+      required: [mediaType, digest, size, body]
+      properties:
+        mediaType:
+          type: string
+          example: application/vnd.oci.image.manifest.v1+json
+        digest:
+          type: string
+          example: sha256:abc123...
+        size:
+          type: integer
+        body:
+          description: Raw manifest body (image manifest, multi-arch index, etc.)
+          type: object
+
+    CopyImageRequest:
+      type: object
+      required: [source, target]
+      properties:
+        source:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9_.-]+$'
+          example: 'org-acme/foo:rc1'
+        target:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9_.-]+$'
+          example: 'system/foo:1.0.0'
+        overwrite:
+          type: boolean
+          default: false
+          description: When true, replaces the target tag if it exists with a different digest.
+
+    CopyImageResult:
+      type: object
+      required: [source, target, digest, mounted]
+      properties:
+        source: { type: string }
+        target: { type: string }
+        digest: { type: string }
+        mounted:
+          type: object
+          required: [manifests, blobs]
+          properties:
+            manifests:
+              type: integer
+              description: Total manifests PUT (1 + N children for an index)
+            blobs:
+              type: integer
+              description: Count of UNIQUE blob digests mounted across all child manifests
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: System admin access required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+security:
+  - bearerAuth: []

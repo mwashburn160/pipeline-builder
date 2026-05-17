@@ -31,6 +31,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | [AWS Deployment](aws-deployment.md) | EC2 and Fargate deployment, post-deploy setup, drift detection |
 | [CDK Usage](cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
+| [Audit Events](audit-events.md) | Cross-service audit event names + payload schemas (registry, etc.) |
 | [Environment Variables](environment-variables.md) | Configuration reference for all services |
 | [Samples](samples.md) | Pipeline configs for 7 languages and CDK patterns |
 
