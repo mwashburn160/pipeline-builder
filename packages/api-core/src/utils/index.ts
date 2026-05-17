@@ -8,3 +8,5 @@ export * from './headers';
 export * from './identity';
 export * from './object';
 export * from './alias-resolver';
+export * from './concurrency';
+export * from './audit';

@@ -36,9 +36,6 @@ Parameters:
   MongoExpressImage:
     Type: String
     Default: mongo-express:1.0
-  RegistryUIImage:
-    Type: String
-    Default: joxit/docker-registry-ui:2
   DefaultDesiredCount:
     Type: Number
     Default: 1
@@ -459,108 +456,6 @@ Resources:
   # Registry UI (Joxit)
   # ===========================================================================
 
-  # ---------------------------------------------------------------------------
-  # Registry UI - Task Definition
-  # ---------------------------------------------------------------------------
-
-  RegistryUITaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-registry-ui"
-      NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      Cpu: "256"
-      Memory: "512"
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      ContainerDefinitions:
-        - Name: registry-ui
-          Image: !Ref RegistryUIImage
-          Essential: true
-          PortMappings:
-            - ContainerPort: 80
-              Protocol: tcp
-          Environment:
-            - Name: REGISTRY_TITLE
-              Value: Pipeline Builder Registry
-            - Name: NGINX_PROXY_PASS_URL
-              Value: http://registry.pipeline-builder.local:5000
-            - Name: SINGLE_REGISTRY
-              Value: "true"
-            - Name: DELETE_IMAGES
-              Value: "true"
-            - Name: SHOW_CONTENT_DIGEST
-              Value: "true"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
-              - wget --spider http://localhost:80/ || exit 1
-            Interval: 15
-            Timeout: 5
-            Retries: 5
-            StartPeriod: 30
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-RegistryLogGroupName"
-              awslogs-region: !Ref "AWS::Region"
-              awslogs-stream-prefix: registry-ui
-      Tags:
-        - Key: Name
-          Value: !Sub "${StackPrefix}-registry-ui-task"
-        - Key: Domain
-          Value: !Ref DomainName
-
-  # ---------------------------------------------------------------------------
-  # Registry UI - ECS Service
-  # ---------------------------------------------------------------------------
-
-  RegistryUIService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-registry-ui"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
-      TaskDefinition: !Ref RegistryUITaskDefinition
-      LaunchType: FARGATE
-      DesiredCount: !Ref DefaultDesiredCount
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AdminSecurityGroupId"
-      ServiceRegistries:
-        - RegistryArn: !GetAtt RegistryUIDiscovery.Arn
-      Tags:
-        - Key: Name
-          Value: !Sub "${StackPrefix}-registry-ui-service"
-        - Key: Domain
-          Value: !Ref DomainName
-
-  # ---------------------------------------------------------------------------
-  # Registry UI - Service Discovery
-  # ---------------------------------------------------------------------------
-
-  RegistryUIDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: registry-ui
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
-            TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
-
 # =============================================================================
 # Outputs
 # =============================================================================
@@ -605,16 +500,3 @@ Outputs:
     Value: !GetAtt MongoExpressDiscovery.Arn
     Export:
       Name: !Sub "${StackPrefix}-MongoExpressDiscoveryArn"
-
-  # Registry UI
-  RegistryUIServiceArn:
-    Description: Registry UI ECS Service ARN
-    Value: !Ref RegistryUIService
-    Export:
-      Name: !Sub "${StackPrefix}-RegistryUIServiceArn"
-
-  RegistryUIDiscoveryArn:
-    Description: Registry UI Service Discovery ARN
-    Value: !GetAtt RegistryUIDiscovery.Arn
-    Export:
-      Name: !Sub "${StackPrefix}-RegistryUIDiscoveryArn"

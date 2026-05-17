@@ -26,7 +26,6 @@ resources:
   - mongo-express.yaml
   - pgadmin.yaml
   - registry.yaml
-  - registry-express.yaml
   - image-registry.yaml
   - prometheus.yaml
   - loki.yaml

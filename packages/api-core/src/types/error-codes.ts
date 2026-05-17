@@ -41,6 +41,9 @@ export enum ErrorCode {
   QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
 
+  // Payload errors (413)
+  PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
+
   // Conflict errors (409)
   CONFLICT = 'CONFLICT',
   DUPLICATE_ENTRY = 'DUPLICATE_ENTRY',
@@ -80,6 +83,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TEMPLATE_VALIDATION_FAILED]: 400,
   [ErrorCode.QUOTA_EXCEEDED]: 429,
   [ErrorCode.RATE_LIMIT_EXCEEDED]: 429,
+  [ErrorCode.PAYLOAD_TOO_LARGE]: 413,
   [ErrorCode.CONFLICT]: 409,
   [ErrorCode.DUPLICATE_ENTRY]: 409,
   [ErrorCode.SCAN_CONFLICT]: 409,

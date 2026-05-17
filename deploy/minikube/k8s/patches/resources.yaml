@@ -222,21 +222,6 @@ spec:
               cpu: "600m"
             requests:
               cpu: "300m"
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: registry-express
-spec:
-  template:
-    spec:
-      containers:
-        - name: registry-express
-          resources:
-            limits:
-              cpu: "400m"
-            requests:
-              cpu: "200m"
 
 # --- Observability ---
 ---

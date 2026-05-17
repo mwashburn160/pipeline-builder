@@ -153,7 +153,7 @@ spec:
 
 ---
 # =============================================================================
-# Registry — ingress from plugin, registry-express, nginx
+# Registry — ingress from plugin, image-registry, nginx
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -171,7 +171,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [plugin, registry-express, nginx]
+                values: [plugin, image-registry, nginx]
       ports:
         - port: 5000
 
@@ -256,7 +256,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [pgadmin, mongo-express, registry-express]
+        values: [pgadmin, mongo-express]
   policyTypes:
     - Ingress
   ingress:

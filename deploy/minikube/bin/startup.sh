@@ -244,7 +244,8 @@ port_forward "Nginx"          nginx            "8443:8443 8080:8080"
 port_forward "Grafana"        grafana          "3200:3000"
 port_forward "Mongo Express"  mongo-express    "8081:8081"
 port_forward "pgAdmin"        pgadmin          "5480:80"
-port_forward "Registry UI"    registry-express "5580:80"
+# Registry UI is served via the platform frontend at /dashboard/registry
+# (sysadmin only) — no separate joxit/registry-express port-forward.
 
 # Verify gateway
 for i in $(seq 1 5); do
@@ -265,7 +266,7 @@ echo "    http://localhost:8080              http://$MK_IP:30080"
 echo "    http://localhost:3200  (Grafana)   http://$MK_IP:30200"
 echo "    http://localhost:8081  (Mongo Ex)  http://$MK_IP:30081"
 echo "    http://localhost:5480  (pgAdmin)   http://$MK_IP:30480"
-echo "    http://localhost:5580  (Registry)  http://$MK_IP:30580"
+# Registry browser lives at https://localhost:8443/dashboard/registry (sysadmin).
 echo ""
 echo "  Credentials: see $ENV_FILE"
 echo "  Stop port-forwards: pkill -f 'kubectl port-forward.*-n $NS'"

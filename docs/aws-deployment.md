@@ -693,7 +693,7 @@ After deployment, access services at:
 | Grafana | `/grafana/` |
 | PgAdmin | `/pgadmin/` |
 | Mongo Express | `/mongo-express/` |
-| Registry UI | `/registry-express/` |
+| Registry UI | `/dashboard/registry` (system-admin only) |
 
 ---
 

@@ -47,8 +47,9 @@ XAI_API_KEY=your-key
 | pgadmin | 5480 (exposed) | PostgreSQL admin UI |
 | mongo-express | 8081 (exposed) | MongoDB admin UI |
 | registry | 5000 (exposed) | Docker image registry |
-| registry-express | 5080 (exposed) | Registry web UI |
 | grafana | 3200 (exposed) | Monitoring dashboards |
+
+Registry browser: open `https://localhost:8443/dashboard/registry` (system-admin only) — the native UI replaces the joxit `registry-express` container that previously listened on port 5080.
 
 ## Troubleshooting
 

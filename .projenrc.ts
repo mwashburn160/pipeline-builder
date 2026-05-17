@@ -30,9 +30,9 @@ const expressVersion = '5.2.1';
 // in one workspace package don't propagate to its consumers in CI until
 // after a release. nx release rewrites these to a concrete version at
 // publish time, so consumers on npm still get an exact version.
-// const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.4.20',
+  apiCore:        ws,
   pipelineData:   '3.4.20',
   pipelineCore:   '3.4.20',
   apiServer:      '3.4.20',

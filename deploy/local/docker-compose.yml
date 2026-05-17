@@ -737,38 +737,6 @@ services:
           cpus: '0.3'
           memory: 256M
 
-  registry-express:
-    image: 'joxit/docker-registry-ui:2'
-    container_name: registry-express
-    restart: always
-    ports:
-      - '5080:80'
-    environment:
-      REGISTRY_TITLE: ${JOXIT_REGISTRY_TITLE}
-      NGINX_PROXY_PASS_URL: ${JOXIT_NGINX_PROXY_PASS_URL}
-      SINGLE_REGISTRY: ${JOXIT_SINGLE_REGISTRY}
-      ENABLE_DELETE_IMAGES: ${JOXIT_ENABLE_DELETE_IMAGES}
-      SHOW_CONTENT_DIGEST: ${JOXIT_SHOW_CONTENT_DIGEST}
-    networks:
-      - backend-network
-    depends_on:
-      registry:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.4'
-          memory: 384M
-        reservations:
-          cpus: '0.2'
-          memory: 192M
-
   # ---------------------------------------------------------------------------
   # Observability (Prometheus + Loki + Grafana + Promtail)
   # ---------------------------------------------------------------------------

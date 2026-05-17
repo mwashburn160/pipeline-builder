@@ -7,3 +7,4 @@ export * from './pipeline';
 export * from './http';
 export * from './quota-tiers';
 export * from './feature-flags';
+export * from './audit-events';

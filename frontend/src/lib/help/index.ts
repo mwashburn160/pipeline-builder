@@ -8,6 +8,7 @@ export { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES, PLUGIN_CATALOG } from './plu
 import { gettingStartedTopic } from './getting-started';
 import { pipelinesTopic } from './pipelines';
 import { pluginsTopic } from './plugins';
+import { registryTopic } from './registry';
 import { aiGenerationTopic } from './ai-generation';
 import { cliReferenceTopic } from './cli-reference';
 import { deploymentTopic } from './deployment';
@@ -20,6 +21,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   gettingStartedTopic,
   pipelinesTopic,
   pluginsTopic,
+  registryTopic,
   aiGenerationTopic,
   cliReferenceTopic,
   deploymentTopic,

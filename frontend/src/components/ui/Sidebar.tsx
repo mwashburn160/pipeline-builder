@@ -28,6 +28,7 @@ import {
   PanelLeftOpen,
   Plus,
   AlertTriangle,
+  Boxes,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { User } from '@/types';
@@ -73,6 +74,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: 'Pipelines', href: '/dashboard/pipelines', icon: GitBranch },
       { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle },
+      { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
       { title: 'Build Queue', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
       { title: 'Build Triage', href: '/dashboard/triage', icon: AlertTriangle, adminOnly: true },
     ],

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus } from '@/types';
+import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
 import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate } from '@/types/compliance';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
@@ -37,6 +37,54 @@ export class ApiError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+/**
+ * Thrown by registry copy/blob calls when the backend returns 4xx with a
+ * `details.reason` payload that the UI needs to discriminate on. Catch
+ * with `instanceof ConflictError` then branch on `reason` to drive the
+ * overwrite preflight (`target-exists`), source-missing retry
+ * (`source-incomplete`), or inline validation (`source-equals-target`).
+ */
+export class ConflictError extends ApiError {
+  reason: 'target-exists' | 'source-incomplete' | 'source-equals-target' | string;
+  existing?: { ref: string; digest: string };
+  requested?: { digest: string };
+  missingDigest?: string;
+
+  constructor(message: string, statusCode: number, code: string | undefined, details: Record<string, unknown>) {
+    super(message, statusCode, code, details);
+    this.name = 'ConflictError';
+    this.reason = (details.reason as string) ?? 'unknown';
+    this.existing = details.existing as { ref: string; digest: string } | undefined;
+    this.requested = details.requested as { digest: string } | undefined;
+    this.missingDigest = details.missingDigest as string | undefined;
+  }
+}
+
+/**
+ * Thrown by `getImageBlob` when the upstream blob exceeds the platform's
+ * config-blob size cap. The UI's manifest summary catches this and falls
+ * back to the raw-JSON tab.
+ */
+export class PayloadTooLargeError extends ApiError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, 413, 'PAYLOAD_TOO_LARGE', details);
+    this.name = 'PayloadTooLargeError';
+  }
+}
+
+/**
+ * Map a structured error response from the registry endpoints to the right
+ * typed error subclass. Keeps the components from re-deriving the same
+ * status-code switch.
+ */
+function toRegistryError(message: string, statusCode: number, code: string | undefined, details?: Record<string, unknown>): ApiError {
+  if (statusCode === 413) return new PayloadTooLargeError(message, details);
+  if (statusCode === 409 || (statusCode === 400 && details?.reason === 'source-equals-target')) {
+    return new ConflictError(message, statusCode, code, details ?? {});
+  }
+  return new ApiError(message, statusCode, code, details);
 }
 
 /** SSE event received from AI streaming endpoints. */
@@ -787,6 +835,82 @@ class ApiClient {
   /** Get dead letter queue jobs */
   async getQueueDlq(params?: Record<string, string>) {
     return this.request<ApiResponse<{ jobs: { id: string; pluginName?: string; version?: string; failureCategory?: string; lastError?: string; error?: string; attemptsMade?: number; maxAttempts?: number; createdAt?: string; failedAt?: string }[]; total: number }>>(`/api/plugins/queue/dlq${buildQuery(params)}`);
+  }
+
+  // ==========================================================================
+  // Image Registry (sysadmin-only; consumed by /dashboard/registry)
+  // ==========================================================================
+
+  /** List repositories from /v2/_catalog with cursor pagination. */
+  async listImages(params?: { limit?: number; last?: string }) {
+    return this.request<ApiResponse<{ repositories: RegistryRepository[]; next?: string }>>(
+      `/api/images${buildQuery(params as Record<string, unknown> | undefined)}`,
+    );
+  }
+
+  /** List all tags for one repository. `tags` may be null when the repo is empty. */
+  async listImageTags(name: string) {
+    return this.request<ApiResponse<RegistryTagList>>(
+      `/api/images/${encodeURIComponent(name)}/tags`,
+    );
+  }
+
+  /** Fetch the manifest body + digest for `<name>:<reference>`. */
+  async getImageManifest(name: string, reference: string) {
+    return this.request<ApiResponse<RegistryManifest>>(
+      `/api/images/${encodeURIComponent(name)}/manifests/${encodeURIComponent(reference)}`,
+    );
+  }
+
+  /**
+   * Fetch a config blob (≤ 5 MB). Use to power the manifest summary tab.
+   * @throws {PayloadTooLargeError} when the blob exceeds the 5 MB cap.
+   * @throws {ApiError} for 4xx/5xx other than 413.
+   */
+  async getImageBlob(name: string, digest: string): Promise<unknown> {
+    const url = `${API_URL}/api/images/${encodeURIComponent(name)}/blobs/${encodeURIComponent(digest)}`;
+    const headers: Record<string, string> = {};
+    if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+    if (this.organizationId) headers['x-org-id'] = this.organizationId;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ message: 'Blob fetch failed' }));
+      throw toRegistryError(body.message ?? 'Blob fetch failed', res.status, body.code, body.details);
+    }
+    return res.json();
+  }
+
+  /** Delete the manifest pointed to by `<name>:<reference>` (resolves to digest, then deletes). */
+  async deleteImageManifest(name: string, reference: string) {
+    return this.request<ApiResponse<{ name: string; digest: string; deleted: true }>>(
+      `/api/images/${encodeURIComponent(name)}/manifests/${encodeURIComponent(reference)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  /**
+   * Cross-repo tag copy. Source/target are `<repo>:<ref>` strings.
+   * @throws {ConflictError} on 409 (`target-exists` / `source-incomplete`)
+   *   or on 400 `source-equals-target`.
+   * @throws {ApiError} for other 4xx/5xx.
+   */
+  async copyImage(body: {
+    source: string;
+    target: string;
+    overwrite?: boolean;
+  }) {
+    try {
+      return await this.request<ApiResponse<RegistryCopyResult>>(
+        '/api/images/copy',
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+    } catch (err) {
+      // Re-throw as ConflictError when the response shape matches.
+      if (err instanceof ApiError && err.details && (err.statusCode === 409 || (err.statusCode === 400 && err.details.reason === 'source-equals-target'))) {
+        throw toRegistryError(err.message, err.statusCode, err.code, err.details);
+      }
+      throw err;
+    }
   }
 
   /**
