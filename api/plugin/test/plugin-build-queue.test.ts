@@ -110,7 +110,13 @@ jest.mock('@pipeline-builder/api-core', () => ({
   getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({}));
+jest.mock('@pipeline-builder/api-server', () => ({
+  // Metrics helpers used by worker handlers + queue-metrics-scraper.
+  // No-ops in tests — we only assert behavior, not Prometheus state.
+  incCounter: jest.fn(),
+  observe: jest.fn(),
+  setGauge: jest.fn(),
+}));
 
 // Import after mocks
 
@@ -256,7 +262,13 @@ describe('plugin-build-queue', () => {
       getServiceAuthHeader: () => 'Bearer test-service-token',
     }));
 
-    jest.mock('@pipeline-builder/api-server', () => ({}));
+    jest.mock('@pipeline-builder/api-server', () => ({
+  // Metrics helpers used by worker handlers + queue-metrics-scraper.
+  // No-ops in tests — we only assert behavior, not Prometheus state.
+  incCounter: jest.fn(),
+  observe: jest.fn(),
+  setGauge: jest.fn(),
+}));
 
     queueModule = await import('../src/queue/plugin-build-queue');
   });
