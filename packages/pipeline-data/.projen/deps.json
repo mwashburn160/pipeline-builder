@@ -67,7 +67,7 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.4.25",
+      "version": "3.4.26",
       "type": "runtime"
     },
     {
