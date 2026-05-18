@@ -163,15 +163,42 @@ function outputSpec(image: string, registry: RegistryInfo): string {
  * JWT and mints a scoped Bearer token in response to the registry's bearer
  * challenge. Username is informational; auth-resolver path 1 uses the
  * password only.
+ *
+ * We write credentials for **two** hosts:
+ *   1. `registry:5000` — the in-cluster registry address we push to.
+ *   2. The host derived from `PLATFORM_BASE_URL` — the token realm the
+ *      registry redirects clients to (see deploy/.../registry.yaml's
+ *      REGISTRY_AUTH_TOKEN_REALM, which is the public URL so external
+ *      Docker clients can reach it). Docker clients only send Basic auth
+ *      to hosts present in `auths`, so without this second entry crane
+ *      hops to the public realm with no credentials and gets 401.
  */
 function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: string) {
   const dir = path.join(contextDir, '.docker');
   fs.mkdirSync(dir, { recursive: true });
   process.env.DOCKER_CONFIG = dir;
-  const addr = `${registry.host}:${registry.port}`;
   const password = signServiceToken({ serviceName: 'platform', orgId });
   const auth = Buffer.from(`_token:${password}`).toString('base64');
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ auths: { [addr]: { auth } } }));
+
+  const auths: Record<string, { auth: string }> = {
+    [`${registry.host}:${registry.port}`]: { auth },
+  };
+
+  // Add the token-realm host if PLATFORM_BASE_URL is set. URL.host
+  // already includes any non-default port (e.g. `host:8443`), which
+  // matches how Docker keys auths.
+  const platformBaseUrl = process.env.PLATFORM_BASE_URL;
+  if (platformBaseUrl) {
+    try {
+      const realmHost = new URL(platformBaseUrl).host;
+      if (realmHost) auths[realmHost] = { auth };
+    } catch {
+      // Malformed URL — skip silently; the in-cluster auth still works
+      // for in-cluster realms (or when the registry isn't redirecting).
+    }
+  }
+
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ auths }));
 }
 
 /**

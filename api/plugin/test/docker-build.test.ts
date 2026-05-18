@@ -141,6 +141,53 @@ describe('buildAndPush', () => {
     expect(parsed.auths['registry:5000'].auth).toBe(Buffer.from('_token:test-jwt-token').toString('base64'));
   });
 
+  it('also writes credentials for the PLATFORM_BASE_URL host (token realm)', async () => {
+    // The registry's bearer realm points at PLATFORM_BASE_URL/image-registry/token
+    // (the public URL the platform fronts via nginx). Crane only sends Basic auth
+    // to hosts present in `auths` — without this second entry it gets 401 when
+    // following the bearer challenge.
+    const prev = process.env.PLATFORM_BASE_URL;
+    process.env.PLATFORM_BASE_URL = 'https://example.com:8443';
+    try {
+      await buildAndPush(makeRequest());
+      const configWrite = mockWriteFileSync.mock.calls.find((c) => c[0].endsWith('config.json'));
+      const parsed = JSON.parse(configWrite![1] as string);
+      const expected = Buffer.from('_token:test-jwt-token').toString('base64');
+      expect(parsed.auths['registry:5000'].auth).toBe(expected);
+      expect(parsed.auths['example.com:8443'].auth).toBe(expected);
+    } finally {
+      process.env.PLATFORM_BASE_URL = prev;
+    }
+  });
+
+  it('skips the realm host entry when PLATFORM_BASE_URL is unset', async () => {
+    const prev = process.env.PLATFORM_BASE_URL;
+    delete process.env.PLATFORM_BASE_URL;
+    try {
+      await buildAndPush(makeRequest());
+      const configWrite = mockWriteFileSync.mock.calls.find((c) => c[0].endsWith('config.json'));
+      const parsed = JSON.parse(configWrite![1] as string);
+      expect(Object.keys(parsed.auths)).toEqual(['registry:5000']);
+    } finally {
+      if (prev !== undefined) process.env.PLATFORM_BASE_URL = prev;
+    }
+  });
+
+  it('tolerates a malformed PLATFORM_BASE_URL without throwing', async () => {
+    const prev = process.env.PLATFORM_BASE_URL;
+    process.env.PLATFORM_BASE_URL = 'not a url';
+    try {
+      await buildAndPush(makeRequest());
+      const configWrite = mockWriteFileSync.mock.calls.find((c) => c[0].endsWith('config.json'));
+      const parsed = JSON.parse(configWrite![1] as string);
+      // Falls back to just the registry entry — better than crashing the build.
+      expect(Object.keys(parsed.auths)).toEqual(['registry:5000']);
+    } finally {
+      if (prev !== undefined) process.env.PLATFORM_BASE_URL = prev;
+      else delete process.env.PLATFORM_BASE_URL;
+    }
+  });
+
   it('patches Dockerfile to set DEBIAN_FRONTEND=noninteractive', async () => {
     await buildAndPush(makeRequest());
     const patchWrite = mockWriteFileSync.mock.calls.find((c) => c[0].endsWith('Dockerfile'));
