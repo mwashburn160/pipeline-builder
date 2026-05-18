@@ -45,16 +45,28 @@ emitting route.
 
 ### Querying
 
-In Grafana / Loki, filter on `eventCategory = "audit"` and the desired
-`event` value:
+Audit events land in Loki with `eventCategory`, `event`, `service_name`,
+and `actor` promoted to labels (see
+[deploy/<target>/config/promtail/promtail-config.yml](../deploy/aws/ec2/config/promtail/promtail-config.yml)).
+
+**From the UI**: the **Audit Activity** dashboard at
+`/dashboard/observability/audit-activity` is the operator-facing surface.
+Deep-link straight to a filtered view:
+`/dashboard/observability/audit-activity?event=registry.tag.copy&actor=<actor>&since=<iso>&until=<iso>`.
+The registry's `buildAuditLogLink` helper builds these URLs from a
+RecentActionsPanel row click.
+
+**Direct LogQL** (for ad-hoc investigations, hitting Loki at port 3100):
 
 ```logql
-{service="pipeline-image-registry"}
+{service_name="image-registry", eventCategory="audit", event="registry.tag.copy"}
   | json
-  | eventCategory="audit"
-  | event="registry.tag.copy"
   | isPromotionToSystem=`true`
 ```
+
+Stream selectors on the four promoted labels (`service_name`,
+`eventCategory`, `event`, `actor`) are the fast path. Anything else (e.g.
+`isPromotionToSystem`, `sourceDigest`) requires `| json` parsing.
 
 ---
 

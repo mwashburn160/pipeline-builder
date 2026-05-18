@@ -51,12 +51,14 @@ scrape_configs:
             ts: timestamp
             # Audit-event fields — extracted so they survive the
             # `output.source: msg` rewrite below and become queryable
-            # in Grafana Explore via stream selectors.
+            # in the native Observability dashboards via stream selectors.
             eventCategory: eventCategory
             event: event
+            actor: actor
       # Promote parsed fields to Loki labels. `eventCategory` is low-cardinality
       # ('audit' or absent); `event` is bounded (~tens of distinct names like
-      # `registry.tag.copy`). Both stay below Loki's recommended label-cardinality
+      # `registry.tag.copy`); `actor` is O(100s) per org (users + service
+      # principals). All stay below Loki's recommended label-cardinality
       # ceiling. Digest fields are intentionally NOT promoted (per-event unique
       # = unbounded cardinality, would blow up the index).
       - labels:
@@ -64,6 +66,7 @@ scrape_configs:
           service_name:
           eventCategory:
           event:
+          actor:
       # Use the parsed message as the log line (falls back to raw if not present)
       - output:
           source: msg

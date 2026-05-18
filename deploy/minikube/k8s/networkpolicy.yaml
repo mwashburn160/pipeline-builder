@@ -177,7 +177,7 @@ spec:
 
 ---
 # =============================================================================
-# Loki — ingress from promtail, grafana
+# Loki — ingress from promtail (push) + platform (Audit Activity dashboard reads)
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -194,14 +194,17 @@ spec:
         - podSelector:
             matchExpressions:
               - key: app
+                # `platform` reads Loki via /api/observability/logs for the
+                # native Audit Activity dashboard. Grafana removed — iframe
+                # deleted in this PR.
                 operator: In
-                values: [promtail, grafana]
+                values: [promtail, platform]
       ports:
         - port: 3100
 
 ---
 # =============================================================================
-# Prometheus — ingress from grafana
+# Prometheus — ingress from platform (for native Observability dashboards)
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -217,31 +220,9 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app: grafana
+              app: platform
       ports:
         - port: 9090
-
----
-# =============================================================================
-# Grafana — ingress from nginx
-# =============================================================================
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-grafana-ingress
-spec:
-  podSelector:
-    matchLabels:
-      app: grafana
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: nginx
-      ports:
-        - port: 3000
 
 ---
 # =============================================================================
@@ -281,7 +262,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [platform, pipeline, plugin, message, quota, billing, frontend, nginx, grafana, loki]
+        values: [platform, pipeline, plugin, message, quota, billing, frontend, nginx, loki]
   policyTypes:
     - Ingress
   ingress:

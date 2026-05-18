@@ -856,6 +856,53 @@ class ApiClient {
   }
 
   // ==========================================================================
+  // Observability (sysadmin-only; consumed by /dashboard/observability/*)
+  //
+  // Frontend never sends raw PromQL/LogQL — only catalog keys. Backend
+  // (platform/src/observability/catalog.ts) maps key → query and substitutes
+  // sanitized template variables for the Audit Activity recent-events drill.
+  // ==========================================================================
+
+  /**
+   * Run a named Prometheus query from the catalog (instant or range).
+   *
+   * Response shape depends on the catalog entry's source:
+   *  - `prometheus-instant` → `{ samples: InstantSample[] }`
+   *  - `prometheus-range`   → `{ series: DataSeries[], range, step }`
+   */
+  async observabilityQuery(key: string, range: '1h' | '6h' | '24h', signal?: AbortSignal) {
+    return this.request<ApiResponse<import('@/types/observability').ObservabilityQueryResponse>>(
+      `/api/observability/query${buildQuery({ key, range })}`,
+      { signal },
+    );
+  }
+
+  /**
+   * Run a named Loki query from the catalog. Optional `event`, `digest`,
+   * `actor` params are validated server-side against the catalog entry's
+   * `allowedVars`; anything outside the allow-list is silently dropped.
+   *
+   * Response shape depends on whether the catalog entry returns streams or
+   * matrix (see `controller.ts` for the heuristic).
+   */
+  async observabilityLogs(
+    key: string,
+    range: '1h' | '6h' | '24h',
+    opts: { limit?: number; event?: string; digest?: string; actor?: string } = {},
+    signal?: AbortSignal,
+  ) {
+    const params: Record<string, unknown> = { key, range };
+    if (opts.limit !== undefined) params.limit = opts.limit;
+    if (opts.event) params.event = opts.event;
+    if (opts.digest) params.digest = opts.digest;
+    if (opts.actor) params.actor = opts.actor;
+    return this.request<ApiResponse<import('@/types/observability').ObservabilityLogsResponse>>(
+      `/api/observability/logs${buildQuery(params)}`,
+      { signal },
+    );
+  }
+
+  // ==========================================================================
   // Image Registry (sysadmin-only; consumed by /dashboard/registry)
   // ==========================================================================
 

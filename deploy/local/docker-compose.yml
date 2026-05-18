@@ -98,7 +98,6 @@ services:
       billing:        { condition: service_started }
       compliance:     { condition: service_started }
       frontend:       { condition: service_started }
-      grafana:        { condition: service_started }
       image-registry: { condition: service_started }
       message:        { condition: service_started }
       pipeline:       { condition: service_started }
@@ -780,54 +779,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-
-  grafana:
-    image: 'grafana/grafana:11.5.2'
-    container_name: grafana
-    restart: always
-    ports:
-      - '3200:3000'
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_AUTH_ANONYMOUS_ENABLED: 'false'
-      GF_AUTH_PROXY_ENABLED: 'true'
-      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
-      GF_AUTH_PROXY_HEADER_PROPERTY: username
-      GF_AUTH_PROXY_AUTO_SIGN_UP: 'true'
-      GF_USERS_DEFAULT_THEME: dark
-      GF_SECURITY_ALLOW_EMBEDDING: 'true'
-      GF_SERVER_ROOT_URL: '%(protocol)s://%(domain)s:%(http_port)s/grafana/'
-      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: '/etc/grafana/dashboards/service-logs.json'
-    volumes:
-      - './data/db-data/grafana/:/var/lib/grafana:rw'
-      - './config/grafana/loki.yml:/etc/grafana/provisioning/datasources/loki.yml:ro'
-      - './config/grafana/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro'
-      - './config/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro'
-      - './config/grafana/service-logs.json:/etc/grafana/dashboards/service-logs.json:ro'
-      - './config/grafana/api-metrics.json:/etc/grafana/dashboards/api-metrics.json:ro'
-    networks:
-      - backend-network
-    depends_on:
-      loki:
-        condition: service_healthy
-      prometheus:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
       start_period: 30s
     deploy:
       resources:

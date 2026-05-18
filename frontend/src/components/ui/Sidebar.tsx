@@ -7,7 +7,6 @@ import {
   Shield,
   MessageSquare,
   ScrollText,
-  Activity,
   Container,
   FileBarChart,
   Users,
@@ -86,7 +85,9 @@ const NAV_SECTIONS: NavSection[] = [
       { title: 'Plugin Reports', href: '/dashboard/plugin-reports', icon: FileBarChart },
       { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
-      { title: 'Grafana', href: '/dashboard/grafana', icon: Activity, systemAdminOnly: true },
+      // Observability replaces the previous Grafana iframe entry. Grafana
+      // itself is removed from the deploy in this PR — see plan.
+      { title: 'Observability', href: '/dashboard/observability', icon: BarChart3, systemAdminOnly: true },
     ],
   },
   {

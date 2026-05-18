@@ -3,7 +3,7 @@
 
 import { Config } from '@pipeline-builder/pipeline-core';
 import { Request, Response, NextFunction } from 'express';
-import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
+import { Registry, collectDefaultMetrics, Counter, Histogram, Gauge } from 'prom-client';
 
 const SERVICE_NAME = (Config.getAny('observability') as { serviceName: string }).serviceName;
 
@@ -109,6 +109,7 @@ export function metricsHandler() {
 
 const businessCounters = new Map<string, Counter<string>>();
 const businessHistograms = new Map<string, Histogram<string>>();
+const businessGauges = new Map<string, Gauge<string>>();
 
 /**
  * Increment a business counter, creating it on first use.
@@ -161,6 +162,31 @@ export function observe(name: string, labels: Record<string, string>, value: num
     businessHistograms.set(name, hist);
   }
   hist.observe(labels, value);
+}
+
+/**
+ * Set the value of a business gauge, creating it on first use. Use for
+ * point-in-time observations sampled by a scraper — queue depth, active
+ * connection counts, in-flight requests.
+ *
+ * @example
+ * ```typescript
+ * setGauge('plugin_queue_jobs', { queue: 'plugin-build', state: 'waiting' }, 12);
+ * setGauge('plugin_queue_jobs', { queue: 'plugin-build', state: 'active' }, 3);
+ * ```
+ */
+export function setGauge(name: string, labels: Record<string, string>, value: number): void {
+  let gauge = businessGauges.get(name);
+  if (!gauge) {
+    gauge = new Gauge({
+      name,
+      help: humanizeName(name),
+      labelNames: Object.keys(labels),
+      registers: [register],
+    });
+    businessGauges.set(name, gauge);
+  }
+  gauge.set(labels, value);
 }
 
 function humanizeName(metricName: string): string {

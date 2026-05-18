@@ -26,7 +26,7 @@ Complete reference for all environment variables used across Pipeline Builder se
 - [Timeouts](#timeouts) -- Request, build, and connection timeouts
 - [Caching](#caching) -- Response and entity cache TTLs
 - [SSE](#server-sent-events) -- Server-sent events configuration
-- [Admin UIs](#admin-uis-infrastructure) -- Grafana, pgAdmin, Mongo Express credentials
+- [Admin UIs](#admin-uis-infrastructure) -- pgAdmin, Mongo Express credentials
 - [Pagination & Limits](#pagination--limits) -- API response limits
 - [AI Providers](#ai-providers-optional) -- API keys for AI-powered generation
 
@@ -355,8 +355,6 @@ These variables configure infrastructure admin tools, not application code.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GRAFANA_ADMIN_USER` | `admin` | Grafana admin username |
-| `GRAFANA_ADMIN_PASSWORD` | — | Grafana admin password |
 | `PGADMIN_DEFAULT_EMAIL` | `admin@pipeline.dev` | pgAdmin login email |
 | `PGADMIN_DEFAULT_PASSWORD` | — | pgAdmin login password |
 | `ME_CONFIG_BASICAUTH_USERNAME` | `admin` | Mongo Express username |

@@ -6,6 +6,7 @@ import path from 'path';
 
 import { createLogger, errorMessage, extractDbError, incrementQuota, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
+import { incCounter, observe } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { Config, CoreConstants, db, schema, reportingService } from '@pipeline-builder/pipeline-core';
 import { Queue, Worker } from 'bullmq';
@@ -15,6 +16,7 @@ import IORedis from 'ioredis';
 import { buildAndPush, loadAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build';
 import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
+import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -410,6 +412,12 @@ export function startWorker(
     const maxAttempts = job.opts.attempts ?? 1;
     const isFinalAttempt = job.attemptsMade >= maxAttempts;
 
+    // Prometheus counter. Status is `timeout` when error message matches the
+    // BullMQ timeout signal — same shape the docker-build helper uses for the
+    // SIGKILL-on-deadline path. Everything else is `failed`.
+    const isTimeout = /timed out|timeout/i.test(error.message);
+    incCounter('plugin_builds_total', { status: isTimeout ? 'timeout' : 'failed' });
+
     logger.error('Plugin build failed', {
       jobId: job.id,
       requestId,
@@ -485,6 +493,18 @@ export function startWorker(
   });
 
   worker.on('completed', (job) => {
+    incCounter('plugin_builds_total', { status: 'success' });
+    // Histogram covers wait-to-start as well as run time: `processedOn` is
+    // when the worker picked up the job, `finishedOn` is when the handler
+    // resolved. `finishedOn` should always be set on completion but BullMQ's
+    // types mark it optional, hence the guard.
+    if (job.processedOn && job.finishedOn) {
+      observe(
+        'plugin_build_duration_seconds',
+        {},
+        (job.finishedOn - job.processedOn) / 1000,
+      );
+    }
     logger.info('Plugin build completed', { jobId: job.id, name: job.name });
   });
 
@@ -492,6 +512,10 @@ export function startWorker(
 
   startDlqWorker();
   startTempCleanup();
+  startQueueMetricsScraper([
+    { name: 'plugin-build', queue: getQueue() },
+    { name: 'plugin-build-dlq', queue: getDeadLetterQueue() },
+  ]);
 
   return worker;
 }
@@ -627,6 +651,7 @@ export async function shutdownQueue(): Promise<void> {
     clearInterval(cleanupTimer);
     cleanupTimer = null;
   }
+  stopQueueMetricsScraper();
   if (dlqWorker) {
     await dlqWorker.close();
     dlqWorker = null;

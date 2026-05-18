@@ -11,3 +11,4 @@ export { default as invitationRoutes } from './invitation';
 export { default as logRoutes } from './log';
 export { default as auditRoutes } from './audit';
 export { default as configRoutes } from './config';
+export { default as observabilityRoutes } from './observability';

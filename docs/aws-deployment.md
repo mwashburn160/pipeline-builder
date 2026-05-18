@@ -2,7 +2,9 @@
 
 Two deployment options: **EC2** (single instance, Kubernetes) or **Fargate** (serverless containers).
 
-Both deploy the full stack: app services, databases, observability (Prometheus, Loki, Grafana), and admin tools. TLS via Let's Encrypt (custom domain) or self-signed (IP-only).
+Both deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced via the native `/dashboard/observability` page), and admin tools. TLS via Let's Encrypt (custom domain) or self-signed (IP-only).
+
+Note: as of the native-dashboards PR, Grafana is removed from EC2; Fargate retains Grafana pending its own follow-up. The native dashboards at `/dashboard/observability/plugin-builds` and `/dashboard/observability/audit-activity` replace the previously-embedded Grafana iframe.
 
 **Related docs:** [Environment Variables](environment-variables.md) | [API Reference](api-reference.md) | [Plugin Catalog](plugins/README.md)
 
@@ -297,7 +299,7 @@ Deployed in order. Each exports values consumed by downstream stacks.
 | **02-cluster** | ECS Cluster, IAM roles, security groups, log groups |
 | **03-databases** | PostgreSQL, MongoDB, Redis |
 | **04-services** | Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Reporting, Frontend |
-| **05-observability** | Prometheus, Loki, Grafana |
+| **05-observability** | Prometheus, Loki, Grafana (Fargate only — EC2 retired Grafana in favor of the native `/dashboard/observability` page) |
 | **06-admin** | Registry, PgAdmin, Mongo Express, Registry UI |
 
 ### Storage Requirements
@@ -690,7 +692,7 @@ After deployment, access services at:
 |---------|------|
 | Application | `/` |
 | Reports Dashboard | `/dashboard/reports` |
-| Grafana | `/grafana/` |
+| Observability (native) | `/dashboard/observability` |
 | PgAdmin | `/pgadmin/` |
 | Mongo Express | `/mongo-express/` |
 | Registry UI | `/dashboard/registry` (system-admin only) |
@@ -717,7 +719,7 @@ deploy/aws/ec2/
 │   ├── nginx-ec2.conf     # Nginx config (TLS + JWT)
 │   ├── jwt.js             # NJS JWT parsing
 │   └── metrics.js         # NJS metrics
-└── config/                # Prometheus, Loki, Promtail, Grafana configs
+└── config/                # Prometheus, Loki, Promtail configs
 ```
 
 </details>

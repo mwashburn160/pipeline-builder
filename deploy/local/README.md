@@ -47,9 +47,12 @@ XAI_API_KEY=your-key
 | pgadmin | 5480 (exposed) | PostgreSQL admin UI |
 | mongo-express | 8081 (exposed) | MongoDB admin UI |
 | registry | 5000 (exposed) | Docker image registry |
-| grafana | 3200 (exposed) | Monitoring dashboards |
+| prometheus | 9090 (internal) | Metrics scrape target for the native Observability dashboards |
+| loki | 3100 (internal) | Log store for the native Audit Activity dashboard |
 
 Registry browser: open `https://localhost:8443/dashboard/registry` (system-admin only) — the native UI replaces the joxit `registry-express` container that previously listened on port 5080.
+
+Observability: open `https://localhost:8443/dashboard/observability` (system-admin only) — native dashboards (Plugin Builds, Audit Activity) over Prometheus + Loki. Replaces the previously-embedded Grafana iframe, which has been removed.
 
 ## Troubleshooting
 

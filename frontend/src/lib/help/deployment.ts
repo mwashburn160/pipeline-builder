@@ -43,7 +43,7 @@ export const deploymentTopic: HelpTopic = {
             ['API Gateway', 'https://localhost:8443/api/*', 'Nginx reverse proxy'],
             ['PgAdmin', 'http://localhost:5480', 'PostgreSQL admin UI'],
             ['Mongo Express', 'http://localhost:27081', 'MongoDB admin UI'],
-            ['Grafana', 'http://localhost:3200', 'Observability dashboards'],
+            ['Observability', '/dashboard/observability', 'Native dashboards over Prometheus + Loki (sysadmin only)'],
             ['Registry UI', 'http://localhost:5080', 'Docker registry browser'],
           ],
         },
@@ -100,7 +100,7 @@ export const deploymentTopic: HelpTopic = {
       blocks: [
         {
           type: 'text',
-          content: 'Deploy to a local Kubernetes cluster with all services, databases, and observability (Prometheus, Loki, Grafana):',
+          content: 'Deploy to a local Kubernetes cluster with all services, databases, and observability (Prometheus + Loki, surfaced via the native /dashboard/observability page):',
         },
         {
           type: 'code',

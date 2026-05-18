@@ -29,7 +29,6 @@ resources:
   - image-registry.yaml
   - prometheus.yaml
   - loki.yaml
-  - grafana.yaml
   - promtail.yaml
 
 patches:
