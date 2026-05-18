@@ -56,7 +56,7 @@
     },
     {
       "name": "@pipeline-builder/api-server",
-      "version": "workspace:*",
+      "version": "3.4.29",
       "type": "runtime"
     },
     {
