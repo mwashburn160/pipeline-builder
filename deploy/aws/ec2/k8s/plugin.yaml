@@ -86,11 +86,21 @@ spec:
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
-            # Required for rootless newuidmap/newgidmap to set up uid mappings.
+            # Rootless buildkit needs several things to start. Don't trim
+            # any of these without testing the full plugin-build flow:
+            #  - seccompProfile=Unconfined: rootlesskit's `unshare` and
+            #    related syscalls aren't all in the RuntimeDefault profile.
+            #  - capabilities.add=[SETUID,SETGID]: newuidmap/newgidmap
+            #    (the SETUID-helper binaries that write /proc/<pid>/uid_map
+            #    and gid_map) need these in the *bounding set*, otherwise
+            #    their file-caps can't be granted at exec time. Dropping
+            #    them with no add was the root cause of the prior
+            #    `newuidmap … operation not permitted` startup failure.
             seccompProfile:
               type: Unconfined
             capabilities:
               drop: ["ALL"]
+              add: ["SETUID", "SETGID"]
           volumeMounts:
             - name: buildkit-socket
               mountPath: /run/user/1000/buildkit
