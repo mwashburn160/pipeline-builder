@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { ShieldOff, Check, X, Plus, Loader2, Clock, Trash2, Upload } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { useToast } from '@/components/ui/Toast';
 import type { ComplianceExemption } from '@/types/compliance';
 import { EXEMPTION_STATUS_STYLES as STATUS_STYLES } from '@/lib/compliance-styles';
 import { parseCsv } from '@/lib/csv';
@@ -13,6 +14,7 @@ interface ExemptionManagerProps {
 }
 
 export default function ExemptionManager({ readOnly = false }: ExemptionManagerProps) {
+  const toast = useToast();
   const [exemptions, setExemptions] = useState<ComplianceExemption[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -37,9 +39,11 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
           setPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
         }
       }
-    } catch { /* handled by loading state */ }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load exemptions');
+    }
     setLoading(false);
-  }, [statusFilter, pagination.offset, pagination.limit]);
+  }, [statusFilter, pagination.offset, pagination.limit, toast]);
 
   useEffect(() => { fetchExemptions(); }, [fetchExemptions]);
 
@@ -63,16 +67,22 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       if (res.success) {
         setShowForm(false);
         setForm({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
+        toast.success('Exemption requested');
         fetchExemptions();
       }
-    } catch { /* handled by API layer */ }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create exemption');
+    }
   };
 
   const handleApprove = async (id: string) => {
     try {
       await api.reviewExemption(id, 'approved');
+      toast.success('Exemption approved');
       fetchExemptions();
-    } catch { /* handled by API layer */ }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to approve exemption');
+    }
   };
 
   const handleReject = async (id: string) => {
@@ -80,15 +90,21 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       await api.reviewExemption(id, 'rejected', rejectionReason || undefined);
       setRejectingId(null);
       setRejectionReason('');
+      toast.success('Exemption rejected');
       fetchExemptions();
-    } catch { /* handled by API layer */ }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reject exemption');
+    }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await api.deleteExemption(id);
+      toast.success('Exemption deleted');
       fetchExemptions();
-    } catch { /* handled by API layer */ }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete exemption');
+    }
   };
 
   // Bulk-import exemptions from a user-uploaded CSV.

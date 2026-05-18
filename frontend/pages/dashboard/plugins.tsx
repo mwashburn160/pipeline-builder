@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
-import { Search, Puzzle, Plus, Trash2, X, Upload, Star } from 'lucide-react';
+import { Search, Puzzle, Plus, Trash2, X, Upload, Star, Boxes } from 'lucide-react';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 import type { PluginCategory } from '@/lib/help';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -25,6 +26,27 @@ import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import { visitedPluginsKey } from '@/lib/onboarding';
 import { loadFavorites, toggleFavorite } from '@/lib/favorites';
 import type { Plugin } from '@/types';
+
+/**
+ * Parse a Plugin URI of shape `<repo-path>:<tag>` (optionally prefixed with
+ * a registry host like `registry.example.com/...`) into the repo path and
+ * tag the registry browser uses. Strips a leading host segment if present.
+ */
+function parsePluginUri(uri: string): { repo: string; tag: string } | null {
+  if (!uri) return null;
+  const lastColon = uri.lastIndexOf(':');
+  if (lastColon < 1) return null;
+  let repo = uri.slice(0, lastColon);
+  const tag = uri.slice(lastColon + 1);
+  // Strip leading host (anything before the first `/` that contains a `.` or `:`).
+  const firstSlash = repo.indexOf('/');
+  if (firstSlash > 0) {
+    const head = repo.slice(0, firstSlash);
+    if (head.includes('.') || head.includes(':')) repo = repo.slice(firstSlash + 1);
+  }
+  if (!repo || !tag) return null;
+  return { repo, tag };
+}
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
@@ -360,17 +382,34 @@ export default function PluginsPage() {
       id: 'actions',
       header: 'Actions',
       cellClassName: 'text-sm',
-      render: (plugin) => (
-        <div className="flex items-center space-x-3">
-          <button onClick={() => setViewPlugin(plugin)} className="action-link">View</button>
-          {canModify(isSysAdmin, plugin.accessModifier) && (
-            <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
-          )}
-          {canModify(isSysAdmin, plugin.accessModifier) && (
-            <button onClick={() => del.open(plugin)} className="action-link-danger">Delete</button>
-          )}
-        </div>
-      ),
+      render: (plugin) => {
+        const parsed = isSysAdmin ? parsePluginUri(plugin.uri) : null;
+        return (
+          <div className="flex items-center space-x-3">
+            <button onClick={() => setViewPlugin(plugin)} className="action-link">View</button>
+            {canModify(isSysAdmin, plugin.accessModifier) && (
+              <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
+            )}
+            {/* Sysadmin-only registry cross-link — closes the
+                Plugins↔Registry navigation loop so an operator looking at
+                a plugin row can jump straight to its image without
+                hand-typing the path. */}
+            {parsed && (
+              <Link
+                href={`/dashboard/registry?repo=${encodeURIComponent(parsed.repo)}&tag=${encodeURIComponent(parsed.tag)}`}
+                className="action-link inline-flex items-center gap-1"
+                title={`Browse ${plugin.uri} in the registry`}
+              >
+                <Boxes className="w-3.5 h-3.5" />
+                In registry
+              </Link>
+            )}
+            {canModify(isSysAdmin, plugin.accessModifier) && (
+              <button onClick={() => del.open(plugin)} className="action-link-danger">Delete</button>
+            )}
+          </div>
+        );
+      },
     },
   ], [isSysAdmin, isAdmin, selectedIds, toggleSelect, favorites, handleToggleFavorite, pluginUsage]);
 
@@ -527,7 +566,22 @@ export default function PluginsPage() {
               </div>
             )}
             {viewPlugin.uri && (
-              <Detail label="URI" value={viewPlugin.uri} />
+              <div>
+                <Detail label="URI" value={viewPlugin.uri} />
+                {(() => {
+                  const parsed = isSysAdmin ? parsePluginUri(viewPlugin.uri) : null;
+                  if (!parsed) return null;
+                  return (
+                    <Link
+                      href={`/dashboard/registry?repo=${encodeURIComponent(parsed.repo)}&tag=${encodeURIComponent(parsed.tag)}`}
+                      className="action-link inline-flex items-center gap-1 mt-1 text-xs"
+                    >
+                      <Boxes className="w-3.5 h-3.5" />
+                      Browse this image in the registry
+                    </Link>
+                  );
+                })()}
+              </div>
             )}
             <div className="grid grid-cols-2 gap-3 text-xs text-gray-500 dark:text-gray-400">
               <div>Created: {new Date(viewPlugin.createdAt).toLocaleString()}</div>

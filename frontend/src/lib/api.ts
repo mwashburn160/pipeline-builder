@@ -282,7 +282,25 @@ class ApiClient {
   }
 
   /**
-   * Make an API request
+   * Make an API request.
+   *
+   * Contract (relied on by every consumer of this client):
+   *  - On HTTP 4xx/5xx: throws `ApiError` (or a subclass: `ConflictError`
+   *    for registry 409s, `PayloadTooLargeError` for 413). The thrown
+   *    error carries `statusCode`, `code`, and `details` for inspection.
+   *  - On 401: transparently refreshes the access token once and retries.
+   *  - On 503: retries up to 2 times with backoff (read-only requests only).
+   *  - On success (2xx): returns the parsed JSON envelope — typically
+   *    `ApiResponse<X>` with `success: true` and `data: X`.
+   *
+   * Because of the throw-on-error contract, callers may treat the return
+   * value's `success` field as effectively always-true and access `data`
+   * directly (the discriminated union in `ApiResponse<T>` allows this
+   * after a narrowing check; most call sites skip the check entirely).
+   *
+   * Exceptions to the envelope return shape are documented at the
+   * individual method (e.g. `getImageBlob` returns the raw blob JSON,
+   * `getNotificationTicket` early-unwraps the ticket string).
    */
   private async request<T>(
     endpoint: string,
@@ -1277,7 +1295,16 @@ class ApiClient {
   // Message endpoints
   // ============================================
 
-  /** Exchange JWT for a short-lived, single-use SSE ticket (avoids putting JWT in query string). */
+  /**
+   * Exchange JWT for a short-lived, single-use SSE ticket (avoids putting
+   * JWT in the query string).
+   *
+   * Intentional exception to the envelope-return contract: returns the
+   * unwrapped ticket string so the only caller (`useMessageNotifications`)
+   * can pipe it straight into `new EventSource(...?ticket=...)`. If the
+   * backend ever responds 2xx without a ticket payload we treat that as
+   * a 500 — there is no useful "absent ticket" success branch.
+   */
   async getNotificationTicket(): Promise<string> {
     const res = await this.request<ApiResponse<{ ticket: string }>>('/api/messages/notifications/ticket', { method: 'POST' });
     if (!res.data?.ticket) throw new ApiError('Failed to obtain notification ticket', 500);

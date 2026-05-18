@@ -449,17 +449,33 @@ export interface AuthTokens {
 }
 
 /**
- * Standard API response format (matches backend)
+ * Standard API response envelope (matches backend).
+ *
+ * Discriminated union on `success` so TypeScript narrows `data` to `T`
+ * (not `T | undefined`) once `success === true` has been checked.
+ *
+ * Note: callers of `ApiClient.request()` rarely need to check `success` —
+ * the client throws `ApiError` on 4xx/5xx, so success: false never
+ * reaches caller code. The union is here for the few callsites that
+ * inspect the raw envelope (e.g. SSE bootstrap, error inspectors).
  */
-export interface ApiResponse<T = unknown> {
-  success: boolean;
-  statusCode: number;
-  data?: T;
-  message?: string;
-  code?: string;
-  details?: Record<string, unknown>;
-  timestamp?: string;
-}
+export type ApiResponse<T = unknown> =
+  | {
+    success: true;
+    statusCode: number;
+    data: T;
+    message?: string;
+    timestamp?: string;
+  }
+  | {
+    success: false;
+    statusCode: number;
+    data?: undefined;
+    message?: string;
+    code?: string;
+    details?: Record<string, unknown>;
+    timestamp?: string;
+  };
 
 // ============================================================================
 // Image Registry (sysadmin-only registry browser; replaces the joxit UI)

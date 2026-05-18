@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { LoadingPage } from '@/components/ui/Loading';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { api } from '@/lib/api';
 
 interface TriageSample {
@@ -33,6 +35,10 @@ const CATEGORY_LABELS: Record<string, { label: string; hint: string; color: stri
 };
 
 export default function TriagePage() {
+  // Sysadmin-only — the underlying /queue/triage endpoint is gated server-side
+  // and returns 403 to anyone else; the guard avoids loading the page UI just
+  // to have it 403 mid-render.
+  const { isReady, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const [loading, setLoading] = useState(true);
   const [totalFailed, setTotalFailed] = useState(0);
   const [groups, setGroups] = useState<TriageGroup[]>([]);
@@ -42,8 +48,9 @@ export default function TriagePage() {
   const [replayMsg, setReplayMsg] = useState<{ id: string | number; text: string; isError: boolean } | null>(null);
 
   useEffect(() => {
+    if (!isReady || !isSysAdmin) return;
     void load();
-  }, []);
+  }, [isReady, isSysAdmin]);
 
   async function load(): Promise<void> {
     setLoading(true);
@@ -89,6 +96,8 @@ export default function TriagePage() {
       });
     }
   }
+
+  if (!isReady || !isSysAdmin) return <LoadingPage />;
 
   return (
     <DashboardLayout

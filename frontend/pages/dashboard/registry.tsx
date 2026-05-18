@@ -1,22 +1,29 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { RepositoryList } from '@/components/registry/RepositoryList';
+import { RepositoryList, type RepositoryListHandle } from '@/components/registry/RepositoryList';
 import { TagTable } from '@/components/registry/TagTable';
 import { ManifestDetail } from '@/components/registry/ManifestDetail';
 import { CopyTagModal } from '@/components/registry/CopyTagModal';
 import { DeleteTagConfirm } from '@/components/registry/DeleteTagConfirm';
+import { BulkDeleteConfirm } from '@/components/registry/BulkDeleteConfirm';
+import { RecentActionsPanel, type RecentAction } from '@/components/registry/RecentActionsPanel';
+import { KeyboardShortcutsModal } from '@/components/registry/KeyboardShortcutsModal';
 import { useRepositoryList } from '@/hooks/useRepositoryList';
 import { useImageTags, invalidateImageTags } from '@/hooks/useImageTags';
 import { useImageDetail } from '@/hooks/useImageDetail';
-import { api } from '@/lib/api';
+import { useTagsWithMetadata } from '@/hooks/useTagsWithMetadata';
+import { api, ApiError } from '@/lib/api';
 
 type HealthState = 'checking' | 'ok' | 'error';
+
+const RECENT_ACTIONS_MAX = 20;
 
 /**
  * Docker registry browser (sysadmin only). Replaces the joxit
@@ -29,15 +36,40 @@ type HealthState = 'checking' | 'ok' | 'error';
  *  - ?repo=<repoPath>     selected repo (drives middle column)
  *  - ?tag=<tagRef>        selected tag (drives right column)
  *  - ?platform=<os>/<arch>  drilled-into platform inside a multi-arch tag
+ *  - ?action=copy&source=<repo:ref>  opens the copy modal pre-populated
+ *    (deep-link target for Slack-driven "please promote X" workflows)
+ *
+ * Keyboard:
+ *  - j / k         move repo selection down / up
+ *  - c             copy the active tag
+ *  - d             delete the active tag
+ *  - /             focus the repo filter
+ *  - ?             show the shortcuts overlay
+ *  - Esc           close any open modal
  */
+
+/**
+ * The 3-column layout assumes ~1024px of horizontal space (repo list +
+ * tag table + manifest detail). On narrower viewports the panes overlap
+ * each other or the manifest detail gets squeezed unusable. We surface a
+ * one-line warning rather than try to reflow — the operator's first
+ * choice will be a wider window.
+ */
+const MIN_USABLE_WIDTH = 1024;
 export default function RegistryPage() {
   const { isReady, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const router = useRouter();
+  const toast = useToast();
 
   // URL-encoded selection state.
   const repo = typeof router.query.repo === 'string' ? router.query.repo : null;
   const tag = typeof router.query.tag === 'string' ? router.query.tag : null;
   const platform = typeof router.query.platform === 'string' ? router.query.platform : null;
+  const action = typeof router.query.action === 'string' ? router.query.action : null;
+  const actionSource = typeof router.query.source === 'string' ? router.query.source : null;
+  // Filter persists across navigation (operator triages many tags in the
+  // same org without losing their search context).
+  const repoFilter = typeof router.query.repoFilter === 'string' ? router.query.repoFilter : '';
 
   const setQuery = useCallback((patch: Record<string, string | null>) => {
     const next = { ...router.query };
@@ -51,37 +83,76 @@ export default function RegistryPage() {
   const { groups, repos, hasMore, loading, error, loadMore, refresh } = useRepositoryList();
   const { tags, loading: tagsLoading, error: tagsError, refresh: refreshTags } = useImageTags(repo);
   const { kind, loading: manifestLoading, error: manifestError } = useImageDetail(repo, tag);
+  const { metadata: tagMetadata, loading: enrichingMetadata } = useTagsWithMetadata(repo, tags);
 
   const [copyTag, setCopyTag] = useState<string | null>(null);
   const [deleteTag, setDeleteTag] = useState<string | null>(null);
+  const [bulkDelete, setBulkDelete] = useState<string[] | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [health, setHealth] = useState<HealthState>('checking');
+  const [recentActions, setRecentActions] = useState<RecentAction[]>([]);
+  const [narrowViewport, setNarrowViewport] = useState(false);
+  const [narrowDismissed, setNarrowDismissed] = useState(false);
+  const repoListRef = useRef<RepositoryListHandle>(null);
 
-  // Health badge: one-shot ping on mount. Per-pane errors surface state thereafter.
+  /** Push a new entry to the recent-actions ring buffer (most-recent first, capped). */
+  const recordAction = useCallback((a: RecentAction) => {
+    setRecentActions((prev) => [a, ...prev].slice(0, RECENT_ACTIONS_MAX));
+  }, []);
+
+  // Health badge: ping on mount + every 60s while the tab is visible. Pause
+  // when hidden to avoid background traffic; re-ping on visibility regain so
+  // the badge reflects truth shortly after the operator refocuses.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+
+    const ping = async () => {
+      if (document.visibilityState !== 'visible') return;
       try {
         await api.listImages({ limit: 1 });
         if (!cancelled) setHealth('ok');
       } catch {
         if (!cancelled) setHealth('error');
       }
-    })();
-    return () => { cancelled = true; };
+    };
+
+    void ping();
+    const timer = setInterval(() => { void ping(); }, 60_000);
+    const onVisibility = () => { if (document.visibilityState === 'visible') void ping(); };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
-  // 403 mid-session redirect — if the user got demoted from sysadmin while
-  // the page was open, any registry API call returning 403 should bounce them.
+  /**
+   * 403 mid-session handler. If any registry call returns 403 (sysadmin
+   * demoted while the page was open), toast + redirect. We observe via
+   * `unhandledrejection` since the page's hooks each surface errors
+   * inline; we don't need a separate error bus.
+   */
   useEffect(() => {
-    const handler = (err: Error & { statusCode?: number }) => {
-      if (err.statusCode === 403) {
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const err = e.reason;
+      if (err instanceof ApiError && err.statusCode === 403) {
+        toast.error('System-admin access required. Your session no longer has it — returning to the dashboard.');
         void router.push('/dashboard');
       }
     };
-    // The error hooks pick up 403s already; this effect is a placeholder for
-    // a future global error bus. Today, individual hook errors render inline.
-    return () => { void handler; };
-  }, [router]);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => window.removeEventListener('unhandledrejection', onRejection);
+  }, [router, toast]);
+
+  // Track narrow viewports — the 3-column layout doesn't reflow below ~1024px.
+  useEffect(() => {
+    const check = () => setNarrowViewport(window.innerWidth < MIN_USABLE_WIDTH);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   // If the selected tag is gone after a refresh (e.g. just deleted), clear it.
   useEffect(() => {
@@ -90,85 +161,235 @@ export default function RegistryPage() {
     }
   }, [tag, tags, setQuery]);
 
+  // Deep-link: ?action=copy&source=<repo:ref> opens the modal pre-populated.
+  // Strips the `action`/`source` params after consuming them so the URL
+  // state is stable on subsequent navigation.
+  useEffect(() => {
+    if (action === 'copy' && actionSource && !copyTag) {
+      const sepIdx = actionSource.lastIndexOf(':');
+      if (sepIdx > 0) {
+        const sRepo = actionSource.slice(0, sepIdx);
+        const sRef = actionSource.slice(sepIdx + 1);
+        setQuery({ repo: sRepo, tag: sRef, action: null, source: null });
+        setCopyTag(sRef);
+      }
+    }
+  }, [action, actionSource, copyTag, setQuery]);
+
   const onSelectRepo = (name: string) => setQuery({ repo: name, tag: null, platform: null });
   const onSelectTag = (t: string) => setQuery({ tag: t, platform: null });
   const onSelectPlatform = (osArch: string) => setQuery({ platform: osArch });
 
-  // After a successful copy, refresh the source repo's tag list (if we copied
-  // within the same repo) and invalidate the target repo's cache so a future
-  // navigation to it pulls fresh tags.
-  const onCopySuccess = (targetRepo: string, _targetRef: string) => {
+  // After a successful copy: toast + record + invalidate target repo cache.
+  const onCopySuccess = (targetRepo: string, targetRef: string, sourceDigest?: string, blobs?: number) => {
+    const target = `${targetRepo}:${targetRef}`;
+    const source = copyTag ? `${repo}:${copyTag}` : '';
     setCopyTag(null);
     if (targetRepo === repo) refreshTags();
     else invalidateImageTags(targetRepo);
+    const isPromotion = targetRepo.startsWith('system/');
+    toast.success(
+      isPromotion
+        ? `Promoted ${source} → ${target} (audit-logged)`
+        : `Copied ${source} → ${target}`,
+    );
+    recordAction({
+      kind: 'copy', at: new Date().toISOString(),
+      source, target, digest: sourceDigest, blobs, isPromotion,
+    });
   };
 
-  const onDeleted = () => {
+  const onDeleted = (digest?: string) => {
+    const ref = deleteTag;
     setDeleteTag(null);
     setQuery({ tag: null, platform: null });
     refreshTags();
+    if (repo && ref) {
+      toast.success(`Deleted ${repo}:${ref}`);
+      recordAction({ kind: 'delete', at: new Date().toISOString(), repo, ref, digest });
+    }
   };
 
-  const breadcrumb = useMemo(() => {
-    if (!repo || !tag) return repo ?? '';
-    return platform ? `${repo}:${tag} → ${platform}` : `${repo}:${tag}`;
-  }, [repo, tag, platform]);
+  /**
+   * Per-tag callback from BulkDeleteConfirm — recorded incrementally.
+   * Failures are recorded silently here (no toast) — a single summary
+   * toast fires from `onBulkDone` so a batch of 20 failures doesn't spawn
+   * 20 stacked toasts. The audit log is the authoritative per-tag record.
+   */
+  const onBulkProgress = (ref: string, digest?: string, err?: Error) => {
+    if (!repo) return;
+    if (err) return; // intentionally silent — summarized in onBulkDone
+    recordAction({ kind: 'delete', at: new Date().toISOString(), repo, ref, digest });
+  };
+
+  /** Final callback from BulkDeleteConfirm — one summary toast + UI refresh. */
+  const onBulkDone = ({ succeeded, failed }: { succeeded: number; failed: number }) => {
+    setBulkDelete(null);
+    refreshTags();
+    if (failed === 0) toast.success(`Deleted ${succeeded} tag${succeeded === 1 ? '' : 's'}`);
+    else if (succeeded === 0) toast.error(`All ${failed} delete${failed === 1 ? '' : 's'} failed`);
+    else toast.warning(`Deleted ${succeeded}, ${failed} failed`);
+    // If the currently-selected tag was in the batch, clear it.
+    if (tag && bulkDelete?.includes(tag)) setQuery({ tag: null, platform: null });
+  };
+
+  /**
+   * Clickable breadcrumb segments. The last segment is non-interactive
+   * (current location); earlier segments walk the URL state back.
+   */
+  const breadcrumbs = useMemo(() => {
+    const out: Array<{ label: string; onClick?: () => void }> = [];
+    if (repo && tag) {
+      out.push({
+        label: `${repo}:${tag}`,
+        onClick: platform ? () => setQuery({ platform: null }) : undefined,
+      });
+      if (platform) out.push({ label: platform });
+    } else if (repo) {
+      out.push({ label: repo });
+    }
+    return out;
+  }, [repo, tag, platform, setQuery]);
 
   // The repo names string list — used for CopyTagModal target-repo autocomplete.
   const knownRepoNames = useMemo(() => repos.map((r) => r.name), [repos]);
 
+  // Keyboard shortcuts (bound at window level). Skipped when typing in a
+  // form field or when a destructive/data-entry modal is open intercepting
+  // keys. The shortcuts overlay (`?`) is allowed even when other modals
+  // are closed, and Esc on it is handled by the Modal primitive.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const inField = target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+      if (inField) return;
+      if (copyTag || deleteTag || bulkDelete || shortcutsOpen) return;
+
+      switch (e.key) {
+        case 'j': repoListRef.current?.step(1); break;
+        case 'k': repoListRef.current?.step(-1); break;
+        case 'c':
+          if (tag) { e.preventDefault(); setCopyTag(tag); }
+          break;
+        case 'd':
+          if (tag) { e.preventDefault(); setDeleteTag(tag); }
+          break;
+        case '/': {
+          e.preventDefault();
+          const input = document.getElementById('registry-repo-filter') as HTMLInputElement | null;
+          input?.focus();
+          break;
+        }
+        case '?': {
+          e.preventDefault();
+          setShortcutsOpen(true);
+          break;
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [tag, copyTag, deleteTag, bulkDelete, shortcutsOpen]);
+
   if (!isReady || !isSysAdmin) return <LoadingPage />;
+
+  // Focus model: the "active" column is the right-most one with data —
+  // manifest detail > tag table > repo list. Inactive columns dim so the
+  // operator's eye lands on what they just drilled into.
+  const activeColumn: 'repo' | 'tag' | 'manifest' = tag ? 'manifest' : repo ? 'tag' : 'repo';
+  const dim = (col: 'repo' | 'tag' | 'manifest') =>
+    col === activeColumn ? '' : 'opacity-70 hover:opacity-100 focus-within:opacity-100 transition-opacity';
 
   return (
     <DashboardLayout
       title="Registry"
       subtitle="Docker image repository browser"
-      actions={<HealthBadge state={health} />}
+      actions={
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShortcutsOpen(true)}
+            title="Keyboard shortcuts (?)"
+            className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+          >
+            <kbd className="px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded font-mono">?</kbd>
+          </button>
+          <HealthBadge state={health} />
+        </div>
+      }
       mainClassName="!px-0"
     >
-      <div className="flex h-[calc(100vh-80px)] border-t border-gray-200 dark:border-gray-700">
-        <div className="w-72 flex-shrink-0">
-          <RepositoryList
-            groups={groups}
-            selectedRepo={repo}
-            loading={loading}
-            error={error}
-            hasMore={hasMore}
-            onSelect={onSelectRepo}
-            onLoadMore={loadMore}
-            onRefresh={refresh}
-          />
-        </div>
-        <div className={`flex-shrink-0 ${tag ? 'w-[28rem]' : 'flex-1'}`}>
-          {repo ? (
-            <TagTable
-              repo={repo}
-              tags={tags}
-              loading={tagsLoading}
-              error={tagsError}
-              selectedTag={tag}
-              onSelect={onSelectTag}
-              onCopy={(t) => setCopyTag(t)}
-              onDelete={(t) => setDeleteTag(t)}
-              onRefresh={refreshTags}
+      <div className="flex flex-col h-[calc(100vh-80px)] border-t border-gray-200 dark:border-gray-700">
+        {narrowViewport && !narrowDismissed && (
+          <div className="px-4 py-2 text-xs flex items-center gap-3 border-b border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-900 dark:text-yellow-200">
+            <span className="flex-1">
+              This 3-pane layout is designed for ≥{MIN_USABLE_WIDTH}px. Some columns may be cramped at the current width — widen the window for the best experience.
+            </span>
+            <button
+              onClick={() => setNarrowDismissed(true)}
+              className="underline hover:no-underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+        {health === 'error' && (
+          <div className="px-4 py-2 text-xs border-b border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300">
+            Registry health check failed. Some panes below may show their own error — the shared cause is registry connectivity.
+          </div>
+        )}
+        <div className="flex flex-1 min-h-0">
+          <div className={`w-72 flex-shrink-0 ${dim('repo')}`}>
+            <RepositoryList
+              ref={repoListRef}
+              groups={groups}
+              selectedRepo={repo}
+              loading={loading}
+              error={error}
+              hasMore={hasMore}
+              filter={repoFilter}
+              onFilterChange={(f) => setQuery({ repoFilter: f || null })}
+              onSelect={onSelectRepo}
+              onLoadMore={loadMore}
+              onRefresh={refresh}
             />
-          ) : (
-            <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
-              Select a repository to view its tags.
+          </div>
+          <div className={`flex-shrink-0 ${tag ? 'w-[28rem]' : 'flex-1'} ${dim('tag')}`}>
+            {repo ? (
+              <TagTable
+                repo={repo}
+                tags={tags}
+                loading={tagsLoading}
+                enrichingMetadata={enrichingMetadata}
+                error={tagsError}
+                selectedTag={tag}
+                onSelect={onSelectTag}
+                onCopy={(t) => setCopyTag(t)}
+                onDelete={(t) => setDeleteTag(t)}
+                onBulkDelete={(t) => setBulkDelete(t)}
+                onRefresh={refreshTags}
+                metadata={tagMetadata}
+              />
+            ) : (
+              <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
+                Select a repository to view its tags. <span className="text-gray-400">(Tip: press <kbd className="px-1 py-0.5 border rounded text-xs">?</kbd> to see all keyboard shortcuts.)</span>
+              </div>
+            )}
+          </div>
+          {tag && (
+            <div className={`flex-1 ${dim('manifest')}`}>
+              <ManifestDetail
+                kind={kind}
+                loading={manifestLoading}
+                error={manifestError}
+                breadcrumbs={breadcrumbs}
+                onSelectPlatform={onSelectPlatform}
+                repo={repo}
+              />
             </div>
           )}
         </div>
-        {tag && (
-          <div className="flex-1">
-            <ManifestDetail
-              kind={kind}
-              loading={manifestLoading}
-              error={manifestError}
-              breadcrumb={breadcrumb}
-              onSelectPlatform={onSelectPlatform}
-            />
-          </div>
-        )}
+
+        <RecentActionsPanel actions={recentActions} />
       </div>
 
       {copyTag && repo && (
@@ -188,6 +409,20 @@ export default function RegistryPage() {
           onClose={() => setDeleteTag(null)}
           onDeleted={onDeleted}
         />
+      )}
+
+      {bulkDelete && repo && bulkDelete.length > 0 && (
+        <BulkDeleteConfirm
+          repo={repo}
+          refs={bulkDelete}
+          onClose={() => setBulkDelete(null)}
+          onProgress={onBulkProgress}
+          onDone={onBulkDone}
+        />
+      )}
+
+      {shortcutsOpen && (
+        <KeyboardShortcutsModal onClose={() => setShortcutsOpen(false)} />
       )}
     </DashboardLayout>
   );

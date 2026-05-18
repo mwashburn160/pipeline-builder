@@ -3,29 +3,31 @@
 
 import { useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import { CopyButton } from '@/components/ui/CopyButton';
 import { api } from '@/lib/api';
 
 interface DeleteTagConfirmProps {
   repo: string;
   ref: string;
   onClose: () => void;
-  onDeleted: () => void;
+  onDeleted: (digest?: string) => void;
 }
 
 const MAX_TAGS_TO_SCAN = 50;
+const PARALLEL_FETCH = 8;
 
 /**
  * Destructive confirm for tag deletion. On open, resolves the tag → digest
- * then scans up to 50 other tags in the same repo (HEAD each manifest) to
- * find which ones share the digest — those tags will also stop working
- * because distribution deletes manifests by digest.
- *
- * If the repo has more than 50 tags, the modal surfaces "and X more" so
- * the operator knows the impact is broader than what's listed.
+ * then scans up to 50 other tags in the same repo (8 in parallel) to find
+ * which ones share the digest — those tags all stop working because
+ * distribution deletes manifests by digest. Renders incremental progress so
+ * a slow registry doesn't show a blank modal for seconds at a time.
  */
 export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagConfirmProps) {
   const [digest, setDigest] = useState<string | null>(null);
   const [sharedTags, setSharedTags] = useState<string[]>([]);
+  const [scanned, setScanned] = useState(0);
+  const [totalToScan, setTotalToScan] = useState(0);
   const [extraTagCount, setExtraTagCount] = useState(0);
   const [scanning, setScanning] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -44,21 +46,28 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
         if (aborted) return;
         const allTags = tagsRes.data?.tags ?? [];
         const toScan = allTags.slice(0, MAX_TAGS_TO_SCAN);
+        setTotalToScan(toScan.length);
         setExtraTagCount(Math.max(0, allTags.length - MAX_TAGS_TO_SCAN));
 
-        // Find tags pointing to the same digest.
+        // Parallelized scan with incremental updates.
         const found: string[] = [];
-        for (const t of toScan) {
-          if (aborted) return;
+        let done = 0;
+        const scanOne = async (t: string) => {
           try {
             const m = await api.getImageManifest(repo, t);
             if (m.data?.digest === d) found.push(t);
           } catch {
-            // Tag fetch failed — skip; it'll be reported on actual delete if relevant.
+            // skip — counted below regardless
           }
+          done++;
+          if (!aborted) setScanned(done);
+        };
+        for (let i = 0; i < toScan.length; i += PARALLEL_FETCH) {
+          if (aborted) return;
+          await Promise.all(toScan.slice(i, i + PARALLEL_FETCH).map(scanOne));
         }
         if (!aborted) {
-          setSharedTags(found);
+          setSharedTags(found.sort());
           setScanning(false);
         }
       } catch (err) {
@@ -75,8 +84,8 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
     setSubmitting(true);
     setError(null);
     try {
-      await api.deleteImageManifest(repo, ref);
-      onDeleted();
+      const res = await api.deleteImageManifest(repo, ref);
+      onDeleted(res.data?.digest ?? digest ?? undefined);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -95,12 +104,15 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
         </div>
 
         {scanning && (
-          <div className="text-sm text-gray-500 dark:text-gray-400">Scanning tags that share the digest…</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            Scanning tags that share the digest… {scanned}/{totalToScan}
+          </div>
         )}
 
         {!scanning && digest && (
-          <div className="text-xs text-gray-500 dark:text-gray-400 font-mono break-all">
-            digest: {digest}
+          <div className="text-xs text-gray-500 dark:text-gray-400 font-mono break-all flex items-center gap-2">
+            <span className="flex-1">digest: {digest}</span>
+            <CopyButton text={digest} />
           </div>
         )}
 
@@ -125,7 +137,7 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
         )}
 
         <div className="text-xs text-gray-500 dark:text-gray-400">
-          Note: blob layers become orphaned until the registry's garbage collector runs.
+          Note: distribution deletes the manifest by digest, so any other tags pointing at the same digest also stop resolving immediately. Blob layers stay on disk as orphans until the registry's garbage collector runs (a separate maintenance pass — deletion does not reclaim disk on its own). This action is audit-logged.
         </div>
 
         {error && (

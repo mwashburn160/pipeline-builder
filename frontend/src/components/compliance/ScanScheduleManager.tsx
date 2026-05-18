@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { CalendarClock, Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
 import api from '@/lib/api';
 import { Badge } from '@/components/ui/Badge';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { useToast } from '@/components/ui/Toast';
 
 interface ScanSchedule {
   id: string;
@@ -28,6 +30,7 @@ interface ScanScheduleManagerProps {
 }
 
 export default function ScanScheduleManager({ readOnly = false }: ScanScheduleManagerProps) {
+  const toast = useToast();
   const [schedules, setSchedules] = useState<ScanSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -36,6 +39,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
   const [submitting, setSubmitting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<ScanSchedule | null>(null);
 
   const fetchSchedules = useCallback(async () => {
     setLoading(true);
@@ -44,9 +48,11 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
       if (res.success && res.data) {
         setSchedules(res.data.schedules as unknown as ScanSchedule[]);
       }
-    } catch { /* handled by loading state */ }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load scan schedules');
+    }
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
 
@@ -74,12 +80,16 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     try {
       if (editingId) {
         await api.updateScanSchedule(editingId, formData);
+        toast.success('Schedule updated');
       } else {
         await api.createScanSchedule(formData);
+        toast.success('Schedule created');
       }
       closeForm();
       fetchSchedules();
-    } catch { /* handled */ }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Failed to ${editingId ? 'update' : 'create'} schedule`);
+    }
     setSubmitting(false);
   };
 
@@ -88,17 +98,22 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     try {
       await api.toggleScanScheduleActive(schedule.id, !schedule.isActive);
       fetchSchedules();
-    } catch { /* handled */ }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to toggle schedule');
+    }
     setTogglingId(null);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this scan schedule?')) return;
-    setDeletingId(id);
+  const performDelete = async (schedule: ScanSchedule) => {
+    setDeletingId(schedule.id);
+    setConfirmDelete(null);
     try {
-      await api.deleteScanSchedule(id);
+      await api.deleteScanSchedule(schedule.id);
+      toast.success('Schedule deleted');
       fetchSchedules();
-    } catch { /* handled */ }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete schedule');
+    }
     setDeletingId(null);
   };
 
@@ -226,7 +241,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDelete(schedule.id)}
+                          onClick={() => setConfirmDelete(schedule)}
                           disabled={deletingId === schedule.id}
                           className="btn btn-danger btn-xs"
                           title="Delete schedule"
@@ -246,6 +261,15 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
             </tbody>
           </table>
         </div>
+      )}
+      {confirmDelete && (
+        <DeleteConfirmModal
+          title="Delete scan schedule"
+          itemName={`${confirmDelete.target} schedule (${confirmDelete.cronExpression})`}
+          loading={deletingId === confirmDelete.id}
+          onConfirm={() => performDelete(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
+        />
       )}
     </div>
   );

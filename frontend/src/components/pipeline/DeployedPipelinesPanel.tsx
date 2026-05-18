@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Cloud, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 import api from '@/lib/api';
 import { formatRelativeTime } from '@/lib/relative-time';
 
@@ -30,6 +31,10 @@ export function DeployedPipelinesPanel() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  // The remove modal needs more nuance than DeleteConfirmModal provides —
+  // the action removes only the platform's record (not the AWS stack), and
+  // that distinction is the whole point of the confirm.
+  const [confirmTarget, setConfirmTarget] = useState<RegistryRow | null>(null);
 
   useEffect(() => {
     if (!open || rows !== null) return;
@@ -51,16 +56,10 @@ export function DeployedPipelinesPanel() {
     return () => { cancelled = true; };
   }, [open, rows]);
 
-  const handleRemove = async (row: RegistryRow) => {
-    const confirmed = window.confirm(
-      `Remove "${row.pipelineName}" from the registry?\n\n` +
-      `This only removes the platform's record. It does NOT delete the CloudFormation ` +
-      `stack or pipeline. Use this to reconcile drift when the AWS stack was already ` +
-      `deleted out-of-band.`,
-    );
-    if (!confirmed) return;
+  const performRemove = async (row: RegistryRow) => {
     setRemoving(row.id);
     setError(null);
+    setConfirmTarget(null);
     try {
       const res = await api.deletePipelineRegistry(row.id);
       if (res.success) {
@@ -104,7 +103,7 @@ export function DeployedPipelinesPanel() {
                   Deployed {formatRelativeTime(row.lastDeployed)}
                 </div>
                 <button
-                  onClick={() => handleRemove(row)}
+                  onClick={() => setConfirmTarget(row)}
                   disabled={removing === row.id}
                   className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 disabled:opacity-40 disabled:cursor-wait shrink-0"
                   title="Remove from registry (does not delete the AWS stack)"
@@ -117,6 +116,38 @@ export function DeployedPipelinesPanel() {
           </ul>
         )}
       </div>
+      {confirmTarget && (
+        <Modal
+          title="Remove from registry"
+          onClose={() => removing ? undefined : setConfirmTarget(null)}
+          maxWidth="max-w-md"
+        >
+          <div className="space-y-3 text-sm">
+            <p className="text-gray-700 dark:text-gray-300">
+              Remove <strong className="font-mono">{confirmTarget.pipelineName}</strong> from the deployed-pipelines registry?
+            </p>
+            <div className="p-3 rounded border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-900 dark:text-yellow-200 text-xs">
+              This only removes the platform&apos;s record. It does NOT delete the CloudFormation stack or pipeline. Use this to reconcile drift when the AWS stack was already deleted out-of-band.
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setConfirmTarget(null)}
+                disabled={!!removing}
+                className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => performRemove(confirmTarget)}
+                disabled={!!removing}
+                className="px-4 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+              >
+                {removing === confirmTarget.id ? 'Removing…' : 'Remove record'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </details>
   );
 }

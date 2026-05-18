@@ -137,24 +137,50 @@ export function CommandPalette({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Focus input on open
+  // Scroll-lock background while the palette is open — matches Modal so
+  // the page doesn't visibly shift if the operator scrolls during a search.
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
   }, [open]);
 
-  // Keyboard navigation
+  // Focus the search input as soon as the palette mounts. The previous
+  // `setTimeout(50)` raced with framer-motion's enter animation and
+  // intermittently lost focus on slow machines. Querying the ref on the
+  // next animation frame is more reliable than a fixed millisecond wait.
+  useEffect(() => {
+    if (!open) return;
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
+  // Keyboard navigation. The palette has exactly one focusable element
+  // (the input), so a full focus trap is unnecessary — but we do swallow
+  // Tab so it doesn't escape to background DOM, and we clamp Arrow keys
+  // against the filtered-empty case (where length-1 would underflow to -1).
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
       setOpen(false);
-    } else if (e.key === 'ArrowDown') {
+      return;
+    }
+    if (e.key === 'Tab') {
+      // Single focusable element — Tab is a no-op.
+      e.preventDefault();
+      return;
+    }
+    if (filtered.length === 0) return;
+    if (e.key === 'ArrowDown') {
       e.preventDefault();
       setSelectedIndex((prev) => Math.min(prev + 1, filtered.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setSelectedIndex((prev) => Math.max(prev - 1, 0));
     } else if (e.key === 'Enter' && filtered[selectedIndex]) {
+      e.preventDefault();
       filtered[selectedIndex].action();
     }
   };

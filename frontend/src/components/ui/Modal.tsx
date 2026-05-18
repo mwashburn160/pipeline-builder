@@ -1,4 +1,4 @@
-import { type ReactNode, type RefObject, useEffect, useRef, useCallback } from 'react';
+import { type ReactNode, type RefObject, useEffect, useId, useRef, useCallback } from 'react';
 
 /** Props for the Modal component. */
 interface ModalProps {
@@ -41,6 +41,10 @@ export function Modal({
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<Element | null>(null);
+  // Stable id so the dialog can reference its visible title via
+  // aria-labelledby — more meaningful to screen readers than the
+  // duplicated aria-label that was here before.
+  const titleId = useId();
 
   const panelClasses = [
     'modal-panel', maxWidth,
@@ -60,24 +64,37 @@ export function Modal({
       return;
     }
 
-    // Focus trap
+    // Focus trap. Three cases on Tab:
+    //  - Focus is outside the panel (e.g. dev tools stole it, parent
+    //    refocused something): pull it back to the first focusable.
+    //  - Focus is on the last element + Tab forward: wrap to first.
+    //  - Focus is on the first element + Shift+Tab: wrap to last.
     if (e.key === 'Tab' && panelRef.current) {
-      const focusable = getFocusableElements(panelRef.current);
-      if (focusable.length === 0) return;
+      const panel = panelRef.current;
+      const focusable = getFocusableElements(panel);
+      if (focusable.length === 0) {
+        // Nothing focusable; keep the panel itself focused so Tab doesn't
+        // escape into the background.
+        e.preventDefault();
+        return;
+      }
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      const inside = active instanceof Node && panel.contains(active);
 
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
+      if (!inside) {
+        e.preventDefault();
+        first.focus();
+        return;
+      }
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
       }
     }
   }, [onClose]);
@@ -101,9 +118,13 @@ export function Modal({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
-      // Restore focus to the element that opened the modal
-      if (previousActiveElement.current instanceof HTMLElement) {
-        previousActiveElement.current.focus();
+      // Restore focus to the element that opened the modal — but only if
+      // it is still in the document. A parent component may have re-rendered
+      // and replaced the trigger; calling .focus() on a detached node is a
+      // no-op but can throw under some test runners.
+      const prev = previousActiveElement.current;
+      if (prev instanceof HTMLElement && prev.isConnected) {
+        prev.focus();
       }
     };
   }, [handleKeyDown]);
@@ -116,11 +137,11 @@ export function Modal({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
       >
         {/* Header */}
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">{title}</h2>
+          <h2 id={titleId} className="text-lg font-medium text-gray-900 dark:text-gray-100">{title}</h2>
           <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

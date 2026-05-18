@@ -1,19 +1,30 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { CopyButton } from '@/components/ui/CopyButton';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { api } from '@/lib/api';
 import type { RegistryManifestKind, RegistryPlatformRef } from '@/types';
 
+interface BreadcrumbSegment {
+  /** Label shown in the breadcrumb (e.g. `org-acme/foo:rc1` or `linux/amd64`). */
+  label: string;
+  /** When set, clicking the segment fires this callback (truncates the URL state to this point). */
+  onClick?: () => void;
+}
+
 interface ManifestDetailProps {
-  /** What `useImageDetail` returned for the selected tag (or null while loading). */
   kind: RegistryManifestKind | null;
   loading: boolean;
   error: Error | null;
-  /** Breadcrumb prefix — `repo:tag`. Includes platform suffix when drilled in. */
-  breadcrumb: string;
-  /** When the user clicks a platform in an index, the page advances the URL state. */
+  /** Segments rendered as breadcrumbs; earlier segments are clickable to walk back. */
+  breadcrumbs: BreadcrumbSegment[];
+  /** Drilled-into a multi-arch index? Triggered when user clicks a platform row. */
   onSelectPlatform?: (osArch: string) => void;
+  /** Repo name — needed to scan for tags pointing to this digest. */
+  repo: string | null;
 }
 
 type Tab = 'summary' | 'json';
@@ -23,12 +34,24 @@ type Tab = 'summary' | 'json';
  *  - `image`: Summary tab shows config-derived fields; JSON tab shows the raw manifest.
  *  - `index`: Summary lists platform refs (click to drill in); JSON shows the index body.
  *  - `unknown`: Goes straight to JSON tab with an inline notice.
+ *
+ * Also shows a "Other tags pointing to this digest" expandable section so
+ * the operator sees the blast radius of a delete without leaving the page.
  */
-export function ManifestDetail({ kind, loading, error, breadcrumb, onSelectPlatform }: ManifestDetailProps) {
+export function ManifestDetail({
+  kind, loading, error, breadcrumbs, onSelectPlatform, repo,
+}: ManifestDetailProps) {
   const [tab, setTab] = useState<Tab>('summary');
 
   if (loading) {
-    return <div className="p-6 text-sm text-gray-500 dark:text-gray-400">Loading manifest…</div>;
+    return (
+      <div className="p-4 space-y-3">
+        <Skeleton className="h-5 w-2/3" />
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-5/6" />
+        <Skeleton className="h-3 w-4/5" />
+      </div>
+    );
   }
   if (error) {
     return (
@@ -39,7 +62,11 @@ export function ManifestDetail({ kind, loading, error, breadcrumb, onSelectPlatf
     );
   }
   if (!kind) {
-    return <div className="p-6 text-sm text-gray-500 dark:text-gray-400">Select a tag to view its manifest.</div>;
+    return (
+      <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
+        Select a tag to view its manifest. Multi-arch tags expand into per-platform manifests; click a platform to drill in.
+      </div>
+    );
   }
 
   // `unknown` kind always shows JSON only — no summary tab.
@@ -48,11 +75,29 @@ export function ManifestDetail({ kind, loading, error, breadcrumb, onSelectPlatf
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">
       <div className="p-3 border-b border-gray-200 dark:border-gray-700">
-        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono truncate" title={breadcrumb}>
-          {breadcrumb}
+        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono truncate">
+          {breadcrumbs.map((seg, i) => (
+            <span key={i}>
+              {i > 0 && <span className="text-gray-400 mx-1">→</span>}
+              {seg.onClick ? (
+                <button
+                  onClick={seg.onClick}
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                  title="Back to this level"
+                >
+                  {seg.label}
+                </button>
+              ) : (
+                <span>{seg.label}</span>
+              )}
+            </span>
+          ))}
         </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-1 truncate" title={kind.manifest.digest}>
-          {kind.manifest.digest}
+        <div className="mt-1 flex items-center gap-2">
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate flex-1" title={kind.manifest.digest}>
+            {kind.manifest.digest}
+          </span>
+          <CopyButton text={kind.manifest.digest} />
         </div>
       </div>
 
@@ -89,6 +134,9 @@ export function ManifestDetail({ kind, loading, error, breadcrumb, onSelectPlatf
             {JSON.stringify(kind.manifest.body, null, 2)}
           </pre>
         )}
+        {repo && kind.manifest.digest && (
+          <TagsForDigest repo={repo} digest={kind.manifest.digest} />
+        )}
       </div>
     </div>
   );
@@ -99,7 +147,6 @@ function ImageSummary({ kind }: { kind: Extract<RegistryManifestKind, { kind: 'i
   return (
     <dl className="p-4 grid grid-cols-[8rem_1fr] gap-y-2 gap-x-3 text-sm">
       <Field label="Media type" value={kind.manifest.mediaType} mono />
-      <Field label="Size" value={`${kind.manifest.size ?? 0} B`} />
       <Field label="Created" value={cfg.created ? new Date(cfg.created).toLocaleString() : '—'} />
       <Field label="OS / Arch" value={cfg.os && cfg.architecture ? `${cfg.os}/${cfg.architecture}` : '—'} />
       <Field label="Working dir" value={cfg.config?.WorkingDir ?? '—'} mono />
@@ -174,5 +221,107 @@ function Field({ label, value, mono = false }: { label: string; value: string; m
       <dt className="text-gray-500 dark:text-gray-400 font-medium">{label}</dt>
       <dd className={`text-gray-900 dark:text-gray-100 break-all ${mono ? 'font-mono text-xs' : ''}`}>{value}</dd>
     </>
+  );
+}
+
+/**
+ * Eagerly scans the list of other tags in `repo` that point to the given
+ * `digest`. Useful so the operator sees the blast radius of a delete
+ * before they even hit the delete button — and as a general "what else is
+ * this manifest tagged as?" reference.
+ *
+ * Default-open behavior: when 2+ tags share the digest, auto-open the
+ * disclosure so the blast radius is visible without an extra click. The
+ * operator can still toggle it closed; `manualOpen` overrides the auto
+ * default after any user interaction.
+ */
+function TagsForDigest({ repo, digest }: { repo: string; digest: string }) {
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const [tags, setTags] = useState<string[] | null>(null);
+  const [scanning, setScanning] = useState(true);
+  const [scannedCount, setScannedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setScanning(true);
+    setScannedCount(0);
+    setTags(null);
+    setManualOpen(null);
+    (async () => {
+      try {
+        const res = await api.listImageTags(repo);
+        if (cancelled) return;
+        const all = res.data?.tags ?? [];
+        setTotalCount(all.length);
+        // Cap at 50 to bound the scan; parallelize for speed.
+        const toScan = all.slice(0, 50);
+        const found: string[] = [];
+        let done = 0;
+        const fetchOne = async (t: string) => {
+          try {
+            const m = await api.getImageManifest(repo, t);
+            if (m.data?.digest === digest) found.push(t);
+          } catch {
+            // skip
+          }
+          done++;
+          if (!cancelled) setScannedCount(done);
+        };
+        // Bounded concurrency: 8 in flight at a time.
+        for (let i = 0; i < toScan.length; i += 8) {
+          if (cancelled) return;
+          await Promise.all(toScan.slice(i, i + 8).map(fetchOne));
+        }
+        if (!cancelled) {
+          setTags(found.sort());
+          setScanning(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setTags([]);
+          setScanning(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [repo, digest]);
+
+  // Auto-open if 2+ tags share this digest. Manual toggle overrides.
+  const autoOpen = !!tags && tags.length > 1;
+  const isOpen = manualOpen ?? autoOpen;
+  const sharedCount = tags?.length ?? 0;
+
+  return (
+    <details
+      open={isOpen}
+      className="mx-3 mb-3 border border-gray-200 dark:border-gray-700 rounded text-sm"
+      onToggle={(e) => setManualOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="px-3 py-2 cursor-pointer text-gray-700 dark:text-gray-300 font-medium flex items-center gap-2">
+        <span>Other tags pointing to this digest</span>
+        {!scanning && (
+          <span className={`ml-auto text-xs font-normal ${sharedCount > 1 ? 'text-orange-700 dark:text-orange-300' : 'text-gray-500'}`}>
+            {sharedCount === 0 ? '(none)' : `(${sharedCount} found)`}
+          </span>
+        )}
+      </summary>
+      <div className="px-3 pb-3">
+        {scanning && (
+          <div className="text-xs text-gray-500">
+            Scanning… {scannedCount}/{Math.min(totalCount, 50)} tag(s) checked
+          </div>
+        )}
+        {!scanning && tags && tags.length === 0 && (
+          <div className="text-xs text-gray-500">No other tags share this digest{totalCount > 50 ? ' (scan capped at 50 — repo has more)' : ''}.</div>
+        )}
+        {!scanning && tags && tags.length > 0 && (
+          <ul className="font-mono text-xs space-y-0.5">
+            {tags.map((t) => <li key={t}>{t}</li>)}
+            {totalCount > 50 && <li className="italic text-gray-500">…and {totalCount - 50} tag(s) not scanned</li>}
+          </ul>
+        )}
+      </div>
+    </details>
   );
 }

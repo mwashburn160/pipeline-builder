@@ -21,7 +21,12 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !loading) onCancel();
+      if (e.key === 'Escape' && !loading) {
+        // Stop propagation so a parent modal (if this is nested inside one)
+        // doesn't also receive the Escape and close itself.
+        e.stopPropagation();
+        onCancel();
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
     cancelRef.current?.focus();

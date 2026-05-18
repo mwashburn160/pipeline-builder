@@ -27,7 +27,10 @@ interface UserListItem {
 
 /** System-admin-only page for managing users across all organizations. */
 export default function UsersPage() {
-  const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard({ requireAdmin: true });
+  // All /users routes are sysadmin-only server-side (platform/src/routes/users.ts).
+  // The previous `requireAdmin: true` let org admins reach the page and fail
+  // every API call with 403 — gate matches backend now.
+  const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
 
   const list = useListPage<UserListItem>({
     fields: [

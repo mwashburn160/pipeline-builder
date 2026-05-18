@@ -227,7 +227,16 @@ export function DataTable<T>({
                   <th
                     key={col.id}
                     className={col.headerClassName}
-                    aria-sort={sorted ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                    // For sortable columns that aren't currently sorted,
+                    // announce 'none' so screen readers know the column
+                    // can be sorted; for non-sortable columns omit entirely.
+                    aria-sort={
+                      sortable
+                        ? sorted
+                          ? sort.direction === 'asc' ? 'ascending' : 'descending'
+                          : 'none'
+                        : undefined
+                    }
                   >
                     {sortable ? (
                       <button
