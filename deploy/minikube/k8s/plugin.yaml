@@ -125,7 +125,7 @@ spec:
             failureThreshold: 3
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:3.4.27
+          image: ghcr.io/mwashburn160/plugin:3.4.28
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
