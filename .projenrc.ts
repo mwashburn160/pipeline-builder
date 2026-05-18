@@ -116,15 +116,26 @@ const keywords = [
 const homepage = 'https://mwashburn160.github.io/pipeline-builder/';
 const bugs = { url: 'https://github.com/mwashburn160/pipeline-builder/issues' };
 
-/** Apply the common npm metadata (keywords, homepage, bugs, license) to a projen package. */
+/**
+ * Apply the common npm metadata (keywords, homepage, bugs, license) to a
+ * projen package.
+ *
+ * Pass `{ private: true }` to mark the package as workspace-only — adds
+ * `"private": true` to package.json so `pnpm publish` skips it regardless
+ * of how filters resolved. Use for packages that consumers depend on via
+ * the workspace but should never appear on the npm registry (e.g. internal
+ * SDK wrappers, build-time-only helpers).
+ */
 function addPackageMetadata(
   p: { package: { addField: (k: string, v: unknown) => void } },
   description: string,
+  opts: { private?: boolean } = {},
 ) {
   p.package.addField('description', description);
   p.package.addField('keywords', keywords);
   p.package.addField('homepage', homepage);
   p.package.addField('bugs', bugs);
+  if (opts.private) p.package.addField('private', true);
 }
 
 /**
@@ -259,7 +270,10 @@ const aiCore = new PackageProject({
   devDeps: ['@types/node@25.3.0', `typescript@${typescriptVersion}`],
 });
 aiCore.eslint?.addRules(rules);
-addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
+// Marked private — workspace-only dependency for downstream services.
+// Never published to npm (its version stays at 0.0.0 and any publish run
+// otherwise fails with "Cannot publish over previously published version").
+addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.', { private: true });
 configureJest(aiCore);
 
 // -- Pipeline Events (CodePipeline → Reporting Lambda) --
@@ -274,7 +288,10 @@ const pipelineEvents = new PackageProject({
   ],
 });
 pipelineEvents.eslint?.addRules(rules);
-addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
+// Marked private — Lambda handler bundled into a zip via `lambda.Code.fromAsset()`,
+// never consumed as an `@pipeline-builder/pipeline-events` npm import. Same
+// 0.0.0-version publish-skip pattern as `ai-core`.
+addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.', { private: true });
 configureJest(pipelineEvents);
 
 // =============================================================================

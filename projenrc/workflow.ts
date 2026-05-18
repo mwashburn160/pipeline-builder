@@ -41,8 +41,17 @@ import { TypeScriptProject } from 'projen/lib/typescript';
 /** Projects that are built as Docker images and pushed to registry */
 const IMAGE_PROJECTS = ['frontend', 'platform', 'billing', 'reporting', 'compliance', 'quota', 'message', 'pipeline', 'plugin', 'image-registry'] as const;
 
-/** Projects that are published as npm packages */
-const LIBRARY_PROJECTS = ['api-core', 'api-server', 'pipeline-core', 'pipeline-data', 'pipeline-events', 'pipeline-manager'] as const;
+/**
+ * Projects that are published as npm packages. Used by the release workflow
+ * to decide whether to run `pnpm publish` at all — only triggers when at
+ * least one of these is in the affected set.
+ *
+ * Excludes packages marked `"private": true` in `.projenrc.ts` (currently
+ * `ai-core` and `pipeline-events` — both workspace-only). Adding a private
+ * package here would cause publish runs to fire on its changes with nothing
+ * to actually publish.
+ */
+const LIBRARY_PROJECTS = ['api-core', 'api-server', 'pipeline-core', 'pipeline-data', 'pipeline-manager'] as const;
 
 /**
  * GitHub Actions workflow component for automated releases.
