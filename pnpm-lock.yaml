@@ -146,16 +146,16 @@ importers:
         version: 3.4.32
       '@pipeline-builder/api-server':
         specifier: 3.4.33
-        version: 3.4.33(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
+        version: 3.4.33(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.0))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
         specifier: 3.4.32
-        version: 3.4.32(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        version: 3.4.32(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       bullmq:
         specifier: 5.34.8
         version: 5.34.8
       drizzle-orm:
         specifier: 0.45.1
-        version: 0.45.1(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)(pg@8.18.0)
+        version: 0.45.1(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(pg@8.18.0)
       express:
         specifier: 5.2.1
         version: 5.2.1
@@ -222,10 +222,10 @@ importers:
         version: 3.4.32
       '@pipeline-builder/api-server':
         specifier: 3.4.33
-        version: 3.4.33(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.0))(@types/pg@8.16.0)
+        version: 3.4.33(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
         specifier: 3.4.32
-        version: 3.4.32(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        version: 3.4.32(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       axios:
         specifier: 1.13.5
         version: 1.13.5
@@ -813,7 +813,7 @@ importers:
         specifier: 10.4.24
         version: 10.4.24(postcss@8.5.6)
       jest:
-        specifier: ^30.2.0
+        specifier: 30.3.0
         version: 30.3.0(@types/node@25.3.0)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.25.12))(ts-node@10.9.2(@swc/core@1.15.26)(@types/node@25.3.0)(typescript@5.9.3))
       jest-environment-jsdom:
         specifier: 30.2.0

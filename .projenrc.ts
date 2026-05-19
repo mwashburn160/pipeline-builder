@@ -363,6 +363,15 @@ const frontend = new FrontEndProject({
   gitignore: ['.DS_Store', 'yarn.lock', '.next', '.vscode', 'dist'],
   jest: true,
   jestOptions: {
+    // Pin jest to 30.3.0. The frontend Dockerfile copies only `package.json`
+    // (no workspace lockfile) and runs `pnpm install`, so a caret-range like
+    // `^30.2.0` resolves to whatever's latest at build time. jest-runtime
+    // 30.4.x calls `_moduleMocker.clearMocksOnScope` (added in jest-mock
+    // 30.4.x), but pnpm's peer-dep resolution in that no-lockfile install
+    // pulls a mismatched jest-mock and every jsdom test crashes with
+    // "clearMocksOnScope is not a function". Exact pinning forces a coherent
+    // set across all jest sub-packages.
+    jestVersion: '30.3.0',
     jestConfig: {
       // jsdom enables RTL's render() and visibility/event hooks used by
       // the observability dashboard render tests. Existing pure-logic
