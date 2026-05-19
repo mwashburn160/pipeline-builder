@@ -40,7 +40,7 @@
     "typescript": "5.9.3"
   },
   "dependencies": {
-    "@pipeline-builder/ai-core": "workspace:*",
+    "@pipeline-builder/ai-core": "3.4.28",
     "@pipeline-builder/api-core": "3.4.29",
     "@pipeline-builder/api-server": "3.4.30",
     "@pipeline-builder/pipeline-core": "3.4.29",

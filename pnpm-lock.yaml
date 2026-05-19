@@ -382,8 +382,8 @@ importers:
   api/pipeline:
     dependencies:
       '@pipeline-builder/ai-core':
-        specifier: workspace:*
-        version: link:../../packages/ai-core
+        specifier: 3.4.28
+        version: 3.4.28(zod@4.3.6)
       '@pipeline-builder/api-core':
         specifier: 3.4.29
         version: 3.4.29
@@ -479,8 +479,8 @@ importers:
   api/plugin:
     dependencies:
       '@pipeline-builder/ai-core':
-        specifier: workspace:*
-        version: link:../../packages/ai-core
+        specifier: 3.4.28
+        version: 3.4.28(zod@4.3.6)
       '@pipeline-builder/api-core':
         specifier: 3.4.29
         version: 3.4.29
@@ -3985,6 +3985,10 @@ packages:
     resolution: {integrity: sha512-6hIU3RQu45B+VNTY4Ru8ppFwjVS/S5qwYyGhBotmjxfEKk41I2DlGtRfGJndZ5+6lneE2pwloqunlOyZuX/XAw==}
     cpu: [x64]
     os: [win32]
+
+  '@pipeline-builder/ai-core@3.4.28':
+    resolution: {integrity: sha512-uam/OVzfwfgR2jbBbDa0fhy5pyDBzeF4mI04i3xL+RnIuApCMp3XwhgW45apAOPM3G9c+tssJYWjWG+cTTwlyw==}
+    engines: {node: '>= 24.14.0'}
 
   '@pipeline-builder/api-core@3.4.26':
     resolution: {integrity: sha512-in55LobGYy4bKWBVYASA8CndF4rRp4BLMXU3HYwdXoBvVSYbPdI70Btx9tSrCl6ewkBNfjEBfBERaREZkMBc6w==}
@@ -11791,6 +11795,20 @@ snapshots:
 
   '@oxc-resolver/binding-win32-x64-msvc@11.19.1':
     optional: true
+
+  '@pipeline-builder/ai-core@3.4.28(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/amazon-bedrock': 4.0.64(zod@4.3.6)
+      '@ai-sdk/anthropic': 3.0.47(zod@4.3.6)
+      '@ai-sdk/google': 3.0.31(zod@4.3.6)
+      '@ai-sdk/openai': 3.0.31(zod@4.3.6)
+      '@ai-sdk/openai-compatible': 2.0.31(zod@4.3.6)
+      '@ai-sdk/xai': 3.0.59(zod@4.3.6)
+      '@pipeline-builder/api-core': 3.4.27
+      ai: 6.0.99(zod@4.3.6)
+    transitivePeerDependencies:
+      - supports-color
+      - zod
 
   '@pipeline-builder/api-core@3.4.26':
     dependencies:

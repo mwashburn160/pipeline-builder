@@ -30,14 +30,14 @@ const expressVersion = '5.2.1';
 // in one workspace package don't propagate to its consumers in CI until
 // after a release. nx release rewrites these to a concrete version at
 // publish time, so consumers on npm still get an exact version.
-const ws = 'workspace:*';
+// const ws = 'workspace:*';
 const pkg = {
   apiCore:        '3.4.29',
   pipelineData:   '3.4.29',
   pipelineCore:   '3.4.29',
   apiServer:      '3.4.30',
-  aiCore:         ws,
-  pipelineEvents: ws
+  aiCore:         '3.4.28',
+  pipelineEvents: '3.4.28'
 };
 
 // =============================================================================
@@ -273,7 +273,7 @@ aiCore.eslint?.addRules(rules);
 // Marked private — workspace-only dependency for downstream services.
 // Never published to npm (its version stays at 0.0.0 and any publish run
 // otherwise fails with "Cannot publish over previously published version").
-addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.', { private: true });
+addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
 configureJest(aiCore);
 
 // -- Pipeline Events (CodePipeline → Reporting Lambda) --
@@ -291,7 +291,7 @@ pipelineEvents.eslint?.addRules(rules);
 // Marked private — Lambda handler bundled into a zip via `lambda.Code.fromAsset()`,
 // never consumed as an `@pipeline-builder/pipeline-events` npm import. Same
 // 0.0.0-version publish-skip pattern as `ai-core`.
-addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.', { private: true });
+addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
 configureJest(pipelineEvents);
 
 // =============================================================================

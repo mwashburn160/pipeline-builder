@@ -97,7 +97,7 @@
     },
     {
       "name": "@pipeline-builder/ai-core",
-      "version": "workspace:*",
+      "version": "3.4.28",
       "type": "runtime"
     },
     {
