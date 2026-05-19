@@ -1,15 +1,19 @@
-// Copyright 2026 Pipeline Builder Contributors
-// SPDX-License-Identifier: Apache-2.0
-
 /**
+ * @jest-environment node
+ *
+ * Copyright 2026 Pipeline Builder Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ *
  * Tests for getInitialDark() lazy initializer in useDarkMode hook (Fix 19).
  *
  * The fix changed useDarkMode from useState(false) + useEffect to
  * useState(getInitialDark) so the correct theme is read synchronously
  * on first render, preventing a flash of wrong theme.
  *
- * Since the test environment is 'node', we mock browser globals
- * (window, localStorage, matchMedia) to test getInitialDark directly.
+ * Pinned to the `node` environment (the project-wide default is jsdom) so
+ * this test owns `globalThis.window` — under jsdom, reassigning the global
+ * doesn't replace the real `window` binding the source module sees, and the
+ * SSR case (`delete window`) can't work at all.
  */
 
 // Mock React so the module can be imported in a node environment
