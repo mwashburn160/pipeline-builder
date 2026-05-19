@@ -1,5 +1,14 @@
-// Copyright 2026 Pipeline Builder Contributors
-// SPDX-License-Identifier: Apache-2.0
+/**
+ * @jest-environment node
+ *
+ * Copyright 2026 Pipeline Builder Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Pinned to the `node` environment (project default is jsdom) so the
+ * `globalThis.window` / `globalThis.localStorage` stubs below actually own
+ * the bindings the source module sees. Under jsdom they'd shadow nothing,
+ * and jsdom's real localStorage would leak state across tests.
+ */
 
 // Stub localStorage in node test environment.
 const store = new Map<string, string>();
