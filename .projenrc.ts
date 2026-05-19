@@ -32,12 +32,12 @@ const expressVersion = '5.2.1';
 // publish time, so consumers on npm still get an exact version.
 // const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.4.29',
-  pipelineData:   '3.4.29',
-  pipelineCore:   '3.4.29',
-  apiServer:      '3.4.30',
-  aiCore:         '3.4.28',
-  pipelineEvents: '3.4.28'
+  apiCore:        '3.4.30',
+  pipelineData:   '3.4.30',
+  pipelineCore:   '3.4.30',
+  apiServer:      '3.4.31',
+  aiCore:         '3.4.30',
+  pipelineEvents: '3.4.30'
 };
 
 // =============================================================================
@@ -364,8 +364,14 @@ const frontend = new FrontEndProject({
   jest: true,
   jestOptions: {
     jestConfig: {
-      testEnvironment: 'node',
-      testMatch: ['<rootDir>/test/**/*.test.ts'],
+      // jsdom enables RTL's render() and visibility/event hooks used by
+      // the observability dashboard render tests. Existing pure-logic
+      // tests don't care about the env so the switch is safe.
+      testEnvironment: 'jsdom',
+      testMatch: ['<rootDir>/test/**/*.test.ts', '<rootDir>/test/**/*.test.tsx'],
+      // Auto-extends jest's expect() with `toBeInTheDocument`, `toHaveTextContent`,
+      // etc. from @testing-library/jest-dom — so per-test imports aren't needed.
+      setupFilesAfterEnv: ['<rootDir>/test/jest.setup.ts'],
     },
   },
   deps: [
@@ -379,6 +385,11 @@ const frontend = new FrontEndProject({
     '@types/node@25.3.0', '@types/react@19.2.14', '@types/react-dom@19.2.3',
     '@tailwindcss/postcss@4.2.1', 'autoprefixer@10.4.24',
     'postcss@8.5.6', 'ts-jest@^29.4.6', `typescript@${typescriptVersion}`,
+    // RTL stack for component / page render tests.
+    '@testing-library/react@16.3.0',
+    '@testing-library/jest-dom@6.6.3',
+    '@testing-library/user-event@14.5.2',
+    'jest-environment-jsdom@30.2.0',
   ],
 });
 configureJest(frontend);

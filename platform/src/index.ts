@@ -25,6 +25,18 @@ const metricsRegistry = new Registry();
 metricsRegistry.setDefaultLabels({ service: 'platform' });
 collectDefaultMetrics({ register: metricsRegistry });
 
+// Wire the platform-local business-metric helpers (incCounter, observe,
+// setGauge in ./observability/metrics) to this registry so call sites in
+// controllers + the periodic scraper publish to the same /metrics endpoint
+// exposed below.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { setMetricsRegistry } = require('./observability/metrics');
+setMetricsRegistry(metricsRegistry);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { startPlatformMetricsScraper, stopPlatformMetricsScraper } = require('./observability/scraper');
+startPlatformMetricsScraper();
+process.once('SIGTERM', () => stopPlatformMetricsScraper());
+
 const httpRequestDuration = new Histogram({
   name: 'http_request_duration_seconds',
   help: 'Duration of HTTP requests in seconds',

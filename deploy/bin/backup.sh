@@ -67,7 +67,7 @@ run() {
   if [ "$DRY_RUN" = "1" ]; then
     echo "[dry-run] $*"
   else
-    eval "$@"
+    "$@"
   fi
 }
 
@@ -104,9 +104,9 @@ fi
 # --- Upload to S3 ----------------------------------------------------------
 
 echo "[3/4] Uploading to ${S3_PREFIX}"
-run "aws s3 cp '${PG_FILE}' '${S3_PREFIX}/' --region '${AWS_REGION}'" \
+run aws s3 cp "${PG_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
   || { echo "ERROR: s3 cp postgres failed" >&2; exit 2; }
-run "aws s3 cp '${MONGO_FILE}' '${S3_PREFIX}/' --region '${AWS_REGION}'" \
+run aws s3 cp "${MONGO_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
   || { echo "ERROR: s3 cp mongo failed" >&2; exit 2; }
 
 # --- Retention -------------------------------------------------------------

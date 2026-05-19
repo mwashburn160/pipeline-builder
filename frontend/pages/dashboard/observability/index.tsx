@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import Link from 'next/link';
-import { Activity, BarChart3 } from 'lucide-react';
+import { Activity, BarChart3, LayoutDashboard, ListChecks, Boxes } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -12,15 +12,36 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
  * grow as more dashboards land in follow-up PRs.
  */
 export default function ObservabilityIndexPage() {
-  const { isReady, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
-  if (!isReady || !isSysAdmin) return <LoadingPage />;
+  // Dashboards are visible to any authenticated user — server-side $ORG
+  // substitution scopes their view to their own org. Sysadmins see all
+  // orgs via a regex wildcard substitution.
+  const { isReady, isAuthenticated } = useAuthGuard();
+  if (!isReady || !isAuthenticated) return <LoadingPage />;
 
   const dashboards = [
+    {
+      id: 'platform-overview',
+      title: 'Platform Overview',
+      description: 'Orgs, users, login activity, plus build + queue health at a glance.',
+      icon: LayoutDashboard,
+    },
     {
       id: 'plugin-builds',
       title: 'Plugin Builds',
       description: 'Build throughput, success rate, duration, and BullMQ queue depth.',
       icon: BarChart3,
+    },
+    {
+      id: 'queue-health',
+      title: 'Queue Health',
+      description: 'Wait-time percentiles, DLQ depth, retry rate — for diagnosing congestion.',
+      icon: ListChecks,
+    },
+    {
+      id: 'registry-activity',
+      title: 'Registry Activity',
+      description: 'Copy / delete / promote counters over the in-cluster Docker registry.',
+      icon: Boxes,
     },
     {
       id: 'audit-activity',

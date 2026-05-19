@@ -85,9 +85,10 @@ const NAV_SECTIONS: NavSection[] = [
       { title: 'Plugin Reports', href: '/dashboard/plugin-reports', icon: FileBarChart },
       { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
-      // Observability replaces the previous Grafana iframe entry. Grafana
-      // itself is removed from the deploy in this PR — see plan.
-      { title: 'Observability', href: '/dashboard/observability', icon: BarChart3, systemAdminOnly: true },
+      // Observability is visible to any authenticated user. Server-side
+      // $ORG substitution scopes their view to their own org's metrics;
+      // sysadmins see all orgs.
+      { title: 'Observability', href: '/dashboard/observability', icon: BarChart3 },
     ],
   },
   {

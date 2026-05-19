@@ -17,11 +17,16 @@ export const MAX_REFRESH_ATTEMPTS = 3;
 export const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Quota usage percentage thresholds for status indicators.
- * Aligned with quota-pressure.ts: warning at 80%, critical at 95%.
- * A previous mismatch (warning=70, critical=90) caused the dashboard badge
- * to show "Critical" while the page banner only showed "info" — same data,
- * two different verdicts. Keep these in sync.
+ * Quota usage percentage thresholds for the dashboard status badge
+ * (`statusInfo()` in quota-helpers.ts):
+ *  - >= 95% → Critical (red)
+ *  - >= 80% → Warning (yellow)
+ *  - else  → Healthy (green)
+ *
+ * The QuotaBanner uses a parallel 4-level scale in quota-pressure.ts
+ * (none / info / warning / critical) because a global banner needs a
+ * "low-key heads-up" tier the badge doesn't. Both surfaces share the
+ * 80 / 95 boundaries — keep them in sync if you tune one.
  */
 export const QUOTA_CRITICAL_THRESHOLD = 95;
 export const QUOTA_WARNING_THRESHOLD = 80;

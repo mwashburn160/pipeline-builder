@@ -15,6 +15,7 @@ export type AuditAction =
   // User lifecycle (controllers/auth.ts, controllers/user-profile.ts)
   | 'user.register'
   | 'user.login'
+  | 'user.login.failed'
   | 'user.logout'
   | 'user.delete'
   | 'user.tokens.revoke-all'

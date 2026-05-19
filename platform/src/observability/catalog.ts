@@ -19,25 +19,73 @@ export type QuerySource = 'prometheus-instant' | 'prometheus-range' | 'loki-rang
 
 export interface QueryEntry {
   source: QuerySource;
-  /** Raw PromQL or LogQL. May contain `$EVENT`, `$DIGEST`, `$ACTOR` placeholders. */
+  /** Raw PromQL or LogQL. May contain `$EVENT`, `$DIGEST`, `$ACTOR`, `$ORG` placeholders. */
   query: string;
   /** Allow-list of template variables the frontend may pass for this query. */
   allowedVars: ReadonlyArray<'event' | 'digest' | 'actor'>;
+  /**
+   * When true, the controller substitutes `$ORG` with the caller's org
+   * (sysadmins get a regex wildcard, org admins get their literal org).
+   * Catalog entries that aggregate over an `org_id` label should set this;
+   * entries that have no org context (global health metrics) can omit it.
+   */
+  orgScoped?: boolean;
 }
 
 export const QUERIES: Record<string, QueryEntry> = {
+  // -- Platform Overview dashboard --------------------------------------------
+  platform_orgs_total: {
+    source: 'prometheus-instant',
+    query: 'platform_orgs_total',
+    allowedVars: [],
+  },
+  platform_users_total: {
+    source: 'prometheus-instant',
+    query: 'platform_users_total',
+    allowedVars: [],
+  },
+  platform_logins_24h: {
+    source: 'prometheus-instant',
+    query: 'sum(increase(platform_logins_total[24h]))',
+    allowedVars: [],
+  },
+  platform_logins_per_min: {
+    source: 'prometheus-range',
+    query: 'sum(rate(platform_logins_total[1m]))',
+    allowedVars: [],
+  },
+  platform_logins_failed_24h: {
+    source: 'prometheus-instant',
+    query: 'sum(increase(platform_logins_failed_total[24h]))',
+    allowedVars: [],
+  },
+  platform_logins_failed_per_min: {
+    source: 'prometheus-range',
+    query: 'sum(rate(platform_logins_failed_total[1m]))',
+    allowedVars: [],
+  },
+  platform_memberships_active_total: {
+    source: 'prometheus-instant',
+    query: 'platform_memberships_active_total',
+    allowedVars: [],
+  },
+
   // -- Plugin Builds dashboard ------------------------------------------------
+  // These queries have an `org_id` label on the underlying counter, so they
+  // support org-scoping. `$ORG` is substituted server-side per request.
   plugin_builds_per_min: {
     source: 'prometheus-range',
-    query: 'sum by (status) (rate(plugin_builds_total[1m]))',
+    query: 'sum by (status) (rate(plugin_builds_total{org_id=~".+"$ORG}[1m]))',
     allowedVars: [],
+    orgScoped: true,
   },
   plugin_build_success_rate_5m: {
     source: 'prometheus-range',
     query:
-      'sum(rate(plugin_builds_total{status="success"}[5m])) '
-      + '/ clamp_min(sum(rate(plugin_builds_total[5m])), 1)',
+      'sum(rate(plugin_builds_total{status="success"$ORG}[5m])) '
+      + '/ clamp_min(sum(rate(plugin_builds_total{org_id=~".+"$ORG}[5m])), 1)',
     allowedVars: [],
+    orgScoped: true,
   },
   plugin_queue_depth: {
     source: 'prometheus-range',
@@ -51,7 +99,67 @@ export const QUERIES: Record<string, QueryEntry> = {
   },
   plugin_builds_total_24h: {
     source: 'prometheus-instant',
-    query: 'sum(increase(plugin_builds_total[24h]))',
+    query: 'sum(increase(plugin_builds_total{org_id=~".+"$ORG}[24h]))',
+    allowedVars: [],
+    orgScoped: true,
+  },
+
+  // -- Queue Health dashboard -------------------------------------------------
+  plugin_job_wait_p50: {
+    source: 'prometheus-range',
+    query: 'histogram_quantile(0.5, sum by (le) (rate(plugin_job_wait_seconds_bucket[5m])))',
+    allowedVars: [],
+  },
+  plugin_job_wait_p95: {
+    source: 'prometheus-range',
+    query: 'histogram_quantile(0.95, sum by (le) (rate(plugin_job_wait_seconds_bucket[5m])))',
+    allowedVars: [],
+  },
+  plugin_job_wait_p99: {
+    source: 'prometheus-range',
+    query: 'histogram_quantile(0.99, sum by (le) (rate(plugin_job_wait_seconds_bucket[5m])))',
+    allowedVars: [],
+  },
+  plugin_dlq_size: {
+    source: 'prometheus-range',
+    query: 'sum by (state) (plugin_queue_jobs{queue="plugin-build-dlq"})',
+    allowedVars: [],
+  },
+  plugin_retry_rate: {
+    source: 'prometheus-range',
+    query: 'sum(rate(plugin_builds_total{status="failed"}[5m]))',
+    allowedVars: [],
+  },
+
+  // -- Registry Activity dashboard --------------------------------------------
+  registry_copies_per_min: {
+    source: 'prometheus-range',
+    query: 'sum(rate(registry_tag_copy_total[1m]))',
+    allowedVars: [],
+  },
+  registry_deletes_per_min: {
+    source: 'prometheus-range',
+    query: 'sum(rate(registry_tag_delete_total[1m]))',
+    allowedVars: [],
+  },
+  registry_promotions_per_hour: {
+    source: 'prometheus-range',
+    query: 'sum(rate(registry_tag_promote_total[1h])) * 3600',
+    allowedVars: [],
+  },
+  registry_copies_24h: {
+    source: 'prometheus-instant',
+    query: 'sum(increase(registry_tag_copy_total[24h]))',
+    allowedVars: [],
+  },
+  registry_deletes_24h: {
+    source: 'prometheus-instant',
+    query: 'sum(increase(registry_tag_delete_total[24h]))',
+    allowedVars: [],
+  },
+  registry_promotions_24h: {
+    source: 'prometheus-instant',
+    query: 'sum(increase(registry_tag_promote_total[24h]))',
     allowedVars: [],
   },
 
@@ -86,7 +194,7 @@ export const QUERIES: Record<string, QueryEntry> = {
  */
 export function substituteVars(
   query: string,
-  vars: { event?: string; digest?: string; actor?: string },
+  vars: { event?: string; digest?: string; actor?: string; org?: string; isSysAdmin?: boolean },
   allowed: ReadonlyArray<'event' | 'digest' | 'actor'>,
 ): string {
   let result = query;
@@ -105,6 +213,20 @@ export function substituteVars(
   const actorClause = allowed.includes('actor') && vars.actor && /^[a-zA-Z0-9._@-]+$/.test(vars.actor)
     ? `,actor="${vars.actor}"` : '';
   result = result.replace('$ACTOR', actorClause);
+
+  // org: substituted by the controller (not from the frontend). Sysadmins
+  // get a regex wildcard so they see all orgs; org admins get a literal
+  // match scoped to their org. The substitution happens regardless of
+  // `allowed` — `$ORG` is server-driven, not user-supplied.
+  if (vars.isSysAdmin) {
+    result = result.replace('$ORG', ',org_id=~".+"');
+  } else if (vars.org && /^[a-zA-Z0-9_-]+$/.test(vars.org)) {
+    result = result.replace('$ORG', `,org_id="${vars.org}"`);
+  } else {
+    // Missing/invalid org for a non-sysadmin — substitute empty match so
+    // the query returns nothing rather than leaking all data.
+    result = result.replace('$ORG', ',org_id="__no_org__"');
+  }
 
   return result;
 }

@@ -8,6 +8,7 @@ import {
   ErrorCode,
   createLogger,
   getParam,
+  getServiceAuthHeader,
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -102,9 +103,12 @@ export function createSubscriptionRoutes(): Router {
       externalCustomerId: externalResult.externalCustomerId,
     });
 
-    // Sync tier to quota service
-    const authHeader = req.headers.authorization || '';
-    await syncTierToQuotaService(orgId, plan.tier, authHeader);
+    // Sync tier to quota service via a freshly-minted service token rather
+    // than forwarding the user's bearer. The quota service trusts billing
+    // as a peer service; forwarding the user token would mean a compromised
+    // quota service receives the user's full session credential.
+    const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId });
+    await syncTierToQuotaService(orgId, plan.tier, serviceAuth);
 
     // Log billing event
     await createBillingEvent(orgId, 'subscription_created', {
@@ -172,10 +176,11 @@ export function createSubscriptionRoutes(): Router {
 
     await subscription.save();
 
-    // Sync tier if plan changed
+    // Sync tier if plan changed. Use a service token rather than forwarding
+    // the caller's bearer (see create-subscription comment for rationale).
     if (plan) {
-      const authHeader = req.headers.authorization || '';
-      await syncTierToQuotaService(orgId, plan.tier, authHeader);
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId });
+      await syncTierToQuotaService(orgId, plan.tier, serviceAuth);
     }
 
     logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });

@@ -14,7 +14,7 @@ import {
   emitAudit,
   createLogger,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import {
@@ -155,6 +155,7 @@ export function createImageRoutes(): Router {
         ref: reference,
         digest,
       });
+      incCounter('registry_tag_delete_total');
       return sendSuccess(res, 200, { name, digest, deleted: true });
     } catch (err) {
       if (isNotFound(err)) return sendEntityNotFound(res, 'Manifest');
@@ -319,6 +320,12 @@ export function createImageRoutes(): Router {
       isPromotionToSystem: targetRepo.startsWith('system/'),
       mounted: { manifests: mountedManifests, blobs: mountedBlobs },
     });
+    // Two counters: total copies + a separate counter for system-promotions
+    // so the dashboard can show promotion velocity without dividing series.
+    incCounter('registry_tag_copy_total');
+    if (targetRepo.startsWith('system/')) {
+      incCounter('registry_tag_promote_total');
+    }
 
     return sendSuccess(res, 200, {
       source, target,

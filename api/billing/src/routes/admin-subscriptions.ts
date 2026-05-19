@@ -9,6 +9,7 @@ import {
   sendBadRequest,
   ErrorCode,
   getParam,
+  getServiceAuthHeader,
   parseQueryInt,
   parseQueryString,
   validateBody,
@@ -91,9 +92,10 @@ export function createAdminSubscriptionRoutes(): Router {
         const oldPlanId = subscription.planId;
         subscription.planId = planId;
 
-        // Sync tier
-        const authHeader = req.headers.authorization || '';
-        await syncTierToQuotaService(orgId, plan.tier, authHeader);
+        // Sync tier via service-to-service auth (avoid forwarding the
+        // admin's bearer to the quota service).
+        const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId });
+        await syncTierToQuotaService(orgId, plan.tier, serviceAuth);
         await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId);
       }
 

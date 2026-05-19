@@ -493,23 +493,6 @@ Resources:
         - Key: Name
           Value: !Sub "${StackPrefix}-efs-loki"
 
-  GrafanaAccessPoint:
-    Type: AWS::EFS::AccessPoint
-    Properties:
-      FileSystemId: !Ref EFSFileSystem
-      PosixUser:
-        Uid: "472"
-        Gid: "472"
-      RootDirectory:
-        Path: /data/grafana
-        CreationInfo:
-          OwnerUid: "472"
-          OwnerGid: "472"
-          Permissions: "0755"
-      AccessPointTags:
-        - Key: Name
-          Value: !Sub "${StackPrefix}-efs-grafana"
-
   PgadminAccessPoint:
     Type: AWS::EFS::AccessPoint
     Properties:
@@ -679,12 +662,6 @@ Outputs:
     Value: !GetAtt LokiAccessPoint.Arn
     Export:
       Name: !Sub "${StackPrefix}-LokiAccessPointArn"
-
-  GrafanaAccessPointArn:
-    Description: EFS Access Point ARN for Grafana
-    Value: !GetAtt GrafanaAccessPoint.Arn
-    Export:
-      Name: !Sub "${StackPrefix}-GrafanaAccessPointArn"
 
   PgadminAccessPointArn:
     Description: EFS Access Point ARN for pgAdmin

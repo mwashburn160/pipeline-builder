@@ -933,16 +933,17 @@ class ApiClient {
    * @throws {ApiError} for 4xx/5xx other than 413.
    */
   async getImageBlob(name: string, digest: string): Promise<unknown> {
-    const url = `${API_URL}/api/images/${encodeURIComponent(name)}/blobs/${encodeURIComponent(digest)}`;
-    const headers: Record<string, string> = {};
-    if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
-    if (this.organizationId) headers['x-org-id'] = this.organizationId;
-    const res = await fetch(url, { headers });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ message: 'Blob fetch failed' }));
-      throw toRegistryError(body.message ?? 'Blob fetch failed', res.status, body.code, body.details);
+    const endpoint = `/api/images/${encodeURIComponent(name)}/blobs/${encodeURIComponent(digest)}`;
+    try {
+      // request() handles proactive refresh, 401-retry-after-refresh, and timeout —
+      // blob endpoints inherit those guarantees instead of forking the auth plumbing.
+      return await this.request<unknown>(endpoint);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        throw toRegistryError(err.message, err.statusCode, err.code, err.details);
+      }
+      throw err;
     }
-    return res.json();
   }
 
   /** Delete the manifest pointed to by `<name>:<reference>` (resolves to digest, then deletes). */

@@ -116,6 +116,29 @@ describe('observability catalog', () => {
     });
   });
 
+  describe('substituteVars: $ORG (server-driven, not from allowedVars)', () => {
+    it('substitutes a regex wildcard for sysadmins', () => {
+      const out = substituteVars('foo{a="b"$ORG}', { isSysAdmin: true }, []);
+      expect(out).toBe('foo{a="b",org_id=~".+"}');
+    });
+
+    it('substitutes a literal match for non-sysadmins with a valid org', () => {
+      const out = substituteVars('foo{a="b"$ORG}', { org: 'org-acme', isSysAdmin: false }, []);
+      expect(out).toBe('foo{a="b",org_id="org-acme"}');
+    });
+
+    it('substitutes a never-match clause when non-sysadmin has no org', () => {
+      const out = substituteVars('foo{a="b"$ORG}', { isSysAdmin: false }, []);
+      expect(out).toBe('foo{a="b",org_id="__no_org__"}');
+    });
+
+    it('rejects a hostile org value (regex injection)', () => {
+      const out = substituteVars('foo{$ORG}', { org: 'foo".+",other="bar', isSysAdmin: false }, []);
+      // Invalid org chars → empty-match selector instead of injection
+      expect(out).toBe('foo{,org_id="__no_org__"}');
+    });
+  });
+
   describe('stepForRange', () => {
     it('returns the documented step for each preset', () => {
       expect(stepForRange('1h')).toBe('15s');

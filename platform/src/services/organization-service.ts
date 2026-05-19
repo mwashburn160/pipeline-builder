@@ -12,6 +12,7 @@ import {
 } from '../middleware/quota';
 import { Organization, User, UserOrganization } from '../models';
 import type { QuotaTier } from '../models/organization';
+import { escapeRegex } from '../utils/regex';
 
 const logger = createLogger('OrganizationService');
 
@@ -89,9 +90,12 @@ class OrganizationService {
   async list({ search, offset, limit }: ListParams): Promise<{ organizations: OrgSummary[]; total: number }> {
     const filter: Record<string, unknown> = {};
     if (search) {
+      // Treat the search term as a literal substring (escape metachars).
+      // See utils/regex.ts for rationale.
+      const safe = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { slug: { $regex: search, $options: 'i' } },
+        { name: { $regex: safe, $options: 'i' } },
+        { slug: { $regex: safe, $options: 'i' } },
       ];
     }
 

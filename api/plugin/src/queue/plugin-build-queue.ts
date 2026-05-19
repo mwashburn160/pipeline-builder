@@ -338,6 +338,15 @@ export function startWorker(
     async (job: Job<PluginBuildJobData>) => {
       const { requestId, orgId, userId, buildRequest, pluginRecord } = job.data;
 
+      // Histogram for the Queue Health dashboard. `timestamp` is when the
+      // job was enqueued; we observe the wait time (queue depth × concurrency
+      // dynamics) at the moment the worker pulls it. processedOn is set by
+      // BullMQ around the same instant — use `now()` to be safe across
+      // BullMQ versions.
+      if (job.timestamp) {
+        observe('plugin_job_wait_seconds', {}, (Date.now() - job.timestamp) / 1000);
+      }
+
       sseManager.send(requestId, 'INFO', 'Build started', {
         jobId: job.id,
         plugin: `${pluginRecord.name}:${pluginRecord.version}`,
@@ -416,7 +425,10 @@ export function startWorker(
     // BullMQ timeout signal — same shape the docker-build helper uses for the
     // SIGKILL-on-deadline path. Everything else is `failed`.
     const isTimeout = /timed out|timeout/i.test(error.message);
-    incCounter('plugin_builds_total', { status: isTimeout ? 'timeout' : 'failed' });
+    incCounter('plugin_builds_total', {
+      status: isTimeout ? 'timeout' : 'failed',
+      org_id: orgId ?? 'unknown',
+    });
 
     logger.error('Plugin build failed', {
       jobId: job.id,
@@ -493,7 +505,8 @@ export function startWorker(
   });
 
   worker.on('completed', (job) => {
-    incCounter('plugin_builds_total', { status: 'success' });
+    const orgId = job.data?.orgId ?? 'unknown';
+    incCounter('plugin_builds_total', { status: 'success', org_id: orgId });
     // Histogram covers wait-to-start as well as run time: `processedOn` is
     // when the worker picked up the job, `finishedOn` is when the handler
     // resolved. `finishedOn` should always be set on completion but BullMQ's
@@ -501,7 +514,7 @@ export function startWorker(
     if (job.processedOn && job.finishedOn) {
       observe(
         'plugin_build_duration_seconds',
-        {},
+        { org_id: orgId },
         (job.finishedOn - job.processedOn) / 1000,
       );
     }

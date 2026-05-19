@@ -13,7 +13,9 @@ export function fmtNum(n: number): string {
 }
 
 export function daysUntil(iso: string): string {
-  const d = Math.ceil((new Date(iso).getTime() - Date.now()) / 864e5);
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return '—';
+  const d = Math.ceil((ms - Date.now()) / 864e5);
   if (d <= 0) return 'Today';
   if (d === 1) return 'Tomorrow';
   return `${d}d`;

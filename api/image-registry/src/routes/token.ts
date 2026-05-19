@@ -4,6 +4,7 @@
 import { sendError, ErrorCode } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { config } from '../config';
 import { resolveIdentity } from '../services/auth-resolver';
 import { authorizeAndIssue, parseScope, type RequestedScope } from '../services/token-service';
 
@@ -76,7 +77,11 @@ export function createTokenRoute(): Router {
     res.status(200).json({
       token,
       access_token: token,
-      expires_in: 300,
+      // Advertise the same TTL the JWT actually carries; `expires_in` is
+      // what Docker clients use to schedule the next /token fetch, so a
+      // hardcoded 300 here would race the real `exp` when an operator
+      // overrides REGISTRY_TOKEN_EXPIRES_IN.
+      expires_in: config.tokenSigning.expiresInSeconds,
       issued_at: issuedAt.toISOString(),
     });
   }, { requireOrgId: false }));

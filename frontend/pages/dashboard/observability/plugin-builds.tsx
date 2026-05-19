@@ -23,7 +23,7 @@ function parseRange(raw: unknown): RangeKey {
 }
 
 export default function PluginBuildsDashboardPage() {
-  const { isReady, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { isReady, isAuthenticated } = useAuthGuard();
   const router = useRouter();
 
   const range = parseRange(router.query.range);
@@ -32,7 +32,7 @@ export default function PluginBuildsDashboardPage() {
     void router.replace({ pathname: router.pathname, query: { ...router.query, range: next } }, undefined, { shallow: true });
   }, [router]);
 
-  if (!isReady || !isSysAdmin) return <LoadingPage />;
+  if (!isReady || !isAuthenticated) return <LoadingPage />;
 
   return (
     <DashboardLayout

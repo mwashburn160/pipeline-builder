@@ -6,6 +6,21 @@
       "type": "build"
     },
     {
+      "name": "@testing-library/jest-dom",
+      "version": "6.6.3",
+      "type": "build"
+    },
+    {
+      "name": "@testing-library/react",
+      "version": "16.3.0",
+      "type": "build"
+    },
+    {
+      "name": "@testing-library/user-event",
+      "version": "14.5.2",
+      "type": "build"
+    },
+    {
       "name": "@types/node",
       "version": "25.3.0",
       "type": "build"
@@ -30,6 +45,11 @@
       "type": "build"
     },
     {
+      "name": "jest-environment-jsdom",
+      "version": "30.2.0",
+      "type": "build"
+    },
+    {
       "name": "jest-junit",
       "version": "^16",
       "type": "build"
@@ -51,17 +71,17 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.4.29",
-      "type": "runtime"
-    },
-    {
-      "name": "@pipeline-builder/api-server",
       "version": "3.4.30",
       "type": "runtime"
     },
     {
+      "name": "@pipeline-builder/api-server",
+      "version": "3.4.31",
+      "type": "runtime"
+    },
+    {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.4.29",
+      "version": "3.4.30",
       "type": "runtime"
     },
     {

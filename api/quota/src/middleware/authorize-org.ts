@@ -47,6 +47,11 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
       return sendError(res, 400, 'Organization ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
     }
 
+    // Case-insensitive to tolerate client casing variations (e.g., `ORG-1`
+    // vs `org-1`). Org-creation normalizes case at storage time, so two
+    // orgs cannot coexist with same-name-different-case — the lower() on
+    // both sides is convenience, not a security weakening. See test
+    // `should allow same-org access case-insensitively`.
     const isSameOrg = requestingOrgId.toLowerCase() === targetOrgId.toLowerCase();
     const isSysAdmin = isSystemAdmin(req);
 

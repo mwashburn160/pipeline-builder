@@ -34,7 +34,7 @@ function getStr(raw: unknown): string | undefined {
  * The page is sysadmin-only; org-scoping is deferred (see plan).
  */
 export default function AuditActivityDashboardPage() {
-  const { isReady, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { isReady, isAuthenticated } = useAuthGuard();
   const router = useRouter();
 
   const range = parseRange(router.query.range);
@@ -50,7 +50,7 @@ export default function AuditActivityDashboardPage() {
     void router.replace({ pathname: router.pathname, query: { range } }, undefined, { shallow: true });
   }, [router, range]);
 
-  if (!isReady || !isSysAdmin) return <LoadingPage />;
+  if (!isReady || !isAuthenticated) return <LoadingPage />;
 
   const hasFilter = !!(event || actor || digest);
 

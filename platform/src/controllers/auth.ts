@@ -7,6 +7,7 @@ import { audit } from '../helpers/audit';
 import { withController } from '../helpers/controller-helper';
 import { authService, DUPLICATE_CREDENTIALS } from '../services';
 import { issueTokens } from '../utils/token';
+import { incCounter } from '../observability/metrics';
 import { validateBody, registerSchema, loginSchema, refreshSchema } from '../utils/validation';
 
 const logger = createLogger('AuthController');
@@ -92,7 +93,15 @@ export const login = withController('Login', async (req, res) => {
   if (!body) return;
 
   const user = await authService.findByCredentials(body.identifier, body.password);
-  if (!user) return sendError(res, 401, 'Invalid credentials');
+  if (!user) {
+    // Emit a failed-login audit + counter so brute-force / credential-stuffing
+    // attempts are visible to security teams + the Platform Overview
+    // dashboard. Captures `identifier` (not the password) — same shape
+    // as a typical SIEM auth-failure signal.
+    audit(req, 'user.login.failed', { targetType: 'user', details: { identifier: body.identifier } });
+    incCounter('platform_logins_failed_total');
+    return sendError(res, 401, 'Invalid credentials');
+  }
 
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
 
@@ -100,6 +109,8 @@ export const login = withController('Login', async (req, res) => {
     httpOnly: true, secure: config.auth.cookie.secure, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
   });
   audit(req, 'user.login', { targetType: 'user', targetId: user._id.toString() });
+  // Counter consumed by the Platform Overview dashboard's "logins/min" panel.
+  incCounter('platform_logins_total');
   sendSuccess(res, 200, tokens);
 });
 

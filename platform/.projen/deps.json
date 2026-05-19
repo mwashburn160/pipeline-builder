@@ -112,7 +112,7 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.4.29",
+      "version": "3.4.30",
       "type": "runtime"
     },
     {

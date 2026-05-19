@@ -42,6 +42,11 @@ spec:
         prometheus.io/port: "3000"
         prometheus.io/path: "/metrics"
     spec:
+      # The plugin pod orchestrates user-supplied Dockerfile builds via the
+      # rootless buildkitd sidecar. The plugin doesn't talk to the k8s API, so
+      # don't mount a service-account token — keeps the build sandbox from
+      # being able to enumerate cluster state if a malicious build escapes.
+      automountServiceAccountToken: false
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

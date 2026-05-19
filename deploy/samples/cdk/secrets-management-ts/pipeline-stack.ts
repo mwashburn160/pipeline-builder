@@ -221,7 +221,12 @@ export class SecretsManagementPipelineStack extends Stack {
               },
               position: 'pre',
               timeout: 30,
-              commands: ['npm ci', 'npx cdk deploy --all --require-approval never'],
+              // `--require-approval any-change` is the safer default for a
+              // production-ish deploy — CloudFormation will pause on any
+              // security-impacting change (IAM, security groups, etc.). Swap
+              // to `never` only in lower environments where unattended
+              // deploys are explicitly desired.
+              commands: ['npm ci', 'npx cdk deploy --all --require-approval any-change'],
             },
           ],
         },

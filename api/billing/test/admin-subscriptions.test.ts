@@ -38,6 +38,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
     debug: jest.fn(),
   }),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
+  getServiceAuthHeader: jest.fn(() => 'Bearer service-token'),
   errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   parseQueryInt: jest.fn((_val: unknown, defaultVal: number) => defaultVal),
   parseQueryString: jest.fn((_val: unknown) => undefined as string | undefined),

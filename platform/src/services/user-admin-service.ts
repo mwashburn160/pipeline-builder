@@ -5,6 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { toOrgId } from '../helpers/controller-helper';
 import { User, Organization, UserOrganization } from '../models';
+import { escapeRegex } from '../utils/regex';
 
 const logger = createLogger('UserAdminService');
 
@@ -58,9 +59,13 @@ class UserAdminService {
     const mongoFilter: Record<string, unknown> = {};
     if (scopedUserIds !== null) mongoFilter._id = { $in: scopedUserIds };
     if (filter.search) {
+      // Escape regex metacharacters — a search of `.*` shouldn't match
+      // everything, and `(` shouldn't be a syntax error that fails the
+      // query. Treat the search string as a literal substring.
+      const safe = escapeRegex(filter.search);
       mongoFilter.$or = [
-        { username: { $regex: filter.search, $options: 'i' } },
-        { email: { $regex: filter.search, $options: 'i' } },
+        { username: { $regex: safe, $options: 'i' } },
+        { email: { $regex: safe, $options: 'i' } },
       ];
     }
 

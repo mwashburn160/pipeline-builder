@@ -19,7 +19,7 @@
 
 import { sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
-import { requireSystemAdmin, withController } from '../helpers/controller-helper';
+import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper';
 import {
   QUERIES,
   rangeSeconds,
@@ -68,7 +68,10 @@ function sendUpstreamError(res: Response, err: unknown): void {
  * array. Both shape decisions are stable contracts the frontend depends on.
  */
 export const observabilityQuery = withController('Observability query', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
+  // Auth: any authenticated user with a valid token. Org-scoping happens
+  // below via $ORG substitution; sysadmin gets a wildcard.
+  if (!requireAuth(req, res)) return;
+  const sysadmin = isSystemAdmin(req);
 
   const key = getStringParam(req, 'key');
   if (!key || !(key in QUERIES)) {
@@ -81,7 +84,11 @@ export const observabilityQuery = withController('Observability query', async (r
     return;
   }
 
-  const promQL = substituteVars(entry.query, {}, []);
+  const promQL = substituteVars(
+    entry.query,
+    { org: req.user?.organizationId, isSysAdmin: sysadmin },
+    [],
+  );
 
   try {
     if (entry.source === 'prometheus-instant') {
@@ -107,7 +114,8 @@ export const observabilityQuery = withController('Observability query', async (r
  * the resolved result type.
  */
 export const observabilityLogs = withController('Observability logs', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
+  if (!requireAuth(req, res)) return;
+  const sysadmin = isSystemAdmin(req);
 
   const key = getStringParam(req, 'key');
   if (!key || !(key in QUERIES)) {
@@ -129,6 +137,8 @@ export const observabilityLogs = withController('Observability logs', async (req
     event: getStringParam(req, 'event'),
     digest: getStringParam(req, 'digest'),
     actor: getStringParam(req, 'actor'),
+    org: req.user?.organizationId,
+    isSysAdmin: sysadmin,
   };
   const logQL = substituteVars(entry.query, vars, entry.allowedVars);
 

@@ -157,7 +157,13 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
           continue;
         }
 
-        lambdaLog.error('FETCH', msg, { responseData: error.response?.data });
+        // Don't log the upstream body verbatim — it may carry a stack trace,
+        // a request payload echo, or other sensitive data we shouldn't echo
+        // into Lambda CloudWatch logs. Keep just the high-level shape.
+        const safeBody = error.response?.data && typeof error.response.data === 'object'
+          ? { code: (error.response.data as { code?: string }).code, message: (error.response.data as { message?: string }).message }
+          : undefined;
+        lambdaLog.error('FETCH', msg, { responseBody: safeBody });
         throw new Error(`Failed to fetch plugin: ${msg}`);
       }
 

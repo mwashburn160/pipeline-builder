@@ -144,8 +144,6 @@ Resources:
                       - !ImportValue
                         Fn::Sub: "${StackPrefix}-LokiAccessPointArn"
                       - !ImportValue
-                        Fn::Sub: "${StackPrefix}-GrafanaAccessPointArn"
-                      - !ImportValue
                         Fn::Sub: "${StackPrefix}-PgadminAccessPointArn"
                       - !ImportValue
                         Fn::Sub: "${StackPrefix}-BuildkitCacheAccessPointArn"
@@ -246,7 +244,7 @@ Resources:
   ObservabilitySecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for observability containers (Prometheus, Loki, Grafana)
+      GroupDescription: Security group for observability containers (Prometheus, Loki)
       VpcId: !ImportValue
         Fn::Sub: "${StackPrefix}-VpcId"
       SecurityGroupIngress:
@@ -270,11 +268,6 @@ Resources:
           ToPort: 3100
           SourceSecurityGroupId: !Ref AppSecurityGroup
           Description: Allow Loki traffic from app containers
-        - IpProtocol: tcp
-          FromPort: 3000
-          ToPort: 3000
-          SourceSecurityGroupId: !Ref NginxSecurityGroup
-          Description: Allow Grafana traffic from Nginx
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
@@ -528,17 +521,6 @@ Resources:
         - Key: Project
           Value: pipeline-builder
 
-  GrafanaLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      LogGroupName: /pipeline-builder/grafana
-      RetentionInDays: !Ref LogRetentionDays
-      Tags:
-        - Key: Project
-          Value: pipeline-builder
-
   FluentBitLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
@@ -746,12 +728,6 @@ Outputs:
     Value: !Ref LokiLogGroup
     Export:
       Name: !Sub "${StackPrefix}-LokiLogGroupName"
-
-  GrafanaLogGroupName:
-    Description: CloudWatch log group for Grafana
-    Value: !Ref GrafanaLogGroup
-    Export:
-      Name: !Sub "${StackPrefix}-GrafanaLogGroupName"
 
   FluentBitLogGroupName:
     Description: CloudWatch log group for Fluent Bit

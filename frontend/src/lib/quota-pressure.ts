@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { OrgQuotaResponse, QuotaSummary, QuotaType } from '@/types';
+import { QUOTA_CRITICAL_THRESHOLD, QUOTA_WARNING_THRESHOLD } from './constants';
 
 /** Banner severity levels driven by the highest quota in pressure. */
 export type QuotaPressureLevel = 'none' | 'info' | 'warning' | 'critical';
@@ -30,16 +31,18 @@ function quotaPercent(q: QuotaSummary): number {
 }
 
 /**
- * Map a percentage to a pressure level.
- * - <80   → none
- * - 80-94 → info
- * - 95-99 → warning
- * - >=100 → critical
+ * Map a percentage to a pressure level. Thresholds are shared with the
+ * dashboard status badge via `QUOTA_*_THRESHOLD` constants so the two
+ * surfaces can't drift apart.
+ *  - >= 100                       → critical (over quota)
+ *  - >= QUOTA_CRITICAL_THRESHOLD  → warning  (badge: Critical)
+ *  - >= QUOTA_WARNING_THRESHOLD   → info     (badge: Warning)
+ *  - else                         → none     (badge: Healthy)
  */
 function pressureLevel(percent: number): QuotaPressureLevel {
   if (percent >= 100) return 'critical';
-  if (percent >= 95) return 'warning';
-  if (percent >= 80) return 'info';
+  if (percent >= QUOTA_CRITICAL_THRESHOLD) return 'warning';
+  if (percent >= QUOTA_WARNING_THRESHOLD) return 'info';
   return 'none';
 }
 

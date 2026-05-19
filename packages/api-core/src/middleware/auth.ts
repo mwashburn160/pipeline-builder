@@ -91,7 +91,16 @@ function _requireAuth(
   }
 
   try {
-    const decoded = jwt.verify(parts[1], getJwtSecret()) as JwtPayload;
+    // Pass through optional issuer/audience verification when env-configured.
+    // Without these, a JWT signed by any system that happens to share the
+    // same JWT_SECRET would be accepted — defence-in-depth for shared-secret
+    // misconfigurations across services / environments.
+    const verifyOptions: jwt.VerifyOptions = {};
+    const expectedIssuer = process.env.JWT_ISSUER;
+    const expectedAudience = process.env.JWT_AUDIENCE;
+    if (expectedIssuer) verifyOptions.issuer = expectedIssuer;
+    if (expectedAudience) verifyOptions.audience = expectedAudience;
+    const decoded = jwt.verify(parts[1], getJwtSecret(), verifyOptions) as JwtPayload;
 
     if (decoded.type !== 'access') {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Only access tokens can be used for API requests', ErrorCode.TOKEN_INVALID);
@@ -269,9 +278,15 @@ export function signServiceToken(opts: ServiceTokenOptions): string {
     organizationId: opts.orgId,
     organizationName: opts.orgName ?? opts.orgId,
   };
-  return jwt.sign(payload, getJwtSecret(), {
+  // Match the optional issuer/audience that requireAuth verifies, when
+  // configured. Without these, a service token signed here would fail
+  // requireAuth in a deployment that has set JWT_ISSUER/JWT_AUDIENCE.
+  const signOptions: jwt.SignOptions = {
     expiresIn: opts.ttlSeconds ?? DEFAULT_SERVICE_TOKEN_TTL_SECONDS,
-  });
+  };
+  if (process.env.JWT_ISSUER) signOptions.issuer = process.env.JWT_ISSUER;
+  if (process.env.JWT_AUDIENCE) signOptions.audience = process.env.JWT_AUDIENCE;
+  return jwt.sign(payload, getJwtSecret(), signOptions);
 }
 
 /** Convenience: returns a `Bearer <token>` header value for fetch/axios calls. */

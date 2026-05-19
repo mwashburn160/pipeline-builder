@@ -40,6 +40,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
     debug: jest.fn(),
   }),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
+  getServiceAuthHeader: jest.fn(() => 'Bearer service-token'),
   errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   validateBody: mockValidateBody,
   createCacheService: () => ({ get: jest.fn(), set: jest.fn(), del: jest.fn(), invalidate: jest.fn() }),
@@ -250,7 +251,8 @@ describe('POST /subscriptions', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 201, {
       subscription: expect.objectContaining({ id: 'sub-1' }),
     });
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer tok');
+    // Service token, not the user's bearer — see subscriptions.ts comment.
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token');
     expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String));
   });
 
