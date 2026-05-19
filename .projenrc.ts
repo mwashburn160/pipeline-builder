@@ -32,12 +32,12 @@ const expressVersion = '5.2.1';
 // publish time, so consumers on npm still get an exact version.
 // const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.4.33',
-  pipelineData:   '3.4.33',
-  pipelineCore:   '3.4.33',
-  apiServer:      '3.4.34',
-  aiCore:         '3.4.33',
-  pipelineEvents: '3.4.33'
+  apiCore:        '3.4.34',
+  pipelineData:   '3.4.34',
+  pipelineCore:   '3.4.34',
+  apiServer:      '3.4.35',
+  aiCore:         '3.4.34',
+  pipelineEvents: '3.4.34'
 };
 
 // =============================================================================
