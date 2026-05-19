@@ -15,6 +15,8 @@ interface LinePanelProps {
   groupBy?: string;
   /** Y-axis value formatter — e.g. percent, seconds, bytes. */
   format?: (v: number) => string;
+  /** Optional template variables (e.g. plugin name for the per-plugin drill-down). */
+  vars?: { plugin?: string };
 }
 
 const SERIES_COLORS = [
@@ -57,8 +59,8 @@ function prepareSeries(series: DataSeries[], groupBy: string | undefined): Prepa
   }));
 }
 
-export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = defaultFormat }: LinePanelProps) {
-  const { data, loading, error } = useObservabilityQuery(queryKey, range);
+export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = defaultFormat, vars }: LinePanelProps) {
+  const { data, loading, error } = useObservabilityQuery(queryKey, range, vars);
 
   const series = (data && 'series' in data) ? data.series : [];
   const prepared = prepareSeries(series, groupBy);

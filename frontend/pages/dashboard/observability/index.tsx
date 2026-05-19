@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import Link from 'next/link';
-import { Activity, BarChart3, LayoutDashboard, ListChecks, Boxes } from 'lucide-react';
+import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -48,6 +48,12 @@ export default function ObservabilityIndexPage() {
       title: 'Audit Activity',
       description: 'Audit events over time, top actors, and a searchable recent-events table.',
       icon: Activity,
+    },
+    {
+      id: 'alerts',
+      title: 'Alerts',
+      description: 'Firing + suppressed alerts from Alertmanager, with per-org silence controls.',
+      icon: Bell,
     },
   ];
 

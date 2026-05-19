@@ -48,4 +48,43 @@ export interface ObservabilityLogsParams {
   event?: string;
   digest?: string;
   actor?: string;
+  /** Plugin name — used by the per-plugin drill-down's recent-builds query. */
+  plugin?: string;
+}
+
+/** A single Alertmanager-v2 alert. Mirrors the backend Alert type. */
+export interface Alert {
+  fingerprint: string;
+  status: {
+    state: 'active' | 'suppressed' | 'unprocessed';
+    silencedBy?: string[];
+    inhibitedBy?: string[];
+  };
+  labels: Record<string, string>;
+  annotations: Record<string, string>;
+  startsAt: string;
+  endsAt: string;
+  updatedAt: string;
+  generatorURL?: string;
+}
+
+/** Response shape from `GET /api/observability/alerts`. */
+export interface AlertsResponse {
+  alerts: Alert[];
+}
+
+/** A single silence rule. */
+export interface Silence {
+  id: string;
+  status: { state: 'active' | 'expired' | 'pending' };
+  matchers: Array<{ name: string; value: string; isRegex: boolean; isEqual: boolean }>;
+  startsAt: string;
+  endsAt: string;
+  createdBy: string;
+  comment: string;
+}
+
+/** Response shape from `GET /api/observability/silences`. */
+export interface SilencesResponse {
+  silences: Silence[];
 }

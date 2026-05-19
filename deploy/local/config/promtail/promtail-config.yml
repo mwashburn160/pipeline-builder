@@ -57,18 +57,24 @@ scrape_configs:
             eventCategory: eventCategory
             event: event
             actor: actor
+            # Plugin-build drill-down: pluginName is promoted only on lines
+            # that have it (most logs don't), keeping cardinality bounded to
+            # the count of distinct plugin names that have built recently.
+            pluginName: pluginName
       # Promote parsed fields to Loki labels. `eventCategory` is low-cardinality
-      # ('audit' or absent); `event` is bounded (~tens of distinct names like
-      # `registry.tag.copy`); `actor` is O(100s) per org (users + service
-      # principals). All stay below Loki's recommended label-cardinality
-      # ceiling. Digest fields are intentionally NOT promoted (per-event unique
-      # = unbounded cardinality, would blow up the index).
+      # ('audit' or 'plugin-build' or absent); `event` is bounded (~tens of
+      # distinct names like `registry.tag.copy`, `completed`, `failed`); `actor`
+      # is O(100s) per org (users + service principals). `pluginName` is bounded
+      # by # of plugins that have logged a build event. All stay below Loki's
+      # recommended label-cardinality ceiling. Digest fields are intentionally
+      # NOT promoted (per-event unique = unbounded cardinality).
       - labels:
           level:
           service_name:
           eventCategory:
           event:
           actor:
+          pluginName:
       # Use the parsed message as the log line (falls back to raw if parsing fails)
       - output:
           source: msg

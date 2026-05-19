@@ -19,10 +19,10 @@ export type QuerySource = 'prometheus-instant' | 'prometheus-range' | 'loki-rang
 
 export interface QueryEntry {
   source: QuerySource;
-  /** Raw PromQL or LogQL. May contain `$EVENT`, `$DIGEST`, `$ACTOR`, `$ORG` placeholders. */
+  /** Raw PromQL or LogQL. May contain `$EVENT`, `$DIGEST`, `$ACTOR`, `$PLUGIN`, `$ORG` placeholders. */
   query: string;
   /** Allow-list of template variables the frontend may pass for this query. */
-  allowedVars: ReadonlyArray<'event' | 'digest' | 'actor'>;
+  allowedVars: ReadonlyArray<'event' | 'digest' | 'actor' | 'plugin'>;
   /**
    * When true, the controller substitutes `$ORG` with the caller's org
    * (sysadmins get a regex wildcard, org admins get their literal org).
@@ -104,6 +104,31 @@ export const QUERIES: Record<string, QueryEntry> = {
     orgScoped: true,
   },
 
+  // -- Per-plugin drill-down --------------------------------------------------
+  // Filtered by `?plugin=<name>` URL param. Server substitutes `$PLUGIN` after
+  // sanitization (alphanumerics + `.-_`). Counter-only — durations come from
+  // Loki via the recent-builds query below (cardinality safety).
+  plugin_builds_for_plugin: {
+    source: 'prometheus-range',
+    query: 'sum by (status) (rate(plugin_builds_total{plugin_name="$PLUGIN"$ORG}[1m]))',
+    allowedVars: ['plugin'],
+    orgScoped: true,
+  },
+  plugin_builds_success_rate_for_plugin: {
+    source: 'prometheus-range',
+    query:
+      'sum(rate(plugin_builds_total{plugin_name="$PLUGIN",status="success"$ORG}[5m])) '
+      + '/ clamp_min(sum(rate(plugin_builds_total{plugin_name="$PLUGIN"$ORG}[5m])), 1)',
+    allowedVars: ['plugin'],
+    orgScoped: true,
+  },
+  plugin_builds_total_24h_for_plugin: {
+    source: 'prometheus-instant',
+    query: 'sum(increase(plugin_builds_total{plugin_name="$PLUGIN"$ORG}[24h]))',
+    allowedVars: ['plugin'],
+    orgScoped: true,
+  },
+
   // -- Queue Health dashboard -------------------------------------------------
   plugin_job_wait_p50: {
     source: 'prometheus-range',
@@ -179,6 +204,17 @@ export const QUERIES: Record<string, QueryEntry> = {
     query: 'topk(10, sum by (actor) (count_over_time({eventCategory="audit"}[24h])))',
     allowedVars: [],
   },
+
+  // -- Per-plugin recent builds (Loki-backed, served on per-plugin drill-down) -
+  // The plugin queue emits structured logs `{ eventCategory: 'plugin-build',
+  // pluginName, event, durationMs|errorMessage }`; promtail promotes the
+  // first two to Loki labels. This stream returns each line as-is so the
+  // frontend can render a recent-builds table without a roundtrip to the DB.
+  plugin_recent_builds: {
+    source: 'loki-range',
+    query: '{eventCategory="plugin-build", pluginName="$PLUGIN"}',
+    allowedVars: ['plugin'],
+  },
 };
 
 /**
@@ -194,8 +230,8 @@ export const QUERIES: Record<string, QueryEntry> = {
  */
 export function substituteVars(
   query: string,
-  vars: { event?: string; digest?: string; actor?: string; org?: string; isSysAdmin?: boolean },
-  allowed: ReadonlyArray<'event' | 'digest' | 'actor'>,
+  vars: { event?: string; digest?: string; actor?: string; plugin?: string; org?: string; isSysAdmin?: boolean },
+  allowed: ReadonlyArray<'event' | 'digest' | 'actor' | 'plugin'>,
 ): string {
   let result = query;
 
@@ -213,6 +249,18 @@ export function substituteVars(
   const actorClause = allowed.includes('actor') && vars.actor && /^[a-zA-Z0-9._@-]+$/.test(vars.actor)
     ? `,actor="${vars.actor}"` : '';
   result = result.replace('$ACTOR', actorClause);
+
+  // plugin: alphanumerics + . + - + _ (plugin names follow the same convention
+  // as events). Substituted as a literal label match — used by the per-plugin
+  // drill-down panel and its supporting Loki recent-builds query.
+  if (allowed.includes('plugin') && vars.plugin && /^[a-zA-Z0-9._-]+$/.test(vars.plugin)) {
+    result = result.replaceAll('$PLUGIN', vars.plugin);
+  } else {
+    // Drop the placeholder entirely if the caller didn't supply a valid plugin.
+    // The query templates wrap $PLUGIN in `plugin_name="$PLUGIN"` which would
+    // become `plugin_name=""` — matches nothing, the right failure mode.
+    result = result.replaceAll('$PLUGIN', '');
+  }
 
   // org: substituted by the controller (not from the frontend). Sysadmins
   // get a regex wildcard so they see all orgs; org admins get a literal

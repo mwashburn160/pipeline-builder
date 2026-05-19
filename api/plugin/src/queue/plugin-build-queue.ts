@@ -390,6 +390,21 @@ export function startWorker(
           pluginId: result.id,
         });
 
+        // Structured log → promtail promotes `eventCategory`, `event`, and
+        // `pluginName` to Loki labels (see deploy/*/config/promtail/*.yml).
+        // The per-plugin drill-down's recent-builds table queries against
+        // these labels. eventCategory MUST be 'plugin-build' (not 'audit')
+        // so the audit dashboards don't accidentally pick these up.
+        logger.info('Plugin build event', {
+          eventCategory: 'plugin-build',
+          event: 'completed',
+          pluginName: result.name,
+          pluginVersion: result.version,
+          orgId,
+          jobId: job.id,
+          durationMs: job.processedOn && job.finishedOn ? job.finishedOn - job.processedOn : undefined,
+        });
+
         sseManager.send(requestId, 'COMPLETED', 'Plugin deployed', {
           id: result.id,
           name: result.name,
@@ -428,6 +443,11 @@ export function startWorker(
     incCounter('plugin_builds_total', {
       status: isTimeout ? 'timeout' : 'failed',
       org_id: orgId ?? 'unknown',
+      // Per-plugin label is on the COUNTER only (low write rate, low cardinality
+      // risk). The duration histogram below intentionally omits plugin_name —
+      // each bucket × label combination explodes for histograms. Drill-down
+      // for durations is served via Loki in PR-D2.
+      plugin_name: pluginRecord.name,
     });
 
     logger.error('Plugin build failed', {
@@ -449,6 +469,17 @@ export function startWorker(
     recordBuildEvent(orgId, 'failed', job, {
       pluginName: pluginRecord.name,
       pluginVersion: pluginRecord.version,
+      errorMessage: error.message,
+    });
+
+    // Per-plugin drill-down event (see analogous emit on completion).
+    logger.info('Plugin build event', {
+      eventCategory: 'plugin-build',
+      event: isTimeout ? 'timeout' : 'failed',
+      pluginName: pluginRecord.name,
+      pluginVersion: pluginRecord.version,
+      orgId,
+      jobId: job.id,
       errorMessage: error.message,
     });
 
@@ -506,7 +537,8 @@ export function startWorker(
 
   worker.on('completed', (job) => {
     const orgId = job.data?.orgId ?? 'unknown';
-    incCounter('plugin_builds_total', { status: 'success', org_id: orgId });
+    const pluginName = job.data?.pluginRecord?.name ?? 'unknown';
+    incCounter('plugin_builds_total', { status: 'success', org_id: orgId, plugin_name: pluginName });
     // Histogram covers wait-to-start as well as run time: `processedOn` is
     // when the worker picked up the job, `finishedOn` is when the handler
     // resolved. `finishedOn` should always be set on completion but BullMQ's

@@ -226,6 +226,32 @@ spec:
 
 ---
 # =============================================================================
+# Alertmanager — ingress from prometheus (alert forwarding) and platform
+# (proxied /api/observability/alerts read API)
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alertmanager-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: alertmanager
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 9093
+
+---
+# =============================================================================
 # Admin UIs — ingress from nginx
 # =============================================================================
 apiVersion: networking.k8s.io/v1

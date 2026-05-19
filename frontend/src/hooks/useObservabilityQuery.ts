@@ -23,9 +23,12 @@ interface State {
  * The data shape is the raw envelope from the backend (samples for instant,
  * series for range). Panel components decide how to render it.
  */
-export function useObservabilityQuery(key: string, range: RangeKey) {
+export function useObservabilityQuery(key: string, range: RangeKey, vars?: { plugin?: string }) {
   const [state, setState] = useState<State>({ data: null, loading: true, error: null });
   const abortRef = useRef<AbortController | null>(null);
+  // Stringify `vars` for the dep array — primitive keys keep React's
+  // dependency comparator cheap and stable across re-renders.
+  const varsKey = JSON.stringify(vars ?? {});
 
   const fetchOnce = useCallback(async () => {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
@@ -33,14 +36,15 @@ export function useObservabilityQuery(key: string, range: RangeKey) {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const res = await api.observabilityQuery(key, range, controller.signal);
+      const res = await api.observabilityQuery(key, range, controller.signal, vars);
       if (controller.signal.aborted) return;
       setState({ data: res.data ?? null, loading: false, error: null });
     } catch (err) {
       if (controller.signal.aborted) return;
       setState({ data: null, loading: false, error: err as Error });
     }
-  }, [key, range]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- vars tracked via varsKey
+  }, [key, range, varsKey]);
 
   useEffect(() => {
     setState({ data: null, loading: true, error: null });

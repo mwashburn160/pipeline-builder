@@ -48,6 +48,14 @@ export const config = {
       max: parseInt(process.env.AUTH_LIMITER_MAX || '20', 10),
       windowMs: parseInt(process.env.AUTH_LIMITER_WINDOWMS || '900000', 10), // 15 min
     },
+    // Observability endpoints (catalog query, range query, log query) hit
+    // Prometheus / Loki directly. A noisy operator clicking through panels
+    // can saturate upstream — keep a tighter per-org budget than the
+    // general limiter (30 req / min default).
+    observability: {
+      max: parseInt(process.env.OBSERVABILITY_LIMITER_MAX || '30', 10),
+      windowMs: parseInt(process.env.OBSERVABILITY_LIMITER_WINDOWMS || '60000', 10), // 1 min
+    },
   },
   auth: {
     passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8', 10),

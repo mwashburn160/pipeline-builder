@@ -150,6 +150,12 @@ Resources:
                 Fn::ImportValue: !Sub "${StackPrefix}-NginxLogGroupName"
               awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: config-init
+        # NOTE: This container is intentionally NOT yet `ReadonlyRootFilesystem: true` —
+        # the Command below `apt-get install`s nginx-module-njs at startup, which
+        # writes to /var/cache/apt and /var/lib/dpkg. Hardening requires baking a
+        # custom nginx image with njs preinstalled (and switching the runtime image
+        # to nginxinc/nginx-unprivileged:1.27). Tracked as a follow-up in
+        # docs/plans/k8s-fargate-hardening.md.
         - Name: nginx
           Image: !Ref NginxImage
           Essential: true
@@ -313,10 +319,19 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      # Ephemeral writable scratch for the Node.js process. Volumes without
+      # a Host attribute are backed by the Fargate task's ephemeral storage
+      # and reset on task replacement — the right scope for /tmp.
+      Volumes:
+        - Name: tmp
       ContainerDefinitions:
         - Name: platform
           Image: !Ref PlatformImage
           Essential: true
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -490,10 +505,16 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: tmp
       ContainerDefinitions:
         - Name: pipeline
           Image: !Ref PipelineImage
           Essential: true
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -696,6 +717,9 @@ Resources:
               AccessPointId:
                 Fn::ImportValue: !Sub "${StackPrefix}-BuildkitCacheAccessPointArn"
               IAM: ENABLED
+        # Ephemeral writable scratch for the Node.js process (plugin tarball
+        # staging, buildctl temp files). Sized small; reset on task replace.
+        - Name: tmp
       ExecutionRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
@@ -704,6 +728,7 @@ Resources:
         - Name: plugin
           Image: !Ref PluginImage
           Essential: true
+          ReadonlyRootFilesystem: true
           # Soft reservations within the task budget (2048 CPU / 4096 MB total).
           # plugin runs node + queue worker; buildkitd does the actual builds.
           # Containers can burst above these values if the sibling is idle.
@@ -781,6 +806,8 @@ Resources:
               SourceVolume: plugins-uploads
             - ContainerPath: /run/buildkit
               SourceVolume: buildkit-socket
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           Secrets:
             - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
@@ -964,10 +991,16 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: tmp
       ContainerDefinitions:
         - Name: quota
           Image: !Ref QuotaImage
           Essential: true
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -1141,10 +1174,16 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: tmp
       ContainerDefinitions:
         - Name: billing
           Image: !Ref BillingImage
           Essential: true
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -1322,10 +1361,16 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: tmp
       ContainerDefinitions:
         - Name: message
           Image: !Ref MessageImage
           Essential: true
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -1497,10 +1542,16 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: tmp
       ContainerDefinitions:
         - Name: reporting
           Image: !Ref ReportingImage
           Essential: true
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -1656,10 +1707,16 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: tmp
       ContainerDefinitions:
         - Name: compliance
           Image: !Ref ComplianceImage
           Essential: true
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -1838,6 +1895,7 @@ Resources:
         - Name: frontend
           Image: !Ref FrontendImage
           Essential: true
+          ReadonlyRootFilesystem: true
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:
@@ -1978,10 +2036,16 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
       TaskRoleArn:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: tmp
       ContainerDefinitions:
         - Name: image-registry
           Image: !Ref ImageRegistryImage
           Essential: true
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - ContainerPath: /tmp
+              SourceVolume: tmp
           RepositoryCredentials:
             CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
           PortMappings:

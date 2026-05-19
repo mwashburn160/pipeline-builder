@@ -3,6 +3,19 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Alert rules — Prometheus evaluates these every `evaluation_interval` and
+# forwards firing alerts to Alertmanager (configured below). See
+# alert-rules.yml for the actual rule definitions.
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+# Wire Prometheus to the Alertmanager Service. Resolved by kube-dns within
+# the namespace.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
 scrape_configs:
   # Auto-discover pods with prometheus.io/scrape annotation
   - job_name: 'kubernetes-pods'

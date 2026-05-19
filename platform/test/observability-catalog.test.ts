@@ -24,7 +24,7 @@ describe('observability catalog', () => {
     });
 
     it('only declares template vars from the allow-list', () => {
-      const allowed = new Set(['event', 'digest', 'actor']);
+      const allowed = new Set(['event', 'digest', 'actor', 'plugin']);
       for (const [key, entry] of Object.entries(QUERIES)) {
         for (const v of entry.allowedVars) {
           expect(allowed.has(v)).toBe(true);

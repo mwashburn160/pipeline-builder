@@ -870,9 +870,14 @@ class ApiClient {
    *  - `prometheus-instant` → `{ samples: InstantSample[] }`
    *  - `prometheus-range`   → `{ series: DataSeries[], range, step }`
    */
-  async observabilityQuery(key: string, range: '1h' | '6h' | '24h', signal?: AbortSignal) {
+  async observabilityQuery(
+    key: string,
+    range: '1h' | '6h' | '24h',
+    signal?: AbortSignal,
+    vars?: { plugin?: string },
+  ) {
     return this.request<ApiResponse<import('@/types/observability').ObservabilityQueryResponse>>(
-      `/api/observability/query${buildQuery({ key, range })}`,
+      `/api/observability/query${buildQuery({ key, range, ...vars })}`,
       { signal },
     );
   }
@@ -888,7 +893,7 @@ class ApiClient {
   async observabilityLogs(
     key: string,
     range: '1h' | '6h' | '24h',
-    opts: { limit?: number; event?: string; digest?: string; actor?: string } = {},
+    opts: { limit?: number; event?: string; digest?: string; actor?: string; plugin?: string } = {},
     signal?: AbortSignal,
   ) {
     const params: Record<string, unknown> = { key, range };
@@ -896,9 +901,46 @@ class ApiClient {
     if (opts.event) params.event = opts.event;
     if (opts.digest) params.digest = opts.digest;
     if (opts.actor) params.actor = opts.actor;
+    if (opts.plugin) params.plugin = opts.plugin;
     return this.request<ApiResponse<import('@/types/observability').ObservabilityLogsResponse>>(
       `/api/observability/logs${buildQuery(params)}`,
       { signal },
+    );
+  }
+
+  /** List firing + suppressed alerts visible to the caller (Alertmanager v2 shape). */
+  async observabilityAlerts(signal?: AbortSignal) {
+    return this.request<ApiResponse<import('@/types/observability').AlertsResponse>>(
+      '/api/observability/alerts',
+      { signal },
+    );
+  }
+
+  /** List active + recent silences. */
+  async observabilitySilences(signal?: AbortSignal) {
+    return this.request<ApiResponse<import('@/types/observability').SilencesResponse>>(
+      '/api/observability/silences',
+      { signal },
+    );
+  }
+
+  /** Create a silence. Non-sysadmins are auto-scoped to their own org. */
+  async observabilityCreateSilence(body: {
+    matchers: Array<{ name: string; value: string }>;
+    durationMs: number;
+    comment: string;
+  }) {
+    return this.request<ApiResponse<{ silenceID: string }>>(
+      '/api/observability/silences',
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+  }
+
+  /** Expire a silence by ID. */
+  async observabilityDeleteSilence(id: string) {
+    return this.request<ApiResponse<undefined>>(
+      `/api/observability/silences/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
     );
   }
 

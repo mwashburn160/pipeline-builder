@@ -1,0 +1,78 @@
+# Alert rules for Pipeline Builder.
+#
+# Loaded by Prometheus via `rule_files` in prometheus.yml; firing alerts
+# are forwarded to Alertmanager which routes by `severity` label.
+#
+# Conventions:
+#  - `severity: critical` — pages on-call (Slack #ops-pager + future PD)
+#  - `severity: warning`  — non-paging Slack notification
+#  - `summary` is what shows in Slack; `description` adds detail
+#  - All rules live in the platform-wide group; per-org alerting is a
+#    follow-up (needs `org_id` label propagation on every metric).
+
+groups:
+  - name: platform-wide
+    rules:
+      # ---- Plugin builds ----
+      - alert: PluginBuildFailureRateHigh
+        expr: |
+          (
+            sum(rate(plugin_builds_total{status="success"}[5m]))
+            /
+            clamp_min(sum(rate(plugin_builds_total{org_id=~".+"}[5m])), 1)
+          ) < 0.9
+        for: 10m
+        labels:
+          severity: warning
+          component: plugin
+        annotations:
+          summary: "Plugin build success rate below 90%"
+          description: "5-min success rate is {{ $value | humanizePercentage }} over the last 10 minutes."
+
+      # ---- Queue ----
+      - alert: PluginQueueStalled
+        expr: sum(plugin_queue_jobs{state="waiting"}) > 50
+        for: 15m
+        labels:
+          severity: warning
+          component: plugin
+        annotations:
+          summary: "Plugin build queue depth above 50"
+          description: "{{ $value }} jobs waiting for 15+ minutes — check worker health."
+
+      - alert: PluginQueueProcessingSlow
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(plugin_job_wait_seconds_bucket[5m]))
+          ) > 300
+        for: 10m
+        labels:
+          severity: warning
+          component: plugin
+        annotations:
+          summary: "Plugin queue p95 wait > 5 minutes"
+          description: "p95 job wait is {{ $value | humanizeDuration }}; consider scaling workers."
+
+      - alert: DLQFilling
+        expr: sum(plugin_queue_jobs{queue="plugin-build-dlq"}) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: plugin
+        annotations:
+          summary: "Dead-letter queue has more than 10 jobs"
+          description: "{{ $value }} jobs in the DLQ — these failed all retries and need triage."
+
+      # ---- Registry ----
+      # Uses the platform-wide `http_requests_total` counter (emitted by
+      # api-server's metricsMiddleware), filtered to the image-registry
+      # service via the `service` default label. No new metric needed.
+      - alert: RegistryErrorBurst
+        expr: sum(rate(http_requests_total{service="image-registry", status_code=~"5.."}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: registry
+        annotations:
+          summary: "Registry returning 5xx errors"
+          description: "{{ $value | humanize }} 5xx/s over the last 5 minutes. Check image-registry logs."

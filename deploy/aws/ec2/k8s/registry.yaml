@@ -100,8 +100,21 @@ spec:
           ports:
             - containerPort: 5000
               name: registry
+          # `fix-permissions` init container chowns /var/lib/registry to
+          # 1000:1000 so the main container can run as a non-root UID.
+          # registry:2 writes only to /var/lib/registry (PVC) and reads
+          # TLS material + the JWT pubkey from mounted Secrets — both
+          # are compatible with a read-only root filesystem.
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
           env:
             # Token-based auth — registry delegates to pipeline-image-registry's
             # /token endpoint. Every pull/push requires a bearer JWT signed

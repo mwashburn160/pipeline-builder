@@ -135,12 +135,22 @@ spec:
               echo "all upstreams resolvable"
       containers:
         - name: nginx
-          image: nginx:1.27
+          # nginxinc/nginx-unprivileged variant: same nginx codebase, but the
+          # master process runs as UID 101 (nginx) instead of root, listens on
+          # 8080/8443 by default (no <1024 bind), and uses /tmp for the PID
+          # file. Lets us drop ALL caps and enable readOnlyRootFilesystem
+          # without the CHOWN / SETUID / SETGID dance the upstream image needs.
+          image: nginxinc/nginx-unprivileged:1.27
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop: ["ALL"]
-              add: ["NET_BIND_SERVICE", "CHOWN", "SETGID", "SETUID"]
           ports:
             - containerPort: 8443
               name: https
@@ -190,6 +200,13 @@ spec:
             - name: tls-certs
               mountPath: /etc/nginx/certs
               readOnly: true
+            # readOnlyRootFilesystem: true means nginx can't write anywhere
+            # under `/` unless we provide an emptyDir. Cache + temp dirs +
+            # PID file all need write access; mount them as ephemeral RAM.
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-tmp
+              mountPath: /tmp
       volumes:
         - name: nginx-config
           configMap:
@@ -200,6 +217,12 @@ spec:
         - name: tls-certs
           secret:
             secretName: nginx-tls-secret
+        - name: nginx-cache
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: nginx-tmp
+          emptyDir:
+            sizeLimit: 64Mi
 
 ---
 # =============================================================================

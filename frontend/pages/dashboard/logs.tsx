@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Search, ScrollText, RefreshCw } from 'lucide-react';
+import { Search, ScrollText, RefreshCw, ChevronRight } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -7,6 +7,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { LogDetailsDrawer } from '@/components/observability/LogDetailsDrawer';
 import api from '@/lib/api';
 import { LOG_TIME_RANGES, LOG_LEVEL_COLORS } from '@/lib/constants';
 import { formatError } from '@/lib/constants';
@@ -43,6 +44,8 @@ export default function LogsPage() {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Currently-open drawer entry; null means the drawer is closed.
+  const [selected, setSelected] = useState<LogEntry | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [serviceFilter, setServiceFilter] = useState('');
@@ -94,7 +97,14 @@ export default function LogsPage() {
       headerClassName: 'w-44',
       cellClassName: 'text-xs font-mono text-gray-500 dark:text-gray-400 whitespace-nowrap',
       sortValue: (entry) => new Date(entry.timestamp),
-      render: (entry) => <>{formatTimestamp(entry.timestamp)}</>,
+      render: (entry) => (
+        <button
+          onClick={() => setSelected(entry)}
+          className="text-left hover:underline focus:outline-none focus:underline"
+        >
+          {formatTimestamp(entry.timestamp)}
+        </button>
+      ),
     },
     {
       id: 'service',
@@ -120,7 +130,29 @@ export default function LogsPage() {
       id: 'message',
       header: 'Message',
       cellClassName: 'text-sm text-gray-900 dark:text-gray-100 font-mono break-all',
-      render: (entry) => <>{getLogMessage(entry)}</>,
+      render: (entry) => (
+        <button
+          onClick={() => setSelected(entry)}
+          className="text-left w-full hover:underline focus:outline-none focus:underline"
+        >
+          {getLogMessage(entry)}
+        </button>
+      ),
+    },
+    {
+      id: 'details',
+      header: '',
+      headerClassName: 'w-8',
+      cellClassName: 'w-8 text-gray-400',
+      render: (entry) => (
+        <button
+          onClick={() => setSelected(entry)}
+          aria-label="View details"
+          className="inline-flex items-center justify-center hover:text-gray-700 dark:hover:text-gray-200"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      ),
     },
   ], []);
 
@@ -193,6 +225,8 @@ export default function LogsPage() {
       <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
         Showing {entries.length} log {entries.length === 1 ? 'entry' : 'entries'}
       </div>
+
+      <LogDetailsDrawer entry={selected} onClose={() => setSelected(null)} />
     </DashboardLayout>
   );
 }

@@ -135,7 +135,13 @@ spec:
         - name: plugin
           image: ghcr.io/mwashburn160/plugin:3.4.28
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop: ["ALL"]
           ports:
@@ -182,6 +188,11 @@ spec:
               mountPath: /app/uploads
             - name: buildkit-socket
               mountPath: /run/buildkit
+            # readOnlyRootFilesystem: true means the Node.js process can't
+            # write anywhere under `/` — but it needs a tempdir (TMPDIR=/tmp
+            # above) for plugin tarball staging.
+            - name: scratch-tmp
+              mountPath: /tmp
           resources:
             limits:
               cpu: "1500m"
@@ -232,6 +243,9 @@ spec:
         - name: buildkit-cache
           emptyDir:
             sizeLimit: 20Gi
+        - name: scratch-tmp
+          emptyDir:
+            sizeLimit: 1Gi
 
 ---
 # =============================================================================

@@ -116,6 +116,21 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Per-org rate limiter for observability endpoints. Tighter than the general
+ * limiter because every request fans out to Prometheus or Loki, and a noisy
+ * tenant can degrade those upstreams for everyone else (dashboards across all
+ * orgs go blank). Keys by JWT-claimed org when present, falls back to IP.
+ */
+const observabilityLimiter = rateLimit({
+  windowMs: config.rateLimit.observability.windowMs,
+  max: config.rateLimit.observability.max,
+  keyGenerator: rateLimitKey,
+  message: { success: false, statusCode: 429, message: 'Observability rate limit exceeded for your organization. Please slow down or batch your queries.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 /** Request ID middleware — attaches a unique ID to each request for log correlation */
 function requestIdMiddleware(req: Request, _res: Response, next: NextFunction): void {
   const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
@@ -189,7 +204,7 @@ app.use('/invitation', invitationRoutes);
 app.use('/logs', logRoutes);
 app.use('/audit', auditRoutes);
 app.use('/config', configRoutes);
-app.use('/observability', observabilityRoutes);
+app.use('/observability', observabilityLimiter, observabilityRoutes);
 
 /** Error handling middleware (must be registered last) */
 app.use(notFoundHandler);

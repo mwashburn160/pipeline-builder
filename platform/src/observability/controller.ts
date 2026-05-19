@@ -28,6 +28,7 @@ import {
 } from './catalog';
 import * as prom from './prometheus-client';
 import * as loki from './loki-client';
+import * as am from './alertmanager-client';
 
 type RangeKey = '1h' | '6h' | '24h';
 
@@ -60,6 +61,14 @@ function sendUpstreamError(res: Response, err: unknown): void {
   sendError(res, 502, 'Upstream observability backend unreachable');
 }
 
+/** Validate that a free-text field (silence comment, createdBy, matcher value)
+ *  is bounded and not obviously bogus. Defense-in-depth on top of Alertmanager's
+ *  own validation — keeps the matcher value from being used to encode an attack
+ *  on Alertmanager's regex engine. */
+function isReasonableString(v: unknown, max = 256): v is string {
+  return typeof v === 'string' && v.length > 0 && v.length <= max;
+}
+
 /**
  * GET /api/observability/query — Prometheus instant or range query by key.
  *
@@ -86,8 +95,12 @@ export const observabilityQuery = withController('Observability query', async (r
 
   const promQL = substituteVars(
     entry.query,
-    { org: req.user?.organizationId, isSysAdmin: sysadmin },
-    [],
+    {
+      plugin: getStringParam(req, 'plugin'),
+      org: req.user?.organizationId,
+      isSysAdmin: sysadmin,
+    },
+    entry.allowedVars,
   );
 
   try {
@@ -137,6 +150,7 @@ export const observabilityLogs = withController('Observability logs', async (req
     event: getStringParam(req, 'event'),
     digest: getStringParam(req, 'digest'),
     actor: getStringParam(req, 'actor'),
+    plugin: getStringParam(req, 'plugin'),
     org: req.user?.organizationId,
     isSysAdmin: sysadmin,
   };
@@ -156,6 +170,172 @@ export const observabilityLogs = withController('Observability logs', async (req
       const series = await loki.queryMatrix(logQL, start, end, step);
       sendSuccess(res, 200, { series, range, step });
     }
+  } catch (err) {
+    sendUpstreamError(res, err);
+  }
+});
+
+/**
+ * GET /api/observability/alerts — list currently-firing + suppressed alerts.
+ *
+ * Org-scoped: org admins see alerts labeled with their org_id (plus
+ * platform-wide alerts that have no org_id label, since those still affect
+ * them). Sysadmins see all alerts unfiltered.
+ */
+export const observabilityAlerts = withController('Observability alerts', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const sysadmin = isSystemAdmin(req);
+  const orgId = req.user?.organizationId;
+
+  try {
+    const all = await am.listAlerts(sysadmin ? undefined : orgId);
+    const visible = sysadmin
+      ? all
+      : all.filter(a => !a.labels.org_id || a.labels.org_id === orgId);
+    sendSuccess(res, 200, { alerts: visible });
+  } catch (err) {
+    sendUpstreamError(res, err);
+  }
+});
+
+/**
+ * GET /api/observability/silences — list active + recent silences.
+ *
+ * No org filter at this layer — silences are global to Alertmanager. The UI
+ * presents silences scoped to the alerts the caller can see (whose matchers
+ * include the caller's org_id, or whose matchers are platform-wide).
+ */
+export const observabilitySilencesList = withController('Observability silences list', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  try {
+    const silences = await am.listSilences();
+    sendSuccess(res, 200, { silences });
+  } catch (err) {
+    sendUpstreamError(res, err);
+  }
+});
+
+/**
+ * POST /api/observability/silences — create a silence.
+ *
+ * Body: { matchers: [{ name, value }], durationMs, comment }
+ *
+ * Authorization model: any authenticated user can silence alerts whose
+ * matchers are constrained to their own org_id. Sysadmins can silence
+ * anything. The controller enforces this by injecting `org_id=<caller>`
+ * into the matcher set for non-sysadmin callers. Sysadmins' matchers
+ * pass through unmodified.
+ */
+export const observabilitySilenceCreate = withController('Observability silence create', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const sysadmin = isSystemAdmin(req);
+  const orgId = req.user?.organizationId;
+
+  const body = req.body as { matchers?: Array<{ name?: string; value?: string }>; durationMs?: number; comment?: string };
+  if (!Array.isArray(body.matchers) || body.matchers.length === 0) {
+    sendError(res, 400, 'matchers[] is required');
+    return;
+  }
+  if (typeof body.durationMs !== 'number' || body.durationMs <= 0 || body.durationMs > 7 * 24 * 60 * 60 * 1000) {
+    sendError(res, 400, 'durationMs is required and must be 1ms..7d');
+    return;
+  }
+  if (!isReasonableString(body.comment, 1024)) {
+    sendError(res, 400, 'comment is required (max 1024 chars)');
+    return;
+  }
+
+  // Validate + sanitize each matcher. Names/values are bounded strings; we
+  // reject anything that looks like a regex (the client doesn't get to opt
+  // into regex matching — keeps Alertmanager's regex engine off the
+  // user-input attack surface).
+  const cleanedMatchers: Array<{ name: string; value: string; isRegex: boolean; isEqual: boolean }> = [];
+  for (const m of body.matchers) {
+    if (!isReasonableString(m.name, 128) || !isReasonableString(m.value, 256)) {
+      sendError(res, 400, 'Each matcher needs a 1..128 char name and 1..256 char value');
+      return;
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(m.name)) {
+      sendError(res, 400, 'Matcher name must match Prometheus label syntax');
+      return;
+    }
+    cleanedMatchers.push({ name: m.name, value: m.value, isRegex: false, isEqual: true });
+  }
+
+  // Non-sysadmins are forced to scope to their own org. If they didn't include
+  // an org_id matcher, add one. If they did but it points to a different org,
+  // refuse — that's a cross-tenant silencing attempt.
+  if (!sysadmin) {
+    if (!orgId) {
+      sendError(res, 400, 'organizationId is required for non-sysadmin silences');
+      return;
+    }
+    const orgMatcher = cleanedMatchers.find(m => m.name === 'org_id');
+    if (orgMatcher && orgMatcher.value !== orgId) {
+      sendError(res, 403, 'You can only silence alerts in your own organization');
+      return;
+    }
+    if (!orgMatcher) cleanedMatchers.push({ name: 'org_id', value: orgId, isRegex: false, isEqual: true });
+  }
+
+  const now = new Date();
+  const startsAt = now.toISOString();
+  const endsAt = new Date(now.getTime() + body.durationMs).toISOString();
+  const createdBy = req.user?.email || req.user?.sub || 'unknown';
+
+  try {
+    const { silenceID } = await am.createSilence({
+      matchers: cleanedMatchers,
+      startsAt,
+      endsAt,
+      createdBy,
+      comment: body.comment,
+    });
+    sendSuccess(res, 201, { silenceID });
+  } catch (err) {
+    sendUpstreamError(res, err);
+  }
+});
+
+/**
+ * DELETE /api/observability/silences/:id — expire a silence.
+ *
+ * Authorization model: any authenticated user can delete silences whose
+ * matchers include their own org_id. Sysadmins can delete any silence.
+ */
+export const observabilitySilenceDelete = withController('Observability silence delete', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const sysadmin = isSystemAdmin(req);
+  const orgId = req.user?.organizationId;
+
+  const id = req.params.id;
+  if (!isReasonableString(id, 256)) {
+    sendError(res, 400, 'Invalid silence id');
+    return;
+  }
+
+  if (!sysadmin) {
+    try {
+      const silences = await am.listSilences();
+      const target = silences.find(s => s.id === id);
+      if (!target) {
+        sendError(res, 404, 'Silence not found');
+        return;
+      }
+      const ownsIt = target.matchers.some(m => m.name === 'org_id' && m.value === orgId);
+      if (!ownsIt) {
+        sendError(res, 403, 'You can only delete silences in your own organization');
+        return;
+      }
+    } catch (err) {
+      sendUpstreamError(res, err);
+      return;
+    }
+  }
+
+  try {
+    await am.deleteSilence(id);
+    sendSuccess(res, 200, undefined, 'Silence expired');
   } catch (err) {
     sendUpstreamError(res, err);
   }

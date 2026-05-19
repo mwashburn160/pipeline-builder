@@ -220,7 +220,10 @@ secret   mongodb-keyfile  --from-file=mongodb-keyfile="$DEPLOY_DIR/mongodb-keyfi
 configmap nginx-config    --from-file=nginx.conf="$NGINX_DIR/nginx-ec2.conf"
 configmap nginx-njs       --from-file=jwt.js="$NGINX_DIR/jwt.js" --from-file=metrics.js="$NGINX_DIR/metrics.js"
 configmap loki-config     --from-file=loki-config.yml="$CONFIG_DIR/loki/loki-config.yml"
-configmap prometheus-config --from-file=prometheus.yml="$CONFIG_DIR/prometheus/prometheus.yml"
+configmap prometheus-config \
+  --from-file=prometheus.yml="$CONFIG_DIR/prometheus/prometheus.yml" \
+  --from-file=alert-rules.yml="$CONFIG_DIR/prometheus/alert-rules.yml"
+configmap alertmanager-config --from-file=alertmanager.yml="$CONFIG_DIR/alertmanager/alertmanager.yml"
 configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/promtail-config.yml"
 configmap grafana-datasources --from-file=loki.yml="$CONFIG_DIR/grafana/loki.yml" --from-file=prometheus.yml="$CONFIG_DIR/grafana/prometheus.yml"
 configmap grafana-dashboards-provisioning --from-file=dashboards.yml="$CONFIG_DIR/grafana/dashboards.yml"

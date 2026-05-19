@@ -28,6 +28,7 @@ resources:
   - registry.yaml
   - image-registry.yaml
   - prometheus.yaml
+  - alertmanager.yaml
   - loki.yaml
   - promtail.yaml
 

@@ -10,6 +10,8 @@ interface StatPanelProps {
   range: RangeKey;
   span?: 3 | 4 | 6 | 8 | 9 | 12;
   format?: (v: number) => string;
+  /** Optional template variables (e.g. plugin name for the per-plugin drill-down). */
+  vars?: { plugin?: string };
 }
 
 function defaultFormat(v: number): string {
@@ -22,8 +24,8 @@ function defaultFormat(v: number): string {
  * Single big number from a Prometheus instant query. v1 ships without a
  * delta-vs-previous-period readout — explicit non-goal in the plan.
  */
-export function StatPanel({ queryKey, title, range, span = 3, format = defaultFormat }: StatPanelProps) {
-  const { data, loading, error } = useObservabilityQuery(queryKey, range);
+export function StatPanel({ queryKey, title, range, span = 3, format = defaultFormat, vars }: StatPanelProps) {
+  const { data, loading, error } = useObservabilityQuery(queryKey, range, vars);
   // Sum across all samples — most stat queries are already aggregated, but
   // a sum-over-empty result tolerates either single-series or zero-series
   // returns.

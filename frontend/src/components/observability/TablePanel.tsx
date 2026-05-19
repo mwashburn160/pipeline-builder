@@ -12,8 +12,8 @@ interface TablePanelProps {
   span?: 3 | 4 | 6 | 8 | 9 | 12;
   /** Catalog query mode: 'logs' for stream entries, 'topk' for matrix→ranked list. */
   mode: 'logs' | 'topk';
-  /** Optional templated params for the logs mode (event/digest/actor). */
-  logOpts?: { event?: string; digest?: string; actor?: string; limit?: number };
+  /** Optional templated params for the logs mode (event/digest/actor/plugin). */
+  logOpts?: { event?: string; digest?: string; actor?: string; plugin?: string; limit?: number };
   /** For topk mode, the label key holding the rank label (default 'actor'). */
   topkLabel?: string;
 }

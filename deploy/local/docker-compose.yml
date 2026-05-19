@@ -746,6 +746,7 @@ services:
     command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.retention.time=7d']
     volumes:
       - './config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro'
+      - './config/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro'
       - './data/db-data/prometheus/:/prometheus:rw'
     networks:
       - backend-network
@@ -763,6 +764,43 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+
+  # Alertmanager: routes Prometheus alerts to Slack (or `null` if Slack
+  # webhooks aren't configured). The alertmanager.yml template references
+  # SLACK_WEBHOOK_URL_CRITICAL / _WARNING which are substituted at deploy
+  # time. Defaults are unset → the YAML literally renders `${VAR}` which
+  # Alertmanager treats as an invalid URL — both Slack receivers no-op
+  # silently. That's the intended degraded behavior; the alerts still
+  # land in Alertmanager's UI / API.
+  alertmanager:
+    image: 'prom/alertmanager:v0.28.0'
+    container_name: alertmanager
+    restart: always
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    environment:
+      - SLACK_WEBHOOK_URL_CRITICAL=${SLACK_WEBHOOK_URL_CRITICAL:-}
+      - SLACK_WEBHOOK_URL_WARNING=${SLACK_WEBHOOK_URL_WARNING:-}
+    volumes:
+      - './config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro'
+      - './data/db-data/alertmanager/:/alertmanager:rw'
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
 
   loki:
     image: 'grafana/loki:3.4.2'
