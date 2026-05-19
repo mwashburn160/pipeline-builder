@@ -13,7 +13,7 @@ import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client
 
 import { config } from './config';
 import { notFoundHandler, errorHandler } from './middleware';
-import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, configRoutes, observabilityRoutes } from './routes';
+import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, configRoutes, observabilityRoutes, dashboardRoutes } from './routes';
 
 const logger = createLogger('platform-api');
 
@@ -205,6 +205,7 @@ app.use('/logs', logRoutes);
 app.use('/audit', auditRoutes);
 app.use('/config', configRoutes);
 app.use('/observability', observabilityLimiter, observabilityRoutes);
+app.use('/dashboards', dashboardRoutes);
 
 /** Error handling middleware (must be registered last) */
 app.use(notFoundHandler);
@@ -244,6 +245,14 @@ async function startServer(): Promise<void> {
     const serverSelectionTimeoutMS = parseInt(process.env.MONGO_SERVER_SELECTION_MS || '5000', 10);
     await mongoose.connect(config.mongodb.uri, { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
     logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
+
+    // Seed default dashboards into Postgres. Fire-and-forget: the seeder is
+    // idempotent (insert-if-missing per `(org_id='system', name)`) and logs
+    // its own warnings on failure, so a transient Postgres outage at cold
+    // start doesn't block HTTP from coming up.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { seedDefaultDashboards } = require('./services/dashboard-seeder');
+    void seedDefaultDashboards();
 
     // Start HTTP server
     const server = app.listen(config.app.port, () => {

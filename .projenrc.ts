@@ -32,12 +32,12 @@ const expressVersion = '5.2.1';
 // publish time, so consumers on npm still get an exact version.
 // const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.4.34',
-  pipelineData:   '3.4.34',
-  pipelineCore:   '3.4.34',
-  apiServer:      '3.4.35',
-  aiCore:         '3.4.34',
-  pipelineEvents: '3.4.34'
+  apiCore:        '3.4.35',
+  pipelineData:   '3.4.35',
+  pipelineCore:   '3.4.35',
+  apiServer:      '3.4.36',
+  aiCore:         '3.4.35',
+  pipelineEvents: '3.4.35'
 };
 
 // =============================================================================
@@ -333,6 +333,10 @@ const platform = new FunctionProject({
   outdir: './platform',
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
+    // pipeline-core re-exports the drizzle schema + connection from pipeline-data.
+    // Pulled in for the dashboards CRUD path (Postgres-backed); platform's
+    // identity/auth/observability code remains Mongo-backed.
+    `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`, 'express-rate-limit@8.2.1',
     'nodemailer@8.0.1', 'zod@4.3.6', '@aws-sdk/client-sesv2@3.997.0',
     'jsonwebtoken@9.0.3', 'slugify@1.6.6', 'winston@3.19.0', 'bcryptjs@3.0.3',

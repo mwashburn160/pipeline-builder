@@ -1,0 +1,12 @@
+{
+  "name": "Plugin Builds",
+  "description": "Build throughput, success rate, duration, and BullMQ queue depth.",
+  "visibility": "public",
+  "panels": [
+    { "queryKey": "plugin_builds_total_24h", "vizKind": "stat", "title": "Total builds (24h)", "span": 3 },
+    { "queryKey": "plugin_build_p95_duration_sec", "vizKind": "line", "title": "p95 duration (5m)", "span": 9, "format": "seconds" },
+    { "queryKey": "plugin_builds_per_min", "vizKind": "line", "title": "Builds per minute", "span": 6, "groupBy": "status" },
+    { "queryKey": "plugin_build_success_rate_5m", "vizKind": "line", "title": "Success rate (5m)", "span": 6, "format": "percent" },
+    { "queryKey": "plugin_queue_depth", "vizKind": "line", "title": "Queue depth", "span": 12, "groupBy": "state" }
+  ]
+}

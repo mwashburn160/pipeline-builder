@@ -1,0 +1,15 @@
+{
+  "name": "Platform Overview",
+  "description": "Org/user counts and login activity, plus build + queue health at a glance.",
+  "visibility": "public",
+  "panels": [
+    { "queryKey": "platform_orgs_total", "vizKind": "stat", "title": "Organizations", "span": 3 },
+    { "queryKey": "platform_users_total", "vizKind": "stat", "title": "Users", "span": 3 },
+    { "queryKey": "platform_memberships_active_total", "vizKind": "stat", "title": "Active memberships", "span": 3 },
+    { "queryKey": "platform_logins_24h", "vizKind": "stat", "title": "Logins (24h)", "span": 3 },
+    { "queryKey": "platform_logins_per_min", "vizKind": "line", "title": "Logins per minute", "span": 6 },
+    { "queryKey": "plugin_builds_per_min", "vizKind": "line", "title": "Plugin builds per minute", "span": 6, "groupBy": "status" },
+    { "queryKey": "plugin_build_success_rate_5m", "vizKind": "line", "title": "Build success rate (5m)", "span": 6, "format": "percent" },
+    { "queryKey": "plugin_queue_depth", "vizKind": "line", "title": "Build queue depth", "span": 6, "groupBy": "state" }
+  ]
+}

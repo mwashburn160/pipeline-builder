@@ -23,7 +23,12 @@ export type AuditAction =
   | 'org.create'
   // Admin actions (controllers/user-admin.ts)
   | 'admin.user.delete'
-  | 'admin.org.delete';
+  | 'admin.org.delete'
+  // Dashboards (controllers/dashboards.ts)
+  | 'dashboard.create'
+  | 'dashboard.update'
+  | 'dashboard.delete'
+  | 'dashboard.clone';
 
 /**
  * Audit event document stored in MongoDB.

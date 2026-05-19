@@ -1,0 +1,10 @@
+{
+  "name": "Audit Activity",
+  "description": "Audit events over time, top actors, and a searchable recent-events table.",
+  "visibility": "public",
+  "panels": [
+    { "queryKey": "audit_events_per_hour_by_event", "vizKind": "stacked-bar", "title": "Events per hour by type", "span": 8 },
+    { "queryKey": "audit_top_actors_24h", "vizKind": "table", "title": "Top actors (24h)", "span": 4 },
+    { "queryKey": "audit_recent_events", "vizKind": "table", "title": "Recent events", "span": 12 }
+  ]
+}

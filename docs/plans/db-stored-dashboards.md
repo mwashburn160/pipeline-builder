@@ -44,10 +44,28 @@ state to migrate, no editor to maintain.
 
 ## When the time comes — implementation sketch
 
-### PR-E1: Schema + CRUD endpoints (~600 LoC)
+### PR-E1: Schema + CRUD endpoints (~700 LoC)
 - `dashboards` table: `id, org_id, name, description, layout_json, created_by, created_at, updated_at, visibility (private|org|public)`
 - `dashboard_panels` table: `id, dashboard_id, query_key, viz_kind, title, span, group_by, format, position`
-- Migration: seed the 5 existing dashboards as `visibility=public` rows
+- **Two schema-of-truth files have to land in the same PR or fresh installs break.**
+  Add the same CREATE TABLE + indexes + `update_modified_column` trigger
+  pattern (mirror the existing `pipeline_events` / `compliance_*` blocks) to:
+  - `deploy/local/postgres-init.sql`
+  - `deploy/minikube/postgres-init.sql`
+  - `deploy/aws/ec2/postgres-init.sql`
+  - The drizzle migration in `packages/pipeline-data/src/schema/` (runtime
+    source of truth for the platform service)
+  - `deploy/aws/fargate/stacks/` — Fargate uses RDS; the schema is applied
+    by the same drizzle migration, but verify the init job that runs on
+    first boot picks up the new tables.
+  Indexes worth declaring up front:
+    - `(org_id, visibility)` composite for the `GET /api/dashboards` list query
+    - `(dashboard_id, position)` on `dashboard_panels` for ordered fetch
+- `mongodb-init.js` is unaffected — dashboards are Postgres-only and that
+  file just provisions the admin user.
+- Migration also seeds the 5 existing dashboards as `visibility=public,
+  org_id='system'` rows (so the system-org content visibility rule applies
+  and every logged-in org sees them by default).
 - Endpoints:
   - `GET /api/dashboards` — list visible to caller (per-org + public)
   - `GET /api/dashboards/:id` — fetch one
@@ -69,10 +87,15 @@ state to migrate, no editor to maintain.
 - Save → `PUT /api/dashboards/:id`; Discard → revert local state
 - Per-edit autosave (or explicit Save button — pick)
 
-### PR-E4: Migration + import/export (~300 LoC)
+### PR-E4: Migration + import/export (~400 LoC)
 - `pnpm dlx pipeline-manager dashboard export <id>` → JSON file
 - `pnpm dlx pipeline-manager dashboard import <file>` → POST to API
 - CI step: snapshot all `visibility=public` dashboards into `deploy/<target>/seeds/dashboards/` so a fresh deploy starts with curated defaults
+- New `deploy/bin/load-dashboards.sh` (parallel to the existing
+  `load-pipelines.sh` / `load-plugins.sh` / `load-compliance.sh` family)
+  that loops over the seed JSON files and POSTs each via the bootstrap
+  sysadmin token. Hook it into `deploy/bin/init-platform.sh` after the
+  sysadmin user is created. Idempotent: skip on `409 already-exists`.
 
 ## Non-goals
 
@@ -95,8 +118,8 @@ state to migrate, no editor to maintain.
 
 | PR | LoC |
 |---|---|
-| E1 — Schema + CRUD | 600 |
+| E1 — Schema + CRUD (includes `postgres-init.sql` parity) | 700 |
 | E2 — Read path | 400 |
 | E3 — Editor | 700 |
-| E4 — Migration tools | 300 |
-| **Total** | **~2000 LoC** across 4 PRs over ~4-6 weeks |
+| E4 — Migration tools + `load-dashboards.sh` | 400 |
+| **Total** | **~2200 LoC** across 4 PRs over ~4-6 weeks |

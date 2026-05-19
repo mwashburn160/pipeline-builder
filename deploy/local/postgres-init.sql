@@ -214,6 +214,79 @@ ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
 
 -- ============================================================================
+-- DASHBOARDS + DASHBOARD PANELS (user-editable observability dashboards)
+-- ============================================================================
+--
+-- Mirror of the drizzle schema in
+-- packages/pipeline-data/src/database/drizzle-schema.ts. The drizzle migration
+-- is the runtime source of truth for the platform service; this block exists
+-- so a fresh deploy that hasn't run the migration yet still has the tables
+-- present (matches what we do for plugins, pipelines, compliance, etc.).
+
+CREATE TABLE IF NOT EXISTS dashboards (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id          VARCHAR(255) NOT NULL DEFAULT 'system',
+    created_by      TEXT NOT NULL DEFAULT 'system',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by      TEXT NOT NULL DEFAULT 'system',
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    name            VARCHAR(150) NOT NULL,
+    description     TEXT,
+
+    -- react-grid-layout coordinate set keyed by panel id.
+    layout_json     JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+    -- Visibility ladder: private → just creator, org → same-org members,
+    -- public → every authenticated user (used for the 5 default dashboards).
+    visibility      VARCHAR(10) NOT NULL DEFAULT 'private'
+                    CHECK (visibility IN ('private', 'org', 'public')),
+
+    deleted_at      TIMESTAMPTZ,
+    deleted_by      TEXT
+);
+
+-- Listing is org-scoped and visibility-filtered, so both columns get indexed.
+CREATE INDEX IF NOT EXISTS dashboard_org_visibility_idx
+    ON dashboards(org_id, visibility) WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS dashboard_created_by_idx
+    ON dashboards(created_by) WHERE deleted_at IS NULL;
+
+-- Same-org duplicate-name guard (soft-deleted rows excluded so reuse works).
+CREATE UNIQUE INDEX IF NOT EXISTS dashboard_org_name_unique
+    ON dashboards(org_id, name) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS dashboard_panels (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    dashboard_id    UUID NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+    -- Catalog key, validated server-side against platform/src/observability/catalog.ts
+    query_key       VARCHAR(100) NOT NULL,
+    -- 'stat' | 'line' | 'table' | 'stacked-bar' (renderer falls back to 'line' on unknown)
+    viz_kind        VARCHAR(30) NOT NULL DEFAULT 'line',
+    title           VARCHAR(200) NOT NULL,
+    -- Tailwind col-span tier (1-12; only 3/4/6/8/9/12 are renderable)
+    span            INTEGER NOT NULL DEFAULT 6,
+    group_by        VARCHAR(50),
+    format          VARCHAR(20),
+    -- 0-based render order within the dashboard
+    position        INTEGER NOT NULL DEFAULT 0,
+    -- Optional template-var values bound at panel level (sanitized at render time)
+    vars            JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- The render path is "fetch all panels for dashboard X in order".
+CREATE INDEX IF NOT EXISTS dashboard_panel_dashboard_position_idx
+    ON dashboard_panels(dashboard_id, position);
+
+-- updated_at trigger (matches the pattern other tables use)
+DROP TRIGGER IF EXISTS update_dashboards_modtime ON dashboards;
+CREATE TRIGGER update_dashboards_modtime
+    BEFORE UPDATE ON dashboards
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
+-- ============================================================================
 -- ADMIN AUDIT LOG TABLE
 -- ============================================================================
 

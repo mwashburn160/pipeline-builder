@@ -1,0 +1,13 @@
+{
+  "name": "Registry Activity",
+  "description": "Copy / delete / promote counters over the in-cluster Docker registry.",
+  "visibility": "public",
+  "panels": [
+    { "queryKey": "registry_copies_24h", "vizKind": "stat", "title": "Copies (24h)", "span": 4 },
+    { "queryKey": "registry_deletes_24h", "vizKind": "stat", "title": "Deletes (24h)", "span": 4 },
+    { "queryKey": "registry_promotions_24h", "vizKind": "stat", "title": "Promotions (24h)", "span": 4 },
+    { "queryKey": "registry_copies_per_min", "vizKind": "line", "title": "Copies per minute", "span": 4 },
+    { "queryKey": "registry_deletes_per_min", "vizKind": "line", "title": "Deletes per minute", "span": 4 },
+    { "queryKey": "registry_promotions_per_hour", "vizKind": "line", "title": "Promotions per hour", "span": 4 }
+  ]
+}

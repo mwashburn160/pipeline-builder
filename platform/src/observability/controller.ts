@@ -176,6 +176,26 @@ export const observabilityLogs = withController('Observability logs', async (req
 });
 
 /**
+ * GET /api/observability/catalog — list every catalog query key.
+ *
+ * Returned shape: `{ entries: [{ key, source, allowedVars, orgScoped }] }` —
+ * just enough metadata for the dashboard editor's panel-add picker to render
+ * the dropdown + decide whether `vars` inputs are needed. The raw PromQL/LogQL
+ * is intentionally omitted; the catalog stays the security boundary even when
+ * the picker is exposed to org admins.
+ */
+export const observabilityCatalog = withController('Observability catalog', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const entries = Object.entries(QUERIES).map(([key, entry]) => ({
+    key,
+    source: entry.source,
+    allowedVars: entry.allowedVars,
+    orgScoped: entry.orgScoped ?? false,
+  }));
+  sendSuccess(res, 200, { entries });
+});
+
+/**
  * GET /api/observability/alerts — list currently-firing + suppressed alerts.
  *
  * Org-scoped: org admins see alerts labeled with their org_id (plus

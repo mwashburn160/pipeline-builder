@@ -945,6 +945,70 @@ class ApiClient {
   }
 
   // ==========================================================================
+  // Dashboards (DB-stored, user-editable observability dashboards — P3)
+  //
+  // Replaces the code-defined dashboards under `src/lib/dashboards/*.ts`.
+  // Panels reference catalog `queryKey`s; raw PromQL/LogQL never travels
+  // through this surface, so the catalog stays the security boundary.
+  // ==========================================================================
+
+  /** List dashboards visible to the caller (org-scoped + public). */
+  async listDashboards(signal?: AbortSignal) {
+    return this.request<ApiResponse<import('@/types/observability').DashboardsResponse>>(
+      '/api/dashboards',
+      { signal },
+    );
+  }
+
+  /** Fetch one dashboard + its panels in render order. */
+  async getDashboard(id: string, signal?: AbortSignal) {
+    return this.request<ApiResponse<import('@/types/observability').DashboardResponse>>(
+      `/api/dashboards/${encodeURIComponent(id)}`,
+      { signal },
+    );
+  }
+
+  /** Create a dashboard (org-admin or sysadmin required server-side). */
+  async createDashboard(body: import('@/types/observability').DashboardWrite) {
+    return this.request<ApiResponse<import('@/types/observability').DashboardResponse>>(
+      '/api/dashboards',
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+  }
+
+  /** Update a dashboard (ownership / org-admin / sysadmin gated server-side). */
+  async updateDashboard(id: string, body: import('@/types/observability').DashboardWrite) {
+    return this.request<ApiResponse<import('@/types/observability').DashboardResponse>>(
+      `/api/dashboards/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    );
+  }
+
+  /** Soft delete a dashboard. */
+  async deleteDashboard(id: string) {
+    return this.request<ApiResponse<undefined>>(
+      `/api/dashboards/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  /** Fork a dashboard into the caller's org as a private copy. */
+  async cloneDashboard(id: string) {
+    return this.request<ApiResponse<import('@/types/observability').DashboardResponse>>(
+      `/api/dashboards/${encodeURIComponent(id)}/clone`,
+      { method: 'POST' },
+    );
+  }
+
+  /** List catalog query keys — drives the editor's panel-add picker. */
+  async observabilityCatalog(signal?: AbortSignal) {
+    return this.request<ApiResponse<import('@/types/observability').CatalogResponse>>(
+      '/api/observability/catalog',
+      { signal },
+    );
+  }
+
+  // ==========================================================================
   // Image Registry (sysadmin-only; consumed by /dashboard/registry)
   // ==========================================================================
 

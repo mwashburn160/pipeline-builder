@@ -88,3 +88,77 @@ export interface Silence {
 export interface SilencesResponse {
   silences: Silence[];
 }
+
+/** Single catalog entry as exposed by `GET /api/observability/catalog`. The
+ *  raw PromQL/LogQL is intentionally omitted from this surface. */
+export interface CatalogEntry {
+  key: string;
+  source: 'prometheus-instant' | 'prometheus-range' | 'loki-range';
+  allowedVars: ReadonlyArray<'event' | 'digest' | 'actor' | 'plugin'>;
+  orgScoped: boolean;
+}
+
+export interface CatalogResponse {
+  entries: CatalogEntry[];
+}
+
+/** A single panel inside a DB-stored dashboard. */
+export interface DashboardPanel {
+  id: string;
+  dashboardId: string;
+  queryKey: string;
+  vizKind: string;
+  title: string;
+  span: number;
+  groupBy: string | null;
+  format: string | null;
+  position: number;
+  vars: Record<string, string>;
+}
+
+/** A DB-stored, user-editable dashboard. */
+export interface Dashboard {
+  id: string;
+  orgId: string;
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+  name: string;
+  description: string | null;
+  layoutJson: Record<string, { x: number; y: number; w: number; h: number; minW?: number; minH?: number }>;
+  visibility: 'private' | 'org' | 'public';
+}
+
+/** Dashboard + its panels in render order — the shape `GET /:id` returns. */
+export interface DashboardWithPanels extends Dashboard {
+  panels: DashboardPanel[];
+}
+
+/** Response shape from `GET /api/dashboards`. */
+export interface DashboardsResponse {
+  dashboards: Dashboard[];
+}
+
+/** Response shape from `GET /api/dashboards/:id`. */
+export interface DashboardResponse {
+  dashboard: DashboardWithPanels;
+}
+
+/** Body shape for `POST /api/dashboards` and `PUT /api/dashboards/:id`. */
+export interface DashboardWrite {
+  name?: string;
+  description?: string | null;
+  visibility?: 'private' | 'org' | 'public';
+  layoutJson?: Record<string, { x: number; y: number; w: number; h: number; minW?: number; minH?: number }>;
+  panels?: Array<{
+    queryKey: string;
+    vizKind?: string;
+    title: string;
+    span?: number;
+    groupBy?: string | null;
+    format?: string | null;
+    position?: number;
+    vars?: Record<string, string>;
+  }>;
+}

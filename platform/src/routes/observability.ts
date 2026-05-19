@@ -5,6 +5,7 @@ import { Router } from 'express';
 import {
   observabilityQuery,
   observabilityLogs,
+  observabilityCatalog,
   observabilityAlerts,
   observabilitySilencesList,
   observabilitySilenceCreate,
@@ -19,6 +20,9 @@ router.get('/query', requireAuth, observabilityQuery);
 
 /** GET /observability/logs — Loki range by catalog key */
 router.get('/logs', requireAuth, observabilityLogs);
+
+/** GET /observability/catalog — list catalog keys (drives the editor's panel-add picker) */
+router.get('/catalog', requireAuth, observabilityCatalog);
 
 /** GET /observability/alerts — currently-firing + suppressed alerts (org-scoped) */
 router.get('/alerts', requireAuth, observabilityAlerts);
