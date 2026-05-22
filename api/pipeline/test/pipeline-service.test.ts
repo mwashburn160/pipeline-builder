@@ -39,16 +39,16 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
         accessModifier: 'accessModifier',
       },
     },
-    db: {
-      transaction: jest.fn(async (cb: Function) => {
-        const tx = {
-          execute: jest.fn().mockResolvedValue([]),
-          update: jest.fn().mockReturnValue({ set: mockTransactionSet }),
-          insert: jest.fn().mockReturnValue({ values: mockTransactionValues }),
-        };
-        return cb(tx);
-      }),
-    },
+    // pipeline-service.createAsDefault was migrated from db.transaction to
+    // withTenantTx — same tx shape, just routed through the tenancy seam.
+    withTenantTx: jest.fn(async (cb: Function) => {
+      const tx = {
+        execute: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockReturnValue({ set: mockTransactionSet }),
+        insert: jest.fn().mockReturnValue({ values: mockTransactionValues }),
+      };
+      return cb(tx);
+    }),
   };
 });
 
@@ -85,9 +85,9 @@ describe('PipelineService', () => {
 
       const result = await service.createAsDefault(data, 'user-1', 'proj', 'org');
 
-      // Verify transaction was used
-      const { db } = jest.requireMock('@pipeline-builder/pipeline-core');
-      expect(db.transaction).toHaveBeenCalled();
+      // Verify the tenancy-aware transaction wrapper was used.
+      const { withTenantTx } = jest.requireMock('@pipeline-builder/pipeline-core');
+      expect(withTenantTx).toHaveBeenCalled();
 
       // Verify update was called to clear defaults
       expect(mockTransactionSet).toHaveBeenCalledWith(

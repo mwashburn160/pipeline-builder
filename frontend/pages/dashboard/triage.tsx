@@ -4,8 +4,11 @@
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { api } from '@/lib/api';
+import { downloadCsv } from '@/lib/csv-export';
+import { Download } from 'lucide-react';
 
 interface TriageSample {
   id: string | number;
@@ -38,7 +41,7 @@ export default function TriagePage() {
   // Sysadmin-only — the underlying /queue/triage endpoint is gated server-side
   // and returns 403 to anyone else; the guard avoids loading the page UI just
   // to have it 403 mid-render.
-  const { isReady, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const [loading, setLoading] = useState(true);
   const [totalFailed, setTotalFailed] = useState(0);
   const [groups, setGroups] = useState<TriageGroup[]>([]);
@@ -48,9 +51,9 @@ export default function TriagePage() {
   const [replayMsg, setReplayMsg] = useState<{ id: string | number; text: string; isError: boolean } | null>(null);
 
   useEffect(() => {
-    if (!isReady || !isSysAdmin) return;
+    if (!isReady || !isSuperAdmin) return;
     void load();
-  }, [isReady, isSysAdmin]);
+  }, [isReady, isSuperAdmin]);
 
   async function load(): Promise<void> {
     setLoading(true);
@@ -97,20 +100,47 @@ export default function TriagePage() {
     }
   }
 
-  if (!isReady || !isSysAdmin) return <LoadingPage />;
+  if (!isReady || !isSuperAdmin) return <LoadingPage />;
 
   return (
     <DashboardLayout
       title="Failed Build Triage"
       subtitle={`${totalFailed} failed build${totalFailed === 1 ? '' : 's'} grouped by category`}
       actions={
-        <button
-          onClick={() => void load()}
-          className="btn btn-secondary"
-          disabled={loading}
-        >
-          {loading ? 'Loading…' : 'Refresh'}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Flatten the grouped samples into a single CSV — one row per
+              failure sample. Operators correlating triage with external
+              tickets want the raw rows, not the category roll-up. */}
+          <button
+            onClick={() => downloadCsv(
+              groups.flatMap((g) =>
+                g.samples.map((s) => ({
+                  category: g.category,
+                  pluginName: s.pluginName ?? '',
+                  version: s.version ?? '',
+                  error: s.error ?? '',
+                  failedAt: s.failedAt ?? '',
+                  source: s.source,
+                  jobId: String(s.id),
+                })),
+              ),
+              ['category', 'pluginName', 'version', 'error', 'failedAt', 'source', 'jobId'],
+              `triage-${new Date().toISOString().slice(0, 10)}`,
+            )}
+            className="btn btn-secondary inline-flex items-center gap-1"
+            disabled={groups.length === 0}
+            title="Export failure samples as CSV"
+          >
+            <Download className="w-3.5 h-3.5" /> CSV
+          </button>
+          <button
+            onClick={() => void load()}
+            className="btn btn-secondary"
+            disabled={loading}
+          >
+            {loading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
       }
     >
       <div className="max-w-6xl mx-auto px-4 py-6">
@@ -168,7 +198,7 @@ export default function TriagePage() {
                                 {s.pluginName ?? 'unknown plugin'} • {s.source}
                               </span>
                               <div className="flex items-center gap-2">
-                                {s.failedAt && <span>{new Date(s.failedAt).toLocaleString()}</span>}
+                                {s.failedAt && <RelativeTime value={s.failedAt} />}
                                 {s.source === 'dlq' && (
                                   <button
                                     type="button"

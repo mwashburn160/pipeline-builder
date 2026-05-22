@@ -7,7 +7,7 @@ const VALID_TIERS = ['developer', 'pro', 'unlimited'] as const;
 
 const quotaLimit = z.number().int().min(-1);
 
-/** PUT /quotas/:orgId — update org name, slug, tier, and/or quota limits. */
+/** PUT /quotas/:orgId  update org name, slug, tier, and/or quota limits. */
 export const UpdateQuotaSchema = z.object({
   name: z.string().trim().min(1, 'name must be a non-empty string').optional(),
   slug: z.string().trim().min(1, 'slug must be a non-empty string')
@@ -18,13 +18,17 @@ export const UpdateQuotaSchema = z.object({
     plugins: quotaLimit.optional(),
     pipelines: quotaLimit.optional(),
     apiCalls: quotaLimit.optional(),
+    aiCalls: quotaLimit.optional(),
+    // aggregate registry storage cap per org, in bytes. -1 = unlimited.
+    // Operators set this directly when an org needs a custom cap (e.g. a
+    // long-tail customer that doesn't fit a tier preset).
+    storageBytes: quotaLimit.optional(),
   }).optional(),
-}).refine(
-  (data) => data.name !== undefined || data.slug !== undefined || data.tier !== undefined || data.quotas !== undefined,
+}).refine( (data) => data.name !== undefined || data.slug !== undefined || data.tier !== undefined || data.quotas !== undefined,
   { message: 'At least one field (name, slug, tier, or quotas) is required.' },
 );
 
-/** POST /quotas/:orgId/increment — increment usage for a quota type. */
+/** POST /quotas/:orgId/increment  increment usage for a quota type. */
 export const IncrementQuotaSchema = z.object({
   quotaType: z.enum(VALID_QUOTA_TYPES, {
     message: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
@@ -35,7 +39,14 @@ export const IncrementQuotaSchema = z.object({
   amount: z.number().int().min(1).max(1000).default(1),
 });
 
-/** POST /quotas/:orgId/reset — reset usage counters. */
+/**
+ * POST /quotas/:orgId/decrement  roll back a previously reserved increment.
+ * Mirrors `IncrementQuotaSchema`; same per-call ceiling so a buggy rollback
+ * can't drive the counter wildly negative (the service also floors at 0).
+ */
+export const DecrementQuotaSchema = IncrementQuotaSchema;
+
+/** POST /quotas/:orgId/reset  reset usage counters. */
 export const ResetQuotaSchema = z.object({
   quotaType: z.enum(VALID_QUOTA_TYPES, {
     message: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,

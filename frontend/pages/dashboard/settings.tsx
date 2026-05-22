@@ -6,7 +6,11 @@ import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
+import { StepUpModal } from '@/components/admin/StepUpModal';
+import { RelativeTime } from '@/components/ui/RelativeTime';
+import Link from 'next/link';
 import api from '@/lib/api';
+import { decodeJwt } from '@/lib/jwt';
 
 /** User and organization settings page. Manages profile info, AI provider API keys, password changes, and account deletion. */
 export default function SettingsPage() {
@@ -23,6 +27,9 @@ export default function SettingsPage() {
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  // Step-up gate state: when set, StepUpModal renders and on success
+  // performs the gated action with the returned token.
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -71,14 +78,19 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDeleteAccount = async () => {
+  // Click-through path: DeleteConfirm → StepUp → executeDelete.
+  const handleDeleteAccount = () => {
+    setShowDeleteConfirm(false);
+    setPendingDelete(true);
+  };
+
+  const executeDelete = async (stepUpToken: string) => {
     setDeleteLoading(true);
     try {
-      await api.deleteAccount();
+      await api.deleteAccount(stepUpToken);
       window.location.href = '/';
     } catch (err) {
       profile.setError(formatError(err, 'Failed to delete account'));
-      setShowDeleteConfirm(false);
     } finally {
       setDeleteLoading(false);
     }
@@ -111,6 +123,8 @@ export default function SettingsPage() {
               <label htmlFor="email" className="label">Email</label>
               <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input" disabled={profile.loading} />
             </div>
+
+            <SessionStartedRow />
 
             <button type="submit" disabled={profile.loading} className="btn btn-primary">
               {profile.loading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
@@ -200,6 +214,43 @@ export default function SettingsPage() {
           )}
         </motion.div>
       </div>
+
+      {pendingDelete && (
+        <StepUpModal
+          action="Delete your account (this cannot be undone)"
+          onConfirmed={executeDelete}
+          onClose={() => setPendingDelete(false)}
+        />
+      )}
     </DashboardLayout>
+  );
+}
+
+/**
+ * Surfaces "this session started X ago" + a link to the sessions panel.
+ * Sourced from the current access token's `iat` claim — no backend
+ * round trip needed, and the value matches what /tokens shows for the
+ * active token.
+ */
+function SessionStartedRow() {
+  const accessToken = api.getAccessToken();
+  if (!accessToken) return null;
+  const decoded = decodeJwt(accessToken);
+  const iat = decoded?.payload && typeof (decoded.payload as { iat?: number }).iat === 'number'
+    ? (decoded.payload as { iat: number }).iat
+    : null;
+  if (iat === null) return null;
+  const issuedAt = iat * 1000;
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 px-3 py-2 text-xs text-gray-600 dark:text-gray-400 flex items-center justify-between gap-2">
+      <span>
+        Current session started{' '}
+        <strong className="text-gray-800 dark:text-gray-200">
+          <RelativeTime value={issuedAt} live />
+        </strong>
+        . If this looks wrong, sign out everywhere from{' '}
+        <Link href="/dashboard/tokens" className="action-link">Sessions &amp; tokens</Link>.
+      </span>
+    </div>
   );
 }

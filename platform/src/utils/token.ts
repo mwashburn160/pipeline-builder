@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, resolveUserFeatures, isSystemOrgId } from '@pipeline-builder/api-core';
+import { createLogger, resolveUserFeatures } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
@@ -11,7 +11,7 @@ import { UserDocument } from '../models/user';
 import type { OrgMemberRole } from '../models/user-organization';
 import { AccessTokenPayload, RefreshTokenPayload } from '../types';
 
-const logger = createLogger('Token');
+const logger = createLogger('token');
 
 /** Membership context for token payload. */
 export interface MembershipContext {
@@ -25,7 +25,7 @@ export interface MembershipContext {
 function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext): AccessTokenPayload {
   const role = membership?.role ?? 'member';
   const tier = (membership?.tier as QuotaTier) || 'developer';
-  const isSystem = isSystemOrgId(membership?.organizationId, membership?.organizationName);
+  const isSuperAdmin = user.isSuperAdmin === true;
   const overrides = user.featureOverrides
     ? Object.fromEntries(user.featureOverrides as Map<string, boolean>)
     : undefined;
@@ -38,8 +38,15 @@ function createAccessTokenPayload(user: UserDocument, membership?: MembershipCon
     email: user.email,
     role,
     isAdmin: role === 'admin' || role === 'owner',
+    // Carry the global super-admin flag through the JWT so downstream auth
+    // gates (`isSystemAdmin`) can honor it without re-reading the user
+    // record on every request. Only set when true to keep the payload
+    // small for non-sysadmin users (the vast majority).
+    ...(isSuperAdmin ? { isSuperAdmin: true } : {}),
     tier,
-    features: resolveUserFeatures(tier, overrides, isSystem),
+    // Sysadmins get every feature; non-sysadmins get their tier's defaults
+    // plus per-user overrides.
+    features: resolveUserFeatures(tier, overrides, isSuperAdmin),
     tokenVersion: user.tokenVersion,
     isEmailVerified: user.isEmailVerified,
   };
@@ -122,8 +129,6 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
  * @param expiresIn - Optional access token lifetime in seconds (default: config.auth.jwt.expiresIn)
  */
 export async function issueTokens(user: UserDocument, activeOrgId?: string, expiresIn?: number): Promise<IssuedTokens> {
-  const tokenExpiresIn = expiresIn ?? config.auth.jwt.expiresIn;
-
   let membership: MembershipContext | undefined;
   try {
     membership = await resolveMembership(
@@ -133,6 +138,14 @@ export async function issueTokens(user: UserDocument, activeOrgId?: string, expi
   } catch (error) {
     logger.warn('Failed to resolve membership for token', { error });
   }
+
+  // Resolution order: caller override → per-tier override → global default.
+  // The per-tier path lets compliance-driven customers (enterprise tiers)
+  // narrow the stolen-token blast window without forcing every user to
+  // re-auth more often.
+  const tier = membership?.tier;
+  const tierExpiresIn = tier ? config.auth.jwt.tierExpiresIn[tier] : undefined;
+  const tokenExpiresIn = expiresIn ?? tierExpiresIn ?? config.auth.jwt.expiresIn;
 
   const accessToken = jwt.sign(
     createAccessTokenPayload(user, membership),
@@ -169,9 +182,88 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
   }) as AccessTokenPayload;
 }
 
+/**
+ * Issue an access token that grants `impersonator` the identity of
+ * `target`. The token carries `impersonatorId` (so audit events still
+ * attribute the sysadmin) and `impersonationReadOnly: true` (so the
+ * `requireWriteAccess` middleware blocks state-changing requests).
+ *
+ * No refresh token is issued — impersonation is intentionally
+ * short-lived. The caller is responsible for storing the token client-
+ * side and clearing it on "Stop impersonating".
+ */
+export async function issueImpersonationToken(
+  target: UserDocument,
+  impersonatorId: string,
+  ttlSeconds = 15 * 60,
+): Promise<{ accessToken: string; expiresIn: number }> {
+  let membership: MembershipContext | undefined;
+  try {
+    membership = await resolveMembership(
+      target._id.toString(),
+      target.lastActiveOrgId?.toString(),
+    );
+  } catch (err) {
+    logger.warn('Impersonation: failed to resolve target membership', { error: err });
+  }
+
+  const payload = {
+    ...createAccessTokenPayload(target, membership),
+    impersonatorId,
+    impersonationReadOnly: true,
+  };
+  const accessToken = jwt.sign(payload, config.auth.jwt.secret, {
+    algorithm: config.auth.jwt.algorithm,
+    expiresIn: ttlSeconds,
+  });
+  return { accessToken, expiresIn: ttlSeconds };
+}
+
 /** Verify and decode a JWT refresh token. */
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
   return jwt.verify(token, config.auth.refreshToken.secret, {
     algorithms: [config.auth.jwt.algorithm],
   }) as RefreshTokenPayload;
+}
+
+/**
+ * Payload of a short-lived step-up token. Issued by POST /api/auth/step-up
+ * once the caller re-verifies their password; required (as
+ * `X-Step-Up-Token`) on destructive endpoints behind `requireStepUp`.
+ *
+ * Single-use enforcement is NOT done today — the token is short-lived
+ * (60s default) and bound to the user's sub, so the realistic replay
+ * window is tiny. If we ever need true single-use, swap in a Redis-backed
+ * jti consumption set.
+ */
+export interface StepUpTokenPayload {
+  type: 'step-up';
+  sub: string;
+  jti: string;
+  iat: number;
+  exp: number;
+}
+
+/** Sign a short-lived step-up token bound to `userId`. Defaults to 60s TTL. */
+export function issueStepUpToken(userId: string, ttlSeconds = 60): { token: string; expiresAt: number } {
+  const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const payload = {
+    type: 'step-up' as const,
+    sub: userId,
+    jti: crypto.randomBytes(8).toString('hex'),
+  };
+  const token = jwt.sign(payload, config.auth.jwt.secret, {
+    algorithm: config.auth.jwt.algorithm,
+    expiresIn: ttlSeconds,
+  });
+  return { token, expiresAt };
+}
+
+/** Verify a step-up token; throws on invalid signature/expiry. Caller must
+ *  additionally check that `payload.sub === req.user.sub` — `requireStepUp`
+ *  middleware does this. */
+export function verifyStepUpToken(token: string): StepUpTokenPayload {
+  return jwt.verify(token, config.auth.jwt.secret, {
+    algorithms: [config.auth.jwt.algorithm],
+  }) as StepUpTokenPayload;
 }

@@ -19,16 +19,16 @@
 
 import { sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
-import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper';
+import * as am from './alertmanager-client';
 import {
   QUERIES,
   rangeSeconds,
   stepForRange,
   substituteVars,
 } from './catalog';
-import * as prom from './prometheus-client';
 import * as loki from './loki-client';
-import * as am from './alertmanager-client';
+import * as prom from './prometheus-client';
+import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper';
 
 type RangeKey = '1h' | '6h' | '24h';
 
@@ -98,7 +98,7 @@ export const observabilityQuery = withController('Observability query', async (r
     {
       plugin: getStringParam(req, 'plugin'),
       org: req.user?.organizationId,
-      isSysAdmin: sysadmin,
+      isSuperAdmin: sysadmin,
     },
     entry.allowedVars,
   );
@@ -152,7 +152,7 @@ export const observabilityLogs = withController('Observability logs', async (req
     actor: getStringParam(req, 'actor'),
     plugin: getStringParam(req, 'plugin'),
     org: req.user?.organizationId,
-    isSysAdmin: sysadmin,
+    isSuperAdmin: sysadmin,
   };
   const logQL = substituteVars(entry.query, vars, entry.allowedVars);
 

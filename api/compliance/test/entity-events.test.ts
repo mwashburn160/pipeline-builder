@@ -59,6 +59,11 @@ jest.mock('../src/helpers/audit-logger', () => ({
 jest.mock('@pipeline-builder/pipeline-core', () => ({
   schema: {},
   db: { select: jest.fn() },
+  // Route now wraps its handler in `runWithTenantContext` (so internal
+  // service-to-service calls establish a tenant scope from the payload's
+  // orgId before any RLS-touching service call). Pass-through is fine for
+  // these tests — they don't exercise GUC behavior.
+  runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
 import { sendSuccess, sendError, sendBadRequest } from '@pipeline-builder/api-core';

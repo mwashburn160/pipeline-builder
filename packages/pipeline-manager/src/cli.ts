@@ -13,6 +13,7 @@ import { getPlugin } from './commands/get-plugin';
 import { listPipelines } from './commands/list-pipelines';
 import { listPlugins } from './commands/list-plugins';
 import { login } from './commands/login';
+import { orgExport } from './commands/org-export';
 import { register } from './commands/register';
 import { setupEvents } from './commands/setup-events';
 import { status } from './commands/status';
@@ -122,7 +123,7 @@ function displayStartupInfo(options: CliOptions): void {
       cwd: process.cwd(),
       env: {
         debug: process.env.DEBUG,
-        token: process.env[ENV_VARS.PLATFORM_TOKEN] ? 'set' : 'not set',
+        token: process.env[ENV_VARS.PLATFORM_TOKEN] ? 'set': 'not set',
         url: process.env[ENV_VARS.PLATFORM_BASE_URL] || 'default',
       },
     });
@@ -142,23 +143,21 @@ function registerCommands(): void {
 
   // Configure program
   program
-    .name(APP_NAME)
-    .description(APP_DESCRIPTION)
-    .version(APP_VERSION, '-v, --version', 'Show CLI version')
-    .option('--debug', 'Enable debug output with stack traces', false)
-    .option('--verbose', 'Show detailed information', false)
-    .option('--quiet', 'Minimal output (errors only)', false)
-    .option('--no-color', 'Disable colored output', false)
-    .addHelpText('after', `
-Environment Variables:
-  ${ENV_VARS.PLATFORM_TOKEN}              Authentication token (required)
-  ${ENV_VARS.PLATFORM_BASE_URL}                 API base URL (optional)
-  ${ENV_VARS.CLI_CONFIG_PATH}              Config file path (optional)
-  ${ENV_VARS.TLS_REJECT_UNAUTHORIZED}      Disable SSL verification if '0'
-  ${ENV_VARS.DEBUG}                        Enable debug mode if 'true'
+      .name(APP_NAME)
+      .description(APP_DESCRIPTION)
+      .version(APP_VERSION, '-v, --version', 'Show CLI version')
+      .option('--debug', 'Enable debug output with stack traces', false)
+      .option('--verbose', 'Show detailed information', false)
+      .option('--quiet', 'Minimal output (errors only)', false)
+      .option('--no-color', 'Disable colored output', false)
+      .addHelpText('after', `
+Environment Variables  ${ENV_VARS.PLATFORM_TOKEN} Authentication token (required)
+  ${ENV_VARS.PLATFORM_BASE_URL} API base URL (optional)
+  ${ENV_VARS.CLI_CONFIG_PATH} Config file path (optional)
+  ${ENV_VARS.TLS_REJECT_UNAUTHORIZED} Disable SSL verification if '0'
+  ${ENV_VARS.DEBUG} Enable debug mode if 'true'
 
-Examples:
-  $ ${APP_NAME} version
+Examples  $ ${APP_NAME} version
   $ ${APP_NAME} list-pipelines --project my-app
   $ ${APP_NAME} get-pipeline --id pipe-123 --format json
   $ ${APP_NAME} store-token --days 30 --region us-east-1
@@ -190,6 +189,10 @@ Examples:
   printDebug('Registering status command');
   status(program); // Show environment and connectivity status
 
+  // Org admin commands
+  printDebug('Registering org admin commands');
+  orgExport(program); // GDPR portability export â sysadmin (any org) or org admin (own org)
+
   // Deployment commands
   printDebug('Registering deployment commands');
   storeToken(program); // Generate JWT token and store in Secrets Manager
@@ -203,15 +206,15 @@ Examples:
   auditTokens(program); // Scan Secrets Manager for expiring platform tokens
   auditStacks(program); // Diff CFN stacks vs pipeline_registry to find drift
   synth(program); // Run CDK synthesis
-  validateTemplatesCommand(program); // Validate {{ ... }} templates in a pipeline or plugin
+  validateTemplatesCommand(program); // Validate {{... }} templates in a pipeline or plugin
 
   // Shell completions
   printDebug('Registering completions command');
   program
-    .command('completions')
-    .description('Generate shell completions (bash, zsh, fish)')
-    .argument('<shell>', 'Shell type: bash, zsh, or fish')
-    .action((shell: string) => {
+      .command('completions')
+      .description('Generate shell completions (bash, zsh, fish)')
+      .argument('<shell>', 'Shell type: bash, zsh, or fish')
+      .action((shell: string) => {
       // Pull command names from commander's registered list so completions never
       // drift from the actual CLI surface. Sorted for stable output.
       const commands = program.commands.map(c => c.name()).sort().join(' ');
@@ -271,10 +274,10 @@ function setupErrorHandlers(): void {
   process.on('unhandledRejection', (reason: unknown) => {
     console.error(''); // Empty line
     printError('Unhandled promise rejection', {
-      reason: reason instanceof Error ? reason.message : String(reason),
+      reason: reason instanceof Error ? reason.message: String(reason),
     });
 
-    const error = reason instanceof Error ? reason : new Error(String(reason));
+    const error = reason instanceof Error ? reason: new Error(String(reason));
 
     handleError(error, ERROR_CODES.GENERAL, {
       debug: isDebugMode(program.opts()),
@@ -353,7 +356,7 @@ export function initializeCli(options: CliOptions = {}): void {
     printDebug('CLI initialization complete');
   } catch (error) {
     printError('CLI initialization failed', {
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.message: String(error),
     });
 
     handleError(error, ERROR_CODES.CONFIGURATION, {
@@ -393,7 +396,7 @@ function parseArguments(): void {
         console.log(''); // Empty line
         printInfo('Available commands:');
         program.commands.forEach(cmd => {
-          console.log(`  • ${cmd.name()} - ${cmd.description()}`);
+          console.log(` • ${cmd.name()} - ${cmd.description()}`);
         });
         console.log(''); // Empty line
         process.exit(1);
@@ -444,7 +447,7 @@ export function main(options: CliOptions = {}): void {
     // Final catch-all error handler
     console.error(''); // Empty line
     printError('Fatal CLI error', {
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.message: String(error),
     });
 
     handleError(error, ERROR_CODES.GENERAL, {

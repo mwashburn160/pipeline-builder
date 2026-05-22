@@ -6,7 +6,7 @@
  * layer can treat both upstreams symmetrically.
  *
  * Loki's `query_range` endpoint accepts a LogQL string and returns either
- * `matrix` (metric-style queries — count_over_time, etc.) or `streams`
+ * `matrix` (metric-style queries  count_over_time, etc.) or `streams`
  * (raw log entries). We surface both via separate methods.
  */
 
@@ -63,13 +63,26 @@ function lokiUrl(): string {
   return process.env.LOKI_URL || DEFAULT_URL;
 }
 
-async function callLoki(path: string, params: Record<string, string>): Promise<LokiResponseEnvelope> {
-  const url = new URL(path, lokiUrl().endsWith('/') ? lokiUrl() : lokiUrl() + '/');
+/**
+ * tenant header. Observability dashboards are cross-org by intent
+ * (the operator drilldown that shows every build across the fleet), so
+ * we always read from the `system` tenant. In multi-tenant Loki this
+ * tenant must be configured with `tenant_federation_enabled` to read
+ * across the per-org streams; in single-tenant mode the header is
+ * ignored. See docs/plans/f-2-6-loki-multitenant.md for the runbook.
+ */
+const SYSTEM_TENANT = 'system';
+
+async function callLoki(path: string, params: Record<string, string>, tenant: string = SYSTEM_TENANT): Promise<LokiResponseEnvelope> {
+  const url = new URL(path, lokiUrl().endsWith('/') ? lokiUrl(): lokiUrl() + '/');
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
   let res: Response;
   try {
-    res = await fetch(url.toString(), { signal: AbortSignal.timeout(15_000) });
+    res = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(15_000),
+      headers: { 'X-Scope-OrgID': tenant },
+    });
   } catch (err) {
     const e: LokiError = { kind: 'unreachable', message: errorMessage(err) };
     logger.warn('Loki unreachable', { url: url.toString(), error: e.message });
@@ -103,8 +116,7 @@ async function callLoki(path: string, params: Record<string, string>): Promise<L
  * Run a LogQL range query that returns log entries (`{label=...}` selector
  * + optional pipeline). Empty result is success-with-empty, not error.
  */
-export async function queryStreams(
-  logQL: string,
+export async function queryStreams( logQL: string,
   start: number,
   end: number,
   limit: number,
@@ -131,8 +143,7 @@ export async function queryStreams(
  * Run a LogQL range query that returns a matrix (e.g. `count_over_time`,
  * `sum by (event)(...)`). Each series carries its time-value array.
  */
-export async function queryMatrix(
-  logQL: string,
+export async function queryMatrix( logQL: string,
   start: number,
   end: number,
   step: string,

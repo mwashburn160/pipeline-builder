@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures } from '@pipeline-builder/api-core';
 import type { FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit';
@@ -16,7 +16,7 @@ import {
 import { issueTokens } from '../utils/token';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation';
 
-const logger = createLogger('UserProfileController');
+const logger = createLogger('user-profile-controller');
 
 const profileErrorMap = {
   [PROFILE_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
@@ -107,21 +107,19 @@ export const getUser = withController('Get user profile', async (req, res) => {
   let activeOrgName: string | null = null;
   let activeOrgRole: string | null = null;
   let tier: QuotaTier = 'developer';
-  let isSystem = false;
 
   if (activeOrgId) {
     const activeOrg = orgMap.get(activeOrgId.toString());
     if (activeOrg) {
       activeOrgName = activeOrg.name;
       tier = (activeOrg.tier as QuotaTier) || 'developer';
-      isSystem = activeOrgId.toString() === SYSTEM_ORG_ID;
     }
     const activeMembership = memberships.find(m => m.organizationId.toString() === activeOrgId.toString());
     activeOrgRole = activeMembership?.role || null;
   }
 
   const overrides = toOverridesRecord((user as { featureOverrides?: Map<string, boolean> }).featureOverrides);
-  const features = resolveUserFeatures(tier, overrides, isSystem);
+  const features = resolveUserFeatures(tier, overrides, (user as { isSuperAdmin?: boolean }).isSuperAdmin === true);
 
   sendSuccess(res, 200, {
     user: formatUserResponse(user as UserResponseInput, {
@@ -152,6 +150,13 @@ export const updateUser = withController('Update user profile', async (req, res)
 
   const { user, organizationName, activeOrgRole } = await userProfileService.updateProfile(userId, body);
   logger.info('Update user success', { userId });
+  // Capture WHICH fields changed (not the values) so the audit log shows
+  // "username/email was updated" without leaking PII into the event details.
+  audit(req, 'user.profile.update', {
+    targetType: 'user',
+    targetId: userId,
+    details: { fields: Object.keys(body) },
+  });
   sendSuccess(res, 200, { user: formatUserResponse(user as UserResponseInput, { activeOrgRole, activeOrgName: organizationName }) });
 }, profileErrorMap);
 
@@ -175,6 +180,10 @@ export const changePassword = withController('Change password', async (req, res)
 
   await userProfileService.changePassword(userId, body.currentPassword, body.newPassword);
   logger.info('Password change success', { userId });
+  // Auth-factor change — a compromised session showing this event with an
+  // unfamiliar IP is one of the first things a user / sysadmin looks for
+  // during incident response.
+  audit(req, 'user.password.change', { targetType: 'user', targetId: userId });
   sendSuccess(res, 200, undefined, 'Password changed successfully');
 }, profileErrorMap);
 
@@ -203,6 +212,14 @@ export const generateToken = withController('Generate token', async (req, res) =
   const { accessToken, refreshToken, expiresIn: actual } = await issueTokens(
     user, user.lastActiveOrgId?.toString(), expiresIn,
   );
+  // Bearer-token issuance is sensitive: long-lived tokens (up to 365 days)
+  // become a credential. Recording the requested lifetime lets reviewers
+  // spot anomalous issuance (e.g. max-life tokens from unexpected sessions).
+  audit(req, 'user.token.create', {
+    targetType: 'user',
+    targetId: userId,
+    details: { expiresIn: actual },
+  });
   sendSuccess(res, 200, { accessToken, refreshToken, expiresIn: actual });
 }, profileErrorMap);
 

@@ -9,7 +9,9 @@ import { EmptyState } from './EmptyState';
 /** Definition for a single table column. */
 export interface Column<T> {
   id: string;
-  header: string;
+  // Header is `ReactNode` so columns can render interactive controls
+  // (e.g. select-all checkboxes) — most columns still pass a plain string.
+  header: ReactNode;
   headerClassName?: string;
   cellClassName?: string;
   render: (item: T, index: number) => ReactNode;

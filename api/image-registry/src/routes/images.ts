@@ -36,13 +36,14 @@ const logger = createLogger('image-routes');
 // in the registry UI's manifest summary — config blobs are always small
 // (typically < 50 KB). Larger payloads (layer blobs, attestations) are
 // rejected with 413 so the platform can't OOM serving a multi-GB layer.
-const MAX_BLOB_PROXY_BYTES = 5 * 1024 * 1024;
+// Override via `REGISTRY_MAX_BLOB_PROXY_BYTES`.
+const MAX_BLOB_PROXY_BYTES = parseInt(process.env.REGISTRY_MAX_BLOB_PROXY_BYTES || String(5 * 1024 * 1024), 10);
 
 // Parallelism budget for cross-repo copy. 3 children × 8 unique blobs per
 // child = 24 in-flight registry calls at most. Tuned for a comfortable load
-// on the in-cluster registry.
-const COPY_PARALLEL_CHILDREN = 3;
-const COPY_PARALLEL_BLOBS = 8;
+// on the in-cluster registry. Override via `REGISTRY_COPY_PARALLEL_*`.
+const COPY_PARALLEL_CHILDREN = parseInt(process.env.REGISTRY_COPY_PARALLEL_CHILDREN || '3', 10);
+const COPY_PARALLEL_BLOBS = parseInt(process.env.REGISTRY_COPY_PARALLEL_BLOBS || '8', 10);
 
 // Index media types — anything matching here triggers multi-arch dispatch.
 const INDEX_MEDIA_TYPES = new Set([
@@ -302,6 +303,14 @@ export function createImageRoutes(): Router {
           { reason: 'source-incomplete', missingDigest: err.missingDigest },
         );
       }
+      if (err instanceof InvalidManifestError) {
+        return sendError(
+          res, 400,
+          err.message,
+          ErrorCode.VALIDATION_ERROR,
+          { reason: 'invalid-manifest' },
+        );
+      }
       throw err;
     }
 
@@ -349,6 +358,19 @@ class SourceIncompleteError extends Error {
 }
 
 /**
+ * Thrown when a manifest is missing the `config.digest` required by the
+ * OCI v1 image spec. Pre-OCI / legacy formats sometimes omit it; this
+ * registry no longer accepts them. Surface as 400 to the caller — the
+ * push tooling needs to be upgraded to emit OCI-compliant manifests.
+ */
+class InvalidManifestError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'InvalidManifestError';
+  }
+}
+
+/**
  * Copy a manifest (single-arch or multi-arch index) from source to target.
  * Mounts every unique blob digest referenced by the manifest tree, then
  * PUTs the manifest(s) under the target ref. Idempotent: re-running with
@@ -381,7 +403,10 @@ async function copyManifestTree(
       const cbody = m.body as Record<string, unknown>;
       const configDigest = (cbody.config as { digest?: string } | undefined)?.digest;
       const layerDigests = ((cbody.layers as Array<{ digest: string }> | undefined) ?? []).map((l) => l.digest);
-      if (configDigest) uniqueBlobs.add(configDigest);
+      if (!configDigest) {
+        throw new InvalidManifestError(`Child manifest ${child.digest} is missing config.digest (OCI v1 requires it).`);
+      }
+      uniqueBlobs.add(configDigest);
       for (const d of layerDigests) uniqueBlobs.add(d);
       childManifestBodies.push({ digest: child.digest, body: m.body, mediaType: m.mediaType });
     });
@@ -410,8 +435,13 @@ async function copyManifestTree(
   // Single-arch.
   const configDigest = ((body.config as { digest?: string } | undefined)?.digest);
   const layerDigests = ((body.layers as Array<{ digest: string }> | undefined) ?? []).map((l) => l.digest);
-  // Skip undefined config.digest — legacy non-OCI manifests sometimes lack it.
-  const digests = [...(configDigest ? [configDigest] : []), ...layerDigests];
+  // OCI v1 requires config.digest on every single-arch manifest. Reject
+  // manifests that omit it — accepting them silently was the legacy path
+  // that let pre-OCI tooling smuggle untracked content into the registry.
+  if (!configDigest) {
+    throw new InvalidManifestError(`Source manifest ${sourceManifest.digest ?? '<unknown>'} is missing config.digest (OCI v1 requires it).`);
+  }
+  const digests = [configDigest, ...layerDigests];
 
   await runConcurrent(digests, COPY_PARALLEL_BLOBS, async (digest) => {
     try {

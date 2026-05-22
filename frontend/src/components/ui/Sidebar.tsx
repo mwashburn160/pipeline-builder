@@ -118,7 +118,7 @@ const NAV_SECTIONS: NavSection[] = [
 // ---------------------------------------------------------------------------
 
 interface SidebarProps {
-  isSysAdmin: boolean;
+  isSuperAdmin: boolean;
   isAdmin: boolean;
   user: User;
   unreadCount: number;
@@ -131,7 +131,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({
-  isSysAdmin,
+  isSuperAdmin,
   isAdmin,
   user,
   unreadCount,
@@ -171,7 +171,7 @@ export function Sidebar({
       : currentPath.startsWith(href);
 
   const isItemVisible = (item: NavItem) => {
-    if (item.systemAdminOnly && !isSysAdmin) return false;
+    if (item.systemAdminOnly && !isSuperAdmin) return false;
     if (item.adminOnly && !isAdmin) return false;
     if (item.requiredFeature && !features.isEnabled(item.requiredFeature)) return false;
     return true;

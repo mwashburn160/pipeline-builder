@@ -9,6 +9,7 @@ import {
   sendSuccess,
   ErrorCode,
   getParam,
+  isSystemAdmin,
   validateBody,
   MessageCreateSchema,
   MessageReplySchema,
@@ -55,9 +56,11 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       ctx.log('INFO', 'Resolved recipient alias', { alias: originalValue, resolvedTo: recipientOrgId });
     }
 
-    // Business logic: announcements can only be created by system org
-    if (messageType === 'announcement' && orgId !== SYSTEM_ORG_ID) {
-      return sendError(res, 403, 'Only system org can create announcements', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    // Announcements are sysadmin broadcasts; only Pipeline Builder
+    // operators may send them, regardless of which org they're currently
+    // scoped to.
+    if (messageType === 'announcement' && !isSystemAdmin(req)) {
+      return sendError(res, 403, 'Only sysadmins can create announcements', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     // Broadcast announcements must use '*' as recipient
@@ -65,9 +68,11 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendBadRequest(res, 'Announcements must use "*" as recipientOrgId for broadcast', ErrorCode.VALIDATION_ERROR);
     }
 
-    // Conversations: non-system orgs can only message system org
-    if (messageType === 'conversation' && orgId !== SYSTEM_ORG_ID && recipientOrgId.toLowerCase() !== SYSTEM_ORG_ID) {
-      return sendError(res, 403, 'Organizations can only start conversations with the system org', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    // Conversations: non-sysadmins can only start conversations with the
+    // system support inbox (orgId='system'). Sysadmins can target any org —
+    // that's the "support replies out to a customer" flow.
+    if (messageType === 'conversation' && !isSystemAdmin(req) && recipientOrgId.toLowerCase() !== SYSTEM_ORG_ID) {
+      return sendError(res, 403, 'Organizations can only start conversations with the system support inbox', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     ctx.log('INFO', 'Creating message', { messageType, recipientOrgId, subject });

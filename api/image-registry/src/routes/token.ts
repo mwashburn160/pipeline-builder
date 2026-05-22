@@ -66,7 +66,7 @@ export function createTokenRoute(): Router {
     // spec — Docker login probes /token without a scope to verify creds.
     const account =
       typeof req.query.account === 'string' ? req.query.account : basic.username;
-    const token = authorizeAndIssue(identity, scopes, account);
+    const token = await authorizeAndIssue(identity, scopes, account);
 
     const issuedAt = new Date();
     ctx.log('COMPLETED', 'Issued registry token', {

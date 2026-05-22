@@ -18,6 +18,14 @@ export interface AccessTokenPayload {
   role: 'owner' | 'admin' | 'member';
   /** Whether user has admin privileges (owner or admin) */
   isAdmin: boolean;
+  /**
+   * Global super-admin flag (cross-org). When true, the user is treated as
+   * a sysadmin by `isSystemAdmin()` regardless of which org they're scoped to.
+   * The canonical path for granting sysadmin authority going forward —
+   * supersedes membership in the well-known "system" org. Both paths are
+   * honored during the rollout.
+   */
+  isSuperAdmin?: boolean;
   /** Organization's quota tier */
   tier?: string;
   /** Resolved feature flags for this user/org */
@@ -30,6 +38,20 @@ export interface AccessTokenPayload {
   isEmailVerified: boolean;
   /** Token version for session invalidation */
   tokenVersion: number;
+  /**
+   * Set when the access token was issued via the sysadmin impersonation
+   * flow (POST /admin/impersonate/:userId). Carries the original
+   * sysadmin's user id so audit events under impersonation can attribute
+   * the action correctly. Absent on normal access tokens.
+   */
+  impersonatorId?: string;
+  /**
+   * When true, the impersonation token is read-only — the
+   * `requireWriteAccess` middleware rejects any non-GET request. Lets
+   * sysadmins safely "view as" a tenant without risk of a destructive
+   * action being performed under their session.
+   */
+  impersonationReadOnly?: boolean;
   /** JWT ID (unique identifier) */
   jti?: string;
   /** Issued at timestamp */

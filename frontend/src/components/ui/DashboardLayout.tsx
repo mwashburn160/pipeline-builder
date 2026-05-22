@@ -12,7 +12,9 @@ import { Breadcrumb, type BreadcrumbItem } from './Breadcrumb';
 import { CommandPalette } from './CommandPalette';
 import { LoadingPage } from './Loading';
 import { QuotaBanner } from './QuotaBanner';
+import { ImpersonationBanner } from './ImpersonationBanner';
 import { ErrorBoundary } from '../ErrorBoundary';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
 import { POLL_INTERVAL } from '@/hooks/useMessages';
 
@@ -43,13 +45,30 @@ export function DashboardLayout({
   breadcrumbs,
   subtitle,
 }: DashboardLayoutProps) {
-  const { user, isReady, isSysAdmin, isAdmin, logout } = useAuthGuard();
+  const { user, isReady, isSuperAdmin, isAdmin, logout } = useAuthGuard();
   const { isLoaded: featuresLoaded } = useFeatures();
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile, collapsed, toggleCollapsed } = useSidebarState();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const cmdkRef = useRef<() => void>(null);
+
+  // Global catch-all for stale step-up tokens. When a destructive API
+  // call returns 401 STEP_UP_REQUIRED / INVALID / MISMATCH, the api
+  // client throws StepUpRequiredError AND dispatches `step-up-required`.
+  // We surface a modal here so a stale tab gets a clear re-prompt path
+  // instead of a confusing generic "Authentication required" toast.
+  // The modal acquires a fresh token; the user retries the action
+  // manually (no auto-replay — we don't safely know which fn to retry).
+  const [stepUpFallback, setStepUpFallback] = useState<{ message: string } | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { message?: string };
+      setStepUpFallback({ message: detail?.message || 'Step-up confirmation required' });
+    };
+    window.addEventListener('step-up-required', handler);
+    return () => window.removeEventListener('step-up-required', handler);
+  }, []);
 
   const fetchUnreadCount = useCallback(async () => {
     if (document.visibilityState !== 'visible') return;
@@ -73,7 +92,7 @@ export function DashboardLayout({
   const contentMargin = collapsed ? 'lg:ml-16' : 'lg:ml-64';
 
   const sidebarProps = {
-    isSysAdmin,
+    isSuperAdmin,
     isAdmin,
     user,
     unreadCount,
@@ -165,6 +184,7 @@ export function DashboardLayout({
             </div>
           </header>
 
+          <ImpersonationBanner />
           <QuotaBanner />
 
           <main className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
@@ -176,12 +196,28 @@ export function DashboardLayout({
 
         {/* Command Palette */}
         <CommandPalette
-          isSysAdmin={isSysAdmin}
+          isSuperAdmin={isSuperAdmin}
           isAdmin={isAdmin}
           isDark={isDark}
           onToggleDark={toggle}
           onOpenRef={cmdkRef}
         />
+
+        {/* Global step-up fallback. Fires when ANY api method returns
+            401 with a STEP_UP_* code — i.e. the user clicked a
+            destructive action without a fresh step-up token. The modal
+            obtains one; the user re-clicks the original action. */}
+        {stepUpFallback && (
+          <StepUpModal
+            action={`Re-confirm to retry. ${stepUpFallback.message}`}
+            onConfirmed={() => {
+              // The token is fresh now; the user must re-click their original
+              // action. We don't auto-retry here because the api client throws
+              // before we know which call to replay.
+            }}
+            onClose={() => setStepUpFallback(null)}
+          />
+        )}
       </div>
     </>
   );

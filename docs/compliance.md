@@ -20,7 +20,7 @@ Plugin/Pipeline Service                  Compliance Service
         │  403 COMPLIANCE_VIOLATION              │
 ```
 
-**Each organization owns its compliance.** The system org does not enforce rules on sub-organizations. Instead, the system org publishes recommended rules that sub-orgs can browse, subscribe to, and customize.
+**Each organization owns its compliance.** The system org does not enforce rules on teams (also referred to as sub-organizations). Instead, the system org publishes recommended rules that teams can browse, subscribe to, and customize.
 
 When validating an entity, the engine merges two rule sets:
 1. **Org rules** — rules the org created for itself
@@ -150,7 +150,7 @@ Conditions can also reference other rules via `dependsOnRule`.
 
 **Org rules:** Any organization can create its own rules with `scope: "org"` (the default). These are private to that org — fully owned, editable, and deletable by the org. No other org can see or be affected by them.
 
-**Published rules:** Only the system org can create rules with `scope: "published"`. These appear in the published catalog for sub-orgs to browse and subscribe to. Subscriptions start inactive — the sub-org explicitly activates the ones they want enforced. Subscribed rules can be exempted per-entity, giving orgs full control over their compliance posture.
+**Published rules:** Only the system org can create rules with `scope: "published"`. These appear in the published catalog for teams to browse and subscribe to. Subscriptions start inactive — the team explicitly activates the ones they want enforced. Subscribed rules can be exempted per-entity, giving teams full control over their compliance posture.
 
 ---
 
@@ -235,7 +235,7 @@ curl -X POST https://localhost:8443/api/compliance/subscriptions \
 | `block-privileged-plugins` | plugin | critical |
 | `restrict-public-access` | plugin | error |
 
-All sample rules are `published` scope — sub-organizations browse the catalog and subscribe to the ones they want to enforce.
+All sample rules are `published` scope — teams browse the catalog and subscribe to the ones they want to enforce.
 
 Load them during init or standalone:
 

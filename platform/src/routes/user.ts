@@ -12,7 +12,7 @@ import {
   revokeAllTokens,
   updateUser,
 } from '../controllers';
-import { requireAuth } from '../middleware';
+import { requireAuth, requireStepUp } from '../middleware';
 
 const router = Router();
 
@@ -22,8 +22,9 @@ router.get('/profile', requireAuth, getUser);
 /** PATCH /user/profile - Update current user's profile */
 router.patch('/profile', requireAuth, updateUser);
 
-/** DELETE /user/account - Delete current user's account */
-router.delete('/account', requireAuth, deleteUser);
+/** DELETE /user/account - Delete current user's account.
+ *  Step-up gated — a stolen session shouldn't be able to tombstone the account. */
+router.delete('/account', requireAuth, requireStepUp, deleteUser);
 
 /** POST /user/change-password - Change current user's password */
 router.post('/change-password', requireAuth, changePassword);
@@ -37,7 +38,10 @@ router.post('/generate-token', requireAuth, generateToken);
 /** GET /user/tokens - List the user's recent token-issuance history (with computed status). */
 router.get('/tokens', requireAuth, listTokenHistory);
 
-/** POST /user/tokens/revoke-all - Sign out everywhere by bumping tokenVersion. */
-router.post('/tokens/revoke-all', requireAuth, revokeAllTokens);
+/** POST /user/tokens/revoke-all - Sign out everywhere by bumping tokenVersion.
+ *  Step-up gated — a stolen session shouldn't be able to forcibly sign out
+ *  legitimate sessions (effectively locking the user out for the refresh
+ *  window). */
+router.post('/tokens/revoke-all', requireAuth, requireStepUp, revokeAllTokens);
 
 export default router;

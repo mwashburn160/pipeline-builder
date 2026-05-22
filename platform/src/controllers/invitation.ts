@@ -14,7 +14,7 @@ import {
 import { parsePagination } from '../utils/pagination';
 import { validateBody, sendInvitationSchema } from '../utils/validation';
 
-const logger = createLogger('InvitationController');
+const logger = createLogger('invitation-controller');
 
 const sendErrorMap = {
   [INV_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },

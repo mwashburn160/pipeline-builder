@@ -48,17 +48,22 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
       id: 'col_id', scope: 'col_scope', deletedAt: 'col_del', isActive: 'col_active',
     },
     complianceRuleSubscription: {
-      id: 'col_sid', orgId: 'col_org', ruleId: 'col_rid',
-      isActive: 'col_active', subscribedBy: 'col_subby', subscribedAt: 'col_subat',
-      unsubscribedAt: 'col_unsubat', unsubscribedBy: 'col_unsubby', pinnedVersion: 'col_pinned',
+      id: 'col_sid',
+      orgId: 'col_org',
+      ruleId: 'col_rid',
+      isActive: 'col_active',
+      subscribedBy: 'col_subby',
+      subscribedAt: 'col_subat',
+      unsubscribedAt: 'col_unsubat',
+      unsubscribedBy: 'col_unsubby',
+      pinnedVersion: 'col_pinned',
     },
   },
-  db: {
-    select: dbSelect,
-    insert: dbInsert,
-    update: dbUpdate,
-    transaction: (cb: (t: typeof tx) => Promise<unknown>) => dbTransaction(cb),
-  },
+  // Subscription service was migrated to withTenantTx  pass through to the
+  // same tx the test already built. dbTransaction is kept as a spy in case
+  // other paths poll it; runWithTenantContext is a noop pass-through.
+  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  withTenantTx: (cb: (t: typeof tx) => Promise<unknown>) => dbTransaction(cb),
 }));
 
 import { ComplianceRuleSubscriptionService } from '../src/services/subscription-service';
@@ -187,14 +192,16 @@ describe('ComplianceRuleSubscriptionService', () => {
     it('returns 0 for system org', async () => {
       const count = await svc.autoSubscribeToPublished('SYSTEM');
       expect(count).toBe(0);
-      expect(dbSelect).not.toHaveBeenCalled();
+      // After migration every DB op funnels through tx  assert against
+      // the tx spy that withTenantTx hands the service.
+      expect(tx.select).not.toHaveBeenCalled();
     });
 
     it('returns 0 when no published rules exist', async () => {
       nextSelectResult = [];
       const count = await svc.autoSubscribeToPublished('org-1');
       expect(count).toBe(0);
-      expect(dbInsert).not.toHaveBeenCalled();
+      expect(tx.insert).not.toHaveBeenCalled();
     });
 
     it('inserts batch and returns count of new subscriptions', async () => {
@@ -202,7 +209,7 @@ describe('ComplianceRuleSubscriptionService', () => {
       nextReturningResult = [{ id: 'sub-1' }, { id: 'sub-2' }];
 
       const count = await svc.autoSubscribeToPublished('org-1');
-      expect(dbInsert).toHaveBeenCalled();
+      expect(tx.insert).toHaveBeenCalled();
       expect(count).toBe(2);
     });
   });
@@ -215,7 +222,7 @@ describe('ComplianceRuleSubscriptionService', () => {
     it('returns count of updated rows', async () => {
       nextReturningResult = [{ id: 'a' }, { id: 'b' }];
       const count = await svc.bulkSetActive('org-1', ['r1', 'r2'], false, 'u');
-      expect(dbUpdate).toHaveBeenCalled();
+      expect(tx.update).toHaveBeenCalled();
       expect(count).toBe(2);
     });
   });

@@ -15,7 +15,7 @@ interface EditPipelineModalProps {
   /** The pipeline record to edit (may be partial; full data is fetched on mount). */
   pipeline: Pipeline;
   /** Whether the current user is a system admin (controls access modifier editing). */
-  isSysAdmin: boolean;
+  isSuperAdmin: boolean;
   /** Callback to close the modal. */
   onClose: () => void;
   /** Callback invoked after a successful save so the parent can refresh its list. */
@@ -30,7 +30,7 @@ interface EditPipelineModalProps {
  * read-only System Information section and controls for access modifier,
  * active/default status.
  */
-export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSaved }: EditPipelineModalProps) {
+export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onSaved }: EditPipelineModalProps) {
   const [fullPipeline, setFullPipeline] = useState<Pipeline | null>(null);
   const [fetching, setFetching] = useState(true);
   const [isActive, setIsActive] = useState(pipeline.isActive);
@@ -47,8 +47,16 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
   const formRef = useRef<FormBuilderTabRef>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Fetch full pipeline data by ID to ensure description/keywords are populated
+  // Fetch full pipeline data by ID to ensure description/keywords are populated.
+  // Also resets the wizard's step + preview state — re-opening the modal
+  // (parent may keep us mounted within the 1.5s success-close window) would
+  // otherwise leave stale step/preview state from the previous session.
   useEffect(() => {
+    setCurrentStep(0);
+    setShowPreview(false);
+    setPreviewJson(null);
+    setSuccess(null);
+    setFetching(true);
     let cancelled = false;
     (async () => {
       try {
@@ -145,11 +153,11 @@ export default function EditPipelineModal({ pipeline, isSysAdmin, onClose, onSav
       <div className="grid grid-cols-2 gap-4 mb-3">
         <div>
           <label className="label">Access Modifier</label>
-          <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="input disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSysAdmin}>
+          <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="input disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSuperAdmin}>
             <option value="private">Private</option>
             <option value="public">Public</option>
           </select>
-          {!isSysAdmin && (
+          {!isSuperAdmin && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Only system admins can change access level</p>
           )}
         </div>

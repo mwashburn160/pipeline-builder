@@ -36,10 +36,12 @@ jest.mock('@pipeline-builder/api-server', () => ({
 }));
 
 jest.mock('@pipeline-builder/pipeline-core', () => ({
-  db: {
+  // pipeline-registry-service was migrated to withTenantTx — hand the tx the
+  // same spies registry.test.ts already tracks so existing assertions hold.
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     insert: mockInsert,
     select: mockSelect,
-  },
+  }),
   schema: {
     pipelineRegistry: {
       pipelineArn: 'pipeline_arn',

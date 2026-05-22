@@ -510,6 +510,17 @@ Resources:
         - Key: Project
           Value: pipeline-builder
 
+  AlertmanagerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /pipeline-builder/alertmanager
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pipeline-builder
+
   LokiLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
@@ -716,6 +727,12 @@ Outputs:
     Value: !Ref RedisLogGroup
     Export:
       Name: !Sub "${StackPrefix}-RedisLogGroupName"
+
+  AlertmanagerLogGroupName:
+    Description: CloudWatch Log Group for Alertmanager
+    Value: !Ref AlertmanagerLogGroup
+    Export:
+      Name: !Sub "${StackPrefix}-AlertmanagerLogGroupName"
 
   PrometheusLogGroupName:
     Description: CloudWatch log group for Prometheus

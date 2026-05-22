@@ -2,17 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode, getParam, isSystemAdmin, parseQueryInt, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 
-import { getDeadLetterQueue, getQueue, purgeDlq, replayDlqJob } from '../queue/plugin-build-queue';
+import { getAllTierQueues, getDeadLetterQueue, purgeDlq, replayDlqJob } from '../queue/plugin-build-queue';
 
 /**
  * Register queue status routes.
  *
  * Expects middleware: requireAuth, requireOrgId
  */
-export function createQueueStatusRoutes(): Router {
+export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
   router.get('/status', withRoute(async ({ req, res }) => {
@@ -20,19 +21,32 @@ export function createQueueStatusRoutes(): Router {
       return sendError(res, 403, 'Only administrators can view queue status', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    const queue = getQueue();
+    // counts aggregate across all per-tier queues so existing
+    // dashboard widgets keep their meaning. Per-tier breakdown is on the
+    // returned `tiers` field for operators that want it.
+    const tierQueues = getAllTierQueues();
     const dlq = getDeadLetterQueue();
-    const [counts, dlqCounts] = await Promise.all([
-      queue.getJobCounts(),
+    const [tierCounts, dlqCounts] = await Promise.all([
+      Promise.all(tierQueues.map(async ({ tier, queue }) => ({ tier, counts: await queue.getJobCounts() }))),
       dlq.getJobCounts(),
     ]);
 
+    const sum = (key: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed') =>
+      tierCounts.reduce((acc, { counts }) => acc + (counts[key] ?? 0), 0);
+
     return sendSuccess(res, 200, {
-      waiting: counts.waiting ?? 0,
-      active: counts.active ?? 0,
-      completed: counts.completed ?? 0,
-      failed: counts.failed ?? 0,
-      delayed: counts.delayed ?? 0,
+      waiting: sum('waiting'),
+      active: sum('active'),
+      completed: sum('completed'),
+      failed: sum('failed'),
+      delayed: sum('delayed'),
+      tiers: Object.fromEntries(tierCounts.map(({ tier, counts }) => [tier, {
+        waiting: counts.waiting ?? 0,
+        active: counts.active ?? 0,
+        completed: counts.completed ?? 0,
+        failed: counts.failed ?? 0,
+        delayed: counts.delayed ?? 0,
+      }])),
       dlq: {
         waiting: dlqCounts.waiting ?? 0,
         active: dlqCounts.active ?? 0,
@@ -50,8 +64,11 @@ export function createQueueStatusRoutes(): Router {
     }
 
     const limit = parseQueryInt(req.query.limit, 50);
-    const queue = getQueue();
-    const failedJobs = await queue.getJobs(['failed'], 0, limit - 1);
+    // failed jobs now live across one queue per tier  union them.
+    // Per-queue `limit` keeps the worst-case read bounded at 3×limit.
+    const failedByTier = await Promise.all( getAllTierQueues().map(({ queue }) => queue.getJobs(['failed'], 0, limit - 1)),
+    );
+    const failedJobs = failedByTier.flat().slice(0, limit);
 
     // Tenant isolation: non-system admins only see their own org's failed jobs.
     // Without this filter, an org admin could see another tenant's failure
@@ -72,7 +89,7 @@ export function createQueueStatusRoutes(): Router {
       error: job.failedReason ?? null,
       attemptsMade: job.attemptsMade,
       maxAttempts: job.opts?.attempts ?? null,
-      failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+      failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString(): null,
     }));
 
     return sendSuccess(res, 200, { jobs, total: jobs.length });
@@ -90,7 +107,7 @@ export function createQueueStatusRoutes(): Router {
     const dlq = getDeadLetterQueue();
     const allJobs = await dlq.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, limit - 1);
 
-    // Tenant isolation — same model as /failed above.
+    // Tenant isolation  same model as /failed above.
     const callerIsSysAdmin = isSystemAdmin(req);
     const visibleJobs = callerIsSysAdmin
       ? allJobs
@@ -108,8 +125,8 @@ export function createQueueStatusRoutes(): Router {
       lastError: job.data?.lastError ?? job.failedReason ?? null,
       attemptsMade: job.attemptsMade,
       maxAttempts: job.opts?.attempts ?? null,
-      createdAt: job.timestamp ? new Date(job.timestamp).toISOString() : null,
-      failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+      createdAt: job.timestamp ? new Date(job.timestamp).toISOString(): null,
+      failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString(): null,
     }));
 
     return sendSuccess(res, 200, { jobs, total: jobs.length });
@@ -126,10 +143,9 @@ export function createQueueStatusRoutes(): Router {
   }));
 
   /**
-   * POST /dlq/:jobId/replay — re-enqueue a single DLQ job onto the main build queue.
+   * POST /dlq/:jobId/replay  re-enqueue a single DLQ job onto the main build queue.
    *
-   * Visibility:
-   * - System admins: can replay any job.
+   * Visibility   * - System admins: can replay any job.
    * - Org admins/owners: can replay jobs that belong to their own org.
    * - All other users: 403.
    *
@@ -157,7 +173,7 @@ export function createQueueStatusRoutes(): Router {
       }
     }
 
-    const newJobId = await replayDlqJob(jobId);
+    const newJobId = await replayDlqJob(jobId, quotaService);
     if (!newJobId) return sendError(res, 404, `DLQ job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
     ctx.log('COMPLETED', 'Replayed DLQ job', { dlqJobId: jobId, newJobId });
@@ -165,11 +181,10 @@ export function createQueueStatusRoutes(): Router {
   }));
 
   /**
-   * GET /triage — failed-build summary grouped by failure category, with
+   * GET /triage  failed-build summary grouped by failure category, with
    * a few representative examples per group. Powers the triage dashboard.
    *
-   * Visibility:
-   * - System admins (admin/owner in the system org): see all failures across all orgs.
+   * Visibility   * - System admins (admin/owner in the system org): see all failures across all orgs.
    * - Org admins/owners: see only failures whose `pluginRecord.orgId` matches their org.
    * - All other users: 403.
    */
@@ -179,22 +194,25 @@ export function createQueueStatusRoutes(): Router {
       return sendError(res, 403, 'Only administrators can view triage', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    const isSysAdmin = isSystemAdmin(req);
+    const isSuperAdmin = isSystemAdmin(req);
     const callerOrgId = orgId.toLowerCase();
 
     const sampleLimit = Math.min(parseQueryInt(req.query.samples, 5), 20);
-    const [queue, dlq] = [getQueue(), getDeadLetterQueue()];
-    const [failedAll, dlqAll] = await Promise.all([
-      queue.getJobs(['failed'], 0, 199),
+    // failed jobs sit in the per-tier queue that ran them; union.
+    const dlq = getDeadLetterQueue();
+    const tierQueueHandles = getAllTierQueues();
+    const [tierFailedLists, dlqAll] = await Promise.all([
+      Promise.all(tierQueueHandles.map(({ queue }) => queue.getJobs(['failed'], 0, 199))),
       dlq.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, 199),
     ]);
+    const failedAll = tierFailedLists.flat();
 
     // Filter to caller's org for non-system admins (tenant isolation).
     // Falls back to pluginRecord.orgId for older jobs that predate the top-level field.
     const jobOrgId = (data: { orgId?: string; pluginRecord?: { orgId?: string } } | undefined): string | undefined =>
       data?.orgId ?? data?.pluginRecord?.orgId;
     const ownsJob = (job: { data?: { orgId?: string; pluginRecord?: { orgId?: string } } }): boolean => {
-      if (isSysAdmin) return true;
+      if (isSuperAdmin) return true;
       const oid = jobOrgId(job.data);
       return typeof oid === 'string' && oid.toLowerCase() === callerOrgId;
     };
@@ -250,7 +268,7 @@ export function createQueueStatusRoutes(): Router {
           pluginName,
           version: job.data?.pluginRecord?.version ?? null,
           error: err,
-          failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+          failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString(): null,
           source,
         });
       }

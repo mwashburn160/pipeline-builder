@@ -5,7 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { User, Organization, UserOrganization } from '../models';
 
-const logger = createLogger('UserProfileService');
+const logger = createLogger('user-profile-service');
 
 /** Domain error codes thrown by service methods. */
 export const PROFILE_USER_NOT_FOUND = 'PROFILE_USER_NOT_FOUND';

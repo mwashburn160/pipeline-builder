@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import api from '@/lib/api';
 
 interface InvitationListItem {
@@ -31,7 +32,7 @@ const STATUS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray' | 'red'> = {
 };
 
 export default function InvitationsPage() {
-  const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
 
   const list = useListPage<InvitationListItem>({
     fields: [
@@ -52,13 +53,16 @@ export default function InvitationsPage() {
     enabled: isAuthenticated && isAdmin,
   });
 
-  // Send modal state
+  // Send modal state — supports single + bulk send. The input is always
+  // a textarea so bulk send is just "paste in a CSV column". Each line
+  // (or each comma-separated value) becomes one invitation.
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [sendEmail, setSendEmail] = useState('');
   const [sendRole, setSendRole] = useState<'admin' | 'member'>('member');
   const [sendInvitationType, setSendInvitationType] = useState('any');
   const [sendLoading, setSendLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [sendResult, setSendResult] = useState<{ sent: number; failed: number; errors: string[] } | null>(null);
 
   // Revoke state
   const [revokeTarget, setRevokeTarget] = useState<InvitationListItem | null>(null);
@@ -67,24 +71,60 @@ export default function InvitationsPage() {
   // Resend state
   const [resendLoadingId, setResendLoadingId] = useState<string | null>(null);
 
+  /** Split a textarea of pasted emails on any of newline / comma / semicolon /
+   *  whitespace, lowercased + deduped. Rejects anything without an `@`. */
+  function parseEmailList(input: string): string[] {
+    const tokens = input.split(/[\s,;]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const valid = tokens.filter((t) => /.+@.+/.test(t));
+    return Array.from(new Set(valid));
+  }
+
   const handleSendInvitation = async () => {
-    if (!sendEmail.trim()) {
-      setSendError('Email is required');
+    const emails = parseEmailList(sendEmail);
+    if (emails.length === 0) {
+      setSendError('Enter at least one valid email address');
       return;
     }
     setSendLoading(true);
     setSendError(null);
-    try {
-      await api.sendInvitation({ email: sendEmail.trim(), role: sendRole, invitationType: sendInvitationType });
-      setSendModalOpen(false);
-      setSendEmail('');
-      setSendRole('member');
-      setSendInvitationType('any');
+    setSendResult(null);
+
+    // Fire each invite in parallel. Promise.allSettled keeps partial-
+    // success cases informative — one bad email shouldn't block the rest.
+    const results = await Promise.allSettled(
+      emails.map((email) =>
+        api.sendInvitation({ email, role: sendRole, invitationType: sendInvitationType }),
+      ),
+    );
+
+    const errors: string[] = [];
+    let sent = 0;
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled' && r.value.success) {
+        sent++;
+      } else {
+        const msg = r.status === 'rejected'
+          ? (r.reason instanceof Error ? r.reason.message : String(r.reason))
+          : (r.value.message || 'send failed');
+        errors.push(`${emails[i]}: ${msg}`);
+      }
+    });
+
+    setSendLoading(false);
+    setSendResult({ sent, failed: errors.length, errors: errors.slice(0, 10) });
+
+    if (sent > 0) {
       list.refresh();
-    } catch (err) {
-      setSendError(formatError(err, 'Failed to send invitation'));
-    } finally {
-      setSendLoading(false);
+      if (errors.length === 0) {
+        // Clean exit — close on next tick so users see the success message.
+        setTimeout(() => {
+          setSendModalOpen(false);
+          setSendEmail('');
+          setSendRole('member');
+          setSendInvitationType('any');
+          setSendResult(null);
+        }, 1200);
+      }
     }
   };
 
@@ -146,14 +186,14 @@ export default function InvitationsPage() {
       header: 'Created',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (inv) => inv.createdAt,
-      render: (inv) => <>{inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '-'}</>,
+      render: (inv) => <RelativeTime value={inv.createdAt} />,
     },
     {
       id: 'expiresAt',
       header: 'Expires',
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (inv) => inv.expiresAt,
-      render: (inv) => <>{inv.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : '-'}</>,
+      render: (inv) => <RelativeTime value={inv.expiresAt} />,
     },
     {
       id: 'actions',
@@ -183,7 +223,7 @@ export default function InvitationsPage() {
         </button>
       }
     >
-      <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="invitations" orgName={user.organizationName} />
+      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="invitations" orgName={user.organizationName} />
 
       {list.error && (
         <div className="alert-error">
@@ -241,16 +281,44 @@ export default function InvitationsPage() {
       {sendModalOpen && (
         <div className="modal-backdrop">
           <div className="modal-panel max-w-md">
-            <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Send Invitation</h2>
+            <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Send invitations</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+              Paste one or many emails — separated by newlines, commas, or spaces. Each email gets its own invitation.
+            </p>
 
             {sendError && (
               <div className="alert-error"><p>{sendError}</p></div>
             )}
 
+            {sendResult && (
+              <div className={`rounded-lg px-3 py-2 text-sm mb-2 ${sendResult.failed === 0
+                ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+                : 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300'}`}
+              >
+                Sent <strong>{sendResult.sent}</strong>, failed <strong>{sendResult.failed}</strong>.
+                {sendResult.errors.length > 0 && (
+                  <ul className="mt-1 list-disc pl-5 text-xs">
+                    {sendResult.errors.map((e) => <li key={e}><code>{e}</code></li>)}
+                  </ul>
+                )}
+              </div>
+            )}
+
             <div className="space-y-4">
               <div>
-                <label className="label">Email</label>
-                <input type="email" value={sendEmail} onChange={(e) => setSendEmail(e.target.value)} placeholder="user@example.com" className="input" disabled={sendLoading} />
+                <label className="label">Email(s)</label>
+                <textarea
+                  value={sendEmail}
+                  onChange={(e) => setSendEmail(e.target.value)}
+                  placeholder={'user@example.com\nteam@example.com, lead@example.com'}
+                  className="input min-h-[6rem] font-mono text-sm"
+                  disabled={sendLoading}
+                />
+                {sendEmail.trim() && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Will send to <strong>{parseEmailList(sendEmail).length}</strong> address{parseEmailList(sendEmail).length === 1 ? '' : 'es'}.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="label">Role</label>

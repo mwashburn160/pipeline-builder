@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { SkeletonTableRow } from '@/components/ui/Skeleton';
 import type { TagMetadata } from '@/hooks/useTagsWithMetadata';
+import { formatBytes } from '@/lib/format';
 
 interface TagTableProps {
   repo: string;
@@ -239,7 +240,7 @@ export function TagTable({
                       )}
                     </td>
                     <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
-                      {meta ? formatBytes(meta.totalSize) : enrichingMetadata ? '…' : '—'}
+                      {meta ? (meta.totalSize ? formatBytes(meta.totalSize) : '—') : enrichingMetadata ? '…' : '—'}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <button
@@ -289,15 +290,3 @@ export function TagTable({
   );
 }
 
-/** Human-readable bytes — keeps display tight (1024 KB → 1.0 MB → 1.0 GB). */
-function formatBytes(bytes: number): string {
-  if (!bytes) return '—';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let i = 0;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i++;
-  }
-  return value < 10 ? `${value.toFixed(1)} ${units[i]}` : `${Math.round(value)} ${units[i]}`;
-}

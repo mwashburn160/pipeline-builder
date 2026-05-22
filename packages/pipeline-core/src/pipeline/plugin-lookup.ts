@@ -15,7 +15,7 @@ import type { PluginOptions } from './step-types';
 import { Config, CoreConstants } from '../config/app-config';
 import { UniqueId } from '../core/id-generator';
 
-const log = createLogger('Lookup');
+const log = createLogger('plugin-lookup');
 
 interface InputProps {
   readonly baseURL: string;

@@ -62,6 +62,42 @@ export interface OrganizationDocument extends Document {
     'xai'?: string;
     'amazon-bedrock'?: string;
   };
+  /**
+   * Per-org AWS IAM role for build / runtime AWS API calls. When set,
+   * services that need AWS credentials for this org call `sts:AssumeRole`
+   * on this ARN instead of using the service's shared role — limits the
+   * blast radius of an org compromise to one customer's AWS account.
+   *
+   * The role's trust policy MUST require this `externalId` so a leaked
+   * RoleArn alone can't be assumed by a third party (AWS "confused deputy"
+   * mitigation). Operators configure this via the admin org endpoint;
+   * orgs without an entry continue to use the service's shared role.
+   */
+  awsConfig?: {
+    assumeRoleArn?: string;
+    externalId?: string;
+    region?: string;
+    sessionDurationSeconds?: number;
+  };
+  /**
+   * Per-org KMS configuration. When set, this org's secrets (AI provider
+   * keys, IdP client secrets, …) are wrapped under THIS org's KMS CMK
+   * instead of the shared master key — a CMK compromise has blast radius
+   * of one org, not the whole fleet.
+   *
+   * Operator setup (per org):
+   *   1. Create a KMS CMK with key policy allowing platform's IAM role
+   *      `kms:Decrypt`.
+   *   2. Generate a 32-byte master:     `head -c 32 /dev/urandom | base64`
+   *   3. Wrap with KMS:                 `aws kms encrypt --key-id <KEY> --plaintext <b64>`
+   *   4. Store `{ keyId, ciphertextBase64 }` in this field via the admin API.
+   * Orgs without an entry fall through to the shared master (mixed-mode
+   * deployments are explicitly supported).
+   */
+  kmsConfig?: {
+    keyId?: string;
+    ciphertextBase64?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -199,6 +235,21 @@ const organizationSchema = new Schema<OrganizationDocument>(
       'google': { type: String, default: undefined },
       'xai': { type: String, default: undefined },
       'amazon-bedrock': { type: String, default: undefined },
+    },
+    awsConfig: {
+      assumeRoleArn: { type: String, default: undefined },
+      externalId: { type: String, default: undefined },
+      region: { type: String, default: undefined },
+      // 900-43200 are the AWS-allowed bounds; effective cap is also the
+      // role's MaxSessionDuration. We don't enforce the upper bound here
+      // because operators occasionally need long sessions for batch jobs.
+      sessionDurationSeconds: { type: Number, default: undefined, min: 900 },
+    },
+    kmsConfig: {
+      keyId: { type: String, default: undefined },
+      // The base64-wrapped 32-byte master. Safe to store at rest — it can
+      // only be decrypted by an identity with kms:Decrypt on `keyId`.
+      ciphertextBase64: { type: String, default: undefined },
     },
   },
   {

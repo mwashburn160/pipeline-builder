@@ -1,0 +1,54 @@
+# =============================================================================
+# sidecar-removal patch (opt-in).
+# =============================================================================
+#
+# When a cluster has the per-tier buildkitd Deployments running (see
+# `buildkitd-per-tier.yaml`) AND the plugin pod env vars
+# `PLUGIN_BUILDKIT_ADDR_DEVELOPER/PRO/UNLIMITED` are set, the in-pod
+# buildkitd sidecar is dead weight  it costs ~256 MiB per plugin replica
+# for no functional benefit.
+#
+# Activation (operators)# 1. Apply `buildkitd-per-tier.yaml` and confirm the three Deployments are
+# Healthy via `kubectl get pods -l app=buildkitd`.
+# 2. Set the three `PLUGIN_BUILDKIT_ADDR_*` envs on the plugin Deployment
+# (via configmap or direct env patch).
+# 3. Run one or two test builds end-to-end through each tier.
+# 4. Add this patch to your kustomization# patches# - path: patches/plugin-no-sidecar.yaml
+# target# kind: Deployment
+# name: plugin
+# 5. `kubectl apply -k.`  sidecar comes off on the next rollout.
+#
+# Back-out: remove the patch entry and re-apply. The sidecar comes back
+# (same image, same volumes); no state migration needed because the
+# sidecar's cache is ephemeral.
+#
+# Strategic merge patch  kubectl/kustomize interpret the `containers` /
+# `initContainers` arrays by `name`; setting `$patch: delete` on a named
+# entry removes it without affecting siblings.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata  name: plugin
+spec  template    spec      initContainers        # The sidecar is declared as an `initContainer` with restartPolicy        # Always (k8s 1.28+ native sidecar pattern). $patch: delete removes
+        # just this entry; the dependency-check init container remains.
+        - name: buildkitd
+          $patch: delete
+      containers        - name: plugin
+          # The plugin container's `BUILDKIT_HOST` env var is no longer
+          # used once the sidecar is gone (the worker resolves the tier
+          # address via PLUGIN_BUILDKIT_ADDR_* envs instead). Removing it
+          # avoids confusion when an operator inspects the running pod.
+          env            - name: BUILDKIT_HOST
+              $patch: delete
+          volumeMounts            # buildkit-socket and buildkit-cache only existed to bridge
+            # the plugin → in-pod sidecar IPC. With the sidecar gone they
+            # serve no purpose; the plugin container talks tcp:// to the
+            # per-tier buildkitd via PLUGIN_BUILDKIT_ADDR_*.
+            - name: buildkit-socket
+              $patch: delete
+            - name: buildkit-cache
+              $patch: delete
+      volumes        - name: buildkit-socket
+          $patch: delete
+        - name: buildkit-cache
+          $patch: delete

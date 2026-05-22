@@ -4,7 +4,7 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import {
-  requireAuth, requireAdmin, isSystemAdmin, isSystemOrg, resolveAccessModifier,
+  requireAuth, requireAdmin, isSystemAdmin, resolveAccessModifier,
   signServiceToken, getServiceAuthHeader, isServicePrincipal,
 } from '../src/middleware/auth';
 import type { JwtPayload } from '../src/types/common';
@@ -207,62 +207,44 @@ describe('requireAdmin', () => {
   });
 });
 
-// isSystemOrg / isSystemAdmin
-
-describe('isSystemOrg', () => {
-  it('should return false when no user', () => {
-    const req = createMockReq();
-    expect(isSystemOrg(req)).toBe(false);
-  });
-
-  it('should return true when organizationId is "system"', () => {
-    const req = createMockReq();
-    req.user = { organizationId: 'system' } as any;
-    expect(isSystemOrg(req)).toBe(true);
-  });
-
-  it('should return true when organizationId is "System" (case-insensitive)', () => {
-    const req = createMockReq();
-    req.user = { organizationId: 'System' } as any;
-    expect(isSystemOrg(req)).toBe(true);
-  });
-
-  it('should return true when organizationName is "system"', () => {
-    const req = createMockReq();
-    req.user = { organizationName: 'system' } as any;
-    expect(isSystemOrg(req)).toBe(true);
-  });
-
-  it('should return false for non-system org', () => {
-    const req = createMockReq();
-    req.user = { organizationId: 'some-org' } as any;
-    expect(isSystemOrg(req)).toBe(false);
-  });
-});
+// isSystemAdmin
 
 describe('isSystemAdmin', () => {
-  it('should return false when not admin', () => {
+  it('returns true only when isSuperAdmin is true', () => {
     const req = createMockReq();
-    req.user = { role: 'member', organizationId: 'system' } as any;
+    req.user = { role: 'member', organizationId: 'org-acme', isSuperAdmin: true } as any;
+    expect(isSystemAdmin(req)).toBe(true);
+  });
+
+  it('returns true even with no active org context', () => {
+    const req = createMockReq();
+    req.user = { role: 'member', isSuperAdmin: true } as any;
+    expect(isSystemAdmin(req)).toBe(true);
+  });
+
+  it('returns false when isSuperAdmin is missing (no req.user)', () => {
+    const req = createMockReq();
     expect(isSystemAdmin(req)).toBe(false);
   });
 
-  it('should return false when admin but not system org', () => {
+  it('returns false when isSuperAdmin is explicitly false', () => {
     const req = createMockReq();
-    req.user = { role: 'admin', organizationId: 'some-org' } as any;
+    req.user = { role: 'admin', organizationId: 'org-acme', isSuperAdmin: false } as any;
     expect(isSystemAdmin(req)).toBe(false);
   });
 
-  it('should return true when admin in system org', () => {
+  it('returns false for legacy admin in system org without isSuperAdmin flag', () => {
+    // The legacy "membership in the system org grants sysadmin" branch is
+    // removed — operators must be granted authority via the user-level flag.
     const req = createMockReq();
     req.user = { role: 'admin', organizationId: 'system' } as any;
-    expect(isSystemAdmin(req)).toBe(true);
+    expect(isSystemAdmin(req)).toBe(false);
   });
 
-  it('should return true when owner in system org', () => {
+  it('returns false for legacy owner in system org without isSuperAdmin flag', () => {
     const req = createMockReq();
     req.user = { role: 'owner', organizationId: 'system' } as any;
-    expect(isSystemAdmin(req)).toBe(true);
+    expect(isSystemAdmin(req)).toBe(false);
   });
 });
 
@@ -271,13 +253,13 @@ describe('isSystemAdmin', () => {
 describe('resolveAccessModifier', () => {
   it('should return "public" when system admin requests public', () => {
     const req = createMockReq();
-    req.user = { role: 'admin', organizationId: 'system' } as any;
+    req.user = { role: 'admin', isSuperAdmin: true } as any;
     expect(resolveAccessModifier(req, 'public')).toBe('public');
   });
 
   it('should return "private" when non-admin requests public', () => {
     const req = createMockReq();
-    req.user = { role: 'member', organizationId: 'system' } as any;
+    req.user = { role: 'member' } as any;
     expect(resolveAccessModifier(req, 'public')).toBe('private');
   });
 

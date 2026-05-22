@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { schema, db, type RuleTarget } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-core';
 import { lt } from 'drizzle-orm';
 import type { ValidationResult } from '../engine/rule-engine';
 
@@ -23,7 +23,7 @@ export async function logComplianceCheck(
 ): Promise<void> {
   const auditResult = result.blocked ? 'block' : result.warnings.length > 0 ? 'warn' : 'pass';
 
-  await db.insert(schema.complianceAuditLog).values({
+  await withTenantTx(async (tx) => tx.insert(schema.complianceAuditLog).values({
     orgId,
     userId,
     target,
@@ -34,7 +34,7 @@ export async function logComplianceCheck(
     violations: [...result.violations, ...result.warnings] as unknown as Record<string, unknown>[],
     ruleCount: result.rulesEvaluated,
     scanId: scanId ?? null,
-  });
+  }));
 }
 
 /** Default retention window for compliance audit log (days). Override per-deploy via env. */
@@ -53,10 +53,15 @@ export async function pruneComplianceAudit(maxAgeDays: number = DEFAULT_AUDIT_RE
     throw new Error(`pruneComplianceAudit: maxAgeDays must be >=1, got ${maxAgeDays}`);
   }
   const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
-  const result = await db
-    .delete(schema.complianceAuditLog)
-    .where(lt(schema.complianceAuditLog.createdAt, cutoff))
-    .returning({ id: schema.complianceAuditLog.id });
+  // Cron-driven prune deletes rows across every org; runs as a privileged
+  // background task with no caller identity. Establish a sysadmin context
+  // so the DELETE bypasses any per-org RLS policy once FORCE'd.
+  const result = await runWithTenantContext({ isSuperAdmin: true }, () =>
+    withTenantTx(async (tx) => tx
+      .delete(schema.complianceAuditLog)
+      .where(lt(schema.complianceAuditLog.createdAt, cutoff))
+      .returning({ id: schema.complianceAuditLog.id })),
+  );
   const deleted = result.length;
   logger.info('Pruned compliance audit log', { maxAgeDays, cutoff: cutoff.toISOString(), deleted });
   return deleted;

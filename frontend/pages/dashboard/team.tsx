@@ -11,11 +11,12 @@ import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ActionBar } from '@/components/ui/ActionBar';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import api from '@/lib/api';
 import type { OrganizationMember } from '@/types';
 
 export default function TeamPage() {
-  const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
   const { refreshUser } = useAuth();
 
   const [members, setMembers] = useState<OrganizationMember[]>([]);
@@ -194,7 +195,7 @@ export default function TeamPage() {
       sortValue: (m) => m.createdAt,
       render: (m) => (
         <span className="text-sm text-gray-500 dark:text-gray-400">
-          {new Date(m.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+          <RelativeTime value={m.createdAt} />
         </span>
       ),
     },
@@ -262,7 +263,7 @@ export default function TeamPage() {
         </div>
       }
     >
-      <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="team members" />
+      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="team members" />
 
       {error && (
         <div className="alert-error">

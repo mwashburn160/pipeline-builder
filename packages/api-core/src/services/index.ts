@@ -18,4 +18,5 @@ export {
 } from './retry-strategy';
 export type { RetryConfig, RetryDecision } from './retry-strategy';
 export * from './quota';
+export * from './remote-audit-client';
 export { enqueueComplianceEvent, registerComplianceQueueBackend, type ComplianceEvent } from './compliance-queue';

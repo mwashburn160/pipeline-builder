@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { audit } from '../helpers/audit';
 import {
   isSystemAdmin,
   requireAuth,
@@ -21,7 +22,7 @@ import {
   transferOwnershipSchema,
 } from '../utils/validation';
 
-const logger = createLogger('OrganizationMembersController');
+const logger = createLogger('organization-members-controller');
 
 /** GET /organization/:id/members */
 export const getOrganizationMembers = withController('Get members', async (req, res) => {
@@ -44,7 +45,7 @@ export const addMemberToOrganization = withController('Add member', async (req, 
 
   const id = req.params.id as string;
   const admin = getAdminContext(req);
-  if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
+  if (!admin.isSuperAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
     return sendError(res, 403, 'Forbidden: Admin access required for this organization');
   }
 
@@ -53,6 +54,12 @@ export const addMemberToOrganization = withController('Add member', async (req, 
 
   await orgMembersService.addMember(id, body);
   logger.info(`[ADD MEMBER TO ORG] User added to Org ${id} by ${admin.adminType} ${req.user!.sub}`);
+  audit(req, 'org.member.add', {
+    targetType: 'user',
+    targetId: String(body.userId ?? body.email ?? ''),
+    affectedOrgId: id,
+    details: { role: body.role },
+  });
   sendSuccess(res, 200, undefined, 'Member added successfully');
 }, {
   [OM_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
@@ -67,7 +74,7 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
   const id = req.params.id as string;
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-  if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
+  if (!admin.isSuperAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
     return sendError(res, 403, 'Forbidden: Admin access required for this organization');
   }
   if (admin.isOrgAdmin && userId === req.user!.sub) {
@@ -76,6 +83,7 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
 
   await orgMembersService.removeMember(id, userId);
   logger.info(`[REMOVE MEMBER FROM ORG] User ${userId} removed from Org ${id} by ${admin.adminType} ${req.user!.sub}`);
+  audit(req, 'org.member.remove', { targetType: 'user', targetId: userId, affectedOrgId: id });
   sendSuccess(res, 200, undefined, 'Member removed successfully');
 }, {
   [OM_NOT_A_MEMBER]: { status: 400, message: 'User is not a member of this organization' },
@@ -92,7 +100,7 @@ export const updateMemberRole = withController('Update member role', async (req,
   if (!body) return;
 
   const admin = getAdminContext(req);
-  if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
+  if (!admin.isSuperAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
     return sendError(res, 403, 'Forbidden: Admin access required for this organization');
   }
   if (admin.isOrgAdmin && userId === req.user!.sub) {
@@ -101,6 +109,12 @@ export const updateMemberRole = withController('Update member role', async (req,
 
   const { user, role } = await orgMembersService.updateRole(id, userId, body.role);
   logger.info(`[UPDATE MEMBER ROLE] User ${userId} role updated to ${body.role} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
+  audit(req, 'org.member.role.update', {
+    targetType: 'user',
+    targetId: userId,
+    affectedOrgId: id,
+    details: { newRole: body.role },
+  });
 
   sendSuccess(res, 200, {
     user: {
@@ -123,15 +137,21 @@ export const transferOrganizationOwnership = withController('Transfer ownership'
   const body = validateBody(transferOwnershipSchema, req.body, res);
   if (!body) return;
 
-  const isSysAdmin = isSystemAdmin(req);
+  const isSuperAdmin = isSystemAdmin(req);
   const isOrgOwner = await orgMembersService.isOrgOwner(id, req.user!.sub);
-  if (!isSysAdmin && !isOrgOwner) {
+  if (!isSuperAdmin && !isOrgOwner) {
     return sendError(res, 403, 'Forbidden: Only system admin or organization owner can transfer ownership');
   }
 
   await orgMembersService.transferOwnership(id, body.newOwnerId);
-  const adminType = isSysAdmin ? 'system admin' : 'org owner';
+  const adminType = isSuperAdmin ? 'system admin' : 'org owner';
   logger.info(`[TRANSFER ORG OWNERSHIP] Org ${id} ownership transferred to ${body.newOwnerId} by ${adminType} ${req.user!.sub}`);
+  audit(req, 'org.ownership.transfer', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: { newOwnerId: body.newOwnerId, actorType: adminType },
+  });
   sendSuccess(res, 200, undefined, 'Ownership transferred successfully');
 }, {
   [OM_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
@@ -146,12 +166,13 @@ export const deactivateMember = withController('Deactivate member', async (req, 
   const id = req.params.id as string;
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-  if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
+  if (!admin.isSuperAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
     return sendError(res, 403, 'Forbidden: Admin access required for this organization');
   }
 
   await orgMembersService.deactivateMember(id, userId);
   logger.info(`[DEACTIVATE MEMBER] User ${userId} deactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
+  audit(req, 'org.member.deactivate', { targetType: 'user', targetId: userId, affectedOrgId: id });
   sendSuccess(res, 200, undefined, 'Member deactivated successfully');
 }, {
   [OM_MEMBERSHIP_NOT_FOUND]: { status: 404, message: 'Membership not found' },
@@ -166,12 +187,13 @@ export const activateMember = withController('Activate member', async (req, res)
   const id = req.params.id as string;
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-  if (!admin.isSysAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
+  if (!admin.isSuperAdmin && (!admin.isOrgAdmin || req.user!.organizationId !== id)) {
     return sendError(res, 403, 'Forbidden: Admin access required for this organization');
   }
 
   await orgMembersService.activateMember(id, userId);
   logger.info(`[ACTIVATE MEMBER] User ${userId} reactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
+  audit(req, 'org.member.activate', { targetType: 'user', targetId: userId, affectedOrgId: id });
   sendSuccess(res, 200, undefined, 'Member reactivated successfully');
 }, {
   [OM_MEMBERSHIP_NOT_FOUND]: { status: 404, message: 'Membership not found' },

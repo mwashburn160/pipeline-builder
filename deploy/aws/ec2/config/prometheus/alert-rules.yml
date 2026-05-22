@@ -1,44 +1,116 @@
 # Alert rules for Pipeline Builder.
 #
 # Loaded by Prometheus via `rule_files` in prometheus.yml; firing alerts
-# are forwarded to Alertmanager which routes by `severity` label.
+# are forwarded to Alertmanager which routes by `severity` AND `tenancy`.
 #
-# Conventions:
-#  - `severity: critical` — pages on-call (Slack #ops-pager + future PD)
-#  - `severity: warning`  — non-paging Slack notification
-#  - `summary` is what shows in Slack; `description` adds detail
-#  - All rules live in the platform-wide group; per-org alerting is a
-#    follow-up (needs `org_id` label propagation on every metric).
+# Conventions# - `severity: critical`  pages on-call (Slack #ops-pager + future PD)
+# - `severity: warning`  non-paging Slack notification
+# - `tenancy: org`  alert carries an `org_id` label; relayed to that
+# org's configured destinations (Slack webhook,
+# in-app message, …) via the platform's webhook
+# relay (POST /api/observability/alert-webhook).
+# - `tenancy: platform`  alert is platform-wide (no org_id, or the
+# underlying metric isn't org-labeled); routed
+# to the ops-team Slack channels.
+# - `summary` is what shows in Slack; `description` adds detail.
 
-groups:
-  - name: platform-wide
-    rules:
-      # ---- Plugin builds ----
-      - alert: PluginBuildFailureRateHigh
+groups  # Per-org rules  every firing alert carries an `org_id` label and is routed
+  # to that org's notification destination(s) by the platform's alert-relay.
+  # These rules `by (org_id)` the underlying counters; the receiver-side
+  # alertmanager.yml uses `tenancy=org` to differentiate from platform alerts.
+  - name: per-org
+    rules      # operational follow-on: per-tenant Loki rate-cap breach.
+      # Fires when Loki's distributor rejects log lines for a tenant
+      # because they exceed the tenant's `ingestion_rate_mb` cap (set in
+      # runtime-config.yaml). Operators should bump the override before
+      # users notice missing logs. The `tenant` label maps to the org's
+      # uuid (set via promtail's `tenant` stage / fluent-bit's
+      # `Tenant_ID_Key`); `org_id` is set equal to it via `label_replace`
+      # so the per-org routing in alertmanager picks it up the same way
+      # as the build-failure alert.
+      - alert: LokiRateCapBreach
         expr: |
-          (
-            sum(rate(plugin_builds_total{status="success"}[5m]))
+          label_replace(            sum by (tenant) (rate(loki_discarded_samples_total{reason="rate_limited", tenant!="system"}[5m])) > 0,
+            "org_id", "$1", "tenant", "(.+)"
+          )
+        for: 5m
+        labels          severity: warning
+          component: loki
+          tenancy: org
+        annotations          summary: "Loki dropping logs for org {{ $labels.org_id }} (rate cap breached)"
+          description: "Loki rejected {{ $value | humanize }} lines/sec for the last 5 minutes. Bump the org's `ingestion_rate_mb` override in runtime-config.yaml  see docs/plans/f-2-6-loki-multitenant.md."
+
+      - alert: PluginBuildFailureRateHigh
+        # Per-org success-rate aggregation. `by (org_id)` produces one
+        # series per org; alerts fire per org and carry that org_id label
+        # which the relay routes on.
+        expr: |
+          (            sum by (org_id) (rate(plugin_builds_total{status="success",org_id=~".+"}[5m]))
             /
-            clamp_min(sum(rate(plugin_builds_total{org_id=~".+"}[5m])), 1)
+            clamp_min(sum by (org_id) (rate(plugin_builds_total{org_id=~".+"}[5m])), 1)
           ) < 0.9
         for: 10m
-        labels:
-          severity: warning
+        labels          severity: warning
           component: plugin
-        annotations:
-          summary: "Plugin build success rate below 90%"
+          tenancy: org
+        annotations          summary: "Plugin build success rate below 90% for org {{ $labels.org_id }}"
           description: "5-min success rate is {{ $value | humanizePercentage }} over the last 10 minutes."
 
+      # per-plugin variants of the org-wide alert above. The
+      # `plugin_builds_total` counter carries `plugin_name` so groupings
+      # `by (org_id, plugin_name)` produce one series per (org, plugin)
+      # pair without a metric change. Thresholds are stricter than the
+      # org-wide rules (80% vs 90% success, 25% timeout share)  a single
+      # plugin going bad shouldn't have to drag the org's overall rate
+      # under 90% before paging. Floor of `rate > 0.01` (≥3 builds per
+      # 5min) prevents firing on plugins with only one or two builds
+      # where a single failure trivially crosses the percentage gate.
+      - alert: PluginBuildFailureRateHighPerPlugin
+        expr: |
+          (            sum by (org_id, plugin_name) (rate(plugin_builds_total{status="success",org_id=~".+",plugin_name=~".+"}[5m]))
+            /
+            clamp_min(sum by (org_id, plugin_name) (rate(plugin_builds_total{org_id=~".+",plugin_name=~".+"}[5m])), 1)
+          ) < 0.8
+          and
+          sum by (org_id, plugin_name) (rate(plugin_builds_total{org_id=~".+",plugin_name=~".+"}[5m])) > 0.01
+        for: 15m
+        labels          severity: warning
+          component: plugin
+          tenancy: org
+        annotations          summary: "Plugin {{ $labels.plugin_name }} success rate below 80% for org {{ $labels.org_id }}"
+          description: "Per-plugin 5-min success rate is {{ $value | humanizePercentage }} over the last 15 minutes  check plugin source or build environment."
+
+      - alert: PluginBuildTimeoutRateHighPerPlugin
+        # Most often a regression in the plugin's build script or a
+        # dependency that's now resolving slowly. Same activity floor as
+        # the failure-rate variant.
+        expr: |
+          (            sum by (org_id, plugin_name) (rate(plugin_builds_total{status="timeout",org_id=~".+",plugin_name=~".+"}[5m]))
+            /
+            clamp_min(sum by (org_id, plugin_name) (rate(plugin_builds_total{org_id=~".+",plugin_name=~".+"}[5m])), 1)
+          ) > 0.25
+          and
+          sum by (org_id, plugin_name) (rate(plugin_builds_total{org_id=~".+",plugin_name=~".+"}[5m])) > 0.01
+        for: 15m
+        labels          severity: warning
+          component: plugin
+          tenancy: org
+        annotations          summary: "Plugin {{ $labels.plugin_name }} timing out for org {{ $labels.org_id }}"
+          description: "{{ $value | humanizePercentage }} of recent builds timed out  check build complexity or dependency resolution times."
+
+  # Platform-wide rules  metrics that aren't org-labeled (shared queue,
+  # shared registry). Routed to the ops-team Slack channels.
+  - name: platform-wide
+    rules
       # ---- Queue ----
       - alert: PluginQueueStalled
         expr: sum(plugin_queue_jobs{state="waiting"}) > 50
         for: 15m
-        labels:
-          severity: warning
+        labels          severity: warning
           component: plugin
-        annotations:
-          summary: "Plugin build queue depth above 50"
-          description: "{{ $value }} jobs waiting for 15+ minutes — check worker health."
+          tenancy: platform
+        annotations          summary: "Plugin build queue depth above 50"
+          description: "{{ $value }} jobs waiting for 15+ minutes  check worker health."
 
       - alert: PluginQueueProcessingSlow
         expr: |
@@ -46,22 +118,20 @@ groups:
             sum by (le) (rate(plugin_job_wait_seconds_bucket[5m]))
           ) > 300
         for: 10m
-        labels:
-          severity: warning
+        labels          severity: warning
           component: plugin
-        annotations:
-          summary: "Plugin queue p95 wait > 5 minutes"
+          tenancy: platform
+        annotations          summary: "Plugin queue p95 wait > 5 minutes"
           description: "p95 job wait is {{ $value | humanizeDuration }}; consider scaling workers."
 
       - alert: DLQFilling
         expr: sum(plugin_queue_jobs{queue="plugin-build-dlq"}) > 10
         for: 5m
-        labels:
-          severity: critical
+        labels          severity: critical
           component: plugin
-        annotations:
-          summary: "Dead-letter queue has more than 10 jobs"
-          description: "{{ $value }} jobs in the DLQ — these failed all retries and need triage."
+          tenancy: platform
+        annotations          summary: "Dead-letter queue has more than 10 jobs"
+          description: "{{ $value }} jobs in the DLQ  these failed all retries and need triage."
 
       # ---- Registry ----
       # Uses the platform-wide `http_requests_total` counter (emitted by
@@ -70,9 +140,26 @@ groups:
       - alert: RegistryErrorBurst
         expr: sum(rate(http_requests_total{service="image-registry", status_code=~"5.."}[5m])) > 0
         for: 5m
-        labels:
-          severity: critical
+        labels          severity: critical
           component: registry
-        annotations:
-          summary: "Registry returning 5xx errors"
+          tenancy: platform
+        annotations          summary: "Registry returning 5xx errors"
           description: "{{ $value | humanize }} 5xx/s over the last 5 minutes. Check image-registry logs."
+
+      # ---- Quota ----
+      # `quota_fail_open_total` is incremented by api-core's quota client
+      # every time the quota service is unreachable or returns non-ok and
+      # the caller proceeds with a "fail-open allowed" result. A small
+      # number of these is normal (transient network blips). A SUSTAINED
+      # rate means quota is effectively disabled across the fleet — every
+      # org is unlimited and noisy-neighbor protection is off — until
+      # the quota service is restored. Critical because the financial /
+      # abuse-prevention impact compounds with time.
+      - alert: QuotaServiceFailOpenSustained
+        expr: sum(rate(quota_fail_open_total[5m])) > 0.1
+        for: 10m
+        labels          severity: critical
+          component: quota
+          tenancy: platform
+        annotations          summary: "Quota service has been failing open for 10+ minutes"
+          description: "{{ $value | humanize }} fail-open events/sec averaged over 5m. The quota service is unreachable or unhealthy — every quota check is returning 'allowed' regardless of actual usage. Investigate the quota service before noisy orgs exhaust shared resources."

@@ -118,6 +118,45 @@ export async function requireAuth(
 }
 
 /**
+ * Internal service-to-service auth.
+ *
+ * Verifies a service JWT minted by `signServiceToken` (api-core) — the same
+ * mechanism `getServiceAuthHeader` uses for cross-service calls. Accepts
+ * tokens whose `sub` starts with `service:` and rejects everything else,
+ * so user tokens can't hit internal endpoints by accident.
+ *
+ * Used by the audit-events ingest endpoint so the plugin build worker
+ * (and any future internal emitter) can write into MongoDB without
+ * needing a real platform user identity. JWT signature is verified
+ * against the same secret as user tokens; the platform/api-core split
+ * shares `JWT_SECRET`.
+ */
+export async function requireServiceAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return sendError(res, 401, 'Invalid header');
+  }
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = verifyAccessToken(token);
+    if (!decoded.sub?.startsWith('service:')) {
+      return sendError(res, 403, 'Service auth required');
+    }
+    // Hydrate req.user enough that downstream handlers can read sub /
+    // organizationId without re-decoding the token.
+    req.user = decoded;
+    next();
+  } catch {
+    return sendError(res, 401, 'Token invalid');
+  }
+}
+
+/**
  * Middleware to validate refresh tokens from request body.
  * Used for token refresh endpoints to issue new access tokens.
  *

@@ -4,8 +4,7 @@
 /**
  * Tests for the /triage endpoint in routes/queue-status.
  *
- * Verifies:
- * - System admin sees failed jobs from all orgs (no filtering).
+ * Verifies * - System admin sees failed jobs from all orgs (no filtering).
  * - Org admin sees only their own org's failed jobs (tenant isolation).
  * - Non-admin users (role=member) get 403.
  */
@@ -14,10 +13,15 @@ const queueGetJobs = jest.fn();
 const dlqGetJobs = jest.fn();
 
 jest.mock('../src/queue/plugin-build-queue', () => ({
-  getQueue: () => ({ getJobs: queueGetJobs, getJobCounts: jest.fn() }),
+  // route uses getAllTierQueues; one entry is enough for the existing assertions.
+  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', getJobs: queueGetJobs, getJobCounts: jest.fn() } }],
   getDeadLetterQueue: () => ({ getJobs: dlqGetJobs, getJobCounts: jest.fn() }),
   purgeDlq: jest.fn(),
+  replayDlqJob: jest.fn(),
 }));
+
+// Quota service stub  required by createQueueStatusRoutes since.
+const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
 
 jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: () => ({
@@ -26,7 +30,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   isSystemAdmin: jest.fn(),
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
-    return isNaN(n) ? def : n;
+    return isNaN(n) ? def: n;
   },
   sendSuccess: jest.fn((res: any, status: number, data: any) => {
     res.status(status).json({ success: true, statusCode: status, data });
@@ -48,10 +52,9 @@ import { isSystemAdmin } from '@pipeline-builder/api-core';
 import { createQueueStatusRoutes } from '../src/routes/queue-status';
 
 function getTriageHandler() {
-  const router = createQueueStatusRoutes();
+  const router = createQueueStatusRoutes(mockQuotaService);
   // Find the GET /triage handler by route path.
-  const triageLayer = (router.stack as any[]).find(
-    (l) => l.route?.path === '/triage' && l.route?.methods?.get,
+  const triageLayer = (router.stack as any[]).find( (l) => l.route?.path === '/triage' && l.route?.methods?.get,
   );
   if (!triageLayer) throw new Error('/triage handler not registered');
   return triageLayer.route.stack[0].handle;
@@ -73,7 +76,7 @@ const job = (id: string, orgId: string, error = 'Docker build failed') => ({
   finishedOn: 1717000000000,
 });
 
-describe('GET /triage — auth and tenant isolation', () => {
+describe('GET /triage  auth and tenant isolation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     queueGetJobs.mockResolvedValue([]);

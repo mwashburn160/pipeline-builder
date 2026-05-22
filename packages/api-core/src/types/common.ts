@@ -8,13 +8,31 @@
  * - `apiCalls` — generic API call count (read-heavy paths)
  * - `aiCalls` — AI provider invocations (counted separately because each call
  *   has external dollar cost; sized smaller than apiCalls per tier)
+ * - `storageBytes` — registry storage budget per org. Unlike the others
+ *   (which count discrete events), this is a measured total recomputed
+ *   on demand. Incremented by the image-registry's push-gate before
+ *   issuing a token whose scope includes `push`; the GC scheduler
+ *   eventually frees the bytes, then the next push-gate check reads
+ *   the lower value. NOT a counter-style quota in the sense of
+ *   `incrementUsage` — the registry pushes the measured total via
+ *   `updateLimits`/`resetUsage` flows. Tier limits are bytes.
+ * - `dashboards` / `alertRules` / `alertDestinations` / `idpConfigs` —
+ *   resource-count quotas added to close per-org DoS surfaces in the
+ *   user-editable feature tables. Without these caps a single org could
+ *   spam thousands of dashboards / rules and bloat the shared Postgres /
+ *   Mongo working sets. Counted at create time; decremented on delete.
  */
-export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls';
+export type QuotaType =
+  | 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls' | 'storageBytes'
+  | 'dashboards' | 'alertRules' | 'alertDestinations' | 'idpConfigs';
 
 /**
  * Valid quota type values.
  */
-export const VALID_QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls', 'aiCalls'] as const;
+export const VALID_QUOTA_TYPES = [
+  'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
+  'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs',
+] as const;
 
 /**
  * Type guard to check if a value is a valid QuotaType.
@@ -138,6 +156,16 @@ export interface JwtPayload {
   role: 'owner' | 'admin' | 'member';
   /** Derived: true when role is 'admin' or 'owner' in the active organization */
   isAdmin?: boolean;
+  /**
+   * Global super-admin flag (cross-org). When `true`, the user is treated
+   * as a system administrator regardless of which org they're currently
+   * acting under. This is the canonical signal for sysadmin authority —
+   * previously the only path was membership in the well-known "system" org
+   * with role admin/owner, which conflated "Pipeline Builder operator" with
+   * "real customer tenant" in the data model. Either path still works
+   * during the rollout; new users should be granted via `isSuperAdmin`.
+   */
+  isSuperAdmin?: boolean;
   /** Organization's quota tier ('developer' | 'pro' | 'unlimited') */
   tier?: string;
   /** Resolved feature flags for this user/org */
@@ -146,6 +174,18 @@ export interface JwtPayload {
   organizationId?: string;
   /** Active organization name */
   organizationName?: string;
+  /**
+   * Set on tokens issued by the sysadmin impersonation flow
+   * (`POST /admin/impersonate/:userId`). Carries the original sysadmin's
+   * user id so audit events still attribute actions correctly.
+   */
+  impersonatorId?: string;
+  /**
+   * When true, the token is read-only — any non-GET request is rejected
+   * upstream by the platform's read-only impersonation gate. Lets
+   * sysadmins "view as user X" without risking a destructive action.
+   */
+  impersonationReadOnly?: boolean;
   /** Token type */
   type: 'access' | 'refresh';
   /** Issued at timestamp */

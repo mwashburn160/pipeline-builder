@@ -54,13 +54,42 @@ Complete reference for all environment variables used across Pipeline Builder se
 |----------|---------|-------------|
 | `JWT_SECRET` | — | **Required.** JWT signing secret. Must be **identical across all services** — `signServiceToken()` mints inter-service tokens with this same secret so any service's `requireAuth` can verify them. |
 | `REFRESH_TOKEN_SECRET` | — | **Required.** Refresh token secret |
-| `JWT_EXPIRES_IN` | `86400` | Token TTL in seconds (24h) |
+| `JWT_EXPIRES_IN` | `86400` | Token TTL in seconds (24h). Per-tier overrides take precedence. |
+| `JWT_EXPIRES_IN_DEVELOPER` | (inherits `JWT_EXPIRES_IN`) | Developer-tier access-token TTL override |
+| `JWT_EXPIRES_IN_PRO` | (inherits `JWT_EXPIRES_IN`) | Pro-tier override — commonly shorter for compliance |
+| `JWT_EXPIRES_IN_UNLIMITED` | (inherits `JWT_EXPIRES_IN`) | Enterprise-tier override (e.g. `1800` = 30 min) |
 | `JWT_ALGORITHM` | `HS256` | `HS256`, `HS384`, `HS512`, `RS256` |
 | `JWT_SALT_ROUNDS` | `12` | bcrypt salt rounds |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d) |
 | `PASSWORD_MIN_LENGTH` | `12` | Minimum password length |
 | `COOKIE_SAME_SITE` | `lax` | `lax`, `strict`, or `none` for refresh cookie |
 | `COOKIE_SECURE` | `false` (auto-true in prod) | Set `true` to force the `secure` cookie flag; auto-enabled when `NODE_ENV=production` |
+| `BOOTSTRAP_SUPERADMIN_EMAILS` | — | Comma-separated user emails auto-promoted to `isSuperAdmin=true` at platform boot. **Required for fresh installs** — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. |
+
+### Multi-tenant secret encryption
+
+AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTION_KEY` is **required at platform boot** — the read paths no longer fall back to clear text. Existing pre-encryption rows are re-encrypted automatically by the startup backfill.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SECRET_ENCRYPTION_KEY` | — | **Required.** 32-byte master key (hex or base64). Generate with `head -c 32 /dev/urandom \| base64`. Platform aborts startup when this is unset in production. |
+| `SECRET_ENCRYPTION_PER_ORG_KMS` | `false` | When `true`, each org's secrets are wrapped under its own KMS CMK (see `Organization.kmsConfig`). Orgs without an entry fall through to the shared master. Recommended for SOC2 / compliance deploys. |
+| `SECRET_ENCRYPTION_KMS_KEY_ID` | — | (Single-master KMS mode) KMS CMK alias / ARN used to wrap the shared master. |
+| `SECRET_ENCRYPTION_KMS_CIPHERTEXT` | — | (Single-master KMS mode) Base64 KMS-wrapped 32-byte master. |
+
+### Multi-tenant RLS context
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RLS_CONTEXT_MODE` | `warn` | Behavior when `withTenantTx` is called outside any tenant scope. `warn` logs a stack-traced warning, `strict` throws, `silent` is no-op (tests / migration only). Recommended production rollout: `warn` for ≥7 days, then flip to `strict` after the logs show zero spurious warnings. |
+
+### Multi-tenant alert webhook relay
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ALERT_WEBHOOK_INSTANCES` | — | JSON array of `{ id, token, allowedOrgIds? }` entries. **Required** to enable the relay; unset / empty returns 503 at the webhook endpoint. Each Alertmanager sends `X-Alertmanager-Instance: <id>` + `Authorization: Bearer <token>`. `allowedOrgIds` restricts which orgs that instance can relay alerts for. |
+| `ALERT_WEBHOOK_INSTANCE_ID` | — | (Alertmanager side) The id of this Alertmanager's entry. |
+| `ALERT_WEBHOOK_INSTANCE_TOKEN` | — | (Alertmanager side) The matching token. |
 
 ### Google OAuth (Optional)
 

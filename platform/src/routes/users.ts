@@ -7,9 +7,10 @@ import {
   getUserById,
   updateUserById,
   deleteUserById,
+  bulkDeleteUsers,
   updateUserFeatures,
 } from '../controllers';
-import { requireAuth, requireRole } from '../middleware';
+import { requireAuth, requireRole, requireStepUp } from '../middleware';
 
 const router = Router();
 
@@ -27,5 +28,12 @@ router.put('/:id/features', requireAuth, requireRole('admin', 'owner'), updateUs
 
 /** DELETE /users/:id - Delete user by ID (system admin only) */
 router.delete('/:id', requireAuth, requireRole('admin', 'owner'), deleteUserById);
+
+/**
+ * POST /users/bulk-delete - Bulk delete users (system admin only).
+ * Posted instead of DELETE because Express bodies on DELETE are flaky
+ * through some proxies. Server enforces sysadmin-only and a 100-id cap.
+ */
+router.post('/bulk-delete', requireAuth, requireRole('admin', 'owner'), requireStepUp, bulkDeleteUsers);
 
 export default router;

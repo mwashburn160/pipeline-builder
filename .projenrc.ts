@@ -18,26 +18,39 @@ import { PackageProject } from './projenrc/package';
 // =============================================================================
 
 const branch = 'main';
-const pnpmVersion = '10.33.0';
+const pnpmVersion = '11.2.2';
 const constructsVersion = '10.5.1';
 const typescriptVersion = '5.9.3';
 const cdkVersion = '2.251.0';
 const expressVersion = '5.2.1';
 
-// Internal package versions — `workspace:*` so pnpm always resolves from
+// Pin jest to 30.0.0 across every subproject. Service Dockerfiles copy only
+// `package.json` (no workspace lockfile) and run `pnpm install`, so a
+// caret-range like `^30.2.0` resolves to whatever's latest at build time.
+// jest-runtime 30.4.x calls `_moduleMocker.clearMocksOnScope` (added in
+// jest-mock 30.4.x), but pnpm's peer-dep resolution in that no-lockfile
+// install pulls a mismatched jest-mock, and every jsdom test crashes with
+// "clearMocksOnScope is not a function". Exact pinning forces a coherent set
+// across all jest sub-packages. We use 30.0.0 (not the absolute latest
+// pre-30.4 like 30.3.0) because projen's Jest plugin pins `@types/jest` to
+// the same exact value, and `@types/jest` lags jest itself  30.0.0 is the
+// latest @types/jest, so this is the highest mutual-existence pin.
+const jestVersion = '30.0.0';
+
+// Internal package versions  `workspace:*` so pnpm always resolves from
 // the local workspace. Using a pinned npm version causes pnpm to install
 // the published package from the registry, which means schema/API changes
 // in one workspace package don't propagate to its consumers in CI until
 // after a release. nx release rewrites these to a concrete version at
 // publish time, so consumers on npm still get an exact version.
-// const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  apiCore:        '3.4.35',
-  pipelineData:   '3.4.35',
-  pipelineCore:   '3.4.35',
-  apiServer:      '3.4.36',
-  aiCore:         '3.4.35',
-  pipelineEvents: '3.4.35'
+  aiCore: ws,
+  apiCore: ws,
+  apiServer: ws,
+  pipelineData: ws,
+  pipelineCore: ws,
+  pipelineEvents: ws
 };
 
 // =============================================================================
@@ -47,7 +60,7 @@ const pkg = {
 const root = new TypeScriptProject({
   name: 'root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.99.52',
+  projenVersion: '0.99.63',
   minNodeVersion: '24.14.0',
   minMajorVersion: 3,
   packageManager: NodePackageManager.PNPM,
@@ -55,7 +68,7 @@ const root = new TypeScriptProject({
   depsUpgradeOptions: { workflow: false },
   depsUpgrade: true,
   typescriptVersion: typescriptVersion,
-  gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam', 'deploy/**/.env', 'image.tar', '.image-hash', 'plugin.zip'],
+  gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam', 'deploy/**/.env', 'image.tar', '.image-hash', 'plugin.zip', '.docker-build/'],
   licensed: true,
   projenrcTs: true,
   jest: false,
@@ -76,9 +89,8 @@ root.addScripts({ 'npm-check': 'npx npm-check-updates' });
 // All internal packages publish to npmjs.org under @pipeline-builder scope
 root.npmrc.addConfig('@pipeline-builder:registry', 'https://registry.npmjs.org/');
 
-// After running 'pnpm dlx projen', fix workspace references:
-// find . -name package.json -not -path '*/node_modules/*' -not -path '*/.projen/*' | \
-//   xargs sed -E -i 's/"@pipeline-builder\/([^"]+)": "[0-9]+\.[0-9]+\.[0-9]+"/"@pipeline-builder\/\1": "workspace:*"/g'
+// After running 'pnpm dlx projen', fix workspace references// find. -name package.json -not -path '*/node_modules/*' -not -path '*/.projen/*' | \
+// xargs sed -E -i 's/"@pipeline-builder\/([^"]+)": "[0-9]+\.[0-9]+\.[0-9]+"/"@pipeline-builder\/\1": "workspace:*"/g'
 
 // =============================================================================
 // Shared Defaults & Helpers
@@ -90,10 +102,14 @@ const baseDefaults = {
   projenCommand: root.projenCommand,
   minNodeVersion: root.minNodeVersion,
   typescriptVersion,
+  // Inherited by every subproject; see the `jestVersion` declaration above
+  // for the trap this closes. Per-project `jestOptions` overrides must spread
+  // this in or they lose the pin.
+  jestOptions: { jestVersion },
 };
 
 const pkgDefaults = {
-  ...baseDefaults,
+...baseDefaults,
   repository: 'git+https://github.com/mwashburn160/pipeline-builder.git',
   releaseToNpm: false,
   npmAccess: NpmAccess.RESTRICTED,
@@ -120,14 +136,13 @@ const bugs = { url: 'https://github.com/mwashburn160/pipeline-builder/issues' };
  * Apply the common npm metadata (keywords, homepage, bugs, license) to a
  * projen package.
  *
- * Pass `{ private: true }` to mark the package as workspace-only — adds
+ * Pass `{ private: true }` to mark the package as workspace-only  adds
  * `"private": true` to package.json so `pnpm publish` skips it regardless
  * of how filters resolved. Use for packages that consumers depend on via
  * the workspace but should never appear on the npm registry (e.g. internal
  * SDK wrappers, build-time-only helpers).
  */
-function addPackageMetadata(
-  p: { package: { addField: (k: string, v: unknown) => void } },
+function addPackageMetadata(  p: { package: { addField: (k: string, v: unknown) => void } },
   description: string,
   opts: { private?: boolean } = {},
 ) {
@@ -154,7 +169,19 @@ function configureJest(project: { jest?: { config: Record<string, unknown> } }, 
 function dockerScripts(name: string) {
   return {
     'start': 'node lib/index.js',
-    'docker:build': `docker buildx build --no-cache --pull --load --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) .`,
+    // docker:build pre-stages a self-contained pnpm deploy tree at
+    //./.docker-build/ before invoking buildx. The Dockerfile copies that
+    // tree as-is  no in-Docker `npm install` to drift on caret ranges,
+    // because pnpm deploy installs against pnpm-lock.yaml. The --legacy
+    // flag deep-copies workspace internal deps (since we don't use
+    // inject-workspace-packages); --prod skips devDeps. Cleanup runs even
+    // if buildx fails so a half-broken tree doesn't poison the next build.
+    'docker:build': [
+      'rm -rf .docker-build',
+      `pnpm deploy --filter ${name} --prod --legacy .docker-build`,
+      `docker buildx build --no-cache --pull --load --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json).`,
+      'rm -rf .docker-build',
+    ].join('; '),
     'docker:tag': `docker image tag \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
     'docker:push': `docker push \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
   };
@@ -179,26 +206,36 @@ const commonServiceDevDeps = [
 
 // -- API Core --
 const apiCore = new PackageProject({
-  ...pkgDefaults, parent: root,
+...pkgDefaults, parent: root,
   name: '@pipeline-builder/api-core',
   outdir: './packages/api-core',
   deps: [
     `express@${expressVersion}`,
     'jsonwebtoken@9.0.3', 'winston@3.19.0', 'zod@4.3.6',
     '@asteasolutions/zod-to-openapi@8.4.0',
+    // AWS-KMS KeyProvider  bundled as a regular dep so the
+    // KmsKeyProvider class can be imported without operator-side install
+    // steps. Lazy-loaded at first use; envs that stick with the
+    // EnvKeyProvider don't construct a KMS client.
+    '@aws-sdk/client-kms@3.997.0',
+    // STS + credential-providers for the per-org IAM role assumption
+    // helper. Same posture as the KMS client: lazy-imported, only loads
+    // when an operator configures a per-org assumeRoleArn.
+    '@aws-sdk/client-sts@3.997.0',
+    '@aws-sdk/credential-providers@3.997.0',
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/jsonwebtoken@9.0.10',
     '@types/node@25.3.0', `typescript@${typescriptVersion}`,
   ],
 });
-apiCore.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
+apiCore.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 addPackageMetadata(apiCore, 'Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.');
 configureJest(apiCore);
 
 // -- Pipeline Data --
 const pipelineData = new PackageProject({
-  ...pkgDefaults, parent: root,
+...pkgDefaults, parent: root,
   name: '@pipeline-builder/pipeline-data',
   outdir: './packages/pipeline-data',
   deps: [`@pipeline-builder/api-core@${pkg.apiCore}`, 'pg@8.18.0', 'drizzle-orm@0.45.1'],
@@ -210,7 +247,7 @@ configureJest(pipelineData);
 
 // -- Pipeline Core --
 const pipelineCore = new PackageProject({
-  ...pkgDefaults, parent: root,
+...pkgDefaults, parent: root,
   name: '@pipeline-builder/pipeline-core',
   outdir: './packages/pipeline-core',
   deps: [
@@ -232,7 +269,7 @@ pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/handlers/ -
 
 // -- API Server --
 const apiServer = new PackageProject({
-  ...pkgDefaults, parent: root,
+...pkgDefaults, parent: root,
   name: '@pipeline-builder/api-server',
   outdir: './packages/api-server',
   deps: [
@@ -252,13 +289,13 @@ const apiServer = new PackageProject({
     '@types/swagger-ui-express@4.1.8', '@types/node@25.3.0', `typescript@${typescriptVersion}`,
   ],
 });
-apiServer.eslint?.addRules({ ...rules, 'import/no-unresolved': 'off' });
+apiServer.eslint?.addRules({...rules, 'import/no-unresolved': 'off' });
 addPackageMetadata(apiServer, 'Express server infrastructure for Pipeline Builder: app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context, route wrappers, health-check helpers, and SSE support.');
 configureJest(apiServer, { maxWorkers: 1 });
 
 // -- AI Core --
 const aiCore = new PackageProject({
-  ...pkgDefaults, parent: root,
+...pkgDefaults, parent: root,
   name: '@pipeline-builder/ai-core',
   outdir: './packages/ai-core',
   deps: [
@@ -270,7 +307,7 @@ const aiCore = new PackageProject({
   devDeps: ['@types/node@25.3.0', `typescript@${typescriptVersion}`],
 });
 aiCore.eslint?.addRules(rules);
-// Marked private — workspace-only dependency for downstream services.
+// Marked private  workspace-only dependency for downstream services.
 // Never published to npm (its version stays at 0.0.0 and any publish run
 // otherwise fails with "Cannot publish over previously published version").
 addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
@@ -278,7 +315,7 @@ configureJest(aiCore);
 
 // -- Pipeline Events (CodePipeline → Reporting Lambda) --
 const pipelineEvents = new PackageProject({
-  ...pkgDefaults, parent: root,
+...pkgDefaults, parent: root,
   name: '@pipeline-builder/pipeline-events',
   outdir: './packages/pipeline-events',
   deps: [],
@@ -288,7 +325,7 @@ const pipelineEvents = new PackageProject({
   ],
 });
 pipelineEvents.eslint?.addRules(rules);
-// Marked private — Lambda handler bundled into a zip via `lambda.Code.fromAsset()`,
+// Marked private  Lambda handler bundled into a zip via `lambda.Code.fromAsset()`,
 // never consumed as an `@pipeline-builder/pipeline-events` npm import. Same
 // 0.0.0-version publish-skip pattern as `ai-core`.
 addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
@@ -299,7 +336,7 @@ configureJest(pipelineEvents);
 // =============================================================================
 
 const manager = new ManagerProject({
-  ...pkgDefaults, parent: root,
+...pkgDefaults, parent: root,
   name: '@pipeline-builder/pipeline-manager',
   outdir: './packages/pipeline-manager',
   bin: { 'pipeline-manager': './dist/cli.js' },
@@ -313,9 +350,9 @@ const manager = new ManagerProject({
   ],
   devDeps: ['@types/figlet@1.7.0', '@types/progress@2.0.7', 'copyfiles@2.4.1'],
 });
-manager.eslint?.addRules({ ...rules, '@typescript-eslint/no-shadow': 'off' });
+manager.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 manager.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
-addPackageMetadata(manager, 'CLI for Pipeline Builder — self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.');
+addPackageMetadata(manager, 'CLI for Pipeline Builder  self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.');
 manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
@@ -328,7 +365,7 @@ configureJest(manager);
 // =============================================================================
 
 const platform = new FunctionProject({
-  ...baseDefaults, parent: root,
+...baseDefaults, parent: root,
   name: 'platform',
   outdir: './platform',
   deps: [
@@ -361,21 +398,14 @@ configureJest(platform);
 // =============================================================================
 
 const frontend = new FrontEndProject({
-  ...baseDefaults, parent: root,
+...baseDefaults, parent: root,
   name: 'frontend',
   outdir: './frontend',
   gitignore: ['.DS_Store', 'yarn.lock', '.next', '.vscode', 'dist'],
   jest: true,
   jestOptions: {
-    // Pin jest to 30.3.0. The frontend Dockerfile copies only `package.json`
-    // (no workspace lockfile) and runs `pnpm install`, so a caret-range like
-    // `^30.2.0` resolves to whatever's latest at build time. jest-runtime
-    // 30.4.x calls `_moduleMocker.clearMocksOnScope` (added in jest-mock
-    // 30.4.x), but pnpm's peer-dep resolution in that no-lockfile install
-    // pulls a mismatched jest-mock and every jsdom test crashes with
-    // "clearMocksOnScope is not a function". Exact pinning forces a coherent
-    // set across all jest sub-packages.
-    jestVersion: '30.3.0',
+    // Inherit the workspace-wide jestVersion pin (see top of file).
+...baseDefaults.jestOptions,
     jestConfig: {
       // jsdom enables RTL's render() and visibility/event hooks used by
       // the observability dashboard render tests. Existing pure-logic
@@ -383,7 +413,7 @@ const frontend = new FrontEndProject({
       testEnvironment: 'jsdom',
       testMatch: ['<rootDir>/test/**/*.test.ts', '<rootDir>/test/**/*.test.tsx'],
       // Auto-extends jest's expect() with `toBeInTheDocument`, `toHaveTextContent`,
-      // etc. from @testing-library/jest-dom — so per-test imports aren't needed.
+      // etc. from @testing-library/jest-dom  so per-test imports aren't needed.
       setupFilesAfterEnv: ['<rootDir>/test/jest.setup.ts'],
     },
   },
@@ -393,11 +423,15 @@ const frontend = new FrontEndProject({
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     'next@16.1.6', 'react@19.2.4', 'react-dom@19.2.4',
     'lucide-react@0.575.0', 'tailwindcss@4.2.1', 'framer-motion@12.34.3', 'swr@2.3.3',
+    // drag-resize on the dashboard editor. Loaded only on the editor
+    // page (next/dynamic) so non-editor traffic doesn't pay the ~120 KB cost.
+    'react-grid-layout@1.5.2',
   ],
   devDeps: [
     '@types/node@25.3.0', '@types/react@19.2.14', '@types/react-dom@19.2.3',
     '@tailwindcss/postcss@4.2.1', 'autoprefixer@10.4.24',
     'postcss@8.5.6', 'ts-jest@^29.4.6', `typescript@${typescriptVersion}`,
+    '@types/react-grid-layout@1.3.5',
     // RTL stack for component / page render tests.
     '@testing-library/react@16.3.0',
     '@testing-library/jest-dom@6.6.3',
@@ -409,7 +443,7 @@ configureJest(frontend);
 if (frontend.jest) {
   frontend.jest.config.transform = { '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.test.json' }] };
   frontend.jest.config.moduleNameMapper = {
-    ...frontend.jest.config.moduleNameMapper as Record<string, string>,
+...frontend.jest.config.moduleNameMapper as Record<string, string>,
     '^@/(.*)$': '<rootDir>/src/$1',
   };
 }
@@ -484,10 +518,10 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
 
 for (const svc of services) {
   const project = new FunctionProject({
-    ...baseDefaults, parent: root,
+...baseDefaults, parent: root,
     name: svc.name,
-    deps: [...commonServiceDeps, ...svc.deps],
-    devDeps: [...commonServiceDevDeps, ...(svc.devDeps ?? [])],
+    deps: [...commonServiceDeps,...svc.deps],
+    devDeps: [...commonServiceDevDeps,...(svc.devDeps ?? [])],
   });
   project.addScripts(dockerScripts(svc.name));
   project.eslint?.addRules(rules);

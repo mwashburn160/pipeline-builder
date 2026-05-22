@@ -60,7 +60,14 @@ export function useRepositoryList() {
     }
   }, []);
 
-  const loadMore = useCallback(() => loadPage(state.lastCursor, true), [loadPage, state.lastCursor]);
+  // Guard against rapid double-clicks: while a page fetch is in flight,
+  // ignore subsequent `loadMore()` calls so we don't fire duplicate
+  // requests for the same cursor (and append the same repos twice).
+  // `hasMore` is checked too so a final-page click is also a no-op.
+  const loadMore = useCallback(() => {
+    if (state.loading || !state.hasMore) return;
+    return loadPage(state.lastCursor, true);
+  }, [loadPage, state.lastCursor, state.loading, state.hasMore]);
   const refresh = useCallback(() => loadPage(null, false), [loadPage]);
 
   useEffect(() => {

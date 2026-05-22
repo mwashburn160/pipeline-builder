@@ -198,4 +198,89 @@ describe('SSEManager', () => {
       expect(manager.getClientCount('req-1')).toBe(0);
     });
   });
+
+  describe('per-org client cap', () => {
+    let capManager: SSEManager;
+    beforeEach(() => {
+      capManager = new SSEManager({
+        maxClientsPerRequest: 100,
+        maxClientsPerOrg: 2,
+        clientTimeoutMs: 60000,
+        cleanupIntervalMs: 0,
+      });
+    });
+    afterEach(() => capManager.shutdown());
+
+    it('tracks open-stream count by org', () => {
+      expect(capManager.getOrgClientCount('org-a')).toBe(0);
+      capManager.addClient('req-1', mockSseRes(), 'org-a');
+      capManager.addClient('req-2', mockSseRes(), 'org-a');
+      expect(capManager.getOrgClientCount('org-a')).toBe(2);
+    });
+
+    it('rejects the (cap+1)th connection for an org', () => {
+      expect(capManager.addClient('req-1', mockSseRes(), 'org-a')).toBe(true);
+      expect(capManager.addClient('req-2', mockSseRes(), 'org-a')).toBe(true);
+      expect(capManager.addClient('req-3', mockSseRes(), 'org-a')).toBe(false);
+    });
+
+    it('does NOT count anonymous connections (orgId omitted)', () => {
+      // Three anonymous streams should still succeed despite cap=2,
+      // because the per-org check is skipped without an orgId.
+      expect(capManager.addClient('r1', mockSseRes())).toBe(true);
+      expect(capManager.addClient('r2', mockSseRes())).toBe(true);
+      expect(capManager.addClient('r3', mockSseRes())).toBe(true);
+      expect(capManager.getOrgClientCount('org-a')).toBe(0);
+    });
+
+    it('counters are independent across orgs', () => {
+      capManager.addClient('r1', mockSseRes(), 'org-a');
+      capManager.addClient('r2', mockSseRes(), 'org-a');
+      capManager.addClient('r3', mockSseRes(), 'org-b');
+      capManager.addClient('r4', mockSseRes(), 'org-b');
+      expect(capManager.getOrgClientCount('org-a')).toBe(2);
+      expect(capManager.getOrgClientCount('org-b')).toBe(2);
+      // Each org at its cap; a third connection for either is rejected.
+      expect(capManager.addClient('r5', mockSseRes(), 'org-a')).toBe(false);
+      expect(capManager.addClient('r6', mockSseRes(), 'org-b')).toBe(false);
+    });
+
+    it('decrements the org counter when a client disconnects', () => {
+      const res1 = mockSseRes();
+      const res2 = mockSseRes();
+      capManager.addClient('r1', res1, 'org-a');
+      capManager.addClient('r2', res2, 'org-a');
+      expect(capManager.getOrgClientCount('org-a')).toBe(2);
+
+      // Simulate one client disconnecting — a third connection now fits.
+      if (res1._closeHandler) res1._closeHandler();
+      expect(capManager.getOrgClientCount('org-a')).toBe(1);
+      expect(capManager.addClient('r3', mockSseRes(), 'org-a')).toBe(true);
+    });
+
+    it('closeRequest decrements the org counter for every closed client', () => {
+      capManager.addClient('r1', mockSseRes(), 'org-a');
+      capManager.addClient('r2', mockSseRes(), 'org-a');
+      expect(capManager.getOrgClientCount('org-a')).toBe(2);
+
+      capManager.closeRequest('r1');
+      expect(capManager.getOrgClientCount('org-a')).toBe(1);
+      capManager.closeRequest('r2');
+      expect(capManager.getOrgClientCount('org-a')).toBe(0);
+    });
+
+    it('reads SSE_MAX_CLIENTS_PER_ORG env when no option is passed', () => {
+      const prev = process.env.SSE_MAX_CLIENTS_PER_ORG;
+      process.env.SSE_MAX_CLIENTS_PER_ORG = '1';
+      const envManager = new SSEManager({ cleanupIntervalMs: 0 });
+      try {
+        expect(envManager.addClient('r1', mockSseRes(), 'org-e')).toBe(true);
+        expect(envManager.addClient('r2', mockSseRes(), 'org-e')).toBe(false);
+      } finally {
+        envManager.shutdown();
+        if (prev === undefined) delete process.env.SSE_MAX_CLIENTS_PER_ORG;
+        else process.env.SSE_MAX_CLIENTS_PER_ORG = prev;
+      }
+    });
+  });
 });

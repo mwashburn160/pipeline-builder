@@ -8,13 +8,13 @@
  *
  * **Middleware**
  * - requireAuth, requireAdmin, requireSystemAdmin, requireFeature — JWT authentication
- * - isSystemOrg, isSystemAdmin, isServicePrincipal — authorization helpers
+ * - isSystemAdmin, isServicePrincipal — authorization helpers (isSystemOrgId remains as a content-owner check, not a privilege gate)
  * - signServiceToken, getServiceAuthHeader — inter-service JWT minting
  *
  * **Types**
  * - ErrorCode, ErrorCodeStatus — standardized error code enum and status mapping
  * - RequestIdentity — parsed JWT identity
- * - ServiceConfig, RequestOptions, HttpResponse — HTTP client types
+ * - ServiceConfig, RequestOptions — HTTP client types
  * - QuotaType, QuotaCheckResult — quota service types
  * - PipelineType, ComputeType, AccessModifier — pipeline domain types
  * - FeatureFlags — feature flag types

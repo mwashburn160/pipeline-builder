@@ -25,7 +25,9 @@ function createMockRes(): Response & { _status: number; _json: unknown } {
 }
 
 const NON_ADMIN = createMockReq({ role: 'member', organizationId: 'org-1', organizationName: 'acme' });
-const ADMIN = createMockReq({ role: 'admin', organizationId: 'system', organizationName: 'system' });
+// Sysadmin authority is granted by the user-level `isSuperAdmin` flag;
+// membership in the "system" org no longer confers it.
+const ADMIN = createMockReq({ role: 'admin', organizationId: 'org-ops', organizationName: 'ops', isSuperAdmin: true });
 
 describe('requirePublicAccess', () => {
   it('allows admins to modify a public resource', () => {

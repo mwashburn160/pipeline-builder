@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, reserveQuota, decrementQuota, sendBadRequest, sendError, sendInternalError, sendQuotaExceeded, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { createProtectedRoute, withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
+import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { AccessModifier, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator';
@@ -16,17 +16,20 @@ const complianceClient = createComplianceClient();
 /**
  * Register the CREATE route on a router.
  *
- * This route uses `checkQuota('pipelines')` instead of `'apiCalls'`,
- * so it applies its own middleware chain rather than sharing with read routes.
+ * Uses the "atomic reserve + rollback on failure" pattern for the
+ * `pipelines` quota: the slot is reserved at the start of the handler so
+ * two concurrent requests at the limit can't both create pipelines. The
+ * slot is given back via `decrementQuota` if the action fails after the
+ * reservation lands. Read-only middleware (`createAuthenticatedWithOrgRoute`)
+ * replaces `createProtectedRoute` so the `checkQuota` pre-flight doesn't
+ * race the increment.
  */
-export function createCreatePipelineRoutes(
-  quotaService: QuotaService,
+export function createCreatePipelineRoutes( quotaService: QuotaService,
 ): Router {
   const router: Router = Router();
 
-  router.post(
-    '/',
-    ...createProtectedRoute(quotaService, 'pipelines'),
+  router.post( '/',
+    ...createAuthenticatedWithOrgRoute(),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       // Validate request body with Zod
       const validation = validateBody(req, PipelineCreateSchema);
@@ -41,6 +44,18 @@ export function createCreatePipelineRoutes(
         validatePipelineTemplates(body as unknown as PipelineLike);
       } catch (err) {
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
+      }
+
+      // reserve the quota slot atomically before any work runs.
+      // Two concurrent requests at the limit can't both pass because the
+      // MongoDB filter on `incrementUsage` rejects the second one. If the
+      // downstream action fails (compliance block, DB save error), the slot
+      // is given back via `decrementQuota` in the catch block.
+      const authHeader = req.headers.authorization || '';
+      const reservation = await reserveQuota(quotaService, orgId, 'pipelines', authHeader);
+      if (reservation.exceeded) {
+        ctx.log('WARN', 'Pipeline quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
+        return sendQuotaExceeded(res, 'pipelines', reservation.quota, reservation.quota.resetAt);
       }
 
       try {
@@ -73,6 +88,9 @@ export function createCreatePipelineRoutes(
             ctx.log('WARN', 'Pipeline creation blocked by compliance', {
               project, violations: complianceResult.violations.length,
             });
+            // Roll back the quota slot we reserved above  the pipeline was
+            // never created so the org shouldn't be charged for it.
+            decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
             return sendError(res, 403, 'Pipeline creation blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
               violations: complianceResult.violations,
             });
@@ -81,27 +99,29 @@ export function createCreatePipelineRoutes(
           ctx.log('ERROR', 'Compliance service unavailable', {
             error: errorMessage(err),
           });
-          return sendError(res, 503, 'Compliance service unavailable — pipeline creation rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+          decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
+          return sendError(res, 503, 'Compliance service unavailable  pipeline creation rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
         }
 
-        const result = await pipelineService.createAsDefault(
-          {
-            orgId,
-            project,
-            organization,
-            pipelineName,
-            description: body.description ?? '',
-            keywords: body.keywords ?? [],
-            props: body.props as unknown as PipelineInsert['props'],
-            accessModifier: accessModifier as AccessModifier,
-            createdBy: userId || 'system',
-          },
-          userId || 'system',
+        const result = await pipelineService.createAsDefault( {
+          orgId,
           project,
           organization,
+          pipelineName,
+          description: body.description ?? '',
+          keywords: body.keywords ?? [],
+          props: body.props as unknown as PipelineInsert['props'],
+          accessModifier: accessModifier as AccessModifier,
+          createdBy: userId || 'system',
+        },
+        userId || 'system',
+        project,
+        organization,
         );
 
-        incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'pipelines');
+        // Quota was already reserved at the top of the handler; no post-hoc
+        // increment needed. On unexpected save failure, the catch block
+        // below rolls the reservation back.
 
         ctx.log('COMPLETED', 'Pipeline created', { id: result.id });
 
@@ -127,6 +147,9 @@ export function createCreatePipelineRoutes(
         const dbDetails = extractDbError(error);
         logger.error('Pipeline save failed', { requestId: ctx.requestId, error: message, orgId, ...dbDetails });
 
+        // Roll back the quota slot  the action failed so the org shouldn't
+        // be charged for it.
+        decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
         return sendInternalError(res, 'Failed to save pipeline configuration', { details: message, ...dbDetails });
       }
     }),

@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { FilterBar } from '@/components/ui/FilterBar';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { DeployedPipelinesPanel } from '@/components/pipeline/DeployedPipelinesPanel';
@@ -26,9 +27,9 @@ import type { Pipeline, BuilderProps } from '@/types';
 
 /** Pipeline management page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
 export default function PipelinesPage() {
-  const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
   const toast = useToast();
-  const canViewPublic = isSysAdmin;
+  const canViewPublic = isSuperAdmin;
 
   // ── Data ──
 
@@ -113,13 +114,13 @@ export default function PipelinesPage() {
   }, []);
 
   const toggleSelectAll = useCallback(() => {
-    const modifiable = filteredPipelines.filter(p => canModify(isSysAdmin, p.accessModifier));
+    const modifiable = filteredPipelines.filter(p => canModify(isSuperAdmin, p.accessModifier));
     if (selectedIds.size === modifiable.length && modifiable.length > 0) {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(modifiable.map(p => p.id)));
     }
-  }, [filteredPipelines, isSysAdmin, selectedIds.size]);
+  }, [filteredPipelines, isSuperAdmin, selectedIds.size]);
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
@@ -167,7 +168,7 @@ export default function PipelinesPage() {
       header: '',
       locked: true,
       render: (pipeline: Pipeline) => (
-        canModify(isSysAdmin, pipeline.accessModifier) ? (
+        canModify(isSuperAdmin, pipeline.accessModifier) ? (
           <input
             type="checkbox"
             checked={selectedIds.has(pipeline.id)}
@@ -247,7 +248,7 @@ export default function PipelinesPage() {
       hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (p) => p.createdAt,
-      render: (p) => <>{new Date(p.createdAt).toLocaleDateString()}</>,
+      render: (p) => <RelativeTime value={p.createdAt} />,
     },
     {
       id: 'updatedAt',
@@ -255,7 +256,7 @@ export default function PipelinesPage() {
       hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (p) => p.updatedAt,
-      render: (p) => <>{new Date(p.updatedAt).toLocaleDateString()}</>,
+      render: (p) => <RelativeTime value={p.updatedAt} />,
     },
     {
       id: 'keywords',
@@ -270,18 +271,18 @@ export default function PipelinesPage() {
       cellClassName: 'text-sm',
       render: (pipeline) => (
         <div className="flex items-center space-x-3">
-          {canModify(isSysAdmin, pipeline.accessModifier) ? (
+          {canModify(isSuperAdmin, pipeline.accessModifier) ? (
             <button onClick={() => setEditPipeline(pipeline)} className="action-link">Edit</button>
           ) : (
             <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
-          {canModify(isSysAdmin, pipeline.accessModifier) && (
+          {canModify(isSuperAdmin, pipeline.accessModifier) && (
             <button onClick={() => del.open(pipeline)} className="action-link-danger">Delete</button>
           )}
         </div>
       ),
     },
-  ], [isSysAdmin, isAdmin, selectedIds, toggleSelect]);
+  ], [isSuperAdmin, isAdmin, selectedIds, toggleSelect]);
 
   // ── Render ──
 
@@ -299,16 +300,17 @@ export default function PipelinesPage() {
       }
     >
       <div className="page-section">
-        <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} />
+        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} />
 
         {list.error && <div className="alert-error"><p>{list.error}</p></div>}
 
         <DeployedPipelinesPanel />
 
         <FilterBar
+          sticky
           searchValue={list.filters.name}
           onSearchChange={(v) => list.updateFilter('name', v)}
-          searchPlaceholder="Search pipelines..."
+          searchPlaceholder="Search pipelines... (press /)"
           showAdvanced={showAdvanced}
           onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
           advancedFilterCount={list.advancedFilterCount}
@@ -374,7 +376,7 @@ export default function PipelinesPage() {
         createLoading={createForm.loading}
         createError={createForm.error}
         createSuccess={createSuccess}
-        canCreatePublic={isSysAdmin}
+        canCreatePublic={isSuperAdmin}
       />
 
       {del.target && (
@@ -382,7 +384,7 @@ export default function PipelinesPage() {
       )}
 
       {editPipeline && (
-        <EditPipelineModal pipeline={editPipeline} isSysAdmin={isSysAdmin} onClose={() => setEditPipeline(null)} onSaved={list.refresh} />
+        <EditPipelineModal pipeline={editPipeline} isSuperAdmin={isSuperAdmin} onClose={() => setEditPipeline(null)} onSaved={list.refresh} />
       )}
 
       {/* Sticky bottom bulk actions bar */}

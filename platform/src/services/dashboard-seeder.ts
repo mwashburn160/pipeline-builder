@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { db, schema } from '@pipeline-builder/pipeline-core';
+import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { and, eq, isNull } from 'drizzle-orm';
 
-const logger = createLogger('DashboardSeeder');
+const logger = createLogger('dashboard-seeder');
 
 /**
  * Embedded copy of the 5 static dashboards previously declared in
@@ -107,56 +107,60 @@ const DEFAULT_DASHBOARDS: SeedDashboard[] = [
  * dashboard never appears in the DB.
  */
 export async function seedDefaultDashboards(): Promise<void> {
-  for (const def of DEFAULT_DASHBOARDS) {
-    try {
-      const existing = await db
-        .select({ id: schema.dashboard.id })
-        .from(schema.dashboard)
-        .where(and(
-          eq(schema.dashboard.orgId, 'system'),
-          eq(schema.dashboard.name, def.name),
-          isNull(schema.dashboard.deletedAt),
-        ))
-        .limit(1);
+  // Seeder runs as sysadmin: it writes orgId='system' rows that no per-org
+  // RLS context could see, and there's no request scope at cold-start anyway.
+  await runWithTenantContext({ isSuperAdmin: true }, async () => {
+    for (const def of DEFAULT_DASHBOARDS) {
+      try {
+        const existing = await withTenantTx(async (tx) => tx
+          .select({ id: schema.dashboard.id })
+          .from(schema.dashboard)
+          .where(and(
+            eq(schema.dashboard.orgId, 'system'),
+            eq(schema.dashboard.name, def.name),
+            isNull(schema.dashboard.deletedAt),
+          ))
+          .limit(1));
 
-      if (existing.length > 0) {
-        logger.debug('Default dashboard already present, skipping', { name: def.name });
-        continue;
-      }
+        if (existing.length > 0) {
+          logger.debug('Default dashboard already present, skipping', { name: def.name });
+          continue;
+        }
 
-      await db.transaction(async (tx) => {
-        const [created] = await tx.insert(schema.dashboard).values({
-          orgId: 'system',
-          createdBy: 'system',
-          updatedBy: 'system',
+        await withTenantTx(async (tx) => {
+          const [created] = await tx.insert(schema.dashboard).values({
+            orgId: 'system',
+            createdBy: 'system',
+            updatedBy: 'system',
+            name: def.name,
+            description: def.description,
+            visibility: 'public',
+            layoutJson: {},
+          }).returning();
+
+          await tx.insert(schema.dashboardPanel).values(
+            def.panels.map((p, i) => ({
+              dashboardId: created.id,
+              queryKey: p.queryKey,
+              vizKind: p.vizKind,
+              title: p.title,
+              span: p.span,
+              groupBy: p.groupBy ?? null,
+              format: p.format ?? null,
+              position: i,
+              vars: p.vars ?? {},
+            })),
+          );
+          logger.info('Seeded default dashboard', { name: def.name, panels: def.panels.length });
+        });
+      } catch (err) {
+        // Postgres may not be reachable yet at platform cold start. Don't
+        // crash the service — the seeder runs again on the next restart.
+        logger.warn('Failed to seed default dashboard (will retry on next start)', {
           name: def.name,
-          description: def.description,
-          visibility: 'public',
-          layoutJson: {},
-        }).returning();
-
-        await tx.insert(schema.dashboardPanel).values(
-          def.panels.map((p, i) => ({
-            dashboardId: created.id,
-            queryKey: p.queryKey,
-            vizKind: p.vizKind,
-            title: p.title,
-            span: p.span,
-            groupBy: p.groupBy ?? null,
-            format: p.format ?? null,
-            position: i,
-            vars: p.vars ?? {},
-          })),
-        );
-        logger.info('Seeded default dashboard', { name: def.name, panels: def.panels.length });
-      });
-    } catch (err) {
-      // Postgres may not be reachable yet at platform cold start. Don't
-      // crash the service — the seeder runs again on the next restart.
-      logger.warn('Failed to seed default dashboard (will retry on next start)', {
-        name: def.name,
-        error: errorMessage(err),
-      });
+          error: errorMessage(err),
+        });
+      }
     }
-  }
+  });
 }

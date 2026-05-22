@@ -6,7 +6,7 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Response } from 'express';
 import { v7 as uuid } from 'uuid';
 
-const logger = createLogger('SSEManager');
+const logger = createLogger('sse-manager');
 
 /**
  * Event types for SSE logging
@@ -33,6 +33,9 @@ export interface SSEClient {
   timeout: NodeJS.Timeout;
   /** Number of consecutive backpressure events (write returned false). */
   backpressureCount: number;
+  /** Owning org id — populated when the request was authenticated. Used to
+   *  decrement the per-org counter on disconnect / cleanup. */
+  orgId?: string;
 }
 
 /**
@@ -52,6 +55,15 @@ export interface SSEManagerOptions {
    * dashboards, but be aware Node.js fd limits dominate above ~5000.
    */
   maxTotalClients?: number;
+  /**
+   * Per-org ceiling on concurrent SSE streams. Defaults to 50 from
+   * `SSE_MAX_CLIENTS_PER_ORG`. Protects against one noisy org consuming the
+   * process-wide budget — without it, an authenticated user can fan out
+   * thousands of streams (one per dashboard / log stream) and starve other
+   * orgs of connection slots. The cap is enforced only on `addClient` calls
+   * that carry an `orgId`; service-internal / anonymous SSE traffic skips it.
+   */
+  maxClientsPerOrg?: number;
 }
 
 /**
@@ -83,14 +95,20 @@ export interface SSEManagerStats {
  */
 export class SSEManager {
   private clients = new Map<string, SSEClient[]>();
+  /** Per-org open-client counters. Decremented on removeClient/cleanup so the
+   *  map mirrors `clients[].orgId` counts at all times. Orgs reach zero are
+   *  deleted to keep the map bounded. */
+  private orgClientCounts = new Map<string, number>();
   private readonly maxClientsPerRequest: number;
   private readonly maxTotalClients: number;
+  private readonly maxClientsPerOrg: number;
   private readonly clientTimeoutMs: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(options: SSEManagerOptions = {}) {
     this.maxClientsPerRequest = options.maxClientsPerRequest ?? parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10', 10);
     this.maxTotalClients = options.maxTotalClients ?? parseInt(process.env.SSE_MAX_TOTAL_CLIENTS || '1000', 10);
+    this.maxClientsPerOrg = options.maxClientsPerOrg ?? parseInt(process.env.SSE_MAX_CLIENTS_PER_ORG || '50', 10);
     this.clientTimeoutMs = options.clientTimeoutMs ?? parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000', 10); // 30 minutes
 
     const cleanupIntervalMs = options.cleanupIntervalMs ?? parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000', 10); // 5 minutes
@@ -104,14 +122,21 @@ export class SSEManager {
     return n;
   }
 
+  /** Current open-stream count for an org (0 if unseen). */
+  getOrgClientCount(orgId: string): number {
+    return this.orgClientCounts.get(orgId) ?? 0;
+  }
+
   /**
    * Adds a client to the SSE manager
    *
    * @param requestId - Unique request ID
    * @param res - Express Response object
+   * @param orgId - Authenticated org id (optional). When set, enforces the
+   *   per-org cap and the counter is decremented on disconnect/cleanup.
    * @returns true if client was added, false if rejected (limit reached)
    */
-  addClient(requestId: string, res: Response): boolean {
+  addClient(requestId: string, res: Response, orgId?: string): boolean {
     const existing = this.clients.get(requestId) || [];
 
     // Check client limit
@@ -124,6 +149,20 @@ export class SSEManager {
     if (this.totalClients() >= this.maxTotalClients) {
       logger.warn(`Total SSE client cap reached (max: ${this.maxTotalClients}); rejecting new connection`);
       return false;
+    }
+
+    // Per-org cap: prevents one noisy org from monopolizing process-wide
+    // slots. Enforced only when orgId is known — service-internal / anonymous
+    // streams that never identify with an orgId stay subject to the global
+    // ceilings above. Reserve atomically before insert so two concurrent
+    // requests at the limit can't both succeed.
+    if (orgId) {
+      const orgCurrent = this.orgClientCounts.get(orgId) ?? 0;
+      if (orgCurrent >= this.maxClientsPerOrg) {
+        logger.warn(`Per-org SSE client cap reached for ${orgId} (max: ${this.maxClientsPerOrg}); rejecting new connection`);
+        return false;
+      }
+      this.orgClientCounts.set(orgId, orgCurrent + 1);
     }
 
     // Create timeout for this client
@@ -144,6 +183,7 @@ export class SSEManager {
       connectedAt: Date.now(),
       timeout,
       backpressureCount: 0,
+      orgId,
     };
 
     // Handle disconnection
@@ -165,6 +205,15 @@ export class SSEManager {
     return true;
   }
 
+  /** Drop one from the per-org counter. Idempotent: a counter at 0 stays at 0
+   *  and the org key is removed from the map. */
+  private decrementOrgCount(orgId?: string): void {
+    if (!orgId) return;
+    const current = this.orgClientCounts.get(orgId) ?? 0;
+    if (current <= 1) this.orgClientCounts.delete(orgId);
+    else this.orgClientCounts.set(orgId, current - 1);
+  }
+
   /**
    * Removes a client from the manager
    */
@@ -175,6 +224,10 @@ export class SSEManager {
     const remaining = clients.filter(c => {
       if (c.id === clientId) {
         clearTimeout(c.timeout);
+        // Mirror the per-org counter — must decrement here, not just in the
+        // explicit close paths, since 'close'/'error' event handlers are the
+        // primary disconnect signal in practice.
+        this.decrementOrgCount(c.orgId);
         return false;
       }
       return true;
@@ -271,6 +324,7 @@ export class SSEManager {
 
     for (const client of clients) {
       clearTimeout(client.timeout);
+      this.decrementOrgCount(client.orgId);
       try {
         client.res.end();
       } catch (err) {
@@ -333,7 +387,7 @@ export class SSEManager {
   middleware() {
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    return (req: { params: { requestId: string } }, res: Response) => {
+    return (req: { params: { requestId: string }; user?: { organizationId?: string } }, res: Response) => {
       const { requestId } = req.params;
 
       if (!UUID_RE.test(requestId)) {
@@ -341,11 +395,23 @@ export class SSEManager {
         return;
       }
 
-      // Check client limit BEFORE flushing headers, so we can still send 429
+      // Pre-flight per-request cap so we can return 429 before flushing
+      // SSE headers (after headers are flushed the client can't read a 429).
       const existing = this.clients.get(requestId) || [];
       if (existing.length >= this.maxClientsPerRequest) {
         logger.warn(`Client limit reached for request ${requestId} (max: ${this.maxClientsPerRequest})`);
         res.status(429).end('Too many connections for this request');
+        return;
+      }
+
+      // Same for the per-org cap — better to send 429 than open the stream
+      // and immediately close it. Org id is sourced from req.user when auth
+      // ran upstream; for anonymous SSE we pass undefined and the per-org
+      // ceiling is skipped (the global cap above still applies).
+      const orgId = req.user?.organizationId;
+      if (orgId && (this.orgClientCounts.get(orgId) ?? 0) >= this.maxClientsPerOrg) {
+        logger.warn(`Per-org SSE client cap reached for ${orgId} (max: ${this.maxClientsPerOrg})`);
+        res.status(429).end('Too many SSE connections for this organization');
         return;
       }
 
@@ -355,7 +421,7 @@ export class SSEManager {
       res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
       res.flushHeaders();
 
-      this.addClient(requestId, res);
+      this.addClient(requestId, res, orgId);
     };
   }
 
@@ -398,6 +464,7 @@ export class SSEManager {
 
       for (const client of stale) {
         clearTimeout(client.timeout);
+        this.decrementOrgCount(client.orgId);
         try { client.res.end(); } catch { /* already closed */ }
         cleaned++;
       }

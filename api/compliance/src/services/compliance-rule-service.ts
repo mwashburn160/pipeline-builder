@@ -7,8 +7,9 @@ import {
   CrudService,
   buildComplianceRuleConditions,
   buildPublishedRuleCatalogConditions,
+  runWithTenantContext,
   schema,
-  db,
+  withTenantTx,
   type ComplianceRuleFilter,
   type RuleTarget,
   type RuleScope,
@@ -91,7 +92,7 @@ export class ComplianceRuleService extends CrudService<
       const orgRules = await this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
 
       // Fetch subscribed published rules in one JOIN query instead of 2 separate queries
-      const publishedRules = await db
+      const publishedRules = await withTenantTx(async (tx) => tx
         .select({ rule: schema.complianceRule })
         .from(schema.complianceRuleSubscription)
         .innerJoin(
@@ -106,7 +107,7 @@ export class ComplianceRuleService extends CrudService<
         .where(and(
           eq(schema.complianceRuleSubscription.orgId, orgId),
           eq(schema.complianceRuleSubscription.isActive, true),
-        ));
+        )));
 
       if (publishedRules.length === 0) return orgRules;
 
@@ -133,15 +134,19 @@ export class ComplianceRuleService extends CrudService<
    * Called after a published rule is mutated so subscribers pick up the change.
    */
   private async invalidateSubscriberCaches(ruleId: string): Promise<void> {
-    const subscribers = await db
-      .select({ orgId: schema.complianceRuleSubscription.orgId })
-      .from(schema.complianceRuleSubscription)
-      .where(and(
-        eq(schema.complianceRuleSubscription.ruleId, ruleId),
-        eq(schema.complianceRuleSubscription.isActive, true),
-      ));
+    // Published-rule subscribers span every org — this is a legitimate
+    // cross-tenant read, so escalate to sysadmin scope.
+    const subscribers = await runWithTenantContext({ isSuperAdmin: true }, () =>
+      withTenantTx(async (tx) => tx
+        .select({ orgId: schema.complianceRuleSubscription.orgId })
+        .from(schema.complianceRuleSubscription)
+        .where(and(
+          eq(schema.complianceRuleSubscription.ruleId, ruleId),
+          eq(schema.complianceRuleSubscription.isActive, true),
+        ))),
+    );
 
-    await Promise.all(subscribers.map(s => this.invalidateRulesCache(s.orgId)));
+    await Promise.all(subscribers.map((s: { orgId: string }) => this.invalidateRulesCache(s.orgId)));
   }
 
   /** Fetch paginated rule change history for a specific rule. */
@@ -155,18 +160,18 @@ export class ComplianceRuleService extends CrudService<
       eq(schema.complianceRuleHistory.orgId, orgId),
     );
 
-    const [countResult] = await db
+    const [countResult] = await withTenantTx(async (tx) => tx
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.complianceRuleHistory)
-      .where(conditions).then(r => drizzleCount(r));
+      .where(conditions).then((r: unknown[]) => drizzleCount(r)));
 
-    const history = await db
+    const history = await withTenantTx(async (tx) => tx
       .select()
       .from(schema.complianceRuleHistory)
       .where(conditions)
       .orderBy(desc(schema.complianceRuleHistory.changedAt))
       .limit(options.limit)
-      .offset(options.offset);
+      .offset(options.offset));
 
     return { history, total: countResult?.count ?? 0 };
   }
@@ -183,13 +188,17 @@ export class ComplianceRuleService extends CrudService<
    * for merge) we never delivered. The old name is exposed as a deprecated alias.
    */
   async cloneRule(ruleId: string, orgId: string, userId: string): Promise<ComplianceRule> {
-    const [sourceRule] = await db
-      .select()
-      .from(schema.complianceRule)
-      .where(and(
-        eq(schema.complianceRule.id, ruleId),
-        eq(schema.complianceRule.scope, 'published' as RuleScope),
-      ));
+    // Published rules live with scope='published' and don't share the caller's
+    // orgId; read them under sysadmin scope so RLS doesn't filter them out.
+    const [sourceRule] = await runWithTenantContext({ isSuperAdmin: true }, () =>
+      withTenantTx(async (tx) => tx
+        .select()
+        .from(schema.complianceRule)
+        .where(and(
+          eq(schema.complianceRule.id, ruleId),
+          eq(schema.complianceRule.scope, 'published' as RuleScope),
+        ))),
+    );
 
     if (!sourceRule) throw new Error('Published rule not found');
 
@@ -237,13 +246,13 @@ export class ComplianceRuleService extends CrudService<
    * The scan scheduler picks it up and executes it automatically.
    */
   private async triggerRuleChangeScan(orgId: string, target: string): Promise<void> {
-    await db.insert(schema.complianceScan).values({
+    await withTenantTx(async (tx) => tx.insert(schema.complianceScan).values({
       orgId,
       target: target as 'plugin' | 'pipeline',
       status: 'pending',
       triggeredBy: 'rule-change',
       userId: 'system',
-    });
+    }));
   }
 
   /** Fetch all rules belonging to a policy. */
@@ -263,45 +272,55 @@ export class ComplianceRuleService extends CrudService<
     const conditions = buildPublishedRuleCatalogConditions(filter);
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceRule)
-      .where(whereClause)
-      .then(r => drizzleCount(r));
+    // Published catalog browse is cross-tenant by definition — any org can
+    // browse the published rule library. Read under sysadmin scope.
+    return runWithTenantContext({ isSuperAdmin: true }, async () => {
+      const [countResult] = await withTenantTx(async (tx) => tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.complianceRule)
+        .where(whereClause)
+        .then((r: unknown[]) => drizzleCount(r)));
 
-    const rules = await db
-      .select()
-      .from(schema.complianceRule)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceRule.priority))
-      .limit(limit)
-      .offset(offset);
+      const rules = await withTenantTx(async (tx) => tx
+        .select()
+        .from(schema.complianceRule)
+        .where(whereClause)
+        .orderBy(desc(schema.complianceRule.priority))
+        .limit(limit)
+        .offset(offset));
 
-    return { rules: rules as unknown as ComplianceRule[], total: countResult?.count ?? 0 };
+      return { rules: rules as unknown as ComplianceRule[], total: countResult?.count ?? 0 };
+    });
   }
 
   /** Batch lookup of non-deleted rules by id. */
   async findManyByIds(ids: string[]): Promise<ComplianceRule[]> {
     if (ids.length === 0) return [];
-    const rows = await db
-      .select()
-      .from(schema.complianceRule)
-      .where(and(
-        inArray(schema.complianceRule.id, ids),
-        isNull(schema.complianceRule.deletedAt),
-      ));
+    // Caller-side scope decision: this is used by the subscription flow which
+    // needs to look up published rules from any org. Sysadmin scope.
+    const rows = await runWithTenantContext({ isSuperAdmin: true }, () =>
+      withTenantTx(async (tx) => tx
+        .select()
+        .from(schema.complianceRule)
+        .where(and(
+          inArray(schema.complianceRule.id, ids),
+          isNull(schema.complianceRule.deletedAt),
+        ))),
+    );
     return rows as unknown as ComplianceRule[];
   }
 
   /** Single rule by id, ignoring soft-deleted rows. Returns null on miss. */
   async findPublishedById(id: string): Promise<ComplianceRule | null> {
-    const [rule] = await db
-      .select()
-      .from(schema.complianceRule)
-      .where(and(
-        eq(schema.complianceRule.id, id),
-        isNull(schema.complianceRule.deletedAt),
-      ));
+    const [rule] = await runWithTenantContext({ isSuperAdmin: true }, () =>
+      withTenantTx(async (tx) => tx
+        .select()
+        .from(schema.complianceRule)
+        .where(and(
+          eq(schema.complianceRule.id, id),
+          isNull(schema.complianceRule.deletedAt),
+        ))),
+    );
     return (rule ?? null) as ComplianceRule | null;
   }
 
@@ -316,19 +335,19 @@ export class ComplianceRuleService extends CrudService<
     limit: number,
   ): Promise<Array<{ id: string; name: string | null; raw: Record<string, unknown> }>> {
     if (target === 'plugin') {
-      const rows = await db
+      const rows = await withTenantTx(async (tx) => tx
         .select()
         .from(schema.plugin)
         .where(and(eq(schema.plugin.isActive, true), eq(schema.plugin.orgId, orgId)))
-        .limit(limit);
-      return rows.map(r => ({ id: r.id, name: r.name, raw: r as unknown as Record<string, unknown> }));
+        .limit(limit));
+      return rows.map((r: typeof schema.plugin.$inferSelect) => ({ id: r.id, name: r.name, raw: r as unknown as Record<string, unknown> }));
     }
-    const rows = await db
+    const rows = await withTenantTx(async (tx) => tx
       .select()
       .from(schema.pipeline)
       .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
-      .limit(limit);
-    return rows.map(r => ({ id: r.id, name: r.pipelineName, raw: r as unknown as Record<string, unknown> }));
+      .limit(limit));
+    return rows.map((r: typeof schema.pipeline.$inferSelect) => ({ id: r.id, name: r.pipelineName, raw: r as unknown as Record<string, unknown> }));
   }
 
   /**
@@ -342,13 +361,13 @@ export class ComplianceRuleService extends CrudService<
     previousState: unknown,
     userId: string,
   ): Promise<void> {
-    await db.insert(schema.complianceRuleHistory).values({
+    await withTenantTx(async (tx) => tx.insert(schema.complianceRuleHistory).values({
       ruleId,
       orgId,
       changeType,
       previousState: previousState as Record<string, unknown>,
       changedBy: userId,
-    });
+    }));
   }
 
   // Override mutations to record history

@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHash, createPublicKey, randomUUID } from 'crypto';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import type { Identity } from './auth-resolver';
+import { computeStorageUsage } from './storage-usage';
 
 const logger = createLogger('token-service');
 
-/** A parsed scope from the registry's challenge — one resource + actions. */
+/** A parsed scope from the registry's challenge â one resource + actions. */
 export interface RequestedScope {
   type: string;
   name: string;
@@ -27,8 +28,8 @@ interface AccessClaim {
  * Parse a `scope` query parameter from the registry's auth challenge.
  * Format: `<type>:<name>:<actions>` where actions is comma-separated.
  *
- *   repository:foo:pull             → { type: 'repository', name: 'foo', actions: ['pull'] }
- *   repository:org/bar:pull,push    → { type: 'repository', name: 'org/bar', actions: ['pull', 'push'] }
+ * repository:foo:pull → { type: 'repository', name: 'foo', actions: ['pull'] }
+ * repository:org/bar:pull,push → { type: 'repository', name: 'org/bar', actions: ['pull', 'push'] }
  *
  * Multiple scopes can appear in a single request (`?scope=...&scope=...`);
  * each is parsed independently.
@@ -54,16 +55,15 @@ export const ORG_NAMESPACE_PREFIX = 'org-';
 /**
  * Authorize a single requested scope for the given identity. Returns the
  * subset of actions that are granted (may be empty, in which case the spec
- * permits issuing a token with no `access` entries — the registry will
+ * permits issuing a token with no `access` entries â the registry will
  * deny the operation).
  *
- * Policy:
- *   - **management** (internal only): anything; in-process self-issue
- *   - **jwt** (org user / api/plugin service token): pull on `system/*`;
- *     pull,push on `org-{orgId}/*`; admins also push on any org
+ * Policy * - **management** (internal only): anything; in-process self-issue
+ * - **jwt** (org user / api/plugin service token): pull on `system/*`;
+ * pull,push on `org-{orgId}/*`; admins also push on any org
  */
 export function authorizeScope(identity: Identity, requested: RequestedScope): string[] {
-  // Internal management identity bypasses scope-type filtering — it needs
+  // Internal management identity bypasses scope-type filtering â it needs
   // both `repository:*` (manifests/blobs) and `registry:catalog:*` access
   // for the underlying registry's management API.
   if (identity.type === 'management') {
@@ -142,18 +142,16 @@ logger.info('Initialized token service', { kid, issuer: config.tokenSigning.issu
  * Signed with the configured private key + libtrust kid so the registry's
  * `rootcertbundle` verifier accepts it.
  */
-export function issueRegistryToken(
-  identity: Identity,
+export function issueRegistryToken(  identity: Identity,
   access: AccessClaim[],
   account: string,
 ): string {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: config.tokenSigning.issuer,
-    sub:
-      identity.type === 'management'
-        ? 'management'
-        : `${identity.orgId}:${identity.userId}`,
+    sub: identity.type === 'management'
+      ? 'management'
+      : `${identity.orgId}:${identity.userId}`,
     aud: config.tokenSigning.service,
     exp: now + config.tokenSigning.expiresInSeconds,
     nbf: now,
@@ -170,22 +168,87 @@ export function issueRegistryToken(
 }
 
 /**
+ * Lazily-constructed quota service client. Pointed at the platform-wide
+ * quota service so push-gate enforcement can read each org's
+ * `storageBytes` cap before issuing a token that includes `push` scope.
+ * Fail-open semantics on transport errors â matches `checkQuota`
+ * middleware in api-server.
+ */
+const quotaService = createQuotaService();
+
+/**
  * Authorize all requested scopes and issue a registry token. The granted
  * scopes may be a subset of requested (or empty); per the Distribution
  * token spec, the caller will get the appropriate 403 when they retry the
  * registry call with a token that doesn't grant the operation.
+ *
+ * any granted `push` action on `org-{orgId}/*` is gated on the
+ * org's `storageBytes` quota â if measured usage exceeds the limit, push
+ * is stripped from that scope's actions (pull stays so existing images
+ * remain reachable). Management identities bypass the gate.
  */
-export function authorizeAndIssue(
-  identity: Identity,
+export async function authorizeAndIssue(  identity: Identity,
   requestedScopes: RequestedScope[],
   account: string,
-): string {
+): Promise<string> {
   const access: AccessClaim[] = [];
+  let overBudget: boolean | null = null;
   for (const scope of requestedScopes) {
-    const granted = authorizeScope(identity, scope);
+    let granted = authorizeScope(identity, scope);
+
+    // Storage budget gate. Only relevant when    // 1. We've granted `push` (no point checking on pull-only),
+    // 2. The scope is an `org-X/*` repo (system images are platform-managed),
+    // 3. The identity is a JWT identity (management bypasses the cap).
+    // `overBudget` is computed at most once per token-issuance call.
+    if (      granted.includes('push') &&
+      identity.type === 'jwt' &&
+      !identity.isAdmin &&
+      scope.name.startsWith(`${ORG_NAMESPACE_PREFIX}${identity.orgId}/`)
+    ) {
+      if (overBudget === null) overBudget = await isStorageOverBudget(identity.orgId);
+      if (overBudget) {
+        granted = granted.filter((a) => a !== 'push');
+      }
+    }
+
     if (granted.length > 0) {
       access.push({ type: scope.type, name: scope.name, actions: granted });
     }
   }
   return issueRegistryToken(identity, access, account);
+}
+
+/**
+ * Compare an org's measured registry storage against its `storageBytes`
+ * quota. Returns true when push should be denied. Fail-open on quota-
+ * service unreachability so a transient outage doesn't lock writers out
+ * of an otherwise-healthy registry.
+ */
+async function isStorageOverBudget(orgId: string): Promise<boolean> {
+  try {
+    const authHeader = getServiceAuthHeader({
+      serviceName: 'image-registry',
+      orgId,
+      orgName: orgId,
+    });
+    const status = await quotaService.check(orgId, 'storageBytes', authHeader);
+    const limit = status.limit;
+    // Unlimited tier: -1. Quota service unreachable: fail-open sentinel
+    // returns limit: -1 too. Either way, no enforcement.
+    if (typeof limit !== 'number' || limit < 0) return false;
+
+    const usage = await computeStorageUsage(`${ORG_NAMESPACE_PREFIX}${orgId}/`);
+    if (usage.bytes >= limit) {
+      logger.warn('PUSH_DENIED_OVER_QUOTA', {
+        orgId, usageBytes: usage.bytes, limitBytes: limit,
+      });
+      return true;
+    }
+    return false;
+  } catch (err) {
+    logger.warn('Storage-budget check failed; fail-open', {
+      orgId, error: err instanceof Error ? err.message: String(err),
+    });
+    return false;
+  }
 }

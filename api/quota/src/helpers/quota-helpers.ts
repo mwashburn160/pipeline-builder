@@ -102,6 +102,11 @@ function buildSummaries(
     pipelines: summarize(quotas?.pipelines ?? d.pipelines, usage?.pipelines ?? du),
     apiCalls: summarize(quotas?.apiCalls ?? d.apiCalls, usage?.apiCalls ?? du),
     aiCalls: summarize(quotas?.aiCalls ?? d.aiCalls, usage?.aiCalls ?? du),
+    storageBytes: summarize(quotas?.storageBytes ?? d.storageBytes, usage?.storageBytes ?? du),
+    dashboards: summarize(quotas?.dashboards ?? d.dashboards, usage?.dashboards ?? du),
+    alertRules: summarize(quotas?.alertRules ?? d.alertRules, usage?.alertRules ?? du),
+    alertDestinations: summarize(quotas?.alertDestinations ?? d.alertDestinations, usage?.alertDestinations ?? du),
+    idpConfigs: summarize(quotas?.idpConfigs ?? d.idpConfigs, usage?.idpConfigs ?? du),
   };
 }
 

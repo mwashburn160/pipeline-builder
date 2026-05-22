@@ -12,7 +12,7 @@ interface EditPluginModalProps {
   /** The plugin to edit; used as initial form state and fallback if fetch fails. */
   plugin: Plugin;
   /** Whether the current user is a system admin (controls access-level editing). */
-  isSysAdmin: boolean;
+  isSuperAdmin: boolean;
   /** Callback to close the modal. */
   onClose: () => void;
   /** Callback when the plugin is successfully saved. */
@@ -20,7 +20,7 @@ interface EditPluginModalProps {
 }
 
 /** Modal for editing plugin metadata, configuration, and access settings. */
-export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }: EditPluginModalProps) {
+export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved }: EditPluginModalProps) {
   const [fullPlugin, setFullPlugin] = useState<Plugin | null>(null);
   const [fetching, setFetching] = useState(true);
   const [name, setName] = useState(plugin.name);
@@ -277,8 +277,8 @@ export default function EditPluginModal({ plugin, isSysAdmin, onClose, onSaved }
           <div>
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Access & Status</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
-              <FormField label="Access Modifier" hint={!isSysAdmin ? 'Only system admins can change access level' : undefined}>
-                <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="input disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSysAdmin}>
+              <FormField label="Access Modifier" hint={!isSuperAdmin ? 'Only system admins can change access level' : undefined}>
+                <select value={accessModifier} onChange={(e) => setAccessModifier(e.target.value as 'public' | 'private')} className="input disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500" disabled={loading || !isSuperAdmin}>
                   <option value="private">Private</option>
                   <option value="public">Public</option>
                 </select>

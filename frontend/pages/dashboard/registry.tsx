@@ -57,7 +57,7 @@ const RECENT_ACTIONS_MAX = 20;
  */
 const MIN_USABLE_WIDTH = 1024;
 export default function RegistryPage() {
-  const { isReady, isSysAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const { isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
   const router = useRouter();
   const toast = useToast();
 
@@ -291,7 +291,7 @@ export default function RegistryPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [tag, copyTag, deleteTag, bulkDelete, shortcutsOpen]);
 
-  if (!isReady || !isSysAdmin) return <LoadingPage />;
+  if (!isReady || !isSuperAdmin) return <LoadingPage />;
 
   // Focus model: the "active" column is the right-most one with data —
   // manifest detail > tag table > repo list. Inactive columns dim so the

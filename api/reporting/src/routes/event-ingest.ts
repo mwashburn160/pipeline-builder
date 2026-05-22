@@ -3,7 +3,7 @@
 
 import { sendSuccess, sendBadRequest, ErrorCode, createLogger } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { CoreConstants } from '@pipeline-builder/pipeline-core';
+import { CoreConstants, runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -45,7 +45,17 @@ export function createEventIngestRoutes(): Router {
       return sendBadRequest(res, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`, ErrorCode.VALIDATION_ERROR);
     }
 
-    const { inserted, skipped, unregisteredArns } = await reportingService.ingestEvents(events);
+    // ingestEvents resolves each ARN to its own org via the pipeline-registry
+    // and inserts events that span MULTIPLE orgs in a single batch. Once
+    // pipeline_events is FORCE'd, a per-org `app.org_id` GUC could only
+    // cover one slice of the batch — bypass via the sysadmin GUC instead.
+    // This endpoint is server-internal (EventBridge / build-event ingest);
+    // the JWT-peek middleware on platform isn't load-bearing here, hence
+    // the explicit context establishment.
+    const { inserted, skipped, unregisteredArns } = await runWithTenantContext(
+      { isSuperAdmin: true },
+      () => reportingService.ingestEvents(events),
+    );
 
     // Surface unregistered-ARN drops at WARN with the actual ARNs so an
     // operator can see when EventBridge is delivering events for pipelines

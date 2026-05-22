@@ -331,5 +331,21 @@ export function createSafeClient(config: ServiceConfig) {
         return null;
       }
     },
+
+    /**
+     * Safe DELETE request - returns null on error. Used by destructive
+     * cross-service operations (e.g. org-cascade delete in platform).
+     */
+    async delete<T>(
+      path: string,
+      options?: RequestOptions,
+    ): Promise<HttpClientResponse<T> | null> {
+      try {
+        return await client.delete<T>(path, options);
+      } catch (err) {
+        logger.debug('Safe DELETE failed, returning null', { path, error: err instanceof Error ? err.message : String(err) });
+        return null;
+      }
+    },
   };
 }

@@ -15,10 +15,13 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_MESSAGE: 300 },
     buildMessageConditions: jest.fn(() => []),
-    db: {
+    // message-service.{markAsRead,markThreadAsRead,getUnreadCount,deleteThread}
+    // were migrated to withTenantTx — pass through the same spies the test
+    // already tracks (mockDbUpdate / mockDbSelect).
+    withTenantTx: (fn: (tx: unknown) => unknown) => fn({
       update: mockDbUpdate,
       select: mockDbSelect,
-    },
+    }),
     schema: {
       message: {
         id: 'id',

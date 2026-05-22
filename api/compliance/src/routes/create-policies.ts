@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemOrg, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemAdmin, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { db } from '@pipeline-builder/pipeline-core';
+import { withTenantTx } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
 import { complianceRuleService } from '../services/compliance-rule-service';
@@ -30,13 +30,18 @@ export function createCreatePolicyRoutes(): Router {
 
     const { rules: ruleNames, tags, ...body } = validation.value;
 
-    // Template policies can only be created by system org
-    if (body.isTemplate && !isSystemOrg(req)) {
-      return sendError(res, 403, 'Only system org can create template policies', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    // Template policies are operator-curated content that ships to every
+    // org; only sysadmins may create them.
+    if (body.isTemplate && !isSystemAdmin(req)) {
+      return sendError(res, 403, 'Only sysadmins can create template policies', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    // Use a transaction so policy creation + rule linking are atomic
-    const policy = await db.transaction(async () => {
+    // Use a transaction so policy creation + rule linking are atomic.
+    // withTenantTx adds the SET LOCAL `app.org_id` + `app.is_sysadmin` GUCs
+    // from the request's AsyncLocalStorage scope so the inner CrudService
+    // calls (compliancePolicyService.create, complianceRuleService.update)
+    // are RLS-clean once policies are FORCE'd.
+    const policy = await withTenantTx(async () => {
       const created = await compliancePolicyService.create({
         ...body,
         orgId,

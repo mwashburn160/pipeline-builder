@@ -8,7 +8,7 @@ import { Express } from 'express';
 import { shutdownTracing } from './tracing';
 import { SSEManager } from '../http/sse-connection-manager';
 
-const logger = createLogger('Server');
+const logger = createLogger('server');
 
 /**
  * Options for starting a server

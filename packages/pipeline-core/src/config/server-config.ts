@@ -6,7 +6,7 @@ import type { Algorithm } from 'jsonwebtoken';
 import { CoreConstants } from './app-config';
 import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types';
 
-const log = createLogger('ServerConfig');
+const log = createLogger('server-config');
 
 /**
  * Load server configuration from environment variables.

@@ -34,6 +34,9 @@ describe('getIdentity', () => {
   });
 
   it('should prefer JWT claims (req.user) over headers', () => {
+    // The JWT payload uses `sub` (OIDC) for the user id; the verified-
+    // claims path through getIdentity reads from there. Headers are only
+    // consulted when the JWT field is absent.
     const req = mockRequest({
       headers: {
         'x-org-id': 'header-org',
@@ -41,8 +44,8 @@ describe('getIdentity', () => {
         'x-user-role': 'user',
       },
       user: {
+        sub: 'jwt-user',
         organizationId: 'jwt-org',
-        userId: 'jwt-user',
         role: 'admin',
       },
     });

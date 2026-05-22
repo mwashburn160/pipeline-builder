@@ -10,7 +10,10 @@
 
 import type { RuleOperator } from '@pipeline-builder/pipeline-core';
 
-const MAX_REGEX_LENGTH = 200;
+/** Cap on user-supplied regex patterns in compliance rules — long patterns
+ *  enable catastrophic-backtracking DoS. Override via
+ *  `COMPLIANCE_MAX_REGEX_LENGTH`. */
+const MAX_REGEX_LENGTH = parseInt(process.env.COMPLIANCE_MAX_REGEX_LENGTH || '200', 10);
 
 /**
  * Safely compile and test a regex pattern with length limits.

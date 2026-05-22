@@ -43,8 +43,7 @@ export interface PluginSecret {
  * Table for storing reusable plugin configurations.
  * Plugins define the behavior of synth/build steps in CDK pipelines.
  *
- * Features:
- * - Versioning support with semantic versioning
+ * Features * - Versioning support with semantic versioning
  * - Access control via orgId and accessModifier
  * - Full audit trail (created/updated by/at)
  * - Flexible metadata storage via JSONB
@@ -181,8 +180,7 @@ export const plugin = pgTable('plugins', {
     .on(table.name, table.version, table.orgId),
 
   // Check constraints
-  versionCheck: check(
-    'plugin_version_check',
+  versionCheck: check( 'plugin_version_check',
     sql`${table.version} ~ '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$'`,
   ),
 }));
@@ -190,8 +188,7 @@ export const plugin = pgTable('plugins', {
 /**
  * Table for storing pipeline instances and their full configuration.
  *
- * Features:
- * - Full BuilderProps serialization for reconstruction
+ * Features * - Full BuilderProps serialization for reconstruction
  * - Organization-level isolation
  * - Pipeline status tracking
  * - Execution history tracking
@@ -290,8 +287,7 @@ export type MessagePriority = 'normal' | 'high' | 'urgent';
 /**
  * Table for storing internal messages between organizations and the system org.
  *
- * Features:
- * - Announcements: System org broadcasts to all orgs (recipientOrgId = '*')
+ * Features * - Announcements: System org broadcasts to all orgs (recipientOrgId = '*')
  * - Conversations: Two-way threaded messaging between an org and system org
  * - Thread support via threadId (null for root messages, references root for replies)
  * - Read tracking per message
@@ -493,7 +489,7 @@ export type RuleOperator =
 export type RuleConditionMode = 'all' | 'any';
 
 /**
- * Rule scope — org-level or published (system org only, opt-in via subscription).
+ * Rule scope  org-level or published (system org only, opt-in via subscription).
  */
 export type RuleScope = 'org' | 'published';
 
@@ -504,7 +500,7 @@ export interface RuleCondition {
   field?: string;
   operator?: RuleOperator;
   value?: unknown;
-  dependsOnRule?: string; // rule ID — only evaluate if referenced rule passed
+  dependsOnRule?: string; // rule ID  only evaluate if referenced rule passed
 }
 
 /**
@@ -569,7 +565,7 @@ export const complianceRule = pgTable('compliance_rules', {
   // Scope
   scope: varchar('scope', { length: 10 }).$type<RuleScope>().default('org').notNull(),
 
-  // Forking — tracks which published rule this org rule was copied from
+  // Forking  tracks which published rule this org rule was copied from
   forkedFromRuleId: uuid('forked_from_rule_id'),
 
   // Notification override
@@ -624,7 +620,7 @@ export const complianceRuleHistory = pgTable('compliance_rule_history', {
 }));
 
 /**
- * Compliance audit log — stores every compliance check result.
+ * Compliance audit log  stores every compliance check result.
  *
  * @table compliance_audit_log
  */
@@ -699,7 +695,7 @@ export const complianceRuleSubscription = pgTable('compliance_rule_subscriptions
 }));
 
 /**
- * Bulk compliance scans — tracks scheduled and on-demand scans.
+ * Bulk compliance scans  tracks scheduled and on-demand scans.
  *
  * @table compliance_scans
  */
@@ -871,16 +867,15 @@ export const complianceReportSchedule = pgTable('compliance_report_schedules', {
  * `layoutJson` carries the react-grid-layout coordinate set keyed by panel id;
  * `dashboard_panels` holds the panel-content rows so an N-panel dashboard
  * doesn't bloat one row's JSON to several KB. The catalog query is referenced
- * by key only (see platform/src/observability/catalog.ts) — the dashboard
+ * by key only (see platform/src/observability/catalog.ts)  the dashboard
  * record never carries raw PromQL/LogQL, keeping the catalog as the security
  * boundary for upstream query execution.
  *
- * Visibility ladder:
- *  - `private` — only the creator can read/write
- *  - `org`     — anyone in the same org can read; org admins + creator can write
- *  - `public`  — every authenticated user can read; only sysadmins can write.
- *                Used for the 5 default dashboards (`org_id='system'`) so the
- *                existing system-org visibility rule covers them by default.
+ * Visibility ladder * - `private`  only the creator can read/write
+ * - `org`  anyone in the same org can read; org admins + creator can write
+ * - `public`  every authenticated user can read; only sysadmins can write.
+ * Used for the 5 default dashboards (`org_id='system'`) so the
+ * existing system-org visibility rule covers them by default.
  *
  * @table dashboards
  */
@@ -916,7 +911,7 @@ export const dashboard = pgTable('dashboards', {
     .default({})
     .notNull(),
 
-  // Visibility — see header for ladder semantics. Constrained at the SQL
+  // Visibility  see header for ladder semantics. Constrained at the SQL
   // layer too via a CHECK in postgres-init.sql to keep typos from sneaking
   // past the application layer.
   visibility: varchar('visibility', { length: 10 })
@@ -940,7 +935,7 @@ export const dashboard = pgTable('dashboards', {
 
 /**
  * A single panel inside a dashboard. The catalog `queryKey` is the only thing
- * the panel carries from the query side — substitution + execution happens
+ * the panel carries from the query side  substitution + execution happens
  * server-side via the existing catalog, so no PromQL/LogQL travels with the
  * panel record.
  *
@@ -954,7 +949,7 @@ export const dashboardPanel = pgTable('dashboard_panels', {
   // against QUERIES at render time.
   queryKey: varchar('query_key', { length: 100 })
     .notNull(),
-  // 'stat' | 'line' | 'table' | 'stacked-bar' — kept stringly-typed for
+  // 'stat' | 'line' | 'table' | 'stacked-bar'  kept stringly-typed for
   // forward compatibility; the renderer falls back to 'line' on unknown.
   vizKind: varchar('viz_kind', { length: 30 })
     .default('line')
@@ -967,7 +962,7 @@ export const dashboardPanel = pgTable('dashboard_panels', {
     .notNull(),
   // Optional: label key for series grouping (e.g. 'status', 'state').
   groupBy: varchar('group_by', { length: 50 }),
-  // Optional: catalog format key ('percent' | 'seconds' | ...).
+  // Optional: catalog format key ('percent' | 'seconds' |...).
   format: varchar('format', { length: 20 }),
   // 0-based render order within the dashboard. Editor reassigns on drag.
   position: integer('position')
@@ -987,6 +982,131 @@ export const dashboardPanel = pgTable('dashboard_panels', {
 }));
 
 /**
+ * Per-org alert notification destination. Multi-tenant alerting routes
+ * Alertmanager webhooks to the platform; the platform looks the firing
+ * alert's `org_id` label up here and forwards to each enabled destination.
+ *
+ * Channels * - `slack`  `target` is the incoming-webhook URL
+ * - `webhook`  `target` is any HTTPS URL; the relay posts the
+ * Alertmanager v2 webhook payload verbatim
+ * - `in-app`  `target` ignored; surfaces as an in-app message via
+ * the existing `messages` table
+ *
+ * Secrets * - For `slack`/`webhook` channels, the URL itself is the secret. We don't
+ * log it on `dashboard.update` or surface the full URL on GET endpoints
+ * after write; just a masked preview (last 12 chars). Stored in clear
+ * text  same posture as `compliance_notification_preferences.webhook_url`
+ * and consistent with the rest of the app's secret handling for org-level
+ * integrations. If we add a KMS-encryption tier for any secret column,
+ * this is one of the first to migrate.
+ *
+ * @table org_alert_destinations
+ */
+export const orgAlertDestination = pgTable('org_alert_destinations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+
+  createdBy: text('created_by').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedBy: text('updated_by').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+
+  /** 'slack' | 'webhook' | 'in-app'  kept stringly so future channels (PD,
+   * email) can be added without a schema migration. */
+  channel: varchar('channel', { length: 20 })
+    .$type<'slack' | 'webhook' | 'in-app'>()
+    .notNull(),
+  /** Channel-specific target. Slack: webhook URL. Webhook: HTTPS URL. In-app: ignored. */
+  target: text('target').default('').notNull(),
+  /** Friendly label shown in the settings UI. */
+  label: varchar('label', { length: 100 }).notNull(),
+
+  /** Lowest severity that triggers this destination ('warning' = warning+critical,
+   * 'critical' = critical only). Mirrors Alertmanager severity ordering. */
+  minSeverity: varchar('min_severity', { length: 10 })
+    .$type<'warning' | 'critical'>()
+    .default('warning')
+    .notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+
+  /** Soft delete so we keep audit history of who-deleted-what. */
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  deletedBy: text('deleted_by'),
+}, (table) => ({
+  // Per-org listing  the only access path.
+  orgIdx: index('org_alert_destination_org_idx')
+    .on(table.orgId, table.enabled),
+}));
+
+/**
+ *  Per-org alert rules authored by operators.
+ *
+ * Each row materializes into a `groups[].rules[]` entry in a Prometheus
+ * `rule_files` YAML. The materializer endpoint
+ * `GET /api/observability/alert-rules/materialized.yml` renders all enabled
+ * rules across all orgs (deleted=null) into one document; Prometheus polls
+ * or a sidecar copies it into the rules dir.
+ *
+ * Tenancy + safety * - `expr` is user-authored PromQL. The CRUD route enforces that the
+ * expression substring-contains `org_id="<orgId>"` so an operator can't
+ * write rules that fire on other orgs' metrics. This is a coarse gate
+ * (a malformed expression can still be syntactically wrong) but it
+ * closes the cross-tenant data leak. Real PromQL parsing + automatic
+ * org_id injection is a follow-on.
+ * - The materialized rule carries `labels.org_id = <orgId>` so the
+ * alertmanager-relay routes firing alerts to the right org's
+ * destinations (matches the alert-relay model).
+ *
+ * @table org_alert_rules
+ */
+export const orgAlertRule = pgTable('org_alert_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+
+  createdBy: text('created_by').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedBy: text('updated_by').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+
+  /** Operator-supplied rule name. Sanitized into a valid Prom alert name at
+   * materialization time (becomes `OrgRule_<orgId>_<slug>` to avoid name
+   * collisions across orgs). */
+  name: varchar('name', { length: 100 }).notNull(),
+  /** PromQL expression. MUST substring-contain `org_id="<orgId>"`. */
+  expr: text('expr').notNull(),
+  /** `for: 5m` style duration. Validated against Prom's duration regex. */
+  forDuration: varchar('for_duration', { length: 20 }).default('5m').notNull(),
+  /** 'warning' | 'critical'  matches the platform-wide severity ladder. */
+  severity: varchar('severity', { length: 20 })
+    .$type<'warning' | 'critical'>()
+    .default('warning')
+    .notNull(),
+  /** Alertmanager `summary` annotation. Supports `{{ $value }}`. */
+  summary: text('summary').notNull(),
+  /** Alertmanager `description` annotation. Optional; '' is fine. */
+  description: text('description').default('').notNull(),
+
+  /** Disabled rules don't materialize. Lets operators stage rules without firing. */
+  enabled: boolean('enabled').default(true).notNull(),
+
+  /** Soft delete so we keep audit of who-deleted-what. */
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  deletedBy: text('deleted_by'),
+}, (table) => ({
+  // Per-org listing + materializer's enabled-only scan.
+  orgEnabledIdx: index('org_alert_rule_org_enabled_idx')
+    .on(table.orgId, table.enabled),
+  // Unique within an org so operators can't accidentally clone a rule.
+  orgNameUq: uniqueIndex('org_alert_rule_org_name_uq')
+    .on(table.orgId, table.name)
+    .where(sql`deleted_at IS NULL`),
+}));
+
+/**
  * Complete Drizzle schema export
  */
 export const schema = {
@@ -998,6 +1118,10 @@ export const schema = {
   // Observability dashboards (user-editable replacement for code-defined dashboards)
   dashboard,
   dashboardPanel,
+  // Per-org alert notification destinations (multi-tenant alerting)
+  orgAlertDestination,
+  // per-org operator-authored alert rules  materialized into Prom YAML.
+  orgAlertRule,
   // Compliance tables
   compliancePolicy,
   complianceRule,
@@ -1040,6 +1164,10 @@ export type DashboardUpdate = Partial<Omit<DashboardInsert, 'id' | 'createdAt' |
 export type DashboardPanel = typeof dashboardPanel.$inferSelect;
 export type DashboardPanelInsert = typeof dashboardPanel.$inferInsert;
 export type DashboardPanelUpdate = Partial<Omit<DashboardPanelInsert, 'id'>>;
+
+export type OrgAlertDestination = typeof orgAlertDestination.$inferSelect;
+export type OrgAlertDestinationInsert = typeof orgAlertDestination.$inferInsert;
+export type OrgAlertDestinationUpdate = Partial<Omit<OrgAlertDestinationInsert, 'id' | 'createdAt' | 'createdBy' | 'orgId'>>;
 
 /**
  * Helper types for working with partial updates

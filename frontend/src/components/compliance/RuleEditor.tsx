@@ -95,7 +95,7 @@ function parseValue(str: string): unknown {
 }
 
 export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
-  const { isSysAdmin } = useAuthGuard();
+  const { isSuperAdmin } = useAuthGuard();
   const [form, setForm] = useState<FormState>(() => ruleToForm(rule));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -156,7 +156,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           name: form.name,
           description: form.description || undefined,
           target: form.target,
-          scope: isSysAdmin ? form.scope : undefined,
+          scope: isSuperAdmin ? form.scope : undefined,
           severity: form.severity,
           priority: form.priority,
           tags,
@@ -221,7 +221,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             </select>
           </div>
         </div>
-        {isSysAdmin && (
+        {isSuperAdmin && (
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Scope</label>
             <select value={form.scope} onChange={e => set('scope', e.target.value as RuleScope)} className={inputCls} disabled={isEdit}>

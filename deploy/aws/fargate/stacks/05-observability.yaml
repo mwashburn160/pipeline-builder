@@ -25,6 +25,9 @@ Parameters:
   LokiImage:
     Type: String
     Default: grafana/loki:3.4.2
+  AlertmanagerImage:
+    Type: String
+    Default: prom/alertmanager:v0.27.0
   AwsCliImage:
     Type: String
     Default: amazon/aws-cli:2.24.0
@@ -324,6 +327,150 @@ Resources:
       HealthCheckCustomConfig:
         FailureThreshold: 1
 
+  # ===========================================================================
+  # Alertmanager
+  # ===========================================================================
+  #
+  # Multi-tenant alert relay: receives Prometheus firing alerts (per-org
+  # rules carry `org_id` labels), routes to the platform's webhook
+  # endpoint, which fans out to each org's configured destination
+  # (Slack/webhook/in-app). Per-instance bound via ALERT_WEBHOOK_INSTANCES
+  # on the platform side; this task sends the bearer + instance id
+  # configured here.
+  #
+  # Config is pulled from S3 at boot (same init-container pattern as
+  # Prometheus + Loki) so operators can edit alertmanager.yml without
+  # rebuilding the image. Auth-on-the-wire is HTTPS via the nginx ALB.
+
+  AlertmanagerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-alertmanager"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: config-volume
+        - Name: alertmanager-data
+      ContainerDefinitions:
+        - Name: config-init
+          Image: !Ref AwsCliImage
+          Essential: false
+          EntryPoint:
+            - /bin/sh
+            - "-c"
+          Command:
+            - !Sub
+              - "aws s3 cp s3://${ConfigBucket}/alertmanager/alertmanager.yml /shared-config/alertmanager.yml"
+              - ConfigBucket:
+                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: config-volume
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-AlertmanagerLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: config-init
+
+        - Name: alertmanager
+          Image: !Ref AlertmanagerImage
+          Essential: true
+          DependsOn:
+            - ContainerName: config-init
+              Condition: SUCCESS
+          PortMappings:
+            - ContainerPort: 9093
+              Protocol: tcp
+          Command:
+            - "--config.file=/shared-config/alertmanager.yml"
+            - "--storage.path=/alertmanager"
+            - "--web.external-url=http://alertmanager.pipeline-builder.local:9093"
+          Environment:
+            # Per-instance binding for the platform webhook relay. Operators
+            # set these on the platform side via ALERT_WEBHOOK_INSTANCES
+            # (the matching `id` + `token`). alertmanager.yml is rendered
+            # with envsubst so neither value lands in S3 in clear text.
+            - Name: PLATFORM_ALERT_WEBHOOK_URL
+              Value: !Sub "https://${DomainName}/api/observability/alert-webhook"
+            - Name: ALERT_WEBHOOK_INSTANCE_ID
+              Value: "fargate-am-0"
+            - Name: ALERT_WEBHOOK_INSTANCE_TOKEN
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ALERT_WEBHOOK_INSTANCE_TOKEN::"
+          MountPoints:
+            - ContainerPath: /shared-config
+              SourceVolume: config-volume
+              ReadOnly: true
+            - ContainerPath: /alertmanager
+              SourceVolume: alertmanager-data
+              ReadOnly: false
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget --spider http://localhost:9093/-/healthy || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-AlertmanagerLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: alertmanager
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-alertmanager-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  AlertmanagerService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-alertmanager"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref AlertmanagerTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DefaultDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-ObservabilitySecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt AlertmanagerDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-alertmanager-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  AlertmanagerDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: alertmanager
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
 # =============================================================================
 # Outputs
 # =============================================================================
@@ -355,4 +502,17 @@ Outputs:
     Value: !GetAtt LokiDiscovery.Arn
     Export:
       Name: !Sub "${StackPrefix}-LokiDiscoveryArn"
+
+  # Alertmanager
+  AlertmanagerServiceArn:
+    Description: Alertmanager ECS Service ARN
+    Value: !Ref AlertmanagerService
+    Export:
+      Name: !Sub "${StackPrefix}-AlertmanagerServiceArn"
+
+  AlertmanagerDiscoveryArn:
+    Description: Alertmanager Service Discovery ARN
+    Value: !GetAtt AlertmanagerDiscovery.Arn
+    Export:
+      Name: !Sub "${StackPrefix}-AlertmanagerDiscoveryArn"
 

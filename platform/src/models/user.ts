@@ -44,6 +44,19 @@ export interface UserDocument extends Document {
   isEmailVerified: boolean;
   emailVerificationToken?: string;
   emailVerificationExpires?: Date;
+  /**
+   * Global super-admin flag. When true, this user is a Pipeline Builder
+   * operator and `isSystemAdmin()` returns true regardless of which org
+   * they're currently scoped to. Replaces "membership in the well-known
+   * 'system' org" as the canonical sysadmin signal; both still work during
+   * the rollout. New ops users should get this flag instead of being
+   * added to the system org.
+   *
+   * Hide from default queries — operators can't grant themselves this via
+   * the user-profile API; it's set out-of-band (db update) or via a
+   * dedicated sysadmin-only endpoint (future).
+   */
+  isSuperAdmin?: boolean;
   tokenVersion: number;
   refreshToken?: string;
   /** Last 20 access tokens issued for this user. Append-only ring; capped at 20.
@@ -100,6 +113,12 @@ const userSchema = new Schema<UserDocument>(
     isEmailVerified: {
       type: Boolean,
       default: false,
+    },
+    isSuperAdmin: {
+      type: Boolean,
+      default: false,
+      // Indexed because token-issuance hot-path reads it on every login.
+      index: true,
     },
     emailVerificationToken: {
       type: String,

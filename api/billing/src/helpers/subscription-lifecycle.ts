@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { config } from '../config';
 import { createBillingEvent, syncTierToQuotaService } from './billing-helpers';
 import { Plan } from '../models/plan';
@@ -29,13 +30,21 @@ export function startSubscriptionLifecycleChecker(): void {
 
   const intervalMs = config.lifecycleCheckIntervalMs;
 
+  // Defensive tenant scope: today this cron only touches Mongo (Subscription,
+  // Plan), so no RLS GUCs are needed. But if a future change adds a Postgres
+  // read here (e.g. cross-checking against pipeline data), it would silently
+  // get a RLS denial without an active tenant scope. Wrap the whole cron in
+  // a sysadmin scope to match the pattern used by other multi-org crons
+  // (compliance scan-scheduler, audit-prune).
+  const runWithSysAdmin = () => runWithTenantContext({ isSuperAdmin: true }, runLifecycleCheck);
+
   // Run immediately on startup, then on interval
-  runLifecycleCheck().catch((err) =>
+  runWithSysAdmin().catch((err) =>
     logger.error('Initial lifecycle check failed', { error: errorMessage(err) }),
   );
 
   lifecycleTimer = setInterval(() => {
-    runLifecycleCheck().catch((err) =>
+    runWithSysAdmin().catch((err) =>
       logger.error('Lifecycle check failed', { error: errorMessage(err) }),
     );
   }, intervalMs);

@@ -17,6 +17,7 @@
     },
     {
       "name": "@types/jest",
+      "version": "30.0.0",
       "type": "build"
     },
     {
@@ -48,16 +49,18 @@
       "type": "build"
     },
     {
-      "name": "jest",
+      "name": "jest-junit",
+      "version": "^17",
       "type": "build"
     },
     {
-      "name": "jest-junit",
-      "version": "^16",
+      "name": "jest",
+      "version": "30.0.0",
       "type": "build"
     },
     {
       "name": "ts-jest",
+      "version": "^29",
       "type": "build"
     },
     {

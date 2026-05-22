@@ -9,7 +9,7 @@ import { Invitation, InvitationDocument, Organization, OrganizationDocument, Use
 import type { InvitationOAuthProvider } from '../models/invitation';
 import { emailService } from '../utils/email';
 
-const logger = createLogger('InvitationService');
+const logger = createLogger('invitation-service');
 
 /** Domain errors mapped to HTTP status by controllers via withController. */
 export const INV_ORG_NOT_FOUND = 'INV_ORG_NOT_FOUND';

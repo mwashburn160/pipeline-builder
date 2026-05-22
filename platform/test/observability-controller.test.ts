@@ -47,8 +47,8 @@ jest.mock('../src/helpers/controller-helper', () => ({
 }));
 
 import type { Request, Response } from 'express';
-import { observabilityQuery, observabilityLogs } from '../src/observability/controller';
 import { requireAuth, isSystemAdmin } from '../src/helpers/controller-helper';
+import { observabilityQuery, observabilityLogs } from '../src/observability/controller';
 
 const mockRequireAuth = requireAuth as jest.MockedFunction<typeof requireAuth>;
 const mockIsSystemAdmin = isSystemAdmin as jest.MockedFunction<typeof isSystemAdmin>;

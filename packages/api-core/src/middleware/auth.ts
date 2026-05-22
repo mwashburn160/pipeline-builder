@@ -166,18 +166,19 @@ export function isSystemOrgId(orgId?: string, orgName?: string): boolean {
   return orgId?.toLowerCase() === SYSTEM_ORG_ID || orgName?.toLowerCase() === SYSTEM_ORG_ID;
 }
 
-/** True when the request's JWT identifies the system (super-admin) org. */
-export function isSystemOrg(req: Request): boolean {
-  if (!req.user) return false;
-  return isSystemOrgId(req.user.organizationId, req.user.organizationName);
-}
-
 /**
  * Check if the request is from a system admin.
- * A system admin has per-org role 'admin' or 'owner' in the system organization.
+ *
+ * Authority is granted solely by the user-level `isSuperAdmin` flag carried
+ * in the JWT. The "membership in the well-known 'system' org with role
+ * admin/owner" path was removed — it conflated a Pipeline Builder operator
+ * with a real customer tenant in the data model, and meant any unintended
+ * write that created a 'system'-named org could quietly grant cross-org
+ * authority. The `system` org still exists as a *content holder* for shared
+ * sample data; it just no longer confers privilege.
  */
 export function isSystemAdmin(req: Request): boolean {
-  return (req.user?.role === 'admin' || req.user?.role === 'owner') && isSystemOrg(req);
+  return req.user?.isSuperAdmin === true;
 }
 
 /** Requires system admin (admin role + system organization). */
@@ -199,7 +200,7 @@ export function requireSystemAdmin(
 /**
  * Require a specific feature flag. Use after requireAuth.
  * Checks the `features` array in the JWT payload (set at token issuance).
- * System org users always pass (all features enabled).
+ * Sysadmins (isSuperAdmin) bypass — they always have every feature.
  */
 export function requireFeature(feature: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -207,8 +208,11 @@ export function requireFeature(feature: string) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
     }
 
-    // System org always has all features
-    if (isSystemOrg(req)) return next();
+    // Sysadmins get all features; the `features` array on their token is
+    // populated with every flag at issuance time but the bypass here keeps
+    // the rule explicit and survives a token issued before a new feature
+    // flag was added.
+    if (req.user.isSuperAdmin === true) return next();
 
     if (!req.user.features?.includes(feature)) {
       return sendError(

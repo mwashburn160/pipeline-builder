@@ -230,7 +230,7 @@ export const QUERIES: Record<string, QueryEntry> = {
  */
 export function substituteVars(
   query: string,
-  vars: { event?: string; digest?: string; actor?: string; plugin?: string; org?: string; isSysAdmin?: boolean },
+  vars: { event?: string; digest?: string; actor?: string; plugin?: string; org?: string; isSuperAdmin?: boolean },
   allowed: ReadonlyArray<'event' | 'digest' | 'actor' | 'plugin'>,
 ): string {
   let result = query;
@@ -266,7 +266,7 @@ export function substituteVars(
   // get a regex wildcard so they see all orgs; org admins get a literal
   // match scoped to their org. The substitution happens regardless of
   // `allowed` — `$ORG` is server-driven, not user-supplied.
-  if (vars.isSysAdmin) {
+  if (vars.isSuperAdmin) {
     result = result.replace('$ORG', ',org_id=~".+"');
   } else if (vars.org && /^[a-zA-Z0-9_-]+$/.test(vars.org)) {
     result = result.replace('$ORG', `,org_id="${vars.org}"`);

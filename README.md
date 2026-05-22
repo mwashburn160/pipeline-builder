@@ -1,6 +1,6 @@
 <p align="center">
   <strong>Pipeline Builder</strong><br/>
-  <em>Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt.</em>
+  <em>Self-service AWS CodePipelines — from a dashboard, CLI, CDK construct, or a single AI prompt.</em>
 </p>
 
 <p align="center">
@@ -13,36 +13,44 @@
 
 ---
 
-Pipeline Builder turns plugin definitions and pipeline configs into fully deployed AWS CodePipeline infrastructure — inside the client's AWS account with zero lock-in.
+**Pipeline Builder is a multi-tenant CI/CD control plane that compiles plugin definitions and pipeline configs into native AWS CodePipeline + CodeBuild stacks — deployed inside the client's own AWS account, with zero runtime lock-in.** Developers get pipelines in minutes; platform teams get enforcement, isolation, and analytics out of the box.
 
-## Highlights
+## At a Glance
+
+| 124 | 5 | 4 | 12 | 18 |
+|:---:|:-:|:-:|:--:|:--:|
+| **plugins** ready to use | **interfaces** to create pipelines | **deploy targets** from laptop to Fargate | **AI models** for pipeline generation | **compliance operators** for guardrails |
+
+## Why Pipeline Builder
 
 | Challenge | How Pipeline Builder Solves It |
 |-----------|-------------------------------|
-| Developers need AWS expertise to set up CI/CD | Self-service pipeline creation via dashboard, CLI, API, or AI prompt |
-| No governance over what gets deployed | Per-org compliance rules block non-compliant resources before deployment |
-| Build steps are copy-pasted across teams | 124 reusable plugins shared and versioned across projects |
-| Multi-team environments lack isolation | Every resource scoped to an organization with RBAC access control |
-| Vendor lock-in with CI/CD platforms | Pipelines deploy as native AWS CodePipeline + CodeBuild in the client's own account |
-| No visibility into CI/CD costs | Per-org quotas, billing integration, and execution analytics |
+| CI/CD set-up demands deep AWS expertise | Self-service creation via dashboard, CLI, REST API, CDK, or AI prompt — no CDK or buildspec knowledge required |
+| Governance happens after the fact | Per-team compliance rules **block** non-compliant pipelines and plugins at creation time (HTTP 403), with full audit trail |
+| Build steps get copy-pasted across teams | 124 versioned, containerized plugins shared from a central catalog — one source of truth, ten categories |
+| Multi-team environments lack isolation | Every pipeline, plugin, secret, quota, and bill scoped to a team (sub-organization) with RBAC and quota enforcement |
+| Vendor lock-in with SaaS CI/CD platforms | Pipelines deploy as **native AWS CodePipeline + CodeBuild** in the client's account — keep running even if Pipeline Builder is removed |
+| No visibility into CI/CD health or cost | EventBridge-fed analytics: success rates, duration percentiles, failure heatmaps, per-team cost attribution |
 
 ---
 
-## Features
+## Capabilities
 
-### Five Ways to Create Pipelines
+### Five Ways to Build a Pipeline
 
-| Interface | Description |
-|-----------|-------------|
-| **Dashboard** | Visual pipeline builder — point, click, deploy |
-| **AI Prompt** | Paste a Git URL, get a complete pipeline generated from your repo |
-| **CLI** | `pipeline-manager create-pipeline` for scripted workflows and CI integration |
-| **REST API** | Full CRUD + AI generation endpoints for programmatic control |
-| **CDK Construct** | `PipelineBuilder` construct for infrastructure-as-code |
+Meet developers where they are — visual, scripted, declarative, or AI-driven. Same backend, same compliance, same audit trail.
 
-### AI-Powered Generation
+| Interface | Best For | What You Do |
+|-----------|----------|-------------|
+| **Dashboard** | Application developers | Point, click, configure stages visually, deploy |
+| **AI Prompt** | Brand-new repositories | Paste a Git URL — Pipeline Builder analyzes the repo and generates stages and plugins automatically |
+| **CLI** | CI integration, scripting | `pipeline-manager create-pipeline` from any shell |
+| **REST API** | Platform teams, automation | Full CRUD + AI generation endpoints |
+| **CDK Construct** | Infrastructure-as-code shops | `PipelineBuilder` construct deployable from any CDK app |
 
-Analyzes a Git repository and generates stages and plugins automatically.
+### Multi-Provider AI Generation
+
+Generate a complete pipeline — sources, stages, plugins, env vars — from a Git URL or natural-language prompt. Teams pick the provider that matches their procurement, data residency, or model preferences.
 
 | Provider | Models |
 |----------|--------|
@@ -52,9 +60,9 @@ Analyzes a Git repository and generates stages and plugins automatically.
 | xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |
 | Amazon Bedrock | Claude 3.5 Sonnet, Nova Pro, Nova Lite |
 
-### 124 Pre-Built Plugins
+### 124 Pre-Built Plugins, Ten Categories
 
-Reusable build steps covering the full CI/CD lifecycle. Every plugin runs as an isolated container step inside AWS CodePipeline.
+Reusable build steps covering the full CI/CD lifecycle — language toolchains, security scanners, quality gates, test runners, artifact publishing, deployment, monitoring, and notifications. Every plugin runs as an isolated container step inside AWS CodePipeline, with secrets injected from AWS Secrets Manager at build time.
 
 | Category | Count | Examples |
 |----------|-------|---------|
@@ -69,9 +77,9 @@ Reusable build steps covering the full CI/CD lifecycle. Every plugin runs as an 
 | Notification | 5 | Slack, Teams, PagerDuty, email, GitHub status |
 | AI | 1 | Dockerfile generation (multi-provider) |
 
-### Synth-Time Scripting
+### Synth-Time Templating
 
-Pipeline configs and plugin specs both support a minimal `{{ path | filter }}` template syntax that's resolved once at synthesis time — no runtime evaluation, no code execution. Same template engine, two scopes:
+A minimal template language for pipeline configs and plugin specs — resolved **once at synthesis time** with no runtime evaluation, no shell-out, no code execution. Same engine, two scopes:
 
 **In `pipeline.json`** — self-references compose values from other metadata/vars:
 
@@ -111,34 +119,42 @@ commands:
 
 Fully backward-compatible: pipelines and plugins without `{{ ... }}` continue working unchanged. See [Template Syntax](docs/templates.md) for the full grammar, scope reference, and migration guide.
 
-### Compliance Engine
+### Policy-as-Code Compliance Engine
 
-Per-organization rule enforcement that validates plugins and pipelines before creation.
+Validate plugins and pipelines **before** they're created — not in a quarterly audit. Platform teams define policy once; every team inherits enforcement automatically.
 
-- 18 operators — equals, contains, regex, numeric comparison, array count, string length
-- Computed fields, cross-field conditions, published rule catalog
-- Severity levels — `warning` (non-blocking), `error` / `critical` (blocking)
-- Bulk scans, audit trail, 10 sample rules included
+- **18 operators** — equals, contains, regex, numeric comparison, array count, string length, plus computed fields and cross-field conditions
+- **Three severities** — `warning` (advisory), `error` / `critical` (block creation with HTTP 403)
+- **Published rule catalog** — system org publishes recommended rules; teams subscribe and opt-in per rule
+- **Per-entity exemptions** — temporarily bypass a subscribed rule for a specific pipeline or plugin with audit
+- **Bulk scans + audit trail** — sweep existing resources, generate evidence for compliance reviews
+- **10 sample rules** included — security scanning required, privileged plugins blocked, naming conventions, timeout caps
 
-### Multi-Tenant Organizations
+### Teams
 
-Every resource — pipelines, plugins, compliance rules, quotas, secrets, billing — scoped to an organization with role-based access (Owner, Admin, Member), feature tiers (Developer, Pro, Unlimited), and per-org quotas across four dimensions: `plugins`, `pipelines`, `apiCalls`, and `aiCalls` (sized smaller per tier because AI calls have external $ cost).
+Pipeline Builder is multi-tenant by design. Each user belongs to one or more **teams** (also referred to as sub-organizations); every pipeline, plugin, compliance rule, quota, secret, and bill is scoped to the team that owns it.
+
+- **RBAC** — Owner, Admin, Member roles enforced at the API layer
+- **Feature tiers** — Developer, Pro, Unlimited (AI generation, bulk ops, audit log gated by tier)
+- **Per-team quotas** — four dimensions: `plugins`, `pipelines`, `apiCalls`, `aiCalls` (AI sized smaller because external $ cost)
+- **Public + private plugins** — share a plugin org-wide or keep it scoped to a single team
+- **Isolated secrets** — AWS Secrets Manager path `pipeline-builder/{orgId}/{secretName}` (per team), injected at build time, never stored in images
 
 ### Execution Analytics
 
-EventBridge captures CodePipeline and CodeBuild state changes. Reports include execution counts, success rates, duration percentiles, stage failure heatmaps, and error categorization.
+Every CodePipeline and CodeBuild state change flows through EventBridge into the reporting service.
 
-### Service-to-Service Auth
+- Execution counts and success rates per team/project
+- Duration percentiles (p50, p90, p99)
+- Stage-level failure heatmaps — see which stages fail most across the org
+- Error categorization — build vs test vs deploy failures
+- Per-team cost attribution
 
-Inter-service HTTP calls (billing → message renewals, compliance → message rule updates, platform → billing on org register, etc.) mint short-lived JWTs via `signServiceToken()` in api-core. Tokens identify the calling service via `sub: 'service:<name>'`, are signed with the shared `JWT_SECRET`, and satisfy the standard `requireAuth` middleware — so internal calls don't need per-route bypass.
+### Built for Production
 
-### Operational Endpoints
-
-Every service exposes:
-- `GET /health` — liveness probe (returns 200 unless the process is dead)
-- `GET /ready` — readiness probe (returns 503 when any dependency is `disconnected`)
-- `GET /warmup` — pre-opens connection pools (Postgres + per-service hooks for Mongo/Redis)
-- `GET /metrics` — Prometheus scrape endpoint
+- **Zero-trust internal calls** — service-to-service HTTP uses short-lived JWTs minted via `signServiceToken()`; internal traffic satisfies the same `requireAuth` middleware as user requests (no per-route bypass)
+- **Kubernetes-ready endpoints** — every service exposes `GET /health` (liveness), `GET /ready` (503 when any dependency is `disconnected`), `GET /warmup` (pre-opens connection pools), and `GET /metrics` (Prometheus scrape)
+- **Graceful degradation** — readiness reflects real dependency state; load balancers route around partially-failed services automatically
 
 ---
 

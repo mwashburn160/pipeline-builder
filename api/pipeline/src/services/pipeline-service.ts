@@ -7,7 +7,7 @@ import {
   CrudService,
   buildPipelineConditions,
   schema,
-  db,
+  withTenantTx,
   type PipelineFilter,
 } from '@pipeline-builder/pipeline-core';
 
@@ -101,7 +101,7 @@ export class PipelineService extends CrudService<
     project: string,
     organization: string,
   ): Promise<Pipeline> {
-    return db.transaction(async (tx) => {
+    return withTenantTx(async (tx) => {
       await tx.execute(
         sql`SELECT id FROM ${schema.pipeline}
             WHERE ${schema.pipeline.project} = ${project}

@@ -6,8 +6,8 @@ import {
   sendBadRequest,
   ErrorCode,
   createLogger,
+  isSystemAdmin,
   validateBody,
-  SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { type RuleTarget } from '@pipeline-builder/pipeline-core';
@@ -21,10 +21,12 @@ import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('compliance-validate');
 
-/** Max top-level keys for attributes to prevent DoS. */
-const MAX_ATTRIBUTE_KEYS = 100;
-/** Max nesting depth for attribute values to prevent stack-overflow DoS. */
-const MAX_ATTRIBUTE_DEPTH = 5;
+/** Max top-level keys for attributes to prevent DoS. Override via
+ *  `COMPLIANCE_MAX_ATTRIBUTE_KEYS`. */
+const MAX_ATTRIBUTE_KEYS = parseInt(process.env.COMPLIANCE_MAX_ATTRIBUTE_KEYS || '100', 10);
+/** Max nesting depth for attribute values to prevent stack-overflow DoS.
+ *  Override via `COMPLIANCE_MAX_ATTRIBUTE_DEPTH`. */
+const MAX_ATTRIBUTE_DEPTH = parseInt(process.env.COMPLIANCE_MAX_ATTRIBUTE_DEPTH || '5', 10);
 
 /** Recursively check that a value does not exceed the max nesting depth. */
 function checkDepth(value: unknown, depth: number): boolean {
@@ -68,10 +70,13 @@ async function validateEntity(
   entityName: string | undefined,
   attributes: Record<string, unknown>,
   isDryRun: boolean,
+  isSuperAdmin: boolean,
 ) {
-  // System org is exempt from all compliance rules and policies
-  if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
-    logger.debug('Skipping compliance for system org', { orgId, target, action });
+  // Sysadmins are exempt from compliance rules — they manage the rules
+  // and the operator-curated content the rules apply against; running
+  // their own checks against their own content would be circular.
+  if (isSuperAdmin) {
+    logger.debug('Skipping compliance for sysadmin', { orgId, target, action });
     return {
       passed: true,
       violations: [],
@@ -117,7 +122,7 @@ export function createValidateRoutes(): Router {
 
       const result = await validateEntity(
         orgId, userId, target, action || defaultAction, entityId, entityName,
-        attributes, false,
+        attributes, false, isSystemAdmin(req),
       );
       ctx.log('COMPLETED', `${target} compliance check`, {
         blocked: result.blocked, violations: result.violations.length, warnings: result.warnings.length,
@@ -131,7 +136,7 @@ export function createValidateRoutes(): Router {
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
       const result = await validateEntity(
-        orgId, userId, target, 'dry-run', undefined, undefined, validation.value.attributes, true,
+        orgId, userId, target, 'dry-run', undefined, undefined, validation.value.attributes, true, isSystemAdmin(req),
       );
       ctx.log('COMPLETED', `${target} compliance dry-run`, { blocked: result.blocked, violations: result.violations.length });
       return sendSuccess(res, 200, result);

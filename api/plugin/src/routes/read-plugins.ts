@@ -4,7 +4,7 @@
 import { getParam, ErrorCode, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
-import { CoreConstants, db } from '@pipeline-builder/pipeline-core';
+import { CoreConstants, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { shapePlugin } from '../helpers/plugin-helpers';
@@ -24,7 +24,7 @@ export function createReadPluginRoutes(
   // plugins dashboard. The query reads the shared `pipeline` table via the
   // pipeline-data drizzle connection — both services share the same Postgres.
   router.get('/plugin-usage', withRoute(async ({ res, ctx, orgId }) => {
-    const rows = await db.execute<{ name: string; cnt: string | number }>(sql`
+    const rows = await withTenantTx(async (tx) => tx.execute<{ name: string; cnt: string | number }>(sql`
       SELECT step->'plugin'->>'name' AS name,
              COUNT(DISTINCT p.id) AS cnt
         FROM pipelines p,
@@ -34,7 +34,7 @@ export function createReadPluginRoutes(
          AND p.is_active = true
          AND step->'plugin'->>'name' IS NOT NULL
        GROUP BY step->'plugin'->>'name'
-    `);
+    `));
     const counts: Record<string, number> = {};
     for (const row of rows.rows ?? rows as unknown as Array<{ name: string; cnt: string | number }>) {
       const n = typeof row.cnt === 'number' ? row.cnt : parseInt(String(row.cnt), 10);

@@ -38,6 +38,10 @@ spec:
         app: frontend
         app.kubernetes.io/component: frontend
     spec:
+      # Stateless API server — no need for the default ServiceAccount token
+      # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
+      # radius if the container is compromised (no kubelet API access).
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -49,7 +53,7 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels:
-                    app.kubernetes.io/name: frontend
+                    app: frontend
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: frontend

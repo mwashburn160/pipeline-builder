@@ -3,15 +3,33 @@
 
 import { createSafeClient, RequestOptions } from './http-client';
 import { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common';
+import { DEFAULT_TIER, isValidTier, QuotaTier } from '../types/quota-tiers';
 import { createLogger } from '../utils/logger';
+import { emitCounter } from '../utils/metric-emitter';
 
-/** Retry options for quota calls — fail fast since quota is fail-open. */
+/** Retry options for quota calls  fail fast since quota is fail-open. */
 const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRetries'> = {
   maxRateLimitRetries: 1,
   maxRetries: 1,
 };
 
 const logger = createLogger('quota');
+
+/**
+ * Result of a synchronous quota reservation  the atomic check+increment
+ * variant. `exceeded: true` means the operation was rejected at the DB
+ * level; the caller should return 429 without running the gated action.
+ */
+export interface QuotaReserveResult {
+  exceeded: boolean;
+  quota: {
+    type: QuotaType;
+    limit: number;
+    used: number;
+    remaining: number;
+    resetAt?: string;
+  };
+}
 
 /**
  * Quota service client interface.
@@ -21,10 +39,31 @@ export interface QuotaService {
   check(orgId: string, quotaType: QuotaType, authHeader: string, requestId?: string): Promise<QuotaCheckResult>;
   /** Increment quota usage. Returns a promise so callers can optionally handle errors. */
   increment(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, requestId?: string): Promise<void>;
+  /**
+   * Atomic reserve  the same atomic check+increment as `increment`, but
+   * parses the response so callers can see whether the slot was actually
+   * reserved. Use this for expensive resources where the post-hoc fire-
+   * and-forget pattern allows concurrent over-spend.
+   *
+   * Fail-open semantics on transport errors: returns `exceeded: false` so
+   * the caller can proceed and the request isn't blocked by quota-service
+   * outages (matches `check()`).
+   */
+  reserve(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, requestId?: string): Promise<QuotaReserveResult>;
+  /** Roll back a previously reserved slot. Fire-and-forget  never throws. */
+  decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, requestId?: string): Promise<void>;
   /** Update quota limits. Returns true on success. */
   updateLimits(orgId: string, limits: Partial<Record<QuotaType, number>>, authHeader: string, requestId?: string): Promise<boolean>;
   /** Reset quota usage. Returns true on success. */
   reset(orgId: string, quotaType?: QuotaType, authHeader?: string, requestId?: string): Promise<boolean>;
+  /**
+   * Get the org's quota tier ('developer' | 'pro' | 'unlimited'). Used by
+   * the plugin-build queue partitioning to route a build to the
+   * right per-tier queue. Fail-open returns DEFAULT_TIER ('developer')
+   * a misclassified pro/unlimited org will land in the developer queue
+   * and still build, just without the tier-scoped scheduling boost.
+   */
+  getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier>;
 }
 
 /**
@@ -76,7 +115,7 @@ function buildHeaders(orgId: string, authHeader?: string, requestId?: string): R
  * // Check quota before processing
  * const quota = await quotaService.check(orgId, 'apiCalls', authHeader);
  * if (!quota.allowed) {
- *   return res.status(429).json({ error: 'Quota exceeded' });
+ * return res.status(429).json({ error: 'Quota exceeded' });
  * }
  *
  * // Increment quota after success
@@ -104,6 +143,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
 
       if (!response) {
         logger.warn('QUOTA_FAIL_OPEN: Quota service unreachable, allowing request', { orgId, quotaType });
+        emitCounter('quota_fail_open_total', { operation: 'check', reason: 'unreachable', quotaType });
         return createFailOpenResult();
       }
 
@@ -111,6 +151,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         logger.warn('QUOTA_FAIL_OPEN: Quota check returned non-ok, allowing request', {
           orgId, quotaType, statusCode: response.statusCode, message: response.body.message,
         });
+        emitCounter('quota_fail_open_total', { operation: 'check', reason: 'non-ok', quotaType });
         return createFailOpenResult();
       }
 
@@ -132,8 +173,65 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       }
     },
 
-    async updateLimits(
-      orgId: string,
+    async reserve(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, requestId?: string): Promise<QuotaReserveResult> {
+      const path = `/quotas/${encodeURIComponent(orgId)}/increment`;
+
+      // 200 carries `data.quota`; 429 (QUOTA_EXCEEDED) carries `details.quota`.
+      // Both shapes are normalized into QuotaReserveResult.
+      const response = await client.post<{
+        success: boolean;
+        data?: { quota?: QuotaReserveResult['quota'] };
+        details?: { quota?: QuotaReserveResult['quota'] };
+        errorCode?: string;
+      }>(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
+
+      if (!response) {
+        logger.warn('QUOTA_FAIL_OPEN: Quota service unreachable on reserve, allowing request', { orgId, quotaType });
+        emitCounter('quota_fail_open_total', { operation: 'reserve', reason: 'unreachable', quotaType });
+        return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
+      }
+
+      if (response.statusCode === 429) {
+        const q = response.body.details?.quota;
+        return {
+          exceeded: true,
+          quota: q ?? { type: quotaType, limit: 0, used: 0, remaining: 0 },
+        };
+      }
+
+      if (response.statusCode !== 200 || !response.body.success) {
+        logger.warn('QUOTA_FAIL_OPEN: Quota reserve returned non-ok, allowing request', {
+          orgId, quotaType, statusCode: response.statusCode,
+        });
+        emitCounter('quota_fail_open_total', { operation: 'reserve', reason: 'non-ok', quotaType });
+        return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
+      }
+
+      const q = response.body.data?.quota;
+      return {
+        exceeded: false,
+        quota: q ?? { type: quotaType, limit: -1, used: 0, remaining: -1 },
+      };
+    },
+
+    async decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, requestId?: string): Promise<void> {
+      const path = `/quotas/${encodeURIComponent(orgId)}/decrement`;
+      const response = await client
+        .post(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
+
+      if (!response || response.statusCode !== 200) {
+        // Rollback failure is logged but never propagated  the action's own
+        // failure has already been surfaced to the caller; a stuck counter
+        // resolves on the next period reset.
+        logger.warn('Failed to decrement quota (slot will reset on next period)', {
+          orgId, quotaType, amount, statusCode: response?.statusCode,
+        });
+      } else {
+        logger.debug('Quota decremented', { orgId, quotaType, amount });
+      }
+    },
+
+    async updateLimits( orgId: string,
       limits: Partial<Record<QuotaType, number>>,
       authHeader: string,
       requestId?: string,
@@ -153,10 +251,31 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       return true;
     },
 
+    async getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier> {
+      const path = `/quotas/${encodeURIComponent(orgId)}`;
+
+      const response = await client.get<{
+        success: boolean;
+        data?: { quota?: { tier?: string } };
+        message?: string;
+      }>(path, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
+
+      if (!response || response.statusCode !== 200 || !response.body.success) {
+        logger.warn('QUOTA_FAIL_OPEN: tier lookup failed, defaulting to developer tier', {
+          orgId, statusCode: response?.statusCode,
+        });
+        emitCounter('quota_fail_open_total', { operation: 'tier', reason: response ? 'non-ok' : 'unreachable', quotaType: 'tier' });
+        return DEFAULT_TIER;
+      }
+
+      const tier = response.body.data?.quota?.tier;
+      return tier && isValidTier(tier) ? tier: DEFAULT_TIER;
+    },
+
     async reset(orgId: string, quotaType?: QuotaType, authHeader?: string, requestId?: string): Promise<boolean> {
       const path = `/quotas/${encodeURIComponent(orgId)}/reset`;
 
-      const body = quotaType ? { quotaType } : {};
+      const body = quotaType ? { quotaType }: {};
       const response = await client.post(path, body, { headers: buildHeaders(orgId, authHeader ?? '', requestId) });
 
       if (!response || response.statusCode !== 200) {
@@ -184,14 +303,60 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
  * @param authHeader - Authorization header value
  * @param logWarn - Logging function for warnings
  */
-export function incrementQuota(
-  quotaService: QuotaService,
+export function incrementQuota( quotaService: QuotaService,
   orgId: string,
   quotaType: QuotaType,
   authHeader: string,
   logWarn: (message: string, data?: unknown) => void,
 ): void {
   quotaService.increment(orgId, quotaType, authHeader).catch((err: unknown) =>
-    logWarn('Quota increment failed', { error: err instanceof Error ? err.message : String(err) }),
+    logWarn('Quota increment failed', { error: err instanceof Error ? err.message: String(err) }),
+  );
+}
+
+/**
+ * Atomic reserve helper for the "reserve + commit / rollback" pattern.
+ * Use for expensive resources (pipelines, plugins, AI calls) where the
+ * fire-and-forget post-hoc `incrementQuota` allows concurrent over-spend.
+ *
+ * Returns the structured result so the caller can decide whether to run
+ * the gated action or 429 the client.
+ *
+ * @example
+ * ```typescript
+ * const reservation = await reserveQuota(quotaService, orgId, 'pipelines', authHeader);
+ * if (reservation.exceeded) return sendQuotaExceeded(res, 'pipelines', reservation.quota);
+ * try {
+ * await doExpensiveThing();
+ * } catch (err) {
+ * await decrementQuota(quotaService, orgId, 'pipelines', authHeader);
+ * throw err;
+ * }
+ * ```
+ */
+export function reserveQuota( quotaService: QuotaService,
+  orgId: string,
+  quotaType: QuotaType,
+  authHeader: string,
+  amount: number = 1,
+  requestId?: string,
+): Promise<QuotaReserveResult> {
+  return quotaService.reserve(orgId, quotaType, authHeader, amount, requestId);
+}
+
+/**
+ * Fire-and-forget rollback for a previously reserved quota slot.
+ * Logs on failure but never throws  the action that needed the rollback
+ * has already failed, no point compounding the error.
+ */
+export function decrementQuota( quotaService: QuotaService,
+  orgId: string,
+  quotaType: QuotaType,
+  authHeader: string,
+  logWarn: (message: string, data?: unknown) => void,
+  amount: number = 1,
+): void {
+  quotaService.decrement(orgId, quotaType, authHeader, amount).catch((err: unknown) =>
+    logWarn('Quota rollback failed', { error: err instanceof Error ? err.message: String(err) }),
   );
 }

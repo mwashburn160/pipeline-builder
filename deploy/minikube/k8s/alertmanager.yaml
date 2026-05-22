@@ -20,6 +20,49 @@ spec:
 
 ---
 # =============================================================================
+# Alertmanager PersistentVolume (hostPath)
+# =============================================================================
+# Backs `/alertmanager` so silences and the notification log (nflog) survive
+# pod restarts. Sized small — silences are tiny JSON records and the nflog
+# is bounded by Alertmanager's retention (default 120h). 256Mi is generous.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: alertmanager-pv
+  labels:
+    app: alertmanager
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 256Mi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/db-data/alertmanager
+    type: DirectoryOrCreate
+
+---
+# =============================================================================
+# Alertmanager PersistentVolumeClaim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alertmanager-data
+  labels:
+    app: alertmanager
+spec:
+  storageClassName: ""
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 256Mi
+  selector:
+    matchLabels:
+      app: alertmanager
+
+---
+# =============================================================================
 # Alertmanager Deployment
 # =============================================================================
 # Receives alerts from Prometheus (prometheus.yml `alerting.alertmanagers`
@@ -37,6 +80,10 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
+  # RWO PVC can't be mounted by two pods at once — Recreate avoids the
+  # rolling-update overlap that would otherwise stall on the second attach.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: alertmanager
@@ -47,6 +94,28 @@ spec:
         app.kubernetes.io/component: observability
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 65534
+        runAsUser: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.36
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          command: ["sh", "-c", "chown -R 65534:65534 /alertmanager"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: alertmanager-storage
+              mountPath: /alertmanager
       containers:
         - name: alertmanager
           image: prom/alertmanager:v0.28.0
@@ -69,10 +138,24 @@ spec:
                   name: alertmanager-slack
                   key: SLACK_WEBHOOK_URL_WARNING
                   optional: true
+            # Multi-tenant relay: alertmanager POSTs org-labeled alerts to
+            # the platform service, which fans out per the org_alert_destinations
+            # table.
+            - name: PLATFORM_ALERT_WEBHOOK_URL
+              value: "https://nginx:8443/api/observability/alert-webhook"
+            - name: ALERT_WEBHOOK_INSTANCE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-relay
+                  key: ALERT_WEBHOOK_INSTANCE_ID
+                  optional: true
+            - name: ALERT_WEBHOOK_INSTANCE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-relay
+                  key: ALERT_WEBHOOK_INSTANCE_TOKEN
+                  optional: true
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 65534
-            runAsGroup: 65534
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             seccompProfile:
@@ -112,9 +195,6 @@ spec:
         - name: alertmanager-config
           configMap:
             name: alertmanager-config
-        # Ephemeral — silences and notification log are lost on pod restart.
-        # Fine for an initial deployment; promote to a PVC if operators
-        # start relying on long-lived silences across restarts.
         - name: alertmanager-storage
-          emptyDir:
-            sizeLimit: 128Mi
+          persistentVolumeClaim:
+            claimName: alertmanager-data

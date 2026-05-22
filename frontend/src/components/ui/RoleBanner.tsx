@@ -1,7 +1,7 @@
 /** Props for the RoleBanner component. */
 interface RoleBannerProps {
   /** Whether the user is a system-level admin */
-  isSysAdmin: boolean;
+  isSuperAdmin: boolean;
   /** Whether the user is an organization admin */
   isOrgAdmin: boolean;
   /** Whether the user has any admin role */
@@ -19,11 +19,11 @@ const BANNER_STYLES: Record<string, string> = {
 };
 
 /** Contextual banner that indicates the user's access scope based on their role. */
-export function RoleBanner({ isSysAdmin, isOrgAdmin, isAdmin, resourceName, orgName }: RoleBannerProps) {
+export function RoleBanner({ isSuperAdmin, isOrgAdmin, isAdmin, resourceName, orgName }: RoleBannerProps) {
   let color: string;
   let message: React.ReactNode;
 
-  if (isSysAdmin) {
+  if (isSuperAdmin) {
     color = 'purple';
     message = <>System Admin: Viewing all {resourceName} across all organizations.</>;
   } else if (isOrgAdmin) {

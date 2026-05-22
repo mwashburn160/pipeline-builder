@@ -21,11 +21,24 @@ global:
 
 route:
   receiver: 'default'
-  group_by: ['alertname', 'severity']
+  group_by: ['alertname', 'severity', 'org_id']
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    # tenancy=org → relay to platform, which fans out to each org's configured
+    # destinations (Slack webhook, generic HTTPS webhook, in-app message). The
+    # `org_id` label on the alert drives the per-org lookup inside the relay.
+    # `continue: false` because the relay is the terminal hop for org alerts —
+    # we don't also send them to the ops-team Slack.
+    - matchers:
+        - tenancy = "org"
+      receiver: 'platform-relay'
+      group_by: ['org_id', 'alertname']
+      continue: false
+
+    # Platform-wide alerts (tenancy=platform or unlabeled) keep going to the
+    # ops-team Slack receivers, routed by severity.
     - matchers:
         - severity = "critical"
       receiver: 'critical-slack'
@@ -39,6 +52,28 @@ receivers:
   - name: 'default'
     # Catch-all for un-routed alerts. Logged-only by default so an
     # unrouted alert doesn't get silently dropped.
+
+  # Multi-tenant relay: posts the Alertmanager v2 webhook payload to the
+  # platform service, which looks up the alert's `org_id` label in the
+  # `org_alert_destinations` table and fans out to each enabled destination.
+  #
+  # Per-instance binding (the only supported configuration):
+  #   ALERT_WEBHOOK_INSTANCE_ID    — matches an `id` in ALERT_WEBHOOK_INSTANCES on platform
+  #   ALERT_WEBHOOK_INSTANCE_TOKEN — bearer for that instance (matches the entry's `token`)
+  # alertmanager.yml is rendered with envsubst so neither value lands in git.
+  - name: 'platform-relay'
+    webhook_configs:
+      - url: '${PLATFORM_ALERT_WEBHOOK_URL}'
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: '${ALERT_WEBHOOK_INSTANCE_TOKEN}'
+          tls_config:
+            insecure_skip_verify: true
+        send_resolved: true
+        max_alerts: 64
+        http_headers:
+          X-Alertmanager-Instance: '${ALERT_WEBHOOK_INSTANCE_ID}'
 
   - name: 'critical-slack'
     slack_configs:

@@ -4,16 +4,16 @@
 /**
  * Tests for quota write routes (PUT/POST /quotas/*).
  *
- * Middleware (requireAuth, authorizeOrg) is mocked to pass through —
+ * Middleware (requireAuth, authorizeOrg) is mocked to pass through
  * those are tested separately in authorize-org.test.ts.
  */
 
-// Mocks — must be defined before imports
+// Mocks  must be defined before imports
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
 const mockSendQuotaExceeded = jest.fn();
 const mockGetParam = jest.fn((params: Record<string, string>, key: string) => params[key]);
-const mockIsSystemOrg = jest.fn().mockReturnValue(false);
+const mockIsSystemAdmin = jest.fn().mockReturnValue(false);
 
 class MockAppError extends Error {
   statusCode: number;
@@ -37,7 +37,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendQuotaExceeded: mockSendQuotaExceeded,
-  isSystemOrg: mockIsSystemOrg,
+  isSystemAdmin: mockIsSystemAdmin,
   AppError: MockAppError,
   NotFoundError: MockNotFoundError,
   ErrorCode: {
@@ -55,7 +55,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
   getParam: mockGetParam,
-  errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  errorMessage: (e: unknown) => (e instanceof Error ? e.message: String(e)),
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
@@ -159,8 +159,7 @@ function mockRes(): any {
 
 /** Extract the final handler for a route (skipping middleware). */
 function getHandler(method: string, path: string) {
-  const layer = (updateQuotaRouter as any).stack.find(
-    (l: any) => l.route?.path === path && l.route?.methods[method],
+  const layer = (updateQuotaRouter as any).stack.find( (l: any) => l.route?.path === path && l.route?.methods[method],
   );
   if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
   const stack = layer.route.stack;
@@ -187,7 +186,7 @@ function makeSaveableOrg(overrides: Partial<any> = {}) {
   return org;
 }
 
-// Tests — PUT /quotas/:orgId
+// Tests  PUT /quotas/:orgId
 
 describe('PUT /quotas/:orgId (update org)', () => {
   const handler = getHandler('put', '/:orgId');
@@ -209,8 +208,7 @@ describe('PUT /quotas/:orgId (update org)', () => {
     expect(org.name).toBe('New Name');
     expect(org.slug).toBe('new-name');
     expect(org.save).toHaveBeenCalled();
-    expect(mockSendSuccess).toHaveBeenCalledWith(
-      res, 200,
+    expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
       expect.objectContaining({ quota: expect.any(Object) }),
       'Updated successfully',
     );
@@ -271,7 +269,7 @@ describe('PUT /quotas/:orgId (update org)', () => {
   });
 });
 
-// Tests — POST /quotas/:orgId/reset
+// Tests  POST /quotas/:orgId/reset
 
 describe('POST /quotas/:orgId/reset', () => {
   const handler = getHandler('post', '/:orgId/reset');
@@ -290,8 +288,7 @@ describe('POST /quotas/:orgId/reset', () => {
     expect(org.usage.pipelines.used).toBe(0);
     expect(org.usage.apiCalls.used).toBe(0);
     expect(org.save).toHaveBeenCalled();
-    expect(mockSendSuccess).toHaveBeenCalledWith(
-      res, 200,
+    expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
       expect.objectContaining({ quota: expect.any(Object) }),
       'All quota usage reset successfully',
     );
@@ -307,8 +304,7 @@ describe('POST /quotas/:orgId/reset', () => {
 
     expect(org.usage.plugins.used).toBe(0);
     expect(org.save).toHaveBeenCalled();
-    expect(mockSendSuccess).toHaveBeenCalledWith(
-      res, 200,
+    expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
       expect.any(Object),
       'plugins usage reset successfully',
     );
@@ -343,7 +339,7 @@ describe('POST /quotas/:orgId/reset', () => {
   });
 });
 
-// Tests — POST /quotas/:orgId/increment
+// Tests  POST /quotas/:orgId/increment
 
 describe('POST /quotas/:orgId/increment', () => {
   const handler = getHandler('post', '/:orgId/increment');
@@ -370,8 +366,7 @@ describe('POST /quotas/:orgId/increment', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendSuccess).toHaveBeenCalledWith(
-      res, 200,
+    expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
       expect.objectContaining({
         quota: expect.objectContaining({ type: 'plugins', limit: 100 }),
       }),
@@ -401,8 +396,7 @@ describe('POST /quotas/:orgId/increment', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSendQuotaExceeded).toHaveBeenCalledWith(
-      res,
+    expect(mockSendQuotaExceeded).toHaveBeenCalledWith( res,
       'plugins',
       expect.objectContaining({ type: 'plugins', limit: 10, used: 10, remaining: 0 }),
       expect.any(String),
@@ -459,8 +453,8 @@ describe('POST /quotas/:orgId/increment', () => {
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 
-  it('bypasses quota limit for system org', async () => {
-    mockIsSystemOrg.mockReturnValue(true);
+  it('bypasses quota limit for sysadmins', async () => {
+    mockIsSystemAdmin.mockReturnValue(true);
     const org = makeSaveableOrg({
       quotas: { plugins: 10, pipelines: 10, apiCalls: -1 },
       usage: {
@@ -480,8 +474,7 @@ describe('POST /quotas/:orgId/increment', () => {
     await handler(req, res);
 
     // Should succeed even though usage equals limit
-    expect(mockSendSuccess).toHaveBeenCalledWith(
-      res, 200,
+    expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
       expect.objectContaining({
         quota: expect.objectContaining({ type: 'plugins', limit: 10 }),
       }),
@@ -492,8 +485,8 @@ describe('POST /quotas/:orgId/increment', () => {
     expect(mockSendQuotaExceeded).not.toHaveBeenCalled();
   });
 
-  it('returns 404 for system org when org does not exist', async () => {
-    mockIsSystemOrg.mockReturnValue(true);
+  it('returns 404 for sysadmin bypass path when org does not exist', async () => {
+    mockIsSystemAdmin.mockReturnValue(true);
     mockFindOneAndUpdate.mockResolvedValue(null);
 
     const req = mockReq({
@@ -505,5 +498,75 @@ describe('POST /quotas/:orgId/increment', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'NOT_FOUND');
+  });
+});
+
+describe('POST /quotas/:orgId/decrement (reserve rollback)', () => {
+  const handler = getHandler('post', '/:orgId/decrement');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('decrements quota usage successfully', async () => {
+    const org = makeSaveableOrg({
+      quotas: { plugins: 100, pipelines: 10, apiCalls: -1 },
+      usage: {
+        plugins: { used: 4, resetAt: futureDate },
+        pipelines: { used: 2, resetAt: futureDate },
+        apiCalls: { used: 50, resetAt: futureDate },
+      },
+    });
+    mockFindOneAndUpdate.mockResolvedValue(org);
+
+    const req = mockReq({
+      params: { orgId: 'org-123' },
+      body: { quotaType: 'plugins', amount: 1 },
+      user: { organizationId: 'org-123' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
+      expect.objectContaining({
+        quota: expect.objectContaining({ type: 'plugins', limit: 100 }),
+      }),
+      'Usage decremented successfully',
+    );
+  });
+
+  it('returns 200 with quota:null when org does not exist (silent rollback)', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(null);
+
+    const req = mockReq({
+      params: { orgId: 'missing' },
+      body: { quotaType: 'plugins', amount: 1 },
+      user: { organizationId: 'missing' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
+      { quota: null },
+      'Org not found, decrement skipped',
+    );
+  });
+
+  it('returns 400 for missing quotaType', async () => {
+    const req = mockReq({ params: { orgId: 'org-123' }, body: {}, user: { organizationId: 'org-123' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.any(String), 'VALIDATION_ERROR');
+  });
+
+  it('returns 400 for invalid amount', async () => {
+    const req = mockReq({
+      params: { orgId: 'org-123' },
+      body: { quotaType: 'plugins', amount: -5 },
+      user: { organizationId: 'org-123' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.any(String), 'VALIDATION_ERROR');
   });
 });

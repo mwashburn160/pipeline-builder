@@ -7,7 +7,7 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 import { createLogger } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
-const logger = createLogger('Tracing');
+const logger = createLogger('tracing');
 
 let sdk: NodeSDK | null = null;
 

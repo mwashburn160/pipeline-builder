@@ -17,9 +17,9 @@ interface LogQueryParams {
   search?: string;
   /** Organization ID filter (enforced server-side for non-admins) */
   orgId?: string;
-  /** Start time — ISO 8601 or Unix epoch nanoseconds (default: 1h ago) */
+  /** Start time  ISO 8601 or Unix epoch nanoseconds (default: 1h ago) */
   start?: string;
-  /** End time — ISO 8601 or Unix epoch nanoseconds (default: now) */
+  /** End time  ISO 8601 or Unix epoch nanoseconds (default: now) */
   end?: string;
   /** Max entries to return (default: 100, max: 1000) */
   limit?: number;
@@ -75,7 +75,7 @@ function escapeLogQL(value: string): string {
  * The orgId filter is injected server-side and cannot be bypassed by the client.
  */
 function buildLogQL(params: LogQueryParams): string {
-  // Stream selector — use service_name label (extracted from JSON logs by Promtail)
+  // Stream selector  use service_name label (extracted from JSON logs by Promtail)
   // to target only API services, not infrastructure containers
   const streamMatchers: string[] = [];
   if (params.service) {
@@ -115,7 +115,23 @@ function buildLogQL(params: LogQueryParams): string {
 
 // Loki Client
 
-async function lokiFetch<T>(path: string, params?: Record<string, string>): Promise<T> {
+/**
+ * tenant header for Loki multi-tenant mode.
+ *
+ * When Loki runs with `auth_enabled: true`, every read/write requires
+ * `X-Scope-OrgID`. We always send this header  Loki ignores it in
+ * single-tenant mode (`auth_enabled: false`), so it's safe to set
+ * unconditionally and the cutover to multi-tenant just becomes a Loki
+ * config change.
+ *
+ * Defaults to `system` for cross-org admin queries (the dashboards that
+ * read every org's logs). Org-scoped queries pass the caller's orgId.
+ */
+function lokiTenant(tenant?: string): string {
+  return tenant && tenant.length > 0 ? tenant: 'system';
+}
+
+async function lokiFetch<T>(path: string, params?: Record<string, string>, tenant?: string): Promise<T> {
   const url = new URL(path, config.loki.url);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -131,7 +147,10 @@ async function lokiFetch<T>(path: string, params?: Record<string, string>): Prom
   try {
     const response = await fetch(url.toString(), {
       signal: controller.signal,
-      headers: { Accept: 'application/json' },
+      headers: {
+        'Accept': 'application/json',
+        'X-Scope-OrgID': lokiTenant(tenant),
+      },
     });
 
     clearTimeout(timeoutId);
@@ -185,8 +204,8 @@ export async function queryLogs(params: LogQueryParams): Promise<LogQueryResult>
   const oneHourAgo = now - config.logs.defaultLookbackMs;
 
   // Loki expects nanosecond timestamps; frontend sends milliseconds
-  const startMs = params.start ? Number(params.start) : oneHourAgo;
-  const endMs = params.end ? Number(params.end) : now;
+  const startMs = params.start ? Number(params.start): oneHourAgo;
+  const endMs = params.end ? Number(params.end): now;
 
   const lokiParams: Record<string, string> = {
     query,
@@ -198,7 +217,11 @@ export async function queryLogs(params: LogQueryParams): Promise<LogQueryResult>
 
   logger.debug('Querying Loki', { query, limit });
 
-  const response = await lokiFetch<LokiQueryResponse>('/loki/api/v1/query_range', lokiParams);
+  // in multi-tenant mode, queries scoped to a single org go to
+  // that org's tenant namespace. Org-blind admin queries (when params.orgId
+  // is empty) fall back to `system` and require the operator to also
+  // configure cross-tenant query permissions in Loki overrides.
+  const response = await lokiFetch<LokiQueryResponse>('/loki/api/v1/query_range', lokiParams, params.orgId);
 
   // Transform Loki response into flat entry list
   const entries: LogEntry[] = [];
@@ -223,10 +246,14 @@ export async function queryLogs(params: LogQueryParams): Promise<LogQueryResult>
 }
 
 /**
- * Get available service names from Loki.
+ * Get available service names from Loki. Label-value lookups are
+ * cross-tenant by nature (the UI populates a dropdown of all services);
+ * scoped to the `system` tenant which in multi-tenant deployments must
+ * also be configured with `tenant_federation_enabled` so it can read
+ * across the per-org streams (see docs/plans/f-2-6-loki-multitenant.md).
  */
 export async function getServiceNames(): Promise<string[]> {
-  const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/service_name/values');
+  const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/service_name/values', undefined, 'system');
   return response.data || [];
 }
 
@@ -234,6 +261,6 @@ export async function getServiceNames(): Promise<string[]> {
  * Get available log levels from Loki.
  */
 export async function getLogLevels(): Promise<string[]> {
-  const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/level/values');
+  const response = await lokiFetch<LokiLabelResponse>('/loki/api/v1/label/level/values', undefined, 'system');
   return response.data || [];
 }

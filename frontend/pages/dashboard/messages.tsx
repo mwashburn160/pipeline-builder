@@ -31,7 +31,7 @@ function EmptyChat() {
 
 /** Message inbox page. Displays conversations in a split-panel layout with compose, thread view, and unread tracking. */
 export default function MessagesPage() {
-  const { user, isReady, isSysAdmin } = useAuthGuard();
+  const { user, isReady, isSuperAdmin } = useAuthGuard();
   const {
     messages,
     loading,
@@ -101,8 +101,8 @@ export default function MessagesPage() {
               <button
                 onClick={() => setShowCompose(true)}
                 className="btn btn-primary btn-sm"
-                title={isSysAdmin ? 'New Message' : 'Contact Support'}
-                aria-label={isSysAdmin ? 'New Message' : 'Contact Support'}
+                title={isSuperAdmin ? 'New Message' : 'Contact Support'}
+                aria-label={isSuperAdmin ? 'New Message' : 'Contact Support'}
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -174,7 +174,7 @@ export default function MessagesPage() {
         isOpen={showCompose}
         onClose={() => setShowCompose(false)}
         onSend={handleSend}
-        isSystemOrg={isSysAdmin}
+        isSuperAdmin={isSuperAdmin}
       />
     </DashboardLayout>
   );

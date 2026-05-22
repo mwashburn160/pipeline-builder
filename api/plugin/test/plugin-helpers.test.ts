@@ -62,7 +62,7 @@ describe('plugin-helpers', () => {
           dockerfile: 'Dockerfile',
           name: 'test',
           version: '1.0.0',
-          
+
           orgId: 'org-1',
           buildType: 'build_image',
           registry: { host: 'reg', port: 5000, network: '', http: true },
@@ -72,7 +72,7 @@ describe('plugin-helpers', () => {
           name: 'test',
           version: '1.0.0',
           commands: ['echo hi'],
-          
+
           accessModifier: 'private',
         },
       });
@@ -95,7 +95,7 @@ describe('plugin-helpers', () => {
           dockerfile: 'Dockerfile',
           name: 'test',
           version: '1.0.0',
-          
+
           orgId: 'org-1',
           buildType: 'build_image',
           registry: { host: 'reg', port: 5000, network: '', http: true },
@@ -105,7 +105,7 @@ describe('plugin-helpers', () => {
           name: 'test',
           version: '2.0.0',
           commands: ['npm run build'],
-          
+
           accessModifier: 'public',
           pluginType: 'ManualApprovalStep',
           computeType: 'LARGE',

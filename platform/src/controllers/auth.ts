@@ -5,12 +5,12 @@ import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthH
 import { config } from '../config';
 import { audit } from '../helpers/audit';
 import { withController } from '../helpers/controller-helper';
+import { incCounter } from '../observability/metrics';
 import { authService, DUPLICATE_CREDENTIALS } from '../services';
 import { issueTokens } from '../utils/token';
-import { incCounter } from '../observability/metrics';
 import { validateBody, registerSchema, loginSchema, refreshSchema } from '../utils/validation';
 
-const logger = createLogger('AuthController');
+const logger = createLogger('auth-controller');
 
 /** Create a billing service subscription for a new organization (fire-and-forget). */
 async function createBillingSubscription(orgId: string, planId: string): Promise<void> {

@@ -10,6 +10,7 @@ import {
   createAuthenticatedWithOrgRoute,
   postgresHealthCheck,
 } from '@pipeline-builder/api-server';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { startAuditPruneCron } from './helpers/audit-logger';
 import { evaluateEntityEvent } from './helpers/entity-event-handler';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler';
@@ -82,15 +83,21 @@ logger.info('All /compliance routes registered');
 // Register BullMQ as the compliance event queue backend (used by plugin/pipeline services)
 registerComplianceQueueBackend(enqueue);
 
-// Start the compliance event worker (processes async re-validation events)
+// Start the compliance event worker (processes async re-validation events).
+// Each job carries its own orgId; establish the tenant scope per-job so any
+// `withTenantTx` inside `evaluateEntityEvent` runs with the right RLS GUCs.
+// Without this wrap the worker would silently hit FORCE'd tables with an
+// empty org_id and either get zero rows or "permission denied."
 startComplianceWorker(async (event) => {
-  await evaluateEntityEvent({
-    entityId: event.entityId,
-    orgId: event.orgId,
-    target: event.target,
-    eventType: event.eventType,
-    userId: event.userId,
-    attributes: event.attributes,
+  await runWithTenantContext({ orgId: event.orgId, isSuperAdmin: false }, async () => {
+    await evaluateEntityEvent({
+      entityId: event.entityId,
+      orgId: event.orgId,
+      target: event.target,
+      eventType: event.eventType,
+      userId: event.userId,
+      attributes: event.attributes,
+    });
   });
 });
 

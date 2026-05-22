@@ -26,14 +26,18 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   schema: {
     complianceAuditLog: { id: 'col_id', createdAt: 'col_created_at' },
   },
-  db: {
+  // pruneComplianceAudit wraps the DELETE in runWithTenantContext +
+  // withTenantTx; both pass through to the original callback in tests so
+  // the dbDelete spy still observes a single call per prune invocation.
+  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     delete: () => ({
       where: () => ({
         returning: () => dbDelete(),
       }),
     }),
     insert: jest.fn(),
-  },
+  }),
 }));
 
 jest.mock('drizzle-orm', () => ({

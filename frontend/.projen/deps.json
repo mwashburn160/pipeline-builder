@@ -31,6 +31,11 @@
       "type": "build"
     },
     {
+      "name": "@types/react-grid-layout",
+      "version": "1.3.5",
+      "type": "build"
+    },
+    {
       "name": "@types/react",
       "version": "19.2.14",
       "type": "build"
@@ -47,12 +52,12 @@
     },
     {
       "name": "jest-junit",
-      "version": "^16",
+      "version": "^17",
       "type": "build"
     },
     {
       "name": "jest",
-      "version": "30.3.0",
+      "version": "30.0.0",
       "type": "build"
     },
     {
@@ -72,17 +77,17 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.4.35",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/api-server",
-      "version": "3.4.36",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.4.35",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
@@ -105,6 +110,11 @@
     },
     {
       "name": "react-dom",
+      "type": "runtime"
+    },
+    {
+      "name": "react-grid-layout",
+      "version": "1.5.2",
       "type": "runtime"
     },
     {

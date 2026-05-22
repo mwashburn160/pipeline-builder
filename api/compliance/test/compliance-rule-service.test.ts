@@ -37,7 +37,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
     error: jest.fn(),
     debug: jest.fn(),
   }),
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+  errorMessage: (err: unknown) => (err instanceof Error ? err.message: String(err)),
   createCacheService: () => ({
     getOrSet: (...args: unknown[]) => cacheGetOrSet(...args as [string, () => Promise<unknown>]),
     invalidatePattern: cacheInvalidatePattern,
@@ -51,10 +51,16 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   drizzleCount: (r: unknown) => r,
   schema: {
     complianceRule: {
-      id: 'col_id', orgId: 'col_orgId', name: 'col_name',
-      target: 'col_target', isActive: 'col_isActive', scope: 'col_scope',
-      priority: 'col_priority', severity: 'col_severity',
-      createdAt: 'col_createdAt', updatedAt: 'col_updatedAt',
+      id: 'col_id',
+      orgId: 'col_orgId',
+      name: 'col_name',
+      target: 'col_target',
+      isActive: 'col_isActive',
+      scope: 'col_scope',
+      priority: 'col_priority',
+      severity: 'col_severity',
+      createdAt: 'col_createdAt',
+      updatedAt: 'col_updatedAt',
     },
     complianceRuleSubscription: {
       id: 'col_sid', orgId: 'col_sorg', ruleId: 'col_sruleId', isActive: 'col_sactive',
@@ -64,10 +70,14 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     },
     complianceScan: {},
   },
-  db: {
+  // After the migration the service uses withTenantTx / runWithTenantContext
+  // for every DB op. Pass through to the same dbInsert / dbSelect spies the
+  // tests already track so assertions remain unchanged.
+  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     insert: dbInsert,
     select: dbSelect,
-  },
+  }),
 }));
 
 jest.mock('../src/helpers/rule-change-notifier', () => ({

@@ -175,14 +175,14 @@ describe('controller-helper', () => {
   describe('getAdminContext', () => {
     it('should return system admin context', () => {
       const ctx = getAdminContext(mockReq({ role: 'admin', organizationId: 'system' }));
-      expect(ctx.isSysAdmin).toBe(true);
+      expect(ctx.isSuperAdmin).toBe(true);
       expect(ctx.isOrgAdmin).toBe(false);
       expect(ctx.adminType).toBe('system admin');
     });
 
     it('should return org admin context', () => {
       const ctx = getAdminContext(mockReq({ role: 'admin', organizationId: 'org-1' }));
-      expect(ctx.isSysAdmin).toBe(false);
+      expect(ctx.isSuperAdmin).toBe(false);
       expect(ctx.isOrgAdmin).toBe(true);
       expect(ctx.adminType).toBe('org admin');
     });
@@ -192,7 +192,7 @@ describe('controller-helper', () => {
     it('should return context for system admin', () => {
       const ctx = requireAdminContext(mockReq({ role: 'admin', organizationId: 'system' }), mockRes());
       expect(ctx).not.toBeNull();
-      expect(ctx!.isSysAdmin).toBe(true);
+      expect(ctx!.isSuperAdmin).toBe(true);
     });
 
     it('should return context for org admin', () => {

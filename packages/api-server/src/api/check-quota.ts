@@ -14,6 +14,11 @@ const QUOTA_LABELS: Record<QuotaType, string> = {
   aiCalls: 'AI call',
   pipelines: 'Pipeline',
   plugins: 'Plugin',
+  storageBytes: 'Registry storage',
+  dashboards: 'Dashboard',
+  alertRules: 'Alert rule',
+  alertDestinations: 'Alert destination',
+  idpConfigs: 'IdP configuration',
 };
 
 /**

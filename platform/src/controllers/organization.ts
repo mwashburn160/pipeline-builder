@@ -14,10 +14,11 @@ import {
   ORG_NOT_FOUND,
   SYSTEM_ORG_DELETE_FORBIDDEN,
 } from '../services';
+import { cascadeDeleteOrg, exportOrg } from '../services/org-cascade-service';
 import { parsePagination } from '../utils/pagination';
 import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateQuotasSchema } from '../utils/validation';
 
-const logger = createLogger('OrganizationController');
+const logger = createLogger('organization-controller');
 
 /**
  * Parse a quota value from user input.
@@ -27,7 +28,7 @@ function parseQuotaValue(value: unknown): number | undefined {
   if (value === undefined) return undefined;
   if (value === 'unlimited' || value === -1) return -1;
   const num = Number(value);
-  return !isNaN(num) && num >= -1 ? num : undefined;
+  return !isNaN(num) && num >= -1 ? num: undefined;
 }
 
 // Organization CRUD (System Admin)
@@ -35,10 +36,16 @@ function parseQuotaValue(value: unknown): number | undefined {
 export const listAllOrganizations = withController('List organizations', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
 
-  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+  const search = typeof req.query.search === 'string' ? req.query.search: undefined;
+  // Tier facet — passed through verbatim; service coerces invalid values
+  // to "no filter" via the QuotaTier union (Mongo just no-ops on unknown enums).
+  const tierRaw = typeof req.query.tier === 'string' ? req.query.tier: undefined;
+  const tier = tierRaw && ['developer', 'pro', 'unlimited'].includes(tierRaw)
+    ? (tierRaw as 'developer' | 'pro' | 'unlimited')
+    : undefined;
   const { offset, limit } = parsePagination(req.query.offset, req.query.limit);
 
-  const { organizations, total } = await organizationService.list({ search, offset, limit });
+  const { organizations, total } = await organizationService.list({ search, tier, offset, limit });
 
   sendSuccess(res, 200, {
     organizations,
@@ -62,7 +69,7 @@ export const getOrganizationById = withController('Get organization', async (req
   if (!requireAuth(req, res)) return;
 
   const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
   if (!isSystemAdmin(req) && req.user!.organizationId !== id) {
     return sendError(res, 403, 'Forbidden');
   }
@@ -79,7 +86,7 @@ export const updateOrganization = withController('Update organization', async (r
   if (!body) return;
 
   const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
   const updated = await organizationService.update(id, body);
   if (!updated) return sendError(res, 404, 'Organization not found');
 
@@ -87,19 +94,108 @@ export const updateOrganization = withController('Update organization', async (r
   sendSuccess(res, 200, { organization: updated }, 'Organization updated successfully');
 });
 
+/**
+ * PATCH /organization/:id/tier — sysadmin tier change.
+ *
+ * Body: `{ tier: 'developer' | 'pro' | 'unlimited' }`. Reseeds the
+ * org's quota limits from the new tier's config. The audit event
+ * carries the previous tier so the transition is reconstructable
+ * even if the org doc has been rewritten since.
+ */
+export const updateOrganizationTier = withController('Update organization tier', async (req, res) => {
+  if (!requireSystemAdmin(req, res)) return;
+
+  const idRaw = req.params.id;
+  const id = String(Array.isArray(idRaw) ? idRaw[0]: idRaw);
+  const tier = (req.body as { tier?: unknown })?.tier;
+  if (tier !== 'developer' && tier !== 'pro' && tier !== 'unlimited') {
+    return sendError(res, 400, 'tier must be one of: developer, pro, unlimited');
+  }
+
+  const result = await organizationService.setTier(id, tier);
+  if (!result) return sendError(res, 404, 'Organization not found');
+
+  audit(req, 'admin.org.tier.update', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: { previousTier: result.previousTier, tier: result.tier },
+  });
+  logger.info('Organization tier updated', { id, tier, previousTier: result.previousTier, by: req.user!.sub });
+  sendSuccess(res, 200, result, 'Tier updated successfully');
+});
+
 export const deleteOrganization = withController('Delete organization', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
 
   const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
+
+  // full cascade across Postgres, Mongo, quota, billing BEFORE the
+  // org doc itself is deleted. Cascade returns a report so the audit event
+  // captures what was actually touched. We let cascade failures propagate;
+  // a partial state is worse than retrying the whole sweep.
+  const actorOrgId = (req.user!.organizationId as string) ?? 'system';
+  const cascadeReport = await cascadeDeleteOrg(String(id), actorOrgId);
+
   await organizationService.delete(id);
 
-  logger.info(`Organization ${id} deleted by system admin ${req.user!.sub}`);
-  audit(req, 'admin.org.delete', { targetType: 'organization', targetId: String(id) });
-  sendSuccess(res, 200, undefined, 'Organization deleted successfully');
+  logger.info(`Organization ${id} deleted by system admin ${req.user!.sub}`, { cascade: cascadeReport });
+  // `affectedOrgId` is the org being deleted (the action's target), not the
+  // sysadmin's own org. Lets the audit log answer "which orgs has a sysadmin
+  // dissolved" without joining against `details`.
+  audit(req, 'admin.org.delete', {
+    targetType: 'organization',
+    targetId: String(id),
+    affectedOrgId: String(id),
+    details: { cascade: cascadeReport },
+  });
+  sendSuccess(res, 200, { cascade: cascadeReport }, 'Organization deleted successfully');
 }, {
   [ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
   [SYSTEM_ORG_DELETE_FORBIDDEN]: { status: 400, message: 'Cannot delete system organization' },
+});
+
+/**
+ * GDPR portability export. System admins can export any org;
+ * org admins / owners can export their own org only. Returns a single
+ * JSON blob with every Postgres + Mongo row for the target org. Read-only.
+ */
+export const exportOrganization = withController('Export organization', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const idRaw = req.params.id;
+  const id = String(Array.isArray(idRaw) ? idRaw[0]: idRaw);
+  const actorOrgId = (req.user!.organizationId as string) ?? 'system';
+  const sysAdmin = isSystemAdmin(req);
+  const role = req.user!.role;
+  const isOwnOrgAdmin = (role === 'admin' || role === 'owner') && actorOrgId === id;
+
+  if (!sysAdmin && !isOwnOrgAdmin) {
+    return sendError( res, 403,
+      sysAdmin ? 'Forbidden': 'Org admins can only export their own org',
+    );
+  }
+
+  const dump = await exportOrg(id, actorOrgId);
+
+  audit(req, 'admin.org.export', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: {
+      postgresTables: Object.keys(dump.postgres).length,
+      invitations: dump.mongo.invitations.length,
+      auditEvents: dump.mongo.auditEvents.length,
+    },
+  });
+
+  // Stream the dump as application/json; the file may be large for orgs with
+  // long histories. Setting `Content-Disposition: attachment` makes browsers
+  // save instead of render.
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="org-${id}-export.json"`);
+  res.status(200).send(JSON.stringify(dump, null, 2));
 });
 
 // Quota Management (System Admin)
@@ -108,7 +204,7 @@ export const getOrganizationQuotas = withController('Get organization quotas', a
   if (!requireSystemAdmin(req, res)) return;
 
   const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
 
   const quotas = await organizationService.getQuotas(id, req.headers.authorization || '');
   if (!quotas) return sendError(res, 404, 'Organization not found');
@@ -122,7 +218,7 @@ export const updateOrganizationQuotas = withController('Update organization quot
   if (!body) return;
 
   const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
 
   const quotaLimits: { plugins?: number; pipelines?: number; apiCalls?: number; aiCalls?: number } = {};
   const parsedPlugins = parseQuotaValue(body.plugins);

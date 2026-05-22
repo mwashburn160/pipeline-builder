@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Search, ScrollText, RefreshCw, ChevronRight } from 'lucide-react';
+import { Search, ScrollText, RefreshCw, ChevronRight, Download } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -11,6 +11,7 @@ import { LogDetailsDrawer } from '@/components/observability/LogDetailsDrawer';
 import api from '@/lib/api';
 import { LOG_TIME_RANGES, LOG_LEVEL_COLORS } from '@/lib/constants';
 import { formatError } from '@/lib/constants';
+import { downloadJsonl } from '@/lib/csv-export';
 import type { LogEntry } from '@/types';
 
 /**
@@ -40,7 +41,7 @@ function getLogMessage(entry: LogEntry): string {
 
 /** Log viewer page. Queries and displays service logs with filtering by service, level, time range, and search text. */
 export default function LogsPage() {
-  const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,13 +164,23 @@ export default function LogsPage() {
       title="Service Logs"
       subtitle="System and pipeline logs"
       actions={
-        <button onClick={fetchLogs} disabled={isLoading} className="btn btn-secondary py-1.5 flex items-center gap-1.5">
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => downloadJsonl(entries, `logs-${new Date().toISOString().slice(0, 10)}`)}
+            disabled={entries.length === 0}
+            className="btn btn-secondary py-1.5 flex items-center gap-1.5"
+            title="Export current results as JSON Lines (preserves nested fields)"
+          >
+            <Download className="w-4 h-4" /> Export
+          </button>
+          <button onClick={fetchLogs} disabled={isLoading} className="btn btn-secondary py-1.5 flex items-center gap-1.5">
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       }
     >
-      <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="logs" orgName={user.organizationName} />
+      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="logs" orgName={user.organizationName} />
 
       {error && (
         <div className="alert-error">

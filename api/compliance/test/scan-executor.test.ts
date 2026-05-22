@@ -45,11 +45,14 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     plugin: { id: 'col_pid', name: 'col_pname', isActive: 'col_pactive', orgId: 'col_porg' },
     pipeline: { id: 'col_plid', pipelineName: 'col_plname', isActive: 'col_plactive', orgId: 'col_plorg' },
   },
-  db: {
+  // executeScan is wrapped in runWithTenantContext({ isSuperAdmin: true }) and
+  // every DB op goes through withTenantTx — pass through to the spies above.
+  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     select: dbSelect,
     insert: dbInsert,
     update: dbUpdate,
-  },
+  }),
 }));
 
 jest.mock('../src/engine/rule-engine', () => ({

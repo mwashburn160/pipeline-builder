@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 
-const logger = createLogger('RetryStrategy');
+const logger = createLogger('retry-strategy');
 
 /**
  * Configuration for connection retry strategy

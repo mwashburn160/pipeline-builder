@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { MetadataEntry } from '@/types/form-types';
 import { useCombobox } from '@/hooks/useCombobox';
 import { useTemplateValidation } from '@/hooks/useTemplateValidation';
-import { METADATA_KEY_GROUPS, type MetadataKeyOption } from './metadata-keys';
+import { METADATA_KEY_GROUPS, type MetadataKeyOption } from '@/lib/metadata-keys';
 
 /** Props for {@link MetadataEditor}. */
 interface MetadataEditorProps {

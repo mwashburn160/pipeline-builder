@@ -7,7 +7,7 @@ import { toOrgId } from '../helpers/controller-helper';
 import { Organization, User, UserOrganization } from '../models';
 import type { OrgMemberRole } from '../models/user-organization';
 
-const logger = createLogger('OrgMembersService');
+const logger = createLogger('org-members-service');
 
 export const OM_ORG_NOT_FOUND = 'OM_ORG_NOT_FOUND';
 export const OM_USER_NOT_FOUND = 'OM_USER_NOT_FOUND';
@@ -124,6 +124,12 @@ class OrgMembersService {
    * Remove a member from an org. Refuses if the target is the org owner
    * (transfer first). Also clears `User.lastActiveOrgId` if it pointed at
    * this org so the next login picks a different default.
+   *
+   * Bumps the removed user's `tokenVersion` so any JWTs they still hold for
+   * the now-revoked org are rejected on the next request (the JWT carries
+   * the issuance-time tokenVersion; `requireAuth` compares it to the
+   * current value). Without this bump a kicked user keeps acting as the
+   * org until their access token expires (~2 h default).
    */
   async removeMember(orgId: string, userId: string): Promise<void> {
     const session = await mongoose.startSession();
@@ -136,6 +142,16 @@ class OrgMembersService {
         if (membership.role === 'owner') throw new Error(OM_CANNOT_REMOVE_OWNER);
 
         await UserOrganization.deleteOne({ _id: membership._id }).session(session);
+        await User.updateOne(
+          { _id: userId },
+          {
+            $inc: { tokenVersion: 1 },
+            $unset: { refreshToken: '' },
+          },
+          { session },
+        ).session(session);
+        // Clear lastActiveOrgId if it pointed at the just-removed org (in a
+        // separate update so the unset only fires for matching docs).
         await User.updateOne(
           { _id: userId, lastActiveOrgId: toOrgId(orgId) },
           { $unset: { lastActiveOrgId: '' } },
@@ -150,14 +166,29 @@ class OrgMembersService {
    * Change a member's role within an org. Refuses to touch the owner role
    * (use transferOwnership). Returns the user details + new role for the
    * controller's response.
+   *
+   * Bumps the target user's `tokenVersion` on every successful role change
+   * so role claims baked into outstanding JWTs (`role: admin` vs `member`)
+   * can't outlive the demotion. Same defensive rationale as removeMember:
+   * server-side authorization is the source of truth, but the JWT cache
+   * needs to follow the DB.
    */
   async updateRole(orgId: string, userId: string, role: OrgMemberRole) {
     const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) });
     if (!membership) throw new Error(OM_NOT_A_MEMBER);
     if (membership.role === 'owner') throw new Error(OM_CANNOT_CHANGE_OWNER);
+    if (membership.role === role) {
+      // No-op when caller passes the existing role — don't churn tokens.
+      const user = await User.findById(userId).select('_id username email').lean();
+      return { user, role: membership.role };
+    }
 
     membership.role = role;
     await membership.save();
+    await User.updateOne(
+      { _id: userId },
+      { $inc: { tokenVersion: 1 } },
+    );
 
     const user = await User.findById(userId).select('_id username email').lean();
     return { user, role: membership.role };

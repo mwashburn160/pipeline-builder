@@ -17,8 +17,9 @@ import type { Queue } from 'bullmq';
 
 const logger = createLogger('queue-metrics-scraper');
 
-/** Scrape interval. Picked to give Prometheus' 15s scrape ample fresh samples. */
-const DEFAULT_INTERVAL_MS = 15_000;
+/** Scrape interval. Picked to give Prometheus' 15s scrape ample fresh samples.
+ *  Override via `PLUGIN_QUEUE_METRICS_INTERVAL_MS`. */
+const DEFAULT_INTERVAL_MS = parseInt(process.env.PLUGIN_QUEUE_METRICS_INTERVAL_MS || '15000', 10);
 
 /** BullMQ states reported by `getJobCounts`. Stable across BullMQ 5.x. */
 const STATES = ['waiting', 'active', 'completed', 'failed', 'delayed', 'paused'] as const;

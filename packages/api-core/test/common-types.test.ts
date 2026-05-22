@@ -8,8 +8,14 @@ import {
 } from '../src/types/common';
 
 describe('VALID_QUOTA_TYPES', () => {
-  it('should contain plugins, pipelines, apiCalls, aiCalls', () => {
-    expect(VALID_QUOTA_TYPES).toEqual(['plugins', 'pipelines', 'apiCalls', 'aiCalls']);
+  it('should contain every supported quota type', () => {
+    // storageBytes was added for the image-registry push-gate; the four
+    // count caps (dashboards / alertRules / alertDestinations / idpConfigs)
+    // were added to close per-org DoS via spam on user-editable feature tables.
+    expect(VALID_QUOTA_TYPES).toEqual([
+      'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
+      'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs',
+    ]);
   });
 });
 
@@ -43,13 +49,13 @@ describe('validateQuotaType', () => {
 
   it('should throw for invalid values', () => {
     expect(() => validateQuotaType('invalid')).toThrow(
-      'Invalid quotaType: "invalid". Must be one of: plugins, pipelines, apiCalls, aiCalls',
+      'Invalid quotaType: "invalid". Must be one of: plugins, pipelines, apiCalls, aiCalls, storageBytes, dashboards, alertRules, alertDestinations, idpConfigs',
     );
   });
 
   it('should use custom field name in error message', () => {
     expect(() => validateQuotaType('bad', 'type')).toThrow(
-      'Invalid type: "bad". Must be one of: plugins, pipelines, apiCalls, aiCalls',
+      'Invalid type: "bad". Must be one of: plugins, pipelines, apiCalls, aiCalls, storageBytes, dashboards, alertRules, alertDestinations, idpConfigs',
     );
   });
 

@@ -14,6 +14,7 @@ import { createMarketplaceRoutes } from './routes/marketplace';
 import { createReadPlanRoutes } from './routes/read-plans';
 import { createStripeWebhookRoutes } from './routes/stripe-webhook';
 import { createSubscriptionRoutes } from './routes/subscriptions';
+import { createUsageRoutes } from './routes/usage';
 
 const logger = createLogger('billing');
 
@@ -37,6 +38,7 @@ if (config.enabled) {
 
   app.use('/billing', createReadPlanRoutes());
   app.use('/billing', createSubscriptionRoutes());
+  app.use('/billing', createUsageRoutes());
   app.use('/billing', createAdminSubscriptionRoutes());
 
   // SNS may send text/plain — add text body parser for the marketplace SNS webhook

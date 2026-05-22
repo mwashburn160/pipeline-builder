@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { SYSTEM_ORG_ID, createLogger } from '@pipeline-builder/api-core';
-import { schema, db } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import type { RuleScope } from '@pipeline-builder/pipeline-core';
 import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { complianceRuleService } from './compliance-rule-service';
@@ -41,7 +41,7 @@ export class ComplianceRuleSubscriptionService {
       throw new Error('System org cannot subscribe to published rules');
     }
 
-    const sub = await db.transaction(async (tx) => {
+    const sub = await withTenantTx(async (tx) => {
       // Verify rule exists, is published, and not soft-deleted
       const [rule] = await tx
         .select({
@@ -89,7 +89,7 @@ export class ComplianceRuleSubscriptionService {
       throw new Error('System org cannot manage subscriptions');
     }
 
-    const updated = await db.transaction(async (tx) => {
+    const updated = await withTenantTx(async (tx) => {
       const [existing] = await tx
         .select()
         .from(schema.complianceRuleSubscription)
@@ -122,7 +122,7 @@ export class ComplianceRuleSubscriptionService {
       throw new Error('System org cannot manage subscriptions');
     }
 
-    await db.transaction(async (tx) => {
+    await withTenantTx(async (tx) => {
       const [existing] = await tx
         .select({ id: schema.complianceRuleSubscription.id })
         .from(schema.complianceRuleSubscription)
@@ -146,7 +146,7 @@ export class ComplianceRuleSubscriptionService {
 
   /** List all subscriptions for an org (active + inactive, excludes unsubscribed and soft-deleted rules). */
   async findByOrg(orgId: string): Promise<ComplianceRuleSubscription[]> {
-    return db
+    return withTenantTx(async (tx) => tx
       .select({
         id: schema.complianceRuleSubscription.id,
         orgId: schema.complianceRuleSubscription.orgId,
@@ -163,12 +163,12 @@ export class ComplianceRuleSubscriptionService {
         eq(schema.complianceRuleSubscription.orgId, orgId),
         isNull(schema.complianceRuleSubscription.unsubscribedAt),
         isNull(schema.complianceRule.deletedAt),
-      )) as unknown as Promise<ComplianceRuleSubscription[]>;
+      )) as unknown as Promise<ComplianceRuleSubscription[]>);
   }
 
   /** List all orgs subscribed to a specific rule (system org admin view). */
   async findSubscribers(ruleId: string): Promise<ComplianceRuleSubscription[]> {
-    return db
+    return withTenantTx(async (tx) => tx
       .select({
         id: schema.complianceRuleSubscription.id,
         orgId: schema.complianceRuleSubscription.orgId,
@@ -185,7 +185,7 @@ export class ComplianceRuleSubscriptionService {
         eq(schema.complianceRuleSubscription.ruleId, ruleId),
         isNull(schema.complianceRuleSubscription.unsubscribedAt),
         isNull(schema.complianceRule.deletedAt),
-      )) as unknown as Promise<ComplianceRuleSubscription[]>;
+      )) as unknown as Promise<ComplianceRuleSubscription[]>);
   }
 
   /**
@@ -197,14 +197,14 @@ export class ComplianceRuleSubscriptionService {
     if (orgId.toLowerCase() === SYSTEM_ORG_ID) return 0;
 
     // Fetch all active published rules (scope='published' is only allowed for system org)
-    const publishedRules = await db
+    const publishedRules = await withTenantTx(async (tx) => tx
       .select({ id: schema.complianceRule.id })
       .from(schema.complianceRule)
       .where(and(
         eq(schema.complianceRule.scope, 'published' as RuleScope),
         eq(schema.complianceRule.isActive, true),
         isNull(schema.complianceRule.deletedAt),
-      ));
+      )));
 
     if (publishedRules.length === 0) return 0;
 
@@ -216,11 +216,11 @@ export class ComplianceRuleSubscriptionService {
       isActive: false,
     }));
 
-    const result = await db
+    const result = await withTenantTx(async (tx) => tx
       .insert(schema.complianceRuleSubscription)
       .values(values)
       .onConflictDoNothing({ target: [schema.complianceRuleSubscription.orgId, schema.complianceRuleSubscription.ruleId] })
-      .returning({ id: schema.complianceRuleSubscription.id });
+      .returning({ id: schema.complianceRuleSubscription.id }));
 
     const subscribed = result.length;
     logger.info('Auto-subscribed org to published rules', { orgId, total: publishedRules.length, subscribed });
@@ -237,7 +237,7 @@ export class ComplianceRuleSubscriptionService {
     }
 
     // Single batch update instead of N individual queries
-    const result = await db
+    const result = await withTenantTx(async (tx) => tx
       .update(schema.complianceRuleSubscription)
       .set({ isActive })
       .where(and(
@@ -245,7 +245,7 @@ export class ComplianceRuleSubscriptionService {
         inArray(schema.complianceRuleSubscription.ruleId, ruleIds),
         isNull(schema.complianceRuleSubscription.unsubscribedAt),
       ))
-      .returning({ id: schema.complianceRuleSubscription.id });
+      .returning({ id: schema.complianceRuleSubscription.id }));
 
     const updated = result.length;
     logger.info('Bulk subscription state changed', { action: isActive ? 'activated' : 'deactivated', orgId, requested: ruleIds.length, updated });
@@ -261,7 +261,7 @@ export class ComplianceRuleSubscriptionService {
       throw new Error('System org cannot manage subscriptions');
     }
 
-    const updated = await db.transaction(async (tx) => {
+    const updated = await withTenantTx(async (tx) => {
       // Fetch the subscription
       const [sub] = await tx
         .select()
@@ -309,7 +309,7 @@ export class ComplianceRuleSubscriptionService {
    * Feature #5: Unpin a subscription (use latest rule version).
    */
   async unpinVersion(orgId: string, ruleId: string): Promise<ComplianceRuleSubscription> {
-    const [updated] = await db
+    const [updated] = await withTenantTx(async (tx) => tx
       .update(schema.complianceRuleSubscription)
       .set({ pinnedVersion: null })
       .where(and(
@@ -317,7 +317,7 @@ export class ComplianceRuleSubscriptionService {
         eq(schema.complianceRuleSubscription.ruleId, ruleId),
         isNull(schema.complianceRuleSubscription.unsubscribedAt),
       ))
-      .returning();
+      .returning());
 
     if (!updated) throw new Error('Subscription not found');
     await invalidateRulesFor(orgId);
@@ -326,7 +326,7 @@ export class ComplianceRuleSubscriptionService {
 
   /** Get enforced (active) subscription rule IDs for an org. */
   async getSubscribedRuleIds(orgId: string): Promise<string[]> {
-    const subs = await db
+    const subs = await withTenantTx(async (tx) => tx
       .select({ ruleId: schema.complianceRuleSubscription.ruleId })
       .from(schema.complianceRuleSubscription)
       .innerJoin(schema.complianceRule, eq(schema.complianceRuleSubscription.ruleId, schema.complianceRule.id))
@@ -335,7 +335,7 @@ export class ComplianceRuleSubscriptionService {
         eq(schema.complianceRuleSubscription.isActive, true),
         isNull(schema.complianceRuleSubscription.unsubscribedAt),
         isNull(schema.complianceRule.deletedAt),
-      ));
+      )));
     return subs.map(s => s.ruleId);
   }
 }

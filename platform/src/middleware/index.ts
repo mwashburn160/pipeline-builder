@@ -4,3 +4,5 @@
 export * from './auth';
 export * from './error';
 export * from './quota';
+export * from './step-up';
+export * from './require-write-access';

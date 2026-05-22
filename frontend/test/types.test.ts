@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemOrg, isSystemAdmin, isOrgAdmin, User } from '../src/types';
+import { isSystemAdmin, isOrgAdmin, User } from '../src/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,92 +21,54 @@ function mockUser(overrides: Partial<User> = {}): User {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('isSystemOrg', () => {
-  it('should return true for user with system organizationId', () => {
-    expect(isSystemOrg(mockUser({ organizationId: 'system' }))).toBe(true);
-  });
-
-  it('should return true for user with system organizationName', () => {
-    expect(isSystemOrg(mockUser({ organizationName: 'system' }))).toBe(true);
-  });
-
-  it('should be case-insensitive', () => {
-    expect(isSystemOrg(mockUser({ organizationId: 'System' }))).toBe(true);
-    expect(isSystemOrg(mockUser({ organizationName: 'SYSTEM' }))).toBe(true);
-  });
-
-  it('should return true regardless of role', () => {
-    expect(isSystemOrg(mockUser({ role: 'member', organizationId: 'system' }))).toBe(true);
-    expect(isSystemOrg(mockUser({ role: 'admin', organizationId: 'system' }))).toBe(true);
-    expect(isSystemOrg(mockUser({ role: 'owner', organizationId: 'system' }))).toBe(true);
-  });
-
-  it('should return false for non-system org', () => {
-    expect(isSystemOrg(mockUser({ organizationId: 'org-1' }))).toBe(false);
-  });
-
-  it('should return false for null user', () => {
-    expect(isSystemOrg(null)).toBe(false);
-  });
-
-  it('should return false when organizationId and organizationName are undefined', () => {
-    expect(isSystemOrg(mockUser())).toBe(false);
-  });
-});
-
 describe('isSystemAdmin', () => {
-  it('should return true for admin with system organizationId', () => {
-    expect(isSystemAdmin(mockUser({ role: 'admin', organizationId: 'system' }))).toBe(true);
+  // Sysadmin authority now keys on the `isSuperAdmin` flag carried in the
+  // JWT. The legacy "user is admin/owner in the well-known 'system' org"
+  // branch was removed alongside the backend cutover.
+
+  it('returns true when isSuperAdmin is true, regardless of role', () => {
+    expect(isSystemAdmin(mockUser({ role: 'member', isSuperAdmin: true }))).toBe(true);
+    expect(isSystemAdmin(mockUser({ role: 'admin', isSuperAdmin: true }))).toBe(true);
+    expect(isSystemAdmin(mockUser({ role: 'owner', isSuperAdmin: true }))).toBe(true);
   });
 
-  it('should return true for admin with system organizationName', () => {
-    expect(isSystemAdmin(mockUser({ role: 'admin', organizationName: 'system' }))).toBe(true);
+  it('returns true even when active org is a regular customer org', () => {
+    expect(isSystemAdmin(mockUser({
+      role: 'member', organizationId: 'org-acme', isSuperAdmin: true,
+    }))).toBe(true);
   });
 
-  it('should return true for owner in system org', () => {
-    expect(isSystemAdmin(mockUser({ role: 'owner', organizationId: 'system' }))).toBe(true);
+  it('returns false when isSuperAdmin is unset / false', () => {
+    expect(isSystemAdmin(mockUser({ role: 'admin', organizationId: 'system' }))).toBe(false);
+    expect(isSystemAdmin(mockUser({ role: 'owner', organizationName: 'system' }))).toBe(false);
+    expect(isSystemAdmin(mockUser({ role: 'admin', isSuperAdmin: false }))).toBe(false);
   });
 
-  it('should be case-insensitive', () => {
-    expect(isSystemAdmin(mockUser({ role: 'admin', organizationId: 'System' }))).toBe(true);
-    expect(isSystemAdmin(mockUser({ role: 'admin', organizationName: 'SYSTEM' }))).toBe(true);
-  });
-
-  it('should return false for member role', () => {
-    expect(isSystemAdmin(mockUser({ role: 'member', organizationId: 'system' }))).toBe(false);
-  });
-
-  it('should return false for admin in non-system org', () => {
-    expect(isSystemAdmin(mockUser({ role: 'admin', organizationId: 'org-1' }))).toBe(false);
-  });
-
-  it('should return false for null user', () => {
+  it('returns false for null user', () => {
     expect(isSystemAdmin(null)).toBe(false);
-  });
-
-  it('should return false when organizationId and organizationName are undefined', () => {
-    expect(isSystemAdmin(mockUser({ role: 'admin' }))).toBe(false);
   });
 });
 
 describe('isOrgAdmin', () => {
-  it('should return true for admin not in system org', () => {
+  it('returns true for admin in a regular org (not a sysadmin)', () => {
     expect(isOrgAdmin(mockUser({ role: 'admin', organizationId: 'org-1' }))).toBe(true);
   });
 
-  it('should return true for owner in non-system org', () => {
+  it('returns true for owner in a regular org', () => {
     expect(isOrgAdmin(mockUser({ role: 'owner', organizationId: 'org-1' }))).toBe(true);
   });
 
-  it('should return false for system admin', () => {
-    expect(isOrgAdmin(mockUser({ role: 'admin', organizationId: 'system' }))).toBe(false);
+  it('returns false when the user is also a sysadmin', () => {
+    // The UI typically wants org-admin affordances rendered separately
+    // from operator affordances, so sysadmins shouldn't double-count.
+    expect(isOrgAdmin(mockUser({ role: 'admin', organizationId: 'org-1', isSuperAdmin: true }))).toBe(false);
   });
 
-  it('should return false for member role', () => {
+  it('returns false for member role', () => {
     expect(isOrgAdmin(mockUser({ role: 'member', organizationId: 'org-1' }))).toBe(false);
   });
 
-  it('should return false for null user', () => {
+  it('returns false for null user', () => {
     expect(isOrgAdmin(null)).toBe(false);
   });
 });

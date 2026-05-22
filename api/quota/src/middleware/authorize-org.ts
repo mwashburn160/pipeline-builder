@@ -53,10 +53,10 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
     // both sides is convenience, not a security weakening. See test
     // `should allow same-org access case-insensitively`.
     const isSameOrg = requestingOrgId.toLowerCase() === targetOrgId.toLowerCase();
-    const isSysAdmin = isSystemAdmin(req);
+    const isSuperAdmin = isSystemAdmin(req);
 
     // System-admin-only routes — reject everyone else
-    if (requireSystemAdmin && !isSysAdmin) {
+    if (requireSystemAdmin && !isSuperAdmin) {
       logger.warn('Access denied — system admin required', { requestingOrgId, targetOrgId });
       return sendError(
         res, 403,
@@ -66,7 +66,7 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
     }
 
     // Standard routes — same-org or system admin
-    if (!requireSystemAdmin && !isSameOrg && !isSysAdmin) {
+    if (!requireSystemAdmin && !isSameOrg && !isSuperAdmin) {
       logger.warn('Access denied — cross-org without admin', { requestingOrgId, targetOrgId });
       return sendError(
         res, 403,

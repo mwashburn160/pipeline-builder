@@ -7,7 +7,14 @@ import AuditEvent, { type AuditAction, type AuditEventDocument } from '../models
 const logger = createLogger('audit-service');
 
 export interface AuditFilter {
+  /** Actor's org at action-time. */
   orgId?: string;
+  /** Org operated ON. Differs from `orgId` for cross-tenant sysadmin actions
+   *  (sysadmin acting on org X). Filtering on this answers "what was done
+   *  to org X" regardless of which actor performed it. */
+  affectedOrgId?: string;
+  /** Specific user who performed the action. */
+  actorId?: string;
   action?: string;
   targetType?: string;
   targetId?: string;
@@ -18,6 +25,9 @@ export interface AuditCreateInput {
   actorId: string;
   actorEmail?: string;
   orgId?: string;
+  /** Org being operated on (cross-tenant sysadmin actions). Falls back to
+   *  `orgId` when omitted, matching how the audit helper auto-populates it. */
+  affectedOrgId?: string;
   targetType?: string;
   targetId?: string;
   details?: Record<string, unknown>;
@@ -44,6 +54,8 @@ class AuditService {
     const query: Record<string, unknown> = {};
 
     if (filter.orgId) query.orgId = filter.orgId;
+    if (filter.affectedOrgId) query.affectedOrgId = filter.affectedOrgId;
+    if (filter.actorId) query.actorId = filter.actorId;
     if (filter.action) {
       const escaped = filter.action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.action = { $regex: escaped, $options: 'i' };

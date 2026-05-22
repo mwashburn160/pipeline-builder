@@ -22,11 +22,11 @@ jest.mock('@pipeline-builder/api-core', () => ({
   errorMessage: (err: unknown) => err instanceof Error ? err.message : String(err),
 }));
 
+import type { Queue } from 'bullmq';
 import {
   startQueueMetricsScraper,
   stopQueueMetricsScraper,
 } from '../src/queue/queue-metrics-scraper';
-import type { Queue } from 'bullmq';
 
 function makeQueue(counts: Record<string, number>): Queue {
   return {

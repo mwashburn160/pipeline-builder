@@ -10,3 +10,6 @@ export * from './object';
 export * from './alias-resolver';
 export * from './concurrency';
 export * from './audit';
+export * from './secret-encryption';
+export * from './org-aws-credentials';
+export * from './metric-emitter';

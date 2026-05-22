@@ -34,6 +34,41 @@ const httpRequestsTotal = new Counter({
 });
 
 /**
+ * Per-org HTTP request counter — SAMPLED to keep Prometheus cardinality
+ * under control. Cardinality of `org_id * method * route * status_code`
+ * grows multiplicatively; with N orgs * 50 routes * 5 status_codes that's
+ * 250×N series. We sample 1-in-N requests (configurable via
+ * `HTTP_METRICS_ORG_SAMPLE_RATE`, default 1.0 = every request).
+ *
+ * Operators answer "what's org X's p99?" via separate per-org histograms
+ * scraped at a lower rate, OR via Loki LogQL queries against the
+ * unsampled access-log stream. This counter is the fast-path "noisy
+ * neighbor detection" — operators alert when one org's request rate
+ * deviates from the fleet median.
+ *
+ * NOT a histogram: histogram label cardinality is even more sensitive
+ * (each bucket is a separate series). If per-org latency percentiles are
+ * needed later, add a separate histogram with a coarser bucket set and
+ * lower sample rate.
+ */
+const httpRequestsByOrgTotal = new Counter({
+  name: 'http_requests_by_org_total',
+  help: 'Sampled per-org HTTP request count (sample rate via HTTP_METRICS_ORG_SAMPLE_RATE)',
+  labelNames: ['method', 'route', 'status_code', 'org_id'] as const,
+  registers: [register],
+});
+
+/** Sample rate for the per-org counter. 1.0 = every request, 0.0 = disabled.
+ *  Parsed once at module load — operators tune by restarting the service. */
+const ORG_SAMPLE_RATE = (() => {
+  const raw = process.env.HTTP_METRICS_ORG_SAMPLE_RATE;
+  if (raw === undefined || raw === '') return 1.0;
+  const parsed = parseFloat(raw);
+  if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) return 1.0;
+  return parsed;
+})();
+
+/**
  * Normalize an Express route path to prevent label cardinality explosion.
  *
  * Uses Express's matched route pattern (e.g. `/plugins/:id`) when available,
@@ -77,6 +112,18 @@ export function metricsMiddleware() {
 
       end(labels);
       httpRequestsTotal.inc(labels);
+
+      // Per-org sampled counter. Skip when:
+      //   - no org context on the request (anonymous / health endpoints)
+      //   - sample rate is 0 (disabled)
+      //   - dice roll fails
+      // Using Math.random for the sampler — for unbiased low-rate sampling
+      // a deterministic per-request hash would be more uniform, but at the
+      // default rate of 1.0 every request lands so this is fine.
+      const orgId = req.user?.organizationId;
+      if (orgId && ORG_SAMPLE_RATE > 0 && Math.random() < ORG_SAMPLE_RATE) {
+        httpRequestsByOrgTotal.inc({ ...labels, org_id: orgId });
+      }
     });
 
     next();

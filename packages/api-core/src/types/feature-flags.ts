@@ -67,23 +67,23 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
 /**
  * Resolve a user's effective feature set.
  *
- * 1. System org users always get ALL features.
+ * 1. Sysadmins (isSuperAdmin) always get ALL features.
  * 2. Start with the tier's default features.
  * 3. Apply per-user overrides: `true` adds a feature, `false` removes it.
  * 4. Invalid override keys are silently ignored.
  *
  * @param tier - The organization's quota tier
  * @param featureOverrides - Per-user overrides (key = feature flag, value = enabled)
- * @param isSystemOrg - Whether the user belongs to the system organization
+ * @param isSuperAdmin - Whether the user has the global super-admin flag
  * @returns Sorted array of enabled feature flags
  */
 export function resolveUserFeatures(
   tier: QuotaTier,
   featureOverrides?: Record<string, boolean> | null,
-  isSystemOrg?: boolean,
+  isSuperAdmin?: boolean,
 ): FeatureFlag[] {
-  // System org always gets everything
-  if (isSystemOrg) return [...ALL_FEATURE_FLAGS];
+  // Sysadmins get everything regardless of tier.
+  if (isSuperAdmin) return [...ALL_FEATURE_FLAGS];
 
   // Start with tier defaults
   const features = new Set<FeatureFlag>(TIER_FEATURES[tier] ?? []);
@@ -110,16 +110,16 @@ export function resolveUserFeatures(
  * @param tier - The organization's quota tier
  * @param feature - The feature flag to check
  * @param featureOverrides - Per-user overrides
- * @param isSystemOrg - Whether the user belongs to the system organization
+ * @param isSuperAdmin - Whether the user has the global super-admin flag
  * @returns true if the feature is enabled
  */
 export function hasFeature(
   tier: QuotaTier,
   feature: FeatureFlag,
   featureOverrides?: Record<string, boolean> | null,
-  isSystemOrg?: boolean,
+  isSuperAdmin?: boolean,
 ): boolean {
-  if (isSystemOrg) return true;
+  if (isSuperAdmin) return true;
 
   // Check override first
   if (featureOverrides && feature in featureOverrides) {

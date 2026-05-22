@@ -21,12 +21,12 @@ import * as logService from '../services/log-service';
 export const queryLogs = withController('Query logs', async (req, res) => {
   if (!requireAuth(req, res)) return;
 
-  const isSysAdmin = isSystemAdmin(req);
+  const isSuperAdmin = isSystemAdmin(req);
   const userOrgId = req.user!.organizationId;
 
   // Determine effective orgId
   let effectiveOrgId: string | undefined;
-  if (isSysAdmin) {
+  if (isSuperAdmin) {
     // System admins can specify any orgId, or omit for all
     effectiveOrgId = (req.query.orgId as string) || undefined;
   } else {

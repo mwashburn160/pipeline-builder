@@ -9,6 +9,7 @@ import {
   updateOrgAIConfig,
   getOrganizationById,
   updateOrganization,
+  updateOrganizationTier,
   getOrganizationQuotas,
   updateOrganizationQuotas,
   getOrganizationMembers,
@@ -19,8 +20,9 @@ import {
   deactivateMember,
   activateMember,
   deleteOrganization,
+  exportOrganization,
 } from '../controllers';
-import { requireAuth, requireRole } from '../middleware';
+import { requireAuth, requireRole, requireStepUp } from '../middleware';
 
 const router = Router();
 
@@ -54,8 +56,15 @@ router.get('/:id', requireAuth, getOrganizationById);
 /** PUT /organization/:id - Update organization (admin only) */
 router.put('/:id', requireAuth, requireRole('admin', 'owner'), updateOrganization);
 
+/** PATCH /organization/:id/tier - Change pricing tier (sysadmin only).
+ *  Step-up gated because the change resizes quota limits and affects billing. */
+router.patch('/:id/tier', requireAuth, requireRole('admin', 'owner'), requireStepUp, updateOrganizationTier);
+
 /** DELETE /organization/:id - Delete organization (admin only) */
-router.delete('/:id', requireAuth, requireRole('admin', 'owner'), deleteOrganization);
+router.delete('/:id', requireAuth, requireRole('admin', 'owner'), requireStepUp, deleteOrganization);
+
+/** GET /organization/:id/export - GDPR portability dump (, sysadmin only) */
+router.get('/:id/export', requireAuth, requireRole('admin', 'owner'), exportOrganization);
 
 /*
  * Organization Quotas
@@ -94,6 +103,6 @@ router.patch('/:id/members/:userId/activate', requireAuth, requireRole('admin', 
  */
 
 /** PATCH /organization/:id/transfer-owner - Transfer organization ownership (admin only) */
-router.patch('/:id/transfer-owner', requireAuth, requireRole('admin', 'owner'), transferOrganizationOwnership);
+router.patch('/:id/transfer-owner', requireAuth, requireRole('admin', 'owner'), requireStepUp, transferOrganizationOwnership);
 
 export default router;

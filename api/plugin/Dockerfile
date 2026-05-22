@@ -10,11 +10,6 @@ ARG CRANE_VERSION=v0.20.2
 # every deploy target uses the same code path now.
 # =============================================================================
 
-FROM node:${NODE_VERSION}-slim AS deps
-WORKDIR /app
-COPY package.json .
-RUN --mount=type=secret,id=npmrc,target=.npmrc npm install --omit=dev
-
 FROM node:${NODE_VERSION}-slim AS tools
 ARG BUILDKIT_VERSION
 ARG CRANE_VERSION
@@ -36,9 +31,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 COPY --from=tools /usr/local/bin/buildctl /usr/local/bin/buildctl
 COPY --from=tools /usr/local/bin/crane /usr/local/bin/crane
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json .
-COPY lib/ /app
+# F-0.3: node_modules is built OUTSIDE Docker by the docker:build script
+# (`pnpm deploy --filter plugin --prod --legacy .docker-build`) so the
+# install runs against pnpm-lock.yaml. The deps stage that used
+# `npm install --omit=dev` was removed — caret-range drift on rebuild
+# is no longer possible.
+COPY .docker-build/node_modules ./node_modules
+COPY .docker-build/package.json .
+COPY .docker-build/lib/ /app
 RUN mkdir -p /app/tmp /app/uploads && chown -R node:node /app/tmp /app/uploads
 USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { Config, schema, db } from '@pipeline-builder/pipeline-core';
+import { Config, schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { eq, ne, and, lte } from 'drizzle-orm';
 import { executeScan } from './scan-executor';
 
@@ -47,10 +47,18 @@ export function stopScanScheduler(): void {
   }
 }
 
-/** Run one scheduler cycle: process pending scans + check due schedules. */
+/**
+ * Run one scheduler cycle: process pending scans + check due schedules.
+ *
+ * Scheduler is a privileged background tick that legitimately reads + writes
+ * across every org; establish a sysadmin tenant context for the whole cycle
+ * so the inner queries bypass per-org RLS once it's FORCE'd.
+ */
 async function runSchedulerCycle(): Promise<void> {
-  await processPendingScans();
-  await checkDueSchedules();
+  await runWithTenantContext({ isSuperAdmin: true }, async () => {
+    await processPendingScans();
+    await checkDueSchedules();
+  });
 }
 
 /** Find and execute all pending scans. */
@@ -62,11 +70,11 @@ async function processPendingScans(): Promise<void> {
   if (!SYSTEM_ORG_SCANS_ENABLED) {
     conditions.push(ne(schema.complianceScan.orgId, SYSTEM_ORG_ID));
   }
-  const pendingScans = await db
+  const pendingScans = await withTenantTx(async (tx) => tx
     .select({ id: schema.complianceScan.id })
     .from(schema.complianceScan)
     .where(and(...conditions))
-    .limit(10);
+    .limit(10));
 
   for (const scan of pendingScans) {
     try {
@@ -88,32 +96,32 @@ async function checkDueSchedules(): Promise<void> {
   if (!SYSTEM_ORG_SCANS_ENABLED) {
     conditions.push(ne(schema.complianceScanSchedule.orgId, SYSTEM_ORG_ID));
   }
-  const dueSchedules = await db
+  const dueSchedules = await withTenantTx(async (tx) => tx
     .select()
     .from(schema.complianceScanSchedule)
     .where(and(...conditions))
-    .limit(10);
+    .limit(10));
 
   for (const schedule of dueSchedules) {
     try {
       // Create a scan record
-      await db.insert(schema.complianceScan).values({
+      await withTenantTx(async (tx) => tx.insert(schema.complianceScan).values({
         orgId: schedule.orgId,
         target: schedule.target,
         status: 'pending',
         triggeredBy: 'scheduled',
         userId: schedule.createdBy,
-      });
+      }));
 
       // Update schedule: lastRunAt and calculate nextRunAt
       const nextRun = calculateNextRun(schedule.cronExpression);
-      await db.update(schema.complianceScanSchedule)
+      await withTenantTx(async (tx) => tx.update(schema.complianceScanSchedule)
         .set({
           lastRunAt: now,
           nextRunAt: nextRun,
           updatedAt: now,
         })
-        .where(eq(schema.complianceScanSchedule.id, schedule.id));
+        .where(eq(schema.complianceScanSchedule.id, schedule.id)));
 
       logger.info('Scheduled scan created', {
         scheduleId: schedule.id,

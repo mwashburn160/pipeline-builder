@@ -1,30 +1,23 @@
 # =============================================================================
-# Promtail Configuration — Docker Container Log Collection
+# Promtail Configuration  Docker Container Log Collection
 # =============================================================================
 # Discovers containers via Docker socket and ships logs to Loki.
 # Docs: https://grafana.com/docs/loki/latest/send-data/promtail/configuration/
 
-server:
-  http_listen_port: 9080
+server  http_listen_port: 9080
   grpc_listen_port: 0
   log_level: warn
 
-positions:
-  filename: /tmp/positions.yaml
+positions  filename: /tmp/positions.yaml
 
-clients:
-  - url: http://loki:3100/loki/api/v1/push
+clients  - url: http://loki:3100/loki/api/v1/push
 
-scrape_configs:
-  - job_name: docker
-    docker_sd_configs:
-      - host: unix:///var/run/docker.sock
+scrape_configs  - job_name: docker
+    docker_sd_configs      - host: unix:///var/run/docker.sock
         refresh_interval: 5s
-        filters:
-          - name: label
+        filters          - name: label
             values: ['com.docker.compose.project']
-    relabel_configs:
-      # Extract container name (strip leading /)
+    relabel_configs      # Extract container name (strip leading /)
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
         target_label: container
@@ -41,17 +34,14 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         regex: promtail
         action: drop
-    pipeline_stages:
-      # Unwrap Docker JSON log wrapper
+    pipeline_stages      # Unwrap Docker JSON log wrapper
       - docker: {}
       # Parse structured JSON logs from API services
-      - json:
-          expressions:
-            level: level
+      - json          expressions            level: level
             service_name: service
             msg: message
             ts: timestamp
-            # Audit-event fields — extracted so they survive the
+            # Audit-event fields  extracted so they survive the
             # `output.source: msg` rewrite below and become queryable
             # in the native Observability dashboards via stream selectors.
             eventCategory: eventCategory
@@ -61,6 +51,9 @@ scrape_configs:
             # that have it (most logs don't), keeping cardinality bounded to
             # the count of distinct plugin names that have built recently.
             pluginName: pluginName
+            # orgId drives the `tenant` stage below so each org's
+            # logs land in a separate Loki tenant namespace.
+            orgId: orgId
       # Promote parsed fields to Loki labels. `eventCategory` is low-cardinality
       # ('audit' or 'plugin-build' or absent); `event` is bounded (~tens of
       # distinct names like `registry.tag.copy`, `completed`, `failed`); `actor`
@@ -68,13 +61,10 @@ scrape_configs:
       # by # of plugins that have logged a build event. All stay below Loki's
       # recommended label-cardinality ceiling. Digest fields are intentionally
       # NOT promoted (per-event unique = unbounded cardinality).
-      - labels:
-          level:
-          service_name:
-          eventCategory:
-          event:
-          actor:
-          pluginName:
+      - labels          level          service_name          eventCategory          event          actor          pluginName      # route each log line to a per-org Loki tenant. Lines without
+      # an orgId fall back to `system`. In single-tenant Loki the
+      # X-Scope-OrgID header this generates is ignored.
+      - tenant          source: orgId
+          value: system
       # Use the parsed message as the log line (falls back to raw if parsing fails)
-      - output:
-          source: msg
+      - output          source: msg

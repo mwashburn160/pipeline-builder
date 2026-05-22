@@ -5,7 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Request, Response, NextFunction } from 'express';
 
-const logger = createLogger('Idempotency');
+const logger = createLogger('idempotency');
 
 interface CachedEntry {
   statusCode: number;

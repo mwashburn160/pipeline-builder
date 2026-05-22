@@ -233,7 +233,7 @@ export class PipelineBuilder extends Construct {
     // Resolve IAM role if explicitly provided; otherwise let CDK auto-create
     // the pipeline role with the correct codepipeline.amazonaws.com principal.
     if (props.role?.type === 'codeBuildDefault') {
-      createLogger('PipelineBuilder').warn(
+      createLogger('pipeline-builder').warn(
         'codeBuildDefault role type uses codebuild.amazonaws.com trust principal — ' +
         'this is not suitable as the pipeline-level role. Consider using roleArn/roleName ' +
         'or omitting the role to let CDK auto-create one with codepipeline.amazonaws.com.',

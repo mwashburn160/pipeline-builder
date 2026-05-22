@@ -1,0 +1,77 @@
+# ---------------------------------------------------------------------------
+# Per-org NetworkPolicy allowlist
+# ---------------------------------------------------------------------------
+#
+# Companion to namespace-template.yaml. The default-deny in that template
+# blocks all traffic; these policies open just the connections each org
+# pod actually needs:
+#
+#   - Egress to in-cluster postgres / redis / image registry
+#   - Egress to platform / quota / billing services (for plugin builds
+#     calling back during the build itself)
+#   - Egress to kube-dns (53/UDP) so service discovery works
+#   - Ingress only from the cluster's ingress controller — direct
+#     pod-to-pod ingress from other orgs is implicitly denied
+#
+# Apply alongside namespace-template.yaml:
+#   ORG_SLUG=acme envsubst < network-policy-template.yaml | kubectl apply -f -
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-infra
+  namespace: pb-org-${ORG_SLUG}
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    # kube-dns — needed for in-cluster service-name resolution.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+    # In-cluster shared infrastructure (postgres, redis, registry, loki, etc).
+    # Lives in the default `pipeline-builder` namespace.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: pipeline-builder
+      ports:
+        - port: 5432
+        - port: 6379
+        - port: 3000
+        - port: 3100
+        - port: 5000
+    # HTTPS egress to AWS APIs (Secrets Manager, STS, KMS) — needed when
+    # the org has per-org IAM / KMS configs. Restrict to 443 only; the
+    # actual destination filtering happens at the cloud-VPC layer.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-ingress-controller
+  namespace: pb-org-${ORG_SLUG}
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx

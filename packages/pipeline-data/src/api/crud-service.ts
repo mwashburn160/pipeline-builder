@@ -5,7 +5,7 @@ import { NotFoundError, createLogger } from '@pipeline-builder/api-core';
 import { SQL, eq, and, asc, desc, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
-import { db } from '../database/postgres-connection';
+import { withTenantTx } from '../database/tenancy';
 
 /** Pagination defaults — read from env to match CoreConstants in pipeline-core. */
 const DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10);
@@ -127,7 +127,7 @@ export abstract class CrudService<
   /** Get the unique constraint columns for onConflictDoUpdate */
   protected abstract get conflictTarget(): AnyColumn[];
 
-  private readonly _logger = createLogger('CrudService');
+  private readonly _logger = createLogger('crud-service');
 
   /** Build conditions for a single entity by ID. */
   private idConditions(id: string, orgId?: string): SQL[] {
@@ -155,10 +155,10 @@ export abstract class CrudService<
   async find(filter: Partial<TFilter>, orgId?: string): Promise<TEntity[]> {
     const conditions = this.buildConditions(filter, orgId);
 
-    return db
+    return withTenantTx(async (tx) => tx
       .select()
       .from(this.schema)
-      .where(and(...conditions)).then(r => drizzleRows<TEntity>(r));
+      .where(and(...conditions)).then(r => drizzleRows<TEntity>(r)));
   }
 
   /**
@@ -192,50 +192,56 @@ export abstract class CrudService<
       }
     }
 
-    // Build SELECT — sparse fieldset when fields are specified
-    const selectSpec = fields ? this.buildFieldSelect(fields) : undefined;
-    let query = selectSpec
-      ? db.select(selectSpec as any).from(this.schema).where(and(...conditions))
-      : db.select().from(this.schema).where(and(...conditions));
+    // Wrap the whole paginated read (SELECT + optional COUNT) in one
+    // tenant tx. Both queries are visibility-scoped by the same RLS policy,
+    // and pinning them to a single tx keeps the `app.org_id` GUC stable
+    // between them.
+    return withTenantTx(async (tx) => {
+      // Build SELECT — sparse fieldset when fields are specified
+      const selectSpec = fields ? this.buildFieldSelect(fields) : undefined;
+      let query = selectSpec
+        ? tx.select(selectSpec as any).from(this.schema).where(and(...conditions))
+        : tx.select().from(this.schema).where(and(...conditions));
 
-    if (sortBy) {
-      const sortColumn = this.getSortColumn(sortBy);
-      if (sortColumn) {
-        query = query.orderBy(sortOrder === 'desc' ? desc(sortColumn) : asc(sortColumn)) as any;
+      if (sortBy) {
+        const sortColumn = this.getSortColumn(sortBy);
+        if (sortColumn) {
+          query = query.orderBy(sortOrder === 'desc' ? desc(sortColumn) : asc(sortColumn)) as any;
+        }
       }
-    }
 
-    // Fetch limit+1 to detect hasMore without COUNT(*)
-    const effectiveOffset = useCursor ? 0 : offset;
-    const rows = await query
-      .limit(limit + 1)
-      .offset(effectiveOffset).then(r => drizzleRows<TEntity>(r));
+      // Fetch limit+1 to detect hasMore without COUNT(*)
+      const effectiveOffset = useCursor ? 0 : offset;
+      const rows = await query
+        .limit(limit + 1)
+        .offset(effectiveOffset).then(r => drizzleRows<TEntity>(r));
 
-    const hasMore = rows.length > limit;
-    const data = hasMore ? rows.slice(0, limit) : rows;
+      const hasMore = rows.length > limit;
+      const data = hasMore ? rows.slice(0, limit) : rows;
 
-    const result: PaginatedResult<TEntity> = { data, limit, offset: effectiveOffset, hasMore };
+      const result: PaginatedResult<TEntity> = { data, limit, offset: effectiveOffset, hasMore };
 
-    // Provide next cursor from last item's sort column value
-    if (data.length > 0 && sortBy) {
-      const lastItem = data[data.length - 1] as Record<string, unknown>;
-      const cursorValue = lastItem[sortBy];
-      if (cursorValue !== undefined) {
-        result.nextCursor = cursorValue instanceof Date ? cursorValue.toISOString() : String(cursorValue);
+      // Provide next cursor from last item's sort column value
+      if (data.length > 0 && sortBy) {
+        const lastItem = data[data.length - 1] as Record<string, unknown>;
+        const cursorValue = lastItem[sortBy];
+        if (cursorValue !== undefined) {
+          result.nextCursor = cursorValue instanceof Date ? cursorValue.toISOString() : String(cursorValue);
+        }
       }
-    }
 
-    // Only run the COUNT(*) query when the caller explicitly needs the total
-    if (includeTotal) {
-      const baseConditions = this.buildConditions(filter, orgId);
-      const [countResult] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(this.schema)
-        .where(and(...baseConditions)).then(r => drizzleCount(r));
-      result.total = countResult?.count || 0;
-    }
+      // Only run the COUNT(*) query when the caller explicitly needs the total
+      if (includeTotal) {
+        const baseConditions = this.buildConditions(filter, orgId);
+        const [countResult] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(this.schema)
+          .where(and(...baseConditions)).then(r => drizzleCount(r));
+        result.total = countResult?.count || 0;
+      }
 
-    return result;
+      return result;
+    });
   }
 
   /**
@@ -268,10 +274,10 @@ export abstract class CrudService<
   async count(filter: Partial<TFilter>, orgId?: string): Promise<number> {
     const conditions = this.buildConditions(filter, orgId);
 
-    const [result] = await db
+    const [result] = await withTenantTx(async (tx) => tx
       .select({ count: sql<number>`count(*)::int` })
       .from(this.schema)
-      .where(and(...conditions)).then(r => drizzleCount(r));
+      .where(and(...conditions)).then(r => drizzleCount(r)));
 
     return result?.count || 0;
   }
@@ -285,11 +291,11 @@ export abstract class CrudService<
   async findById(id: string, orgId?: string): Promise<TEntity | null> {
     const conditions = this.idConditions(id, orgId);
 
-    const results = await db
+    const results = await withTenantTx(async (tx) => tx
       .select()
       .from(this.schema)
       .where(and(...conditions))
-      .limit(1).then(r => drizzleRows<TEntity>(r));
+      .limit(1).then(r => drizzleRows<TEntity>(r)));
 
     return results[0] || null;
   }
@@ -300,7 +306,7 @@ export abstract class CrudService<
    * Create a new entity
    */
   async create(data: TInsert, userId: string): Promise<TEntity> {
-    const [created] = await db
+    const [created] = await withTenantTx(async (tx) => tx
       .insert(this.schema)
       .values({
         ...data,
@@ -315,7 +321,7 @@ export abstract class CrudService<
           updatedBy: userId || 'system',
         } as any,
       })
-      .returning().then(r => drizzleRows<TEntity>(r));
+      .returning().then(r => drizzleRows<TEntity>(r)));
 
     this.onAfterCreate(created, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
 
@@ -333,7 +339,7 @@ export abstract class CrudService<
   ): Promise<TEntity | null> {
     const conditions = this.idConditions(id, orgId);
 
-    const [updated] = await db
+    const [updated] = await withTenantTx(async (tx) => tx
       .update(this.schema)
       .set({
         ...data,
@@ -341,7 +347,7 @@ export abstract class CrudService<
         updatedBy: userId || 'system',
       } as any)
       .where(and(...conditions))
-      .returning().then(r => drizzleRows<TEntity>(r));
+      .returning().then(r => drizzleRows<TEntity>(r)));
 
     if (updated) {
       this.onAfterUpdate(id, updated, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
@@ -356,7 +362,7 @@ export abstract class CrudService<
   async delete(id: string, orgId: string, userId: string): Promise<TEntity | null> {
     const conditions = this.idConditions(id, orgId);
 
-    const [deleted] = await db
+    const [deleted] = await withTenantTx(async (tx) => tx
       .update(this.schema)
       .set({
         isActive: false,
@@ -366,7 +372,7 @@ export abstract class CrudService<
         deletedBy: userId || 'system',
       } as any)
       .where(and(...conditions))
-      .returning().then(r => drizzleRows<TEntity>(r));
+      .returning().then(r => drizzleRows<TEntity>(r)));
 
     if (deleted) {
       this.onAfterDelete(id, deleted, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
@@ -386,7 +392,7 @@ export abstract class CrudService<
     id: string,
     userId: string,
   ): Promise<TEntity> {
-    return db.transaction(async (tx) => {
+    return withTenantTx(async (tx) => {
       const orgColumn = this.getOrgColumn();
       const projectColumn = this.getProjectColumn();
 
@@ -453,7 +459,7 @@ export abstract class CrudService<
   ): Promise<TEntity[]> {
     const conditions = this.buildConditions(filter, orgId);
 
-    return db
+    return withTenantTx(async (tx) => tx
       .update(this.schema)
       .set({
         ...data,
@@ -461,7 +467,7 @@ export abstract class CrudService<
         updatedBy: userId || 'system',
       } as any)
       .where(and(...conditions))
-      .returning().then(r => drizzleRows<TEntity>(r));
+      .returning().then(r => drizzleRows<TEntity>(r)));
   }
 
   /**
@@ -476,7 +482,7 @@ export abstract class CrudService<
     const now = new Date();
     const user = userId || 'system';
 
-    const results = await db.transaction(async (tx) => {
+    const results = await withTenantTx(async (tx) => {
       const allCreated: TEntity[] = [];
 
       for (let i = 0; i < items.length; i += CHUNK_SIZE) {
@@ -529,7 +535,7 @@ export abstract class CrudService<
       ...this.buildConditions({} as Partial<TFilter>, orgId),
     ];
 
-    const deleted = await db
+    const deleted = await withTenantTx(async (tx) => tx
       .update(this.schema)
       .set({
         isActive: false,
@@ -539,7 +545,7 @@ export abstract class CrudService<
         deletedBy: user,
       } as any)
       .where(and(...conditions))
-      .returning().then(r => drizzleRows<TEntity>(r));
+      .returning().then(r => drizzleRows<TEntity>(r)));
 
     for (const entity of deleted) {
       this.onAfterDelete(entity.id, entity, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));

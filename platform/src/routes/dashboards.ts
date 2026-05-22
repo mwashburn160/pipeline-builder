@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Router } from 'express';
-import { requireAuth } from '../middleware';
 import {
   listDashboards,
   getDashboard,
@@ -11,6 +10,7 @@ import {
   deleteDashboard,
   cloneDashboard,
 } from '../controllers/dashboards';
+import { requireAuth } from '../middleware';
 
 const router = Router();
 

@@ -6,8 +6,8 @@ import {
   CoreConstants,
   CrudService,
   buildPluginConditions,
-  db,
   schema,
+  withTenantTx,
   AccessModifier,
   ComputeType,
   PluginType,
@@ -101,7 +101,7 @@ export class PluginService extends CrudService<
     data: PluginInsert,
     userId: string,
   ): Promise<Plugin> {
-    return db.transaction(async (tx) => {
+    return withTenantTx(async (tx) => {
       // Lock existing defaults by name+org to prevent concurrent races
       await tx.execute(
         sql`SELECT id FROM ${schema.plugin}

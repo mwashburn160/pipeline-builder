@@ -15,7 +15,9 @@ import { User, Organization, UserOrganization } from '../models';
 import { setGauge } from './metrics';
 
 const logger = createLogger('platform-scraper');
-const INTERVAL_MS = 60_000;
+/** How often to scrape org/user counts for the Prom gauges. Sized for the Prom
+ *  scrape budget — anything under 30s isn't useful since Prom polls every 15s. */
+const INTERVAL_MS = parseInt(process.env.PLATFORM_SCRAPER_INTERVAL_MS || '60000', 10);
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -34,6 +36,25 @@ async function scrapeOnce(): Promise<void> {
     // orgs — this counts membership rows, not unique users.
     const activeMembershipCount = await UserOrganization.countDocuments({ isActive: true });
     setGauge('platform_memberships_active_total', {}, activeMembershipCount);
+
+    // Per-org KMS adoption — how many orgs are wrapped under their own
+    // CMK vs falling through to the shared SECRET_ENCRYPTION_KEY master.
+    // Operators dashboard `secret_encryption_per_org_kms_orgs` against
+    // `platform_orgs_total` to see coverage; the absolute count alone
+    // tells "is this turned on at all". Compound index on (kmsConfig.keyId)
+    // would help if the gauge ever lags Mongo; today's org count makes
+    // the full scan acceptable.
+    const perOrgKmsCount = await Organization.countDocuments({
+      'kmsConfig.keyId': { $exists: true, $ne: null },
+    });
+    setGauge('secret_encryption_per_org_kms_orgs', {}, perOrgKmsCount);
+
+    // Sysadmin headcount — operationally useful when reviewing the audit
+    // trail of platform-admin grants. A sudden spike is a leading signal
+    // worth investigating; a zero count after a fresh deploy is the
+    // BOOTSTRAP_SUPERADMIN_EMAILS-needs-attention signal.
+    const sysadminCount = await User.countDocuments({ isSuperAdmin: true });
+    setGauge('platform_sysadmins_total', {}, sysadminCount);
   } catch (err) {
     logger.warn('platform metrics scrape failed', { error: errorMessage(err) });
   }

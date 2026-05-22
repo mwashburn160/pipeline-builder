@@ -65,8 +65,9 @@ function baseUrl(): string {
 }
 
 /** Default timeout for any single Alertmanager call. Tuned to be fast — Alertmanager is
- *  in-cluster, low-latency, and a stalled call shouldn't block the entire request thread. */
-const TIMEOUT_MS = 5_000;
+ *  in-cluster, low-latency, and a stalled call shouldn't block the entire request thread.
+ *  Override via `ALERTMANAGER_TIMEOUT_MS` for hostile networks / debugging. */
+const TIMEOUT_MS = parseInt(process.env.ALERTMANAGER_TIMEOUT_MS || '5000', 10);
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();

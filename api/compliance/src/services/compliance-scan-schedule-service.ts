@@ -39,9 +39,13 @@ class ComplianceScanScheduleService {
     const [schedule] = await db
       .insert(schema.complianceScanSchedule)
       .values({
-        orgId, target, cronExpression,
-        isActive: true, nextRunAt,
-        createdBy: userId, updatedBy: userId,
+        orgId,
+        target,
+        cronExpression,
+        isActive: true,
+        nextRunAt,
+        createdBy: userId,
+        updatedBy: userId,
       })
       .returning();
     return schedule;

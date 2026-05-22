@@ -92,6 +92,50 @@ describe('auditService.findEvents', () => {
     await auditService.findEvents({}, 0, 10);
     expect(mockFind).toHaveBeenCalledWith({});
   });
+
+  it('should add affectedOrgId to the query when provided', async () => {
+    mockLean.mockResolvedValue([]);
+    mockCountDocuments.mockResolvedValue(0);
+
+    await auditService.findEvents({ affectedOrgId: 'org-xyz' }, 0, 10);
+    expect(mockFind).toHaveBeenCalledWith({ affectedOrgId: 'org-xyz' });
+  });
+
+  it('should add actorId to the query when provided', async () => {
+    mockLean.mockResolvedValue([]);
+    mockCountDocuments.mockResolvedValue(0);
+
+    await auditService.findEvents({ actorId: 'user-abc' }, 0, 10);
+    expect(mockFind).toHaveBeenCalledWith({ actorId: 'user-abc' });
+  });
+
+  it('should combine affectedOrgId, actorId, and action', async () => {
+    mockLean.mockResolvedValue([]);
+    mockCountDocuments.mockResolvedValue(0);
+
+    await auditService.findEvents(
+      { affectedOrgId: 'org-xyz', actorId: 'user-abc', action: 'kms-config' },
+      0,
+      10,
+    );
+    expect(mockFind).toHaveBeenCalledWith({
+      affectedOrgId: 'org-xyz',
+      actorId: 'user-abc',
+      action: { $regex: 'kms-config', $options: 'i' },
+    });
+  });
+
+  it('should escape regex metacharacters in the action filter', async () => {
+    mockLean.mockResolvedValue([]);
+    mockCountDocuments.mockResolvedValue(0);
+
+    // Without escaping, `.*` would match everything and `(grant|revoke)` would
+    // be a real regex group — neither is what a substring search promises.
+    await auditService.findEvents({ action: 'admin.superadmin.grant' }, 0, 10);
+    expect(mockFind).toHaveBeenCalledWith({
+      action: { $regex: 'admin\\.superadmin\\.grant', $options: 'i' },
+    });
+  });
 });
 
 describe('auditService.createEvent', () => {

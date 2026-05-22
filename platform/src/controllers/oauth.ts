@@ -9,11 +9,13 @@ import { authService } from '../services';
 import { issueTokens } from '../utils/token';
 import { validateBody, oauthCallbackSchema } from '../utils/validation';
 
-const logger = createLogger('OAuthController');
+const logger = createLogger('oauth-controller');
 
 // OAuth State (CSRF protection)
 
-const MAX_PENDING_STATES = 1000;
+/** Cap on in-memory OAuth state map. Each entry is ~80 bytes; default 1000
+ *  caps memory at ~80 KB. Override via `OAUTH_MAX_PENDING_STATES`. */
+const MAX_PENDING_STATES = parseInt(process.env.OAUTH_MAX_PENDING_STATES || '1000', 10);
 const pendingOAuthStates = new Map<string, number>();
 
 // `.unref()` so this background sweep doesn't keep Node alive in tests

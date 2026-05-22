@@ -13,12 +13,19 @@ const mockDlqGetJobCounts = jest.fn();
 
 const mockGetJobs = jest.fn();
 const mockDlqGetJobs = jest.fn();
+// route reads per-tier queues via getAllTierQueues; we expose a
+// single-tier handle so the existing single-mock assertions still hold.
+const mockTierQueue = { name: 'plugin-build', getJobCounts: mockGetJobCounts, getJobs: mockGetJobs };
 jest.mock('../src/queue/plugin-build-queue', () => ({
-  getQueue: () => ({ getJobCounts: mockGetJobCounts, getJobs: mockGetJobs }),
+  getAllTierQueues: () => [{ tier: 'developer', queue: mockTierQueue }],
   getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: mockDlqGetJobs }),
   purgeDlq: jest.fn(),
   replayDlqJob: jest.fn(),
 }));
+
+// Quota service stub  required by createQueueStatusRoutes since
+// (replay path needs it to look up the org's tier).
+const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
 
 jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: () => ({
@@ -34,7 +41,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   ErrorCode: { INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS', NOT_FOUND: 'NOT_FOUND', MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD' },
   parseQueryInt: (val: unknown, defaultVal: number) => {
     const n = parseInt(String(val), 10);
-    return Number.isFinite(n) ? n : defaultVal;
+    return Number.isFinite(n) ? n: defaultVal;
   },
   getParam: (params: Record<string, unknown>, key: string) => params[key],
 }));
@@ -79,7 +86,7 @@ describe('queue-status route', () => {
       waiting: 1, active: 0, completed: 0, failed: 1, delayed: 0, paused: 0,
     });
 
-    const router = createQueueStatusRoutes();
+    const router = createQueueStatusRoutes(mockQuotaService);
     const handler = (router.stack as any)[0].route.stack[0].handle;
 
     const { req, res, json } = createMockReqRes();
@@ -90,21 +97,21 @@ describe('queue-status route', () => {
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
       statusCode: 200,
-      data: {
+      data: expect.objectContaining({
         waiting: 3,
         active: 1,
         completed: 10,
         failed: 2,
         delayed: 0,
         dlq: { waiting: 1, active: 0, completed: 0, failed: 1, delayed: 0 },
-      },
+      }),
     }));
   });
 
   it('should reject non-admin users with 403', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
 
-    const router = createQueueStatusRoutes();
+    const router = createQueueStatusRoutes(mockQuotaService);
     const handler = (router.stack as any)[0].route.stack[0].handle;
 
     const { req, res, json } = createMockReqRes();
@@ -117,12 +124,12 @@ describe('queue-status route', () => {
     }));
   });
 
-  // Tenant filtering on /failed and /dlq — system admin sees all orgs'
+  // Tenant filtering on /failed and /dlq  system admin sees all orgs'
   // jobs, org admin/owner sees only their own. Without this filter, an org
   // admin could see another tenant's plugin names + error messages.
 
   function getRouteHandler(path: string) {
-    const router = createQueueStatusRoutes();
+    const router = createQueueStatusRoutes(mockQuotaService);
     const layer = (router.stack as any[]).find((l) => l.route?.path === path);
     return layer?.route?.stack[0]?.handle;
   }
@@ -136,7 +143,7 @@ describe('queue-status route', () => {
     } as any;
   }
 
-  describe('GET /failed — tenant filter', () => {
+  describe('GET /failed  tenant filter', () => {
     it('non-system admin sees only their own org\'s failed jobs', async () => {
       (isSystemAdmin as jest.Mock).mockReturnValue(false);
       mockGetJobs.mockResolvedValue([
@@ -186,7 +193,7 @@ describe('queue-status route', () => {
     });
   });
 
-  describe('GET /dlq — tenant filter', () => {
+  describe('GET /dlq  tenant filter', () => {
     it('non-system admin sees only their own org\'s DLQ jobs', async () => {
       (isSystemAdmin as jest.Mock).mockReturnValue(false);
       mockDlqGetJobs.mockResolvedValue([

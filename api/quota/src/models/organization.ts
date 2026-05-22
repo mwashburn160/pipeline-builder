@@ -18,6 +18,13 @@ export interface QuotaLimits {
   pipelines: number;
   apiCalls: number;
   aiCalls: number;
+  /** Aggregate registry storage cap in bytes. -1 means unlimited. */
+  storageBytes: number;
+  /** Count caps on the user-editable feature tables (close DoS spam). */
+  dashboards: number;
+  alertRules: number;
+  alertDestinations: number;
+  idpConfigs: number;
 }
 
 export interface QuotaUsageTracking {
@@ -25,6 +32,22 @@ export interface QuotaUsageTracking {
   pipelines: QuotaUsage;
   apiCalls: QuotaUsage;
   aiCalls: QuotaUsage;
+  /**
+   * Measured registry storage usage in bytes. Unlike the other usage
+   * fields (which `incrementUsage` bumps as actions land), this is set by
+   * the image-registry's GC scheduler / push path via the existing
+   * `incrementUsage` + `resetUsage` flows  push reserves an increment,
+   * GC freeing bytes reduces it via resetUsage. The image-registry caches
+   * the rollup for 60s (see storage-usage.ts) so the value can lag the
+   * registry's true state briefly without causing oscillation.
+   */
+  storageBytes: QuotaUsage;
+  /** Per-feature-table counters — incremented on create, decremented on
+   *  soft-delete in the platform service. */
+  dashboards: QuotaUsage;
+  alertRules: QuotaUsage;
+  alertDestinations: QuotaUsage;
+  idpConfigs: QuotaUsage;
 }
 
 export type { QuotaTier };
@@ -40,36 +63,44 @@ export interface OrganizationDocument extends Document<string> {
 
 // Schema
 
-const quotaUsageSchema = new Schema<QuotaUsage>(
-  {
-    used: { type: Number, default: 0 },
-    resetAt: { type: Date, default: () => getNextResetDate(config.quota.resetDays) },
-  },
-  { _id: false },
+const quotaUsageSchema = new Schema<QuotaUsage>( {
+  used: { type: Number, default: 0 },
+  resetAt: { type: Date, default: () => getNextResetDate(config.quota.resetDays) },
+},
+{ _id: false },
 );
 
 const defaultUsage = () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetDays) });
 
-const organizationSchema = new Schema<OrganizationDocument>(
-  {
-    _id: { type: Schema.Types.Mixed },
-    name: { type: String, required: true },
-    slug: { type: String, required: true },
-    tier: { type: String, enum: ['developer', 'pro', 'unlimited'], default: 'developer' },
-    quotas: {
-      plugins: { type: Number, default: config.quota.defaults.plugins },
-      pipelines: { type: Number, default: config.quota.defaults.pipelines },
-      apiCalls: { type: Number, default: config.quota.defaults.apiCalls },
-      aiCalls: { type: Number, default: config.quota.defaults.aiCalls },
-    },
-    usage: {
-      plugins: { type: quotaUsageSchema, default: defaultUsage },
-      pipelines: { type: quotaUsageSchema, default: defaultUsage },
-      apiCalls: { type: quotaUsageSchema, default: defaultUsage },
-      aiCalls: { type: quotaUsageSchema, default: defaultUsage },
-    },
+const organizationSchema = new Schema<OrganizationDocument>( {
+  _id: { type: Schema.Types.Mixed },
+  name: { type: String, required: true },
+  slug: { type: String, required: true },
+  tier: { type: String, enum: ['developer', 'pro', 'unlimited'], default: 'developer' },
+  quotas: {
+    plugins: { type: Number, default: config.quota.defaults.plugins },
+    pipelines: { type: Number, default: config.quota.defaults.pipelines },
+    apiCalls: { type: Number, default: config.quota.defaults.apiCalls },
+    aiCalls: { type: Number, default: config.quota.defaults.aiCalls },
+    storageBytes: { type: Number, default: config.quota.defaults.storageBytes },
+    dashboards: { type: Number, default: config.quota.defaults.dashboards },
+    alertRules: { type: Number, default: config.quota.defaults.alertRules },
+    alertDestinations: { type: Number, default: config.quota.defaults.alertDestinations },
+    idpConfigs: { type: Number, default: config.quota.defaults.idpConfigs },
   },
-  { collection: 'organizations' },
+  usage: {
+    plugins: { type: quotaUsageSchema, default: defaultUsage },
+    pipelines: { type: quotaUsageSchema, default: defaultUsage },
+    apiCalls: { type: quotaUsageSchema, default: defaultUsage },
+    aiCalls: { type: quotaUsageSchema, default: defaultUsage },
+    storageBytes: { type: quotaUsageSchema, default: defaultUsage },
+    dashboards: { type: quotaUsageSchema, default: defaultUsage },
+    alertRules: { type: quotaUsageSchema, default: defaultUsage },
+    alertDestinations: { type: quotaUsageSchema, default: defaultUsage },
+    idpConfigs: { type: quotaUsageSchema, default: defaultUsage },
+  },
+},
+{ collection: 'organizations' },
 );
 
 // Model (safe for re-registration in tests)

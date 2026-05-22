@@ -102,6 +102,43 @@ export interface CatalogResponse {
   entries: CatalogEntry[];
 }
 
+/** Per-org alert destination as returned by the API. Note `target` is
+ *  masked on reads — only the last 12 chars + a leading mask are exposed
+ *  even to the owner org. */
+export interface AlertDestination {
+  id: string;
+  orgId: string;
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+  channel: 'slack' | 'webhook' | 'in-app';
+  /** Masked URL (e.g. `••••XXXXXXXXXXXX`). Use `hasTarget` to know whether it's set. */
+  target: string;
+  hasTarget: boolean;
+  label: string;
+  minSeverity: 'warning' | 'critical';
+  enabled: boolean;
+}
+
+export interface AlertDestinationsResponse {
+  destinations: AlertDestination[];
+}
+
+export interface AlertDestinationResponse {
+  destination: AlertDestination;
+}
+
+/** Body for POST/PUT on alert destinations. `target` is the raw secret URL
+ *  on writes; empty string on update means "leave existing value". */
+export interface AlertDestinationWrite {
+  channel?: 'slack' | 'webhook' | 'in-app';
+  target?: string;
+  label?: string;
+  minSeverity?: 'warning' | 'critical';
+  enabled?: boolean;
+}
+
 /** A single panel inside a DB-stored dashboard. */
 export interface DashboardPanel {
   id: string;

@@ -5,15 +5,18 @@ import { motion } from 'framer-motion';
 import {
   GitBranch, ArrowRight, Upload, Wand2, Puzzle, Activity, CheckCircle2,
   BarChart3, XCircle, Shield, Users, FileText, MessageSquare, Settings,
-  CreditCard, Clock, Star, Search,
+  CreditCard, Clock, Star, Search, Inbox,
 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import type { BuilderProps } from '@/types';
 import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { NewOrgWelcome } from '@/components/dashboard/NewOrgWelcome';
+import { SysadminHome } from '@/components/dashboard/SysadminHome';
+import { OrgAdminHome } from '@/components/dashboard/OrgAdminHome';
 import { dismissKey, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboarding';
 
 // ─── Types ──────────────────────────────────────────────
@@ -23,6 +26,10 @@ interface ExecutionCount {
   total: number;
   succeeded: number;
   failed: number;
+  canceled?: number;
+  project?: string;
+  pipeline_name?: string | null;
+  last_execution?: string | null;
 }
 
 interface TimelineEntry {
@@ -79,7 +86,11 @@ function loadRecent(): string[] {
 
 /** Dashboard home — AWS Console-style services grid + welcome + activity. */
 export default function DashboardPage() {
-  const { user, isReady, isAuthenticated, isSysAdmin } = useAuthGuard();
+  const { user, isReady, isAuthenticated, isSuperAdmin, isAdmin } = useAuthGuard();
+  // Org admin = admin/owner WITHIN their org (not sysadmin). Sysadmin gets
+  // a separate, operations-focused home; this gate keeps the org-admin
+  // home from displacing the platform-admin one.
+  const isOrgAdmin = isAdmin && !isSuperAdmin;
   const [gitUrl, setGitUrl] = useState('');
   const [serviceSearch, setServiceSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -94,21 +105,24 @@ export default function DashboardPage() {
   const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
   const [pipelineCount, setPipelineCount] = useState<number | null>(null);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingVisitedPlugins, setOnboardingVisitedPlugins] = useState(false);
 
   const fetchData = useCallback(async () => {
-    const [execRes, timelineRes, pluginRes, pipelineRes] = await Promise.allSettled([
+    const [execRes, timelineRes, pluginRes, pipelineRes, unreadRes] = await Promise.allSettled([
       api.getExecutionCount(),
       api.getExecutionTimeline({ interval: 'day' }),
       api.getPluginSummary(),
       api.listPipelines({ limit: '1' }),
+      api.getUnreadCount(),
     ]);
 
     if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
     if (timelineRes.status === 'fulfilled') setTimeline((timelineRes.value.data?.timeline || []).slice(-7));
     if (pluginRes.status === 'fulfilled') setPluginSummary(pluginRes.value.data?.summary || null);
     if (pipelineRes.status === 'fulfilled') setPipelineCount(pipelineRes.value.data?.pagination?.total ?? 0);
+    if (unreadRes.status === 'fulfilled') setUnreadMessageCount(unreadRes.value.data?.count ?? 0);
   }, []);
 
   useEffect(() => {
@@ -248,6 +262,26 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
+        {/* ─── Role-specific home view ─── */}
+        {/* Sysadmin: operations-focused (fleet stats, RLS posture, recent audit).
+            Org-admin: health-focused (quotas, compliance, billing, team).
+            Member-user: continues with the existing stats + activity + timeline below. */}
+        {isSuperAdmin && (
+          <motion.div variants={stagger.item}>
+            <SysadminHome />
+          </motion.div>
+        )}
+        {isOrgAdmin && (
+          <motion.div variants={stagger.item}>
+            <OrgAdminHome organizationId={user.organizationId} />
+          </motion.div>
+        )}
+
+        {/* ─── Member-only stack: onboarding + stats + recent + timeline ─── */}
+        {/* Sysadmin and org-admin get richer signals from their role-home above;
+            showing the generic org-wide stats too would be noise. */}
+        {!isSuperAdmin && !isOrgAdmin && (<>
+
         {/* ─── New-org onboarding (auto-hides once user has both pipelines and executions) ─── */}
         {pipelineCount !== null && (() => {
           const signals = {
@@ -289,6 +323,11 @@ export default function DashboardPage() {
             );
           })}
         </motion.div>
+
+        {/* ─── My recent activity strip ─── */}
+        <MyRecentActivity executions={executions} unreadCount={unreadMessageCount} />
+
+        </>)}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* ─── Services Grid (AWS Console-style) ─── */}
@@ -369,7 +408,10 @@ export default function DashboardPage() {
         </div>
 
         {/* ─── Execution Timeline (full width) ─── */}
-        {timeline.length > 0 && (
+        {/* Hidden for sysadmins (their cross-tenant feed already covers
+            "is the platform busy"); org-admins still see it as a quick
+            org-wide pipeline-health signal alongside their health cards. */}
+        {!isSuperAdmin && timeline.length > 0 && (
           <motion.div variants={stagger.item} className="card mt-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -425,9 +467,92 @@ export default function DashboardPage() {
         createLoading={createLoading}
         createError={createError}
         createSuccess={createSuccess}
-        canCreatePublic={isSysAdmin}
+        canCreatePublic={isSuperAdmin}
         initialGitUrl={modalGitUrl}
       />
     </DashboardLayout>
+  );
+}
+
+/**
+ * "My recent activity" strip. Renders above the services catalog so the
+ * user lands on something personally relevant (their own recent runs +
+ * unread messages) before the generic org-wide service tiles.
+ *
+ * Sourced entirely from data the home page already loads — no new
+ * endpoints, no extra round trips. Pipelines without a `last_execution`
+ * are filtered out (never run).
+ */
+function MyRecentActivity({
+  executions,
+  unreadCount,
+}: {
+  executions: ExecutionCount[];
+  unreadCount: number;
+}) {
+  const recent = [...executions]
+    .filter((e) => !!e.last_execution)
+    .sort((a, b) => (b.last_execution || '').localeCompare(a.last_execution || ''))
+    .slice(0, 5);
+
+  if (recent.length === 0 && unreadCount === 0) return null;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      <div className="card md:col-span-2">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+            <Activity className="w-4 h-4 text-gray-400" />
+            Recent runs
+          </h3>
+          <Link href="/dashboard/executions" className="action-link text-xs">View all →</Link>
+        </div>
+        {recent.length === 0 ? (
+          <div className="text-xs text-gray-500 dark:text-gray-400 py-2">No pipeline runs yet.</div>
+        ) : (
+          <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+            {recent.map((e) => {
+              const okPct = e.total > 0 ? Math.round((e.succeeded / e.total) * 100) : null;
+              const failed = e.failed > 0;
+              return (
+                <li key={e.id} className="py-1.5 flex items-center justify-between gap-2 text-sm">
+                  <Link
+                    href={`/dashboard/pipelines/${encodeURIComponent(e.id)}`}
+                    className="flex-1 truncate text-gray-800 dark:text-gray-200 hover:underline"
+                    title={e.id}
+                  >
+                    {e.pipeline_name || e.project || e.id}
+                  </Link>
+                  <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 whitespace-nowrap">
+                    {failed
+                      ? <span className="text-red-500 dark:text-red-400">{e.failed} failed</span>
+                      : okPct !== null && <span className="text-green-600 dark:text-green-400">{okPct}% ok</span>}
+                    <RelativeTime value={e.last_execution} />
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+            <Inbox className="w-4 h-4 text-gray-400" />
+            Inbox
+          </h3>
+          <Link href="/dashboard/messages" className="action-link text-xs">Open →</Link>
+        </div>
+        {unreadCount === 0 ? (
+          <div className="text-xs text-gray-500 dark:text-gray-400 py-2">No unread messages.</div>
+        ) : (
+          <div className="py-2">
+            <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{unreadCount}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">unread message{unreadCount === 1 ? '' : 's'}</div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

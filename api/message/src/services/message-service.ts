@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { CoreConstants, CrudService, schema, db, buildMessageConditions, type MessageFilter } from '@pipeline-builder/pipeline-core';
+import { CoreConstants, CrudService, schema, withTenantTx, buildMessageConditions, type MessageFilter } from '@pipeline-builder/pipeline-core';
 import { SQL, eq, and, or, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -139,7 +139,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    */
   async markAsRead(id: string, orgId: string, userId: string): Promise<Message | null> {
     const now = new Date().toISOString();
-    const [updated] = await db
+    const [updated] = await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
         readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
@@ -153,7 +153,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
           eq(schema.message.recipientOrgId, orgId),
         ),
       ))
-      .returning();
+      .returning());
     return (updated as Message) ?? null;
   }
 
@@ -170,7 +170,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    */
   async markThreadAsRead(threadId: string, orgId: string, userId: string): Promise<Message[]> {
     const now = new Date().toISOString();
-    const updated = await db
+    const updated = await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
         readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
@@ -186,7 +186,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
           eq(schema.message.recipientOrgId, orgId),
         ),
       ))
-      .returning();
+      .returning());
     return updated as Message[];
   }
 
@@ -200,7 +200,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @returns Number of unread active messages
    */
   async getUnreadCount(orgId: string): Promise<number> {
-    const [row] = await db
+    const [row] = await withTenantTx(async (tx) => tx
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.message)
       .where(and(
@@ -210,7 +210,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
           eq(schema.message.orgId, orgId),
           eq(schema.message.recipientOrgId, orgId),
         ),
-      ));
+      )));
     return row?.count ?? 0;
   }
 
@@ -229,7 +229,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @param orgId - The caller's org — scopes the cascade to that tenant
    */
   async deleteThread(threadId: string, userId: string, orgId: string): Promise<void> {
-    await db
+    await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
         isActive: false,
@@ -247,7 +247,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
             eq(schema.message.recipientOrgId, orgId),
           ),
         ),
-      );
+      ));
   }
 }
 

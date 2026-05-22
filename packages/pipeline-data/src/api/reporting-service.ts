@@ -5,7 +5,7 @@ import { createCacheService, createLogger, errorMessage, hashAccountInArn } from
 import { inArray, sql } from 'drizzle-orm';
 import { drizzleRows } from './crud-service';
 import { schema } from '../database/drizzle-schema';
-import { db } from '../database/postgres-connection';
+import { withTenantTx } from '../database/tenancy';
 
 const logger = createLogger('reporting-service');
 
@@ -175,64 +175,73 @@ export class ReportingService {
    * Returns counts + a sample of unregistered ARNs for observability.
    */
   async ingestEvents(events: IngestEvent[]): Promise<IngestResult> {
-    // Batch-resolve all unique ARNs in one query
-    const uniqueArns = [...new Set(events.map(e => e.pipelineArn))];
-    const registryRows = await db
-      .select({
-        pipelineId: schema.pipelineRegistry.pipelineId,
-        orgId: schema.pipelineRegistry.orgId,
-        pipelineArn: schema.pipelineRegistry.pipelineArn,
-      })
-      .from(schema.pipelineRegistry)
-      .where(inArray(schema.pipelineRegistry.pipelineArn, uniqueArns));
+    // Multi-org batch insert: the caller resolves to multiple orgs via the
+    // pipeline-registry lookup below, so the route layer MUST establish a
+    // `runWithTenantContext({ isSuperAdmin: true }, ...)` scope before calling
+    // this method. Under FORCE'd RLS, a single tx with `app.org_id = <one
+    // org>` could only write events for that org; bypass via sysadmin is
+    // the right gate for this server-internal cross-tenant endpoint. See
+    // api/reporting/src/routes/event-ingest.ts for the wrapper.
+    return withTenantTx(async (tx) => {
+      // Batch-resolve all unique ARNs in one query
+      const uniqueArns = [...new Set(events.map(e => e.pipelineArn))];
+      const registryRows = await tx
+        .select({
+          pipelineId: schema.pipelineRegistry.pipelineId,
+          orgId: schema.pipelineRegistry.orgId,
+          pipelineArn: schema.pipelineRegistry.pipelineArn,
+        })
+        .from(schema.pipelineRegistry)
+        .where(inArray(schema.pipelineRegistry.pipelineArn, uniqueArns));
 
-    const arnMap = new Map(registryRows.map(r => [r.pipelineArn, r]));
+      const arnMap = new Map(registryRows.map(r => [r.pipelineArn, r]));
 
-    // Build insert batch (skip unregistered ARNs)
-    const rows: Array<typeof schema.pipelineEvent.$inferInsert> = [];
-    let skipped = 0;
-    const unregisteredArns: string[] = [];
+      // Build insert batch (skip unregistered ARNs)
+      const rows: Array<typeof schema.pipelineEvent.$inferInsert> = [];
+      let skipped = 0;
+      const unregisteredArns: string[] = [];
 
-    for (const event of events) {
-      const registry = arnMap.get(event.pipelineArn);
-      if (!registry) {
-        skipped++;
-        unregisteredArns.push(event.pipelineArn);
-        continue;
+      for (const event of events) {
+        const registry = arnMap.get(event.pipelineArn);
+        if (!registry) {
+          skipped++;
+          unregisteredArns.push(event.pipelineArn);
+          continue;
+        }
+
+        rows.push({
+          pipelineId: registry.pipelineId,
+          orgId: registry.orgId,
+          eventSource: event.eventSource,
+          eventType: event.eventType,
+          status: event.status,
+          pipelineArn: hashAccountInArn(event.pipelineArn),
+          executionId: event.executionId,
+          stageName: event.stageName,
+          actionName: event.actionName,
+          startedAt: event.startedAt ? new Date(event.startedAt) : undefined,
+          completedAt: event.completedAt ? new Date(event.completedAt) : undefined,
+          durationMs: event.durationMs,
+          detail: event.detail,
+        });
       }
 
-      rows.push({
-        pipelineId: registry.pipelineId,
-        orgId: registry.orgId,
-        eventSource: event.eventSource,
-        eventType: event.eventType,
-        status: event.status,
-        pipelineArn: hashAccountInArn(event.pipelineArn),
-        executionId: event.executionId,
-        stageName: event.stageName,
-        actionName: event.actionName,
-        startedAt: event.startedAt ? new Date(event.startedAt) : undefined,
-        completedAt: event.completedAt ? new Date(event.completedAt) : undefined,
-        durationMs: event.durationMs,
-        detail: event.detail,
-      });
-    }
+      if (rows.length > 0) {
+        await tx.insert(schema.pipelineEvent).values(rows);
 
-    if (rows.length > 0) {
-      await db.insert(schema.pipelineEvent).values(rows);
+        // Per-org cache invalidation runs outside the tx (Redis, not Postgres).
+        // `Promise.all` so the caller doesn't return before invalidation
+        // completes, otherwise dashboards can serve stale data right after ingest.
+        const affectedOrgs = [...new Set(rows.map(r => r.orgId))];
+        await Promise.all(affectedOrgs.map((org) =>
+          this.invalidateOrg(org).catch((err) => {
+            logger.warn('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
+          }),
+        ));
+      }
 
-      // Per-org failures are logged but don't fail the batch — `Promise.all`
-      // so the caller doesn't return before invalidation completes,
-      // otherwise dashboards can serve stale data right after ingest.
-      const affectedOrgs = [...new Set(rows.map(r => r.orgId))];
-      await Promise.all(affectedOrgs.map((org) =>
-        this.invalidateOrg(org).catch((err) => {
-          logger.warn('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
-        }),
-      ));
-    }
-
-    return { inserted: rows.length, skipped, unregisteredArns };
+      return { inserted: rows.length, skipped, unregisteredArns };
+    });
   }
 
   // ── Category 1: Pipeline Execution & Performance ──
@@ -240,7 +249,7 @@ export class ReportingService {
   /** 1.1 Execution count per pipeline with status breakdown. */
   async getExecutionCount(orgId: string): Promise<ExecutionCount[]> {
     return timeseriesCache.getOrSet(`${orgId}:exec-count`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           p.id, p.project, p.organization, p.pipeline_name,
           COUNT(*)::int AS total,
@@ -255,14 +264,14 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND p.is_active = true
         GROUP BY p.id
         ORDER BY total DESC
-      `).then(r => drizzleRows<ExecutionCount>(r.rows)),
+      `).then(r => drizzleRows<ExecutionCount>(r.rows))),
     );
   }
 
   /** 1.2 Success rate over time for an org. */
   async getSuccessRate(orgId: string, interval: string, from: string, to: string): Promise<TimeSeriesEntry[]> {
     return timeseriesCache.getOrSet(`${orgId}:success-rate:${interval}:${from}:${to}`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           DATE_TRUNC(${interval}, e.started_at)::text AS period,
           COUNT(*) FILTER (WHERE e.status = 'SUCCEEDED')::int AS succeeded,
@@ -276,14 +285,14 @@ export class ReportingService {
           AND e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY period ORDER BY period
-      `).then(r => drizzleRows<TimeSeriesEntry>(r.rows)),
+      `).then(r => drizzleRows<TimeSeriesEntry>(r.rows))),
     );
   }
 
   /** 1.3 Average duration per pipeline. */
   async getAverageDuration(orgId: string, from: string, to: string): Promise<DurationStats[]> {
     return timeseriesCache.getOrSet(`${orgId}:avg-duration:${from}:${to}`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           p.id, p.project, p.pipeline_name,
           AVG(e.duration_ms)::int AS avg_ms,
@@ -296,14 +305,14 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND e.event_type = 'PIPELINE' AND e.duration_ms IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY p.id ORDER BY avg_ms DESC
-      `).then(r => drizzleRows<DurationStats>(r.rows)),
+      `).then(r => drizzleRows<DurationStats>(r.rows))),
     );
   }
 
   /** 1.5 Stage failure heatmap — which stages fail most. */
   async getStageFailures(orgId: string, from: string, to: string): Promise<StageFailure[]> {
     return timeseriesCache.getOrSet(`${orgId}:stage-failures:${from}:${to}`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           e.stage_name,
           COUNT(*) FILTER (WHERE e.status = 'FAILED')::int AS failures,
@@ -315,14 +324,14 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND e.event_type = 'STAGE' AND e.stage_name IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY e.stage_name ORDER BY failures DESC
-      `).then(r => drizzleRows<StageFailure>(r.rows)),
+      `).then(r => drizzleRows<StageFailure>(r.rows))),
     );
   }
 
   /** 1.6 Stage bottlenecks — slowest stages per pipeline. */
   async getStageBottlenecks(orgId: string, from: string, to: string): Promise<StageBottleneck[]> {
     return timeseriesCache.getOrSet(`${orgId}:stage-bottlenecks:${from}:${to}`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           p.id, p.pipeline_name, e.stage_name,
           AVG(e.duration_ms)::int AS avg_ms,
@@ -332,14 +341,14 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND e.event_type = 'STAGE' AND e.duration_ms IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY p.id, e.stage_name ORDER BY avg_ms DESC
-      `).then(r => drizzleRows<StageBottleneck>(r.rows)),
+      `).then(r => drizzleRows<StageBottleneck>(r.rows))),
     );
   }
 
   /** 1.7 Action failure rate — which plugin steps fail most. */
   async getActionFailures(orgId: string, from: string, to: string): Promise<ActionFailure[]> {
     return timeseriesCache.getOrSet(`${orgId}:action-failures:${from}:${to}`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           e.action_name,
           COUNT(*) FILTER (WHERE e.status = 'FAILED')::int AS failures,
@@ -351,14 +360,14 @@ export class ReportingService {
         WHERE p.org_id = ${orgId} AND e.event_type = 'ACTION' AND e.action_name IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY e.action_name ORDER BY failures DESC
-      `).then(r => drizzleRows<ActionFailure>(r.rows)),
+      `).then(r => drizzleRows<ActionFailure>(r.rows))),
     );
   }
 
   /** 1.8 Error categorization — group failure messages. */
   async getErrors(orgId: string, from: string, to: string, limit: number = 20): Promise<ErrorEntry[]> {
     return timeseriesCache.getOrSet(`${orgId}:errors:${from}:${to}:${limit}`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           SUBSTRING(e.error_message FROM 1 FOR 200) AS error_pattern,
           COUNT(*)::int AS occurrences,
@@ -370,7 +379,7 @@ export class ReportingService {
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY error_pattern ORDER BY occurrences DESC
         LIMIT ${limit}
-      `).then(r => drizzleRows<ErrorEntry>(r.rows)),
+      `).then(r => drizzleRows<ErrorEntry>(r.rows))),
     );
   }
 
@@ -379,7 +388,7 @@ export class ReportingService {
   /** 2.1 Plugin summary — counts and breakdowns. */
   async getPluginSummary(orgId: string): Promise<PluginSummary> {
     return inventoryCache.getOrSet(`${orgId}:plugin-summary`, async () => {
-      const rows = await db.execute(sql`
+      const rows = await withTenantTx((tx) => tx.execute(sql`
         SELECT
           COUNT(*)::int AS total,
           COUNT(*) FILTER (WHERE ${schema.plugin.isActive})::int AS active,
@@ -389,7 +398,7 @@ export class ReportingService {
           COUNT(DISTINCT ${schema.plugin.name})::int AS unique_names
         FROM ${schema.plugin}
         WHERE ${schema.plugin.orgId} = ${orgId}
-      `);
+      `));
       return (drizzleRows<PluginSummary>(rows.rows)[0] || { total: 0, active: 0, inactive: 0, public: 0, private: 0, uniqueNames: 0 });
     });
   }
@@ -397,7 +406,7 @@ export class ReportingService {
   /** 2.2 Type & compute distribution. */
   async getPluginDistribution(orgId: string): Promise<TypeComputeDistribution[]> {
     return inventoryCache.getOrSet(`${orgId}:plugin-distribution`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           ${schema.plugin.pluginType} AS plugin_type,
           ${schema.plugin.computeType} AS compute_type,
@@ -406,14 +415,14 @@ export class ReportingService {
         WHERE ${schema.plugin.orgId} = ${orgId} AND ${schema.plugin.isActive} = true
         GROUP BY ${schema.plugin.pluginType}, ${schema.plugin.computeType}
         ORDER BY count DESC
-      `).then(r => drizzleRows<TypeComputeDistribution>(r.rows)),
+      `).then(r => drizzleRows<TypeComputeDistribution>(r.rows))),
     );
   }
 
   /** 2.3 Version counts per plugin name. */
   async getPluginVersions(orgId: string): Promise<VersionCount[]> {
     return inventoryCache.getOrSet(`${orgId}:plugin-versions`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           ${schema.plugin.name},
           COUNT(*)::int AS version_count,
@@ -423,14 +432,14 @@ export class ReportingService {
         WHERE ${schema.plugin.orgId} = ${orgId} AND ${schema.plugin.isActive} = true
         GROUP BY ${schema.plugin.name}
         ORDER BY version_count DESC
-      `).then(r => drizzleRows<VersionCount>(r.rows)),
+      `).then(r => drizzleRows<VersionCount>(r.rows))),
     );
   }
 
   /** 2.4 Build success rate over time. */
   async getBuildSuccessRate(orgId: string, interval: string, from: string, to: string): Promise<BuildTimeSeriesEntry[]> {
     return timeseriesCache.getOrSet(`${orgId}:build-success:${interval}:${from}:${to}`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           DATE_TRUNC(${interval}, e.started_at)::text AS period,
           COUNT(*) FILTER (WHERE e.status = 'completed')::int AS succeeded,
@@ -442,14 +451,14 @@ export class ReportingService {
           AND e.status IN ('completed', 'failed')
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY period ORDER BY period
-      `).then(r => drizzleRows<BuildTimeSeriesEntry>(r.rows)),
+      `).then(r => drizzleRows<BuildTimeSeriesEntry>(r.rows))),
     );
   }
 
   /** 2.5 Build duration per plugin. */
   async getBuildDuration(orgId: string, from: string, to: string): Promise<BuildDuration[]> {
     return timeseriesCache.getOrSet(`${orgId}:build-duration:${from}:${to}`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           e.detail->>'pluginName' AS plugin_name,
           AVG(e.duration_ms)::int AS avg_ms,
@@ -459,14 +468,14 @@ export class ReportingService {
         WHERE e.org_id = ${orgId} AND e.event_source = 'plugin-build' AND e.duration_ms IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY plugin_name ORDER BY avg_ms DESC
-      `).then(r => drizzleRows<BuildDuration>(r.rows)),
+      `).then(r => drizzleRows<BuildDuration>(r.rows))),
     );
   }
 
   /** 2.6 Build failures — top error messages. */
   async getBuildFailures(orgId: string, from: string, to: string, limit: number = 20): Promise<BuildFailure[]> {
     return timeseriesCache.getOrSet(`${orgId}:build-failures:${from}:${to}:${limit}`, () =>
-      db.execute(sql`
+      withTenantTx((tx) => tx.execute(sql`
         SELECT
           e.detail->>'pluginName' AS plugin_name,
           e.error_message,
@@ -478,7 +487,7 @@ export class ReportingService {
         GROUP BY plugin_name, e.error_message
         ORDER BY occurrences DESC
         LIMIT ${limit}
-      `).then(r => drizzleRows<BuildFailure>(r.rows)),
+      `).then(r => drizzleRows<BuildFailure>(r.rows))),
     );
   }
 }

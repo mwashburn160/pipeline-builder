@@ -20,8 +20,8 @@ jest.mock('../src/helpers/message-client', () => ({
   },
 }));
 
-import { notifyComplianceBlock } from '../src/helpers/compliance-notifier';
 import type { Violation } from '../src/engine/rule-engine';
+import { notifyComplianceBlock } from '../src/helpers/compliance-notifier';
 
 function makeViolation(overrides: Partial<Violation> = {}): Violation {
   return {

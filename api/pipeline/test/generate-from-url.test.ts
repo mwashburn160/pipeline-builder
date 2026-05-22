@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Mock function references — must be defined before jest.mock() calls
+// Mock function references  must be defined before jest.mock() calls
 
 const mockParseGitUrl = jest.fn();
 const mockAnalyzeRepository = jest.fn();
@@ -12,11 +12,14 @@ const mockValidateBody = jest.fn();
 const mockSendBadRequest = jest.fn();
 const mockSendInternalError = jest.fn();
 const mockSendSuccess = jest.fn();
+const mockSendQuotaExceeded = jest.fn();
 const mockCreateSafeClient = jest.fn();
 const mockPluginClientPost = jest.fn();
 const mockDbSelect = jest.fn();
+const mockReserveQuota = jest.fn().mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 1000, used: 1, remaining: 999 } });
+const mockDecrementQuota = jest.fn();
 
-// Mocks — must be defined before imports
+// Mocks  must be defined before imports
 
 jest.mock('@pipeline-builder/api-core', () => ({
   AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
@@ -31,7 +34,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
     mockCreateSafeClient(...args);
     return { post: mockPluginClientPost };
   },
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
+  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message: String(e))),
   initSSEStream: jest.fn((req: any, res: any, timeoutMs: number) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -70,6 +73,10 @@ jest.mock('@pipeline-builder/api-core', () => ({
   validateBody: mockValidateBody,
   AIGenerateFromUrlBodySchema: {},
   AIGenerateBodySchema: {},
+  // reserve+rollback. Default: not exceeded.
+  reserveQuota: (...args: unknown[]) => mockReserveQuota(...args),
+  decrementQuota: (...args: unknown[]) => mockDecrementQuota(...args),
+  sendQuotaExceeded: (...args: unknown[]) => mockSendQuotaExceeded(...args),
 }));
 
 jest.mock('@pipeline-builder/api-server', () => ({
@@ -154,7 +161,7 @@ jest.mock('../src/services/ai-generation-service', () => ({
   generatePipelineConfig: jest.fn(),
 }));
 
-// Imports — after mocks
+// Imports  after mocks
 
 import { createGeneratePipelineRoutes } from '../src/routes/generate-pipeline';
 
@@ -168,8 +175,7 @@ const router = createGeneratePipelineRoutes(stubQuotaService);
  * Returns the LAST handler in the route stack (the actual handler, after any middleware).
  */
 function getHandler(method: string, path: string) {
-  const layer = (router as any).stack.find(
-    (l: any) => l.route?.path === path && l.route?.methods[method],
+  const layer = (router as any).stack.find( (l: any) => l.route?.path === path && l.route?.methods[method],
   );
   if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
   const stack = layer.route.stack;
@@ -285,8 +291,7 @@ const MOCK_FINAL_OUTPUT = {
  * Create a mock streamPipelineConfig result with an async generator
  * for partialOutputStream and a Promise for output.
  */
-function createMockStreamResult(
-  partials: Record<string, unknown>[],
+function createMockStreamResult( partials: Record<string, unknown>[],
   finalOutput: Record<string, unknown> | null = MOCK_FINAL_OUTPUT,
 ) {
   async function* generate() {
@@ -327,7 +332,7 @@ describe('POST /generate/from-url/stream', () => {
     mockDbChain.limit.mockResolvedValue([]);
   });
 
-  // Happy path — full streaming flow
+  // Happy path  full streaming flow
 
   it('streams analyzing -> analyzed -> partial -> done -> [DONE] for a valid GitHub URL', async () => {
     const partials = [
@@ -368,7 +373,7 @@ describe('POST /generate/from-url/stream', () => {
     // Event 1: analyzing
     expect(events[0]).toEqual({ type: 'analyzing' });
 
-    // Event 2: analyzed — repo analysis data
+    // Event 2: analyzed  repo analysis data
     expect(events[1]).toEqual(expect.objectContaining({
       type: 'analyzed',
       data: expect.objectContaining({
@@ -445,8 +450,7 @@ describe('POST /generate/from-url/stream', () => {
     const res = mockSseRes();
     await handler(req, res);
 
-    expect(mockSendBadRequest).toHaveBeenCalledWith(
-      res,
+    expect(mockSendBadRequest).toHaveBeenCalledWith( res,
       'Invalid Git URL format. Supported: HTTPS, SSH, git@ formats.',
     );
     expect(res.write).not.toHaveBeenCalled();
@@ -479,7 +483,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(mockStreamPipelineConfig).not.toHaveBeenCalled();
   });
 
-  // Auto-plugin creation — missing plugins
+  // Auto-plugin creation  missing plugins
 
   it('emits checking-plugins and creating-plugins events for missing plugins', async () => {
     // Final output references plugins via stages[].steps[].plugin.name
@@ -507,11 +511,10 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // DB lookup for plugin existence:
-    // Note: getAvailablePlugins does NOT call .limit(), only autoCreateMissingPlugins does
+    // DB lookup for plugin existence    // Note: getAvailablePlugins does NOT call.limit(), only autoCreateMissingPlugins does
     mockDbChain.limit
-      .mockResolvedValueOnce([]) // nodejs-build check — missing
-      .mockResolvedValueOnce([]); // docker-push check — missing
+      .mockResolvedValueOnce([]) // nodejs-build check  missing
+      .mockResolvedValueOnce([]); // docker-push check  missing
 
     // Plugin service deploy returns 202
     mockPluginClientPost.mockResolvedValue({
@@ -551,7 +554,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  // Auto-plugin creation — existing plugins skip creation
+  // Auto-plugin creation  existing plugins skip creation
 
   it('skips plugin creation when all referenced plugins already exist', async () => {
     const finalOutputWithActions = {
@@ -576,7 +579,7 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // DB lookup: batched single query — both plugins exist
+    // DB lookup: batched single query  both plugins exist
     mockDbChain.then.mockImplementationOnce((resolve: Function) =>
       resolve([{ name: 'nodejs-build' }, { name: 'test-runner' }]));
 
@@ -608,7 +611,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(mockPluginClientPost).not.toHaveBeenCalled();
   });
 
-  // Auto-plugin creation — mixed existing and missing
+  // Auto-plugin creation  mixed existing and missing
 
   it('creates only missing plugins when some already exist', async () => {
     const finalOutputWithActions = {
@@ -633,7 +636,7 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // DB lookup: batched single query — nodejs-build exists, new-plugin does not
+    // DB lookup: batched single query  nodejs-build exists, new-plugin does not
     mockDbChain.then.mockImplementationOnce((resolve: Function) =>
       resolve([{ name: 'nodejs-build' }]));
 
@@ -662,8 +665,7 @@ describe('POST /generate/from-url/stream', () => {
 
     // Only called once for the missing plugin
     expect(mockPluginClientPost).toHaveBeenCalledTimes(1);
-    expect(mockPluginClientPost).toHaveBeenCalledWith(
-      '/plugins/deploy-generated',
+    expect(mockPluginClientPost).toHaveBeenCalledWith( '/plugins/deploy-generated',
       expect.objectContaining({
         name: 'new-plugin',
         version: '1.0.0',
@@ -681,7 +683,7 @@ describe('POST /generate/from-url/stream', () => {
     );
   });
 
-  // Auto-plugin creation — deploy failure records error
+  // Auto-plugin creation  deploy failure records error
 
   it('records error in builds when plugin deployment fails', async () => {
     const finalOutputWithActions = {
@@ -703,7 +705,7 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // Note: getAvailablePlugins does NOT call .limit(), only autoCreateMissingPlugins does
+    // Note: getAvailablePlugins does NOT call.limit(), only autoCreateMissingPlugins does
     mockDbChain.limit
       .mockResolvedValueOnce([]); // failing-plugin not found
 
@@ -732,7 +734,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  // Auto-plugin creation — non-202 status records HTTP error
+  // Auto-plugin creation  non-202 status records HTTP error
 
   it('records HTTP error when plugin service returns non-success status', async () => {
     const finalOutputWithActions = {
@@ -754,7 +756,7 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // Note: getAvailablePlugins does NOT call .limit(), only autoCreateMissingPlugins does
+    // Note: getAvailablePlugins does NOT call.limit(), only autoCreateMissingPlugins does
     mockDbChain.limit
       .mockResolvedValueOnce([]); // bad-plugin not found
 
@@ -782,7 +784,7 @@ describe('POST /generate/from-url/stream', () => {
     });
   });
 
-  // No stages or no pluginName references — auto-plugin skipped
+  // No stages or no pluginName references  auto-plugin skipped
 
   it('skips auto-plugin creation when output has no stages with actions', async () => {
     const finalOutputNoStages = {
@@ -816,7 +818,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  // Streaming error after headers sent — SSE error event
+  // Streaming error after headers sent  SSE error event
 
   it('sends SSE error event when an error occurs after headers are sent', async () => {
     mockStreamPipelineConfig.mockImplementation(() => {
@@ -844,7 +846,7 @@ describe('POST /generate/from-url/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  // Error before headers sent — returns HTTP error
+  // Error before headers sent  returns HTTP error
 
   it('returns HTTP 500 when error occurs before headers are sent (provider not configured)', async () => {
     mockStreamPipelineConfig.mockImplementation(() => {
@@ -858,8 +860,7 @@ describe('POST /generate/from-url/stream', () => {
 
     // Since headersSent is false and message includes 'not configured',
     // it should call sendInternalError
-    expect(mockSendInternalError).toHaveBeenCalledWith(
-      res,
+    expect(mockSendInternalError).toHaveBeenCalledWith( res,
       'AI generation is not configured for the requested provider',
     );
   });
@@ -873,8 +874,7 @@ describe('POST /generate/from-url/stream', () => {
     const res = mockSseRes();
     await handler(req, res);
 
-    expect(mockSendBadRequest).toHaveBeenCalledWith(
-      res,
+    expect(mockSendBadRequest).toHaveBeenCalledWith( res,
       'Model gpt-5 is not available for provider anthropic',
     );
   });
@@ -888,8 +888,7 @@ describe('POST /generate/from-url/stream', () => {
     const res = mockSseRes();
     await handler(req, res);
 
-    expect(mockSendInternalError).toHaveBeenCalledWith(
-      res,
+    expect(mockSendInternalError).toHaveBeenCalledWith( res,
       'Failed to generate pipeline from URL',
       { details: 'Unexpected internal error' },
     );
@@ -961,11 +960,10 @@ describe('POST /generate/from-url/stream', () => {
     }));
   });
 
-  // Null final output — done event not sent, but [DONE] still sent
+  // Null final output  done event not sent, but [DONE] still sent
 
   it('skips done event but sends [DONE] when AI returns null output', async () => {
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult(
-      [{ project: 'app' }],
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult( [{ project: 'app' }],
       null,
     ));
 
@@ -1021,7 +1019,7 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputDuplicatePlugins));
 
-    // Note: getAvailablePlugins does NOT call .limit(), only autoCreateMissingPlugins does
+    // Note: getAvailablePlugins does NOT call.limit(), only autoCreateMissingPlugins does
     mockDbChain.limit
       .mockResolvedValueOnce([{ name: 'nodejs-build' }]) // nodejs-build found
       .mockResolvedValueOnce([{ name: 'docker-push' }]); // docker-push found

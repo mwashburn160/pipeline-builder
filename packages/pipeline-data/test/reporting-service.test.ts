@@ -7,11 +7,30 @@
  */
 
 const mockExecute = jest.fn();
+const mockInsert = jest.fn();
+const mockSelect = jest.fn();
 
 jest.mock('../src/database/postgres-connection', () => ({
   db: {
     execute: mockExecute,
+    insert: mockInsert,
+    select: mockSelect,
   },
+}));
+
+// withTenantTx wraps every reporting query in a tx that SET LOCALs the
+// RLS GUCs. For unit tests we mock it to a pass-through invoking the
+// callback with the same fake `db` so existing `mockExecute` assertions
+// still match without per-test rewrites.
+jest.mock('../src/database/tenancy', () => ({
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
+    execute: mockExecute,
+    insert: mockInsert,
+    select: mockSelect,
+  }),
+  runWithTenantContext: <T>(_ctx: unknown, fn: () => T) => fn(),
+  getTenantContext: () => undefined,
+  tenantContext: { run: <T>(_ctx: unknown, fn: () => T) => fn(), getStore: () => undefined },
 }));
 
 jest.mock('@pipeline-builder/api-core', () => ({

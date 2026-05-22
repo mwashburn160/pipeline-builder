@@ -195,8 +195,8 @@ spec:
             matchExpressions:
               - key: app
                 # `platform` reads Loki via /api/observability/logs for the
-                # native Audit Activity dashboard. Grafana removed — iframe
-                # deleted in this PR.
+                # native Audit Activity dashboard. Grafana removed from the
+                # value list — the iframe is deleted in this PR.
                 operator: In
                 values: [promtail, platform]
       ports:
@@ -339,7 +339,24 @@ spec:
 
 ---
 # =============================================================================
-# Plugin External Egress — plugin needs to pull images and push to registry
+# Plugin External Egress — plugin pulls base images + dependency packages
+#
+# Hardening: this used to allow 443/80 to ANY destination. We still
+# allow public-internet 443/80 (builds legitimately fetch from pypi.org,
+# npmjs.org, ghcr.io, quay.io, public.ecr.aws, and arbitrary git hosts) but
+# explicitly block known exfil targets via `except` blocks:
+# - 169.254.0.0/16: link-local incl. cloud metadata (169.254.169.254 on
+#   AWS / GCP / Azure). A compromised build cannot exfil IAM credentials
+#   this way.
+# - 192.168.0.0/16: typical home / lab LAN ranges.
+# - 100.64.0.0/10: CGNAT range used by some cloud / VPN deployments.
+#
+# Cluster-internal traffic (registry, redis, postgres) is allowed by the
+# `allow-internal-egress` policy above (matches every pod in the namespace).
+#
+# True per-org allow-lists require either Cilium NetworkPolicy (CIDR + DNS-
+# aware) or kernel-level isolation via per-org buildkitd workers.
+# This rule is defense-in-depth on top of those — see docs/plans/follow-ups.md.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -352,7 +369,14 @@ spec:
   policyTypes:
     - Egress
   egress:
-    - ports:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16 # link-local + cloud metadata
+              - 192.168.0.0/16 # private LAN
+              - 100.64.0.0/10 # CGNAT
+      ports:
         - port: 443
           protocol: TCP
         - port: 80
@@ -416,7 +440,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: plugin
+      app: plugin
   policyTypes:
     - Egress
   egress:

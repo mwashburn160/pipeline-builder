@@ -8,7 +8,7 @@
  * services (SSEManager, QuotaService, db, buildAndPush).
  */
 
-// Mock state — must be hoisted before imports
+// Mock state  must be hoisted before imports
 
 const mockQueueAdd = jest.fn();
 const mockQueueClose = jest.fn().mockResolvedValue(undefined);
@@ -17,6 +17,11 @@ const mockQueueGetJobCounts = jest.fn().mockResolvedValue({});
 const mockQueueObliterate = jest.fn().mockResolvedValue(undefined);
 const mockWorkerClose = jest.fn().mockResolvedValue(undefined);
 const mockWorkerOn = jest.fn();
+// Records every `new Worker(name, processor, opts)` call. Used by the
+// idempotency test to verify a second startWorker() doesn't construct
+// new workers. The bullmq mock returns plain classes (not jest.fn()),
+// so `Worker.mock.calls` doesn't exist — this spy is the substitute.
+const mockWorkerCtor = jest.fn();
 
 // Track which worker processor is for which queue name
 const capturedProcessors: Record<string, (job: any) => Promise<any>> = {};
@@ -28,6 +33,10 @@ jest.mock('bullmq', () => {
     getJobs = mockQueueGetJobs;
     getJobCounts = mockQueueGetJobCounts;
     obliterate = mockQueueObliterate;
+    name: string;
+    constructor(name: string, _opts: any) {
+      this.name = name;
+    }
   }
 
   class MockWorker {
@@ -35,6 +44,7 @@ jest.mock('bullmq', () => {
     close = mockWorkerClose;
 
     constructor(name: string, processor: (job: any) => Promise<any>, _opts: any) {
+      mockWorkerCtor(name);
       capturedProcessors[name] = processor;
     }
   }
@@ -47,6 +57,13 @@ jest.mock('ioredis', () => {
     status = 'ready';
     disconnect = jest.fn();
     on = jest.fn();
+    // Per-org concurrency semaphore uses INCR/DECR/EXPIRE/SET on
+    // `pb:org-build:<orgId>` keys. Mock to always succeed under the cap so
+    // the worker proceeds to its main logic.
+    incr = jest.fn().mockResolvedValue(1);
+    decr = jest.fn().mockResolvedValue(0);
+    expire = jest.fn().mockResolvedValue(1);
+    set = jest.fn().mockResolvedValue('OK');
   }
   return { __esModule: true, default: MockRedis };
 });
@@ -67,6 +84,10 @@ const mockBuildAndPush = jest.fn();
 jest.mock('../src/helpers/docker-build', () => ({
   buildAndPush: mockBuildAndPush,
   BUILD_TEMP_ROOT: '/tmp',
+  // per-tier buildkitd address resolver. Stub returns a noop tcp
+  // address so the worker proceeds; the actual buildAndPush mock above
+  // is what asserts behavior.
+  getBuildkitAddrForTier: jest.fn(() => 'tcp://buildkitd:1234'),
 }));
 
 const mockDeployVersion = jest.fn();
@@ -95,6 +116,16 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
   },
   Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
+  // RLS tenant-context primitives. Pass-throughs in unit tests  // runWithTenantContext just invokes its callback; withTenantTx invokes
+  // its callback with a stub tx whose insert/select/update return promises
+  // resolving to the inputs (existing test assertions don't inspect the
+  // tx layer, just the side effects).
+  runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
+  withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
+    insert: () => ({ values: () => Promise.resolve() }),
+    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+    update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+  }),
 }));
 
 jest.mock('@pipeline-builder/api-core', () => ({
@@ -104,15 +135,20 @@ jest.mock('@pipeline-builder/api-core', () => ({
     error: jest.fn(),
     debug: jest.fn(),
   }),
-  errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  errorMessage: (e: unknown) => (e instanceof Error ? e.message: String(e)),
   extractDbError: jest.fn(() => ({})),
   incrementQuota: mockIncrementQuota,
+  decrementQuota: mockIncrementQuota,
   getServiceAuthHeader: () => 'Bearer test-service-token',
+  // remote-audit client  worker calls record() on success +
+  // permanent failure. Mocked as a no-op since the worker fire-and-forgets;
+  // tests only need the symbol to exist so getAuditClient() doesn't throw.
+  createRemoteAuditClient: () => ({ record: jest.fn() }),
 }));
 
 jest.mock('@pipeline-builder/api-server', () => ({
   // Metrics helpers used by worker handlers + queue-metrics-scraper.
-  // No-ops in tests — we only assert behavior, not Prometheus state.
+  // No-ops in tests  we only assert behavior, not Prometheus state.
   incCounter: jest.fn(),
   observe: jest.fn(),
   setGauge: jest.fn(),
@@ -129,7 +165,13 @@ function makeSseManager() {
 }
 
 function makeQuotaService() {
-  return { increment: jest.fn().mockResolvedValue(undefined) } as any;
+  return {
+    increment: jest.fn().mockResolvedValue(undefined),
+    // worker calls getOrgTier before buildAndPush to pick the
+    // per-tier buildkitd address. Stub returns the default tier so the
+    // build path falls back to the in-pod sidecar address.
+    getTier: jest.fn().mockResolvedValue('developer'),
+  } as any;
 }
 
 function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJobData {
@@ -161,7 +203,7 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
       keywords: ['test'],
       installCommands: [],
       commands: ['echo hello'],
-      
+
       accessModifier: 'private',
       timeout: null,
       failureBehavior: 'fail',
@@ -207,11 +249,16 @@ describe('plugin-build-queue', () => {
         getJobs = mockQueueGetJobs;
         getJobCounts = mockQueueGetJobCounts;
         obliterate = mockQueueObliterate;
+        name: string;
+        constructor(name: string, _opts: any) {
+          this.name = name;
+        }
       }
       class MockWorker {
         on = mockWorkerOn;
         close = mockWorkerClose;
         constructor(name: string, processor: (job: any) => Promise<any>, _opts: any) {
+          mockWorkerCtor(name);
           capturedProcessors[name] = processor;
         }
       }
@@ -219,7 +266,15 @@ describe('plugin-build-queue', () => {
     });
 
     jest.mock('ioredis', () => {
-      class MockRedis { status = 'ready'; disconnect = jest.fn(); on = jest.fn(); }
+      class MockRedis {
+        status = 'ready';
+        disconnect = jest.fn();
+        on = jest.fn();
+        incr = jest.fn().mockResolvedValue(1);
+        decr = jest.fn().mockResolvedValue(0);
+        expire = jest.fn().mockResolvedValue(1);
+        set = jest.fn().mockResolvedValue('OK');
+      }
       return { __esModule: true, default: MockRedis };
     });
 
@@ -233,6 +288,7 @@ describe('plugin-build-queue', () => {
     jest.mock('../src/helpers/docker-build', () => ({
       buildAndPush: mockBuildAndPush,
       BUILD_TEMP_ROOT: '/tmp',
+      getBuildkitAddrForTier: jest.fn(() => 'tcp://buildkitd:1234'),
     }));
 
     jest.mock('../src/services/plugin-service', () => ({
@@ -247,6 +303,12 @@ describe('plugin-build-queue', () => {
         PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
       },
       Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
+      runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
+      withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
+        insert: () => ({ values: () => Promise.resolve() }),
+        select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+        update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+      }),
     }));
 
     jest.mock('@pipeline-builder/api-core', () => ({
@@ -256,34 +318,46 @@ describe('plugin-build-queue', () => {
         error: jest.fn(),
         debug: jest.fn(),
       }),
-      errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      errorMessage: (e: unknown) => (e instanceof Error ? e.message: String(e)),
       extractDbError: jest.fn(() => ({})),
       incrementQuota: mockIncrementQuota,
+      decrementQuota: mockIncrementQuota,
       getServiceAuthHeader: () => 'Bearer test-service-token',
+      // remote-audit client  worker fire-and-forgets.
+      createRemoteAuditClient: () => ({ record: jest.fn() }),
+      // per-tier queues  startWorker iterates VALID_TIERS.
+      VALID_TIERS: ['developer', 'pro', 'unlimited'],
+      DEFAULT_TIER: 'developer',
     }));
 
     jest.mock('@pipeline-builder/api-server', () => ({
-  // Metrics helpers used by worker handlers + queue-metrics-scraper.
-  // No-ops in tests — we only assert behavior, not Prometheus state.
-  incCounter: jest.fn(),
-  observe: jest.fn(),
-  setGauge: jest.fn(),
-}));
+      // Metrics helpers used by worker handlers + queue-metrics-scraper.
+      // No-ops in tests  we only assert behavior, not Prometheus state.
+      incCounter: jest.fn(),
+      observe: jest.fn(),
+      setGauge: jest.fn(),
+    }));
 
     queueModule = await import('../src/queue/plugin-build-queue');
   });
 
-  describe('getQueue()', () => {
-    it('returns a BullMQ Queue instance', () => {
-      const q = queueModule.getQueue();
+  describe('getTierQueue()', () => {
+    it('returns a BullMQ Queue instance for the default tier', () => {
+      const q = queueModule.getTierQueue('developer');
       expect(q).toBeDefined();
       expect(q.add).toBeDefined();
     });
 
-    it('returns the same instance on subsequent calls (singleton)', () => {
-      const q1 = queueModule.getQueue();
-      const q2 = queueModule.getQueue();
+    it('returns the same instance on subsequent calls (per-tier singleton)', () => {
+      const q1 = queueModule.getTierQueue('developer');
+      const q2 = queueModule.getTierQueue('developer');
       expect(q1).toBe(q2);
+    });
+
+    it('returns distinct instances for distinct tiers', () => {
+      const dev = queueModule.getTierQueue('developer');
+      const pro = queueModule.getTierQueue('pro');
+      expect(dev).not.toBe(pro);
     });
   });
 
@@ -292,19 +366,26 @@ describe('plugin-build-queue', () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
-      const w = queueModule.startWorker(sse, quota);
-      expect(w).toBeDefined();
+      queueModule.startWorker(sse, quota);
       expect(getMainProcessor()).toBeInstanceOf(Function);
       expect(capturedProcessors['plugin-build-dlq']).toBeInstanceOf(Function);
     });
 
-    it('returns same worker on repeated calls (singleton)', () => {
+    it('is idempotent — repeat calls are no-ops when workers exist', () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
-      const w1 = queueModule.startWorker(sse, quota);
-      const w2 = queueModule.startWorker(sse, quota);
-      expect(w1).toBe(w2);
+      queueModule.startWorker(sse, quota);
+      // Capture the Worker-constructor call count after the first start,
+      // then re-invoke and assert no new workers were constructed. The
+      // mock Worker is a plain class (no `.mock` property), so we read
+      // from the module-level `mockWorkerCtor` spy that records every
+      // `new Worker(name, ...)` call from inside the mock constructor.
+      const beforeWorkerCtorCalls = mockWorkerCtor.mock.calls.length;
+      expect(beforeWorkerCtorCalls).toBeGreaterThan(0);
+      queueModule.startWorker(sse, quota);
+      const afterWorkerCtorCalls = mockWorkerCtor.mock.calls.length;
+      expect(afterWorkerCtorCalls).toBe(beforeWorkerCtorCalls);
     });
 
     it('registers failed and error event handlers', () => {
@@ -335,7 +416,8 @@ describe('plugin-build-queue', () => {
 
       const result = await getMainProcessor()(job);
 
-      expect(mockBuildAndPush).toHaveBeenCalledWith(jobData.buildRequest);
+      // added a second arg with the per-tier buildkitd address.
+      expect(mockBuildAndPush).toHaveBeenCalledWith(jobData.buildRequest, expect.objectContaining({ buildkitAddr: expect.any(String) }));
       expect(mockDeployVersion).toHaveBeenCalledWith(jobData.pluginRecord, 'user-1');
 
       expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Build started', expect.any(Object));
@@ -345,10 +427,10 @@ describe('plugin-build-queue', () => {
         name: 'my-plugin',
       }));
 
-      // Worker now mints a fresh service token via getServiceAuthHeader
-      // instead of forwarding the user's bearer (so a leaked Redis blob
-      // doesn't leak a long-lived user token).
-      expect(mockIncrementQuota).toHaveBeenCalledWith(quota, 'org-1', 'plugins', 'Bearer test-service-token', expect.any(Function));
+      // quota is reserved at upload time by the route handler;
+      // the worker no longer increments on success (it only decrements on
+      // permanent failure to roll back). Success path → no quota mutation.
+      expect(mockIncrementQuota).not.toHaveBeenCalled();
       expect(result).toEqual({ pluginId: 'plugin-1', fullImage: 'registry:5000/plugin:p-test-abc123' });
     });
 
@@ -358,7 +440,7 @@ describe('plugin-build-queue', () => {
 
       queueModule.startWorker(sse, quota);
 
-      const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0',  };
+      const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0' };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
       mockDeployVersion.mockResolvedValue(insertedPlugin);
       mockExistsSync.mockReturnValue(true);
@@ -389,13 +471,13 @@ describe('plugin-build-queue', () => {
 
       queueModule.startWorker(sse, quota);
 
-      const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0',  };
+      const insertedPlugin = { id: 'p1', name: 'test', version: '1.0.0' };
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
       mockDeployVersion.mockResolvedValue(insertedPlugin);
       mockExistsSync.mockReturnValue(true);
       mockRmSync.mockImplementation(() => { throw new Error('permission denied'); });
 
-      // Should not throw — cleanup error is caught internally
+      // Should not throw  cleanup error is caught internally
       const result = await getMainProcessor()(makeJob(makeJobData()));
       expect(result).toEqual({ pluginId: 'p1', fullImage: 'img' });
     });
@@ -445,7 +527,7 @@ describe('plugin-build-queue', () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
-      queueModule.getQueue();
+      queueModule.getTierQueue('developer');
       queueModule.startWorker(sse, quota);
 
       await queueModule.shutdownQueue();

@@ -23,14 +23,14 @@ const logger = createLogger('quota-service');
 /** Thrown when an organization document is not found in MongoDB. */
 export class OrgNotFoundError extends Error {
   constructor(orgId?: string) {
-    super(orgId ? `Organization not found: ${orgId}` : 'Organization not found');
+    super(orgId ? `Organization not found: ${orgId}`: 'Organization not found');
     this.name = 'OrgNotFoundError';
   }
 }
 
 // Result types
 
-/** Result returned by incrementUsage — tells the caller whether the quota was exceeded. */
+/** Result returned by incrementUsage  tells the caller whether the quota was exceeded. */
 export interface IncrementResult {
   exceeded: boolean;
   quota: {
@@ -55,13 +55,12 @@ export interface UpdateOrgData {
 /**
  * Quota service encapsulating all Mongoose operations for organizations.
  *
- * Provides:
- * - findAll() — list every organisation with quotas (admin view)
- * - findByOrgId() — single-org quota summary
- * - getQuotaStatus() — per-type status for an org
- * - update() — update name/slug/tier/limits
- * - resetUsage() — zero-out usage counters
- * - incrementUsage() — atomic increment with limit enforcement
+ * Provides * - findAll()  list every organisation with quotas (admin view)
+ * - findByOrgId()  single-org quota summary
+ * - getQuotaStatus()  per-type status for an org
+ * - update()  update name/slug/tier/limits
+ * - resetUsage()  zero-out usage counters
+ * - incrementUsage()  atomic increment with limit enforcement
  */
 export class QuotaService {
   // Read operations
@@ -157,27 +156,39 @@ export class QuotaService {
   }
 
   /**
+   *  delete the org's Mongo document entirely. Idempotent: deleting
+   * an already-missing org returns false (rather than throwing), which is
+   * the right shape for the platform's cascade orchestrator (it doesn't
+   * care whether the cleanup was a no-op).
+   */
+  async delete(orgId: string): Promise<boolean> {
+    const result = await Organization.deleteOne({ _id: orgId });
+    if (result.deletedCount > 0) {
+      logger.info('Quota org deleted', { orgId });
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Increment usage for a quota type.
    *
-   * Handles three distinct flows:
-   * 1. **System org bypass** — increment without limit check.
-   * 2. **Auto-reset** — atomically resets expired periods before incrementing.
-   * 3. **Atomic increment** — single query that only succeeds when quota allows.
+   * Handles three distinct flows   * 1. **Sysadmin bypass**  increment without limit check.
+   * 2. **Auto-reset**  atomically resets expired periods before incrementing.
+   * 3. **Atomic increment**  single query that only succeeds when quota allows.
    *
    * @throws {OrgNotFoundError} when the org document does not exist
    */
-  async incrementUsage(
-    orgId: string,
+  async incrementUsage( orgId: string,
     quotaType: QuotaType,
     amount: number,
     bypassLimit: boolean,
   ): Promise<IncrementResult> {
     const usagePath = `usage.${quotaType}`;
 
-    // ----- System org bypass: simple $inc, no limit check -----
+    // ----- Sysadmin bypass: simple $inc, no limit check -----
     if (bypassLimit) {
-      const org = await Organization.findOneAndUpdate(
-        { _id: orgId },
+      const org = await Organization.findOneAndUpdate( { _id: orgId },
         { $inc: { [`${usagePath}.used`]: amount } },
         { returnDocument: 'after' },
       );
@@ -190,7 +201,7 @@ export class QuotaService {
           type: quotaType,
           limit,
           used: org.usage[quotaType].used,
-          remaining: limit === -1 ? -1 : Math.max(0, limit - org.usage[quotaType].used),
+          remaining: limit === -1 ? -1: Math.max(0, limit - org.usage[quotaType].used),
           resetAt: org.usage[quotaType].resetAt?.toISOString(),
         },
       };
@@ -201,44 +212,43 @@ export class QuotaService {
     // preventing race conditions where concurrent requests could increment before reset completes.
     const now = new Date();
     const nextReset = getNextResetDate(config.quota.resetDays);
-    const org = await Organization.findOneAndUpdate(
-      {
-        _id: orgId,
-        $or: [
-          { [`quotas.${quotaType}`]: -1 },
-          // When period is expired, allow if amount fits within limit (after reset to 0)
-          {
-            [`${usagePath}.resetAt`]: { $lte: now },
-            $expr: { $lte: [amount, `$quotas.${quotaType}`] },
-          },
-          // When period is not expired, allow if current used + amount fits within limit
-          {
-            [`${usagePath}.resetAt`]: { $gt: now },
-            $expr: { $lte: [{ $add: [`$${usagePath}.used`, amount] }, `$quotas.${quotaType}`] },
-          },
-        ],
-      },
-      [
+    const org = await Organization.findOneAndUpdate( {
+      _id: orgId,
+      $or: [
+        { [`quotas.${quotaType}`]: -1 },
+        // When period is expired, allow if amount fits within limit (after reset to 0)
         {
-          $set: {
-            [`${usagePath}.used`]: {
-              $cond: {
-                if: { $lte: [`$${usagePath}.resetAt`, now] },
-                then: amount, // Period expired: reset to 0 then add amount
-                else: { $add: [`$${usagePath}.used`, amount] }, // Not expired: increment
-              },
+          [`${usagePath}.resetAt`]: { $lte: now },
+          $expr: { $lte: [amount, `$quotas.${quotaType}`] },
+        },
+        // When period is not expired, allow if current used + amount fits within limit
+        {
+          [`${usagePath}.resetAt`]: { $gt: now },
+          $expr: { $lte: [{ $add: [`$${usagePath}.used`, amount] }, `$quotas.${quotaType}`] },
+        },
+      ],
+    },
+    [
+      {
+        $set: {
+          [`${usagePath}.used`]: {
+            $cond: {
+              if: { $lte: [`$${usagePath}.resetAt`, now] },
+              then: amount, // Period expired: reset to 0 then add amount
+              else: { $add: [`$${usagePath}.used`, amount] }, // Not expired: increment
             },
-            [`${usagePath}.resetAt`]: {
-              $cond: {
-                if: { $lte: [`$${usagePath}.resetAt`, now] },
-                then: nextReset,
-                else: `$${usagePath}.resetAt`,
-              },
+          },
+          [`${usagePath}.resetAt`]: {
+            $cond: {
+              if: { $lte: [`$${usagePath}.resetAt`, now] },
+              then: nextReset,
+              else: `$${usagePath}.resetAt`,
             },
           },
         },
-      ],
-      { returnDocument: 'after' },
+      },
+    ],
+    { returnDocument: 'after' },
     );
 
     if (!org) {
@@ -267,7 +277,53 @@ export class QuotaService {
         type: quotaType,
         limit,
         used: org.usage[quotaType].used,
-        remaining: limit === -1 ? -1 : Math.max(0, limit - org.usage[quotaType].used),
+        remaining: limit === -1 ? -1: Math.max(0, limit - org.usage[quotaType].used),
+        resetAt: org.usage[quotaType].resetAt?.toISOString(),
+      },
+    };
+  }
+
+  /**
+   * Roll back a previously reserved increment. Used by the pre-flight
+   * `reserve + commit` pattern in routes that gate on `incrementUsage`
+   * before the action: if the action fails, the route calls this to give
+   * the slot back. Floors at 0 to keep the counter non-negative even if
+   * the period reset happens between reserve and rollback.
+   *
+   * Idempotent: if the org doesn't exist, returns null silently so the
+   * route can roll back without surfacing secondary errors when the
+   * original action's failure was "org not found" or similar.
+   */
+  async decrementUsage( orgId: string,
+    quotaType: QuotaType,
+    amount: number,
+  ): Promise<IncrementResult | null> {
+    const usagePath = `usage.${quotaType}`;
+    const org = await Organization.findOneAndUpdate( { _id: orgId },
+      [
+        {
+          $set: {
+            [`${usagePath}.used`]: {
+              // Clamp to 0 so a rollback after a between-reserve-and-rollback
+              // period reset doesn't go negative.
+              $max: [0, { $subtract: [`$${usagePath}.used`, amount] }],
+            },
+          },
+        },
+      ],
+      { returnDocument: 'after' },
+    );
+
+    if (!org) return null;
+
+    const limit = org.quotas[quotaType];
+    return {
+      exceeded: false,
+      quota: {
+        type: quotaType,
+        limit,
+        used: org.usage[quotaType].used,
+        remaining: limit === -1 ? -1: Math.max(0, limit - org.usage[quotaType].used),
         resetAt: org.usage[quotaType].resetAt?.toISOString(),
       },
     };

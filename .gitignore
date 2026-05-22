@@ -45,6 +45,7 @@ deploy/**/.env
 image.tar
 .image-hash
 plugin.zip
+.docker-build/
 !/.github/pull_request_template.md
 !/test/
 !/tsconfig.json

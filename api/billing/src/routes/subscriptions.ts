@@ -19,6 +19,7 @@ import {
   createBillingEvent,
   syncTierToQuotaService,
 } from '../helpers/billing-helpers';
+import { BillingEvent } from '../models/billing-event';
 import { Plan } from '../models/plan';
 import { Subscription } from '../models/subscription';
 import { getPaymentProvider } from '../providers/provider-factory';
@@ -29,18 +30,17 @@ const logger = createLogger('billing-subscriptions');
 /**
  * Create the subscription management router (authenticated).
  *
- * Registers:
- * - GET  /subscriptions                -- get current org subscription
- * - POST /subscriptions                -- create a new subscription (admin)
- * - PUT  /subscriptions/:id            -- change plan or interval (admin)
- * - POST /subscriptions/:id/cancel     -- cancel at period end (admin)
+ * Registers * - GET /subscriptions -- get current org subscription
+ * - POST /subscriptions -- create a new subscription (admin)
+ * - PUT /subscriptions/:id -- change plan or interval (admin)
+ * - POST /subscriptions/:id/cancel -- cancel at period end (admin)
  * - POST /subscriptions/:id/reactivate -- undo pending cancellation (admin)
  * @returns Express Router
  */
 export function createSubscriptionRoutes(): Router {
   const router: Router = Router();
 
-  // GET /billing/subscriptions — get current org subscription
+  // GET /billing/subscriptions  get current org subscription
 
   router.get('/subscriptions', withRoute(async ({ res, orgId }) => {
     const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
@@ -56,7 +56,7 @@ export function createSubscriptionRoutes(): Router {
     });
   }));
 
-  // POST /billing/subscriptions — create a new subscription
+  // POST /billing/subscriptions  create a new subscription
 
   router.post('/subscriptions', withRoute(async ({ req, res, orgId }) => {
     const validation = validateBody(req, SubscriptionCreateSchema);
@@ -74,14 +74,13 @@ export function createSubscriptionRoutes(): Router {
     // Check for existing active subscription
     const existing = await Subscription.findOne({ orgId, status: 'active' });
     if (existing) {
-      return sendError(
-        res, 409,
+      return sendError(        res, 409,
         'Organization already has an active subscription. Use PUT to change plans.',
         ErrorCode.DUPLICATE_ENTRY,
       );
     }
 
-    // Call payment provider — pass the user's email so the provider's
+    // Call payment provider  pass the user's email so the provider's
     // dunning/receipt emails reach a real inbox (Stripe accepts blank but
     // then has no contact for failed-payment notifications).
     const provider = getPaymentProvider();
@@ -122,7 +121,7 @@ export function createSubscriptionRoutes(): Router {
     });
   }));
 
-  // PUT /billing/subscriptions/:id — change plan or interval
+  // PUT /billing/subscriptions/:id  change plan or interval
 
   router.put('/subscriptions/:id', withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
@@ -165,8 +164,7 @@ export function createSubscriptionRoutes(): Router {
     if (interval && interval !== subscription.interval) {
       const oldInterval = subscription.interval;
       subscription.interval = interval;
-      subscription.currentPeriodEnd = calculatePeriodEnd(
-        subscription.currentPeriodStart, interval,
+      subscription.currentPeriodEnd = calculatePeriodEnd(        subscription.currentPeriodStart, interval,
       );
 
       await createBillingEvent(orgId, 'interval_changed', {
@@ -190,7 +188,7 @@ export function createSubscriptionRoutes(): Router {
     });
   }));
 
-  // POST /billing/subscriptions/:id/cancel — cancel at period end
+  // POST /billing/subscriptions/:id/cancel  cancel at period end
 
   router.post('/subscriptions/:id/cancel', withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
@@ -227,7 +225,59 @@ export function createSubscriptionRoutes(): Router {
     });
   }));
 
-  // POST /billing/subscriptions/:id/reactivate — undo cancellation
+  // DELETE /billing/subscriptions/by-org/:orgId � cascade hook.
+  // Sysadmin / service-token only. Cancels and removes every subscription
+  // + event for the org. Idempotent: missing org → 200 with `deleted: 0`.
+  //
+  // The platform's org-cascade-service calls this with a service-minted
+  // token; user-initiated org deletes never reach this path (they go
+  // through admin.org.delete on platform, which fires us internally).
+  router.delete('/subscriptions/by-org/:orgId', withRoute(async ({ req, res, orgId }) => {
+    // The route uses the path:orgId, but withRoute also pulls the caller's
+    // orgId from the JWT  only system org or matching org may delete.
+    const targetOrgId = getParam(req.params, 'orgId');
+    if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    if (orgId !== 'system' && orgId !== targetOrgId) {
+      return sendError(res, 403, 'Cannot delete subscriptions for another org', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+
+    // Cancel any active subscription at the provider first so we don't
+    // leave billable state running after our local rows are gone.
+    const active = await Subscription.find({ orgId: targetOrgId, status: 'active' });
+    for (const sub of active) {
+      if (sub.externalId) {
+        try {
+          await getPaymentProvider().cancelSubscription(sub.externalId);
+        } catch (err) {
+          logger.warn('Provider cancel failed during cascade  continuing with local delete', {
+            orgId: targetOrgId,
+            subscriptionId: sub._id?.toString(),
+            error: err instanceof Error ? err.message: String(err),
+          });
+        }
+      }
+    }
+
+    const subDelete = await Subscription.deleteMany({ orgId: targetOrgId });
+
+    // Drop billing events too  they're scoped to the org and have no
+    // independent purpose once the subscription is gone. Audit retention
+    // lives in platform's audit_events collection, not here.
+    const eventDelete = await BillingEvent.deleteMany({ orgId: targetOrgId });
+
+    logger.info('Subscription cascade complete', {
+      orgId: targetOrgId,
+      subscriptions: subDelete.deletedCount ?? 0,
+      events: eventDelete.deletedCount ?? 0,
+    });
+
+    return sendSuccess(res, 200, {
+      deleted: subDelete.deletedCount ?? 0,
+      events: eventDelete.deletedCount ?? 0,
+    });
+  }));
+
+  // POST /billing/subscriptions/:id/reactivate  undo cancellation
 
   router.post('/subscriptions/:id/reactivate', withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
@@ -237,8 +287,7 @@ export function createSubscriptionRoutes(): Router {
     });
 
     if (!subscription) {
-      return sendError(
-        res, 404,
+      return sendError(        res, 404,
         'No canceled subscription found to reactivate',
         ErrorCode.NOT_FOUND,
       );

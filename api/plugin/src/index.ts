@@ -29,7 +29,7 @@ app.use(attachRequestContext(sseManager));
 app.use('/plugins', createUploadPluginRoutes(quotaService));
 
 // -- Queue status route (MUST be before read routes to avoid /:id catching "queue")
-app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatusRoutes());
+app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatusRoutes(quotaService));
 
 // -- AI generation routes — ai_generation feature gate (MUST be before read routes)
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requireFeature('ai_generation'), createGeneratePluginRoutes(quotaService));

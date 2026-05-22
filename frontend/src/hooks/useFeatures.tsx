@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
 import { useAuth } from './useAuth';
-import { isSystemOrg } from '@/types';
+import { isSystemAdmin } from '@/types';
 import api from '@/lib/api';
 
 /** Shape of the features context value. */
@@ -53,8 +53,9 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       if (val) enabled.add(key);
     }
 
-    // System org: exclude billing (they manage billing for others)
-    if (isSystemOrg(user)) {
+    // Sysadmins don't need their own billing tab — they manage billing for
+    // every org, not pay one themselves.
+    if (isSystemAdmin(user)) {
       enabled.delete('billing');
     }
 

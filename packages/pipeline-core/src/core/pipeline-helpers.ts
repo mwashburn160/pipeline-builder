@@ -16,7 +16,7 @@ import { Config, CoreConstants } from '../config/app-config';
 import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
 import { resolvePluginTemplates } from '../template/plugin-resolver';
 
-const log = createLogger('Helper');
+const log = createLogger('pipeline-helpers');
 
 /**
  * Merge multiple metadata objects into one. Later sources override earlier ones.

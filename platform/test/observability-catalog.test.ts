@@ -118,22 +118,22 @@ describe('observability catalog', () => {
 
   describe('substituteVars: $ORG (server-driven, not from allowedVars)', () => {
     it('substitutes a regex wildcard for sysadmins', () => {
-      const out = substituteVars('foo{a="b"$ORG}', { isSysAdmin: true }, []);
+      const out = substituteVars('foo{a="b"$ORG}', { isSuperAdmin: true }, []);
       expect(out).toBe('foo{a="b",org_id=~".+"}');
     });
 
     it('substitutes a literal match for non-sysadmins with a valid org', () => {
-      const out = substituteVars('foo{a="b"$ORG}', { org: 'org-acme', isSysAdmin: false }, []);
+      const out = substituteVars('foo{a="b"$ORG}', { org: 'org-acme', isSuperAdmin: false }, []);
       expect(out).toBe('foo{a="b",org_id="org-acme"}');
     });
 
     it('substitutes a never-match clause when non-sysadmin has no org', () => {
-      const out = substituteVars('foo{a="b"$ORG}', { isSysAdmin: false }, []);
+      const out = substituteVars('foo{a="b"$ORG}', { isSuperAdmin: false }, []);
       expect(out).toBe('foo{a="b",org_id="__no_org__"}');
     });
 
     it('rejects a hostile org value (regex injection)', () => {
-      const out = substituteVars('foo{$ORG}', { org: 'foo".+",other="bar', isSysAdmin: false }, []);
+      const out = substituteVars('foo{$ORG}', { org: 'foo".+",other="bar', isSuperAdmin: false }, []);
       // Invalid org chars → empty-match selector instead of injection
       expect(out).toBe('foo{,org_id="__no_org__"}');
     });

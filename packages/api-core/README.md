@@ -34,7 +34,7 @@ Tokens satisfy the standard `requireAuth` middleware unmodified (sub: `service:<
 
 ### Internal HTTP Client
 - `InternalHttpClient`, `createSafeClient` — Service-to-service HTTP communication
-- `ServiceConfig`, `RequestOptions`, `HttpResponse` — Client types
+- `ServiceConfig`, `RequestOptions` — Client types
 
 ### AI Provider Constants
 - `AI_PROVIDER_CATALOG` — Static provider/model catalog

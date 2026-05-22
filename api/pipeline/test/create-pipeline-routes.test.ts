@@ -5,13 +5,18 @@
  * Tests for routes/create-pipeline.
  *
  * Extracts the POST / handler from the router and tests it directly
- * with mock req/res objects — no HTTP server needed.
+ * with mock req/res objects  no HTTP server needed.
  */
 
-// Mocks — must be defined before imports
+// Mocks  must be defined before imports
 
 const mockCreateAsDefault = jest.fn();
 const mockIncrement = jest.fn().mockResolvedValue(undefined);
+const mockReserveQuota = jest.fn().mockResolvedValue({ exceeded: false, quota: { type: 'pipelines', limit: 100, used: 1, remaining: 99 } });
+const mockDecrementQuota = jest.fn();
+const mockSendQuotaExceeded = jest.fn((res: any, _t: string, q: any) => {
+  res.status(429).json({ success: false, statusCode: 429, quota: q });
+});
 
 jest.mock('../src/services/pipeline-service', () => ({
   pipelineService: {
@@ -32,7 +37,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   },
   createLogger: jest.fn(() => ({ error: jest.fn(), warn: jest.fn(), info: jest.fn() })),
   resolveAccessModifier: jest.fn((_req: any, am?: string) => am || 'private'),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
+  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message: String(e))),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
     const response: any = { success: true, statusCode };
     if (data !== undefined) response.data = data;
@@ -56,6 +61,12 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
   PipelineCreateSchema: {},
   incrementQuota: jest.fn(),
+  // reserve+rollback pattern. Reserve returns "not exceeded" by
+  // default; tests that exercise the over-quota path can override via
+  // `mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota:... })`.
+  reserveQuota: (...args: unknown[]) => mockReserveQuota(...args),
+  decrementQuota: (...args: unknown[]) => mockDecrementQuota(...args),
+  sendQuotaExceeded: (...args: unknown[]) => mockSendQuotaExceeded(...(args as [unknown, string, unknown])),
   createComplianceClient: jest.fn(() => ({
     validatePipeline: mockValidatePipeline,
   })),
@@ -71,6 +82,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
 jest.mock('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
+  createAuthenticatedWithOrgRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -82,7 +94,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
     try {
       await handler({ req, res, ctx, orgId, userId });
     } catch (error: any) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = error instanceof Error ? error.message: String(error);
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
@@ -94,7 +106,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   replaceNonAlphanumeric: jest.fn((str: string, replacement: string) =>
     str.replace(/[^a-zA-Z0-9]/g, replacement),
   ),
-  // Template-validator dependencies — minimal stubs that accept any input
+  // Template-validator dependencies  minimal stubs that accept any input
   allowedScopeRoots: () => () => true,
   validateTemplates: () => ({ valid: true, errors: [] }),
   detectCycles: () => [],
@@ -103,7 +115,6 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
 }));
 
 import { sendBadRequest, validateBody } from '@pipeline-builder/api-core';
-import { incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { createCreatePipelineRoutes } from '../src/routes/create-pipeline';
 
 // Helpers
@@ -117,8 +128,7 @@ const mockQuotaService = {
 const router = createCreatePipelineRoutes(mockQuotaService);
 
 function getHandler(method: string, path: string) {
-  const layer = (router as any).stack.find(
-    (l: any) => l.route?.path === path && l.route?.methods[method],
+  const layer = (router as any).stack.find( (l: any) => l.route?.path === path && l.route?.methods[method],
   );
   if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
   return layer.route.stack[0].handle;
@@ -176,14 +186,13 @@ describe('POST /pipelines (create)', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        success: true,
-        statusCode: 201,
-        data: expect.objectContaining({
-          pipeline: expect.objectContaining({ id: 'uuid-1' }),
-        }),
+    expect(res.json).toHaveBeenCalledWith( expect.objectContaining({
+      success: true,
+      statusCode: 201,
+      data: expect.objectContaining({
+        pipeline: expect.objectContaining({ id: 'uuid-1' }),
       }),
+    }),
     );
   });
 
@@ -207,8 +216,7 @@ describe('POST /pipelines (create)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendBadRequest).toHaveBeenCalledWith(
-      res,
+    expect(sendBadRequest).toHaveBeenCalledWith( res,
       'Project and organization must contain alphanumeric characters',
       'VALIDATION_ERROR',
     );
@@ -221,8 +229,7 @@ describe('POST /pipelines (create)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendBadRequest).toHaveBeenCalledWith(
-      res,
+    expect(sendBadRequest).toHaveBeenCalledWith( res,
       'Project and organization must contain alphanumeric characters',
       'VALIDATION_ERROR',
     );
@@ -261,7 +268,11 @@ describe('POST /pipelines (create)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(incrementQuotaFromCtx).toHaveBeenCalledWith(mockQuotaService, expect.objectContaining({ orgId: 'org-1' }), 'pipelines');
+    // reserve replaces post-hoc increment. The reserved slot is
+    // implicit success  the test asserts reserve was called with the
+    // right args.
+    expect(mockReserveQuota).toHaveBeenCalledWith( mockQuotaService, 'org-1', 'pipelines', expect.any(String),
+    );
   });
 
   it('returns 500 on service error', async () => {
@@ -292,13 +303,12 @@ describe('POST /pipelines (create)', () => {
     await handler(req, res);
 
     // Verify the service was called with a generated pipelineName
-    expect(mockCreateAsDefault).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pipelineName: expect.stringContaining('pipeline'),
-      }),
-      expect.any(String),
-      expect.any(String),
-      expect.any(String),
+    expect(mockCreateAsDefault).toHaveBeenCalledWith( expect.objectContaining({
+      pipelineName: expect.stringContaining('pipeline'),
+    }),
+    expect.any(String),
+    expect.any(String),
+    expect.any(String),
     );
   });
 
@@ -321,8 +331,7 @@ describe('POST /pipelines (create)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockCreateAsDefault).toHaveBeenCalledWith(
-      expect.objectContaining({ pipelineName: 'custom-name' }),
+    expect(mockCreateAsDefault).toHaveBeenCalledWith( expect.objectContaining({ pipelineName: 'custom-name' }),
       expect.any(String),
       expect.any(String),
       expect.any(String),

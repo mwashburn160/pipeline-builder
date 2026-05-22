@@ -18,6 +18,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { FilterBar } from '@/components/ui/FilterBar';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
 import UploadPluginModal from '@/components/plugin/UploadPluginModal';
@@ -61,9 +62,9 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 /** Plugin management page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
 export default function PluginsPage() {
-  const { user, isReady, isAuthenticated, isSysAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
   const toast = useToast();
-  const canViewPublic = isSysAdmin;
+  const canViewPublic = isSuperAdmin;
 
   // Mark the "explore plugin catalog" onboarding step as complete on first visit.
   useEffect(() => {
@@ -152,13 +153,13 @@ export default function PluginsPage() {
   }, []);
 
   const toggleSelectAll = useCallback(() => {
-    const modifiable = filteredPlugins.filter(p => canModify(isSysAdmin, p.accessModifier));
+    const modifiable = filteredPlugins.filter(p => canModify(isSuperAdmin, p.accessModifier));
     if (selectedIds.size === modifiable.length && modifiable.length > 0) {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(modifiable.map(p => p.id)));
     }
-  }, [filteredPlugins, isSysAdmin, selectedIds.size]);
+  }, [filteredPlugins, isSuperAdmin, selectedIds.size]);
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
@@ -210,7 +211,7 @@ export default function PluginsPage() {
       header: '',
       locked: true,
       render: (plugin: Plugin) => (
-        canModify(isSysAdmin, plugin.accessModifier) ? (
+        canModify(isSuperAdmin, plugin.accessModifier) ? (
           <input
             type="checkbox"
             checked={selectedIds.has(plugin.id)}
@@ -361,7 +362,7 @@ export default function PluginsPage() {
       hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (p) => p.createdAt,
-      render: (p) => <>{new Date(p.createdAt).toLocaleDateString()}</>,
+      render: (p) => <RelativeTime value={p.createdAt} />,
     },
     {
       id: 'updatedAt',
@@ -369,7 +370,7 @@ export default function PluginsPage() {
       hidden: true,
       cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
       sortValue: (p) => p.updatedAt,
-      render: (p) => <>{new Date(p.updatedAt).toLocaleDateString()}</>,
+      render: (p) => <RelativeTime value={p.updatedAt} />,
     },
     {
       id: 'keywords',
@@ -383,11 +384,11 @@ export default function PluginsPage() {
       header: 'Actions',
       cellClassName: 'text-sm',
       render: (plugin) => {
-        const parsed = isSysAdmin ? parsePluginUri(plugin.uri) : null;
+        const parsed = isSuperAdmin ? parsePluginUri(plugin.uri) : null;
         return (
           <div className="flex items-center space-x-3">
             <button onClick={() => setViewPlugin(plugin)} className="action-link">View</button>
-            {canModify(isSysAdmin, plugin.accessModifier) && (
+            {canModify(isSuperAdmin, plugin.accessModifier) && (
               <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
             )}
             {/* Sysadmin-only registry cross-link — closes the
@@ -404,14 +405,14 @@ export default function PluginsPage() {
                 In registry
               </Link>
             )}
-            {canModify(isSysAdmin, plugin.accessModifier) && (
+            {canModify(isSuperAdmin, plugin.accessModifier) && (
               <button onClick={() => del.open(plugin)} className="action-link-danger">Delete</button>
             )}
           </div>
         );
       },
     },
-  ], [isSysAdmin, isAdmin, selectedIds, toggleSelect, favorites, handleToggleFavorite, pluginUsage]);
+  ], [isSuperAdmin, isAdmin, selectedIds, toggleSelect, favorites, handleToggleFavorite, pluginUsage]);
 
   // ── Render ──
 
@@ -437,14 +438,15 @@ export default function PluginsPage() {
       }
     >
       <div className="page-section">
-        <RoleBanner isSysAdmin={isSysAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} />
+        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} />
 
         {list.error && <div className="alert-error"><p>{list.error}</p></div>}
 
         <FilterBar
+          sticky
           searchValue={list.filters.name}
           onSearchChange={(v) => list.updateFilter('name', v)}
-          searchPlaceholder="Search plugins..."
+          searchPlaceholder="Search plugins... (press /)"
           showAdvanced={showAdvanced}
           onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
           advancedFilterCount={list.advancedFilterCount}
@@ -521,11 +523,11 @@ export default function PluginsPage() {
       </div>
 
       {showCreateModal && (
-        <CreatePluginModal canUploadPublic={isSysAdmin} onClose={() => setShowCreateModal(false)} onCreated={list.refresh} />
+        <CreatePluginModal canUploadPublic={isSuperAdmin} onClose={() => setShowCreateModal(false)} onCreated={list.refresh} />
       )}
 
       {showUploadModal && (
-        <UploadPluginModal canUploadPublic={isSysAdmin} onClose={() => setShowUploadModal(false)} onUploaded={list.refresh} />
+        <UploadPluginModal canUploadPublic={isSuperAdmin} onClose={() => setShowUploadModal(false)} onUploaded={list.refresh} />
       )}
 
       {del.target && (
@@ -533,7 +535,7 @@ export default function PluginsPage() {
       )}
 
       {editPlugin && (
-        <EditPluginModal plugin={editPlugin} isSysAdmin={isSysAdmin} onClose={() => setEditPlugin(null)} onSaved={list.refresh} />
+        <EditPluginModal plugin={editPlugin} isSuperAdmin={isSuperAdmin} onClose={() => setEditPlugin(null)} onSaved={list.refresh} />
       )}
 
       {viewPlugin && (
@@ -569,7 +571,7 @@ export default function PluginsPage() {
               <div>
                 <Detail label="URI" value={viewPlugin.uri} />
                 {(() => {
-                  const parsed = isSysAdmin ? parsePluginUri(viewPlugin.uri) : null;
+                  const parsed = isSuperAdmin ? parsePluginUri(viewPlugin.uri) : null;
                   if (!parsed) return null;
                   return (
                     <Link

@@ -3,7 +3,8 @@
 
 import crypto from 'crypto';
 import net from 'net';
-import { createLogger, mongoSanitize } from '@pipeline-builder/api-core';
+import { createLogger, mongoSanitize, sendError } from '@pipeline-builder/api-core';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -13,7 +14,7 @@ import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client
 
 import { config } from './config';
 import { notFoundHandler, errorHandler } from './middleware';
-import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, configRoutes, observabilityRoutes, dashboardRoutes } from './routes';
+import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes';
 
 const logger = createLogger('platform-api');
 
@@ -26,7 +27,7 @@ metricsRegistry.setDefaultLabels({ service: 'platform' });
 collectDefaultMetrics({ register: metricsRegistry });
 
 // Wire the platform-local business-metric helpers (incCounter, observe,
-// setGauge in ./observability/metrics) to this registry so call sites in
+// setGauge in./observability/metrics) to this registry so call sites in
 // controllers + the periodic scraper publish to the same /metrics endpoint
 // exposed below.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -69,10 +70,9 @@ function extractClientIp(req: express.Request): string {
  *
  * Runs BEFORE auth middleware, so this peeks at the Bearer token without
  * verifying the signature. Used only as a rate-limit key; real authorization
- * still happens in requireAuth. Falls back to IP-based keying when:
- *   - no Bearer token,
- *   - the token is malformed,
- *   - the payload doesn't include organizationId.
+ * still happens in requireAuth. Falls back to IP-based keying when * - no Bearer token,
+ * - the token is malformed,
+ * - the payload doesn't include organizationId.
  *
  * Net effect: a single noisy authenticated org consumes its own quota window
  * instead of degrading every other tenant sharing an IP (NAT / corp gateway).
@@ -89,24 +89,86 @@ function rateLimitKey(req: express.Request): string {
           return `org:${payload.organizationId.toLowerCase()}`;
         }
       } catch {
-        // Malformed JWT — fall through to IP keying.
+        // Malformed JWT  fall through to IP keying.
       }
     }
   }
   return `ip:${extractClientIp(req)}`;
 }
 
-/** General rate limiter */
+/**
+ * Peek at the JWT payload (unverified  signature checked later in `requireAuth`)
+ * to extract the issuer-stamped tier + role for rate-limit dispatching.
+ * Same caveat as `rateLimitKey`: this runs BEFORE auth middleware, so it must
+ * tolerate missing / malformed tokens; the limit decision falls back to the
+ * developer tier when no signal is available.
+ */
+function peekJwtClaims(req: express.Request): {
+  tier?: string;
+  role?: string;
+  organizationId?: string;
+  organizationName?: string;
+  isSuperAdmin?: boolean;
+  impersonationReadOnly?: boolean;
+} {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return {};
+  const token = auth.slice(7);
+  const parts = token.split('.');
+  if (parts.length !== 3 || !parts[1]) return {};
+  try {
+    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as {
+      tier?: string;
+      role?: string;
+      organizationId?: string;
+      organizationName?: string;
+      isSuperAdmin?: boolean;
+      impersonationReadOnly?: boolean;
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Per-tier max calculator. JWT carries `tier` (set at issuance from the
+ * org's planId); we multiply the baseline by the tier's multiplier so a
+ * premium org gets proportionally more burst. Sysadmins bypass entirely
+ * (see `skip` below).
+ *
+ * Falls back to the developer (1×) multiplier when the tier isn't on the
+ * configured map  keeps newly-named tiers from accidentally getting an
+ * unlimited budget.
+ */
+function tierLimitedMax(req: Request): number {
+  const { tier } = peekJwtClaims(req);
+  const mult: number = (tier && config.rateLimit.tierMultipliers[tier]) || 1;
+  return Math.max(1, Math.floor(config.rateLimit.max * mult));
+}
+
+/** General rate limiter  per-tier max, keyed by org (or IP for anon callers). */
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
-  max: config.rateLimit.max,
+  max: tierLimitedMax,
   keyGenerator: rateLimitKey,
+  // Sysadmins are internal operators who legitimately make burst calls
+  // (audit replays, fleet-wide scans). Bypass the limiter rather than
+  // size it for the worst case. Same JWT-peek pattern as the key generator
+  // so this works pre-`requireAuth`.
+  skip: (req: Request) => {
+    // Sysadmin bypass — checks the JWT-stamped isSuperAdmin flag (the
+    // canonical signal after the system-org cutover). Unverified peek is
+    // safe: the worst a tampered token can do is grant itself the
+    // rate-limit bypass, and `requireAuth` later rejects it before any
+    // privileged action runs.
+    return peekJwtClaims(req).isSuperAdmin === true;
+  },
   message: { success: false, statusCode: 429, message: 'Too many requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-/** Strict rate limiter for auth endpoints (login, register, OAuth) — IP-based since user is not yet authenticated. */
+/** Strict rate limiter for auth endpoints (login, register, OAuth)  IP-based since user is not yet authenticated. */
 const authLimiter = rateLimit({
   windowMs: config.rateLimit.auth.windowMs,
   max: config.rateLimit.auth.max,
@@ -131,7 +193,7 @@ const observabilityLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-/** Request ID middleware — attaches a unique ID to each request for log correlation */
+/** Request ID middleware  attaches a unique ID to each request for log correlation */
 function requestIdMiddleware(req: Request, _res: Response, next: NextFunction): void {
   const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
   req.headers['x-request-id'] = requestId;
@@ -143,14 +205,42 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors(config.cors));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
-// Mongo operator-injection guard — Platform is Mongo-backed (users, orgs,
+// Mongo operator-injection guard  Platform is Mongo-backed (users, orgs,
 // invitations, audit). Strips $-prefixed keys from req.body/query/params
 // so a `{"email": {"$ne": null}}` payload can't match any document.
 app.use(mongoSanitize());
 app.set('trust proxy', config.server.trustProxy);
 app.use(requestIdMiddleware);
 
-/** Prometheus metrics middleware — records request duration and count */
+/**
+ * Tenant-context middleware (RLS enforcement).
+ *
+ * Runs before any route handler so the JWT-claimed `organizationId` + role
+ * are available in AsyncLocalStorage for every downstream `withTenantTx`
+ * call. Same JWT-peek pattern as `peekJwtClaims`  we read the unverified
+ * payload here because * 1. The signature gets checked later in `requireAuth` (route-level).
+ * Route handlers never run if the JWT was tampered.
+ * 2. The peeked context only matters at query time inside withTenantTx,
+ * which only fires from authenticated route handlers  so a tampered
+ * JWT can't bind a falsified `app.org_id` to a real query.
+ * 3. Setting the context before requireAuth lets services that aren't
+ * authenticated (e.g. the /alert-webhook shared-secret endpoint) still
+ * get a sensible default (empty orgId, isSuperAdmin=false).
+ */
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  const claims = peekJwtClaims(req);
+  // Use the JWT-stamped isSuperAdmin flag (post system-org cutover). The
+  // peek is unverified — `requireAuth` re-validates downstream. The worst
+  // a tampered token can do here is set sysadmin=true and trigger RLS's
+  // sysadmin-bypass branch on a DB query that the same request will then
+  // be rejected from at the route guard.
+  runWithTenantContext(
+    { orgId: claims.organizationId, isSuperAdmin: claims.isSuperAdmin === true },
+    () => next(),
+  );
+});
+
+/** Prometheus metrics middleware  records request duration and count */
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === '/metrics' || req.path === '/health') {
     next();
@@ -158,7 +248,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
   const end = httpRequestDuration.startTimer();
   res.on('finish', () => {
-    const route = req.route?.path ? req.baseUrl + req.route.path : req.path
+    const route = req.route?.path ? req.baseUrl + req.route.path: req.path
       .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ':id')
       .replace(/\/\d+(?=\/|$)/g, '/:id');
     const labels = { method: req.method, route, status_code: String(res.statusCode) };
@@ -170,13 +260,37 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use(limiter);
 
+/**
+ * Read-only impersonation gate. When the caller's JWT carries
+ * `impersonationReadOnly: true` (issued by POST /admin/impersonate),
+ * any non-GET request is rejected — sysadmins can "view as user X"
+ * without any chance of a destructive action landing under that
+ * identity. Same JWT-peek pattern as the rate limiter: the signature
+ * is still verified by `requireAuth` later, but if the token is
+ * malformed the peek returns {} and this middleware no-ops.
+ */
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (READ_METHODS.has(req.method)) return next();
+  if (peekJwtClaims(req).impersonationReadOnly === true) {
+    sendError(
+      res,
+      403,
+      'Write requests are disabled during read-only impersonation. Stop impersonating to make changes.',
+      'IMPERSONATION_READ_ONLY',
+    );
+    return;
+  }
+  next();
+});
+
 /** Health check endpoint */
 app.get('/health', (_req: Request, res: Response) => {
   const mongodb = mongoose.connection.readyState === 1 ? 'connected'
     : mongoose.connection.readyState === 0 ? 'unknown'
       : 'disconnected';
-  const status = mongodb === 'disconnected' ? 503 : 200;
-  res.status(status).json({ status: status === 200 ? 'ok' : 'degraded', dependencies: { mongodb } });
+  const status = mongodb === 'disconnected' ? 503: 200;
+  res.status(status).json({ status: status === 200 ? 'ok': 'degraded', dependencies: { mongodb } });
 });
 
 /**
@@ -206,6 +320,12 @@ app.use('/audit', auditRoutes);
 app.use('/config', configRoutes);
 app.use('/observability', observabilityLimiter, observabilityRoutes);
 app.use('/dashboards', dashboardRoutes);
+app.use('/admin/org-idp', orgIdpRoutes);
+app.use('/admin/orgs/:orgId/kms-config', orgKmsConfigRoutes);
+app.use('/admin/orgs/:orgId/k8s-namespace.yaml', orgNamespaceRoutes);
+app.use('/admin/users/:id/grants', userGrantsRoutes);
+app.use('/admin/summary', adminSummaryRoutes);
+app.use('/admin/impersonate', impersonateRoutes);
 
 /** Error handling middleware (must be registered last) */
 app.use(notFoundHandler);
@@ -245,6 +365,53 @@ async function startServer(): Promise<void> {
     const serverSelectionTimeoutMS = parseInt(process.env.MONGO_SERVER_SELECTION_MS || '5000', 10);
     await mongoose.connect(config.mongodb.uri, { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
     logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
+
+    // Bootstrap super-admins from BOOTSTRAP_SUPERADMIN_EMAILS env. Awaited
+    // so the loud WARN logs land before HTTP comes up — operator can see
+    // immediately whether their bootstrap config landed. Idempotent + tolerant
+    // of missing accounts (warns rather than fails).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { bootstrapSuperAdmins } = require('./services/superadmin-bootstrap');
+    try {
+      await bootstrapSuperAdmins();
+    } catch (err) {
+      logger.error('Super-admin bootstrap failed (HTTP will still start)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Install the per-org KMS provider if SECRET_ENCRYPTION_PER_ORG_KMS=true.
+    // Must run AFTER Mongo connects (resolver reads Organization docs) but
+    // BEFORE any code path can encrypt/decrypt a secret — i.e. before HTTP
+    // listens. Idempotent; no-op when the env isn't set.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { bootstrapPerOrgKmsProvider } = require('./services/per-org-kms-bootstrap');
+    try {
+      bootstrapPerOrgKmsProvider();
+    } catch (err) {
+      // Fail-closed: misconfigured per-org KMS shouldn't silently fall back
+      // to the shared master in production. Re-throw to abort startup so
+      // the operator sees the misconfig immediately.
+      logger.error('Per-org KMS provider bootstrap failed; aborting startup', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+
+    // Re-encrypt any clear-text secrets left from pre-encryption writes.
+    // Runs AFTER the key provider is installed (so backfills land under
+    // the right CMK) and BEFORE HTTP listens (so the strict-only read
+    // path that lands next never sees a clear-text record). Idempotent —
+    // first boot does the work, subsequent boots are no-ops.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { backfillSecrets } = require('./services/secret-backfill');
+    try {
+      await backfillSecrets();
+    } catch (err) {
+      logger.error('Secret backfill failed (HTTP will still start, but expect decrypt errors on clear-text rows)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     // Seed default dashboards into Postgres. Fire-and-forget: the seeder is
     // idempotent (insert-if-missing per `(org_id='system', name)`) and logs

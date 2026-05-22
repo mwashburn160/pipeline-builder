@@ -56,10 +56,3 @@ export function overallHealthColor(quotas: Record<string, { used: number; limit:
   return 'bg-green-500';
 }
 
-export function barColor(used: number, limit: number, unlimited: boolean): string {
-  if (unlimited) return 'bg-blue-500';
-  const p = pct(used, limit);
-  if (p >= QUOTA_CRITICAL_THRESHOLD) return 'bg-red-500';
-  if (p >= QUOTA_WARNING_THRESHOLD) return 'bg-yellow-500';
-  return 'bg-green-500';
-}

@@ -69,8 +69,15 @@ export function useImageDetail(name: string | null, reference: string | null) {
           const body = manifest.body as { config?: { digest?: string } };
           const configDigest = body.config?.digest;
           if (!configDigest) {
-            // Legacy manifest with no config blob — still treat as image.
-            setKind({ kind: 'image', manifest, config: {} });
+            // OCI v1 requires config.digest. The registry rejects manifests
+            // that omit it on push, but a UI that's been pointed at an
+            // external registry might still see one — degrade to 'unknown'
+            // rather than silently faking an empty config.
+            setKind({
+              kind: 'unknown',
+              manifest,
+              reason: 'Manifest is missing config.digest (not OCI v1 compliant).',
+            });
             setLoading(false);
             return;
           }
@@ -79,10 +86,15 @@ export function useImageDetail(name: string | null, reference: string | null) {
             if (ctrl.signal.aborted) return;
             setKind({ kind: 'image', manifest, config: cfg as RegistryImageConfig });
           } catch (blobErr) {
-            // Blob too large or unfetchable — degrade to image with empty config.
-            // Summary tab will show "Config blob unavailable" + JSON tab still works.
+            // Blob fetch failed (too large / network error). Surface as
+            // 'unknown' with a reason so the JSON viewer still works and
+            // the operator understands why Summary is empty.
             if (ctrl.signal.aborted) return;
-            setKind({ kind: 'image', manifest, config: {} });
+            setKind({
+              kind: 'unknown',
+              manifest,
+              reason: `Config blob unavailable: ${blobErr instanceof Error ? blobErr.message : String(blobErr)}`,
+            });
           }
           setLoading(false);
           return;

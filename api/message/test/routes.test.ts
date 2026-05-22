@@ -461,7 +461,8 @@ describe('POST /messages (create)', () => {
     expect(sendBadRequest).toHaveBeenCalledWith(res, 'Request body is required', 'VALIDATION_ERROR');
   });
 
-  it('returns 403 when non-system org creates announcement', async () => {
+  it('returns 403 when non-sysadmin creates announcement', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
     const req = mockReq({
       body: {
         recipientOrgId: '*',
@@ -477,12 +478,13 @@ describe('POST /messages (create)', () => {
     expect(sendError).toHaveBeenCalledWith(
       res,
       403,
-      'Only system org can create announcements',
+      'Only sysadmins can create announcements',
       'INSUFFICIENT_PERMISSIONS',
     );
   });
 
-  it('allows system org to create announcements', async () => {
+  it('allows sysadmins to create announcements', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(true);
     mockCreate.mockResolvedValue({ id: 'msg-ann', subject: 'Update' });
 
     const req = mockReq({
@@ -492,11 +494,6 @@ describe('POST /messages (create)', () => {
         subject: 'Update',
         content: 'System-wide update',
         priority: 'normal',
-      },
-      context: {
-        identity: { orgId: 'system', userId: 'admin' },
-        log: jest.fn(),
-        requestId: 'req-1',
       },
     });
     const res = mockRes();
@@ -511,7 +508,8 @@ describe('POST /messages (create)', () => {
     );
   });
 
-  it('returns 403 when non-system org messages non-system org', async () => {
+  it('returns 403 when non-sysadmin starts conversation with non-system org', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
     const req = mockReq({
       body: {
         recipientOrgId: 'other-org',
@@ -527,7 +525,7 @@ describe('POST /messages (create)', () => {
     expect(sendError).toHaveBeenCalledWith(
       res,
       403,
-      'Organizations can only start conversations with the system org',
+      'Organizations can only start conversations with the system support inbox',
       'INSUFFICIENT_PERMISSIONS',
     );
   });

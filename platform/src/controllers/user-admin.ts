@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { config } from '../config';
@@ -19,7 +19,7 @@ import {
 } from '../services';
 import { parsePagination } from '../utils/pagination';
 
-const logger = createLogger('UserAdminController');
+const logger = createLogger('user-admin-controller');
 
 const adminErrorMap = {
   [UA_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
@@ -116,7 +116,6 @@ export const getUserById = withController('Get user', async (req, res) => {
   let organization: OrgSummary | undefined;
   let activeOrgRole: string | undefined;
   let tier: QuotaTier = 'developer';
-  let isSystem = false;
 
   if (activeOrgId) {
     const activeOrg = orgMap.get(activeOrgId);
@@ -124,14 +123,13 @@ export const getUserById = withController('Get user', async (req, res) => {
       organizationName = activeOrg.name;
       organization = { id: activeOrg._id.toString(), name: activeOrg.name, slug: activeOrg.slug };
       tier = (activeOrg.tier as QuotaTier) || 'developer';
-      isSystem = activeOrg._id.toString() === SYSTEM_ORG_ID;
     }
     const activeMembership = memberships.find(m => m.organizationId.toString() === activeOrgId);
     activeOrgRole = activeMembership?.role;
   }
 
   const overrides = toOverridesRecord(user.featureOverrides as Map<string, boolean> | undefined);
-  const features = resolveUserFeatures(tier, overrides, isSystem);
+  const features = resolveUserFeatures(tier, overrides, (user as { isSuperAdmin?: boolean }).isSuperAdmin === true);
 
   sendSuccess(res, 200, {
     user: formatUserResponse(user as unknown as UserResponseInput, {
@@ -186,6 +184,16 @@ export const deleteUserById = withController('Delete user', async (req, res) => 
     return sendError(res, 400, 'Cannot delete your own account through this endpoint');
   }
 
+  // Capture the org context this delete affects BEFORE the user record
+  // disappears — for sysadmins acting cross-tenant, this is the only field
+  // that tells reviewers "what org was hit" when the actor's `orgId` is the
+  // system org and the deleted user is in a different one. Falls back to
+  // any membership found on the user; sysadmins deleting a user with no
+  // memberships still get a record with affectedOrgId omitted.
+  const affectedOrgId = admin.isOrgAdmin
+    ? req.user!.organizationId!
+    : await userAdminService.lookupPrimaryOrgId(id as string).catch(() => undefined);
+
   if (admin.isOrgAdmin) {
     const allowed = await userAdminService.hasMembershipInOrg(id as string, req.user!.organizationId!);
     if (!allowed) return sendError(res, 403, 'Forbidden: Can only delete users in your organization');
@@ -194,9 +202,67 @@ export const deleteUserById = withController('Delete user', async (req, res) => 
   await userAdminService.deleteUserById(id as string);
 
   logger.info('Delete user by id', { id, admin: admin.adminType, by: req.user!.sub });
-  audit(req, 'admin.user.delete', { targetType: 'user', targetId: String(id) });
+  audit(req, 'admin.user.delete', { targetType: 'user', targetId: String(id), affectedOrgId });
   sendSuccess(res, 200, undefined, 'User deleted successfully');
 }, adminErrorMap);
+
+/**
+ * POST /users/bulk-delete — sysadmin bulk delete.
+ *
+ * Body: `{ ids: string[] }`. Returns per-id success/failure so the UI
+ * can render a summary (deletes that 404'd, owners that can't be
+ * removed, etc.) rather than refusing the whole batch on first error.
+ *
+ * Self-delete and the "owner has orgs" guard from the singular
+ * endpoint apply per-id. Org admins are intentionally NOT allowed —
+ * batch destructive ops on members is a sysadmin-only concern.
+ */
+export const bulkDeleteUsers = withController('Bulk delete users', async (req, res) => {
+  const admin = requireAdminContext(req, res);
+  if (!admin) return;
+  if (admin.isOrgAdmin) {
+    return sendError(res, 403, 'Forbidden: Bulk delete is sysadmin-only');
+  }
+
+  const ids = (req.body as { ids?: unknown })?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return sendError(res, 400, 'ids must be a non-empty array of user ids');
+  }
+  if (ids.length > 100) {
+    return sendError(res, 400, 'Batch size limited to 100 ids per request');
+  }
+  if (ids.some((id) => typeof id !== 'string' || id.length === 0)) {
+    return sendError(res, 400, 'ids must be non-empty strings');
+  }
+
+  const results: Array<{ id: string; ok: boolean; error?: string; affectedOrgId?: string }> = [];
+
+  for (const id of ids as string[]) {
+    if (id === req.user!.sub) {
+      results.push({ id, ok: false, error: 'Cannot delete your own account' });
+      continue;
+    }
+    try {
+      const affectedOrgId = await userAdminService.lookupPrimaryOrgId(id).catch(() => undefined);
+      await userAdminService.deleteUserById(id);
+      audit(req, 'admin.user.delete', { targetType: 'user', targetId: id, affectedOrgId, details: { bulk: true } });
+      results.push({ id, ok: true, affectedOrgId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Map the named service errors to friendly messages; fall through to raw text.
+      const mapped = adminErrorMap[msg as keyof typeof adminErrorMap];
+      results.push({ id, ok: false, error: mapped?.message ?? msg });
+    }
+  }
+
+  const summary = {
+    requested: ids.length,
+    deleted: results.filter((r) => r.ok).length,
+    failed: results.filter((r) => !r.ok).length,
+  };
+  logger.info('Bulk delete users', { ...summary, by: req.user!.sub });
+  sendSuccess(res, 200, { summary, results });
+});
 
 /** PUT /users/:id/features — admin set feature-flag overrides on a user. */
 export const updateUserFeatures = withController('Update user features', async (req, res) => {
@@ -231,9 +297,11 @@ export const updateUserFeatures = withController('Update user features', async (
     id as string, overrides as Record<string, boolean>,
   );
 
-  const activeOrgId = user.lastActiveOrgId?.toString();
-  const isSystem = activeOrgId === SYSTEM_ORG_ID;
-  const features = resolveUserFeatures((orgTier as QuotaTier) || 'developer', overrides as Record<string, boolean>, isSystem);
+  const features = resolveUserFeatures(
+    (orgTier as QuotaTier) || 'developer',
+    overrides as Record<string, boolean>,
+    (user as { isSuperAdmin?: boolean }).isSuperAdmin === true,
+  );
 
   logger.info('Update user features', { id, admin: admin.adminType, by: req.user!.sub });
   sendSuccess(

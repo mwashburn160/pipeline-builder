@@ -1,0 +1,101 @@
+# ---------------------------------------------------------------------------
+# Per-org Kubernetes namespace template
+# ---------------------------------------------------------------------------
+#
+# Operator helper for the "enterprise tier" deployment posture where each
+# customer org gets its own k8s namespace. The default deploy keeps all
+# orgs in `pipeline-builder` (see ../namespace.yaml); this template is for
+# top-tier customers who contract for kernel-level workload isolation.
+#
+# Substitute ${ORG_SLUG} with the org's slug (lowercase, hyphenated)
+# before applying:
+#
+#   ORG_SLUG=acme envsubst < namespace-template.yaml | kubectl apply -f -
+#
+# What this provisions, per org:
+#   - Namespace `pb-org-<slug>`
+#   - ServiceAccount the org's plugin/build pods run under
+#   - NetworkPolicy that denies all ingress + egress by default;
+#     workloads in this namespace can only reach the explicit allowlist
+#     defined in network-policy-template.yaml
+#   - ResourceQuota capping CPU / memory / pod-count budgets
+#   - LimitRange enforcing per-pod CPU + memory ceilings
+#
+# This is scaffolding only — no orchestrator wires the template into the
+# org-create flow yet. Operators apply manually when a customer signs up
+# for the enterprise tier; future work: a sysadmin admin endpoint that
+# templated-applies on org creation (and tears down on org delete).
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pb-org-${ORG_SLUG}
+  labels:
+    app.kubernetes.io/part-of: pipeline-builder
+    pipeline-builder.io/org-slug: ${ORG_SLUG}
+    pipeline-builder.io/tier: enterprise
+  annotations:
+    pipeline-builder.io/created-at: "${CREATED_AT}"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: org-workload
+  namespace: pb-org-${ORG_SLUG}
+  labels:
+    pipeline-builder.io/org-slug: ${ORG_SLUG}
+
+---
+# Default-deny network policy. Combined with the allow-list policies in
+# network-policy-template.yaml, this gives the org's workloads the most
+# restrictive default consistent with letting them function at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: pb-org-${ORG_SLUG}
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+
+---
+# Per-org resource budget. Tune by tier — these values match a baseline
+# enterprise-tier customer. Larger contracts get a custom override.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: org-quota
+  namespace: pb-org-${ORG_SLUG}
+spec:
+  hard:
+    pods: "50"
+    requests.cpu: "20"
+    requests.memory: "40Gi"
+    limits.cpu: "40"
+    limits.memory: "80Gi"
+    persistentvolumeclaims: "10"
+
+---
+# Per-pod limits — defense against a misbehaving plugin build trying to
+# eat the entire namespace budget in one pod.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: org-limits
+  namespace: pb-org-${ORG_SLUG}
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "1Gi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "256Mi"
+      max:
+        cpu: "4"
+        memory: "8Gi"
+      min:
+        cpu: "50m"
+        memory: "64Mi"

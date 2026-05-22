@@ -8,6 +8,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { Pagination } from '@/components/ui/Pagination';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import type { QueueStatus } from '@/types';
 import api from '@/lib/api';
 
@@ -209,7 +210,7 @@ function FailedJobsTable({ jobs, title, showCategory }: FailedJobsTableProps) {
                     {job.attemptsMade ?? '—'}{job.maxAttempts ? ` / ${job.maxAttempts}` : ''}
                   </td>
                   <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                    {job.failedAt ? new Date(job.failedAt).toLocaleString() : '—'}
+                    {job.failedAt ? <RelativeTime value={job.failedAt} /> : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-red-600 dark:text-red-400 text-xs max-w-xs">
                     <span className="line-clamp-2" title={job.error}>{job.error || '—'}</span>
@@ -356,6 +357,45 @@ export default function BuildQueuePage() {
           <StatCard key={card.label} {...card} delay={0.05 + i * 0.05} />
         ))}
       </div>
+
+      {/* Per-tier breakdown — surfaced when the backend returns
+          `tiers` (sysadmin response only). Each tier has its own BullMQ
+          queue so backlog can show up in one tier while the others are
+          quiet; the aggregate counts above hide that. */}
+      {status?.tiers && Object.keys(status.tiers).length > 0 && (
+        <div className="card mt-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Per-tier breakdown</h3>
+            <span className="text-xs text-gray-500 dark:text-gray-400">One BullMQ queue per pricing tier</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase text-gray-500 dark:text-gray-400">
+                  <th className="py-1.5 pr-4">Tier</th>
+                  <th className="py-1.5 pr-4">Waiting</th>
+                  <th className="py-1.5 pr-4">Active</th>
+                  <th className="py-1.5 pr-4">Completed</th>
+                  <th className="py-1.5 pr-4">Failed</th>
+                  <th className="py-1.5 pr-4">Delayed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {Object.entries(status.tiers).map(([tier, counts]) => (
+                  <tr key={tier}>
+                    <td className="py-1.5 pr-4 font-mono text-xs">{tier}</td>
+                    <td className="py-1.5 pr-4">{counts.waiting}</td>
+                    <td className="py-1.5 pr-4">{counts.active}</td>
+                    <td className="py-1.5 pr-4">{counts.completed}</td>
+                    <td className={`py-1.5 pr-4 ${counts.failed > 0 ? 'text-red-600 dark:text-red-400 font-medium' : ''}`}>{counts.failed}</td>
+                    <td className="py-1.5 pr-4">{counts.delayed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Failed jobs */}
       {status && status.failed > 0 && (

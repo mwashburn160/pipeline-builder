@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { db, schema } from '@pipeline-builder/pipeline-core';
+import { db, schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 
-const logger = createLogger('DashboardService');
+// The transaction object's full type is enormous; reuse drizzle's inferred
+// shape so insertPanels can take a tx without re-typing it everywhere.
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+const logger = createLogger('dashboard-service');
 
 type Dashboard = typeof schema.dashboard.$inferSelect;
 type DashboardInsert = typeof schema.dashboard.$inferInsert;
@@ -59,49 +63,61 @@ export interface DashboardUpdate {
  * doesn't see.
  */
 export class DashboardService {
-  /** List dashboards visible to a caller. Sysadmins see everything. */
-  async list(opts: { orgId: string; userId: string; isSysAdmin: boolean }): Promise<Dashboard[]> {
-    const { orgId, userId, isSysAdmin } = opts;
-    const baseWhere = isNull(schema.dashboard.deletedAt);
-    if (isSysAdmin) {
-      return db.select().from(schema.dashboard).where(baseWhere).orderBy(asc(schema.dashboard.name));
-    }
-    // Non-sysadmin visibility tree:
-    //   public OR (org AND same-org) OR (private AND created_by = me)
-    const visibilityWhere = or(
-      eq(schema.dashboard.visibility, 'public'),
-      and(eq(schema.dashboard.visibility, 'org'), eq(schema.dashboard.orgId, orgId)),
-      and(eq(schema.dashboard.visibility, 'private'), eq(schema.dashboard.createdBy, userId)),
-    );
-    return db
-      .select()
-      .from(schema.dashboard)
-      .where(and(baseWhere, visibilityWhere))
-      .orderBy(asc(schema.dashboard.name));
+  /**
+   * List dashboards visible to a caller. Sysadmins see everything.
+   *
+   * Wrapped in `withTenantTx` so the SELECT runs inside a transaction that
+   * has SET LOCAL `app.org_id` + `app.is_sysadmin` from the request's
+   * AsyncLocalStorage context. The application-layer `WHERE` clause + the
+   * SQL-layer RLS policy enforce the same predicate; either one missing
+   * still leaves the other in place (defense in depth).
+   */
+  async list(opts: { orgId: string; userId: string; isSuperAdmin: boolean }): Promise<Dashboard[]> {
+    const { orgId, userId, isSuperAdmin } = opts;
+    return withTenantTx(async (tx) => {
+      const baseWhere = isNull(schema.dashboard.deletedAt);
+      if (isSuperAdmin) {
+        return tx.select().from(schema.dashboard).where(baseWhere).orderBy(asc(schema.dashboard.name));
+      }
+      // Non-sysadmin visibility tree:
+      //   public OR (org AND same-org) OR (private AND created_by = me)
+      const visibilityWhere = or(
+        eq(schema.dashboard.visibility, 'public'),
+        and(eq(schema.dashboard.visibility, 'org'), eq(schema.dashboard.orgId, orgId)),
+        and(eq(schema.dashboard.visibility, 'private'), eq(schema.dashboard.createdBy, userId)),
+      );
+      return tx
+        .select()
+        .from(schema.dashboard)
+        .where(and(baseWhere, visibilityWhere))
+        .orderBy(asc(schema.dashboard.name));
+    });
   }
 
   /** Fetch a single dashboard + its panels in render order. */
   async findById(id: string): Promise<DashboardWithPanels | null> {
-    const rows = await db
-      .select()
-      .from(schema.dashboard)
-      .where(and(eq(schema.dashboard.id, id), isNull(schema.dashboard.deletedAt)))
-      .limit(1);
-    if (rows.length === 0) return null;
-    const panels = await db
-      .select()
-      .from(schema.dashboardPanel)
-      .where(eq(schema.dashboardPanel.dashboardId, id))
-      .orderBy(asc(schema.dashboardPanel.position));
-    return { ...rows[0], panels };
+    return withTenantTx(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(schema.dashboard)
+        .where(and(eq(schema.dashboard.id, id), isNull(schema.dashboard.deletedAt)))
+        .limit(1);
+      if (rows.length === 0) return null;
+      const panels = await tx
+        .select()
+        .from(schema.dashboardPanel)
+        .where(eq(schema.dashboardPanel.dashboardId, id))
+        .orderBy(asc(schema.dashboardPanel.position));
+      return { ...rows[0], panels };
+    });
   }
 
   /**
    * Decide whether `caller` can read the given dashboard. Centralized here so
    * the read-by-id controller doesn't have to duplicate the visibility ladder.
    */
-  canRead(dashboard: Dashboard, caller: { orgId: string; userId: string; isSysAdmin: boolean }): boolean {
-    if (caller.isSysAdmin) return true;
+  canRead(dashboard: Dashboard, caller: { orgId: string; userId: string; isSuperAdmin: boolean }): boolean {
+    if (caller.isSuperAdmin) return true;
     if (dashboard.visibility === 'public') return true;
     if (dashboard.visibility === 'org') return dashboard.orgId === caller.orgId;
     return dashboard.createdBy === caller.userId;
@@ -116,9 +132,9 @@ export class DashboardService {
    */
   canWrite(
     dashboard: Dashboard,
-    caller: { orgId: string; userId: string; isSysAdmin: boolean; isOrgAdmin: boolean },
+    caller: { orgId: string; userId: string; isSuperAdmin: boolean; isOrgAdmin: boolean },
   ): boolean {
-    if (caller.isSysAdmin) return true;
+    if (caller.isSuperAdmin) return true;
     if (dashboard.visibility === 'public') return false;
     if (dashboard.createdBy === caller.userId) return true;
     if (dashboard.visibility === 'org' && caller.isOrgAdmin && dashboard.orgId === caller.orgId) return true;
@@ -130,7 +146,7 @@ export class DashboardService {
     input: DashboardCreate,
     caller: { orgId: string; userId: string },
   ): Promise<DashboardWithPanels> {
-    return db.transaction(async (tx) => {
+    return withTenantTx(async (tx) => {
       const visibility = input.visibility ?? 'private';
       const insertRow: DashboardInsert = {
         orgId: caller.orgId,
@@ -157,7 +173,7 @@ export class DashboardService {
     input: DashboardUpdate,
     caller: { userId: string },
   ): Promise<DashboardWithPanels | null> {
-    return db.transaction(async (tx) => {
+    return withTenantTx(async (tx) => {
       const updates: Partial<DashboardInsert> = { updatedBy: caller.userId };
       if (input.name !== undefined) updates.name = input.name;
       if (input.description !== undefined) updates.description = input.description;
@@ -192,12 +208,14 @@ export class DashboardService {
 
   /** Soft delete (mark deletedAt + deletedBy). */
   async delete(id: string, caller: { userId: string }): Promise<boolean> {
-    const [deleted] = await db
-      .update(schema.dashboard)
-      .set({ deletedAt: sql`CURRENT_TIMESTAMP`, deletedBy: caller.userId })
-      .where(and(eq(schema.dashboard.id, id), isNull(schema.dashboard.deletedAt)))
-      .returning({ id: schema.dashboard.id });
-    return !!deleted;
+    return withTenantTx(async (tx) => {
+      const [deleted] = await tx
+        .update(schema.dashboard)
+        .set({ deletedAt: sql`CURRENT_TIMESTAMP`, deletedBy: caller.userId })
+        .where(and(eq(schema.dashboard.id, id), isNull(schema.dashboard.deletedAt)))
+        .returning({ id: schema.dashboard.id });
+      return !!deleted;
+    });
   }
 
   /**
@@ -237,21 +255,23 @@ export class DashboardService {
     const base = name.replace(/\s*\(copy(\s+\d+)?\)\s*$/, '').trim();
     const candidates = [base, `${base} (copy)`];
     for (let i = 2; i <= 20; i++) candidates.push(`${base} (copy ${i})`);
-    for (const candidate of candidates) {
-      const rows = await db
-        .select({ id: schema.dashboard.id })
-        .from(schema.dashboard)
-        .where(and(
-          eq(schema.dashboard.orgId, orgId),
-          eq(schema.dashboard.name, candidate),
-          isNull(schema.dashboard.deletedAt),
-        ))
-        .limit(1);
-      if (rows.length === 0) return candidate;
-    }
-    // 20+ copies of the same base name in the same org — fall back to a
-    // timestamp suffix rather than failing the request.
-    return `${base} (copy ${Date.now()})`;
+    return withTenantTx(async (tx) => {
+      for (const candidate of candidates) {
+        const rows = await tx
+          .select({ id: schema.dashboard.id })
+          .from(schema.dashboard)
+          .where(and(
+            eq(schema.dashboard.orgId, orgId),
+            eq(schema.dashboard.name, candidate),
+            isNull(schema.dashboard.deletedAt),
+          ))
+          .limit(1);
+        if (rows.length === 0) return candidate;
+      }
+      // 20+ copies of the same base name in the same org — fall back to a
+      // timestamp suffix rather than failing the request.
+      return `${base} (copy ${Date.now()})`;
+    });
   }
 
   /**
@@ -260,7 +280,7 @@ export class DashboardService {
    * with no panels), so this is an unconditional INSERT.
    */
   private async insertPanels(
-    tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    tx: Tx,
     dashboardId: string,
     panels: PanelInput[],
   ): Promise<DashboardPanel[]> {

@@ -2,10 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail } from '../controllers';
+import { stepUpVerify } from '../controllers/step-up';
 import { requireAuth, isValidRefreshToken } from '../middleware';
 
 const router = Router();
+
+/**
+ * Tight per-user limiter for /auth/step-up.
+ *
+ * The endpoint accepts raw passwords from an already-authenticated
+ * session. The global `authLimiter` (20 req / 15 min, IP-keyed) is too
+ * loose for brute-force protection here — a session pivoter sharing an
+ * IP with legitimate users could burn the budget. Per-user keying with
+ * a much tighter window matches the docstring's "4 attempts / minute"
+ * promise (we go 5 to allow for fat-fingers + retry on transient err).
+ *
+ * On limit-hit returns 429; the StepUpModal surfaces the message verbatim.
+ */
+const stepUpLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,
+  // requireAuth runs after this middleware in the chain, so req.user is
+  // populated already. Fall back to IP for the (unreachable) anon case.
+  keyGenerator: (req) => req.user?.sub ?? req.ip ?? 'anon',
+  message: { success: false, statusCode: 429, message: 'Too many step-up attempts. Please wait a minute and try again.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 /** POST /auth/register - Create a new user account */
 router.post('/register', register);
@@ -27,5 +52,8 @@ router.post('/send-verification', requireAuth, sendVerificationEmail);
 
 /** POST /auth/verify-email - Verify email with token (public, no auth needed) */
 router.post('/verify-email', verifyEmail);
+
+/** POST /auth/step-up - Re-verify password before destructive admin actions */
+router.post('/step-up', requireAuth, stepUpLimiter, stepUpVerify);
 
 export default router;

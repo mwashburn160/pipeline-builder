@@ -109,7 +109,7 @@ export function requireOrgMembership(req: Request, res: Response): string | null
 // Admin Context
 
 export interface AdminContext {
-  isSysAdmin: boolean;
+  isSuperAdmin: boolean;
   isOrgAdmin: boolean;
   adminType: string;
 }
@@ -118,12 +118,12 @@ export interface AdminContext {
  * Get admin context without auth checks (caller must verify auth first).
  */
 export function getAdminContext(req: Request): AdminContext {
-  const isSysAdmin = isSystemAdmin(req);
+  const isSuperAdmin = isSystemAdmin(req);
   const isOrgAdminUser = isOrgAdmin(req);
   return {
-    isSysAdmin,
+    isSuperAdmin,
     isOrgAdmin: isOrgAdminUser,
-    adminType: isSysAdmin ? 'system admin' : 'org admin',
+    adminType: isSuperAdmin ? 'system admin' : 'org admin',
   };
 }
 
@@ -137,7 +137,7 @@ export function requireAdminContext(req: Request, res: Response): AdminContext |
     return null;
   }
   const ctx = getAdminContext(req);
-  if (!ctx.isSysAdmin && !ctx.isOrgAdmin) {
+  if (!ctx.isSuperAdmin && !ctx.isOrgAdmin) {
     sendError(res, 403, 'Forbidden: Admin access required');
     return null;
   }

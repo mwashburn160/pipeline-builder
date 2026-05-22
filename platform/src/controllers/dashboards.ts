@@ -18,20 +18,23 @@
  * boundary even when dashboards are user-editable.
  */
 
-import { sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit';
 import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper';
+import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota';
 import { QUERIES } from '../observability/catalog';
 import { dashboardService, type PanelInput } from '../services/dashboard-service';
+
+const logger = createLogger('dashboards-controller');
 
 /** Bound the size of free-text fields and the panel set to defend against
  *  pathological client payloads. Numbers picked to be generous for a
  *  realistic dashboard while still bounded enough to keep the JSONB column
  *  + payload size sane. */
-const MAX_NAME = 150;
-const MAX_DESCRIPTION = 1000;
-const MAX_TITLE = 200;
-const MAX_PANELS = 50;
+const MAX_NAME = parseInt(process.env.DASHBOARD_MAX_NAME || '150', 10);
+const MAX_DESCRIPTION = parseInt(process.env.DASHBOARD_MAX_DESCRIPTION || '1000', 10);
+const MAX_TITLE = parseInt(process.env.DASHBOARD_MAX_PANEL_TITLE || '200', 10);
+const MAX_PANELS = parseInt(process.env.DASHBOARD_MAX_PANELS || '50', 10);
 
 function isReasonableString(v: unknown, max: number): v is string {
   return typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -97,7 +100,7 @@ export const listDashboards = withController('List dashboards', async (req, res)
   const rows = await dashboardService.list({
     orgId,
     userId,
-    isSysAdmin: isSystemAdmin(req),
+    isSuperAdmin: isSystemAdmin(req),
   });
   sendSuccess(res, 200, { dashboards: rows });
 });
@@ -111,7 +114,7 @@ export const getDashboard = withController('Get dashboard', async (req, res) => 
   const dashboard = await dashboardService.findById((req.params.id as string));
   if (!dashboard) return sendError(res, 404, 'Dashboard not found');
 
-  const ok = dashboardService.canRead(dashboard, { orgId, userId, isSysAdmin: isSystemAdmin(req) });
+  const ok = dashboardService.canRead(dashboard, { orgId, userId, isSuperAdmin: isSystemAdmin(req) });
   if (!ok) return sendError(res, 404, 'Dashboard not found'); // 404 not 403 to avoid leaking existence
 
   sendSuccess(res, 200, { dashboard });
@@ -154,19 +157,30 @@ export const createDashboard = withController('Create dashboard', async (req, re
   const panels = validatePanels(req.body, (msg) => { sendError(res, 400, msg); bad = true; });
   if (bad || panels === null) return;
 
-  const created = await dashboardService.create(
-    {
-      name: body.name,
-      description: typeof body.description === 'string' ? body.description : undefined,
-      visibility,
-      layoutJson: (body.layoutJson && typeof body.layoutJson === 'object') ? (body.layoutJson as Record<string, { x: number; y: number; w: number; h: number }>) : {},
-      panels,
-    },
-    { orgId, userId },
-  );
+  // Per-org cap on dashboards; reserve atomically before insert.
+  const reservation = await reserveFeatureQuota(orgId, 'dashboards');
+  if (reservation.exceeded) {
+    return sendQuotaExceeded(res, 'dashboards', reservation.quota, reservation.quota.resetAt);
+  }
 
-  audit(req, 'dashboard.create', { targetType: 'dashboard', targetId: created.id, details: { name: created.name, visibility } });
-  sendSuccess(res, 201, { dashboard: created });
+  try {
+    const created = await dashboardService.create(
+      {
+        name: body.name,
+        description: typeof body.description === 'string' ? body.description : undefined,
+        visibility,
+        layoutJson: (body.layoutJson && typeof body.layoutJson === 'object') ? (body.layoutJson as Record<string, { x: number; y: number; w: number; h: number }>) : {},
+        panels,
+      },
+      { orgId, userId },
+    );
+
+    audit(req, 'dashboard.create', { targetType: 'dashboard', targetId: created.id, details: { name: created.name, visibility } });
+    sendSuccess(res, 201, { dashboard: created });
+  } catch (err) {
+    releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger));
+    throw err;
+  }
 });
 
 /** PUT /api/dashboards/:id — partial update (with optional full-set panel replace). */
@@ -179,8 +193,9 @@ export const updateDashboard = withController('Update dashboard', async (req, re
   if (!existing) return sendError(res, 404, 'Dashboard not found');
 
   const canWrite = dashboardService.canWrite(existing, {
-    orgId, userId,
-    isSysAdmin: isSystemAdmin(req),
+    orgId,
+    userId,
+    isSuperAdmin: isSystemAdmin(req),
     isOrgAdmin: isOrgAdmin(req),
   });
   if (!canWrite) return sendError(res, 403, 'You cannot modify this dashboard');
@@ -225,7 +240,9 @@ export const updateDashboard = withController('Update dashboard', async (req, re
   );
   if (!updated) return sendError(res, 404, 'Dashboard not found');
 
-  audit(req, 'dashboard.update', { targetType: 'dashboard', targetId: updated.id });
+  // canWrite lets sysadmins edit any dashboard, so the affected org may
+  // differ from the actor's org — record the dashboard's own orgId.
+  audit(req, 'dashboard.update', { targetType: 'dashboard', targetId: updated.id, affectedOrgId: existing.orgId });
   sendSuccess(res, 200, { dashboard: updated });
 });
 
@@ -239,8 +256,9 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
   if (!existing) return sendError(res, 404, 'Dashboard not found');
 
   const canWrite = dashboardService.canWrite(existing, {
-    orgId, userId,
-    isSysAdmin: isSystemAdmin(req),
+    orgId,
+    userId,
+    isSuperAdmin: isSystemAdmin(req),
     isOrgAdmin: isOrgAdmin(req),
   });
   if (!canWrite) return sendError(res, 403, 'You cannot delete this dashboard');
@@ -248,7 +266,19 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
   const ok = await dashboardService.delete((req.params.id as string), { userId });
   if (!ok) return sendError(res, 404, 'Dashboard not found');
 
-  audit(req, 'dashboard.delete', { targetType: 'dashboard', targetId: (req.params.id as string), details: { name: existing.name } });
+  // Release the quota slot the create path reserved against the dashboard's
+  // owning org. Sysadmins deleting another org's dashboard release against
+  // that org's quota, not the sysadmin's.
+  releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger));
+
+  // canWrite lets sysadmins delete any dashboard, so the affected org may
+  // differ from the actor's org — record the dashboard's own orgId.
+  audit(req, 'dashboard.delete', {
+    targetType: 'dashboard',
+    targetId: (req.params.id as string),
+    affectedOrgId: existing.orgId,
+    details: { name: existing.name },
+  });
   sendSuccess(res, 200, undefined, 'Dashboard deleted');
 });
 
@@ -268,7 +298,7 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
   // one. Source must be visible to the caller.
   const source = await dashboardService.findById((req.params.id as string));
   if (!source) return sendError(res, 404, 'Dashboard not found');
-  if (!dashboardService.canRead(source, { orgId, userId, isSysAdmin: isSystemAdmin(req) })) {
+  if (!dashboardService.canRead(source, { orgId, userId, isSuperAdmin: isSystemAdmin(req) })) {
     return sendError(res, 404, 'Dashboard not found');
   }
 

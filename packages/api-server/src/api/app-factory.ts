@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, getOrgId, createHealthRouter } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, getOrgId, createHealthRouter, setCounterEmitter } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants, getConnection } from '@pipeline-builder/pipeline-core';
 import compression from 'compression';
@@ -13,8 +13,14 @@ import swaggerUi from 'swagger-ui-express';
 import { v7 as uuid } from 'uuid';
 import { etagMiddleware } from './etag-middleware';
 import { idempotencyMiddleware } from './idempotency-middleware';
-import { metricsMiddleware, metricsHandler } from './metrics';
+import { metricsMiddleware, metricsHandler, incCounter } from './metrics';
 import { SSEManager } from '../http/sse-connection-manager';
+
+// Wire api-core's counter shim to the real prom-client registry. This is
+// a no-op until incCounter is called for the first time (lazy registration
+// in metrics.ts), and lets api-core helpers like the quota client record
+// `quota_fail_open_total` without taking a hard dep on api-server.
+setCounterEmitter(incCounter);
 
 /**
  * Options for creating an Express application
@@ -262,7 +268,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
           sendCommand: (...args: string[]) => redisClient.call(...args),
         });
       } catch {
-        createLogger('RateLimit').warn('Redis store unavailable, falling back to in-memory rate limiting');
+        createLogger('rate-limit').warn('Redis store unavailable, falling back to in-memory rate limiting');
       }
     }
 

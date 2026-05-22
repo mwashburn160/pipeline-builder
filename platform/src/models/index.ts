@@ -7,3 +7,5 @@ export { default as UserOrganization, UserOrganizationDocument, OrgMemberRole } 
 export { default as Invitation, InvitationDocument, InvitationStatus } from './invitation';
 export { default as AuditEvent } from './audit-event';
 export type { AuditEventDocument, AuditAction } from './audit-event';
+export { default as OrgIdpConfig } from './org-idp-config';
+export type { OrgIdpConfigDocument } from './org-idp-config';

@@ -6,7 +6,6 @@ import {
   fmtNum,
   daysUntil,
   statusInfo,
-  barColor,
   overallHealthColor,
   statusStyles,
   barStyles,
@@ -112,24 +111,6 @@ describe('statusInfo', () => {
     const info = statusInfo(0, 100);
     expect(info.label).toBe('Healthy');
     expect(info.color).toBe('green');
-  });
-});
-
-describe('barColor', () => {
-  it('should return blue for unlimited', () => {
-    expect(barColor(0, 0, true)).toBe('bg-blue-500');
-  });
-
-  it('should return red at 90%+', () => {
-    expect(barColor(95, 100, false)).toBe('bg-red-500');
-  });
-
-  it('should return yellow at 70-89%', () => {
-    expect(barColor(80, 100, false)).toBe('bg-yellow-500');
-  });
-
-  it('should return green below 70%', () => {
-    expect(barColor(30, 100, false)).toBe('bg-green-500');
   });
 });
 

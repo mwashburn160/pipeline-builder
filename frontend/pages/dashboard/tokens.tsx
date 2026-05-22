@@ -6,6 +6,7 @@ import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { CopyButton } from '@/components/ui/CopyButton';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 import api from '@/lib/api';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
 
@@ -163,6 +164,14 @@ export default function TokensPage() {
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [revokeSuccess, setRevokeSuccess] = useState<string | null>(null);
 
+  // Active sessions = tokens that the backend reports as 'active'. The
+  // backend's status computation already accounts for revocation
+  // (tokenVersion bumps) and expiry, so this is the authoritative count.
+  const activeSessionCount = useMemo(
+    () => history.filter((t) => t.status === 'active').length,
+    [history],
+  );
+
   const loadHistory = useCallback(async () => {
     try {
       const res = await api.listTokenHistory();
@@ -260,9 +269,15 @@ export default function TokensPage() {
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.3 }} className="card">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Recent token issuance</h2>
+              <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
+                Active sessions & recent tokens
+                <Badge color={activeSessionCount > 0 ? 'green' : 'gray'}>
+                  {activeSessionCount} active
+                </Badge>
+              </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Last 20 access tokens issued for your account, with computed status. JWTs cannot be revoked individually — use &ldquo;Sign out everywhere&rdquo; to invalidate all of them at once.
+                Last 20 access tokens issued for your account, with computed status. Each unexpired+unrevoked token is an active session.
+                JWTs cannot be revoked individually — use &ldquo;Sign out everywhere&rdquo; to invalidate all of them at once.
               </p>
             </div>
             <button
@@ -295,8 +310,8 @@ export default function TokensPage() {
                 {history.map((t) => (
                   <tr key={t.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
                     <td className="py-2 pr-4 font-mono text-xs text-gray-500 dark:text-gray-500">{t.id}</td>
-                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{new Date(t.createdAt).toLocaleString()}</td>
-                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{new Date(t.expiresAt).toLocaleString()}</td>
+                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300"><RelativeTime value={t.createdAt} /></td>
+                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300"><RelativeTime value={t.expiresAt} /></td>
                     <td className="py-2">
                       <Badge color={t.status === 'active' ? 'green' : t.status === 'expired' ? 'gray' : 'red'}>
                         {t.status}

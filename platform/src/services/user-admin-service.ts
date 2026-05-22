@@ -7,7 +7,7 @@ import { toOrgId } from '../helpers/controller-helper';
 import { User, Organization, UserOrganization } from '../models';
 import { escapeRegex } from '../utils/regex';
 
-const logger = createLogger('UserAdminService');
+const logger = createLogger('user-admin-service');
 
 export const UA_USER_NOT_FOUND = 'UA_USER_NOT_FOUND';
 export const UA_USERNAME_TAKEN = 'UA_USERNAME_TAKEN';
@@ -130,6 +130,23 @@ class UserAdminService {
       userId, organizationId: toOrgId(orgId), isActive: true,
     });
     return !!m;
+  }
+
+  /**
+   * Best-effort lookup of a user's "primary" org for audit attribution.
+   * Used by sysadmin-impersonation paths (e.g. `admin.user.delete`) to fill
+   * the `affectedOrgId` audit field — answering "which org was hit?" when a
+   * sysadmin acts on a user whose own org differs from the sysadmin's own.
+   *
+   * Preference: `lastActiveOrgId` if set; otherwise the first active
+   * membership we find. Returns undefined if the user has no memberships.
+   */
+  async lookupPrimaryOrgId(userId: string | Types.ObjectId): Promise<string | undefined> {
+    const user = await User.findById(userId).select('lastActiveOrgId').lean();
+    if (user?.lastActiveOrgId) return user.lastActiveOrgId.toString();
+    const membership = await UserOrganization.findOne({ userId, isActive: true })
+      .select('organizationId').lean();
+    return membership?.organizationId.toString();
   }
 
   /**

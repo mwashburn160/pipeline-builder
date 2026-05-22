@@ -21,8 +21,10 @@ interface ComposeModalProps {
     content: string;
     priority?: MessagePriority;
   }) => Promise<unknown>;
-  /** Whether the current org is the system org (enables recipient selection and announcements). */
-  isSystemOrg: boolean;
+  /** Whether the current user is a sysadmin (enables free-form recipient
+   *  entry and broadcast announcements). Non-sysadmins see the support-alias
+   *  dropdown and can only message the system support inbox. */
+  isSuperAdmin: boolean;
 }
 
 /** Derives a subject line from message content, truncating to 60 characters. */
@@ -33,7 +35,7 @@ function autoSubject(content: string): string {
 }
 
 /** Modal for composing and sending new messages or announcements to organizations. */
-export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeModalProps) {
+export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin }: ComposeModalProps) {
   const [recipientOrgId, setRecipientOrgId] = useState('');
   const [selectedAlias, setSelectedAlias] = useState<string>(SUPPORT_ALIASES[0].value);
   const [content, setContent] = useState('');
@@ -56,8 +58,8 @@ export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeMo
       return;
     }
 
-    const recipient = isAnnouncement ? '*' : (isSystemOrg ? recipientOrgId.trim().toLowerCase() : selectedAlias);
-    if (isSystemOrg && !isAnnouncement && !recipient) {
+    const recipient = isAnnouncement ? '*' : (isSuperAdmin ? recipientOrgId.trim().toLowerCase() : selectedAlias);
+    if (isSuperAdmin && !isAnnouncement && !recipient) {
       setValidationError('Recipient organization is required');
       return;
     }
@@ -111,7 +113,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeMo
           )}
 
           {/* System org: toggle announcement vs conversation */}
-          {isSystemOrg && (
+          {isSuperAdmin && (
             <div className="flex gap-2">
               <button
                 onClick={() => setIsAnnouncement(false)}
@@ -137,7 +139,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeMo
           )}
 
           {/* Recipient (system org conversations only) */}
-          {isSystemOrg && !isAnnouncement && (
+          {isSuperAdmin && !isAnnouncement && (
             <input
               type="text"
               value={recipientOrgId}
@@ -148,7 +150,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSystemOrg }: ComposeMo
           )}
 
           {/* Non-system org: recipient alias dropdown */}
-          {!isSystemOrg && (
+          {!isSuperAdmin && (
             <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
               <span>To:</span>
               <select

@@ -4,19 +4,15 @@ Description: >
   Deploys all Fargate services: Nginx reverse proxy, Platform, Pipeline, Plugin,
   Quota, Billing, Message, Reporting, Compliance, and Frontend on ECS with Cloud Map service discovery.
 
-Parameters:
-  StackPrefix:
-    Type: String
+Parameters  StackPrefix    Type: String
     Default: pb
     Description: Prefix used for cross-stack exports and resource naming.
 
-  DomainName:
-    Type: String
+  DomainName    Type: String
     Default: ""
     Description: ALB DNS name used as application hostname
 
-  PlatformBaseUrl:
-    Type: String
+  PlatformBaseUrl    Type: String
     Default: ""
     Description: >
       Public base URL clients use to reach the platform (e.g.
@@ -24,84 +20,73 @@ Parameters:
       PLATFORM_FRONTEND_URL, and NEXT_PUBLIC_API_URL across services.
       Computed by deploy.sh as scheme + DomainName.
 
-  PlatformImage:
-    Type: String
+  PlatformImage    Type: String
     Default: ghcr.io/mwashburn160/platform:3.4.28
     Description: Docker image for the Platform service
 
-  PipelineImage:
-    Type: String
+  PipelineImage    Type: String
     Default: ghcr.io/mwashburn160/pipeline:3.4.28
     Description: Docker image for the Pipeline service
 
-  PluginImage:
-    Type: String
+  PluginImage    Type: String
     Default: ghcr.io/mwashburn160/plugin:3.4.28
     Description: Docker image for the Plugin service
 
-  QuotaImage:
-    Type: String
+  QuotaImage    Type: String
     Default: ghcr.io/mwashburn160/quota:3.4.28
     Description: Docker image for the Quota service
 
-  BillingImage:
-    Type: String
+  BillingImage    Type: String
     Default: ghcr.io/mwashburn160/billing:3.4.28
     Description: Docker image for the Billing service
 
-  MessageImage:
-    Type: String
+  MessageImage    Type: String
     Default: ghcr.io/mwashburn160/message:3.4.28
     Description: Docker image for the Message service
 
-  ReportingImage:
-    Type: String
+  ReportingImage    Type: String
     Default: ghcr.io/mwashburn160/reporting:3.4.28
     Description: Docker image for the Reporting service
 
-  ComplianceImage:
-    Type: String
+  ComplianceImage    Type: String
     Default: ghcr.io/mwashburn160/compliance:3.4.28
     Description: Docker image for the Compliance service
 
-  ImageRegistryImage:
-    Type: String
+  ImageRegistryImage    Type: String
     Default: ghcr.io/mwashburn160/image-registry:3.4.28
     Description: Docker image for the pipeline-image-registry service
 
-  FrontendImage:
-    Type: String
+  FrontendImage    Type: String
     Default: ghcr.io/mwashburn160/frontend:3.4.28
     Description: Docker image for the Frontend service
 
-  AppSecretsName:
-    Type: String
+  AppSecretsName    Type: String
     Default: pipeline-builder/app-secrets
     Description: Secrets Manager secret name for application secrets
 
-  GhcrAuthSecretName:
-    Type: String
+  GhcrAuthSecretName    Type: String
     Default: pipeline-builder/ghcr-auth
     Description: Secrets Manager secret name for GHCR authentication
 
-  NginxImage:
-    Type: String
-    Default: nginx:1.27
+  NginxImage    Type: String
+    # custom build with nginx-module-njs baked in (Dockerfile lives in
+    # deploy/nginx-njs/). Lets the nginx task run under ReadonlyRootFilesystem
+    # because there's no longer a startup `apt-get install` writing to
+    # /var/cache/apt and /var/lib/dpkg. To bump the underlying nginx version,
+    # update the FROM in deploy/nginx-njs/Dockerfile, run build-image.sh,
+    # and update both this default and the deployed stack parameter.
+    Default: ghcr.io/mwashburn160/nginx-njs:1.27
 
-  AwsCliImage:
-    Type: String
+  AwsCliImage    Type: String
     Default: amazon/aws-cli:2.24.0
 
-  FluentBitImage:
-    Type: String
+  FluentBitImage    Type: String
     Default: amazon/aws-for-fluent-bit:2.32.2
 
-  DefaultDesiredCount:
-    Type: Number
+  DefaultDesiredCount    Type: Number
     Default: 1
 
-Resources:
-
+Resources
   # ===========================================================================
   # Nginx Reverse Proxy
   # ===========================================================================
@@ -109,91 +94,84 @@ Resources:
   # ---------------------------------------------------------------------------
   # Nginx - Task Definition
   # ---------------------------------------------------------------------------
-  NginxTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-nginx"
+  NginxTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-nginx"
       Cpu: "256"
       Memory: "512"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      Volumes:
-        - Name: nginx-config
-      ContainerDefinitions:
-        - Name: config-init
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      # ephemeral scratch volumes for the read-only nginx container.
+      # `nginx-config` is shared with the config-init container (S3 → disk).
+      # `nginx-cache` + `nginx-tmp` exist because ReadonlyRootFilesystem
+      # prevents writes to /  nginx still needs /var/cache/nginx for its
+      # body / proxy / fastcgi caches and /tmp for the PID file. Both
+      # volumes reset on task replacement.
+      Volumes        - Name: nginx-config
+        - Name: nginx-cache
+        - Name: nginx-tmp
+      ContainerDefinitions        - Name: config-init
           Image: !Ref AwsCliImage
           Essential: false
-          EntryPoint:
-            - /bin/sh
+          EntryPoint            - /bin/sh
             - "-c"
-          Command:
-            - !Sub
+          Command            - !Sub
               - >-
                 mkdir -p /shared-config/njs &&
                 aws s3 cp s3://${ConfigBucket}/nginx/nginx.conf /shared-config/nginx.conf &&
                 aws s3 cp s3://${ConfigBucket}/nginx/jwt.js /shared-config/njs/jwt.js &&
                 aws s3 cp s3://${ConfigBucket}/nginx/metrics.js /shared-config/njs/metrics.js
-              - ConfigBucket:
-                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
-          MountPoints:
-            - ContainerPath: /shared-config
+              - ConfigBucket                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+          MountPoints            - ContainerPath: /shared-config
               SourceVolume: nginx-config
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-NginxLogGroupName"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-NginxLogGroupName"
               awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: config-init
-        # NOTE: This container is intentionally NOT yet `ReadonlyRootFilesystem: true` —
-        # the Command below `apt-get install`s nginx-module-njs at startup, which
-        # writes to /var/cache/apt and /var/lib/dpkg. Hardening requires baking a
-        # custom nginx image with njs preinstalled (and switching the runtime image
-        # to nginxinc/nginx-unprivileged:1.27). Tracked as a follow-up in
-        # docs/plans/k8s-fargate-hardening.md.
         - Name: nginx
+          # NginxImage now points at the baked ghcr.io/.../nginx-njs
+          # image (Dockerfile in deploy/nginx-njs/), so the startup Command
+          # no longer needs `apt-get install nginx-module-njs`  that step
+          # was the only thing keeping ReadonlyRootFilesystem off. The
+          # config-init container still pulls nginx.conf + njs scripts from
+          # S3 into the shared volume; this container just copies them into
+          # place and starts nginx.
           Image: !Ref NginxImage
           Essential: true
-          DependsOn:
-            - ContainerName: config-init
+          ReadonlyRootFilesystem: true
+          DependsOn            - ContainerName: config-init
               Condition: SUCCESS
-          EntryPoint:
-            - /bin/sh
-            - -c
-          Command:
-            - >-
-              apt-get update -qq && apt-get install -y -qq nginx-module-njs >/dev/null 2>&1 &&
-              cp /shared-config/nginx.conf /etc/nginx/nginx.conf &&
-              mkdir -p /etc/nginx/njs &&
-              cp /shared-config/njs/* /etc/nginx/njs/ &&
-              nginx -g 'daemon off;'
-          MountPoints:
-            - ContainerPath: /shared-config
+          # nginx is started directly with the shared-volume config path
+          # (skips the base image's /docker-entrypoint.sh, which only does
+          # envsubst on /etc/nginx/templates/*  we don't use those). The
+          # baked-in nginx-module-njs makes load_module work out of the
+          # box, and `js_path` in nginx-fargate.conf points at
+          # /shared-config/njs/ so nginx never needs write access to /.
+          EntryPoint            - nginx
+          Command            - "-c"
+            - /shared-config/nginx.conf
+            - "-g"
+            - daemon off;
+          MountPoints            - ContainerPath: /shared-config
               SourceVolume: nginx-config
               ReadOnly: true
-          PortMappings:
-            - ContainerPort: 8080
+            - ContainerPath: /var/cache/nginx
+              SourceVolume: nginx-cache
+            - ContainerPath: /tmp
+              SourceVolume: nginx-tmp
+          PortMappings            - ContainerPort: 8080
               Protocol: tcp
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:8080/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 60
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=nginx
@@ -201,25 +179,18 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-NginxLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-NginxLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Nginx - Service
   # ---------------------------------------------------------------------------
-  NginxService:
-    Type: AWS::ECS::Service
-    DependsOn:
-      - BillingService
+  NginxService    Type: AWS::ECS::Service
+    DependsOn      - BillingService
       - ComplianceService
       - FrontendService
       - MessageService
@@ -228,73 +199,50 @@ Resources:
       - PluginService
       - QuotaService
       - ReportingService
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-nginx"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+    Properties      ServiceName: !Sub "${StackPrefix}-nginx"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref NginxTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-NginxSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-NginxSecurityGroupId"
           AssignPublicIp: DISABLED
-      LoadBalancers:
-        - TargetGroupArn:
-            Fn::ImportValue: !Sub "${StackPrefix}-NginxTargetGroupArn"
+      LoadBalancers        - TargetGroupArn            Fn::ImportValue: !Sub "${StackPrefix}-NginxTargetGroupArn"
           ContainerName: nginx
           ContainerPort: 8080
-      ServiceRegistries:
-        - RegistryArn: !GetAtt NginxDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt NginxDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Nginx - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  NginxDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: nginx
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  NginxDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: nginx
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Nginx - Auto Scaling
   # ---------------------------------------------------------------------------
-  NginxScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 3
+  NginxScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 3
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt NginxService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  NginxScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-nginx-cpu-scaling"
+  NginxScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-nginx-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref NginxScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 60
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
@@ -306,39 +254,28 @@ Resources:
   # ---------------------------------------------------------------------------
   # Platform - Task Definition
   # ---------------------------------------------------------------------------
-  PlatformTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-platform"
+  PlatformTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-platform"
       Cpu: "512"
       Memory: "1024"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
       # Ephemeral writable scratch for the Node.js process. Volumes without
       # a Host attribute are backed by the Fargate task's ephemeral storage
-      # and reset on task replacement — the right scope for /tmp.
-      Volumes:
-        - Name: tmp
-      ContainerDefinitions:
-        - Name: platform
+      # and reset on task replacement  the right scope for /tmp.
+      Volumes        - Name: tmp
+      ContainerDefinitions        - Name: platform
           Image: !Ref PlatformImage
           Essential: true
           ReadonlyRootFilesystem: true
-          MountPoints:
-            - ContainerPath: /tmp
+          MountPoints            - ContainerPath: /tmp
               SourceVolume: tmp
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          Environment:
-            - Name: PORT
+          Environment            - Name: PORT
               Value: "3000"
             - Name: TRUST_PROXY
               Value: "1"
@@ -372,8 +309,7 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: platform
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
@@ -383,18 +319,14 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: MONGODB_URI
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 180
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=platform
@@ -402,85 +334,58 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-PlatformLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-PlatformLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Platform - Service
   # ---------------------------------------------------------------------------
-  PlatformService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-platform"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  PlatformService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-platform"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref PlatformTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
           AssignPublicIp: DISABLED
-      ServiceRegistries:
-        - RegistryArn: !GetAtt PlatformDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt PlatformDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Platform - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  PlatformDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: platform
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  PlatformDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: platform
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Platform - Auto Scaling
   # ---------------------------------------------------------------------------
-  PlatformScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 3
+  PlatformScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 3
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt PlatformService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  PlatformScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-platform-cpu-scaling"
+  PlatformScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-platform-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref PlatformScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 60
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
@@ -492,36 +397,25 @@ Resources:
   # ---------------------------------------------------------------------------
   # Pipeline - Task Definition
   # ---------------------------------------------------------------------------
-  PipelineTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-pipeline"
+  PipelineTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-pipeline"
       Cpu: "512"
       Memory: "1024"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      Volumes:
-        - Name: tmp
-      ContainerDefinitions:
-        - Name: pipeline
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes        - Name: tmp
+      ContainerDefinitions        - Name: pipeline
           Image: !Ref PipelineImage
           Essential: true
           ReadonlyRootFilesystem: true
-          MountPoints:
-            - ContainerPath: /tmp
+          MountPoints            - ContainerPath: /tmp
               SourceVolume: tmp
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          Environment:
-            - Name: PORT
+          Environment            - Name: PORT
               Value: "3000"
             - Name: TRUST_PROXY
               Value: "1"
@@ -565,8 +459,7 @@ Resources:
               Value: plugin.pipeline-builder.local
             - Name: PLUGIN_SERVICE_PORT
               Value: "3000"
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
@@ -582,18 +475,14 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GOOGLE_GENERATIVE_AI_API_KEY::"
             - Name: XAI_API_KEY
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:XAI_API_KEY::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 180
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=pipeline
@@ -601,85 +490,58 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-PipelineLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-PipelineLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Pipeline - Service
   # ---------------------------------------------------------------------------
-  PipelineService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-pipeline"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  PipelineService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-pipeline"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref PipelineTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
           AssignPublicIp: DISABLED
-      ServiceRegistries:
-        - RegistryArn: !GetAtt PipelineDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt PipelineDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Pipeline - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  PipelineDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: pipeline
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  PipelineDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: pipeline
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Pipeline - Auto Scaling
   # ---------------------------------------------------------------------------
-  PipelineScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 3
+  PipelineScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 3
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt PipelineService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  PipelineScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-pipeline-cpu-scaling"
+  PipelineScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-pipeline-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref PipelineScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 60
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
@@ -691,41 +553,29 @@ Resources:
   # ---------------------------------------------------------------------------
   # Plugin - Task Definition
   # ---------------------------------------------------------------------------
-  PluginTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-plugin"
+  PluginTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-plugin"
       Cpu: "2048"
       Memory: "4096"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      EphemeralStorage:
-        SizeInGiB: 30
-      Volumes:
-        - Name: plugins-builds
+      RequiresCompatibilities        - FARGATE
+      EphemeralStorage        SizeInGiB: 30
+      Volumes        - Name: plugins-builds
         - Name: plugins-uploads
         # Shared between the plugin container (writes buildctl auth config,
         # spawns buildctl) and the buildkitd sidecar (serves the build).
         - Name: buildkit-socket
         - Name: buildkit-cache
-          EFSVolumeConfiguration:
-            FilesystemId:
-              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
+          EFSVolumeConfiguration            FilesystemId              Fn::ImportValue: !Sub "${StackPrefix}-EFSFileSystemId"
             TransitEncryption: ENABLED
-            AuthorizationConfig:
-              AccessPointId:
-                Fn::ImportValue: !Sub "${StackPrefix}-BuildkitCacheAccessPointArn"
+            AuthorizationConfig              AccessPointId                Fn::ImportValue: !Sub "${StackPrefix}-BuildkitCacheAccessPointArn"
               IAM: ENABLED
         # Ephemeral writable scratch for the Node.js process (plugin tarball
         # staging, buildctl temp files). Sized small; reset on task replace.
         - Name: tmp
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      ContainerDefinitions:
-        - Name: plugin
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions        - Name: plugin
           Image: !Ref PluginImage
           Essential: true
           ReadonlyRootFilesystem: true
@@ -736,16 +586,12 @@ Resources:
           Memory: 2048
           # Wait for the buildkitd sidecar to be HEALTHY before launching node,
           # so the build worker doesn't race the buildkitd startup.
-          DependsOn:
-            - ContainerName: buildkitd
+          DependsOn            - ContainerName: buildkitd
               Condition: HEALTHY
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          Environment:
-            - Name: PORT
+          Environment            - Name: PORT
               Value: "3000"
             - Name: TRUST_PROXY
               Value: "1"
@@ -799,8 +645,7 @@ Resources:
               Value: "3000"
             - Name: COMPLIANCE_BYPASS
               Value: "false"
-          MountPoints:
-            - ContainerPath: /app/tmp
+          MountPoints            - ContainerPath: /app/tmp
               SourceVolume: plugins-builds
             - ContainerPath: /app/uploads
               SourceVolume: plugins-uploads
@@ -808,8 +653,7 @@ Resources:
               SourceVolume: buildkit-socket
             - ContainerPath: /tmp
               SourceVolume: tmp
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
@@ -829,18 +673,14 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:GOOGLE_GENERATIVE_AI_API_KEY::"
             - Name: XAI_API_KEY
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:XAI_API_KEY::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 180
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=plugin
@@ -852,35 +692,29 @@ Resources:
           Image: moby/buildkit:v0.16.0-rootless
           Essential: true
           User: "1000:1000"
-          # Soft reservations — see plugin container above. buildkitd does the
+          # Soft reservations  see plugin container above. buildkitd does the
           # heavy lifting during a build (compile/snapshot/push), so it gets
           # the larger CPU share when the task is fully utilized.
           Cpu: 1024
           Memory: 1536
           EntryPoint: ["buildkitd"]
-          Command:
-            - --addr
+          Command            - --addr
             - unix:///run/buildkit/buildkitd.sock
             # Fargate's seccomp profile permits unshare, but rootless workers
             # still need the no-process-sandbox flag in unprivileged contexts.
             - --oci-worker-no-process-sandbox
-          MountPoints:
-            - ContainerPath: /run/buildkit
+          MountPoints            - ContainerPath: /run/buildkit
               SourceVolume: buildkit-socket
             - ContainerPath: /home/user/.local/share/buildkit
               SourceVolume: buildkit-cache
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - buildctl --addr unix:///run/buildkit/buildkitd.sock debug workers || exit 1
             Interval: 15
             Timeout: 5
             Retries: 5
             StartPeriod: 30
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=buildkitd
@@ -888,85 +722,58 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-PluginLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-PluginLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Plugin - Service
   # ---------------------------------------------------------------------------
-  PluginService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-plugin"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  PluginService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-plugin"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref PluginTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
           AssignPublicIp: DISABLED
-      ServiceRegistries:
-        - RegistryArn: !GetAtt PluginDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt PluginDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Plugin - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  PluginDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: plugin
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  PluginDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: plugin
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Plugin - Auto Scaling
   # ---------------------------------------------------------------------------
-  PluginScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 3
+  PluginScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 3
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt PluginService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  PluginScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-plugin-cpu-scaling"
+  PluginScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-plugin-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref PluginScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 50
         ScaleInCooldown: 300
         ScaleOutCooldown: 60
@@ -978,36 +785,25 @@ Resources:
   # ---------------------------------------------------------------------------
   # Quota - Task Definition
   # ---------------------------------------------------------------------------
-  QuotaTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-quota"
+  QuotaTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-quota"
       Cpu: "256"
       Memory: "512"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      Volumes:
-        - Name: tmp
-      ContainerDefinitions:
-        - Name: quota
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes        - Name: tmp
+      ContainerDefinitions        - Name: quota
           Image: !Ref QuotaImage
           Essential: true
           ReadonlyRootFilesystem: true
-          MountPoints:
-            - ContainerPath: /tmp
+          MountPoints            - ContainerPath: /tmp
               SourceVolume: tmp
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          Environment:
-            - Name: PORT
+          Environment            - Name: PORT
               Value: "3000"
             - Name: TRUST_PROXY
               Value: "1"
@@ -1041,8 +837,7 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: quota
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
@@ -1052,18 +847,14 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: MONGODB_URI
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 180
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=quota
@@ -1071,85 +862,58 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-QuotaLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-QuotaLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Quota - Service
   # ---------------------------------------------------------------------------
-  QuotaService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-quota"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  QuotaService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-quota"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref QuotaTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
           AssignPublicIp: DISABLED
-      ServiceRegistries:
-        - RegistryArn: !GetAtt QuotaDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt QuotaDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Quota - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  QuotaDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: quota
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  QuotaDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: quota
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Quota - Auto Scaling
   # ---------------------------------------------------------------------------
-  QuotaScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 5
+  QuotaScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 5
       MinCapacity: 2
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt QuotaService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  QuotaScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-quota-cpu-scaling"
+  QuotaScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-quota-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref QuotaScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 50
         ScaleInCooldown: 300
         ScaleOutCooldown: 60
@@ -1161,36 +925,25 @@ Resources:
   # ---------------------------------------------------------------------------
   # Billing - Task Definition
   # ---------------------------------------------------------------------------
-  BillingTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-billing"
+  BillingTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-billing"
       Cpu: "256"
       Memory: "512"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      Volumes:
-        - Name: tmp
-      ContainerDefinitions:
-        - Name: billing
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes        - Name: tmp
+      ContainerDefinitions        - Name: billing
           Image: !Ref BillingImage
           Essential: true
           ReadonlyRootFilesystem: true
-          MountPoints:
-            - ContainerPath: /tmp
+          MountPoints            - ContainerPath: /tmp
               SourceVolume: tmp
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          Environment:
-            - Name: PORT
+          Environment            - Name: PORT
               Value: "3000"
             - Name: TRUST_PROXY
               Value: "1"
@@ -1228,8 +981,7 @@ Resources:
               Value: "false"
             - Name: BILLING_PROVIDER
               Value: stub
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
@@ -1239,18 +991,14 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
             - Name: MONGODB_URI
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGODB_URI::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 180
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=billing
@@ -1258,85 +1006,58 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-BillingLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-BillingLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Billing - Service
   # ---------------------------------------------------------------------------
-  BillingService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-billing"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  BillingService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-billing"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref BillingTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
           AssignPublicIp: DISABLED
-      ServiceRegistries:
-        - RegistryArn: !GetAtt BillingDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt BillingDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Billing - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  BillingDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: billing
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  BillingDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: billing
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Billing - Auto Scaling
   # ---------------------------------------------------------------------------
-  BillingScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 2
+  BillingScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 2
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt BillingService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  BillingScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-billing-cpu-scaling"
+  BillingScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-billing-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref BillingScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 70
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
@@ -1348,36 +1069,25 @@ Resources:
   # ---------------------------------------------------------------------------
   # Message - Task Definition
   # ---------------------------------------------------------------------------
-  MessageTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-message"
+  MessageTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-message"
       Cpu: "256"
       Memory: "512"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      Volumes:
-        - Name: tmp
-      ContainerDefinitions:
-        - Name: message
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes        - Name: tmp
+      ContainerDefinitions        - Name: message
           Image: !Ref MessageImage
           Essential: true
           ReadonlyRootFilesystem: true
-          MountPoints:
-            - ContainerPath: /tmp
+          MountPoints            - ContainerPath: /tmp
               SourceVolume: tmp
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          Environment:
-            - Name: PORT
+          Environment            - Name: PORT
               Value: "3000"
             - Name: TRUST_PROXY
               Value: "1"
@@ -1411,8 +1121,7 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: message
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
@@ -1420,18 +1129,14 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 180
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=message
@@ -1439,85 +1144,58 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-MessageLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-MessageLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Message - Service
   # ---------------------------------------------------------------------------
-  MessageService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-message"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  MessageService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-message"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref MessageTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
           AssignPublicIp: DISABLED
-      ServiceRegistries:
-        - RegistryArn: !GetAtt MessageDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt MessageDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Message - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  MessageDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: message
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  MessageDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: message
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Message - Auto Scaling
   # ---------------------------------------------------------------------------
-  MessageScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 3
+  MessageScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 3
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt MessageService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  MessageScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-message-cpu-scaling"
+  MessageScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-message-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref MessageScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 50
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
@@ -1529,36 +1207,25 @@ Resources:
   # ---------------------------------------------------------------------------
   # Reporting - Task Definition
   # ---------------------------------------------------------------------------
-  ReportingTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-reporting"
+  ReportingTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-reporting"
       Cpu: "256"
       Memory: "512"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      Volumes:
-        - Name: tmp
-      ContainerDefinitions:
-        - Name: reporting
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes        - Name: tmp
+      ContainerDefinitions        - Name: reporting
           Image: !Ref ReportingImage
           Essential: true
           ReadonlyRootFilesystem: true
-          MountPoints:
-            - ContainerPath: /tmp
+          MountPoints            - ContainerPath: /tmp
               SourceVolume: tmp
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          Environment:
-            - Name: PORT
+          Environment            - Name: PORT
               Value: "3000"
             - Name: TRUST_PROXY
               Value: "1"
@@ -1576,8 +1243,7 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: reporting
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
@@ -1585,18 +1251,14 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 180
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=reporting
@@ -1604,85 +1266,58 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-ReportingLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-ReportingLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Reporting - Service
   # ---------------------------------------------------------------------------
-  ReportingService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-reporting"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  ReportingService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-reporting"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref ReportingTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
           AssignPublicIp: DISABLED
-      ServiceRegistries:
-        - RegistryArn: !GetAtt ReportingDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt ReportingDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Reporting - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  ReportingDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: reporting
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  ReportingDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: reporting
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Reporting - Auto Scaling
   # ---------------------------------------------------------------------------
-  ReportingScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 2
+  ReportingScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 2
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt ReportingService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  ReportingScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-reporting-cpu-scaling"
+  ReportingScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-reporting-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref ReportingScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 70
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
@@ -1694,36 +1329,25 @@ Resources:
   # ---------------------------------------------------------------------------
   # Compliance - Task Definition
   # ---------------------------------------------------------------------------
-  ComplianceTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-compliance"
+  ComplianceTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-compliance"
       Cpu: "512"
       Memory: "1024"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      Volumes:
-        - Name: tmp
-      ContainerDefinitions:
-        - Name: compliance
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes        - Name: tmp
+      ContainerDefinitions        - Name: compliance
           Image: !Ref ComplianceImage
           Essential: true
           ReadonlyRootFilesystem: true
-          MountPoints:
-            - ContainerPath: /tmp
+          MountPoints            - ContainerPath: /tmp
               SourceVolume: tmp
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          Environment:
-            - Name: PORT
+          Environment            - Name: PORT
               Value: "3000"
             - Name: TRUST_PROXY
               Value: "1"
@@ -1757,8 +1381,7 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: compliance
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: REFRESH_TOKEN_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REFRESH_TOKEN_SECRET::"
@@ -1766,18 +1389,14 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_USER::"
             - Name: DB_PASSWORD
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:DB_PASSWORD::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 180
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=compliance
@@ -1785,85 +1404,58 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-ComplianceLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-ComplianceLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Compliance - Service
   # ---------------------------------------------------------------------------
-  ComplianceService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-compliance"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  ComplianceService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-compliance"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref ComplianceTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
           AssignPublicIp: DISABLED
-      ServiceRegistries:
-        - RegistryArn: !GetAtt ComplianceDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt ComplianceDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Compliance - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  ComplianceDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: compliance
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  ComplianceDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: compliance
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Compliance - Auto Scaling
   # ---------------------------------------------------------------------------
-  ComplianceScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 3
+  ComplianceScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 3
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt ComplianceService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  ComplianceScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-compliance-cpu-scaling"
+  ComplianceScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-compliance-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref ComplianceScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 60
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
@@ -1875,54 +1467,39 @@ Resources:
   # ---------------------------------------------------------------------------
   # Frontend - Task Definition
   # ---------------------------------------------------------------------------
-  FrontendTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-frontend"
+  FrontendTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-frontend"
       Cpu: "512"
       Memory: "1024"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      Volumes:
-        - Name: next-cache
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes        - Name: next-cache
         - Name: tmp
-      ContainerDefinitions:
-        - Name: frontend
+      ContainerDefinitions        - Name: frontend
           Image: !Ref FrontendImage
           Essential: true
           ReadonlyRootFilesystem: true
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          MountPoints:
-            - ContainerPath: /app/.next/cache
+          MountPoints            - ContainerPath: /app/.next/cache
               SourceVolume: next-cache
             - ContainerPath: /tmp
               SourceVolume: tmp
-          Environment:
-            - Name: NEXT_PUBLIC_API_URL
+          Environment            - Name: NEXT_PUBLIC_API_URL
               Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_BASE_URL
               Value: "http://nginx.pipeline-builder.local:8080"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 180
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=frontend
@@ -1930,85 +1507,58 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-FrontendLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-FrontendLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
   # ---------------------------------------------------------------------------
   # Frontend - Service
   # ---------------------------------------------------------------------------
-  FrontendService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-frontend"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  FrontendService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-frontend"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref FrontendTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
           AssignPublicIp: DISABLED
-      ServiceRegistries:
-        - RegistryArn: !GetAtt FrontendDiscovery.Arn
-      Tags:
-        - Key: Project
+      ServiceRegistries        - RegistryArn: !GetAtt FrontendDiscovery.Arn
+      Tags        - Key: Project
           Value: pipeline-builder
 
   # ---------------------------------------------------------------------------
   # Frontend - Cloud Map Discovery
   # ---------------------------------------------------------------------------
-  FrontendDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: frontend
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  FrontendDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: frontend
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
   # ---------------------------------------------------------------------------
   # Frontend - Auto Scaling
   # ---------------------------------------------------------------------------
-  FrontendScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MaxCapacity: 3
+  FrontendScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MaxCapacity: 3
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt FrontendService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  FrontendScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-frontend-cpu-scaling"
+  FrontendScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-frontend-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref FrontendScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 70
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
@@ -2023,36 +1573,25 @@ Resources:
   # AppSecrets); the matching public cert is mounted into the registry as
   # REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE.
   # ===========================================================================
-  ImageRegistryTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub "${StackPrefix}-image-registry"
+  ImageRegistryTaskDefinition    Type: AWS::ECS::TaskDefinition
+    Properties      Family: !Sub "${StackPrefix}-image-registry"
       Cpu: "256"
       Memory: "512"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
-      TaskRoleArn:
-        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
-      Volumes:
-        - Name: tmp
-      ContainerDefinitions:
-        - Name: image-registry
+      RequiresCompatibilities        - FARGATE
+      ExecutionRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes        - Name: tmp
+      ContainerDefinitions        - Name: image-registry
           Image: !Ref ImageRegistryImage
           Essential: true
           ReadonlyRootFilesystem: true
-          MountPoints:
-            - ContainerPath: /tmp
+          MountPoints            - ContainerPath: /tmp
               SourceVolume: tmp
-          RepositoryCredentials:
-            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
-          PortMappings:
-            - ContainerPort: 3000
+          RepositoryCredentials            CredentialsParameter: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${GhcrAuthSecretName}"
+          PortMappings            - ContainerPort: 3000
               Protocol: tcp
-          Environment:
-            - Name: PORT
+          Environment            - Name: PORT
               Value: "3000"
             - Name: SERVICE_NAME
               Value: image-registry
@@ -2074,8 +1613,7 @@ Resources:
               Value: "300"
             - Name: PLATFORM_BASE_URL
               Value: !Ref PlatformBaseUrl
-          Secrets:
-            - Name: JWT_SECRET
+          Secrets            - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
             - Name: IMAGE_REGISTRY_USERNAME
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:IMAGE_REGISTRY_USER::"
@@ -2085,18 +1623,14 @@ Resources:
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REGISTRY_TOKEN_PRIVATE_KEY::"
             - Name: REGISTRY_TOKEN_CERTIFICATE
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:REGISTRY_TOKEN_CERTIFICATE::"
-          HealthCheck:
-            Command:
-              - CMD-SHELL
+          HealthCheck            Command              - CMD-SHELL
               - curl -f http://localhost:3000/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
             StartPeriod: 60
-          LogConfiguration:
-            LogDriver: awsfirelens
-            Options:
-              Name: loki
+          LogConfiguration            LogDriver: awsfirelens
+            Options              Name: loki
               Host: loki.pipeline-builder.local
               Port: "3100"
               Labels: job=fluent-bit, service=image-registry
@@ -2104,76 +1638,49 @@ Resources:
         - Name: log-router
           Image: !Ref FluentBitImage
           Essential: true
-          FirelensConfiguration:
-            Type: fluentbit
-            Options:
-              enable-ecs-log-metadata: "true"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-ImageRegistryLogGroupName"
+          FirelensConfiguration            Type: fluentbit
+            Options              enable-ecs-log-metadata: "true"
+          LogConfiguration            LogDriver: awslogs
+            Options              awslogs-group                Fn::ImportValue: !Sub "${StackPrefix}-ImageRegistryLogGroupName"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: firelens
 
-  ImageRegistryService:
-    Type: AWS::ECS::Service
-    Properties:
-      ServiceName: !Sub "${StackPrefix}-image-registry"
-      Cluster:
-        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+  ImageRegistryService    Type: AWS::ECS::Service
+    Properties      ServiceName: !Sub "${StackPrefix}-image-registry"
+      Cluster        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
       TaskDefinition: !Ref ImageRegistryTaskDefinition
       DesiredCount: !Ref DefaultDesiredCount
       LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
-          Subnets:
-            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+      NetworkConfiguration        AwsvpcConfiguration          AssignPublicIp: DISABLED
+          Subnets            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
             - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
-          SecurityGroups:
-            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
-      ServiceRegistries:
-        - RegistryArn: !GetAtt ImageRegistryDiscovery.Arn
-      Tags:
-        - Key: Name
+          SecurityGroups            - Fn::ImportValue: !Sub "${StackPrefix}-AppSecurityGroupId"
+      ServiceRegistries        - RegistryArn: !GetAtt ImageRegistryDiscovery.Arn
+      Tags        - Key: Name
           Value: !Sub "${StackPrefix}-image-registry-service"
 
-  ImageRegistryDiscovery:
-    Type: AWS::ServiceDiscovery::Service
-    Properties:
-      Name: image-registry
-      NamespaceId:
-        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
-      DnsConfig:
-        DnsRecords:
-          - Type: A
+  ImageRegistryDiscovery    Type: AWS::ServiceDiscovery::Service
+    Properties      Name: image-registry
+      NamespaceId        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig        DnsRecords          - Type: A
             TTL: 10
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      HealthCheckCustomConfig        FailureThreshold: 1
 
-  ImageRegistryScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
-    Properties:
-      MinCapacity: !Ref DefaultDesiredCount
+  ImageRegistryScalableTarget    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties      MinCapacity: !Ref DefaultDesiredCount
       MaxCapacity: 5
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
-        - ClusterName:
-            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
+        - ClusterName            Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterName"
           ServiceName: !GetAtt ImageRegistryService.Name
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
-  ImageRegistryScalingPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: !Sub "${StackPrefix}-image-registry-cpu-scaling"
+  ImageRegistryScalingPolicy    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties      PolicyName: !Sub "${StackPrefix}-image-registry-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref ImageRegistryScalableTarget
-      TargetTrackingScalingPolicyConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+      TargetTrackingScalingPolicyConfiguration        PredefinedMetricSpecification          PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 60
         ScaleInCooldown: 300
         ScaleOutCooldown: 60
@@ -2182,147 +1689,102 @@ Resources:
 # =============================================================================
 # Outputs
 # =============================================================================
-Outputs:
-
+Outputs
   # Nginx
-  NginxServiceArn:
-    Description: ARN of the Nginx ECS service
+  NginxServiceArn    Description: ARN of the Nginx ECS service
     Value: !Ref NginxService
-    Export:
-      Name: !Sub "${StackPrefix}-NginxServiceArn"
+    Export      Name: !Sub "${StackPrefix}-NginxServiceArn"
 
-  NginxTaskDefinitionArn:
-    Description: ARN of the Nginx task definition
+  NginxTaskDefinitionArn    Description: ARN of the Nginx task definition
     Value: !Ref NginxTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-NginxTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-NginxTaskDefinitionArn"
 
   # Platform
-  PlatformServiceArn:
-    Description: ARN of the Platform ECS service
+  PlatformServiceArn    Description: ARN of the Platform ECS service
     Value: !Ref PlatformService
-    Export:
-      Name: !Sub "${StackPrefix}-PlatformServiceArn"
+    Export      Name: !Sub "${StackPrefix}-PlatformServiceArn"
 
-  PlatformTaskDefinitionArn:
-    Description: ARN of the Platform task definition
+  PlatformTaskDefinitionArn    Description: ARN of the Platform task definition
     Value: !Ref PlatformTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-PlatformTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-PlatformTaskDefinitionArn"
 
   # Pipeline
-  PipelineServiceArn:
-    Description: ARN of the Pipeline ECS service
+  PipelineServiceArn    Description: ARN of the Pipeline ECS service
     Value: !Ref PipelineService
-    Export:
-      Name: !Sub "${StackPrefix}-PipelineServiceArn"
+    Export      Name: !Sub "${StackPrefix}-PipelineServiceArn"
 
-  PipelineTaskDefinitionArn:
-    Description: ARN of the Pipeline task definition
+  PipelineTaskDefinitionArn    Description: ARN of the Pipeline task definition
     Value: !Ref PipelineTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-PipelineTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-PipelineTaskDefinitionArn"
 
   # Plugin
-  PluginServiceArn:
-    Description: ARN of the Plugin ECS service
+  PluginServiceArn    Description: ARN of the Plugin ECS service
     Value: !Ref PluginService
-    Export:
-      Name: !Sub "${StackPrefix}-PluginServiceArn"
+    Export      Name: !Sub "${StackPrefix}-PluginServiceArn"
 
-  PluginTaskDefinitionArn:
-    Description: ARN of the Plugin task definition
+  PluginTaskDefinitionArn    Description: ARN of the Plugin task definition
     Value: !Ref PluginTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-PluginTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-PluginTaskDefinitionArn"
 
   # Quota
-  QuotaServiceArn:
-    Description: ARN of the Quota ECS service
+  QuotaServiceArn    Description: ARN of the Quota ECS service
     Value: !Ref QuotaService
-    Export:
-      Name: !Sub "${StackPrefix}-QuotaServiceArn"
+    Export      Name: !Sub "${StackPrefix}-QuotaServiceArn"
 
-  QuotaTaskDefinitionArn:
-    Description: ARN of the Quota task definition
+  QuotaTaskDefinitionArn    Description: ARN of the Quota task definition
     Value: !Ref QuotaTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-QuotaTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-QuotaTaskDefinitionArn"
 
   # Billing
-  BillingServiceArn:
-    Description: ARN of the Billing ECS service
+  BillingServiceArn    Description: ARN of the Billing ECS service
     Value: !Ref BillingService
-    Export:
-      Name: !Sub "${StackPrefix}-BillingServiceArn"
+    Export      Name: !Sub "${StackPrefix}-BillingServiceArn"
 
-  BillingTaskDefinitionArn:
-    Description: ARN of the Billing task definition
+  BillingTaskDefinitionArn    Description: ARN of the Billing task definition
     Value: !Ref BillingTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-BillingTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-BillingTaskDefinitionArn"
 
   # Message
-  MessageServiceArn:
-    Description: ARN of the Message ECS service
+  MessageServiceArn    Description: ARN of the Message ECS service
     Value: !Ref MessageService
-    Export:
-      Name: !Sub "${StackPrefix}-MessageServiceArn"
+    Export      Name: !Sub "${StackPrefix}-MessageServiceArn"
 
-  MessageTaskDefinitionArn:
-    Description: ARN of the Message task definition
+  MessageTaskDefinitionArn    Description: ARN of the Message task definition
     Value: !Ref MessageTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-MessageTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-MessageTaskDefinitionArn"
 
   # Reporting
-  ReportingServiceArn:
-    Description: ARN of the Reporting ECS service
+  ReportingServiceArn    Description: ARN of the Reporting ECS service
     Value: !Ref ReportingService
-    Export:
-      Name: !Sub "${StackPrefix}-ReportingServiceArn"
+    Export      Name: !Sub "${StackPrefix}-ReportingServiceArn"
 
-  ReportingTaskDefinitionArn:
-    Description: ARN of the Reporting task definition
+  ReportingTaskDefinitionArn    Description: ARN of the Reporting task definition
     Value: !Ref ReportingTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-ReportingTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-ReportingTaskDefinitionArn"
 
   # Compliance
-  ImageRegistryServiceArn:
-    Description: ARN of the image-registry ECS service
+  ImageRegistryServiceArn    Description: ARN of the image-registry ECS service
     Value: !Ref ImageRegistryService
-    Export:
-      Name: !Sub "${StackPrefix}-ImageRegistryServiceArn"
+    Export      Name: !Sub "${StackPrefix}-ImageRegistryServiceArn"
 
-  ImageRegistryTaskDefinitionArn:
-    Description: ARN of the image-registry ECS task definition
+  ImageRegistryTaskDefinitionArn    Description: ARN of the image-registry ECS task definition
     Value: !Ref ImageRegistryTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-ImageRegistryTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-ImageRegistryTaskDefinitionArn"
 
-  ComplianceServiceArn:
-    Description: ARN of the Compliance ECS service
+  ComplianceServiceArn    Description: ARN of the Compliance ECS service
     Value: !Ref ComplianceService
-    Export:
-      Name: !Sub "${StackPrefix}-ComplianceServiceArn"
+    Export      Name: !Sub "${StackPrefix}-ComplianceServiceArn"
 
-  ComplianceTaskDefinitionArn:
-    Description: ARN of the Compliance task definition
+  ComplianceTaskDefinitionArn    Description: ARN of the Compliance task definition
     Value: !Ref ComplianceTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-ComplianceTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-ComplianceTaskDefinitionArn"
 
   # Frontend
-  FrontendServiceArn:
-    Description: ARN of the Frontend ECS service
+  FrontendServiceArn    Description: ARN of the Frontend ECS service
     Value: !Ref FrontendService
-    Export:
-      Name: !Sub "${StackPrefix}-FrontendServiceArn"
+    Export      Name: !Sub "${StackPrefix}-FrontendServiceArn"
 
-  FrontendTaskDefinitionArn:
-    Description: ARN of the Frontend task definition
+  FrontendTaskDefinitionArn    Description: ARN of the Frontend task definition
     Value: !Ref FrontendTaskDefinition
-    Export:
-      Name: !Sub "${StackPrefix}-FrontendTaskDefinitionArn"
+    Export      Name: !Sub "${StackPrefix}-FrontendTaskDefinitionArn"
 

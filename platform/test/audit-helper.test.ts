@@ -49,14 +49,17 @@ describe('audit helper', () => {
       actorId: 'user-1',
       actorEmail: 'u@e.com',
       orgId: 'org-1',
+      // `affectedOrgId` defaults to the actor's own org for normal in-org
+      // actions; sysadmin-impersonation paths override it explicitly. See
+      // helpers/audit.ts for the wiring.
+      affectedOrgId: 'org-1',
       ip: '10.0.0.1',
     });
   });
 
   it('should default actorId to anonymous when no user', () => {
     audit(mockReq(), 'user.register');
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ actorId: 'anonymous' }),
+    expect(mockCreate).toHaveBeenCalledWith( expect.objectContaining({ actorId: 'anonymous' }),
     );
   });
 
@@ -68,20 +71,19 @@ describe('audit helper', () => {
       details: { field: 'name' },
     });
 
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'org.create',
-        targetType: 'organization',
-        targetId: 'org-99',
-        details: { field: 'name' },
-      }),
+    expect(mockCreate).toHaveBeenCalledWith( expect.objectContaining({
+      action: 'org.create',
+      targetType: 'organization',
+      targetId: 'org-99',
+      details: { field: 'name' },
+    }),
     );
   });
 
   it('should not throw when create rejects (fire-and-forget)', async () => {
     mockCreate.mockRejectedValue(new Error('db down'));
     expect(() => audit(mockReq(), 'user.logout')).not.toThrow();
-    // Allow microtask queue to flush so the .catch handler runs without leaking.
+    // Allow microtask queue to flush so the.catch handler runs without leaking.
     await new Promise((r) => setImmediate(r));
   });
 

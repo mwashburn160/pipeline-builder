@@ -57,7 +57,10 @@ function makeRes() {
 }
 
 const org = (orgId: string, name: string, quotas: Record<string, { used: number; limit: number; unlimited?: boolean }>) => ({
-  orgId, name, slug: name.toLowerCase(), tier: 'developer',
+  orgId,
+  name,
+  slug: name.toLowerCase(),
+  tier: 'developer',
   quotas: Object.fromEntries(
     Object.entries(quotas).map(([k, v]) => [k, { ...v, remaining: v.limit - v.used, unlimited: v.unlimited ?? false, resetAt: '2026-12-31T00:00:00Z' }]),
   ),
@@ -81,9 +84,9 @@ describe('GET /quotas/at-risk', () => {
 
   it('returns orgs above 80% by default, sorted by percent desc', async () => {
     findAll.mockResolvedValue([
-      org('org-low', 'Low', { plugins: { used: 5, limit: 100 } }),                  // 5%
-      org('org-high', 'High', { plugins: { used: 95, limit: 100 } }),               // 95%
-      org('org-mid', 'Mid', { plugins: { used: 81, limit: 100 } }),                 // 81%
+      org('org-low', 'Low', { plugins: { used: 5, limit: 100 } }), // 5%
+      org('org-high', 'High', { plugins: { used: 95, limit: 100 } }), // 95%
+      org('org-mid', 'Mid', { plugins: { used: 81, limit: 100 } }), // 81%
     ]);
     const res = makeRes();
     await handler({ query: {} } as any, res);
@@ -129,9 +132,9 @@ describe('GET /quotas/at-risk', () => {
   it('emits one row per (org, quotaType) when an org is at-risk on multiple types', async () => {
     findAll.mockResolvedValue([
       org('org-multi', 'Multi', {
-        plugins: { used: 90, limit: 100 },     // 90%
-        pipelines: { used: 100, limit: 100 },  // 100%
-        apiCalls: { used: 5, limit: 100 },     // 5% — below threshold
+        plugins: { used: 90, limit: 100 }, // 90%
+        pipelines: { used: 100, limit: 100 }, // 100%
+        apiCalls: { used: 5, limit: 100 }, // 5% — below threshold
       }),
     ]);
     const res = makeRes();

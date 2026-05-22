@@ -18,7 +18,7 @@ interface CommandItem {
 }
 
 interface CommandPaletteProps {
-  isSysAdmin: boolean;
+  isSuperAdmin: boolean;
   isAdmin: boolean;
   isDark: boolean;
   onToggleDark: () => void;
@@ -26,7 +26,7 @@ interface CommandPaletteProps {
 }
 
 export function CommandPalette({
-  isSysAdmin,
+  isSuperAdmin,
   isAdmin,
   isDark,
   onToggleDark,
@@ -60,13 +60,13 @@ export function CommandPalette({
       { id: 'help', label: 'Go to Help', icon: HelpCircle, section: 'Navigation', action: () => navigate('/dashboard/help') },
     ];
 
-    if (isAdmin || isSysAdmin) {
+    if (isAdmin || isSuperAdmin) {
       items.push(
         { id: 'team', label: 'Go to Team', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/team') },
       );
     }
 
-    if (isSysAdmin) {
+    if (isSuperAdmin) {
       items.push(
         { id: 'users', label: 'Go to All Users', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/users') },
       );
@@ -77,7 +77,7 @@ export function CommandPalette({
     );
 
     return items;
-  }, [navigate, isSysAdmin, isAdmin, isDark, onToggleDark]);
+  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark]);
 
   const filtered = useMemo(() => {
     if (!query) return commands;

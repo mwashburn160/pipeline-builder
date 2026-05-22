@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemOrg, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemAdmin, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleCreateSchema } from './rule-schemas';
@@ -18,9 +18,10 @@ export function createCreateRuleRoutes(): Router {
 
     const body = validation.value;
 
-    // Published rules can only be created by system org
-    if (body.scope === 'published' && !isSystemOrg(req)) {
-      return sendError(res, 403, 'Only system org can create published rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    // Published rules are operator-curated content that ships to every org;
+    // only sysadmins may create them.
+    if (body.scope === 'published' && !isSystemAdmin(req)) {
+      return sendError(res, 403, 'Only sysadmins can create published rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     try {

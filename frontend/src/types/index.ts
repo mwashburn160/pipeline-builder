@@ -15,6 +15,12 @@ export interface User {
   email: string;
   /** Per-org role in the active organization. Derived from UserOrganization, not a global role. */
   role: 'owner' | 'admin' | 'member';
+  /**
+   * Global super-admin flag carried in the JWT. True for Pipeline Builder
+   * operators; supersedes the legacy "is this user in the system org"
+   * check. Only set when true to keep payloads small for the common case.
+   */
+  isSuperAdmin?: boolean;
   /** Active organization ID (user may belong to multiple orgs; see `organizations`) */
   organizationId?: string;
   /** Active organization name */
@@ -37,30 +43,24 @@ export interface UserOrgMembership {
   role: 'owner' | 'admin' | 'member';
 }
 
-/** System organization identifier (must match backend SYSTEM_ORG_ID). */
-const SYSTEM_ORG_ID = 'system';
-
 /**
- * Check if user belongs to the system organization
- */
-export function isSystemOrg(user: User | null): boolean {
-  if (!user) return false;
-  const orgId = user.organizationId?.toLowerCase();
-  const orgName = user.organizationName?.toLowerCase();
-  return orgId === SYSTEM_ORG_ID || orgName === SYSTEM_ORG_ID;
-}
-
-/**
- * Check if user is system admin
+ * Check if user is a Pipeline Builder super-admin.
+ *
+ * Reads the `isSuperAdmin` flag from the JWT — the canonical signal for
+ * operator authority. The legacy "user is admin/owner in the well-known
+ * 'system' org" branch was removed alongside the backend cutover; flipping
+ * a user to sysadmin now requires setting `User.isSuperAdmin=true`
+ * (BOOTSTRAP_SUPERADMIN_EMAILS env or a future admin endpoint).
  */
 export function isSystemAdmin(user: User | null): boolean {
-  if (!user) return false;
-  if (user.role !== 'admin' && user.role !== 'owner') return false;
-  return isSystemOrg(user);
+  return user?.isSuperAdmin === true;
 }
 
 /**
- * Check if user is organization admin (admin or owner, not in system org)
+ * Check if user is an organization admin — admin/owner role on a regular
+ * customer org. Excludes sysadmins; the UI typically wants to render
+ * "org admin" affordances separately from "Pipeline Builder operator"
+ * affordances.
  */
 export function isOrgAdmin(user: User | null): boolean {
   return (user?.role === 'admin' || user?.role === 'owner') && !isSystemAdmin(user);
@@ -125,6 +125,13 @@ export interface Organization {
   description?: string;
   ownerId: string;
   memberCount: number;
+  /** Quota tier ('developer' | 'pro' | 'unlimited'). Optional because some
+   *  list endpoints elide it to keep payloads small. */
+  tier?: string;
+  /** Sysadmin-facing facet flags set by the orgs list endpoint. Absent on
+   *  rows returned by other endpoints (e.g. org-detail). */
+  kmsConfigured?: boolean;
+  idpConfigured?: boolean;
   quotas?: Record<QuotaType, QuotaSummary>;
   createdAt: string;
   updatedAt: string;
@@ -143,6 +150,32 @@ export interface OrgAIConfig {
 }
 
 /**
+ * Per-org IdP config DTO. Mirrors the platform service's OrgIdpConfigDto —
+ * the client secret never crosses the wire; UI shows `hasClientSecret`.
+ */
+export interface OrgIdpConfigDto {
+  orgId: string;
+  provider: 'generic-oidc' | 'google' | 'github';
+  clientId: string;
+  hasClientSecret: boolean;
+  discoveryUrl?: string;
+  allowedEmailDomains: string[];
+  enabled: boolean;
+  updatedAt: string;
+}
+
+/** Create-IdP payload. `clientSecret` is required on create. */
+export interface OrgIdpConfigCreate {
+  orgId?: string;
+  provider: 'generic-oidc' | 'google' | 'github';
+  clientId: string;
+  clientSecret: string;
+  discoveryUrl?: string;
+  allowedEmailDomains?: string[];
+  enabled?: boolean;
+}
+
+/**
  * BullMQ build queue job counts (admin-only)
  */
 export interface QueueCounts {
@@ -155,6 +188,9 @@ export interface QueueCounts {
 
 export interface QueueStatus extends QueueCounts {
   dlq?: QueueCounts;
+  /** Per-tier breakdown of waiting/active/etc. counts. Aggregate fields on
+   *  the root object are the sum across all tier queues. */
+  tiers?: Record<string, QueueCounts>;
 }
 
 /**
@@ -402,6 +438,41 @@ export interface BillingEvent {
 }
 
 /**
+ * Per-quota row in the cost+usage rollup. `remaining` and
+ * `percentOfLimit` are null when the quota is unlimited (limit === -1) so
+ * the UI knows to render an em-dash instead of a misleading progress bar.
+ */
+export interface UsageEntry {
+  used: number;
+  limit: number;
+  remaining: number | null;
+  percentOfLimit: number | null;
+  resetAt: string;
+}
+
+/** Response shape of `GET /api/billing/usage` (cost attribution surface). */
+export interface UsageRollup {
+  period: {
+    start: string;
+    end: string;
+    daysElapsed: number;
+    daysRemaining: number;
+  };
+  subscription: {
+    planId: string;
+    planName: string;
+    tier: 'developer' | 'pro' | 'unlimited';
+    interval: 'monthly' | 'annual';
+    priceCents: number;
+  } | null;
+  usage: Record<string, UsageEntry>;
+  cost: {
+    subscriptionCents: number;
+    currency: 'USD';
+  };
+}
+
+/**
  * Message type identifiers
  */
 export type MessageType = 'announcement' | 'conversation';
@@ -454,7 +525,7 @@ export interface AuthTokens {
  * Discriminated union on `success` so TypeScript narrows `data` to `T`
  * (not `T | undefined`) once `success === true` has been checked.
  *
- * Note: callers of `ApiClient.request()` rarely need to check `success` —
+ * Note: callers of `ApiClient.request()` rarely need to check `success` 
  * the client throws `ApiError` on 4xx/5xx, so success: false never
  * reaches caller code. The union is here for the few callsites that
  * inspect the raw envelope (e.g. SSE bootstrap, error inspectors).
@@ -495,11 +566,14 @@ export interface RegistryManifest {
   body: unknown;
 }
 
-/** Image config blob — parsed shape, fields are optional because legacy manifests omit them. */
+/** Parsed image config blob (OCI v1 image config spec). The registry now
+ *  rejects manifests that omit required OCI fields, so `architecture` and
+ *  `os` are guaranteed present. `config` and `history` remain optional per
+ *  the spec (a scratch image can have an empty config, etc.). */
 export interface RegistryImageConfig {
   created?: string;
-  architecture?: string;
-  os?: string;
+  architecture: string;
+  os: string;
   config?: { Env?: string[]; Cmd?: string[]; WorkingDir?: string };
   history?: { created: string; created_by?: string }[];
 }
@@ -513,15 +587,14 @@ export interface RegistryPlatformRef {
 }
 
 /**
- * Discriminated union of what `useImageDetail` returns:
- *  - `image`: single-arch manifest; `config` carries the parsed config blob.
- *  - `index`: multi-arch index; `platforms` lists referenced child manifests
- *    so the UI can drill into a specific platform.
- *  - `unknown`: mediaType isn't one we recognise — JSON viewer only.
+ * Discriminated union of what `useImageDetail` returns * - `image`: single-arch manifest; `config` carries the parsed config blob.
+ * - `index`: multi-arch index; `platforms` lists referenced child manifests
+ * so the UI can drill into a specific platform.
+ * - `unknown`: mediaType isn't one we recognise  JSON viewer only.
  */
 export type RegistryManifestKind =
-  | { kind: 'image';   manifest: RegistryManifest; config: RegistryImageConfig }
-  | { kind: 'index';   manifest: RegistryManifest; platforms: RegistryPlatformRef[] }
+  | { kind: 'image'; manifest: RegistryManifest; config: RegistryImageConfig }
+  | { kind: 'index'; manifest: RegistryManifest; platforms: RegistryPlatformRef[] }
   | { kind: 'unknown'; manifest: RegistryManifest; reason: string };
 
 /** Result of a successful `copyImage` call. */

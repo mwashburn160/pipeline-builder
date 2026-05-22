@@ -4,7 +4,7 @@
 import crypto from 'crypto';
 
 import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
-import { createApp, startServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
+import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { Request, Response } from 'express';
 
 import { createCreateMessageRoutes } from './routes/create-message';
@@ -59,7 +59,7 @@ app.get(
   (req: Request, res: Response) => {
     const ticketId = req.query.ticket as string | undefined;
     if (!ticketId) {
-      res.status(401).json({ success: false, message: 'Missing ticket parameter' });
+      sendError(res, 401, 'Missing ticket parameter', ErrorCode.UNAUTHORIZED);
       return;
     }
 
@@ -67,24 +67,29 @@ app.get(
     ticketStore.delete(ticketId); // Single use — consume immediately
 
     if (!ticket || Date.now() > ticket.expiresAt) {
-      res.status(401).json({ success: false, message: 'Invalid or expired ticket' });
+      sendError(res, 401, 'Invalid or expired ticket', ErrorCode.UNAUTHORIZED);
       return;
     }
 
     const { orgId } = ticket;
 
-    // Set SSE headers
+    // Reserve a connection slot BEFORE flushing SSE headers. Once
+    // flushHeaders runs the response is committed at status 200, and any
+    // subsequent attempt to set 429 is silently dropped by Node. The
+    // previous order (set-headers → flush → addClient → 429-on-reject)
+    // was broken: rejected connections returned 200 with a body that
+    // looked like an error message.
+    const added = sseManager.addClient(orgId, res);
+    if (!added) {
+      sendError(res, 429, 'Too many notification connections', ErrorCode.QUOTA_EXCEEDED);
+      return;
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
-
-    const added = sseManager.addClient(orgId, res);
-    if (!added) {
-      res.status(429).end('Too many notification connections');
-      return;
-    }
 
     logger.info('SSE notification client connected', { orgId });
   },
@@ -104,13 +109,10 @@ app.use('/messages', ...createAuthenticatedWithOrgRoute(), createDeleteMessageRo
 
 logger.info('All /messages routes registered');
 
-startServer(app, {
+runServer(app, {
   name: 'Message Service',
   sseManager,
   onShutdown: async () => {
     clearInterval(ticketCleanup);
   },
-}).catch((err) => {
-  logger.error('Failed to start server', { error: err });
-  process.exit(1);
 });

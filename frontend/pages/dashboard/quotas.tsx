@@ -105,6 +105,8 @@ function QuotaCard({
         <span>Resets {daysUntil(quota.resetAt)}</span>
       </div>
 
+      {!quota.unlimited && <UsageForecast used={quota.used} limit={quota.limit} resetAt={quota.resetAt} />}
+
       {isAdmin && (
         <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">Limit</span>
@@ -182,7 +184,7 @@ function OrgListItem({
 
 /** Quota management page. Shows per-org usage and limits; system admins can edit tiers, limits, and org metadata. */
 export default function QuotasPage() {
-  const { user, isReady, isSysAdmin } = useAuthGuard();
+  const { user, isReady, isSuperAdmin } = useAuthGuard();
   const toast = useToast();
 
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
@@ -209,15 +211,15 @@ export default function QuotasPage() {
     percent: number;
   }>>([]);
   const fetchAtRisk = useCallback(async () => {
-    if (!isSysAdmin) return;
+    if (!isSuperAdmin) return;
     try {
       const res = await api.getAtRiskQuotas();
       if (res.success && res.data) setAtRisk(res.data.atRisk);
     } catch { /* admin-only diagnostic — silently skip */ }
-  }, [isSysAdmin]);
+  }, [isSuperAdmin]);
 
   const fetchAllOrgs = useCallback(async () => {
-    if (!isSysAdmin) return;
+    if (!isSuperAdmin) return;
     try {
       const res = await api.listOrganizations();
       const raw = res.data?.organizations || [];
@@ -234,12 +236,12 @@ export default function QuotasPage() {
         // Both unavailable
       }
     }
-  }, [isSysAdmin, selectedOrgId]);
+  }, [isSuperAdmin, selectedOrgId]);
 
   const fetchOrg = useCallback(async (orgId: string) => {
     setLoading(true);
     try {
-      const res = isSysAdmin
+      const res = isSuperAdmin
         ? await api.getOrgQuotas(orgId)
         : await api.getOwnQuotas();
       const quota = (res.data?.quota || res.data) as OrgQuotaResponse;
@@ -249,7 +251,7 @@ export default function QuotasPage() {
     } finally {
       setLoading(false);
     }
-  }, [isSysAdmin, platformOrgs]);
+  }, [isSuperAdmin, platformOrgs]);
 
   function applyOrgData(d: OrgQuotaResponse, orgId?: string) {
     const sidebarOrg = platformOrgs.find((o) => o.id === (orgId || d.orgId));
@@ -269,16 +271,16 @@ export default function QuotasPage() {
   }
 
   useEffect(() => {
-    if (isSysAdmin) {
+    if (isSuperAdmin) {
       fetchAllOrgs();
       fetchAtRisk();
     }
-  }, [fetchAllOrgs, fetchAtRisk, isSysAdmin]);
+  }, [fetchAllOrgs, fetchAtRisk, isSuperAdmin]);
 
   useEffect(() => {
-    const orgId = isSysAdmin ? selectedOrgId : user?.organizationId;
+    const orgId = isSuperAdmin ? selectedOrgId : user?.organizationId;
     if (orgId) fetchOrg(orgId);
-  }, [selectedOrgId, isSysAdmin, user?.organizationId, fetchOrg]);
+  }, [selectedOrgId, isSuperAdmin, user?.organizationId, fetchOrg]);
 
   function handleEditChange(key: QuotaType, value: number) {
     setEditValues((prev) => ({ ...prev, [key]: value }));
@@ -340,7 +342,7 @@ export default function QuotasPage() {
   if (!isReady || !user) return <LoadingPage />;
 
   // ── Simple read-only view for regular users ──
-  if (!isSysAdmin) {
+  if (!isSuperAdmin) {
     const tier = orgData?.tier || 'developer';
     const tierPreset = TIER_PRESETS[tier];
     return (
@@ -412,7 +414,7 @@ export default function QuotasPage() {
     </div>
   ) : undefined;
 
-  const headerActions = isSysAdmin && !loading ? (
+  const headerActions = isSuperAdmin && !loading ? (
     <div className="flex items-center gap-2">
       <button type="button" onClick={handleReset} disabled={!dirty} className="btn btn-secondary btn-xs">
         Discard
@@ -425,7 +427,7 @@ export default function QuotasPage() {
 
   return (
     <DashboardLayout
-      title={isSysAdmin ? 'Organization Quotas' : 'Quotas'}
+      title={isSuperAdmin ? 'Organization Quotas' : 'Quotas'}
       subtitle="Usage limits and consumption"
       titleExtra={titleExtra}
       actions={headerActions}
@@ -433,7 +435,7 @@ export default function QuotasPage() {
     >
       <div className="flex min-h-[calc(100vh-theme(spacing.16))]">
         {/* Internal org sidebar (sysadmin only) */}
-        {isSysAdmin && (
+        {isSuperAdmin && (
           <div className="w-64 min-w-[16rem] border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col">
             <div className="p-4 border-b border-gray-200 dark:border-gray-700">
               <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
@@ -472,7 +474,7 @@ export default function QuotasPage() {
           <div className="max-w-4xl">
             {/* At-risk orgs banner — sysadmin only. Click an entry to jump
                 to that org in the sidebar. Hidden when no orgs are at risk. */}
-            {isSysAdmin && atRisk.length > 0 && (
+            {isSuperAdmin && atRisk.length > 0 && (
               <div className="mb-6 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
@@ -517,7 +519,7 @@ export default function QuotasPage() {
             )}
 
             {/* Tier selector — system admin only */}
-            {!loading && orgData && isSysAdmin && (
+            {!loading && orgData && isSuperAdmin && (
               <div className="mb-8">
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
                   Plan Tier
@@ -530,12 +532,12 @@ export default function QuotasPage() {
                       <button
                         key={tier}
                         type="button"
-                        disabled={!isSysAdmin}
-                        onClick={() => isSysAdmin && handleTierChange(tier)}
+                        disabled={!isSuperAdmin}
+                        onClick={() => isSuperAdmin && handleTierChange(tier)}
                         className={`relative card text-left transition-all ${
                           isSelected
                             ? 'ring-2 ring-blue-500 dark:ring-blue-400 border-blue-300 dark:border-blue-600'
-                            : isSysAdmin
+                            : isSuperAdmin
                               ? 'hover:border-gray-300 dark:hover:border-gray-600 cursor-pointer'
                               : 'opacity-60'
                         }`}
@@ -563,7 +565,7 @@ export default function QuotasPage() {
             <div className="mb-8">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
                 Quota Usage
-                {isSysAdmin && (
+                {isSuperAdmin && (
                   <span className="font-normal normal-case tracking-normal ml-2 text-gray-400 dark:text-gray-500">
                     — edit limits below each card
                   </span>
@@ -588,7 +590,7 @@ export default function QuotasPage() {
                       key={key}
                       quotaKey={key}
                       quota={orgData.quotas[key]}
-                      isAdmin={isSysAdmin}
+                      isAdmin={isSuperAdmin}
                       editVal={editValues[key]}
                       onEditChange={handleEditChange}
                     />
@@ -597,7 +599,7 @@ export default function QuotasPage() {
               ) : null}
             </div>
 
-            {!isSysAdmin && !loading && (
+            {!isSuperAdmin && !loading && (
               <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
                 Contact a system administrator to change quota limits.
               </p>
@@ -607,5 +609,61 @@ export default function QuotasPage() {
       </div>
 
     </DashboardLayout>
+  );
+}
+
+/**
+ * Projects whether the org will exhaust a quota before its period reset.
+ *
+ * Assumptions:
+ *   - The reset window is monthly (api/ai calls) or per-billing-period.
+ *     We approximate the period start as 30 days before `resetAt`; for
+ *     monthly windows this matches; for shorter/longer windows it's a
+ *     rough estimate that errs toward conservatism (slightly
+ *     under-projects the breach date for short windows, slightly over
+ *     for long ones).
+ *   - Burn rate is linear: a constant per-day usage based on what's
+ *     consumed so far this period. Real workloads spike, but a linear
+ *     baseline still catches "you're pacing 3× ahead of plan" cases.
+ *
+ * Renders nothing when used is 0 (no signal to project from) or when
+ * the projected total is comfortably under the limit.
+ */
+function UsageForecast({
+  used,
+  limit,
+  resetAt,
+}: {
+  used: number;
+  limit: number;
+  resetAt: string;
+}) {
+  const reset = new Date(resetAt);
+  if (Number.isNaN(reset.getTime()) || limit <= 0 || used <= 0) return null;
+
+  const now = Date.now();
+  const periodStart = reset.getTime() - 30 * 24 * 60 * 60 * 1000;
+  const elapsed = now - periodStart;
+  if (elapsed <= 0) return null;
+
+  const total = reset.getTime() - periodStart;
+  const projected = Math.round(used * (total / elapsed));
+  const ratio = projected / limit;
+
+  // Only surface the row when it's actually informative — projected ≥
+  // 70% of limit (the user is in the warning band).
+  if (ratio < 0.7) return null;
+
+  const willBreach = projected > limit;
+  const verb = willBreach ? 'will breach' : 'on track for';
+
+  return (
+    <div className={`mt-2 px-2 py-1.5 rounded-md text-xs ${willBreach
+      ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+      : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'}`}
+    >
+      At current pace, {verb} <strong className="tabular-nums">{projected.toLocaleString()}</strong> by reset
+      {' '}<span className="opacity-75">(limit {limit.toLocaleString()})</span>.
+    </div>
   );
 }

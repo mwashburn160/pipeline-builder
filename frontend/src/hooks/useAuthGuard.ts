@@ -9,7 +9,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from './useAuth';
-import { isSystemAdmin, isSystemOrg as checkSystemOrg, isOrgAdmin } from '@/types';
+import { isSystemAdmin, isOrgAdmin } from '@/types';
 
 /** Options for configuring the auth guard's role requirements. */
 interface AuthGuardOptions {
@@ -31,10 +31,9 @@ export function useAuthGuard(options?: AuthGuardOptions) {
   const router = useRouter();
   const { user, isAuthenticated, isInitialized, isLoading, logout, refreshUser } = useAuth();
 
-  const isSystemOrg = checkSystemOrg(user);
-  const isSysAdmin = isSystemAdmin(user);
+  const isSuperAdmin = isSystemAdmin(user);
   const isOrgAdminUser = isOrgAdmin(user);
-  const isAdmin = isSysAdmin || isOrgAdminUser;
+  const isAdmin = isSuperAdmin || isOrgAdminUser;
 
   const requireAdmin = options?.requireAdmin ?? false;
   const requireSystemAdmin = options?.requireSystemAdmin ?? false;
@@ -49,22 +48,21 @@ export function useAuthGuard(options?: AuthGuardOptions) {
       router.push('/dashboard');
       return;
     }
-    if (requireSystemAdmin && !isSysAdmin) {
+    if (requireSystemAdmin && !isSuperAdmin) {
       router.push('/dashboard');
       return;
     }
-  }, [isAuthenticated, isInitialized, isLoading, isAdmin, isSysAdmin, router, requireAdmin, requireSystemAdmin]);
+  }, [isAuthenticated, isInitialized, isLoading, isAdmin, isSuperAdmin, router, requireAdmin, requireSystemAdmin]);
 
   const isReady = isInitialized && !isLoading && isAuthenticated && !!user
     && (!requireAdmin || isAdmin)
-    && (!requireSystemAdmin || isSysAdmin);
+    && (!requireSystemAdmin || isSuperAdmin);
 
   return {
     user,
     isReady,
     isAuthenticated,
-    isSystemOrg,
-    isSysAdmin,
+    isSuperAdmin,
     isOrgAdminUser,
     isAdmin,
     logout,

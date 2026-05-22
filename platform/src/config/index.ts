@@ -21,13 +21,90 @@ function requireSecret(envVar: string, name: string): string {
 }
 
 /**
+ * Validate that `SECRET_ENCRYPTION_KEY` is set. AI provider keys and IdP
+ * client secrets are encrypted at rest; the read paths no longer have a
+ * clear-text fallback. Refuse to boot in production when this env is
+ * missing so a misconfig surfaces immediately instead of crashing on the
+ * first decrypt. In dev, fall back to a deterministic placeholder so
+ * single-machine runs don't require any setup.
+ */
+function requireEncryptionKey(): string {
+  const value = process.env.SECRET_ENCRYPTION_KEY;
+  if (value) return value;
+  if (isDev) {
+    // 32-byte deterministic dev key (hex). Operators MUST set the env in
+    // any deploy that handles real customer keys — this dev value is
+    // documented as insecure in deploy/*.env.example.
+    return '0000000000000000000000000000000000000000000000000000000000000000';
+  }
+  throw new Error(
+    'SECRET_ENCRYPTION_KEY is required in production. '
+    + 'Generate with: head -c 32 /dev/urandom | base64',
+  );
+}
+
+/** Per-Alertmanager-instance binding for the relay webhook. */
+export interface AlertWebhookInstance {
+  /** Stable identifier sent by Alertmanager as `X-Alertmanager-Instance`. */
+  id: string;
+  /** Bearer token this instance must present. */
+  token: string;
+  /** When set, every alert in the payload must have its `labels.org_id`
+   *  within this list. Missing → no org-scope restriction (legacy mode). */
+  allowedOrgIds?: string[];
+}
+
+/**
+ * Parse the per-instance JSON config from env. Tolerates missing / malformed
+ * input: returns [] so the relay returns 503 (Alert relay not configured)
+ * at request time rather than crashing the service at startup. Invalid
+ * entries log to stderr (no logger available at config-load time).
+ */
+function parseAlertWebhookInstances(raw: string | undefined): AlertWebhookInstance[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry: unknown) => {
+      if (!entry || typeof entry !== 'object') return [];
+      const e = entry as Record<string, unknown>;
+      if (typeof e.id !== 'string' || !e.id) return [];
+      if (typeof e.token !== 'string' || !e.token) return [];
+      const inst: AlertWebhookInstance = { id: e.id, token: e.token };
+      if (Array.isArray(e.allowedOrgIds) && e.allowedOrgIds.every((x) => typeof x === 'string')) {
+        inst.allowedOrgIds = e.allowedOrgIds as string[];
+      }
+      return [inst];
+    });
+  } catch {
+    // Bad JSON; fall back to legacy mode. Service stays up; misconfig is
+    // surfaced via the eventual 401/403 on incoming webhook calls.
+    return [];
+  }
+}
+
+/**
  * Application configuration object.
  * All values are loaded from environment variables with defaults.
  */
+// Boot-time required-env validation. Calling requireEncryptionKey()
+// during module load means a misconfigured production deploy throws
+// here, before any HTTP handler can hit the encryption code path.
+// The returned value isn't used (secret-encryption reads process.env
+// directly); we keep it as a typed field on config so the API surface
+// matches the runtime check.
+const secretEncryptionKey = requireEncryptionKey();
+
 export const config = {
   app: {
     port: parseInt(process.env.PORT || '3000', 10),
     frontendUrl: process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL,
+  },
+
+  // Cryptographic material. Validated at module load — `secretEncryptionKey`
+  // is non-empty here or the import throws.
+  security: {
+    secretEncryptionKey,
   },
 
   server: {
@@ -44,6 +121,20 @@ export const config = {
   rateLimit: {
     max: parseInt(process.env.LIMITER_MAX || '100', 10),
     windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000', 10), // 15 min
+    /**
+     * Per-tier multipliers on top of `rateLimit.max`. A premium-plan org
+     * gets its baseline budget multiplied; free/unauthenticated callers
+     * stay at the baseline. The JWT carries `tier` (set at issuance time
+     * from the org's `planId`), so dispatch is request-local with no
+     * extra DB lookup. Sysadmins bypass entirely via the `skip` predicate.
+     */
+    tierMultipliers: {
+      developer: parseFloat(process.env.LIMITER_MULT_DEVELOPER || '1'),
+      team: parseFloat(process.env.LIMITER_MULT_TEAM || '4'),
+      business: parseFloat(process.env.LIMITER_MULT_BUSINESS || '10'),
+      enterprise: parseFloat(process.env.LIMITER_MULT_ENTERPRISE || '25'),
+      unlimited: parseFloat(process.env.LIMITER_MULT_UNLIMITED || '50'),
+    } as Record<string, number>,
     auth: {
       max: parseInt(process.env.AUTH_LIMITER_MAX || '20', 10),
       windowMs: parseInt(process.env.AUTH_LIMITER_WINDOWMS || '900000', 10), // 15 min
@@ -57,6 +148,23 @@ export const config = {
       windowMs: parseInt(process.env.OBSERVABILITY_LIMITER_WINDOWMS || '60000', 10), // 1 min
     },
   },
+  /**
+   * Multi-tenant alerting: Alertmanager POSTs to /api/observability/alert-webhook
+   * with a bearer token in the Authorization header. The platform relay
+   * validates it via constant-time compare. Unset / empty → endpoint returns
+   * 503, which is the right failure mode in dev (the in-app /alerts page
+   * still works via the read API even if the relay is offline).
+   *
+   * Configuration: `ALERT_WEBHOOK_INSTANCES='[{"id":"am-0","token":"...",
+   * "allowedOrgIds":["org-a","org-b"]}]'`. Each Alertmanager sends
+   * `X-Alertmanager-Instance: <id>` alongside its bearer; the relay looks
+   * up the matching entry and rejects (a) wrong token, (b) any alert whose
+   * `labels.org_id` is outside the instance's `allowedOrgIds` (when set).
+   * Omit `allowedOrgIds` to allow any org for that instance.
+   */
+  alertWebhook: {
+    instances: parseAlertWebhookInstances(process.env.ALERT_WEBHOOK_INSTANCES),
+  },
   auth: {
     passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8', 10),
     jwt: {
@@ -64,6 +172,19 @@ export const config = {
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10), // 2 hr
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
       saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12', 10),
+      /**
+       * Per-tier access-token TTL overrides (seconds). When a tier's
+       * override is unset, falls back to `expiresIn`. Enterprise/
+       * compliance-driven customers typically want SHORTER TTLs (e.g.
+       * 30 minutes) so a stolen token's blast window is smaller;
+       * developer tier keeps the default for convenience. The actual
+       * lookup happens at token issuance — see `resolveTokenExpiresIn`.
+       */
+      tierExpiresIn: {
+        developer: process.env.JWT_EXPIRES_IN_DEVELOPER ? parseInt(process.env.JWT_EXPIRES_IN_DEVELOPER, 10) : undefined,
+        pro: process.env.JWT_EXPIRES_IN_PRO ? parseInt(process.env.JWT_EXPIRES_IN_PRO, 10) : undefined,
+        unlimited: process.env.JWT_EXPIRES_IN_UNLIMITED ? parseInt(process.env.JWT_EXPIRES_IN_UNLIMITED, 10) : undefined,
+      } as Record<string, number | undefined>,
     },
     refreshToken: {
       secret: requireSecret('REFRESH_TOKEN_SECRET', 'Refresh token secret'),

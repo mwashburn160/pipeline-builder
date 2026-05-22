@@ -8,7 +8,7 @@ import { config } from '../config';
 import { invitationTemplate, invitationAcceptedTemplate } from './email-templates';
 import type { InvitationType, InvitationOAuthProvider } from '../models/invitation';
 
-const logger = createLogger('EmailService');
+const logger = createLogger('email-service');
 
 export interface EmailOptions {
   to: string | string[];

@@ -12,7 +12,13 @@ const logger = createLogger('audit');
  *
  * @param req - Express request (used to extract actor and IP)
  * @param action - Audit action identifier
- * @param options - Optional target and details
+ * @param options - Optional target, details, and `affectedOrgId` for
+ *                  cross-tenant operations
+ *
+ * Pass `affectedOrgId` whenever the action touches an org that is NOT the
+ * actor's own (e.g. a sysadmin acting on org X's user/data). When omitted,
+ * it defaults to the actor's `orgId`, so normal in-org operations don't have
+ * to repeat the boilerplate.
  */
 export function audit(
   req: Request,
@@ -21,13 +27,18 @@ export function audit(
     targetType?: string;
     targetId?: string;
     details?: Record<string, unknown>;
+    /** Override when the action affects a different org than the actor's
+     *  (sysadmin acting on another org). Defaults to the actor's own org. */
+    affectedOrgId?: string;
   } = {},
 ): void {
+  const actorOrgId = req.user?.organizationId;
   const event = {
     action,
     actorId: req.user?.sub || 'anonymous',
     actorEmail: req.user?.email,
-    orgId: req.user?.organizationId,
+    orgId: actorOrgId,
+    affectedOrgId: options.affectedOrgId ?? actorOrgId,
     ip: req.ip,
     ...options,
   };

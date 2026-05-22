@@ -48,6 +48,11 @@ x-postgres-env: &postgres-env
   DRIZZLE_MAX_POOL_SIZE: ${DRIZZLE_MAX_POOL_SIZE:-20}
   DRIZZLE_IDLE_TIMEOUT_MILLIS: ${DRIZZLE_IDLE_TIMEOUT_MILLIS:-30000}
   DRIZZLE_CONNECTION_TIMEOUT_MILLIS: ${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-10000}
+  # Multi-tenant context mode for withTenantTx (see api/.../tenancy.ts).
+  # warn (default) logs missing-context calls; strict throws. Every
+  # Postgres-backed service inherits this via x-postgres-env so the
+  # setting is uniform across the fleet.
+  RLS_CONTEXT_MODE: ${RLS_CONTEXT_MODE:-warn}
 
 # -- Env shared by Express server services --
 x-server-env: &server-env
@@ -178,6 +183,38 @@ services:
       start_period: 60s
     deploy: *db-deploy
 
+  # ---------------------------------------------------------------------------
+  # pgBouncer connection pooler (opt-in)
+  # ---------------------------------------------------------------------------
+  # Start with: `docker compose --profile pgbouncer up -d`. When enabled,
+  # repoint services with DB_HOST=pgbouncer / DB_PORT=6432. See
+  # `deploy/local/config/pgbouncer/pgbouncer.ini` for per-tier pool layout.
+  pgbouncer:
+    image: 'bitnami/pgbouncer:1.23.1'
+    container_name: pgbouncer
+    restart: always
+    profiles: ['pgbouncer']
+    environment:
+      POSTGRESQL_HOST: postgres
+      POSTGRESQL_PORT: '5432'
+      POSTGRESQL_USERNAME: ${POSTGRES_USER}
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRESQL_DATABASE: ${POSTGRES_DB}
+      PGBOUNCER_PORT: '6432'
+    volumes:
+      - './config/pgbouncer/pgbouncer.ini:/bitnami/pgbouncer/conf/pgbouncer.ini:ro'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   redis:
     image: 'redis:7-alpine'
     container_name: redis
@@ -248,6 +285,10 @@ services:
       # Security
       PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
       MAX_LOGIN_ATTEMPTS: ${MAX_LOGIN_ATTEMPTS:-5}
+      # Platform-only multi-tenant knobs. RLS_CONTEXT_MODE is set via
+      # x-postgres-env so every postgres-backed service inherits it.
+      BOOTSTRAP_SUPERADMIN_EMAILS: ${BOOTSTRAP_SUPERADMIN_EMAILS:-}
+      SECRET_ENCRYPTION_PER_ORG_KMS: ${SECRET_ENCRYPTION_PER_ORG_KMS:-false}
       # JWT
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
@@ -782,6 +823,13 @@ services:
     environment:
       - SLACK_WEBHOOK_URL_CRITICAL=${SLACK_WEBHOOK_URL_CRITICAL:-}
       - SLACK_WEBHOOK_URL_WARNING=${SLACK_WEBHOOK_URL_WARNING:-}
+      # Multi-tenant relay: posts org-labeled alerts to the platform service,
+      # which fans out per the org_alert_destinations table. The platform's
+      # ALERT_WEBHOOK_INSTANCES env names the valid instance ids; pick one
+      # here and supply its matching bearer token.
+      - PLATFORM_ALERT_WEBHOOK_URL=${PLATFORM_ALERT_WEBHOOK_URL:-https://nginx:8443/api/observability/alert-webhook}
+      - ALERT_WEBHOOK_INSTANCE_ID=${ALERT_WEBHOOK_INSTANCE_ID:-}
+      - ALERT_WEBHOOK_INSTANCE_TOKEN=${ALERT_WEBHOOK_INSTANCE_TOKEN:-}
     volumes:
       - './config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro'
       - './data/db-data/alertmanager/:/alertmanager:rw'

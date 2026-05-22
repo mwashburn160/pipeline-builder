@@ -27,6 +27,29 @@ jest.mock('../src/database/postgres-connection', () => ({
   },
 }));
 
+// withTenantTx wraps every CrudService query in a tx that SET LOCALs the
+// RLS GUCs (see src/database/tenancy.ts). For unit tests we mock it to a
+// pass-through that invokes the callback with the same fake `db` so existing
+// `mockSelect` / `mockInsert` / `mockUpdate` assertions still match. The
+// real tx-wrapping is exercised by the tenancy module's own tests.
+// Stubbed `tx.execute` for setDefault's FOR UPDATE row lock; tests don't
+// inspect the lock query so a no-op resolve is enough.
+const mockExecute = jest.fn().mockResolvedValue(undefined);
+const mockDelete = jest.fn();
+
+jest.mock('../src/database/tenancy', () => ({
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
+    select: mockSelect,
+    insert: mockInsert,
+    update: mockUpdate,
+    delete: mockDelete,
+    execute: mockExecute,
+  }),
+  runWithTenantContext: <T>(_ctx: unknown, fn: () => T) => fn(),
+  getTenantContext: () => undefined,
+  tenantContext: { run: <T>(_ctx: unknown, fn: () => T) => fn(), getStore: () => undefined },
+}));
+
 jest.mock('@pipeline-builder/api-core', () => {
   class NotFoundError extends Error {
     statusCode = 404;
@@ -390,39 +413,34 @@ describe('CrudService', () => {
         updatedBy: 'user1',
       };
 
-      // Mock transaction to execute the callback with a mock tx
-      mockTransaction.mockImplementation(async (cb: Function) => {
-        const tx = {
-          execute: jest.fn().mockResolvedValue([]),
-          update: jest.fn().mockReturnValue({
-            set: jest.fn().mockReturnValue({
-              where: jest.fn().mockReturnValue({
-                returning: jest.fn().mockResolvedValue([updated]),
-              }),
-            }),
+      // setDefault now runs through withTenantTx (mocked above to invoke
+      // its callback with `{ select, insert, update, delete, execute }`).
+      // Stub mockUpdate's chain to yield the row; mockExecute is the
+      // FOR UPDATE row lock.
+      mockExecute.mockResolvedValueOnce([]);
+      mockUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([updated]),
           }),
-        };
-        return cb(tx);
+        }),
       });
 
       const result = await service.setDefault('my-project', 'org1', 'target-id', 'user1');
       expect(result).toEqual(updated);
-      expect(mockTransaction).toHaveBeenCalledTimes(1);
+      // Two UPDATEs run inside setDefault: clear existing defaults, then
+      // set the target row.
+      expect(mockUpdate).toHaveBeenCalledTimes(2);
     });
 
     it('should throw NotFoundError when entity not found', async () => {
-      mockTransaction.mockImplementation(async (cb: Function) => {
-        const tx = {
-          execute: jest.fn().mockResolvedValue([]),
-          update: jest.fn().mockReturnValue({
-            set: jest.fn().mockReturnValue({
-              where: jest.fn().mockReturnValue({
-                returning: jest.fn().mockResolvedValue([]),
-              }),
-            }),
+      mockExecute.mockResolvedValueOnce([]);
+      mockUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([]),
           }),
-        };
-        return cb(tx);
+        }),
       });
 
       await expect(

@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
 import { ActionBar } from './ActionBar';
 
@@ -21,6 +21,12 @@ interface FilterBarProps {
   onClearAll?: () => void;
   /** Summary text shown below filters when active */
   summary?: string;
+  /**
+   * When true, the bar stays pinned to the top of its scroll container
+   * (sticky positioning + backdrop blur). Useful on long list pages
+   * where the filters would otherwise scroll out of view.
+   */
+  sticky?: boolean;
 }
 
 /**
@@ -37,19 +43,43 @@ export function FilterBar({
   advancedContent,
   onClearAll,
   summary,
+  sticky = false,
 }: FilterBarProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // "/" hotkey focuses the primary search input. Skips when the user is
+  // already typing in a field (input/textarea/contenteditable) so we
+  // don't hijack form input.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== '/') return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
-    <div className="filter-bar">
+    <div className={`filter-bar${sticky ? ' sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 py-2' : ''}`}>
       <ActionBar
         left={
           <div className="relative min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
             <input
+              ref={inputRef}
               type="text"
               value={searchValue}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder}
               aria-label={searchPlaceholder || 'Search'}
+              title="Press / to focus"
               className="filter-input pl-10"
             />
           </div>

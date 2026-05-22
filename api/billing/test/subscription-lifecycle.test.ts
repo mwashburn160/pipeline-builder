@@ -20,6 +20,20 @@ jest.mock('@pipeline-builder/api-core', () => ({
     post: jest.fn().mockResolvedValue({ statusCode: 201 }),
   }),
   getServiceAuthHeader: () => 'Bearer test-service-token',
+  // Required because the lifecycle module now imports `runWithTenantContext`
+  // from pipeline-core, whose transitive `reporting-service` module calls
+  // `createCacheService` at module load.
+  createCacheService: () => ({
+    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+    invalidatePattern: () => Promise.resolve(0),
+  }),
+}));
+
+// Pass-through tenant-context wrapper. Real runWithTenantContext lives in
+// pipeline-core; we stub it so the lifecycle code calls execute synchronously
+// without standing up an AsyncLocalStorage.
+jest.mock('@pipeline-builder/pipeline-core', () => ({
+  runWithTenantContext: <T,>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
 jest.mock('../src/helpers/billing-helpers', () => ({

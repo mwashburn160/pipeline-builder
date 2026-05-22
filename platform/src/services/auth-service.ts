@@ -7,10 +7,11 @@ import mongoose from 'mongoose';
 import { User, Organization, UserOrganization } from '../models';
 import { hashRefreshToken } from '../utils/token';
 
-const logger = createLogger('AuthService');
+const logger = createLogger('auth-service');
 
-/** Token validity period for email verification (24 hours). */
-const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+/** Token validity period for email verification. Defaults to 24 hours;
+ *  shorten via `AUTH_VERIFICATION_TOKEN_TTL_MS` for stricter security postures. */
+const VERIFICATION_TOKEN_TTL_MS = parseInt(process.env.AUTH_VERIFICATION_TOKEN_TTL_MS || String(24 * 60 * 60 * 1000), 10);
 
 /** Domain error codes thrown by service methods (mapped to HTTP status by the controller). */
 export const DUPLICATE_CREDENTIALS = 'DUPLICATE_CREDENTIALS';

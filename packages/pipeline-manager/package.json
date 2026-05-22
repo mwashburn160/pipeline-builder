@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/pipeline-manager",
-  "description": "CLI for Pipeline Builder — self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.",
+  "description": "CLI for Pipeline Builder  self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -25,7 +25,7 @@
   "devDependencies": {
     "@stylistic/eslint-plugin": "^2",
     "@types/figlet": "1.7.0",
-    "@types/jest": "^30.0.0",
+    "@types/jest": "30.0.0",
     "@types/node": "^24",
     "@types/progress": "2.0.7",
     "@typescript-eslint/eslint-plugin": "^8",
@@ -34,9 +34,9 @@
     "eslint": "^9",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
-    "jest": "^30.2.0",
-    "jest-junit": "^16",
-    "ts-jest": "^29.4.6",
+    "jest": "30.0.0",
+    "jest-junit": "^17",
+    "ts-jest": "^29",
     "typescript": "5.9.3"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, Message, MessageType, MessagePriority, QueueStatus, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
+import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, OrgIdpConfigDto, OrgIdpConfigCreate, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, UsageRollup, Message, MessageType, MessagePriority, QueueStatus, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
 import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate } from '@/types/compliance';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
@@ -72,6 +72,33 @@ export class PayloadTooLargeError extends ApiError {
     super(message, 413, 'PAYLOAD_TOO_LARGE', details);
     this.name = 'PayloadTooLargeError';
   }
+}
+
+/**
+ * Thrown when a destructive endpoint rejects the request because the
+ * step-up token is missing, expired, or invalid.
+ *
+ * Surfaces the three backend error codes — STEP_UP_REQUIRED,
+ * STEP_UP_INVALID, STEP_UP_MISMATCH — through one class so callers
+ * just `catch (err instanceof StepUpRequiredError)` and re-prompt
+ * for password via StepUpModal. The api client also dispatches a
+ * `'step-up-required'` window event so a top-level layout listener
+ * can pop the modal globally (covers stale tabs that fired a
+ * destructive call without going through their local flow).
+ */
+export class StepUpRequiredError extends ApiError {
+  constructor(message: string, code: string, details?: Record<string, unknown>) {
+    super(message, 401, code, details);
+    this.name = 'StepUpRequiredError';
+  }
+}
+
+/** True iff the backend error code indicates the request needs a fresh step-up. */
+function isStepUpErrorCode(code?: string): boolean {
+  return code === 'STEP_UP_REQUIRED'
+    || code === 'STEP_UP_INVALID'
+    || code === 'STEP_UP_MISMATCH'
+    || code === 'STEP_UP_REPLAY';
 }
 
 /**
@@ -228,6 +255,79 @@ class ApiClient {
   }
 
   /**
+   * Swap in a sysadmin impersonation access token. Preserves the original
+   * tokens in sessionStorage so `stopImpersonation` can restore them.
+   *
+   * Refresh token is intentionally cleared during impersonation — the
+   * impersonation token is short-lived (15min) and not refreshable; the
+   * sysadmin re-prompts (or stops) when it expires.
+   */
+  startImpersonation(impersonationAccessToken: string): void {
+    if (typeof window !== 'undefined') {
+      const originalAccess = localStorage.getItem('accessToken');
+      const originalRefresh = localStorage.getItem('refreshToken');
+      const originalOrgId = localStorage.getItem('organizationId');
+      if (originalAccess) sessionStorage.setItem('impersonation.originalAccess', originalAccess);
+      if (originalRefresh) sessionStorage.setItem('impersonation.originalRefresh', originalRefresh);
+      if (originalOrgId) sessionStorage.setItem('impersonation.originalOrgId', originalOrgId);
+    }
+    this.accessToken = impersonationAccessToken;
+    this.refreshToken = null;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('accessToken', impersonationAccessToken);
+      localStorage.removeItem('refreshToken');
+      // Update the cached organizationId to the impersonated user's.
+      try {
+        const payload = JSON.parse(base64UrlDecode(impersonationAccessToken.split('.')[1]));
+        if (payload.organizationId) {
+          this.organizationId = payload.organizationId;
+          localStorage.setItem('organizationId', payload.organizationId);
+        }
+      } catch { /* non-critical */ }
+    }
+    // Don't schedule proactive refresh — there's no refresh token.
+    if (this.refreshTimer) { clearTimeout(this.refreshTimer); this.refreshTimer = null; }
+  }
+
+  /** Restore the sysadmin's original tokens, ending the impersonation session. */
+  stopImpersonation(): void {
+    if (typeof window === 'undefined') return;
+    const originalAccess = sessionStorage.getItem('impersonation.originalAccess');
+    const originalRefresh = sessionStorage.getItem('impersonation.originalRefresh');
+    const originalOrgId = sessionStorage.getItem('impersonation.originalOrgId');
+    if (!originalAccess || !originalRefresh) {
+      // Lost the original tokens — fall back to a hard sign-out. Better
+      // than leaving the sysadmin stuck in the impersonation token.
+      this.clearTokens();
+      window.location.href = '/login';
+      return;
+    }
+    this.setTokens({ accessToken: originalAccess, refreshToken: originalRefresh });
+    if (originalOrgId) this.setOrganizationId(originalOrgId);
+    sessionStorage.removeItem('impersonation.originalAccess');
+    sessionStorage.removeItem('impersonation.originalRefresh');
+    sessionStorage.removeItem('impersonation.originalOrgId');
+  }
+
+  /** True if the current access token is an impersonation token. */
+  isImpersonating(): boolean {
+    if (!this.accessToken) return false;
+    try {
+      const payload = JSON.parse(base64UrlDecode(this.accessToken.split('.')[1]));
+      return payload.impersonationReadOnly === true;
+    } catch { return false; }
+  }
+
+  /** The impersonated user's id (sub) from the current token, or null. */
+  getImpersonatedUserId(): string | null {
+    if (!this.isImpersonating()) return null;
+    try {
+      const payload = JSON.parse(base64UrlDecode(this.accessToken!.split('.')[1]));
+      return typeof payload.sub === 'string' ? payload.sub : null;
+    } catch { return null; }
+  }
+
+  /**
    * Clear all authentication data
    */
   clearTokens() {
@@ -341,6 +441,24 @@ class ApiClient {
     }));
     
     const statusCode = data.statusCode || response.status;
+
+    // Step-up rejection: don't trigger the access-token refresh dance —
+    // refreshing won't help, the request needs a fresh step-up. Throw
+    // a typed error AND dispatch a window event so a global layout
+    // listener can re-prompt automatically (covers stale tabs that
+    // fired a destructive call after their local token expired).
+    if (statusCode === 401 && isStepUpErrorCode(data.code)) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('step-up-required', {
+          detail: { code: data.code, message: data.message, endpoint },
+        }));
+      }
+      throw new StepUpRequiredError(
+        data.message || 'Step-up confirmation required',
+        String(data.code),
+        data.details,
+      );
+    }
 
     // Handle 401 - try to refresh token
     if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh')) {
@@ -545,9 +663,10 @@ class ApiClient {
     });
   }
 
-  async deleteAccount() {
+  async deleteAccount(stepUpToken?: string) {
     const response = await this.request<ApiResponse<{ message: string }>>('/api/user/account', {
       method: 'DELETE',
+      headers: this.stepUpHeader(stepUpToken),
     });
     this.clearTokens();
     return response;
@@ -572,11 +691,12 @@ class ApiClient {
     );
   }
 
-  /** POST /user/tokens/revoke-all — sign out everywhere (bumps tokenVersion). Re-issues a fresh token for the active session. */
-  async revokeAllTokens() {
+  /** POST /user/tokens/revoke-all — sign out everywhere (bumps tokenVersion). Re-issues a fresh token for the active session.
+   *  Step-up gated — a stolen session can otherwise lock the legitimate user out. */
+  async revokeAllTokens(stepUpToken?: string) {
     const response = await this.request<ApiResponse<{ revoked: boolean; accessToken: string; refreshToken: string; expiresIn: number }>>(
       '/api/user/tokens/revoke-all',
-      { method: 'POST' },
+      { method: 'POST', headers: this.stepUpHeader(stepUpToken) },
     );
     this.applyTokens(response);
     return response;
@@ -585,13 +705,37 @@ class ApiClient {
   // ============================================
   // Organization endpoints
   // ============================================
-  async listOrganizations(params?: { search?: string; offset?: number; limit?: number }) {
+  async listOrganizations(params?: { search?: string; tier?: 'developer' | 'pro' | 'unlimited'; offset?: number; limit?: number }) {
     return this.request<ApiResponse<{ organizations: Organization[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`);
   }
-  async deleteOrganization(id: string) {
+  async deleteOrganization(id: string, stepUpToken?: string) {
     return this.request<ApiResponse<{ message: string }>>(`/api/organization/${id}`, {
       method: 'DELETE',
+      headers: this.stepUpHeader(stepUpToken),
     });
+  }
+
+  /** Change an org's pricing tier (sysadmin only). Reseeds quota limits
+   *  on the org doc; the quota microservice is NOT updated by this call.
+   *  Backend requires step-up because the change affects billing. */
+  async updateOrganizationTier(
+    id: string,
+    tier: 'developer' | 'pro' | 'unlimited',
+    stepUpToken?: string,
+  ) {
+    return this.request<ApiResponse<{ id: string; previousTier?: string; tier: string }>>(
+      `/api/organization/${id}/tier`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ tier }),
+        headers: this.stepUpHeader(stepUpToken),
+      },
+    );
+  }
+
+  /** Get a single org by id. Used by the sysadmin org-detail page. */
+  async getOrganization(id: string) {
+    return this.request<ApiResponse<{ organization: Organization }>>(`/api/organization/${id}`);
   }
 
   async getOrganizationMembers(orgId: string) {
@@ -644,6 +788,179 @@ class ApiClient {
   }
 
   // ============================================
+  // Step-up auth — re-verify password before destructive admin actions.
+  // Returns a 60s-TTL token bound to the user's sub. Callers forward it
+  // via `X-Step-Up-Token` on the next destructive request; backend
+  // `requireStepUp` middleware enforces it.
+  // ============================================
+  async stepUpVerify(password: string) {
+    return this.request<ApiResponse<{ ok: boolean; stepUpToken: string; expiresAt: number }>>('/api/auth/step-up', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+  }
+
+  /** Build the header object an api method threads when called with a
+   *  step-up token. Returns an empty object if no token is supplied so
+   *  callers can spread it unconditionally. */
+  private stepUpHeader(token?: string): Record<string, string> {
+    return token ? { 'X-Step-Up-Token': token } : {};
+  }
+
+  // ============================================
+  // Audit events (sysadmin / org-admin)
+  // ============================================
+  async listAuditEvents(params?: {
+    orgId?: string;
+    affectedOrgId?: string;
+    actorId?: string;
+    action?: string;
+    targetType?: string;
+    targetId?: string;
+    offset?: number;
+    limit?: number;
+  }) {
+    return this.request<ApiResponse<{
+      events: Array<{
+        _id: string;
+        action: string;
+        actorId: string;
+        actorEmail?: string;
+        orgId?: string;
+        affectedOrgId?: string;
+        targetType?: string;
+        targetId?: string;
+        details?: Record<string, unknown>;
+        ip?: string;
+        createdAt: string;
+      }>;
+      pagination: { total: number; offset: number; limit: number; hasMore: boolean };
+    }>>(`/api/audit${buildQuery(params)}`);
+  }
+
+  // ============================================
+  // Sysadmin admin-home summary
+  // ============================================
+  async getAdminSummary() {
+    return this.request<ApiResponse<{
+      orgs: { total: number; perOrgKms: number; ssoEnabled: number };
+      users: { total: number; sysadmins: number };
+      encryption: { perOrgKmsEnabled: boolean };
+      rls: { contextMode: 'warn' | 'strict' | 'silent' };
+    }>>('/api/admin/summary');
+  }
+
+  // ============================================
+  // Per-org IdP config (sysadmin only)
+  // ============================================
+  async listOrgIdpConfigs() {
+    return this.request<ApiResponse<{ configs: OrgIdpConfigDto[] }>>('/api/admin/org-idp');
+  }
+
+  async getOrgIdpConfig(orgId: string) {
+    return this.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/admin/org-idp/${orgId}`);
+  }
+
+  async putOrgIdpConfig(orgId: string, data: OrgIdpConfigCreate) {
+    return this.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/admin/org-idp/${orgId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async patchOrgIdpConfig(orgId: string, data: Partial<OrgIdpConfigCreate>) {
+    return this.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/admin/org-idp/${orgId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteOrgIdpConfig(orgId: string) {
+    return this.request<ApiResponse<Record<string, never>>>(`/api/admin/org-idp/${orgId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ============================================
+  // Per-org KMS config (sysadmin only)
+  // ============================================
+  /** Get the org's KMS config status. Returns only the keyId — ciphertext
+   *  is intentionally elided server-side. */
+  async getOrgKmsConfig(orgId: string) {
+    return this.request<ApiResponse<{ configured: boolean; keyId?: string }>>(
+      `/api/admin/orgs/${orgId}/kms-config`,
+    );
+  }
+
+  /** Upsert the org's KMS config. The PUT path triggers three-phase
+   *  re-encryption of existing secrets unless `reencrypt=false` is passed. */
+  async putOrgKmsConfig(
+    orgId: string,
+    data: { keyId: string; ciphertextBase64: string },
+    opts?: { reencrypt?: boolean },
+    stepUpToken?: string,
+  ) {
+    const q = opts?.reencrypt === false ? '?reencrypt=false' : '';
+    return this.request<ApiResponse<{ configured: boolean; keyId: string; aiKeysReencrypted?: number; idpSecretReencrypted?: boolean }>>(
+      `/api/admin/orgs/${orgId}/kms-config${q}`,
+      { method: 'PUT', body: JSON.stringify(data), headers: this.stepUpHeader(stepUpToken) },
+    );
+  }
+
+  /** Clear the org's KMS config — org reverts to the shared master. */
+  async deleteOrgKmsConfig(orgId: string, stepUpToken?: string) {
+    return this.request<ApiResponse<{ configured: boolean }>>(
+      `/api/admin/orgs/${orgId}/kms-config`,
+      { method: 'DELETE', headers: this.stepUpHeader(stepUpToken) },
+    );
+  }
+
+  /** Dry-run a proposed KMS config without touching Mongo. Verifies the
+   *  CMK exists, IAM permits Decrypt, and the wrapped master is valid. */
+  async testOrgKmsConfig(orgId: string, data: { keyId: string; ciphertextBase64: string }) {
+    return this.request<ApiResponse<{ ok: boolean; keyId: string; keyFingerprint: string; message: string }>>(
+      `/api/admin/orgs/${orgId}/kms-config/test`,
+      { method: 'POST', body: JSON.stringify(data) },
+    );
+  }
+
+  // ============================================
+  // User grants (sysadmin only) — generic path keeps the privilege
+  // surface from being telegraphed in access logs.
+  // ============================================
+  /** Grant a named privilege to a user (today: 'platform-admin'). */
+  async addUserGrant(userId: string, grant: 'platform-admin', stepUpToken?: string) {
+    return this.request<ApiResponse<{ userId: string; grant: string; changed: boolean }>>(
+      `/api/admin/users/${userId}/grants`,
+      { method: 'POST', body: JSON.stringify({ grant }), headers: this.stepUpHeader(stepUpToken) },
+    );
+  }
+
+  /** Revoke a named privilege from a user. Self-revoke is rejected
+   *  server-side to prevent lockout. */
+  async removeUserGrant(userId: string, grant: 'platform-admin', stepUpToken?: string) {
+    return this.request<ApiResponse<{ userId: string; grant: string; changed: boolean }>>(
+      `/api/admin/users/${userId}/grants`,
+      { method: 'DELETE', body: JSON.stringify({ grant }), headers: this.stepUpHeader(stepUpToken) },
+    );
+  }
+
+  // ============================================
+  // Per-org k8s namespace manifest (sysadmin only).
+  // Render-only — operator pipes the response to `kubectl apply -f -`.
+  // ============================================
+  /** Fetch the templated namespace YAML as a downloadable string. */
+  async getOrgNamespaceYaml(orgId: string, stepUpToken?: string): Promise<string> {
+    await this.ensureFreshToken();
+    const res = await fetch(`${API_URL}/api/admin/orgs/${orgId}/k8s-namespace.yaml`, {
+      headers: { ...this.authHeaders(), ...this.stepUpHeader(stepUpToken) } as Record<string, string>,
+      credentials: 'same-origin',
+    });
+    if (!res.ok) throw new Error(`Failed to fetch namespace YAML: ${res.status} ${res.statusText}`);
+    return res.text();
+  }
+
+  // ============================================
   // User management endpoints (Admin)
   // ============================================
 
@@ -662,6 +979,41 @@ class ApiClient {
       method: 'DELETE',
     });
   }
+
+  /** Start a sysadmin "view as user" impersonation session (read-only).
+   *  Backend issues a 15-minute token with `impersonationReadOnly: true`;
+   *  the caller swaps it into the api client until "Stop impersonating".
+   *  Step-up gated. */
+  async impersonateUser(userId: string, stepUpToken?: string) {
+    return this.request<ApiResponse<{ accessToken: string; expiresIn: number; targetUserId: string }>>(
+      `/api/admin/impersonate/${userId}`,
+      { method: 'POST', headers: this.stepUpHeader(stepUpToken) },
+    );
+  }
+
+  /** Sysadmin (or org-admin scoped to their own org) feature-flag overrides
+   *  for a user. Backend validates that every key is in ALL_FEATURE_FLAGS
+   *  and every value is a boolean. */
+  async updateUserFeatures(userId: string, overrides: Record<string, boolean>) {
+    return this.request<ApiResponse<{ user: User }>>(
+      `/api/users/${userId}/features`,
+      { method: 'PUT', body: JSON.stringify({ overrides }) },
+    );
+  }
+
+  /** Bulk delete users (sysadmin only). Returns per-id success/failure
+   *  so the caller can surface partial-success summaries. */
+  async bulkDeleteUsers(ids: string[], stepUpToken?: string) {
+    return this.request<ApiResponse<{
+      summary: { requested: number; deleted: number; failed: number };
+      results: Array<{ id: string; ok: boolean; error?: string; affectedOrgId?: string }>;
+    }>>('/api/users/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+      headers: this.stepUpHeader(stepUpToken),
+    });
+  }
+
   // ============================================
   // Quota endpoints (quota service — nginx proxies /api/quota → quota:3000/quotas)
   // ============================================
@@ -793,6 +1145,11 @@ class ApiClient {
   /** List billing events (admin only). */
   async listBillingEvents(params?: { orgId?: string; limit?: number; offset?: number }) {
     return this.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/admin/events${buildQuery(params)}`);
+  }
+
+  /** F-3.5 cost+usage rollup for the active org. */
+  async getBillingUsage() {
+    return this.request<ApiResponse<UsageRollup>>('/api/billing/usage');
   }
 
   // ============================================
@@ -1005,6 +1362,51 @@ class ApiClient {
     return this.request<ApiResponse<import('@/types/observability').CatalogResponse>>(
       '/api/observability/catalog',
       { signal },
+    );
+  }
+
+  // ==========================================================================
+  // Alert destinations (multi-tenant alerting)
+  // ==========================================================================
+
+  /** List this org's alert destinations. Targets are masked on read. */
+  async listAlertDestinations(signal?: AbortSignal) {
+    return this.request<ApiResponse<import('@/types/observability').AlertDestinationsResponse>>(
+      '/api/observability/alert-destinations',
+      { signal },
+    );
+  }
+
+  /** Sysadmin cross-tenant view of every alert destination across every org.
+   *  Returned rows include `orgId`; the UI groups them client-side. */
+  async listAllAlertDestinations(signal?: AbortSignal) {
+    return this.request<ApiResponse<import('@/types/observability').AlertDestinationsResponse>>(
+      '/api/observability/alert-destinations/all',
+      { signal },
+    );
+  }
+
+  /** Create a destination (org-admin / sysadmin server-side gate). */
+  async createAlertDestination(body: import('@/types/observability').AlertDestinationWrite) {
+    return this.request<ApiResponse<import('@/types/observability').AlertDestinationResponse>>(
+      '/api/observability/alert-destinations',
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+  }
+
+  /** Update a destination. Send `target: ""` to leave the secret URL alone. */
+  async updateAlertDestination(id: string, body: import('@/types/observability').AlertDestinationWrite) {
+    return this.request<ApiResponse<import('@/types/observability').AlertDestinationResponse>>(
+      `/api/observability/alert-destinations/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    );
+  }
+
+  /** Delete a destination. */
+  async deleteAlertDestination(id: string) {
+    return this.request<ApiResponse<undefined>>(
+      `/api/observability/alert-destinations/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
     );
   }
 

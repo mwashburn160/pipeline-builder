@@ -17,16 +17,19 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   schema: {
     complianceAuditLog: { __table: 'complianceAuditLog' },
   },
-  db: {
+  // withTenantTx hands us a tx with the same insert shape as the old direct
+  // `db.insert` path so the test's tracked spies (mockInsert / mockValues)
+  // observe the same arguments.
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     insert: (...args: unknown[]) => {
       mockInsert(...args);
       return { values: mockValues };
     },
-  },
+  }),
 }));
 
-import { logComplianceCheck } from '../src/helpers/audit-logger';
 import type { ValidationResult } from '../src/engine/rule-engine';
+import { logComplianceCheck } from '../src/helpers/audit-logger';
 
 function makeResult(overrides: Partial<ValidationResult> = {}): ValidationResult {
   return {

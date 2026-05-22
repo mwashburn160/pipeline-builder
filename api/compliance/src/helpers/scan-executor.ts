@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { schema, db, type RuleTarget } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-core';
 import { eq, and, or, isNull, gt, inArray } from 'drizzle-orm';
 import { logComplianceCheck } from './audit-logger';
 import { notifyComplianceBlock } from './compliance-notifier';
@@ -11,8 +11,9 @@ import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('scan-executor');
 
-/** Progress update interval (every N entities). */
-const PROGRESS_BATCH_SIZE = 10;
+/** Progress update interval (every N entities). Override via
+ *  `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE`. */
+const PROGRESS_BATCH_SIZE = parseInt(process.env.COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE || '10', 10);
 
 /** Per-batch concurrency for the entity-evaluation loop. Tunable for very large orgs. */
 const SCAN_CONCURRENCY = parseInt(process.env.COMPLIANCE_SCAN_CONCURRENCY ?? '10', 10);
@@ -26,30 +27,41 @@ interface EntityRecord {
 /**
  * Execute a compliance scan: fetch entities, evaluate rules, write audit entries.
  * Handles status transitions (pending → running → completed/failed/cancelled).
+ *
+ * Runs as a privileged server-side scanner — establishes a sysadmin tenant
+ * context for the whole run so the executor can read/write across orgs
+ * (the scan record itself carries the orgId that bounds which org's data
+ * gets evaluated; RLS isn't the right gate for that — application logic is).
+ * Once RLS is FORCE'd, the inner CrudService calls would otherwise default
+ * to an empty org_id and return zero rows.
  */
 export async function executeScan(scanId: string): Promise<void> {
-  const [scan] = await db
+  return runWithTenantContext({ isSuperAdmin: true }, () => executeScanInternal(scanId));
+}
+
+async function executeScanInternal(scanId: string): Promise<void> {
+  const [scan] = await withTenantTx(async (tx) => tx
     .select()
     .from(schema.complianceScan)
-    .where(eq(schema.complianceScan.id, scanId));
+    .where(eq(schema.complianceScan.id, scanId)));
 
   if (!scan || scan.status !== 'pending') return;
 
   // System org is exempt from all compliance scans
   if (scan.orgId.toLowerCase() === SYSTEM_ORG_ID) {
     logger.info('Skipping scan for system org (exempt)', { scanId });
-    await db.update(schema.complianceScan)
+    await withTenantTx(async (tx) => tx.update(schema.complianceScan)
       .set({ status: 'completed', startedAt: new Date(), completedAt: new Date(), passCount: 0, warnCount: 0, blockCount: 0, processedEntities: 0, totalEntities: 0 })
-      .where(eq(schema.complianceScan.id, scanId));
+      .where(eq(schema.complianceScan.id, scanId)));
     return;
   }
 
   const isDryRun = scan.triggeredBy === 'rule-dry-run';
 
   // Mark as running
-  await db.update(schema.complianceScan)
+  await withTenantTx(async (tx) => tx.update(schema.complianceScan)
     .set({ status: 'running', startedAt: new Date() })
-    .where(eq(schema.complianceScan.id, scanId));
+    .where(eq(schema.complianceScan.id, scanId)));
 
   try {
     // Fetch entities based on target
@@ -68,9 +80,9 @@ export async function executeScan(scanId: string): Promise<void> {
       totalEntities += entities.length;
 
       // Update total count
-      await db.update(schema.complianceScan)
+      await withTenantTx(async (tx) => tx.update(schema.complianceScan)
         .set({ totalEntities })
-        .where(eq(schema.complianceScan.id, scanId));
+        .where(eq(schema.complianceScan.id, scanId)));
 
       const rules = await complianceRuleService.findActiveByOrgAndTarget(scan.orgId, target);
       if (rules.length === 0) {
@@ -95,10 +107,10 @@ export async function executeScan(scanId: string): Promise<void> {
       for (let i = 0; i < entities.length; i += concurrency) {
         // Cancellation check before each batch (was every PROGRESS_BATCH_SIZE
         // entities — close enough for batches of ~10).
-        const [current] = await db
+        const [current] = await withTenantTx(async (tx) => tx
           .select({ status: schema.complianceScan.status })
           .from(schema.complianceScan)
-          .where(eq(schema.complianceScan.id, scanId));
+          .where(eq(schema.complianceScan.id, scanId)));
         if (current?.status === 'cancelled') {
           logger.info('Scan cancelled', { scanId });
           return;
@@ -146,15 +158,15 @@ export async function executeScan(scanId: string): Promise<void> {
         // One progress update per batch (every PROGRESS_BATCH_SIZE entities of work,
         // not per-entity — fewer DB writes for the same UX).
         if (processedEntities % PROGRESS_BATCH_SIZE === 0 || i + concurrency >= entities.length) {
-          await db.update(schema.complianceScan)
+          await withTenantTx(async (tx) => tx.update(schema.complianceScan)
             .set({ processedEntities, passCount, warnCount, blockCount })
-            .where(eq(schema.complianceScan.id, scanId));
+            .where(eq(schema.complianceScan.id, scanId)));
         }
       }
     }
 
     // Mark completed
-    await db.update(schema.complianceScan)
+    await withTenantTx(async (tx) => tx.update(schema.complianceScan)
       .set({
         status: 'completed',
         completedAt: new Date(),
@@ -164,7 +176,7 @@ export async function executeScan(scanId: string): Promise<void> {
         warnCount,
         blockCount,
       })
-      .where(eq(schema.complianceScan.id, scanId));
+      .where(eq(schema.complianceScan.id, scanId)));
 
     logger.info('Scan completed', {
       scanId,
@@ -176,9 +188,9 @@ export async function executeScan(scanId: string): Promise<void> {
     });
   } catch (err) {
     logger.error('Scan failed', { scanId, error: errorMessage(err) });
-    await db.update(schema.complianceScan)
+    await withTenantTx(async (tx) => tx.update(schema.complianceScan)
       .set({ status: 'failed', completedAt: new Date() })
-      .where(eq(schema.complianceScan.id, scanId));
+      .where(eq(schema.complianceScan.id, scanId)));
   }
 }
 
@@ -189,17 +201,17 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
   try {
     // Only scan the org's own entities — system org entities are exempt from compliance
     if (target === 'plugin') {
-      return await db
+      return await withTenantTx(async (tx) => tx
         .select({ id: schema.plugin.id, name: schema.plugin.name })
         .from(schema.plugin)
         .where(and(eq(schema.plugin.isActive, true), eq(schema.plugin.orgId, orgId)))
-        .limit(1000) as EntityRecord[];
+        .limit(1000) as Promise<EntityRecord[]>);
     }
-    return await db
+    return await withTenantTx(async (tx) => tx
       .select({ id: schema.pipeline.id, name: schema.pipeline.pipelineName })
       .from(schema.pipeline)
       .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
-      .limit(1000) as EntityRecord[];
+      .limit(1000) as Promise<EntityRecord[]>);
   } catch (err) {
     logger.warn(`Failed to fetch ${target} entities`, { orgId, error: errorMessage(err) });
     return [];
@@ -219,7 +231,7 @@ async function fetchExemptions(
 
   try {
     const now = new Date();
-    const rows = await db
+    const rows = await withTenantTx(async (tx) => tx
       .select({
         id: schema.complianceExemption.id,
         ruleId: schema.complianceExemption.ruleId,
@@ -234,7 +246,7 @@ async function fetchExemptions(
           isNull(schema.complianceExemption.expiresAt),
           gt(schema.complianceExemption.expiresAt, now),
         ),
-      ));
+      )));
 
     for (const row of rows) {
       const entityId = row.entityId ?? '';

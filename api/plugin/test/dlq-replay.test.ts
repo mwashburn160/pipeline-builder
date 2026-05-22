@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for POST /dlq/:jobId/replay — operator endpoint to re-enqueue
+ * Tests for POST /dlq/:jobId/replay  operator endpoint to re-enqueue
  * a single dead-letter job.
  *
- * Verifies:
- * - 403 for non-admin/owner roles.
+ * Verifies * - 403 for non-admin/owner roles.
  * - 404 when the DLQ job does not exist.
  * - System admin can replay any job (cross-org).
  * - Org admin/owner can replay only their own org's jobs (tenant isolation).
@@ -19,11 +18,17 @@ const queueAdd = jest.fn();
 const replayHelper = jest.fn();
 
 jest.mock('../src/queue/plugin-build-queue', () => ({
-  getQueue: () => ({ add: queueAdd, getJobs: jest.fn(), getJobCounts: jest.fn() }),
+  // route uses getAllTierQueues; expose one entry for the single-tier
+  // assertions to remain valid.
+  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: jest.fn(), getJobCounts: jest.fn() } }],
   getDeadLetterQueue: () => ({ getJob: dlqGetJob, add: dlqAdd, getJobs: jest.fn(), getJobCounts: jest.fn() }),
   purgeDlq: jest.fn(),
-  replayDlqJob: (id: string) => replayHelper(id),
+  // replayDlqJob now takes (jobId, quotaService); the test only cares about the id.
+  replayDlqJob: (id: string, _qs: unknown) => replayHelper(id),
 }));
+
+// Quota service stub  required by createQueueStatusRoutes since.
+const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
 
 jest.mock('@pipeline-builder/api-core', () => ({
   createLogger: () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() }),
@@ -31,7 +36,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   isSystemAdmin: jest.fn(),
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
-    return isNaN(n) ? def : n;
+    return isNaN(n) ? def: n;
   },
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
   sendError: jest.fn((res: any, status: number, message: string) => res.status(status).json({ success: false, statusCode: status, message })),
@@ -52,9 +57,8 @@ import { isSystemAdmin } from '@pipeline-builder/api-core';
 import { createQueueStatusRoutes } from '../src/routes/queue-status';
 
 function getReplayHandler() {
-  const router = createQueueStatusRoutes();
-  const layer = (router.stack as any[]).find(
-    (l) => l.route?.path === '/dlq/:jobId/replay' && l.route?.methods?.post,
+  const router = createQueueStatusRoutes(mockQuotaService);
+  const layer = (router.stack as any[]).find( (l) => l.route?.path === '/dlq/:jobId/replay' && l.route?.methods?.post,
   );
   if (!layer) throw new Error('replay handler not registered');
   return layer.route.stack[0].handle;

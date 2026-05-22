@@ -20,6 +20,6 @@ export function mapCommonParams(params: Record<string, string>): Record<string, 
 }
 
 /** Whether the current user can edit/delete a resource based on access modifier. */
-export function canModify(isSysAdmin: boolean, accessModifier: string): boolean {
-  return isSysAdmin || accessModifier === 'private';
+export function canModify(isSuperAdmin: boolean, accessModifier: string): boolean {
+  return isSuperAdmin || accessModifier === 'private';
 }
