@@ -184,8 +184,8 @@ function getAuditClient(): RemoteAuditClient {
  *  client is reused for every Queue/Worker that lands in that DB — the
  *  BullMQ-recommended pattern is one ioredis client shared across all
  *  Queue/Worker constructions for a given (host, port, db). */
-function getConnectionForDb(db: number): IORedis {
-  let conn = connectionsByDb.get(db);
+function getConnectionForDb(dbNum: number): IORedis {
+  let conn = connectionsByDb.get(dbNum);
   if (!conn) {
     const redis = Config.get('redis');
     const host = redis.host;
@@ -194,24 +194,24 @@ function getConnectionForDb(db: number): IORedis {
     conn = new IORedis({
       host,
       port,
-      db,
+      db: dbNum,
       maxRetriesPerRequest: null, // Required by BullMQ
     });
 
     conn.on('connect', () => {
-      logger.info('Redis connected', { host, port, db });
+      logger.info('Redis connected', { host, port, db: dbNum });
     });
     conn.on('error', (err: Error) => {
-      logger.error('Redis connection error', { error: err.message, host, port, db });
+      logger.error('Redis connection error', { error: err.message, host, port, db: dbNum });
     });
     conn.on('close', () => {
-      logger.warn('Redis connection closed', { host, port, db });
+      logger.warn('Redis connection closed', { host, port, db: dbNum });
     });
     conn.on('reconnecting', () => {
-      logger.info('Redis reconnecting', { host, port, db });
+      logger.info('Redis reconnecting', { host, port, db: dbNum });
     });
 
-    connectionsByDb.set(db, conn);
+    connectionsByDb.set(dbNum, conn);
   }
   return conn;
 }

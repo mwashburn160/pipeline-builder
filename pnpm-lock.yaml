@@ -784,6 +784,9 @@ importers:
       react-grid-layout:
         specifier: 1.5.2
         version: 1.5.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      react-resizable:
+        specifier: 3.0.5
+        version: 3.0.5(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       swr:
         specifier: 2.3.3
         version: 2.3.3(react@19.2.5)
@@ -7679,11 +7682,10 @@ packages:
   react-is@18.3.1:
     resolution: {integrity: sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==}
 
-  react-resizable@3.2.0:
-    resolution: {integrity: sha512-3NKQ0SLZV7rs3LQHeXlOzDSRQfFrkX6TVet77/Qk03zqiZyee37b7N8/gwDJAA8UUjRz7PdWCCy49hcso45SMQ==}
+  react-resizable@3.0.5:
+    resolution: {integrity: sha512-vKpeHhI5OZvYn82kXOs1bC8aOXktGU5AmKAgaZS4F5JPburCtbmDPqE7Pzp+1kN4+Wb81LlF33VpGwWwtXem+w==}
     peerDependencies:
       react: '>= 16.3'
-      react-dom: '>= 16.3'
 
   react@19.2.5:
     resolution: {integrity: sha512-llUJLzz1zTUBrskt2pwZgLq59AemifIftw4aB7JxOqf1HY2FDaGDxgwpAPVzHU1kdWabH7FauP4i1oEeer2WCA==}
@@ -16610,7 +16612,7 @@ snapshots:
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
       react-draggable: 4.5.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      react-resizable: 3.2.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      react-resizable: 3.0.5(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       resize-observer-polyfill: 1.5.1
 
   react-is@16.13.1: {}
@@ -16619,12 +16621,13 @@ snapshots:
 
   react-is@18.3.1: {}
 
-  react-resizable@3.2.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
+  react-resizable@3.0.5(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
     dependencies:
       prop-types: 15.8.1
       react: 19.2.5
-      react-dom: 19.2.5(react@19.2.5)
       react-draggable: 4.5.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+    transitivePeerDependencies:
+      - react-dom
 
   react@19.2.5: {}
 

@@ -13,7 +13,7 @@
 
 ---
 
-**Pipeline Builder is a multi-tenant CI/CD control plane that compiles plugin definitions and pipeline configs into native AWS CodePipeline + CodeBuild stacks — deployed inside the client's own AWS account, with zero runtime lock-in.** Developers get pipelines in minutes; platform teams get enforcement, isolation, and analytics out of the box.
+**Pipeline Builder is an organization-scoped CI/CD control plane — every pipeline, plugin, and policy lives inside an organization (with optional sub-organizations / teams) and compiles to native AWS CodePipeline + CodeBuild stacks deployed inside the client's own AWS account, with zero runtime lock-in.** Developers get pipelines in minutes; platform teams get enforcement, isolation, and analytics out of the box.
 
 ## At a Glance
 
@@ -28,7 +28,7 @@
 | CI/CD set-up demands deep AWS expertise | Self-service creation via dashboard, CLI, REST API, CDK, or AI prompt — no CDK or buildspec knowledge required |
 | Governance happens after the fact | Per-team compliance rules **block** non-compliant pipelines and plugins at creation time (HTTP 403), with full audit trail |
 | Build steps get copy-pasted across teams | 124 versioned, containerized plugins shared from a central catalog — one source of truth, ten categories |
-| Multi-team environments lack isolation | Every pipeline, plugin, secret, quota, and bill scoped to a team (sub-organization) with RBAC and quota enforcement |
+| Teams inside one organization share infrastructure without isolation | Every pipeline, plugin, secret, quota, and bill scoped to a sub-organization / team with RBAC and quota enforcement |
 | Vendor lock-in with SaaS CI/CD platforms | Pipelines deploy as **native AWS CodePipeline + CodeBuild** in the client's account — keep running even if Pipeline Builder is removed |
 | No visibility into CI/CD health or cost | EventBridge-fed analytics: success rates, duration percentiles, failure heatmaps, per-team cost attribution |
 
@@ -121,34 +121,34 @@ Fully backward-compatible: pipelines and plugins without `{{ ... }}` continue wo
 
 ### Policy-as-Code Compliance Engine
 
-Validate plugins and pipelines **before** they're created — not in a quarterly audit. Platform teams define policy once; every team inherits enforcement automatically.
+Validate plugins and pipelines **before** they're created — not in a quarterly audit. Platform owners define policy at the organization level; every sub-organization / team inherits enforcement automatically.
 
 - **18 operators** — equals, contains, regex, numeric comparison, array count, string length, plus computed fields and cross-field conditions
 - **Three severities** — `warning` (advisory), `error` / `critical` (block creation with HTTP 403)
-- **Published rule catalog** — system org publishes recommended rules; teams subscribe and opt-in per rule
+- **Published rule catalog** — the platform organization publishes recommended rules; teams (sub-organizations) subscribe and opt-in per rule
 - **Per-entity exemptions** — temporarily bypass a subscribed rule for a specific pipeline or plugin with audit
 - **Bulk scans + audit trail** — sweep existing resources, generate evidence for compliance reviews
 - **10 sample rules** included — security scanning required, privileged plugins blocked, naming conventions, timeout caps
 
-### Teams
+### Organizations & Teams
 
-Pipeline Builder is multi-tenant by design. Each user belongs to one or more **teams** (also referred to as sub-organizations); every pipeline, plugin, compliance rule, quota, secret, and bill is scoped to the team that owns it.
+Pipeline Builder is organized around two scopes: an **organization** (your company or business unit) and **sub-organizations / teams** that live inside it. Each user belongs to one or more teams; every pipeline, plugin, compliance rule, quota, secret, and bill is scoped to the team that owns it, and rolls up to the parent organization for cross-team visibility.
 
-- **RBAC** — Owner, Admin, Member roles enforced at the API layer
+- **RBAC** — Owner, Admin, Member roles enforced at the API layer, per team
 - **Feature tiers** — Developer, Pro, Unlimited (AI generation, bulk ops, audit log gated by tier)
 - **Per-team quotas** — four dimensions: `plugins`, `pipelines`, `apiCalls`, `aiCalls` (AI sized smaller because external $ cost)
-- **Public + private plugins** — share a plugin org-wide or keep it scoped to a single team
+- **Public + private plugins** — share a plugin organization-wide or keep it scoped to a single team
 - **Isolated secrets** — AWS Secrets Manager path `pipeline-builder/{orgId}/{secretName}` (per team), injected at build time, never stored in images
 
 ### Execution Analytics
 
 Every CodePipeline and CodeBuild state change flows through EventBridge into the reporting service.
 
-- Execution counts and success rates per team/project
+- Execution counts and success rates per team / project
 - Duration percentiles (p50, p90, p99)
-- Stage-level failure heatmaps — see which stages fail most across the org
+- Stage-level failure heatmaps — see which stages fail most across the organization
 - Error categorization — build vs test vs deploy failures
-- Per-team cost attribution
+- Per-team cost attribution that rolls up to the parent organization
 
 ### Built for Production
 
@@ -197,14 +197,14 @@ flowchart TB
 
 | Service | Purpose |
 |---------|---------|
-| **Platform** | Auth, orgs, users, JWT, RBAC — central gateway |
+| **Platform** | Auth, organizations, teams, users, JWT, RBAC — central gateway |
 | **Pipeline** | Pipeline CRUD + AI generation + CDK synthesis |
 | **Plugin** | Plugin CRUD + Docker image builds + AI generation |
-| **Compliance** | Per-org rule enforcement, policy management, audit trail |
+| **Compliance** | Per-team rule enforcement (with org-level inheritance), policy management, audit trail |
 | **Reporting** | Execution reports + build analytics via EventBridge |
-| **Quota** | Resource limits per org |
-| **Billing** | Subscriptions and plans |
-| **Message** | Org announcements and messaging |
+| **Quota** | Resource limits per team |
+| **Billing** | Subscriptions and plans per organization |
+| **Message** | Organization and team announcements |
 
 For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, CodePipeline execution), see [Architecture Flow](docs/architecture-flow.md). For how Pipeline Builder benefits engineering organizations, see [Organization Benefits](docs/organization-benefits.md). For cut-and-paste pipeline examples by language, see [Developer Guide](docs/developer-guide.md).
 

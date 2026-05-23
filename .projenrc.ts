@@ -425,7 +425,9 @@ const frontend = new FrontEndProject({
     'lucide-react@0.575.0', 'tailwindcss@4.2.1', 'framer-motion@12.34.3', 'swr@2.3.3',
     // drag-resize on the dashboard editor. Loaded only on the editor
     // page (next/dynamic) so non-editor traffic doesn't pay the ~120 KB cost.
-    'react-grid-layout@1.5.2',
+    // `react-resizable` is a transitive dep of react-grid-layout but must be
+    // declared directly so pnpm strict mode lets the editor import its CSS.
+    'react-grid-layout@1.5.2', 'react-resizable@3.0.5',
   ],
   devDeps: [
     '@types/node@25.3.0', '@types/react@19.2.14', '@types/react-dom@19.2.3',
