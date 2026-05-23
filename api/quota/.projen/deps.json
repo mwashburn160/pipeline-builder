@@ -80,17 +80,17 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "workspace:*",
+      "version": "3.4.37",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/api-server",
-      "version": "workspace:*",
+      "version": "3.4.38",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "workspace:*",
+      "version": "3.4.37",
       "type": "runtime"
     },
     {

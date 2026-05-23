@@ -43,14 +43,14 @@ const jestVersion = '30.0.0';
 // in one workspace package don't propagate to its consumers in CI until
 // after a release. nx release rewrites these to a concrete version at
 // publish time, so consumers on npm still get an exact version.
-const ws = 'workspace:*';
+// const ws = 'workspace:*';
 const pkg = {
-  aiCore: ws,
-  apiCore: ws,
-  apiServer: ws,
-  pipelineData: ws,
-  pipelineCore: ws,
-  pipelineEvents: ws
+  aiCore: '3.4.37',
+  apiCore: '3.4.37',
+  apiServer: '3.4.38',
+  pipelineData: '3.4.37',
+  pipelineCore: '3.4.37',
+  pipelineEvents: '3.4.37'
 };
 
 // =============================================================================
