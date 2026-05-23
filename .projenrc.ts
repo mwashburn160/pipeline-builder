@@ -455,6 +455,12 @@ if (frontend.jest) {
 ...frontend.jest.config.moduleNameMapper as Record<string, string>,
     '^@/(.*)$': '<rootDir>/src/$1',
   };
+  // Next.js's standalone build copies frontend/package.json into
+  // .next/standalone/, which collides with the root in jest's haste map.
+  // Ignoring `.next/` from both module and test resolution keeps the
+  // haste index stable across `next build` runs.
+  frontend.jest.config.modulePathIgnorePatterns = ['<rootDir>/.next/'];
+  frontend.jest.config.testPathIgnorePatterns = ['/node_modules/', '<rootDir>/.next/'];
 }
 frontend.addScripts(dockerScripts('frontend'));
 
