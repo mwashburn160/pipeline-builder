@@ -89,6 +89,13 @@ root.addScripts({ 'npm-check': 'npx npm-check-updates' });
 // All internal packages publish to npmjs.org under @pipeline-builder scope
 root.npmrc.addConfig('@pipeline-builder:registry', 'https://registry.npmjs.org/');
 
+// Run pnpm workspace recursive operations (install, build, test) one at a
+// time. Higher concurrency overlaps docker buildx, registry pushes, and
+// per-tier buildkitd warmup in ways that race on shared resources (the same
+// Redis DB, the local docker daemon, the same per-org KMS keys); serializing
+// trades wall-clock for reliability.
+root.npmrc.addConfig('workspace-concurrency', '1');
+
 // After running 'pnpm dlx projen', fix workspace references// find. -name package.json -not -path '*/node_modules/*' -not -path '*/.projen/*' | \
 // xargs sed -E -i 's/"@pipeline-builder\/([^"]+)": "[0-9]+\.[0-9]+\.[0-9]+"/"@pipeline-builder\/\1": "workspace:*"/g'
 
