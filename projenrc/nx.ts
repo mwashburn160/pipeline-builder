@@ -63,12 +63,24 @@ export class Nx extends Component {
                         runner: 'nx/tasks-runners/default',
                         options: {
                             // Cache build operations for faster rebuilds
-                            cacheableOperations: ['build']
+                            cacheableOperations: ['build'],
+                            // Serialize task execution. Nx only honors
+                            // `parallel` when it lives here (or as the
+                            // top-level `parallel` field). Setting it on
+                            // `targetDefaults.<target>` is silently ignored,
+                            // which is why earlier runs showed three builds
+                            // overlapping despite the prior setting.
+                            parallel: 1
                         },
                         // Skip Nx cache (using custom caching strategy)
                         skipNxCache: true
                     },
                 },
+
+                // Top-level parallel mirrors the runner option above so the
+                // setting survives any future nx changes that switch which
+                // location wins.
+                parallel: 1,
 
                 // Default configuration for build targets
                 targetDefaults: {
@@ -90,8 +102,7 @@ export class Nx extends Component {
                         ],
 
                         // Enable caching for build operations
-                        cache: true,
-                        parallel: 1
+                        cache: true
                     }
                 },
 

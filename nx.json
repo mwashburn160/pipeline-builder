@@ -6,11 +6,13 @@
       "options": {
         "cacheableOperations": [
           "build"
-        ]
+        ],
+        "parallel": 1
       },
       "skipNxCache": true
     }
   },
+  "parallel": 1,
   "targetDefaults": {
     "build": {
       "dependsOn": [
@@ -24,8 +26,7 @@
         "{projectRoot}/lib",
         "{projectRoot}/dist"
       ],
-      "cache": true,
-      "parallel": 1
+      "cache": true
     }
   },
   "release": {
