@@ -25,7 +25,7 @@
         "{projectRoot}/dist"
       ],
       "cache": true,
-      "parallel": 3
+      "parallel": 1
     }
   },
   "release": {

@@ -91,7 +91,7 @@ export class Nx extends Component {
 
                         // Enable caching for build operations
                         cache: true,
-                        parallel: 3
+                        parallel: 1
                     }
                 },
 
