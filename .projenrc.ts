@@ -156,12 +156,19 @@ function addPackageMetadata(  p: { package: { addField: (k: string, v: unknown) 
 /**
  * Configure jest for ESM compatibility.
  * uuid v13+ ships ESM-only; we map it to a CJS stub so jest can import it.
+ *
+ * Also rewrites the ts-jest transform to silence diagnostic TS151002 (the
+ * "isolatedModules"/hybrid-mode advisory) — without this, every test run
+ * floods stderr with a warning we can't act on while still using ts-jest.
  */
 function configureJest(project: { jest?: { config: Record<string, unknown> } }, opts?: { maxWorkers?: number }) {
   if (!project.jest) return;
   // Stub uuid with a simple CJS module that returns random strings
   project.jest.config.moduleNameMapper = {
     '^uuid$': '<rootDir>/../../jest-uuid-stub.js',
+  };
+  project.jest.config.transform = {
+    '^.+\\.[t]sx?$': ['ts-jest', { tsconfig: 'tsconfig.dev.json', diagnostics: { ignoreCodes: [151002] } }],
   };
   if (opts?.maxWorkers) project.jest.config.maxWorkers = opts.maxWorkers;
 }
@@ -443,7 +450,7 @@ const frontend = new FrontEndProject({
 });
 configureJest(frontend);
 if (frontend.jest) {
-  frontend.jest.config.transform = { '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.test.json' }] };
+  frontend.jest.config.transform = { '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.test.json', diagnostics: { ignoreCodes: [151002] } }] };
   frontend.jest.config.moduleNameMapper = {
 ...frontend.jest.config.moduleNameMapper as Record<string, string>,
     '^@/(.*)$': '<rootDir>/src/$1',

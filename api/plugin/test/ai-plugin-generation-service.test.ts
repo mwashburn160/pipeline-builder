@@ -1,31 +1,74 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Mock external dependencies — must be set up before importing the service
+// Mock external dependencies — must be set up before importing the service.
+// The service imports `generateText` / `Output` / model helpers from
+// `@pipeline-builder/ai-core` (which re-exports from `ai`), so mocking the
+// raw `ai` package has no effect — Jest's module mocking matches on the
+// exact specifier the code under test imports.
 
 const mockGenerateText = jest.fn();
+const mockStreamText = jest.fn();
 
-jest.mock('ai', () => ({
+// Mirror the real registry's validation so tests that exercise error paths
+// (unknown provider, invalid model) still hit a throw and don't silently
+// succeed against the mock.
+const PROVIDER_MODELS: Record<string, string[]> = {
+  'anthropic': ['claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001'],
+  'openai': ['gpt-4o'],
+  'google': ['gemini-2.0-flash'],
+  'xai': ['grok-3'],
+  'amazon-bedrock': ['anthropic.claude-3-5-sonnet-20241022-v2:0'],
+};
+function validateModel(provider: string, modelId: string): void {
+  const models = PROVIDER_MODELS[provider];
+  if (!models) {
+    throw new Error(`Unknown AI provider "${provider}". Supported: ${Object.keys(PROVIDER_MODELS).join(', ')}`);
+  }
+  if (!models.includes(modelId)) {
+    throw new Error(`Model "${modelId}" is not available for provider "${provider}". Available: ${models.join(', ')}`);
+  }
+}
+const mockResolveModel = jest.fn((provider: string, modelId: string) => {
+  validateModel(provider, modelId);
+  return { provider, modelId };
+});
+const mockCreateModelWithKey = jest.fn((provider: string, modelId: string) => {
+  validateModel(provider, modelId);
+  return { provider, modelId, customKey: true };
+});
+
+jest.mock('@pipeline-builder/ai-core', () => ({
   generateText: mockGenerateText,
+  streamText: mockStreamText,
   Output: {
     object: jest.fn((opts: any) => ({ type: 'object', schema: opts.schema })),
   },
-}));
-
-jest.mock('@ai-sdk/amazon-bedrock', () => ({
-  createAmazonBedrock: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'amazon-bedrock', modelId }))),
-}));
-jest.mock('@ai-sdk/anthropic', () => ({
-  createAnthropic: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'anthropic', modelId }))),
-}));
-jest.mock('@ai-sdk/openai', () => ({
-  createOpenAI: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'openai', modelId }))),
-}));
-jest.mock('@ai-sdk/google', () => ({
-  createGoogleGenerativeAI: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'google', modelId }))),
-}));
-jest.mock('@ai-sdk/xai', () => ({
-  createXai: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'xai', modelId }))),
+  resolveModel: mockResolveModel,
+  createModelWithKey: mockCreateModelWithKey,
+  getAvailableProviders: jest.fn(() => {
+    const have = (k: string) => process.env[k] ? [{ id: k.toLowerCase() }] : [];
+    return [
+      ...(process.env.ANTHROPIC_API_KEY ? [{ id: 'anthropic', name: 'Anthropic' }] : []),
+      ...(process.env.OPENAI_API_KEY ? [{ id: 'openai', name: 'OpenAI' }] : []),
+      ...(process.env.GOOGLE_GENERATIVE_AI_API_KEY ? [{ id: 'google', name: 'Google' }] : []),
+      ...(process.env.XAI_API_KEY ? [{ id: 'xai', name: 'xAI' }] : []),
+      ...have('AWS_ACCESS_KEY_ID'),
+    ];
+  }),
+  getProviderModels: jest.fn((id: string) => {
+    const catalog: Record<string, Array<{ id: string; name: string }>> = {
+      'anthropic': [
+        { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+        { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
+      ],
+      'openai': [{ id: 'gpt-4o', name: 'GPT-4o' }],
+      'google': [{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' }],
+      'xai': [{ id: 'grok-3', name: 'Grok 3' }],
+      'amazon-bedrock': [{ id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2' }],
+    };
+    return catalog[id] ?? [];
+  }),
 }));
 
 jest.mock('@pipeline-builder/api-core', () => ({
