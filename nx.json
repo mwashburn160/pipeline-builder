@@ -24,7 +24,8 @@
         "{projectRoot}/lib",
         "{projectRoot}/dist"
       ],
-      "cache": true
+      "cache": true,
+      "parallel": 3
     }
   },
   "release": {
