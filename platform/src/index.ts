@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import net from 'net';
 import { createLogger, mongoSanitize, sendError } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import cors from 'cors';
