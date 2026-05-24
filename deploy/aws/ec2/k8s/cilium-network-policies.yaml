@@ -8,40 +8,50 @@
 # of pod identity tied to runtime metadata (an org_id label on the build
 # pod, for example) and no DNS-aware egress.
 #
-# What ships in this file# 1. A DEFAULT-DENY egress policy for plugin pods that allows ONLY DNS
-# + cluster-internal traffic. Public-internet 443/80 is denied.
+# What ships in this file:
+# 1. A DEFAULT-DENY egress policy for plugin pods that allows ONLY DNS
+#    + cluster-internal traffic. Public-internet 443/80 is denied.
 # 2. A SHARED ALLOW-LIST policy that re-enables egress to a curated set
-# of registry / package hosts every legitimate build needs
-# (docker.io, ghcr.io, quay.io, pypi.org, npmjs.org, etc.)  DNS-aware
-# via Cilium's `toFQDNs` selector.
+#    of registry / package hosts every legitimate build needs
+#    (docker.io, ghcr.io, quay.io, pypi.org, npmjs.org, etc.) — DNS-aware
+#    via Cilium's `toFQDNs` selector.
 # 3. A TEMPLATE for a per-org override: operators copy this block, set
-# the org's k8s label selector, and add the org's specific external
-# hosts. When applied, plugin pods labeled with that org_id pick up
-# the override IN ADDITION to the shared allow-list.
+#    the org's k8s label selector, and add the org's specific external
+#    hosts. When applied, plugin pods labeled with that org_id pick up
+#    the override IN ADDITION to the shared allow-list.
 #
-# Activation# 1. Install Cilium (see https://docs.cilium.io/en/stable/installation/).
-# 2. Confirm CiliumNetworkPolicy CRD is present# kubectl get crd ciliumnetworkpolicies.cilium.io
-# 3. Add this file to your kustomization resources, OR apply directly# kubectl apply -f cilium-network-policies.yaml
+# Activation:
+# 1. Install Cilium (see https://docs.cilium.io/en/stable/installation/).
+# 2. Confirm CiliumNetworkPolicy CRD is present:
+#      kubectl get crd ciliumnetworkpolicies.cilium.io
+# 3. Add this file to your kustomization resources, OR apply directly:
+#      kubectl apply -f cilium-network-policies.yaml
 # 4. (Optional) Disable the legacy `allow-plugin-external-egress` policy
-# in networkpolicy.yaml  the Cilium policy supersedes it. Without
-# Cilium installed it has no effect anyway.
+#    in networkpolicy.yaml — the Cilium policy supersedes it. Without
+#    Cilium installed it has no effect anyway.
 #
-# Per-org override flow# Operator creates `cilium-network-policy-org-acme.yaml` with the org's
+# Per-org override flow:
+# Operator creates `cilium-network-policy-org-acme.yaml` with the org's
 # specific FQDN allow-list, labels matching plugin pods spawned for
 # org-acme builds (today: every plugin replica handles every org, so
 # per-org pod labels need the per-tier buildkitd path from to be
-# active first  that gives one pod label per tier; full per-org pod
+# active first — that gives one pod label per tier; full per-org pod
 # labeling waits for per-org workers, from the doc).
 #
-# Without Cilium installed, all of this is inert YAML  apply-able with no
+# Without Cilium installed, all of this is inert YAML — apply-able with no
 # effect, no error.
 
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
-metadata  name: plugin-default-deny-egress
+metadata:
+  name: plugin-default-deny-egress
   namespace: pipeline-builder
-spec  endpointSelector    matchLabels      app: plugin
-  egressDeny    # Match everything; subsequent allow rules add holes. This is the
+spec:
+  endpointSelector:
+    matchLabels:
+      app: plugin
+  egressDeny:
+    # Match everything; subsequent allow rules add holes. This is the
     # "deny by default" that the standard k8s NetworkPolicy can't express
     # cleanly because of its "any allow rule wins" semantics.
     - toEntities: ["all"]
@@ -49,25 +59,37 @@ spec  endpointSelector    matchLabels      app: plugin
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
-metadata  name: plugin-shared-egress-allow
+metadata:
+  name: plugin-shared-egress-allow
   namespace: pipeline-builder
-spec  endpointSelector    matchLabels      app: plugin
-  egress    # --- Cluster DNS --------------------------------------------------------
-    - toEndpoints        - matchLabels            "k8s:io.kubernetes.pod.namespace": kube-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app: plugin
+  egress:
+    # --- Cluster DNS --------------------------------------------------------
+    - toEndpoints:
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": kube-system
             "k8s:k8s-app": kube-dns
-      toPorts        - ports            - port: "53"
+      toPorts:
+        - ports:
+            - port: "53"
               protocol: UDP
             - port: "53"
               protocol: TCP
 
     # --- In-cluster pods (registry, redis, postgres, mongo, etc.) -----------
-    - toEndpoints        - matchLabels            "k8s:io.kubernetes.pod.namespace": pipeline-builder
+    - toEndpoints:
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": pipeline-builder
 
     # --- Public registries (image base + package fetches) -------------------
     # DNS-aware: Cilium resolves these at runtime and pins to the resolved
     # IPs for the policy's lifetime. A compromised build that tries to
     # connect to a hard-coded IP not in this resolved set is dropped.
-    - toFQDNs        # Docker Hub
+    - toFQDNs:
+        # Docker Hub
         - matchName: "registry-1.docker.io"
         - matchName: "auth.docker.io"
         - matchName: "production.cloudflare.docker.com"
@@ -83,11 +105,14 @@ spec  endpointSelector    matchLabels      app: plugin
         # Google Container Registry / Artifact Registry
         - matchName: "gcr.io"
         - matchPattern: "*-docker.pkg.dev"
-      toPorts        - ports            - port: "443"
+      toPorts:
+        - ports:
+            - port: "443"
               protocol: TCP
 
     # --- Public package indexes --------------------------------------------
-    - toFQDNs        # Python
+    - toFQDNs:
+        # Python
         - matchName: "pypi.org"
         - matchName: "files.pythonhosted.org"
         # Node.js
@@ -111,7 +136,9 @@ spec  endpointSelector    matchLabels      app: plugin
         - matchPattern: "*.debian.org"
         - matchPattern: "*.ubuntu.com"
         - matchName: "dl-cdn.alpinelinux.org"
-      toPorts        - ports            - port: "443"
+      toPorts:
+        - ports:
+            - port: "443"
               protocol: TCP
             - port: "80"
               protocol: TCP
@@ -123,17 +150,25 @@ spec  endpointSelector    matchLabels      app: plugin
 #
 # COPY THIS BLOCK and edit the placeholders. Apply once per org that needs
 # private hosts beyond the shared allow-list. The endpointSelector matches
-# plugin pods labeled with the org's id  today every plugin pod serves
+# plugin pods labeled with the org's id — today every plugin pod serves
 # every org, so this is most useful in deploys that have already moved to
 # per-tier or per-org workers ( + future ).
 #
 # apiVersion: cilium.io/v2
 # kind: CiliumNetworkPolicy
-# metadata# name: plugin-egress-allow-org-acme
-# namespace: pipeline-builder
-# spec# endpointSelector# matchLabels# app: plugin
-# org_id: org-acme
-# egress# - toFQDNs# - matchName: "internal-registry.acme.corp"
-# - matchPattern: "*.artifactory.acme.corp"
-# toPorts# - ports# - port: "443"
-# protocol: TCP
+# metadata:
+#   name: plugin-egress-allow-org-acme
+#   namespace: pipeline-builder
+# spec:
+#   endpointSelector:
+#     matchLabels:
+#       app: plugin
+#       org_id: org-acme
+#   egress:
+#     - toFQDNs:
+#         - matchName: "internal-registry.acme.corp"
+#         - matchPattern: "*.artifactory.acme.corp"
+#       toPorts:
+#         - ports:
+#             - port: "443"
+#               protocol: TCP

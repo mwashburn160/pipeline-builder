@@ -53,16 +53,21 @@ const httpRequestsTotal = new Counter({
   registers: [metricsRegistry],
 });
 
-/** Extract client IP from request, handling proxies */
+/** Extract client IP from request, handling proxies.
+ *
+ * Always route the final value through `ipKeyGenerator` — express-rate-limit
+ * 8.x's validator refuses to start if a custom keyGenerator touches `req.ip`
+ * without calling this helper (the helper normalizes IPv6 addresses to a /64
+ * prefix so a single user can't burn through the bucket by rotating
+ * low-bits). Skipping the helper on IPv4 raises ERR_ERL_KEY_GEN_IPV6 at
+ * boot time even though IPv4 doesn't need the prefixing — the validator
+ * doesn't introspect; it just checks the helper was invoked. */
 function extractClientIp(req: express.Request): string {
   let ip = req.ip;
   if (req.headers['x-forwarded-for']) {
     ip = (req.headers['x-forwarded-for'] as string).split(',')[0].trim();
   }
-  if (!ip || net.isIPv6(ip)) {
-    return ipKeyGenerator(ip || 'unknown', 64);
-  }
-  return ip;
+  return ipKeyGenerator(ip || 'unknown', 64);
 }
 
 /**

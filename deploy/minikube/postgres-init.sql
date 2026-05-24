@@ -280,6 +280,45 @@ CREATE TRIGGER update_dashboards_modtime
     EXECUTE PROCEDURE update_modified_column();
 
 -- ============================================================================
+-- per-org operator-authored alert rules.
+-- ============================================================================
+-- Materialized into a Prometheus rule_files YAML via the platform endpoint
+-- GET /api/observability/alert-rules/materialized.yml. Tenancy gate: the
+-- API rejects expressions that don't substring-contain org_id="<orgId>".
+CREATE TABLE IF NOT EXISTS org_alert_rules (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    name VARCHAR(100) NOT NULL,
+    expr TEXT NOT NULL,
+    for_duration VARCHAR(20) NOT NULL DEFAULT '5m',
+    severity VARCHAR(20) NOT NULL DEFAULT 'warning'
+                    CHECK (severity IN ('warning', 'critical')),
+    summary TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+
+    enabled BOOLEAN NOT NULL DEFAULT true,
+
+    deleted_at TIMESTAMPTZ,
+    deleted_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS org_alert_rule_org_enabled_idx
+    ON org_alert_rules(org_id, enabled) WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS org_alert_rule_org_name_uq
+    ON org_alert_rules(org_id, name) WHERE deleted_at IS NULL;
+
+DROP TRIGGER IF EXISTS update_org_alert_rules_modtime ON org_alert_rules;
+CREATE TRIGGER update_org_alert_rules_modtime
+    BEFORE UPDATE ON org_alert_rules
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
+-- ============================================================================
 -- ORG ALERT DESTINATIONS (multi-tenant alerting routing table)
 -- ============================================================================
 --
@@ -315,47 +354,6 @@ CREATE INDEX IF NOT EXISTS org_alert_destination_org_idx
 DROP TRIGGER IF EXISTS update_org_alert_destinations_modtime ON org_alert_destinations;
 CREATE TRIGGER update_org_alert_destinations_modtime
     BEFORE UPDATE ON org_alert_destinations
-    FOR EACH ROW
-    EXECUTE PROCEDURE update_modified_column();
-
--- ============================================================================
--- per-org operator-authored alert rules.
--- ============================================================================
--- Each row materializes into a `groups[].rules[]` entry in a Prometheus
--- rule_files YAML via the platform's GET /api/observability/alert-rules/
--- materialized.yml endpoint. Tenancy enforcement is at the API level-- the `expr` MUST substring-contain `org_id="<orgId>"` so an operator
--- can't author rules that fire against another org's metrics.
-
-CREATE TABLE IF NOT EXISTS org_alert_rules (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL,
-    created_by TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    name VARCHAR(100) NOT NULL,
-    expr TEXT NOT NULL,
-    for_duration VARCHAR(20) NOT NULL DEFAULT '5m',
-    severity VARCHAR(20) NOT NULL DEFAULT 'warning'
-                    CHECK (severity IN ('warning', 'critical')),
-    summary TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-
-    enabled BOOLEAN NOT NULL DEFAULT true,
-
-    deleted_at TIMESTAMPTZ,
-    deleted_by TEXT
-);
-
-CREATE INDEX IF NOT EXISTS org_alert_rule_org_enabled_idx
-    ON org_alert_rules(org_id, enabled) WHERE deleted_at IS NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS org_alert_rule_org_name_uq
-    ON org_alert_rules(org_id, name) WHERE deleted_at IS NULL;
-
-DROP TRIGGER IF EXISTS update_org_alert_rules_modtime ON org_alert_rules;
-CREATE TRIGGER update_org_alert_rules_modtime
-    BEFORE UPDATE ON org_alert_rules
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
 

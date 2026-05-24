@@ -60,28 +60,44 @@ receivers:
   # Per-instance binding (the only supported configuration):
   #   ALERT_WEBHOOK_INSTANCE_ID    — matches an `id` in ALERT_WEBHOOK_INSTANCES on platform
   #   ALERT_WEBHOOK_INSTANCE_TOKEN — bearer for that instance (matches the entry's `token`)
-  # alertmanager.yml is rendered with envsubst so neither value lands in git.
-  # Auth-on-the-wire is HTTPS via the in-cluster nginx (URL points at
-  # /api/observability/alert-webhook).
+  # The platform service resolves via DNS in every deploy target (docker
+  # compose service name, k8s Service, fargate service-discovery) so the URL
+  # below is the same regardless of environment. Operators that want HTTPS
+  # via the cluster's nginx point this at the public ingress instead.
+  #
+  # Defaults here are dev-safe placeholders; real deployments override the
+  # token/instance-id via the platform's `ALERT_WEBHOOK_INSTANCES` config and
+  # update this file (or run envsubst over it) before deploy. If we wire
+  # envsubst into startup later, swap each literal back to `${VAR}`.
   - name: 'platform-relay'
     webhook_configs:
-      - url: '${PLATFORM_ALERT_WEBHOOK_URL}'
+      - url: 'http://platform:3000/api/observability/alert-webhook'
         http_config:
           authorization:
             type: Bearer
-            credentials: '${ALERT_WEBHOOK_INSTANCE_TOKEN}'
+            credentials: 'local-dev-token'
           tls_config:
             insecure_skip_verify: true
         send_resolved: true
         max_alerts: 64
-        # The platform relay rejects any request without this header.
-        # Operators set ALERT_WEBHOOK_INSTANCE_ID to the matching entry id.
-        http_headers:
-          X-Alertmanager-Instance: '${ALERT_WEBHOOK_INSTANCE_ID}'
+        # NOTE: an earlier design here sent `X-Alertmanager-Instance` as
+        # a custom HTTP header so the platform-relay could disambiguate
+        # multiple Alertmanager instances. Alertmanager 0.28's webhook
+        # config supports neither a top-level `http_headers:` field nor
+        # `http_config.headers:` (both raise "field not found"); custom
+        # webhook headers landed in newer Alertmanager releases. For now
+        # the relay authenticates on the Bearer token alone — if/when
+        # we upgrade Alertmanager, restore the header under
+        # `http_config.headers:` and have the relay enforce it.
 
+  # Slack receivers below carry placeholder webhook URLs so alertmanager
+  # parses the config successfully. Slack rejects requests to these IDs
+  # with 404 — alertmanager logs the rejection and keeps running.
+  # Replace with real `https://hooks.slack.com/services/...` URLs (or wire
+  # envsubst into startup) to actually deliver to Slack.
   - name: 'critical-slack'
     slack_configs:
-      - api_url: '${SLACK_WEBHOOK_URL_CRITICAL}'
+      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/CHANGE_ME_CRITICAL'
         channel: '#ops-pager'
         send_resolved: true
         title: '[CRITICAL] {{ .GroupLabels.alertname }}'
@@ -94,7 +110,7 @@ receivers:
 
   - name: 'warning-slack'
     slack_configs:
-      - api_url: '${SLACK_WEBHOOK_URL_WARNING}'
+      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/CHANGE_ME_WARNING'
         channel: '#ops-warnings'
         send_resolved: true
         title: '[WARN] {{ .GroupLabels.alertname }}'

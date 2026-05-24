@@ -365,7 +365,11 @@ services:
       IMAGE_REGISTRY_USER: ${IMAGE_REGISTRY_USER:-admin}
       IMAGE_REGISTRY_TOKEN: ${IMAGE_REGISTRY_TOKEN}
       IMAGE_REGISTRY_HTTP: ${IMAGE_REGISTRY_HTTP:-true}
-      BUILDKIT_HOST: unix:///run/buildkit/buildkitd.sock
+      # Talk to buildkitd over TCP on the backend-network. Unix-socket sharing
+      # via a named volume fails under the rootless image because the volume
+      # mounts at `/run/buildkit/` owned by root inside the container and the
+      # rootless daemon (UID 1000) can't bind a socket there.
+      BUILDKIT_HOST: tcp://buildkitd:1234
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-900000}
@@ -375,7 +379,6 @@ services:
     volumes:
       - './data/plugins-data/builds:/tmp:rw'
       - './data/plugins-data/uploads:/app/uploads:rw'
-      - 'buildkit-socket:/run/buildkit:rw'
     networks:
       - backend-network
     depends_on:
@@ -411,15 +414,16 @@ services:
       - apparmor:unconfined
     command:
       - --addr
-      - unix:///run/buildkit/buildkitd.sock
+      - tcp://0.0.0.0:1234
       - --oci-worker-no-process-sandbox
+    expose:
+      - "1234"
     volumes:
-      - 'buildkit-socket:/run/buildkit:rw'
       - 'buildkit-cache:/home/user/.local/share/buildkit:rw'
     networks:
       - backend-network
     healthcheck:
-      test: ["CMD", "buildctl", "--addr", "unix:///run/buildkit/buildkitd.sock", "debug", "workers"]
+      test: ["CMD", "buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -921,7 +925,6 @@ volumes:
   promtail-positions:
   mongodb-data:
   postgres-data:
-  buildkit-socket:
   buildkit-cache:
 
 networks:
