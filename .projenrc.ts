@@ -45,12 +45,12 @@ const jestVersion = '30.0.0';
 // publish time, so consumers on npm still get an exact version.
 // const ws = 'workspace:*';
 const pkg = {
-  aiCore: '3.4.37',
-  apiCore: '3.4.37',
-  apiServer: '3.4.38',
-  pipelineData: '3.4.37',
-  pipelineCore: '3.4.37',
-  pipelineEvents: '3.4.37'
+  aiCore: '3.4.38',
+  apiCore: '3.4.38',
+  apiServer: '3.4.39',
+  pipelineData: '3.4.38',
+  pipelineCore: '3.4.38',
+  pipelineEvents: '3.4.38'
 };
 
 // =============================================================================
@@ -193,8 +193,17 @@ function dockerScripts(name: string) {
     'docker:build': [
       'rm -rf .docker-build',
       `pnpm deploy --filter ${name} --prod --legacy .docker-build`,
-      `docker buildx build --no-cache --pull --load --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json).`,
+      // The trailing ` .` is the PATH (build context) argument to `docker
+      // buildx build` — missing the space was joining it to the `-t` tag
+      // value, which made buildx error "requires 1 argument". The
+      // `status=$?; ...; exit $status` tail keeps the cleanup running even
+      // on buildx failure while propagating buildx's exit code (the prior
+      // `;`-joined form let the trailing `rm -rf` mask docker errors and
+      // made nx report "successfully ran" on every failed build).
+      `docker buildx build --no-cache --pull --load --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) .`,
+      'status=$?',
       'rm -rf .docker-build',
+      'exit $status',
     ].join('; '),
     'docker:tag': `docker image tag \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
     'docker:push': `docker push \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,

@@ -74,7 +74,7 @@ export function createSubscriptionRoutes(): Router {
     // Check for existing active subscription
     const existing = await Subscription.findOne({ orgId, status: 'active' });
     if (existing) {
-      return sendError(        res, 409,
+      return sendError( res, 409,
         'Organization already has an active subscription. Use PUT to change plans.',
         ErrorCode.DUPLICATE_ENTRY,
       );
@@ -164,7 +164,7 @@ export function createSubscriptionRoutes(): Router {
     if (interval && interval !== subscription.interval) {
       const oldInterval = subscription.interval;
       subscription.interval = interval;
-      subscription.currentPeriodEnd = calculatePeriodEnd(        subscription.currentPeriodStart, interval,
+      subscription.currentPeriodEnd = calculatePeriodEnd( subscription.currentPeriodStart, interval,
       );
 
       await createBillingEvent(orgId, 'interval_changed', {
@@ -225,7 +225,7 @@ export function createSubscriptionRoutes(): Router {
     });
   }));
 
-  // DELETE /billing/subscriptions/by-org/:orgId â€ cascade hook.
+  // DELETE /billing/subscriptions/by-org/:orgId ï¿½ cascade hook.
   // Sysadmin / service-token only. Cancels and removes every subscription
   // + event for the org. Idempotent: missing org â†’ 200 with `deleted: 0`.
   //
@@ -287,7 +287,7 @@ export function createSubscriptionRoutes(): Router {
     });
 
     if (!subscription) {
-      return sendError(        res, 404,
+      return sendError( res, 404,
         'No canceled subscription found to reactivate',
         ErrorCode.NOT_FOUND,
       );

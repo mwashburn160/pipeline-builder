@@ -142,7 +142,7 @@ logger.info('Initialized token service', { kid, issuer: config.tokenSigning.issu
  * Signed with the configured private key + libtrust kid so the registry's
  * `rootcertbundle` verifier accepts it.
  */
-export function issueRegistryToken(  identity: Identity,
+export function issueRegistryToken( identity: Identity,
   access: AccessClaim[],
   account: string,
 ): string {
@@ -187,7 +187,7 @@ const quotaService = createQuotaService();
  * is stripped from that scope's actions (pull stays so existing images
  * remain reachable). Management identities bypass the gate.
  */
-export async function authorizeAndIssue(  identity: Identity,
+export async function authorizeAndIssue( identity: Identity,
   requestedScopes: RequestedScope[],
   account: string,
 ): Promise<string> {
@@ -200,7 +200,7 @@ export async function authorizeAndIssue(  identity: Identity,
     // 2. The scope is an `org-X/*` repo (system images are platform-managed),
     // 3. The identity is a JWT identity (management bypasses the cap).
     // `overBudget` is computed at most once per token-issuance call.
-    if (      granted.includes('push') &&
+    if ( granted.includes('push') &&
       identity.type === 'jwt' &&
       !identity.isAdmin &&
       scope.name.startsWith(`${ORG_NAMESPACE_PREFIX}${identity.orgId}/`)

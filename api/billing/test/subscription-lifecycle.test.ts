@@ -33,7 +33,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
 // pipeline-core; we stub it so the lifecycle code calls execute synchronously
 // without standing up an AsyncLocalStorage.
 jest.mock('@pipeline-builder/pipeline-core', () => ({
-  runWithTenantContext: <T,>(_ctx: unknown, fn: () => T): T => fn(),
+  runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
 jest.mock('../src/helpers/billing-helpers', () => ({

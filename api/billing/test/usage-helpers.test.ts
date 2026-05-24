@@ -46,15 +46,15 @@ describe('buildUsageRollup', () => {
   });
 
   it('derives period + cost from the active subscription', () => {
-    const rollup = buildUsageRollup(      {
-        currentPeriodStart: new Date('2026-05-01T00:00:00Z'),
-        currentPeriodEnd: new Date('2026-06-01T00:00:00Z'),
-        interval: 'monthly',
-        planId: 'plan-pro',
-      },
-      { name: 'Pro', tier: 'pro', prices: { monthly: 4900, annual: 49000 } },
-      null,
-      now,
+    const rollup = buildUsageRollup( {
+      currentPeriodStart: new Date('2026-05-01T00:00:00Z'),
+      currentPeriodEnd: new Date('2026-06-01T00:00:00Z'),
+      interval: 'monthly',
+      planId: 'plan-pro',
+    },
+    { name: 'Pro', tier: 'pro', prices: { monthly: 4900, annual: 49000 } },
+    null,
+    now,
     );
 
     expect(rollup.subscription).toEqual({
@@ -70,15 +70,15 @@ describe('buildUsageRollup', () => {
   });
 
   it('picks the annual price when the subscription interval is annual', () => {
-    const rollup = buildUsageRollup(      {
-        currentPeriodStart: new Date('2026-01-01T00:00:00Z'),
-        currentPeriodEnd: new Date('2027-01-01T00:00:00Z'),
-        interval: 'annual',
-        planId: 'plan-pro',
-      },
-      { name: 'Pro', tier: 'pro', prices: { monthly: 4900, annual: 49000 } },
-      null,
-      now,
+    const rollup = buildUsageRollup( {
+      currentPeriodStart: new Date('2026-01-01T00:00:00Z'),
+      currentPeriodEnd: new Date('2027-01-01T00:00:00Z'),
+      interval: 'annual',
+      planId: 'plan-pro',
+    },
+    { name: 'Pro', tier: 'pro', prices: { monthly: 4900, annual: 49000 } },
+    null,
+    now,
     );
 
     expect(rollup.subscription?.priceCents).toBe(49000);
@@ -86,7 +86,7 @@ describe('buildUsageRollup', () => {
   });
 
   it('computes percent/remaining for capped quotas and nulls them for unlimited', () => {
-    const rollup = buildUsageRollup(      null,
+    const rollup = buildUsageRollup( null,
       null,
       {
         tier: 'developer',
@@ -117,7 +117,7 @@ describe('buildUsageRollup', () => {
   });
 
   it('handles a missing usage row by reporting 0 used (defensive vs older quota docs)', () => {
-    const rollup = buildUsageRollup(      null,
+    const rollup = buildUsageRollup( null,
       null,
       {
         tier: 'developer',
@@ -137,15 +137,15 @@ describe('buildUsageRollup', () => {
 
   it('clamps daysElapsed/daysRemaining at zero when now is outside the period', () => {
     const future = new Date('2026-07-01T00:00:00Z');
-    const rollup = buildUsageRollup(      {
-        currentPeriodStart: new Date('2026-05-01T00:00:00Z'),
-        currentPeriodEnd: new Date('2026-06-01T00:00:00Z'),
-        interval: 'monthly',
-        planId: 'plan-pro',
-      },
-      { name: 'Pro', tier: 'pro', prices: { monthly: 4900, annual: 49000 } },
-      null,
-      future,
+    const rollup = buildUsageRollup( {
+      currentPeriodStart: new Date('2026-05-01T00:00:00Z'),
+      currentPeriodEnd: new Date('2026-06-01T00:00:00Z'),
+      interval: 'monthly',
+      planId: 'plan-pro',
+    },
+    { name: 'Pro', tier: 'pro', prices: { monthly: 4900, annual: 49000 } },
+    null,
+    future,
     );
 
     expect(rollup.period.daysRemaining).toBe(0);

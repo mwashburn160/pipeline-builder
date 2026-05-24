@@ -315,15 +315,18 @@ export function createImageRoutes(): Router {
     }
 
     ctx.log('COMPLETED', 'Copied manifest', {
-      source, target,
+      source,
+      target,
       sourceDigest: sourceManifest.digest,
-      mountedManifests, mountedBlobs,
+      mountedManifests,
+      mountedBlobs,
     });
 
     emitAudit(logger, {
       event: 'registry.tag.copy',
       actor: req.user?.sub ?? 'unknown',
-      source, target,
+      source,
+      target,
       sourceDigest: sourceManifest.digest,
       targetDigest: sourceManifest.digest,
       isPromotionToSystem: targetRepo.startsWith('system/'),
@@ -337,7 +340,8 @@ export function createImageRoutes(): Router {
     }
 
     return sendSuccess(res, 200, {
-      source, target,
+      source,
+      target,
       digest: sourceManifest.digest,
       mounted: { manifests: mountedManifests, blobs: mountedBlobs },
     });

@@ -35,13 +35,13 @@ const { bold, green } = pico;
  */
 export function orgExport(program: Command): void {
   program
-      .command('org-export')
-      .description('Export an organization\'s data as JSON (GDPR portability, ).')
-      .requiredOption('-i, --id <id>', 'Organization ID to export')
-      .option('-o, --output <file>', 'Output file path (default: org-<id>-export.json in CWD)')
-      .option('--verify-ssl', 'Enable SSL certificate verification')
-      .option('--no-verify-ssl', 'Disable SSL certificate verification')
-      .action(async (options) => {
+    .command('org-export')
+    .description('Export an organization\'s data as JSON (GDPR portability, ).')
+    .requiredOption('-i, --id <id>', 'Organization ID to export')
+    .option('-o, --output <file>', 'Output file path (default: org-<id>-export.json in CWD)')
+    .option('--verify-ssl', 'Enable SSL certificate verification')
+    .option('--no-verify-ssl', 'Disable SSL certificate verification')
+    .action(async (options) => {
       const executionId = printCommandHeader('Org Export');
 
       try {
@@ -50,7 +50,7 @@ export function orgExport(program: Command): void {
         const orgId = validateEntityId(options.id, 'Organization');
         const outputPath = options.output
           ? path.resolve(options.output)
-: path.resolve(process.cwd(), `org-${orgId}-export.json`);
+          : path.resolve(process.cwd(), `org-${orgId}-export.json`);
 
         printInfo('Request parameters', {
           orgId,
@@ -66,7 +66,7 @@ export function orgExport(program: Command): void {
         // The endpoint streams a large JSON attachment for orgs with long
         // histories. The ApiClient returns the parsed body directly, which
         // for `application/json` is a JS object we re-serialize to disk.
-        const response = await client.get<Record<string, unknown>>(          `${client.getConfig().api.baseUrl}/api/organization/${encodeURIComponent(orgId)}/export`,
+        const response = await client.get<Record<string, unknown>>( `${client.getConfig().api.baseUrl}/api/organization/${encodeURIComponent(orgId)}/export`,
         );
         const duration = Date.now() - startTime;
 
@@ -84,7 +84,7 @@ export function orgExport(program: Command): void {
         const sizeKb = (json.length / 1024).toFixed(1);
         const postgresTables = response.postgres && typeof response.postgres === 'object'
           ? Object.keys(response.postgres as Record<string, unknown>).length
-: 0;
+          : 0;
 
         console.log('');
         printSection('Export Saved');

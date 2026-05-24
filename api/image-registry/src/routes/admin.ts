@@ -13,8 +13,8 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { computeStorageUsage } from '../services/storage-usage';
 import { runRegistryGc } from '../services/registry-gc';
+import { computeStorageUsage } from '../services/storage-usage';
 
 const logger = createLogger('admin-routes');
 
@@ -87,8 +87,12 @@ export function createAdminRoutes(): Router {
     });
 
     logger.info('Registry GC run', {
-      prefix, maxAgeDays, dryRun,
-      reposScanned: result.reposScanned, candidates: result.candidates, deleted: result.deleted,
+      prefix,
+      maxAgeDays,
+      dryRun,
+      reposScanned: result.reposScanned,
+      candidates: result.candidates,
+      deleted: result.deleted,
     });
     ctx.log('COMPLETED', 'Registry GC run', {
       prefix, deleted: result.deleted, candidates: result.candidates,

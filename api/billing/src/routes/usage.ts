@@ -33,9 +33,9 @@ export function createUsageRoutes(): Router {
     const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
     const plan = subscription
       ? await Plan.findById(subscription.planId).lean()
-: null;
+      : null;
 
-    const rollup = await buildUsageRollupFor(      orgId,
+    const rollup = await buildUsageRollupFor( orgId,
       authHeader,
       subscription
         ? {
@@ -44,7 +44,7 @@ export function createUsageRoutes(): Router {
           interval: subscription.interval,
           planId: subscription.planId,
         }
-: null,
+        : null,
       plan ? { name: plan.name, tier: plan.tier, prices: plan.prices }: null,
     );
 

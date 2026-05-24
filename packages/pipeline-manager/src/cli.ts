@@ -143,14 +143,14 @@ function registerCommands(): void {
 
   // Configure program
   program
-      .name(APP_NAME)
-      .description(APP_DESCRIPTION)
-      .version(APP_VERSION, '-v, --version', 'Show CLI version')
-      .option('--debug', 'Enable debug output with stack traces', false)
-      .option('--verbose', 'Show detailed information', false)
-      .option('--quiet', 'Minimal output (errors only)', false)
-      .option('--no-color', 'Disable colored output', false)
-      .addHelpText('after', `
+    .name(APP_NAME)
+    .description(APP_DESCRIPTION)
+    .version(APP_VERSION, '-v, --version', 'Show CLI version')
+    .option('--debug', 'Enable debug output with stack traces', false)
+    .option('--verbose', 'Show detailed information', false)
+    .option('--quiet', 'Minimal output (errors only)', false)
+    .option('--no-color', 'Disable colored output', false)
+    .addHelpText('after', `
 Environment Variables  ${ENV_VARS.PLATFORM_TOKEN} Authentication token (required)
   ${ENV_VARS.PLATFORM_BASE_URL} API base URL (optional)
   ${ENV_VARS.CLI_CONFIG_PATH} Config file path (optional)
@@ -211,10 +211,10 @@ Examples  $ ${APP_NAME} version
   // Shell completions
   printDebug('Registering completions command');
   program
-      .command('completions')
-      .description('Generate shell completions (bash, zsh, fish)')
-      .argument('<shell>', 'Shell type: bash, zsh, or fish')
-      .action((shell: string) => {
+    .command('completions')
+    .description('Generate shell completions (bash, zsh, fish)')
+    .argument('<shell>', 'Shell type: bash, zsh, or fish')
+    .action((shell: string) => {
       // Pull command names from commander's registered list so completions never
       // drift from the actual CLI surface. Sorted for stable output.
       const commands = program.commands.map(c => c.name()).sort().join(' ');
