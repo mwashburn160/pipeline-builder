@@ -85,22 +85,22 @@
     },
     {
       "name": "@pipeline-builder/ai-core",
-      "version": "3.4.39",
-      "type": "runtime"
-    },
-    {
-      "name": "@pipeline-builder/api-core",
-      "version": "3.4.39",
-      "type": "runtime"
-    },
-    {
-      "name": "@pipeline-builder/api-server",
       "version": "3.4.40",
       "type": "runtime"
     },
     {
+      "name": "@pipeline-builder/api-core",
+      "version": "3.4.40",
+      "type": "runtime"
+    },
+    {
+      "name": "@pipeline-builder/api-server",
+      "version": "3.4.41",
+      "type": "runtime"
+    },
+    {
       "name": "@pipeline-builder/pipeline-core",
-      "version": "3.4.39",
+      "version": "3.4.40",
       "type": "runtime"
     },
     {
