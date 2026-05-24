@@ -226,13 +226,16 @@ export class Workflow extends Component {
                 },
                 {
                     id: 'check',
-                    name: 'Check publish library',
-                    run: `echo PUBLISH_LIB=$(pnpm nx show projects --affected --json | jq 'any(contains(${LIBRARY_PROJECTS.map(p => `"${p}"`).join(',')}))')  >> $GITHUB_OUTPUT`,
+                    name: 'Compute affected library packages',
+                    env: {
+                        LIBRARY_PROJECTS: JSON.stringify(LIBRARY_PROJECTS),
+                    },
+                    run: 'echo AFFECTED_LIBS=$(jq -n --arg LIST "$(comm -12 <(pnpm nx show projects --affected --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} | sort) <(echo $LIBRARY_PROJECTS | jq -r \'.[]\' | sort))" \'$LIST | split("\n") | map(select(length>0))\') >> $GITHUB_OUTPUT',
                 },
                 {
                     name: 'Publish npm packages',
-                    if: '${{ steps.check.outputs.PUBLISH_LIB == \'true\' }}',
-                    run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && pnpm publish --access public --filter @pipeline-builder/* --no-git-checks --verbose',
+                    if: '${{ steps.check.outputs.AFFECTED_LIBS != \'[]\' }}',
+                    run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && pnpm publish --access public $FILTERS --no-git-checks --verbose',
                 },
                 {
                     name: 'Upload artifact',

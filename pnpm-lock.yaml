@@ -58,10 +58,10 @@ importers:
         version: 3.4.42
       '@pipeline-builder/api-server':
         specifier: 3.4.43
-        version: 3.4.43(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
+        version: 3.4.43(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.0))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
         specifier: 3.4.42
-        version: 3.4.42(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
+        version: 3.4.42(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
       cors:
         specifier: 2.8.6
         version: 2.8.6
@@ -222,10 +222,10 @@ importers:
         version: 3.4.42
       '@pipeline-builder/api-server':
         specifier: 3.4.43
-        version: 3.4.43(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.0))(@types/pg@8.16.0)
+        version: 3.4.43(@opentelemetry/core@2.6.0(@opentelemetry/api@1.9.1))(@types/pg@8.16.0)
       '@pipeline-builder/pipeline-core':
         specifier: 3.4.42
-        version: 3.4.42(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)
+        version: 3.4.42(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       axios:
         specifier: 1.13.5
         version: 1.13.5
@@ -1095,8 +1095,8 @@ importers:
         specifier: 3.4.42
         version: 3.4.42(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       aws-cdk-lib:
-        specifier: 2.251.0
-        version: 2.251.0(constructs@10.5.1)
+        specifier: 2.257.0
+        version: 2.257.0(constructs@10.5.1)
       axios:
         specifier: 1.13.5
         version: 1.13.5
@@ -1280,8 +1280,8 @@ importers:
         specifier: 3.4.42
         version: 3.4.42(@opentelemetry/api@1.9.1)(@types/pg@8.16.0)
       aws-cdk-lib:
-        specifier: 2.251.0
-        version: 2.251.0(constructs@10.5.1)
+        specifier: 2.257.0
+        version: 2.257.0(constructs@10.5.1)
       axios:
         specifier: 1.13.5
         version: 1.13.5
@@ -1575,6 +1575,13 @@ packages:
 
   '@aws-cdk/cloud-assembly-schema@53.18.0':
     resolution: {integrity: sha512-/fa6rOpokkfa5tVIdhsaexQq5MVVTSsZSD1Tu45YcrdyGRusGrM9RlPMCPrwvMS1UfdVFBhcgO9dl9ODWAWOeQ==}
+    engines: {node: '>= 18.0.0'}
+    bundledDependencies:
+      - jsonschema
+      - semver
+
+  '@aws-cdk/cloud-assembly-schema@53.27.0':
+    resolution: {integrity: sha512-OTxe/L2Vc60r2nYih7kFaFpn93sa7shJu9T0tQZsryeDE3HHOAuazKNmS6tLInOjJjVx/dvM5XGyUA+lZAiKxA==}
     engines: {node: '>= 18.0.0'}
     bundledDependencies:
       - jsonschema
@@ -5214,6 +5221,25 @@ packages:
       - yaml
       - mime-types
 
+  aws-cdk-lib@2.257.0:
+    resolution: {integrity: sha512-GoHfWklrBJcMwLtDlY64pvaT7cD2KyDXC8sik89DR6jHl6nQsBtYTKSJCM+C/k4jgXaecbv8myNX75FySejq0A==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      constructs: ^10.5.0
+    bundledDependencies:
+      - '@balena/dockerignore'
+      - '@aws-cdk/cloud-assembly-api'
+      - case
+      - fs-extra
+      - ignore
+      - jsonschema
+      - minimatch
+      - punycode
+      - semver
+      - table
+      - yaml
+      - mime-types
+
   aws4fetch@1.0.20:
     resolution: {integrity: sha512-/djoAN709iY65ETD6LKCtyyEI04XIBP5xVvfmNxsEP0uJB5tyaGBztSryRr4HqMStr9R06PisQE7m9zDTXKu6g==}
 
@@ -8647,6 +8673,8 @@ snapshots:
   '@aws-cdk/asset-node-proxy-agent-v6@2.1.1': {}
 
   '@aws-cdk/cloud-assembly-schema@53.18.0': {}
+
+  '@aws-cdk/cloud-assembly-schema@53.27.0': {}
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:
@@ -14143,6 +14171,13 @@ snapshots:
       '@aws-cdk/asset-awscli-v1': 2.2.273
       '@aws-cdk/asset-node-proxy-agent-v6': 2.1.1
       '@aws-cdk/cloud-assembly-schema': 53.18.0
+      constructs: 10.5.1
+
+  aws-cdk-lib@2.257.0(constructs@10.5.1):
+    dependencies:
+      '@aws-cdk/asset-awscli-v1': 2.2.273
+      '@aws-cdk/asset-node-proxy-agent-v6': 2.1.1
+      '@aws-cdk/cloud-assembly-schema': 53.27.0
       constructs: 10.5.1
 
   aws4fetch@1.0.20: {}

@@ -140,12 +140,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
         run: pnpm nx release --first-release --skip-publish --verbose
-      - name: Check publish library
+      - name: Compute affected library packages
         id: check
-        run: echo PUBLISH_LIB=$(pnpm nx show projects --affected --json | jq 'any(contains("api-core","api-server","pipeline-core","pipeline-data","pipeline-manager"))')  >> $GITHUB_OUTPUT
+        env:
+          LIBRARY_PROJECTS: '["api-core","api-server","pipeline-core","pipeline-data","pipeline-manager"]'
+        run: |-
+          echo AFFECTED_LIBS=$(jq -n --arg LIST "$(comm -12 <(pnpm nx show projects --affected --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} | sort) <(echo $LIBRARY_PROJECTS | jq -r '.[]' | sort))" '$LIST | split("
+          ") | map(select(length>0))') >> $GITHUB_OUTPUT
       - name: Publish npm packages
-        if: ${{ steps.check.outputs.PUBLISH_LIB == 'true' }}
-        run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && pnpm publish --access public --filter @pipeline-builder/* --no-git-checks --verbose
+        if: ${{ steps.check.outputs.AFFECTED_LIBS != '[]' }}
+        run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo '${{ steps.check.outputs.AFFECTED_LIBS }}' | jq -r '[.[] | "--filter @pipeline-builder/" + .] | join(" ")') && pnpm publish --access public $FILTERS --no-git-checks --verbose
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:

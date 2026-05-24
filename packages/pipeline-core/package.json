@@ -40,7 +40,7 @@
   "dependencies": {
     "@pipeline-builder/api-core": "3.4.42",
     "@pipeline-builder/pipeline-data": "3.4.42",
-    "aws-cdk-lib": "2.251.0",
+    "aws-cdk-lib": "2.257.0",
     "axios": "1.13.5",
     "constructs": "10.5.1",
     "jsonwebtoken": "9.0.3",
