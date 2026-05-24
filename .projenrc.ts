@@ -45,12 +45,12 @@ const jestVersion = '30.0.0';
 // publish time, so consumers on npm still get an exact version.
 // const ws = 'workspace:*';
 const pkg = {
-  aiCore: '3.4.38',
-  apiCore: '3.4.38',
-  apiServer: '3.4.39',
-  pipelineData: '3.4.38',
-  pipelineCore: '3.4.38',
-  pipelineEvents: '3.4.38'
+  aiCore: '3.4.39',
+  apiCore: '3.4.39',
+  apiServer: '3.4.40',
+  pipelineData: '3.4.39',
+  pipelineCore: '3.4.39',
+  pipelineEvents: '3.4.39'
 };
 
 // =============================================================================
