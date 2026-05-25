@@ -1,2 +1,9 @@
-/node_modules
-/.next/cache
+**
+!.next/standalone
+!.next/standalone/**
+!.next/static
+!.next/static/**
+!public
+!public/**
+!Dockerfile
+!self-signed.crt

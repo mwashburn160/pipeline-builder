@@ -77,7 +77,11 @@
   "main": "lib/index.js",
   "license": "Apache-2.0",
   "homepage": "https://mwashburn160.github.io/pipeline-builder/",
-  "version": "3.4.43",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

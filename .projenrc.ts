@@ -250,6 +250,7 @@ const apiCore = new PackageProject({
   ],
 });
 apiCore.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
+apiCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
 addPackageMetadata(apiCore, 'Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.');
 configureJest(apiCore);
 
@@ -262,6 +263,7 @@ const pipelineData = new PackageProject({
   devDeps: ['@types/node@25.3.0', '@types/pg@8.16.0', 'drizzle-kit@0.31.9', `typescript@${typescriptVersion}`],
 });
 pipelineData.eslint?.addRules(rules);
+pipelineData.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
 addPackageMetadata(pipelineData, 'Database layer for Pipeline Builder: Drizzle ORM schemas, connection management, query builders, and the generic CrudService base class with multi-tenant access control.');
 configureJest(pipelineData);
 
@@ -310,6 +312,7 @@ const apiServer = new PackageProject({
   ],
 });
 apiServer.eslint?.addRules({...rules, 'import/no-unresolved': 'off' });
+apiServer.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
 addPackageMetadata(apiServer, 'Express server infrastructure for Pipeline Builder: app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context, route wrappers, health-check helpers, and SSE support.');
 configureJest(apiServer, { maxWorkers: 1 });
 
@@ -330,7 +333,7 @@ aiCore.eslint?.addRules(rules);
 // Marked private  workspace-only dependency for downstream services.
 // Never published to npm (its version stays at 0.0.0 and any publish run
 // otherwise fails with "Cannot publish over previously published version").
-addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
+addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.', { private: true });
 configureJest(aiCore);
 
 // -- Pipeline Events (CodePipeline → Reporting Lambda) --
@@ -348,7 +351,7 @@ pipelineEvents.eslint?.addRules(rules);
 // Marked private  Lambda handler bundled into a zip via `lambda.Code.fromAsset()`,
 // never consumed as an `@pipeline-builder/pipeline-events` npm import. Same
 // 0.0.0-version publish-skip pattern as `ai-core`.
-addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
+addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.', { private: true });
 configureJest(pipelineEvents);
 
 // =============================================================================
