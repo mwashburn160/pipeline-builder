@@ -153,7 +153,11 @@ jobs:
             ./**/dist/
             ./frontend/.next/standalone/
             ./frontend/.next/static/
-            !./**/node_modules/
+            !./node_modules/
+            !./packages/*/node_modules/
+            !./api/*/node_modules/
+            !./platform/node_modules/
+            !./frontend/node_modules/
           include-hidden-files: true
       - name: Push new tag to the repository
         run: git push --follow-tags
