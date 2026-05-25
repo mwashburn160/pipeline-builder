@@ -6,44 +6,23 @@ RUN apk update && apk add ca-certificates --no-cache
 COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
 RUN update-ca-certificates 2>/dev/null
 
-# Build stage
-FROM node:${NODE_VERSION}-alpine AS builder
-
-WORKDIR /app
-
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
-# Copy package files
-COPY package.json ./
-
-# Install dependencies
-RUN --mount=type=secret,id=npmrc,target=.npmrc pnpm install
-
-# Copy source files
-COPY . .
-
-# Build the application
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm build
-
 # Production stage
-FROM node:${NODE_VERSION}-alpine AS runner
-
-WORKDIR /app
-
+# Next.js standalone bundle is built OUTSIDE Docker by `pnpm nx run frontend:build`
+# (output: 'standalone' in next.config). The .next/standalone/ tree carries its
+# own pruned node_modules so no install runs in the image. Matches the api
+# services' pattern and avoids the workspace:* resolution that broke in-container
+# `pnpm install`.
+FROM node:${NODE_VERSION}-alpine
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
-# Copy built application
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+WORKDIR /app
+COPY --chown=nextjs:nodejs .next/standalone/ ./
+COPY --chown=nextjs:nodejs .next/static/ ./frontend/.next/static/
+COPY --chown=nextjs:nodejs public/ ./frontend/public/
 
 USER nextjs
 
@@ -55,4 +34,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+CMD ["node", "frontend/server.js"]
