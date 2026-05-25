@@ -20,7 +20,7 @@ jobs:
       - name: Disable Nx telemetry and daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
       - name: Clear cache
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GHRC_TOKEN }}
           script: |2-
@@ -40,7 +40,7 @@ jobs:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
       - name: Setup node
@@ -85,7 +85,7 @@ jobs:
       - name: Disable Nx telemetry and daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
       - name: Clear cache
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GHRC_TOKEN }}
           script: |2-
@@ -105,7 +105,7 @@ jobs:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
       - name: Setup node
@@ -175,7 +175,7 @@ jobs:
       - name: Disable Nx telemetry and daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
       - name: Clear cache
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GHRC_TOKEN }}
           script: |2-
@@ -195,7 +195,7 @@ jobs:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
       - name: Setup node
