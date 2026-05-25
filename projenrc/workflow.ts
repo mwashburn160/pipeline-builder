@@ -397,7 +397,7 @@ export class Workflow extends Component {
             },
             {
                 name: 'Clear cache',
-                uses: 'actions/github-script@v8',
+                uses: 'actions/github-script@v9',
                 with: {
                     'github-token': '${{ secrets.GHRC_TOKEN }}',
                     script: `
@@ -422,7 +422,7 @@ export class Workflow extends Component {
             },
             {
                 name: 'Setup pnpm',
-                uses: 'pnpm/action-setup@v5',
+                uses: 'pnpm/action-setup@v6',
                 with: {
                     version: this.pnpmVersion,
                 },
