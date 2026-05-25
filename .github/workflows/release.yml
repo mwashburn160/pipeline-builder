@@ -144,6 +144,9 @@ jobs:
       - name: Publish npm packages
         if: ${{ steps.check.outputs.AFFECTED_LIBS != '[]' }}
         run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo '${{ steps.check.outputs.AFFECTED_LIBS }}' | jq -r '[.[] | "--filter @pipeline-builder/" + .] | join(" ")') && pnpm publish --access public $FILTERS --no-git-checks --verbose
+      - name: Package frontend bundle (preserves symlinks)
+        if: hashFiles('./frontend/.next/standalone/**') != ''
+        run: tar -czf frontend-bundle.tar.gz -C ./frontend .next/standalone .next/static
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -151,8 +154,7 @@ jobs:
           path: |-
             ./**/lib/
             ./**/dist/
-            ./frontend/.next/standalone/
-            ./frontend/.next/static/
+            ./frontend-bundle.tar.gz
             !./node_modules/
             !./packages/*/node_modules/
             !./api/*/node_modules/
@@ -224,6 +226,9 @@ jobs:
           path: dnload
       - name: Copy artifacts to destination
         run: cp -rv dnload/* ./
+      - name: Extract frontend bundle
+        if: hashFiles('./frontend-bundle.tar.gz') != ''
+        run: tar -xzf frontend-bundle.tar.gz -C ./frontend && rm frontend-bundle.tar.gz
       - name: Login into container registry
         uses: docker/login-action@v4
         with:

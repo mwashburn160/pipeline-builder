@@ -228,18 +228,23 @@ export class Workflow extends Component {
                     run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && pnpm publish --access public $FILTERS --no-git-checks --verbose',
                 },
                 {
+                    // actions/upload-artifact dereferences symlinks, which breaks the
+                    // Next.js standalone bundle (its node_modules uses pnpm-style symlinks
+                    // — e.g. frontend/node_modules/next → ../../node_modules/.pnpm/next@…
+                    // — and Node resolves @swc/helpers via the symlink target's .pnpm
+                    // peers). Tar manually with --dereference NOT set so symlinks survive.
+                    name: 'Package frontend bundle (preserves symlinks)',
+                    if: 'hashFiles(\'./frontend/.next/standalone/**\') != \'\'',
+                    run: 'tar -czf frontend-bundle.tar.gz -C ./frontend .next/standalone .next/static',
+                },
+                {
                     name: 'Upload artifact',
                     uses: 'actions/upload-artifact@v7',
                     with: {
                         name: 'artifacts',
-                        // Frontend (Next.js) emits .next/standalone + .next/static instead of
-                        // lib/dist; both are needed by frontend:docker:build in the publish job.
-                        // include-hidden-files is required because `.next` is a dotted dir and
-                        // upload-artifact@v4+ excludes hidden files by default.
-                        // The standalone bundle carries its own pruned node_modules (with `next`,
-                        // `react`, etc.); we exclude only the workspace's top-level and per-package
-                        // node_modules so those nested deps survive.
-                        path: './**/lib/\n./**/dist/\n./frontend/.next/standalone/\n./frontend/.next/static/\n!./node_modules/\n!./packages/*/node_modules/\n!./api/*/node_modules/\n!./platform/node_modules/\n!./frontend/node_modules/',
+                        // Frontend's standalone+static are bundled into frontend-bundle.tar.gz
+                        // above to preserve symlinks; the publish job extracts it back.
+                        path: './**/lib/\n./**/dist/\n./frontend-bundle.tar.gz\n!./node_modules/\n!./packages/*/node_modules/\n!./api/*/node_modules/\n!./platform/node_modules/\n!./frontend/node_modules/',
                         'include-hidden-files': true,
                     },
                 },
@@ -317,6 +322,14 @@ export class Workflow extends Component {
                 {
                     name: 'Copy artifacts to destination',
                     run: 'cp -rv dnload/* ./',
+                },
+                {
+                    // Restore the symlink-preserving frontend bundle from the tarball
+                    // packaged in the build job. Symlinks are required for the Next.js
+                    // standalone runtime to resolve transitive deps like @swc/helpers.
+                    name: 'Extract frontend bundle',
+                    if: 'hashFiles(\'./frontend-bundle.tar.gz\') != \'\'',
+                    run: 'tar -xzf frontend-bundle.tar.gz -C ./frontend && rm frontend-bundle.tar.gz',
                 },
                 {
                     name: 'Login into container registry',
