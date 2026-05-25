@@ -90,7 +90,7 @@
     },
     {
       "name": "@pipeline-builder/api-core",
-      "version": "3.4.42",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {

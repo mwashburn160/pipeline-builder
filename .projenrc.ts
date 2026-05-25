@@ -43,14 +43,14 @@ const jestVersion = '30.0.0';
 // in one workspace package don't propagate to its consumers in CI until
 // after a release. nx release rewrites these to a concrete version at
 // publish time, so consumers on npm still get an exact version.
-// const ws = 'workspace:*';
+const ws = 'workspace:*';
 const pkg = {
-  aiCore: '3.4.42',
-  apiCore: '3.4.42',
-  apiServer: '3.4.43',
-  pipelineData: '3.4.42',
-  pipelineCore: '3.4.42',
-  pipelineEvents: '3.4.42'
+  aiCore: ws,
+  apiCore: ws,
+  apiServer: ws,
+  pipelineData: ws,
+  pipelineCore: ws,
+  pipelineEvents: ws
 };
 
 // =============================================================================
@@ -95,9 +95,6 @@ root.npmrc.addConfig('@pipeline-builder:registry', 'https://registry.npmjs.org/'
 // Redis DB, the local docker daemon, the same per-org KMS keys); serializing
 // trades wall-clock for reliability.
 root.npmrc.addConfig('workspace-concurrency', '1');
-
-// After running 'pnpm dlx projen', fix workspace references// find. -name package.json -not -path '*/node_modules/*' -not -path '*/.projen/*' | \
-// xargs sed -E -i 's/"@pipeline-builder\/([^"]+)": "[0-9]+\.[0-9]+\.[0-9]+"/"@pipeline-builder\/\1": "workspace:*"/g'
 
 // =============================================================================
 // Shared Defaults & Helpers

@@ -16,7 +16,6 @@ jobs:
       NX_HEAD: ${{ steps.nx_head.outputs.NX_HEAD }}
       AFFECTED_IMAGES: ${{ steps.affected.outputs.AFFECTED_IMAGES }}
       AFFECTED_PROJECTS: ${{ steps.affected.outputs.AFFECTED_PROJECTS }}
-      PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}
     steps:
       - name: Disable Nx telemetry and daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
@@ -73,11 +72,6 @@ jobs:
           ") | map(select(length>0))') >> $GITHUB_OUTPUT
       - name: Affected details
         run: echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}
-      - name: Check publish images
-        id: publish
-        run: echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }} | jq 'any(contains("frontend","platform","billing","reporting","compliance","quota","message","pipeline","plugin","image-registry"))') >> $GITHUB_OUTPUT
-      - name: Publish details
-        run: "echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}"
   build:
     name: build
     needs: init
@@ -173,7 +167,7 @@ jobs:
       actions: read
       contents: write
       packages: read
-    if: ${{ needs.init.outputs.PUBLISH_IMAGE == 'true' }}
+    if: ${{ needs.init.outputs.AFFECTED_IMAGES != '[]' }}
     steps:
       - name: Disable Nx telemetry and daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV

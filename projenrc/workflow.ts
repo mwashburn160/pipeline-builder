@@ -127,7 +127,6 @@ export class Workflow extends Component {
                 NX_HEAD: { stepId: 'nx_head', outputName: 'NX_HEAD' },
                 AFFECTED_IMAGES: { stepId: 'affected', outputName: 'AFFECTED_IMAGES' },
                 AFFECTED_PROJECTS: { stepId: 'affected', outputName: 'AFFECTED_PROJECTS' },
-                PUBLISH_IMAGE: { stepId: 'publish', outputName: 'PUBLISH_IMAGE' },
             },
             steps: [
                 ...this.bootstrapSteps(),
@@ -153,15 +152,6 @@ export class Workflow extends Component {
                     name: 'Affected details',
                     run: 'echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}',
                 },
-                {
-                    id: 'publish',
-                    name: 'Check publish images',
-                    run: `echo PUBLISH_IMAGE=$(pnpm nx show projects --affected --json --base \${{ steps.nx_base.outputs.NX_BASE }} --head \${{ steps.nx_head.outputs.NX_HEAD }} | jq 'any(contains(${IMAGE_PROJECTS.map(p => `"${p}"`).join(',')}))') >> $GITHUB_OUTPUT`,
-                },
-                {
-                    name: 'Publish details',
-                    run: 'echo PUBLISH_IMAGE: ${{ steps.publish.outputs.PUBLISH_IMAGE }}',
-                }
             ],
         };
     }
@@ -295,7 +285,7 @@ export class Workflow extends Component {
                 contents: JobPermission.WRITE,
                 packages: JobPermission.READ,
             },
-            if: '${{ needs.init.outputs.PUBLISH_IMAGE == \'true\' }}',
+            if: '${{ needs.init.outputs.AFFECTED_IMAGES != \'[]\' }}',
             strategy: {
                 failFast: false,
                 maxParallel: 4,
