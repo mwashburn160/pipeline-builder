@@ -154,6 +154,7 @@ jobs:
             ./frontend/.next/standalone/
             ./frontend/.next/static/
             !./**/node_modules/
+          include-hidden-files: true
       - name: Push new tag to the repository
         run: git push --follow-tags
       - name: Build complete

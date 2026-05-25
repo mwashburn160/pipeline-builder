@@ -234,7 +234,10 @@ export class Workflow extends Component {
                         name: 'artifacts',
                         // Frontend (Next.js) emits .next/standalone + .next/static instead of
                         // lib/dist; both are needed by frontend:docker:build in the publish job.
+                        // include-hidden-files is required because `.next` is a dotted dir and
+                        // upload-artifact@v4+ excludes hidden files by default.
                         path: './**/lib/\n./**/dist/\n./frontend/.next/standalone/\n./frontend/.next/static/\n!./**/node_modules/',
+                        'include-hidden-files': true,
                     },
                 },
                 {
