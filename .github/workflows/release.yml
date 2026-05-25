@@ -151,6 +151,8 @@ jobs:
           path: |-
             ./**/lib/
             ./**/dist/
+            ./frontend/.next/standalone/
+            ./frontend/.next/static/
             !./**/node_modules/
       - name: Push new tag to the repository
         run: git push --follow-tags

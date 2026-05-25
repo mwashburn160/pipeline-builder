@@ -232,7 +232,9 @@ export class Workflow extends Component {
                     uses: 'actions/upload-artifact@v7',
                     with: {
                         name: 'artifacts',
-                        path: './**/lib/\n./**/dist/\n!./**/node_modules/',
+                        // Frontend (Next.js) emits .next/standalone + .next/static instead of
+                        // lib/dist; both are needed by frontend:docker:build in the publish job.
+                        path: './**/lib/\n./**/dist/\n./frontend/.next/standalone/\n./frontend/.next/static/\n!./**/node_modules/',
                     },
                 },
                 {
