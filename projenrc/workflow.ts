@@ -327,9 +327,16 @@ export class Workflow extends Component {
                     // Restore the symlink-preserving frontend bundle from the tarball
                     // packaged in the build job. Symlinks are required for the Next.js
                     // standalone runtime to resolve transitive deps like @swc/helpers.
+                    // Only runs for the frontend matrix entry — the tarball is in the
+                    // shared artifact and would be present (but irrelevant) for every
+                    // other image's build context.
+                    // --overwrite is needed because pnpm's nested symlink layout
+                    // (`.pnpm/node_modules/<x>` → `.pnpm/<x>@<ver>/node_modules/<x>`)
+                    // resolves to paths tar has already extracted; without it, GNU tar
+                    // aborts the whole extract with "Cannot open: File exists".
                     name: 'Extract frontend bundle',
-                    if: 'hashFiles(\'./frontend-bundle.tar.gz\') != \'\'',
-                    run: 'tar -xzf frontend-bundle.tar.gz -C ./frontend && rm frontend-bundle.tar.gz',
+                    if: '${{ matrix.project_name == \'frontend\' }}',
+                    run: 'tar --overwrite -xzf frontend-bundle.tar.gz -C ./frontend && rm frontend-bundle.tar.gz',
                 },
                 {
                     name: 'Login into container registry',
