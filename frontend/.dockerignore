@@ -1,2 +1,2 @@
-node_modules
-.next/cache
+/node_modules
+/.next/cache
