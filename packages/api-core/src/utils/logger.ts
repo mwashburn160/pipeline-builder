@@ -69,11 +69,22 @@ function redactDeep(value: unknown, depth = 0): unknown {
   return out;
 }
 
-/** Winston format that masks values for sensitive-looking keys (PII / secrets). */
+/** Winston format that masks values for sensitive-looking keys (PII / secrets).
+ * Mutates `info` in place so winston's internal Symbol-keyed properties
+ * (`Symbol.for('level')`, `Symbol.for('message')`, `Symbol.for('splat')`) survive
+ * — rebuilding a fresh object via `Object.entries`/spread silently strips them,
+ * which makes the Console transport drop every entry without warning. */
+const PRESERVED_KEYS = new Set(['level', 'message', 'timestamp', 'service', 'trace_id']);
 const redactFormat = winston.format((info) => {
-  const { level, message, timestamp, service, trace_id, ...meta } = info;
-  const safe = redactDeep(meta) as Record<string, unknown>;
-  return { level, message, timestamp, service, trace_id, ...safe };
+  for (const key of Object.keys(info)) {
+    if (PRESERVED_KEYS.has(key)) continue;
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      info[key] = REDACTED;
+    } else {
+      info[key] = redactDeep(info[key]);
+    }
+  }
+  return info;
 })();
 
 /**

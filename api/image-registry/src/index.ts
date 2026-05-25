@@ -34,6 +34,10 @@ app.use('/api/admin', requireAuth, createAdminRoutes());
 runServer(app, {
   name: 'pipeline-image-registry',
   port: config.port,
+  // image-registry doesn't use Postgres; skip the default DB health check so
+  // pg's SASL client doesn't trip on the unset DB_PASSWORD env var.
+  testDatabase: false,
+  closeDatabase: false,
   onBeforeStart: async () => {
     logger.info('Service starting', {
       port: config.port,
