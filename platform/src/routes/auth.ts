@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail } from '../controllers';
 import { stepUpVerify } from '../controllers/step-up';
 import { requireAuth, isValidRefreshToken } from '../middleware';
@@ -25,8 +25,10 @@ const stepUpLimiter = rateLimit({
   windowMs: 60_000,
   max: 5,
   // requireAuth runs after this middleware in the chain, so req.user is
-  // populated already. Fall back to IP for the (unreachable) anon case.
-  keyGenerator: (req) => req.user?.sub ?? req.ip ?? 'anon',
+  // populated already. Fall back to IP for the (unreachable) anon case;
+  // route through ipKeyGenerator because express-rate-limit 8.x's validator
+  // refuses to start otherwise (see platform/src/index.ts:extractClientIp).
+  keyGenerator: (req) => req.user?.sub ?? ipKeyGenerator(req.ip || 'anon', 64),
   message: { success: false, statusCode: 429, message: 'Too many step-up attempts. Please wait a minute and try again.' },
   standardHeaders: true,
   legacyHeaders: false,
