@@ -102,11 +102,19 @@ describe('observabilityQuery', () => {
     expect((res._body as { message?: string }).message).toMatch(/Unknown observability query key/);
   });
 
-  it('returns 400 when a Loki key is requested via the Prom endpoint', async () => {
+  it('delegates a Loki range key on /query to loki.queryMatrix (same envelope)', async () => {
+    // /query now accepts loki-range keys so the frontend can stay endpoint-
+    // agnostic — both prometheus-range and loki-range return {series, range, step}.
+    mockLokiMatrix.mockResolvedValue([{ labels: { event: 'login' }, points: [] }]);
     const res = makeRes();
     await observabilityQuery(makeReq({ key: 'audit_events_per_hour_by_event', range: '1h' }), res);
-    expect(res._status).toBe(400);
-    expect((res._body as { message?: string }).message).toMatch(/not a Prometheus query/);
+    expect(res._status).toBe(200);
+    expect(mockLokiMatrix).toHaveBeenCalledTimes(1);
+    expect(mockPromQueryRange).not.toHaveBeenCalled();
+    const body = res._body as { success: boolean; data: { series: unknown[]; range: string } };
+    expect(body.success).toBe(true);
+    expect(body.data.range).toBe('1h');
+    expect(body.data.series).toHaveLength(1);
   });
 
   it('returns 200 + samples for an instant query', async () => {
