@@ -244,7 +244,10 @@ export class Workflow extends Component {
                         name: 'artifacts',
                         // Frontend's standalone+static are bundled into frontend-bundle.tar.gz
                         // above to preserve symlinks; the publish job extracts it back.
-                        path: './**/lib/\n./**/dist/\n./frontend-bundle.tar.gz\n!./node_modules/\n!./packages/*/node_modules/\n!./api/*/node_modules/\n!./platform/node_modules/\n!./frontend/node_modules/',
+                        // ./frontend/.next/ is excluded so the **/lib and **/dist globs don't
+                        // pick up dereferenced copies of next/dist, sharp/lib, etc. inside the
+                        // standalone tree — those collide with the tarball at extract time.
+                        path: './**/lib/\n./**/dist/\n./frontend-bundle.tar.gz\n!./node_modules/\n!./packages/*/node_modules/\n!./api/*/node_modules/\n!./platform/node_modules/\n!./frontend/node_modules/\n!./frontend/.next/',
                         'include-hidden-files': true,
                     },
                 },
