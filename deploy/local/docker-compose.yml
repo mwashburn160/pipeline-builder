@@ -189,18 +189,23 @@ services:
   # All app services connect through pgbouncer (DB_HOST=pgbouncer / DB_PORT=6432).
   # See `deploy/local/config/pgbouncer/pgbouncer.ini` for per-tier pool layout.
   pgbouncer:
-    image: 'bitnami/pgbouncer:1.23.1'
+    image: 'edoburu/pgbouncer:1.23.1'
     container_name: pgbouncer
     restart: always
     environment:
-      POSTGRESQL_HOST: postgres
-      POSTGRESQL_PORT: '5432'
-      POSTGRESQL_USERNAME: ${POSTGRES_USER}
-      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRESQL_DATABASE: ${POSTGRES_DB}
-      PGBOUNCER_PORT: '6432'
+      # edoburu uses DB_*; userlist.txt is generated from these at startup.
+      # Our mounted pgbouncer.ini overrides the auto-generated config.
+      DB_HOST: postgres
+      DB_PORT: '5432'
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      LISTEN_PORT: '6432'
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      ADMIN_USERS: postgres
     volumes:
-      - './config/pgbouncer/pgbouncer.ini:/bitnami/pgbouncer/conf/pgbouncer.ini:ro'
+      - './config/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro'
     depends_on:
       postgres:
         condition: service_healthy

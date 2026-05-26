@@ -77,35 +77,43 @@ spec:
     spec:
       containers:
         - name: pgbouncer
-          image: bitnami/pgbouncer:1.23.1
+          image: edoburu/pgbouncer:1.23.1
           ports:
             - containerPort: 6432
               name: pgbouncer
           env:
-            - name: POSTGRESQL_HOST
+            # edoburu uses DB_*; userlist.txt is generated from these at startup.
+            # The mounted pgbouncer.ini overrides the auto-generated config.
+            - name: DB_HOST
               value: "postgres"
-            - name: POSTGRESQL_PORT
+            - name: DB_PORT
               value: "5432"
-            - name: POSTGRESQL_USERNAME
+            - name: DB_USER
               valueFrom:
                 secretKeyRef:
                   name: postgres-credentials
                   key: POSTGRES_USER
-            - name: POSTGRESQL_PASSWORD
+            - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: postgres-credentials
                   key: POSTGRES_PASSWORD
-            - name: POSTGRESQL_DATABASE
+            - name: DB_NAME
               valueFrom:
                 secretKeyRef:
                   name: postgres-credentials
                   key: POSTGRES_DB
-            - name: PGBOUNCER_PORT
+            - name: LISTEN_PORT
               value: "6432"
+            - name: AUTH_TYPE
+              value: "scram-sha-256"
+            - name: POOL_MODE
+              value: "transaction"
+            - name: ADMIN_USERS
+              value: "postgres"
           volumeMounts:
             - name: config
-              mountPath: /bitnami/pgbouncer/conf/pgbouncer.ini
+              mountPath: /etc/pgbouncer/pgbouncer.ini
               subPath: pgbouncer.ini
               readOnly: true
           readinessProbe:

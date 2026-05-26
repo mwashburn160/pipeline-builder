@@ -210,7 +210,7 @@ Resources:
         - Name: pgbouncer-config
       ContainerDefinitions:
         - Name: pgbouncer
-          Image: bitnami/pgbouncer:1.23.1
+          Image: edoburu/pgbouncer:1.23.1
           Essential: true
           DependsOn:
             - ContainerName: pgbouncer-init
@@ -218,23 +218,31 @@ Resources:
           PortMappings:
             - ContainerPort: 6432
               Protocol: tcp
+          # edoburu uses DB_*; userlist.txt is generated from these at startup.
+          # The mounted pgbouncer.ini overrides the auto-generated config.
           Environment:
-            - Name: POSTGRESQL_HOST
+            - Name: DB_HOST
               Value: postgres.pipeline-builder.local
-            - Name: POSTGRESQL_PORT
+            - Name: DB_PORT
               Value: "5432"
-            - Name: POSTGRESQL_USERNAME
+            - Name: DB_USER
               Value: postgres
-            - Name: POSTGRESQL_DATABASE
+            - Name: DB_NAME
               Value: pipeline_builder
-            - Name: PGBOUNCER_PORT
+            - Name: LISTEN_PORT
               Value: "6432"
+            - Name: AUTH_TYPE
+              Value: scram-sha-256
+            - Name: POOL_MODE
+              Value: transaction
+            - Name: ADMIN_USERS
+              Value: postgres
           Secrets:
-            - Name: POSTGRESQL_PASSWORD
+            - Name: DB_PASSWORD
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:POSTGRES_PASSWORD::"
           MountPoints:
             - SourceVolume: pgbouncer-config
-              ContainerPath: /bitnami/pgbouncer/conf
+              ContainerPath: /etc/pgbouncer
               ReadOnly: true
           HealthCheck:
             Command:
@@ -261,10 +269,10 @@ Resources:
               - "s3://${ConfigBucket}/pgbouncer/pgbouncer.ini"
               - ConfigBucket:
                   Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
-            - /bitnami/pgbouncer/conf/pgbouncer.ini
+            - /etc/pgbouncer/pgbouncer.ini
           MountPoints:
             - SourceVolume: pgbouncer-config
-              ContainerPath: /bitnami/pgbouncer/conf
+              ContainerPath: /etc/pgbouncer
               ReadOnly: false
           LogConfiguration:
             LogDriver: awslogs
