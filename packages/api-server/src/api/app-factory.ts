@@ -7,7 +7,7 @@ import { Config, CoreConstants, getConnection } from '@pipeline-builder/pipeline
 import compression from 'compression';
 import cors from 'cors';
 import express, { Express, NextFunction, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { v7 as uuid } from 'uuid';
@@ -244,13 +244,13 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       windowMs: rateLimitConfig.windowMs,
       standardHeaders: true,
       legacyHeaders: false,
-      validate: { keyGeneratorIpFallback: false },
       // Skip rate limiting for internal service calls (init scripts, inter-service)
       skip: (req: Request) => req.headers['x-internal-service'] === 'true',
-      // Per-org key: use orgId from JWT when available, fall back to IP
-      keyGenerator: (req: Request) => {
-        return getOrgId(req) || req.ip || 'anon';
-      },
+      // Per-org key: use orgId from JWT when available, fall back to IP.
+      // ipKeyGenerator normalizes IPv6 to a /64 prefix so a single user can't
+      // rotate low-bits to escape the bucket; express-rate-limit 8.x's
+      // validator also refuses to start without it.
+      keyGenerator: (req: Request) => getOrgId(req) || ipKeyGenerator(req.ip || 'anon', 64),
       handler: (_req: Request, res: Response) => {
         sendError(res, 429, 'Too many requests, please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);
       },
