@@ -88,15 +88,14 @@ export const observabilityQuery = withController('Observability query', async (r
     return;
   }
   const entry = QUERIES[key];
-  if (entry.source !== 'prometheus-instant' && entry.source !== 'prometheus-range') {
-    sendError(res, 400, 'Query key is not a Prometheus query');
-    return;
-  }
 
-  const promQL = substituteVars(
+  const queryStr = substituteVars(
     entry.query,
     {
       plugin: getStringParam(req, 'plugin'),
+      event: getStringParam(req, 'event'),
+      digest: getStringParam(req, 'digest'),
+      actor: getStringParam(req, 'actor'),
       org: req.user?.organizationId,
       isSuperAdmin: sysadmin,
     },
@@ -105,15 +104,29 @@ export const observabilityQuery = withController('Observability query', async (r
 
   try {
     if (entry.source === 'prometheus-instant') {
-      const samples = await prom.query(promQL);
+      const samples = await prom.query(queryStr);
       sendSuccess(res, 200, { samples });
       return;
     }
     const range = parseRange(req.query.range) ?? '1h';
     const end = Math.floor(Date.now() / 1000);
     const start = end - rangeSeconds(range);
-    const series = await prom.queryRange(promQL, start, end, stepForRange(range));
-    sendSuccess(res, 200, { series, range, step: stepForRange(range) });
+    const step = stepForRange(range);
+    // loki-range catalog entries return matrix results in the same
+    // {series, range, step} envelope as Prometheus range queries — let
+    // the frontend stay endpoint-agnostic and dispatch by catalog source
+    // here instead of duplicating the routing into every panel.
+    if (entry.source === 'loki-range') {
+      const series = await loki.queryMatrix(queryStr, start, end, step);
+      sendSuccess(res, 200, { series, range, step });
+      return;
+    }
+    if (entry.source === 'prometheus-range') {
+      const series = await prom.queryRange(queryStr, start, end, step);
+      sendSuccess(res, 200, { series, range, step });
+      return;
+    }
+    sendError(res, 400, `Query key source '${entry.source}' is not supported here`);
   } catch (err) {
     sendUpstreamError(res, err);
   }

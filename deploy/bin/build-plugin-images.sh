@@ -90,7 +90,10 @@ _detect_apt_mirror() {
     echo "$APT_MIRROR"
     return
   fi
-  local _token _region
+  # Explicit init — bash 3.2 (macOS default) treats unassigned `local`
+  # vars as unbound under `set -u`, so a non-EC2 host (empty _token,
+  # _region never assigned) trips line 104. Initialize both to "".
+  local _token="" _region=""
   # IMDSv2 token first (required on hardened EC2). Tiny timeout so we don't
   # stall non-EC2 builds.
   _token=$(curl -sf -X PUT --max-time 1 \

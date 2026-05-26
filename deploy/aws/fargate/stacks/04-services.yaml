@@ -372,6 +372,11 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: SERVICE_NAME
               Value: platform
+            # Auto-promote these accounts to isSuperAdmin=true on every platform
+            # boot (idempotent). Required for fresh installs so a sysadmin can
+            # be granted before the admin API (which needs sysadmin authority).
+            - Name: BOOTSTRAP_SUPERADMIN_EMAILS
+              Value: admin@internal
           Secrets:
             - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"

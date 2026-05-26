@@ -210,7 +210,7 @@ Resources:
         - Name: pgbouncer-config
       ContainerDefinitions:
         - Name: pgbouncer
-          Image: edoburu/pgbouncer:1.23.1
+          Image: edoburu/pgbouncer:v1.23.1-p3
           Essential: true
           DependsOn:
             - ContainerName: pgbouncer-init

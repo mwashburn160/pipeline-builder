@@ -189,7 +189,7 @@ services:
   # All app services connect through pgbouncer (DB_HOST=pgbouncer / DB_PORT=6432).
   # See `deploy/local/config/pgbouncer/pgbouncer.ini` for per-tier pool layout.
   pgbouncer:
-    image: 'edoburu/pgbouncer:1.23.1'
+    image: 'edoburu/pgbouncer:v1.23.1-p3'
     container_name: pgbouncer
     restart: always
     environment:
