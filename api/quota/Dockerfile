@@ -27,4 +27,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
 USER node
-CMD ["node", "index.js"]
+CMD ["node", "index.js"]s
