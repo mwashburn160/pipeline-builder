@@ -184,16 +184,14 @@ services:
     deploy: *db-deploy
 
   # ---------------------------------------------------------------------------
-  # pgBouncer connection pooler (opt-in)
+  # pgBouncer connection pooler
   # ---------------------------------------------------------------------------
-  # Start with: `docker compose --profile pgbouncer up -d`. When enabled,
-  # repoint services with DB_HOST=pgbouncer / DB_PORT=6432. See
-  # `deploy/local/config/pgbouncer/pgbouncer.ini` for per-tier pool layout.
+  # All app services connect through pgbouncer (DB_HOST=pgbouncer / DB_PORT=6432).
+  # See `deploy/local/config/pgbouncer/pgbouncer.ini` for per-tier pool layout.
   pgbouncer:
     image: 'bitnami/pgbouncer:1.23.1'
     container_name: pgbouncer
     restart: always
-    profiles: ['pgbouncer']
     environment:
       POSTGRESQL_HOST: postgres
       POSTGRESQL_PORT: '5432'

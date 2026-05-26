@@ -347,9 +347,9 @@ Resources:
             - Name: LOG_FORMAT
               Value: json
             - Name: DB_HOST
-              Value: postgres.pipeline-builder.local
+              Value: pgbouncer.pipeline-builder.local
             - Name: DB_PORT
-              Value: "5432"
+              Value: "6432"
             - Name: DATABASE
               Value: pipeline_builder
             - Name: REDIS_HOST
@@ -530,9 +530,9 @@ Resources:
             - Name: LOG_FORMAT
               Value: json
             - Name: DB_HOST
-              Value: postgres.pipeline-builder.local
+              Value: pgbouncer.pipeline-builder.local
             - Name: DB_PORT
-              Value: "5432"
+              Value: "6432"
             - Name: DATABASE
               Value: pipeline_builder
             - Name: REDIS_HOST
@@ -754,9 +754,9 @@ Resources:
             - Name: LOG_FORMAT
               Value: json
             - Name: DB_HOST
-              Value: postgres.pipeline-builder.local
+              Value: pgbouncer.pipeline-builder.local
             - Name: DB_PORT
-              Value: "5432"
+              Value: "6432"
             - Name: DATABASE
               Value: pipeline_builder
             - Name: REDIS_HOST
@@ -1016,9 +1016,9 @@ Resources:
             - Name: LOG_FORMAT
               Value: json
             - Name: DB_HOST
-              Value: postgres.pipeline-builder.local
+              Value: pgbouncer.pipeline-builder.local
             - Name: DB_PORT
-              Value: "5432"
+              Value: "6432"
             - Name: DATABASE
               Value: pipeline_builder
             - Name: REDIS_HOST
@@ -1199,9 +1199,9 @@ Resources:
             - Name: LOG_FORMAT
               Value: json
             - Name: DB_HOST
-              Value: postgres.pipeline-builder.local
+              Value: pgbouncer.pipeline-builder.local
             - Name: DB_PORT
-              Value: "5432"
+              Value: "6432"
             - Name: DATABASE
               Value: pipeline_builder
             - Name: REDIS_HOST
@@ -1386,9 +1386,9 @@ Resources:
             - Name: LOG_FORMAT
               Value: json
             - Name: DB_HOST
-              Value: postgres.pipeline-builder.local
+              Value: pgbouncer.pipeline-builder.local
             - Name: DB_PORT
-              Value: "5432"
+              Value: "6432"
             - Name: DATABASE
               Value: pipeline_builder
             - Name: REDIS_HOST
@@ -1567,9 +1567,9 @@ Resources:
             - Name: LOG_FORMAT
               Value: json
             - Name: DB_HOST
-              Value: postgres.pipeline-builder.local
+              Value: pgbouncer.pipeline-builder.local
             - Name: DB_PORT
-              Value: "5432"
+              Value: "6432"
             - Name: DATABASE
               Value: pipeline_builder
             - Name: PLATFORM_BASE_URL
@@ -1732,9 +1732,9 @@ Resources:
             - Name: LOG_FORMAT
               Value: json
             - Name: DB_HOST
-              Value: postgres.pipeline-builder.local
+              Value: pgbouncer.pipeline-builder.local
             - Name: DB_PORT
-              Value: "5432"
+              Value: "6432"
             - Name: DATABASE
               Value: pipeline_builder
             - Name: QUOTA_SERVICE_HOST

@@ -184,6 +184,149 @@ Resources:
         FailureThreshold: 1
 
   # ===========================================================================
+  # pgBouncer (connection pooler in front of PostgreSQL)
+  # ===========================================================================
+  # All app services connect via pgbouncer.pipeline-builder.local:6432 instead
+  # of postgres directly. Same per-tier pool layout as local/minikube/ec2 —
+  # see deploy/aws/fargate/config/pgbouncer/pgbouncer.ini.
+  # ---------------------------------------------------------------------------
+  # pgBouncer - Task Definition
+  # ---------------------------------------------------------------------------
+
+  PgbouncerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-pgbouncer"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      Volumes:
+        - Name: pgbouncer-config
+      ContainerDefinitions:
+        - Name: pgbouncer
+          Image: bitnami/pgbouncer:1.23.1
+          Essential: true
+          DependsOn:
+            - ContainerName: pgbouncer-init
+              Condition: SUCCESS
+          PortMappings:
+            - ContainerPort: 6432
+              Protocol: tcp
+          Environment:
+            - Name: POSTGRESQL_HOST
+              Value: postgres.pipeline-builder.local
+            - Name: POSTGRESQL_PORT
+              Value: "5432"
+            - Name: POSTGRESQL_USERNAME
+              Value: postgres
+            - Name: POSTGRESQL_DATABASE
+              Value: pipeline_builder
+            - Name: PGBOUNCER_PORT
+              Value: "6432"
+          Secrets:
+            - Name: POSTGRESQL_PASSWORD
+              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:POSTGRES_PASSWORD::"
+          MountPoints:
+            - SourceVolume: pgbouncer-config
+              ContainerPath: /bitnami/pgbouncer/conf
+              ReadOnly: true
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - pg_isready -h 127.0.0.1 -p 6432 || exit 1
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PostgresLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: pgbouncer
+        - Name: pgbouncer-init
+          Image: !Ref AwsCliImage
+          Essential: false
+          Command:
+            - s3
+            - cp
+            - !Sub
+              - "s3://${ConfigBucket}/pgbouncer/pgbouncer.ini"
+              - ConfigBucket:
+                  Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
+            - /bitnami/pgbouncer/conf/pgbouncer.ini
+          MountPoints:
+            - SourceVolume: pgbouncer-config
+              ContainerPath: /bitnami/pgbouncer/conf
+              ReadOnly: false
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group:
+                Fn::ImportValue: !Sub "${StackPrefix}-PostgresLogGroupName"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: pgbouncer-init
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-pgbouncer-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # pgBouncer - ECS Service
+  # ---------------------------------------------------------------------------
+
+  PgbouncerService:
+    Type: AWS::ECS::Service
+    DependsOn: PostgresService
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-pgbouncer"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref PgbouncerTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DefaultDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-DatabaseSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt PgbouncerDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-pgbouncer-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  # ---------------------------------------------------------------------------
+  # pgBouncer - Service Discovery
+  # ---------------------------------------------------------------------------
+
+  PgbouncerDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pgbouncer
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
   # MongoDB
   # ===========================================================================
 
