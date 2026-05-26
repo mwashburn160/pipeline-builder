@@ -61,7 +61,7 @@ log "Loading environment from $ENV_FILE"
 set -a; . "$ENV_FILE"; set +a
 
 [ -f "$DEPLOY_DIR/mongodb-keyfile" ] && chmod 400 "$DEPLOY_DIR/mongodb-keyfile"
-mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,grafana,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
+mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/tmp}"
 
 # -- Clean stale Docker state ------------------------------------------------
@@ -139,7 +139,6 @@ secret postgres-secret   --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-li
 secret mongodb-secret    --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
 secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
 secret pgadmin-secret    --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
-secret grafana-secret    --from-literal=GF_SECURITY_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD"
 
 # GHCR pull secret
 GHCR_TOKEN="${GHCR_TOKEN:-}"
@@ -205,12 +204,6 @@ configmap prometheus-config \
   --from-file=alert-rules.yml="$CONFIG_DIR/prometheus/alert-rules.yml"
 configmap alertmanager-config --from-file=alertmanager.yml="$CONFIG_DIR/alertmanager/alertmanager.yml"
 configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/promtail-config.yml"
-configmap grafana-datasources --from-file=loki.yml="$CONFIG_DIR/grafana/loki.yml" --from-file=prometheus.yml="$CONFIG_DIR/grafana/prometheus.yml"
-configmap grafana-dashboards-provisioning --from-file=dashboards.yml="$CONFIG_DIR/grafana/dashboards.yml"
-configmap grafana-dashboards --from-file=service-logs.json="$CONFIG_DIR/grafana/service-logs.json" --from-file=api-metrics.json="$CONFIG_DIR/grafana/api-metrics.json" \
-  --from-file=database-health.json="$CONFIG_DIR/grafana/database-health.json" --from-file=plugin-builds.json="$CONFIG_DIR/grafana/plugin-builds.json" \
-  --from-file=business-metrics.json="$CONFIG_DIR/grafana/business-metrics.json" --from-file=compliance-metrics.json="$CONFIG_DIR/grafana/compliance-metrics.json" \
-  --from-file=infrastructure.json="$CONFIG_DIR/grafana/infrastructure.json"
 
 # -- Deploy -------------------------------------------------------------------
 
@@ -244,7 +237,6 @@ pkill -f "kubectl port-forward.*-n $NS" 2>/dev/null || true
 sleep 1
 
 port_forward "Nginx"          nginx            "8443:8443 8080:8080"
-port_forward "Grafana"        grafana          "3200:3000"
 port_forward "Mongo Express"  mongo-express    "8081:8081"
 port_forward "pgAdmin"        pgadmin          "5480:80"
 # Registry UI is served via the platform frontend at /dashboard/registry
