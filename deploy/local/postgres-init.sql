@@ -32,23 +32,23 @@ $$ LANGUAGE 'plpgsql';
 
 CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(100) NOT NULL DEFAULT 'system',
-    created_by VARCHAR(100) NOT NULL DEFAULT 'system',
+    org_id VARCHAR(255) NOT NULL DEFAULT 'system',
+    created_by TEXT NOT NULL DEFAULT 'system',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by VARCHAR(100) NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT 'system',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     -- Plugin Information
-    name VARCHAR(150) NOT NULL,
+    name VARCHAR(255) NOT NULL,
     description TEXT,
-    keywords JSONB NOT NULL DEFAULT '{}',
+    keywords JSONB NOT NULL DEFAULT '[]',
     category VARCHAR(50) NOT NULL DEFAULT 'unknown',
-    version VARCHAR(20) NOT NULL DEFAULT '1.0.0',
+    version VARCHAR(50) NOT NULL DEFAULT '1.0.0',
     metadata JSONB NOT NULL DEFAULT '{}',
-    
+
     -- Build Configuration
     plugin_type VARCHAR(50) NOT NULL DEFAULT 'CodeBuildStep',
-    compute_type VARCHAR(20) NOT NULL DEFAULT 'SMALL',
+    compute_type VARCHAR(50) NOT NULL DEFAULT 'SMALL',
     timeout INTEGER,
     failure_behavior VARCHAR(10) NOT NULL DEFAULT 'fail'
                              CHECK (failure_behavior IN ('fail', 'warn', 'ignore')),
@@ -56,23 +56,23 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     dockerfile TEXT,
     build_type VARCHAR(20) NOT NULL DEFAULT 'build_image',
     primary_output_directory VARCHAR(28),
-    
+
     -- Runtime Configuration
     env JSONB NOT NULL DEFAULT '{}',
     build_args JSONB NOT NULL DEFAULT '{}',
     install_commands TEXT[] NOT NULL DEFAULT '{}',
     commands TEXT[] NOT NULL DEFAULT '{}',
-    
-    
+
+
     -- Access Control & Status
-    access_modifier VARCHAR(10) NOT NULL DEFAULT 'public' 
+    access_modifier VARCHAR(10) NOT NULL DEFAULT 'private'
                         CHECK (access_modifier IN ('public', 'private')),
     is_default BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
-    
+
     -- Soft Delete
     deleted_at TIMESTAMPTZ,
-    deleted_by VARCHAR(100)
+    deleted_by TEXT
 );
 
 -- ============================================================================
@@ -81,28 +81,29 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
 
 CREATE TABLE IF NOT EXISTS pipelines (    -- Identity & Audit Fields
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(100) NOT NULL DEFAULT 'system',
-    created_by VARCHAR(100) NOT NULL DEFAULT 'system',
+    org_id VARCHAR(255) NOT NULL DEFAULT 'system',
+    created_by TEXT NOT NULL DEFAULT 'system',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by VARCHAR(100) NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT 'system',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     -- Pipeline Information
-    project VARCHAR(100) NOT NULL,
-    organization VARCHAR(100) NOT NULL,
+    project VARCHAR(255) NOT NULL,
+    organization VARCHAR(255) NOT NULL,
+    pipeline_name VARCHAR(255),
     description TEXT,
     keywords JSONB NOT NULL DEFAULT '[]',
     props JSONB NOT NULL DEFAULT '{}',
-    
+
     -- Access Control & Status
-    access_modifier VARCHAR(10) NOT NULL DEFAULT 'public' 
+    access_modifier VARCHAR(10) NOT NULL DEFAULT 'private'
                         CHECK (access_modifier IN ('public', 'private')),
     is_default BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN NOT NULL DEFAULT true,
-    
+
     -- Soft Delete
     deleted_at TIMESTAMPTZ,
-    deleted_by VARCHAR(100)
+    deleted_by TEXT
 );
 
 -- ============================================================================
@@ -362,7 +363,7 @@ CREATE TRIGGER update_org_alert_destinations_modtime
 -- ============================================================================
 -- The platform's audit log lives in the MongoDB `audit_events` collection
 -- (see platform/src/models/audit-event.ts). This Postgres table had no
--- application writers â€'s audit confirmed it was guarding an empty
+-- application writers ï¿½'s audit confirmed it was guarding an empty
 -- table. Drop it so future deploys don't carry the dead schema. The DROP
 -- IF EXISTS makes this safe to re-run against an existing database
 -- where the table was already absent.
