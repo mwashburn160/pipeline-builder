@@ -143,10 +143,20 @@ export class Workflow extends Component {
                 {
                     id: 'affected',
                     name: 'Affected projects and images',
-                    run: 'echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -n --arg LIST "$(comm -12 <(pnpm nx show projects --affected --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}| sort) <(echo $IMAGE_PROJECTS | jq -r \'.[]\' | sort))" \'$LIST | split("\n") | map(select(length>0))\') >> $GITHUB_OUTPUT',
                     env: {
                         IMAGE_PROJECTS: JSON.stringify(IMAGE_PROJECTS),
                     },
+                    // AFFECTED_IMAGES = nx's transitively-affected set ∩ image
+                    // projects. This covers BOTH triggers we want:
+                    //   1. Direct service-dir change (e.g. api/billing/src/*) →
+                    //      that service's image rebuilds.
+                    //   2. Library change (e.g. packages/api-core/*) → only the
+                    //      service images whose dep graph touches that library
+                    //      rebuild. Unrelated services don't.
+                    //
+                    // Unrelated changes (.projenrc.ts, deploy/*, docs) don't end
+                    // up in nx's affected set, so they trigger zero image builds.
+                    run: 'echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -n --arg LIST "$(comm -12 <(pnpm nx show projects --affected --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}| sort) <(echo $IMAGE_PROJECTS | jq -r \'.[]\' | sort))" \'$LIST | split("\n") | map(select(length>0))\') >> $GITHUB_OUTPUT',
                 },
                 {
                     name: 'Affected details',
