@@ -12,8 +12,8 @@
 # without them).
 #
 # Outputs:
-#   deploy/local/certs/registry-token.key      RSA private key (4096-bit, PEM)
-#   deploy/local/certs/registry-token.crt      Self-signed x509 cert (PEM)
+#   deploy/local/certs/image-registry-jwt.key  RSA private key (4096-bit, PEM)
+#   deploy/local/certs/image-registry-jwt.crt  Self-signed x509 cert (PEM)
 #
 # To rotate keys: regenerate both files, restart registry, restart
 # pipeline-image-registry. Tokens issued under the old key stop working
@@ -23,8 +23,8 @@
 set -euo pipefail
 
 CERT_DIR="$(cd "$(dirname "$0")/.." && pwd)/certs"
-KEY_FILE="$CERT_DIR/registry-token.key"
-CERT_FILE="$CERT_DIR/registry-token.crt"
+KEY_FILE="$CERT_DIR/image-registry-jwt.key"
+CERT_FILE="$CERT_DIR/image-registry-jwt.crt"
 
 if [ -f "$KEY_FILE" ] && [ -f "$CERT_FILE" ] && [ "${1:-}" != "--force" ]; then
   echo "Key + cert already exist at $CERT_DIR. Use --force to regenerate."

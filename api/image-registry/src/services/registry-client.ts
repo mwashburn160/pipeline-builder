@@ -18,6 +18,17 @@ const protocol = config.registry.http ? 'http': 'https';
 const baseURL = `${protocol}://${config.registry.host}:${config.registry.port}`;
 
 /**
+ * Encode a Docker registry repository name for use in a URL path. Repo
+ * names contain forward slashes (e.g. `library/pipeline-trivy-base`),
+ * which `encodeURIComponent` would convert to `%2F` — the registry then
+ * treats the whole thing as one missing path component and returns 404.
+ * Encode each segment individually, preserving the slashes.
+ */
+function encodeRepoName(name: string): string {
+  return name.split('/').map(encodeURIComponent).join('/');
+}
+
+/**
  * Pre-configured client for talking to the underlying Docker registry's
  * v2 HTTP API. Authenticates with the service-account credentials in
  * config (these never leave this service  customers don't see them).
@@ -103,7 +114,7 @@ export async function listRepositories(opts: { n?: number; last?: string } = {})
 /** GET /v2/<name>/tags/list */
 export async function listTags(name: string): Promise<{ name: string; tags: string[] }> {
   const c = await authedClient();
-  const { data } = await c.get<{ name: string; tags: string[] | null }>( `/v2/${encodeURIComponent(name)}/tags/list`,
+  const { data } = await c.get<{ name: string; tags: string[] | null }>( `/v2/${encodeRepoName(name)}/tags/list`,
   );
   return { name: data.name, tags: data.tags ?? [] };
 }
@@ -116,7 +127,7 @@ export async function getManifest( name: string,
   reference: string,
 ): Promise<{ body: unknown; digest: string; mediaType: string }> {
   const c = await authedClient();
-  const { data, headers } = await c.get<unknown>( `/v2/${encodeURIComponent(name)}/manifests/${encodeURIComponent(reference)}`,
+  const { data, headers } = await c.get<unknown>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
     {
       // Distribution v2 + OCI both, plus manifest list for multi-arch.
       headers: {
@@ -138,7 +149,7 @@ export async function getManifest( name: string,
 /** DELETE /v2/<name>/manifests/<digest>. Reference must be a digest, not a tag. */
 export async function deleteManifest(name: string, digest: string): Promise<void> {
   const c = await authedClient();
-  await c.delete(`/v2/${encodeURIComponent(name)}/manifests/${encodeURIComponent(digest)}`);
+  await c.delete(`/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(digest)}`);
 }
 
 /**
@@ -152,7 +163,7 @@ export async function putManifest( name: string,
   mediaType: string,
 ): Promise<{ digest: string }> {
   const c = await authedClient();
-  const { headers } = await c.put<unknown>( `/v2/${encodeURIComponent(name)}/manifests/${encodeURIComponent(reference)}`,
+  const { headers } = await c.put<unknown>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
     body,
     { headers: { 'Content-Type': mediaType } },
   );
@@ -170,7 +181,7 @@ export async function headManifest( name: string,
 ): Promise<{ digest: string } | null> {
   const c = await authedClient();
   try {
-    const { headers } = await c.head<unknown>( `/v2/${encodeURIComponent(name)}/manifests/${encodeURIComponent(reference)}`,
+    const { headers } = await c.head<unknown>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
       {
         headers: {
           Accept: [
@@ -201,7 +212,7 @@ export async function headBlob( name: string,
   digest: string,
 ): Promise<{ contentLength?: number }> {
   const c = await authedClient();
-  const { headers } = await c.head<unknown>( `/v2/${encodeURIComponent(name)}/blobs/${encodeURIComponent(digest)}`,
+  const { headers } = await c.head<unknown>( `/v2/${encodeRepoName(name)}/blobs/${encodeURIComponent(digest)}`,
   );
   const raw = headers['content-length'];
   const contentLength = typeof raw === 'string' ? parseInt(raw, 10): undefined;
@@ -217,7 +228,7 @@ export async function getBlobStream( name: string,
   digest: string,
 ): Promise<{ stream: Readable; contentType: string; contentLength?: number }> {
   const c = await authedClient();
-  const response: AxiosResponse<Readable> = await c.get<Readable>( `/v2/${encodeURIComponent(name)}/blobs/${encodeURIComponent(digest)}`,
+  const response: AxiosResponse<Readable> = await c.get<Readable>( `/v2/${encodeRepoName(name)}/blobs/${encodeURIComponent(digest)}`,
     {
       responseType: 'stream',
       timeout: BLOB_STREAM_TIMEOUT_MS,
@@ -249,7 +260,7 @@ export async function mountBlob( fromRepo: string,
   digest: string,
 ): Promise<{ mounted: true }> {
   const c = await authedClient();
-  const response = await c.post<unknown>( `/v2/${encodeURIComponent(toRepo)}/blobs/uploads/`,
+  const response = await c.post<unknown>( `/v2/${encodeRepoName(toRepo)}/blobs/uploads/`,
     null,
     {
       params: { mount: digest, from: fromRepo },

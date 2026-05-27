@@ -132,12 +132,15 @@ Resources:
             # populates that file before this container starts.
             - Name: REGISTRY_AUTH
               Value: token
-            # The bearer realm URL is sent verbatim to clients in the
-            # WWW-Authenticate response, so it MUST be resolvable by every
-            # Docker client that pulls from this registry. PlatformBaseUrl
-            # (computed by deploy.sh) is the single canonical value.
+            # Token realm advertised to clients in WWW-Authenticate.
+            # In-cluster clients (plugin's buildkit + crane sidecars) hit
+            # image-registry directly over plain HTTP on its service-
+            # discovery endpoint. For external Docker clients pulling
+            # from the public hostname, override this CloudFormation
+            # parameter to a publicly-resolvable HTTPS URL (nginx already
+            # proxies /image-registry/token to image-registry).
             - Name: REGISTRY_AUTH_TOKEN_REALM
-              Value: !Sub "${PlatformBaseUrl}/image-registry/token"
+              Value: http://image-registry.pipeline-builder.local:3000/token
             - Name: REGISTRY_AUTH_TOKEN_SERVICE
               Value: pipeline-image-registry
             - Name: REGISTRY_AUTH_TOKEN_ISSUER

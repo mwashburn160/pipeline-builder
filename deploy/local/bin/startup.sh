@@ -41,27 +41,18 @@ fi
 CERT_DIR="$DEPLOY_DIR/certs"
 AUTH_DIR="$DEPLOY_DIR/auth"
 
-if [ ! -f "$CERT_DIR/nginx.crt" ] || [ ! -f "$CERT_DIR/nginx.key" ]; then
+if [ ! -f "$CERT_DIR/nginx-tls.crt" ] || [ ! -f "$CERT_DIR/nginx-tls.key" ]; then
   echo "=== Generating self-signed nginx TLS certificate ==="
   mkdir -p "$CERT_DIR"
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout "$CERT_DIR/nginx.key" -out "$CERT_DIR/nginx.crt" \
+    -keyout "$CERT_DIR/nginx-tls.key" -out "$CERT_DIR/nginx-tls.crt" \
     -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-  chmod 644 "$CERT_DIR/nginx.key"
+  chmod 644 "$CERT_DIR/nginx-tls.key"
 fi
 
-if [ ! -f "$CERT_DIR/registry.crt" ] || [ ! -f "$CERT_DIR/registry.key" ]; then
-  echo "=== Generating self-signed registry TLS certificate ==="
-  mkdir -p "$CERT_DIR"
-  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout "$CERT_DIR/registry.key" -out "$CERT_DIR/registry.crt" \
-    -subj "/CN=registry" -addext "subjectAltName=DNS:registry,DNS:localhost"
-  chmod 644 "$CERT_DIR/registry.key"
-fi
-
-if [ ! -f "$CERT_DIR/registry-token.key" ] || [ ! -f "$CERT_DIR/registry-token.crt" ]; then
-  echo "=== Generating registry token-auth keypair ==="
-  "$SCRIPT_DIR/gen-registry-token-keys.sh"
+if [ ! -f "$CERT_DIR/image-registry-jwt.key" ] || [ ! -f "$CERT_DIR/image-registry-jwt.crt" ]; then
+  echo "=== Generating image-registry JWT signing keypair ==="
+  "$SCRIPT_DIR/gen-image-registry-jwt-keys.sh"
 fi
 
 if [ ! -f "$AUTH_DIR/registry.passwd" ]; then

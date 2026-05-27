@@ -126,19 +126,14 @@ spec:
             # disabled; htpasswd has been removed.
             - name: REGISTRY_AUTH
               value: "token"
-            # The bearer realm URL is sent verbatim to clients in the
-            # WWW-Authenticate response, so it MUST be resolvable by every
-            # Docker client that pulls from this registry: the in-cluster
-            # dind sidecar, and customer CodeBuild over public DNS/IP.
-            # PLATFORM_BASE_URL (from app-env) is the single value that
-            # satisfies both: the public IP/host nginx fronts.
-            - name: PLATFORM_BASE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: app-env
-                  key: PLATFORM_BASE_URL
+            # Token realm advertised to clients in WWW-Authenticate.
+            # In-cluster clients hit image-registry directly over plain
+            # HTTP at the service-discovery endpoint. For external Docker
+            # clients pulling via the public hostname, override this to a
+            # publicly-resolvable URL through the app-env ConfigMap (and
+            # re-add a public ingress for /image-registry/token).
             - name: REGISTRY_AUTH_TOKEN_REALM
-              value: "$(PLATFORM_BASE_URL)/image-registry/token"
+              value: "http://image-registry:3000/token"
             - name: REGISTRY_AUTH_TOKEN_SERVICE
               value: "pipeline-image-registry"
             - name: REGISTRY_AUTH_TOKEN_ISSUER
@@ -147,10 +142,9 @@ spec:
               value: "/etc/registry/jwt-public.pem"
             - name: REGISTRY_HTTP_ADDR
               value: "0.0.0.0:5000"
-            - name: REGISTRY_HTTP_TLS_KEY
-              value: "/etc/ssl/private/tls.key"
-            - name: REGISTRY_HTTP_TLS_CERTIFICATE
-              value: "/etc/ssl/certs/tls.crt"
+            # TLS deliberately disabled — registry serves plain HTTP on
+            # its in-cluster ClusterIP service; nginx fronts it on HTTPS
+            # for external clients.
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
           resources:
@@ -160,11 +154,9 @@ spec:
             requests:
               cpu: "75m"
               memory: 256Mi
-          # tcpSocket probes against the TLS port produce harmless but noisy
-          # "TLS handshake error: EOF" log lines. We accept that — switching
-          # to httpGet would fail the probes since /v2/ returns 401 (auth
-          # required) on a token-auth registry, and kubelet treats 4xx as
-          # unhealthy.
+          # tcpSocket probes — /v2/ returns 401 (auth required) on a
+          # token-auth registry, and kubelet treats 4xx as unhealthy, so
+          # httpGet won't work here.
           readinessProbe:
             tcpSocket:
               port: 5000
@@ -182,14 +174,6 @@ spec:
           volumeMounts:
             - name: registry-data
               mountPath: /var/lib/registry
-            - name: registry-tls
-              mountPath: /etc/ssl/certs/tls.crt
-              subPath: tls.crt
-              readOnly: true
-            - name: registry-tls
-              mountPath: /etc/ssl/private/tls.key
-              subPath: tls.key
-              readOnly: true
             - name: registry-token-cert
               mountPath: /etc/registry/jwt-public.pem
               subPath: jwt-public.pem
@@ -198,16 +182,13 @@ spec:
         - name: registry-data
           persistentVolumeClaim:
             claimName: registry-data
-        - name: registry-tls
-          secret:
-            secretName: registry-tls-secret
         - name: registry-token-cert
           secret:
             # Same keypair pipeline-image-registry uses for signing.
             # Operator creates this secret from openssl-generated cert via:
             #   kubectl create secret generic registry-token-secret \
-            #     --from-file=jwt-public.pem=registry-token.crt \
-            #     --from-file=jwt-private.pem=registry-token.key \
+            #     --from-file=jwt-public.pem=image-registry-jwt.crt \
+            #     --from-file=jwt-private.pem=image-registry-jwt.key \
             #     -n pipeline-builder
             secretName: registry-token-secret
             items:

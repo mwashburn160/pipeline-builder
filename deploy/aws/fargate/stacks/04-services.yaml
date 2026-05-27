@@ -66,7 +66,7 @@ Parameters:
 
   ImageRegistryImage:
     Type: String
-    Default: ghcr.io/mwashburn160/image-registry:3.4.56
+    Default: ghcr.io/mwashburn160/image-registry:3.4.57
     Description: Docker image for the pipeline-image-registry service
 
   FrontendImage:
@@ -866,8 +866,10 @@ Resources:
           # buildkitd.toml inline before exec'ing buildkitd. The mirror lets
           # plugin Dockerfiles using bare `FROM pipeline-plugin-base:24.04`
           # resolve at the in-cluster registry instead of Docker Hub. The
-          # in-cluster registry uses a self-signed cert, so `insecure = true`
-          # is required to skip cert verification on the layer pulls.
+          # registry serves plain HTTP on the service-discovery endpoint
+          # (no TLS in-cluster); nginx fronts it on HTTPS for any external
+          # clients. HTTP here avoids the buildkit-vs-crane scheme-
+          # mismatch deadlock on the token realm.
           EntryPoint: ["/bin/sh", "-c"]
           Command:
             - |
@@ -876,8 +878,7 @@ Resources:
               [registry."docker.io"]
                 mirrors = ["registry.pipeline-builder.local:5000"]
               [registry."registry.pipeline-builder.local:5000"]
-                http = false
-                insecure = true
+                http = true
               TOML
               exec buildkitd \
                 --addr unix:///run/buildkit/buildkitd.sock \

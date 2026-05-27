@@ -26,7 +26,7 @@ kubectl delete configmap app-env postgres-init mongodb-init nginx-config nginx-n
   -n "$NS" --ignore-not-found 2>/dev/null || true
 kubectl delete secret jwt-secret postgres-secret mongodb-secret mongodb-keyfile \
   mongo-express-secret pgadmin-secret grafana-secret ghcr-secret \
-  nginx-tls-secret registry-tls-secret registry-auth-secret registry-token-secret \
+  nginx-tls-secret registry-auth-secret registry-token-secret \
   image-registry-build-svc-secret \
   -n "$NS" --ignore-not-found 2>/dev/null || true
 

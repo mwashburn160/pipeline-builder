@@ -7,12 +7,13 @@
 #
 # The in-cluster registry holds our bases at registry:5000/library/<name>.
 # Mirroring docker.io → registry:5000 makes buildkit transparently look
-# there for any unqualified reference; HTTPS+insecure matches the
-# self-signed cert on the local registry.
+# there for any unqualified reference.
 
 [registry."docker.io"]
   mirrors = ["registry:5000"]
 
 [registry."registry:5000"]
-  http = false
-  insecure = true
+  # Registry runs plain HTTP on the backend-network. nginx fronts it on
+  # HTTPS at :8443 for external clients, but in-cluster pulls hit it
+  # directly over HTTP.
+  http = true

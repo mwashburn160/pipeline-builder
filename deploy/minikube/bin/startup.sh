@@ -155,26 +155,21 @@ fi
 log "Creating TLS certificates"
 mkdir -p "$CERT_DIR" "$AUTH_DIR"
 
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx.key" -out "$CERT_DIR/nginx.crt" \
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx-tls.key" -out "$CERT_DIR/nginx-tls.crt" \
   -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" 2>&1
-chmod 644 "$CERT_DIR/nginx.key"
-kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx.crt" --key="$CERT_DIR/nginx.key" -n "$NS"
-
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/registry.key" -out "$CERT_DIR/registry.crt" \
-  -subj "/CN=registry" -addext "subjectAltName=DNS:registry,DNS:localhost" 2>&1
-chmod 644 "$CERT_DIR/registry.key"
-kube create secret tls registry-tls-secret --cert="$CERT_DIR/registry.crt" --key="$CERT_DIR/registry.key" -n "$NS"
+chmod 644 "$CERT_DIR/nginx-tls.key"
+kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NS"
 
 # JWT signing keypair for image-registry's token-auth endpoint. Mounted by
 # both the underlying registry (as the trusted public cert) and the
 # image-registry proxy (which signs tokens with the private key).
-openssl genrsa -out "$CERT_DIR/jwt-private.pem" 2048 2>&1
-openssl req -x509 -new -key "$CERT_DIR/jwt-private.pem" -days 3650 \
-  -subj "/CN=registry-token" -out "$CERT_DIR/jwt-public.pem" 2>&1
-chmod 644 "$CERT_DIR/jwt-private.pem" "$CERT_DIR/jwt-public.pem"
+openssl genrsa -out "$CERT_DIR/image-registry-jwt.key" 2048 2>&1
+openssl req -x509 -new -key "$CERT_DIR/image-registry-jwt.key" -days 3650 \
+  -subj "/CN=pipeline-image-registry-token-issuer" -out "$CERT_DIR/image-registry-jwt.crt" 2>&1
+chmod 644 "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt"
 secret registry-token-secret \
-  --from-file=jwt-private.pem="$CERT_DIR/jwt-private.pem" \
-  --from-file=jwt-public.pem="$CERT_DIR/jwt-public.pem"
+  --from-file=jwt-private.pem="$CERT_DIR/image-registry-jwt.key" \
+  --from-file=jwt-public.pem="$CERT_DIR/image-registry-jwt.crt"
 
 # Build-side credentials consumed by the image-registry proxy:
 #   IMAGE_REGISTRY_*  — Basic auth used when talking to the underlying registry.

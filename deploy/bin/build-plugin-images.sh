@@ -169,8 +169,14 @@ build_base_images() {
   # buildkitd.toml mirror at deploy/local/config/buildkitd/ maps
   # docker.io → registry:5000, so bare `FROM pipeline-plugin-base:24.04`
   # in plugin Dockerfiles resolves via that mirror.
+  #
+  # Fail loudly if the push fails — a half-pushed registry leaves plugin
+  # builds failing at runtime with a misleading `insufficient_scope`
+  # error (registry returns the same response for missing-repo and
+  # actual-scope-denied). Better to abort here so the operator sees the
+  # real cause (network, auth, realm misconfig).
   if [ -x "$SCRIPT_DIR/push-base-images.sh" ]; then
-    "$SCRIPT_DIR/push-base-images.sh" || true
+    "$SCRIPT_DIR/push-base-images.sh"
   fi
   echo ""
 }

@@ -86,7 +86,7 @@ spec:
               echo "Registry ready"
       containers:
         - name: image-registry
-          image: ghcr.io/mwashburn160/image-registry:3.4.56
+          image: ghcr.io/mwashburn160/image-registry:3.4.57
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -117,8 +117,10 @@ spec:
               value: "registry"
             - name: IMAGE_REGISTRY_PORT
               value: "5000"
+            # Registry serves plain HTTP on its in-cluster ClusterIP svc;
+            # nginx fronts it on HTTPS externally. See registry.yaml.
             - name: IMAGE_REGISTRY_HTTP
-              value: "false"
+              value: "true"
             - name: IMAGE_REGISTRY_INSECURE
               value: "true"
             # Token signing — keypair shared with registry. Files mounted

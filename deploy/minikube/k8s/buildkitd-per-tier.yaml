@@ -30,8 +30,7 @@
 # mirror lets plugin Dockerfiles use bare base references (e.g.
 # `FROM pipeline-plugin-base:24.04`) — buildkit redirects those lookups
 # at the in-cluster registry instead of Docker Hub (which doesn't host
-# our base images). `insecure = true` is required for the registry's
-# self-signed cert.
+# our base images).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -43,18 +42,11 @@ data:
       mirrors = ["registry:5000"]
 
     [registry."registry:5000"]
-      http = false
-      insecure = true
-
-    # nginx:8443 is the host the registry returns in its WWW-Authenticate
-    # `realm=` header for token-auth challenges. buildkit follows that URL
-    # to fetch a bearer token, and without an explicit host entry it would
-    # apply default TLS verification against our self-signed cert and fail
-    # with "x509: certificate signed by unknown authority". insecure=true
-    # here scopes the cert-skip to the platform's token endpoint host.
-    [registry."nginx:8443"]
-      http = false
-      insecure = true
+      # Registry serves plain HTTP on the in-cluster ClusterIP service —
+      # nginx fronts it on HTTPS for external clients. Plain HTTP here
+      # avoids the buildkit-vs-crane scheme-mismatch deadlock on the
+      # token realm (see registry.yaml for the full rationale).
+      http = true
 
 ---
 apiVersion: apps/v1
