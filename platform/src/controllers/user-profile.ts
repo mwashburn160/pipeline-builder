@@ -45,6 +45,7 @@ export interface UserResponseInput {
   username: string;
   email: string;
   isEmailVerified: boolean;
+  isSuperAdmin?: boolean;
   lastActiveOrgId?: Types.ObjectId | string;
   featureOverrides?: Map<string, boolean> | Record<string, boolean>;
   createdAt?: Date;
@@ -76,6 +77,11 @@ export function formatUserResponse(
     username: user.username,
     email: user.email,
     role: opts?.activeOrgRole || null,
+    // Echo the sysadmin flag from mongo so the frontend can gate
+    // sysadmin-only sidebar entries (Registry, Build Queue, All Users,
+    // All Organizations) via isSystemAdmin(user). Was previously dropped
+    // here, making the sidebar filter always see false.
+    isSuperAdmin: user.isSuperAdmin === true,
     isEmailVerified: user.isEmailVerified,
     organizationId: user.lastActiveOrgId?.toString() || null,
     organizationName: opts?.activeOrgName || null,
