@@ -80,6 +80,14 @@ export const register = withController('Register', async (req, res) => {
     void autoSubscribeToPublishedRules(result.organizationId);
   }
 
+  // Auto-promote if the new user's email is in BOOTSTRAP_SUPERADMIN_EMAILS.
+  // Fire-and-forget — promotion failure shouldn't block the 201 response;
+  // the startup-time bootstrap will catch it on the next restart.
+  if (result.sub && result.email) {
+    const { maybePromoteNewUser } = await import('../services/superadmin-bootstrap');
+    void maybePromoteNewUser(result.sub, result.email);
+  }
+
   audit(req, 'user.register', { targetType: 'user', targetId: result.sub });
   sendSuccess(res, 201, { user: result });
 }, {

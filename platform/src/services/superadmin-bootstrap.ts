@@ -112,3 +112,46 @@ export async function bootstrapSuperAdmins(): Promise<number> {
 
   return promotedCount;
 }
+
+/**
+ * Check whether a just-registered user should be auto-promoted to
+ * super-admin based on `BOOTSTRAP_SUPERADMIN_EMAILS`. Called from the
+ * registration controller so the promotion happens on first login — not
+ * on the next platform restart.
+ *
+ * Returns `true` if the user was promoted.
+ */
+export async function maybePromoteNewUser(userId: string, email: string): Promise<boolean> {
+  const raw = process.env.BOOTSTRAP_SUPERADMIN_EMAILS || '';
+  const emails = new Set(
+    raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
+  );
+  if (emails.size === 0 || !emails.has(email.trim().toLowerCase())) return false;
+
+  const result = await User.updateOne(
+    { _id: userId, isSuperAdmin: { $ne: true } },
+    { $set: { isSuperAdmin: true } },
+  );
+  if (!result.modifiedCount) return false;
+
+  logger.warn('Auto-promoted newly registered user to super-admin', {
+    email,
+    userId,
+    source: 'BOOTSTRAP_SUPERADMIN_EMAILS',
+  });
+
+  AuditEvent.create({
+    action: 'admin.superadmin.grant',
+    actorId: 'bootstrap-env',
+    targetType: 'user',
+    targetId: userId,
+    details: { email, source: 'BOOTSTRAP_SUPERADMIN_EMAILS', trigger: 'registration' },
+  }).catch((err) => {
+    logger.warn('Audit log write failed for post-registration super-admin grant', {
+      email,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  return true;
+}
