@@ -50,37 +50,51 @@ const client: AxiosInstance = axios.create({
   httpsAgent: new Agent({ rejectUnauthorized: !config.registry.insecure }),
 });
 
-let cachedManagementToken: { token: string; expiresAt: number } | null = null;
-
-/** Lazily compute the management token used for our outbound calls to the underlying registry. */
-async function getManagementToken(): Promise<string> {
-  const now = Date.now();
-  if (cachedManagementToken && cachedManagementToken.expiresAt > now + 30_000) {
-    return cachedManagementToken.token;
-  }
-
-  // Mint a token in-process for our own management calls  same logic the
-  // /token endpoint runs for external callers, just skipping the HTTP hop.
-  // (authorizeAndIssue became async with 's storage-budget gate; the
-  // management identity short-circuits past that check so no quota call
-  // happens, but the await is still required.)
-  const token = await authorizeAndIssue( { type: 'management' as const },
-    [{ type: 'registry', name: 'catalog', actions: ['*'] }],
-    'pipeline-image-registry-management',
-  );
-
-  cachedManagementToken = {
-    token,
-    // Token lifetime is set by config.tokenSigning.expiresInSeconds; cache
-    // for 80% of that to leave headroom.
-    expiresAt: now + (config.tokenSigning.expiresInSeconds * 1000 * 0.8),
-  };
-  return token;
+interface AccessScope {
+  type: 'repository' | 'registry';
+  name: string;
+  actions: string[];
 }
 
-/** Wrap a request with a fresh bearer token. */
-async function authedClient(): Promise<AxiosInstance> {
-  const token = await getManagementToken();
+let cachedCatalogToken: { token: string; expiresAt: number } | null = null;
+
+/**
+ * Mint a management-identity bearer token for outbound calls to the
+ * underlying registry. The registry validates JWT `access` claims against
+ * the actual HTTP request — a token scoped to `registry:catalog:*` works
+ * for `/v2/_catalog` but is rejected by `/v2/<repo>/tags/list`, which
+ * needs `repository:<repo>:pull`. So callers pass the per-op scope.
+ *
+ * Caching is only safe for the catalog-only case where the scope is
+ * constant; per-repo tokens are minted fresh each call (signing is cheap).
+ */
+async function getManagementToken(scopes: AccessScope[] = []): Promise<string> {
+  if (scopes.length === 0) {
+    const now = Date.now();
+    if (cachedCatalogToken && cachedCatalogToken.expiresAt > now + 30_000) {
+      return cachedCatalogToken.token;
+    }
+    const token = await authorizeAndIssue(
+      { type: 'management' as const },
+      [{ type: 'registry', name: 'catalog', actions: ['*'] }],
+      'pipeline-image-registry-management',
+    );
+    cachedCatalogToken = {
+      token,
+      expiresAt: now + (config.tokenSigning.expiresInSeconds * 1000 * 0.8),
+    };
+    return token;
+  }
+  return authorizeAndIssue(
+    { type: 'management' as const },
+    [{ type: 'registry', name: 'catalog', actions: ['*'] }, ...scopes],
+    'pipeline-image-registry-management',
+  );
+}
+
+/** Wrap a request with a fresh bearer token scoped to the named repo + actions. */
+async function authedClient(scopes: AccessScope[] = []): Promise<AxiosInstance> {
+  const token = await getManagementToken(scopes);
   return axios.create({
     baseURL,
     timeout: 30_000,
@@ -113,7 +127,7 @@ export async function listRepositories(opts: { n?: number; last?: string } = {})
 
 /** GET /v2/<name>/tags/list */
 export async function listTags(name: string): Promise<{ name: string; tags: string[] }> {
-  const c = await authedClient();
+  const c = await authedClient([{ type: 'repository', name, actions: ['pull'] }]);
   const { data } = await c.get<{ name: string; tags: string[] | null }>( `/v2/${encodeRepoName(name)}/tags/list`,
   );
   return { name: data.name, tags: data.tags ?? [] };
@@ -126,7 +140,7 @@ export async function listTags(name: string): Promise<{ name: string; tags: stri
 export async function getManifest( name: string,
   reference: string,
 ): Promise<{ body: unknown; digest: string; mediaType: string }> {
-  const c = await authedClient();
+  const c = await authedClient([{ type: 'repository', name, actions: ['pull'] }]);
   const { data, headers } = await c.get<unknown>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
     {
       // Distribution v2 + OCI both, plus manifest list for multi-arch.
@@ -148,7 +162,7 @@ export async function getManifest( name: string,
 
 /** DELETE /v2/<name>/manifests/<digest>. Reference must be a digest, not a tag. */
 export async function deleteManifest(name: string, digest: string): Promise<void> {
-  const c = await authedClient();
+  const c = await authedClient([{ type: 'repository', name, actions: ['delete'] }]);
   await c.delete(`/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(digest)}`);
 }
 
@@ -162,7 +176,7 @@ export async function putManifest( name: string,
   body: unknown,
   mediaType: string,
 ): Promise<{ digest: string }> {
-  const c = await authedClient();
+  const c = await authedClient([{ type: 'repository', name, actions: ['push', 'pull'] }]);
   const { headers } = await c.put<unknown>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
     body,
     { headers: { 'Content-Type': mediaType } },
@@ -179,7 +193,7 @@ export async function putManifest( name: string,
 export async function headManifest( name: string,
   reference: string,
 ): Promise<{ digest: string } | null> {
-  const c = await authedClient();
+  const c = await authedClient([{ type: 'repository', name, actions: ['pull'] }]);
   try {
     const { headers } = await c.head<unknown>( `/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(reference)}`,
       {
@@ -211,7 +225,7 @@ export async function headManifest( name: string,
 export async function headBlob( name: string,
   digest: string,
 ): Promise<{ contentLength?: number }> {
-  const c = await authedClient();
+  const c = await authedClient([{ type: 'repository', name, actions: ['pull'] }]);
   const { headers } = await c.head<unknown>( `/v2/${encodeRepoName(name)}/blobs/${encodeURIComponent(digest)}`,
   );
   const raw = headers['content-length'];
@@ -227,7 +241,7 @@ export async function headBlob( name: string,
 export async function getBlobStream( name: string,
   digest: string,
 ): Promise<{ stream: Readable; contentType: string; contentLength?: number }> {
-  const c = await authedClient();
+  const c = await authedClient([{ type: 'repository', name, actions: ['pull'] }]);
   const response: AxiosResponse<Readable> = await c.get<Readable>( `/v2/${encodeRepoName(name)}/blobs/${encodeURIComponent(digest)}`,
     {
       responseType: 'stream',
@@ -259,7 +273,10 @@ export async function mountBlob( fromRepo: string,
   toRepo: string,
   digest: string,
 ): Promise<{ mounted: true }> {
-  const c = await authedClient();
+  const c = await authedClient([
+    { type: 'repository', name: fromRepo, actions: ['pull'] },
+    { type: 'repository', name: toRepo, actions: ['push', 'pull'] },
+  ]);
   const response = await c.post<unknown>( `/v2/${encodeRepoName(toRepo)}/blobs/uploads/`,
     null,
     {
