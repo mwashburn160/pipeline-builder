@@ -371,6 +371,11 @@ services:
       # Must match the registry's REGISTRY_AUTH_TOKEN_REALM so the plugin's
       # writeAuthConfig writes credentials keyed by the same host the
       # docker client will be redirected to during a push/pull challenge.
+      # In-cluster clients (buildkit, crane sidecars) talk directly to
+      # image-registry on its plain-HTTP port — bypassing nginx avoids the
+      # self-signed-cert TLS dance, which buildkit's auth handler refuses
+      # to skip-verify even with insecure/ca entries in buildkitd.toml.
+      # Override in .env when external docker clients need to pull.
       IMAGE_REGISTRY_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3000/token}
       # Talk to buildkitd over TCP on the backend-network. Unix-socket sharing
       # via a named volume fails under the rootless image because the volume
@@ -423,10 +428,16 @@ services:
       - --addr
       - tcp://0.0.0.0:1234
       - --oci-worker-no-process-sandbox
+      # buildkitd.toml mirrors docker.io → registry:5000 so plugin
+      # Dockerfiles can use bare `FROM pipeline-plugin-base:24.04` and
+      # buildkit transparently resolves to the in-cluster registry.
+      - --config
+      - /home/user/.config/buildkit/buildkitd.toml
     expose:
       - "1234"
     volumes:
       - './data/buildkit-cache/:/home/user/.local/share/buildkit:rw'
+      - './config/buildkitd/buildkitd.toml:/home/user/.config/buildkit/buildkitd.toml:ro'
     networks:
       - backend-network
     healthcheck:
@@ -754,13 +765,12 @@ services:
       REGISTRY_AUTH: token
       # The bearer realm URL is sent verbatim to clients in the
       # WWW-Authenticate response, so it MUST be resolvable by every
-      # Docker client that pulls from this registry. The default points
-      # at the image-registry service directly (in-cluster) because in
-      # local dev the only docker client is the plugin container —
-      # `localhost:8443` is not routable from inside containers, and
-      # nginx:8080 issues a redirect-to-HTTPS that breaks the token
-      # handshake. Override via .env to a public URL when external
-      # clients need to pull (ec2/fargate).
+      # Docker client that pulls from this registry. Defaults to the
+      # in-cluster plain-HTTP endpoint on image-registry — bypasses
+      # nginx so clients (buildkit, crane sidecars) avoid the self-
+      # signed-cert TLS dance. Override via .env to a public HTTPS URL
+      # when external Docker clients (developer machines, ec2/fargate)
+      # need to pull from this registry.
       REGISTRY_AUTH_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3000/token}
       REGISTRY_AUTH_TOKEN_SERVICE: pipeline-image-registry
       REGISTRY_AUTH_TOKEN_ISSUER: platform

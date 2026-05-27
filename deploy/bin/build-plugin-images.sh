@@ -163,6 +163,15 @@ build_base_images() {
     _name=$(basename "$_fam_dir" | sed 's/^_//')
     _build_base_quiet "pipeline-${_name}:1.0" "$_fam_dir" || return 1
   done
+
+  # Push the bases into the in-cluster registry so buildkitd (separate
+  # image cache from the host docker daemon) can resolve them. The
+  # buildkitd.toml mirror at deploy/local/config/buildkitd/ maps
+  # docker.io → registry:5000, so bare `FROM pipeline-plugin-base:24.04`
+  # in plugin Dockerfiles resolves via that mirror.
+  if [ -x "$SCRIPT_DIR/push-base-images.sh" ]; then
+    "$SCRIPT_DIR/push-base-images.sh" || true
+  fi
   echo ""
 }
 build_base_images

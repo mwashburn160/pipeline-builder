@@ -862,13 +862,27 @@ Resources:
           # the larger CPU share when the task is fully utilized.
           Cpu: 1024
           Memory: 1536
-          EntryPoint: ["buildkitd"]
+          # Fargate has no ConfigMap equivalent, so we materialize the
+          # buildkitd.toml inline before exec'ing buildkitd. The mirror lets
+          # plugin Dockerfiles using bare `FROM pipeline-plugin-base:24.04`
+          # resolve at the in-cluster registry instead of Docker Hub. The
+          # in-cluster registry uses a self-signed cert, so `insecure = true`
+          # is required to skip cert verification on the layer pulls.
+          EntryPoint: ["/bin/sh", "-c"]
           Command:
-            - --addr
-            - unix:///run/buildkit/buildkitd.sock
-            # Fargate's seccomp profile permits unshare, but rootless workers
-            # still need the no-process-sandbox flag in unprivileged contexts.
-            - --oci-worker-no-process-sandbox
+            - |
+              mkdir -p /home/user/.config/buildkit && \
+              cat > /home/user/.config/buildkit/buildkitd.toml <<'TOML'
+              [registry."docker.io"]
+                mirrors = ["registry.pipeline-builder.local:5000"]
+              [registry."registry.pipeline-builder.local:5000"]
+                http = false
+                insecure = true
+              TOML
+              exec buildkitd \
+                --addr unix:///run/buildkit/buildkitd.sock \
+                --oci-worker-no-process-sandbox \
+                --config /home/user/.config/buildkit/buildkitd.toml
           MountPoints:
             - ContainerPath: /run/buildkit
               SourceVolume: buildkit-socket

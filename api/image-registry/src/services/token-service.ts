@@ -51,6 +51,13 @@ export function parseScope(raw: string): RequestedScope | null {
 /** Constants for repo namespace policy. */
 export const SYSTEM_NAMESPACE_PREFIX = 'system/';
 export const ORG_NAMESPACE_PREFIX = 'org-';
+// Docker's convention for unqualified base images: `FROM ubuntu` →
+// `docker.io/library/ubuntu`. Our buildkit mirror redirects those
+// lookups at `registry:5000/library/<name>`, so plugin Dockerfiles
+// using bare `FROM pipeline-plugin-base:24.04` end up requesting a
+// `library/...` pull token. Treat library/* like system/* — any
+// authenticated identity can pull, only admins can push.
+export const LIBRARY_NAMESPACE_PREFIX = 'library/';
 
 /**
  * Authorize a single requested scope for the given identity. Returns the
@@ -80,6 +87,13 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
 
   // Anyone authenticated can pull system images
   if (requested.name.startsWith(SYSTEM_NAMESPACE_PREFIX)) {
+    return requested.actions.filter((a) => a === 'pull');
+  }
+
+  // Same for library/* — base images that plugin Dockerfiles depend on
+  // via bare `FROM <name>` references. Push is gated on admin via the
+  // fall-through below.
+  if (requested.name.startsWith(LIBRARY_NAMESPACE_PREFIX)) {
     return requested.actions.filter((a) => a === 'pull');
   }
 

@@ -1,0 +1,18 @@
+# buildkitd config for the local-deploy plugin build path.
+#
+# Why this exists: plugin Dockerfiles use bare base-image references
+# (e.g. `FROM pipeline-plugin-base:24.04`). buildkit defaults bare names
+# to docker.io/library, where these images don't exist — so without a
+# mirror, every plugin build fails with "pull access denied".
+#
+# The in-cluster registry holds our bases at registry:5000/library/<name>.
+# Mirroring docker.io → registry:5000 makes buildkit transparently look
+# there for any unqualified reference; HTTPS+insecure matches the
+# self-signed cert on the local registry.
+
+[registry."docker.io"]
+  mirrors = ["registry:5000"]
+
+[registry."registry:5000"]
+  http = false
+  insecure = true

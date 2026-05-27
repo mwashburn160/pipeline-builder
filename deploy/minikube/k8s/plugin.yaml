@@ -85,6 +85,10 @@ spec:
             - --addr
             - unix:///run/user/1000/buildkit/buildkitd.sock
             - --oci-worker-no-process-sandbox
+            # Mirror docker.io → in-cluster registry so plugin Dockerfiles
+            # using bare `FROM pipeline-plugin-base:24.04` resolve there.
+            - --config
+            - /home/user/.config/buildkit/buildkitd.toml
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -108,6 +112,9 @@ spec:
               mountPath: /run/user/1000/buildkit
             - name: buildkit-cache
               mountPath: /home/user/.local/share/buildkit
+            - name: buildkitd-config
+              mountPath: /home/user/.config/buildkit
+              readOnly: true
           resources:
             limits:
               cpu: "1500m"
@@ -239,6 +246,9 @@ spec:
         - name: buildkit-cache
           emptyDir:
             sizeLimit: 20Gi
+        - name: buildkitd-config
+          configMap:
+            name: buildkitd-config
 
 ---
 # =============================================================================
