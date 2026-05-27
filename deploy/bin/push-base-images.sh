@@ -86,16 +86,12 @@ _sign_platform_jwt() {
   printf '%s.%s\n' "$_signing" "$_sig"
 }
 
-PLATFORM_JWT="$(_sign_platform_jwt)"
-if [ -z "$PLATFORM_JWT" ]; then
+# Smoke-test that JWT signing works before launching the loop; if
+# JWT_SECRET is missing we'd rather fail here than per-image.
+if [ -z "$(_sign_platform_jwt)" ]; then
   echo "ERROR: failed to sign platform JWT (JWT_SECRET missing?)" >&2
   exit 1
 fi
-
-# Build the auth header crane will use: `Authorization: Bearer <jwt>`.
-# crane accepts platform-JWT-as-password through the standard
-# Basic-auth-on-realm flow that image-registry/routes/token honors.
-AUTH_B64=$(printf '_token:%s' "$PLATFORM_JWT" | base64 | tr -d '\n')
 
 echo "=== Pushing base images to ${REGISTRY_HOST}/library/ (via sidecar) ==="
 # Build a single sidecar invocation that:
@@ -114,6 +110,11 @@ for _tag in "${BASE_TAGS[@]}"; do
     continue
   fi
   _remote="${REGISTRY_HOST}/library/${_tag}"
+  # Sign a fresh JWT for *this* image's push — image-registry's token
+  # endpoint enforces a 300s expiry, and the slowest base (sonarcloud +
+  # JDK) can take longer than that on its own. A loop-wide JWT would
+  # work for the first image and 401 on the rest.
+  PLATFORM_JWT="$(_sign_platform_jwt)"
   # Stream `docker save` into the sidecar via stdin, dump to a file
   # inside the container (crane push needs a real path, not stdin),
   # then push that file. The sidecar's filesystem is ephemeral so no

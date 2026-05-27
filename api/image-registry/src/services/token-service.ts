@@ -85,25 +85,27 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
 
   const orgPrefix = `${ORG_NAMESPACE_PREFIX}${identity.orgId}/`;
 
+  // Admins get pull+push on any repo. Evaluated first because the
+  // namespace rules below would otherwise downgrade an admin push to
+  // system/* or library/* into pull-only — which breaks the bootstrap
+  // base-image push and any operator-driven system seeding.
+  if (identity.isAdmin) {
+    return requested.actions.filter((a) => ['pull', 'push'].includes(a));
+  }
+
   // Anyone authenticated can pull system images
   if (requested.name.startsWith(SYSTEM_NAMESPACE_PREFIX)) {
     return requested.actions.filter((a) => a === 'pull');
   }
 
   // Same for library/* — base images that plugin Dockerfiles depend on
-  // via bare `FROM <name>` references. Push is gated on admin via the
-  // fall-through below.
+  // via bare `FROM <name>` references.
   if (requested.name.startsWith(LIBRARY_NAMESPACE_PREFIX)) {
     return requested.actions.filter((a) => a === 'pull');
   }
 
-  // Org-prefixed repo: only the matching org can pull/push; system admins
-  // get push too on any org.
+  // Org-prefixed repo: only the matching org can pull/push.
   if (requested.name.startsWith(orgPrefix)) {
-    return requested.actions.filter((a) => ['pull', 'push'].includes(a));
-  }
-
-  if (identity.isAdmin) {
     return requested.actions.filter((a) => ['pull', 'push'].includes(a));
   }
 
