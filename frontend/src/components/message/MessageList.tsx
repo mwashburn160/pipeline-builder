@@ -100,9 +100,19 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, onDe
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                   {msg.content.slice(0, 60)}
                 </p>
-                {isUnreadFor(msg, currentOrgId) && (
-                  <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 ml-2" />
-                )}
+                <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                  {msg.channel && (
+                    <span
+                      className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                      title={`Channel: ${msg.channel}`}
+                    >
+                      {msg.channel}
+                    </span>
+                  )}
+                  {isUnreadFor(msg, currentOrgId) && (
+                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  )}
+                </div>
               </div>
             </div>
 

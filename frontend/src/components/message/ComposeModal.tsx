@@ -2,15 +2,13 @@ import { useState } from 'react';
 import { X, Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
-// Aliases are display-only — the recipientOrgId on the wire is always
-// the canonical system org. The server's authorization check
-// (create-message.ts) rejects any non-system recipientOrgId from a
-// non-sysadmin caller, so the previous code sending the alias literally
-// was silently 403-ing every Support/Help message.
+// Recipient is always the system org for support inbox messages.
+// The picked alias maps to a structured `channel` field on the message
+// so system-org readers can filter/group by support vs help.
 const SUPPORT_RECIPIENT = 'system';
 const SUPPORT_ALIASES = [
-  { label: 'Support', value: 'support@pipeline-builder' },
-  { label: 'Help', value: 'help@pipeline-builder' },
+  { label: 'Support', value: 'support@pipeline-builder', channel: 'support' },
+  { label: 'Help',    value: 'help@pipeline-builder',    channel: 'help' },
 ] as const;
 
 /** Props for the ComposeModal component. */
@@ -26,6 +24,7 @@ interface ComposeModalProps {
     subject: string;
     content: string;
     priority?: MessagePriority;
+    channel?: string;
   }) => Promise<unknown>;
   /** Whether the current user is a sysadmin (enables free-form recipient
    *  entry and broadcast announcements). Non-sysadmins see the support-alias
@@ -72,12 +71,20 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin }: ComposeM
       return;
     }
 
+    // Non-sysadmin sends carry the chosen channel ('support' / 'help')
+    // as a structured field. Sysadmin org-to-org messages and
+    // announcements don't belong to a channel.
+    const channel = isSuperAdmin || isAnnouncement
+      ? undefined
+      : SUPPORT_ALIASES.find((a) => a.value === selectedAlias)?.channel;
+
     const result = await sendAsync({
       recipientOrgId: recipient,
       messageType: isAnnouncement ? 'announcement' : 'conversation',
       subject: autoSubject(content),
       content: content.trim(),
       priority: 'normal',
+      ...(channel && { channel }),
     });
 
     if (result !== null) {

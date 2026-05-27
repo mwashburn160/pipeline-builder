@@ -1887,6 +1887,7 @@ class ApiClient {
     subject: string;
     content: string;
     priority?: MessagePriority;
+    channel?: string;
   }) {
     return this.request<ApiResponse<Message>>('/api/messages', {
       method: 'POST',

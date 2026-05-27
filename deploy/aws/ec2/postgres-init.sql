@@ -127,6 +127,9 @@ CREATE TABLE IF NOT EXISTS messages (    -- Identity & Audit Fields
     -- Message Content
     message_type VARCHAR(20) NOT NULL DEFAULT 'conversation'
                         CHECK (message_type IN ('conversation', 'announcement')),
+    -- Logical channel/inbox bucket (e.g. 'support', 'help'). NULL for
+    -- org-to-org conversations that don't belong to a channel.
+    channel VARCHAR(50),
     subject VARCHAR(500) NOT NULL,
     content TEXT NOT NULL,
 
@@ -529,6 +532,9 @@ CREATE INDEX IF NOT EXISTS message_thread_id_idx
 
 CREATE INDEX IF NOT EXISTS message_message_type_idx
     ON messages(message_type);
+
+CREATE INDEX IF NOT EXISTS message_channel_idx
+    ON messages(channel);
 
 CREATE INDEX IF NOT EXISTS message_created_at_idx
     ON messages(created_at);

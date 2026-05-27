@@ -15,6 +15,14 @@ export const MessageTypeSchema = z.enum(['announcement', 'conversation']);
 export const MessagePrioritySchema = z.enum(['normal', 'high', 'urgent']);
 
 /**
+ * Channel/inbox-bucket schema. Open-ended string up to 50 chars so we
+ * can add new channels (support, help, billing, …) without a schema
+ * migration. Constrained to a-z/0-9/dash/underscore for URL safety and
+ * to keep filter conditions trivially indexable.
+ */
+export const MessageChannelSchema = z.string().min(1).max(50).regex(/^[a-z0-9_-]+$/);
+
+/**
  * Message filter schema for query parameters
  */
 export const MessageFilterSchema = BaseFilterSchema.extend({
@@ -23,6 +31,7 @@ export const MessageFilterSchema = BaseFilterSchema.extend({
   messageType: MessageTypeSchema.optional(),
   isRead: BooleanQuerySchema.optional(),
   priority: MessagePrioritySchema.optional(),
+  channel: MessageChannelSchema.optional(),
 });
 
 /**
@@ -31,6 +40,7 @@ export const MessageFilterSchema = BaseFilterSchema.extend({
 export const MessageCreateSchema = z.object({
   recipientOrgId: z.string().min(1, 'Recipient organization ID is required'),
   messageType: MessageTypeSchema.optional().default('conversation'),
+  channel: MessageChannelSchema.optional(),
   subject: z.string().min(1, 'Subject is required'),
   content: z.string().min(1, 'Content is required'),
   priority: MessagePrioritySchema.optional().default('normal'),

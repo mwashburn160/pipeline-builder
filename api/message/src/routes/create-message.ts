@@ -48,7 +48,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const { recipientOrgId: rawRecipientOrgId, messageType, subject, content, priority } = validation.value;
+    const { recipientOrgId: rawRecipientOrgId, messageType, subject, content, priority, channel } = validation.value;
 
     // Resolve email-like aliases (e.g., support@pipeline-builder -> system)
     const { resolvedOrgId: recipientOrgId, wasAlias, originalValue } = resolveRecipientAlias(rawRecipientOrgId);
@@ -81,6 +81,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       orgId,
       recipientOrgId: recipientOrgId.toLowerCase() === '*' ? '*' : recipientOrgId.toLowerCase(),
       messageType,
+      channel: channel ?? null,
       subject,
       content,
       priority,
@@ -182,6 +183,10 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       threadId: id,
       recipientOrgId: replyRecipientOrgId,
       messageType: rootMessage.messageType,
+      // Replies inherit the root message's channel so the thread stays
+      // in one bucket — system-org filtering by channel sees the whole
+      // conversation, not just the first message.
+      channel: rootMessage.channel ?? null,
       subject: rootMessage.subject,
       content,
       priority: rootMessage.priority,

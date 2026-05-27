@@ -18,6 +18,20 @@ const FILTER_TABS: { key: MessageFilter; label: string }[] = [
   { key: 'announcements', label: 'Announcements' },
 ];
 
+/**
+ * Channel filter. `'all'` matches every channel + the no-channel case;
+ * `'none'` matches only messages with no channel (org-to-org); any other
+ * string matches an exact channel value (`'support'`, `'help'`, …).
+ */
+type ChannelFilter = 'all' | 'none' | string;
+
+const CHANNEL_TABS: { key: ChannelFilter; label: string }[] = [
+  { key: 'all',     label: 'All channels' },
+  { key: 'support', label: 'Support' },
+  { key: 'help',    label: 'Help' },
+  { key: 'none',    label: 'Other' },
+];
+
 /** Placeholder shown in the thread panel when no conversation is selected. */
 function EmptyChat() {
   return (
@@ -47,12 +61,22 @@ export default function MessagesPage() {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showCompose, setShowCompose] = useState(false);
   const [messageFilter, setMessageFilter] = useState<MessageFilter>('all');
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
 
   const filteredMessages = useMemo(() => {
-    if (messageFilter === 'all') return messages;
-    if (messageFilter === 'announcements') return messages.filter((m) => m.messageType === 'announcement');
-    return messages.filter((m) => m.messageType !== 'announcement');
-  }, [messages, messageFilter]);
+    let out = messages;
+    if (messageFilter === 'announcements') {
+      out = out.filter((m) => m.messageType === 'announcement');
+    } else if (messageFilter === 'conversations') {
+      out = out.filter((m) => m.messageType !== 'announcement');
+    }
+    if (channelFilter === 'none') {
+      out = out.filter((m) => !m.channel);
+    } else if (channelFilter !== 'all') {
+      out = out.filter((m) => m.channel === channelFilter);
+    }
+    return out;
+  }, [messages, messageFilter, channelFilter]);
 
   const handleSelectMessage = useCallback((msg: Message) => {
     setSelectedMessage(msg);
@@ -108,7 +132,7 @@ export default function MessagesPage() {
               </button>
             </div>
 
-            {/* Filter tabs */}
+            {/* Filter tabs — message type */}
             <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
               {FILTER_TABS.map(({ key, label }) => (
                 <button
@@ -117,6 +141,22 @@ export default function MessagesPage() {
                   className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
                     messageFilter === key
                       ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:bg-gray-700/50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* Filter tabs — channel */}
+            <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+              {CHANNEL_TABS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setChannelFilter(key)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors whitespace-nowrap ${
+                    channelFilter === key
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
                       : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:bg-gray-700/50'
                   }`}
                 >

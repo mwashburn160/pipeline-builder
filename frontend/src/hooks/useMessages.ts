@@ -21,7 +21,7 @@ interface UseMessagesReturn {
   unreadCount: number;
   fetchMessages: () => Promise<void>;
   fetchUnreadCount: () => Promise<void>;
-  sendMessage: (data: { recipientOrgId: string; messageType: MessageType; subject: string; content: string; priority?: MessagePriority }) => Promise<Message | null>;
+  sendMessage: (data: { recipientOrgId: string; messageType: MessageType; subject: string; content: string; priority?: MessagePriority; channel?: string }) => Promise<Message | null>;
   replyToMessage: (threadId: string, content: string) => Promise<Message | null>;
   markAsRead: (id: string) => Promise<void>;
   markThreadAsRead: (id: string) => Promise<void>;
@@ -80,6 +80,7 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
     subject: string;
     content: string;
     priority?: MessagePriority;
+    channel?: string;
   }): Promise<Message | null> => {
     const result = await api.sendMessage(data);
     await fetchMessages();
@@ -93,6 +94,7 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
     subject: string;
     content: string;
     priority?: MessagePriority;
+    channel?: string;
   }): Promise<Message | null> => {
     const result = await sendMessageRaw(data);
     if (!result && !sendError) setError('Failed to send message');

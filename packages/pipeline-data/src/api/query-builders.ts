@@ -177,6 +177,15 @@ export function buildMessageConditions(
     conditions.push(eq(schema.message.priority, filter.priority as MessagePriority));
   }
 
+  // Channel filter (null = no channel / org-to-org messages)
+  if (filter.channel !== undefined) {
+    if (filter.channel === null) {
+      conditions.push(isNull(schema.message.channel));
+    } else {
+      conditions.push(eq(schema.message.channel, normalizeStringFilter(filter.channel)));
+    }
+  }
+
   // ID filter
   if (filter.id !== undefined) {
     const id = typeof filter.id === 'string' ? filter.id : filter.id[0];

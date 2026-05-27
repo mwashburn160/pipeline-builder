@@ -331,6 +331,9 @@ export const message = pgTable('messages', {
     .$type<MessageType>()
     .default('conversation' as MessageType)
     .notNull(),
+  // Logical channel/inbox bucket — 'support', 'help', etc. Nullable so
+  // org-to-org conversations (which aren't channel-scoped) can omit it.
+  channel: varchar('channel', { length: 50 }),
   subject: varchar('subject', { length: 500 })
     .notNull(),
   content: text('content')
@@ -370,6 +373,7 @@ export const message = pgTable('messages', {
   recipientOrgIdIdx: index('message_recipient_org_id_idx').on(table.recipientOrgId),
   threadIdIdx: index('message_thread_id_idx').on(table.threadId),
   messageTypeIdx: index('message_message_type_idx').on(table.messageType),
+  channelIdx: index('message_channel_idx').on(table.channel),
   createdAtIdx: index('message_created_at_idx').on(table.createdAt),
   activeIdx: index('message_active_idx').on(table.isActive),
 

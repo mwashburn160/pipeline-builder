@@ -491,6 +491,11 @@ export interface Message {
   threadId: string | null;
   recipientOrgId: string;
   messageType: MessageType;
+  /**
+   * Logical channel/inbox bucket (e.g. 'support', 'help'). Null for
+   * org-to-org conversations that don't belong to a channel.
+   */
+  channel: string | null;
   subject: string;
   content: string;
   /**

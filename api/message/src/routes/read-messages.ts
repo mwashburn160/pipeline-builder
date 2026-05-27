@@ -41,15 +41,16 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
-    const { messageType, priority } = validation.value;
+    const { messageType, priority, channel } = validation.value;
 
-    ctx.log('INFO', 'Fetching messages inbox', { orgId, messageType });
+    ctx.log('INFO', 'Fetching messages inbox', { orgId, messageType, channel });
 
     const filter: Partial<MessageFilter> = {
       isActive: true,
       threadId: null, // SQL-level IS NULL — root messages only
       ...(messageType && { messageType }),
       ...(priority && { priority }),
+      ...(channel && { channel }),
     };
 
     const result = await messageService.findPaginated(

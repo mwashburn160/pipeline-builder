@@ -173,6 +173,12 @@ export interface MessageFilter extends CommonFilter {
    * Filter by priority level
    */
   readonly priority?: 'normal' | 'high' | 'urgent';
+
+  /**
+   * Channel/inbox-bucket filter (e.g. 'support', 'help'). Matches rows
+   * exactly; pass null to match channel IS NULL (org-to-org messages).
+   */
+  readonly channel?: string | null;
 }
 
 // ========================================
@@ -269,6 +275,9 @@ export function validateMessageFilter(filter: Partial<MessageFilter>): {
   }
   if (filter.threadId !== undefined && filter.threadId !== null && typeof filter.threadId !== 'string') {
     errors.push('threadId must be a string UUID or null');
+  }
+  if (filter.channel !== undefined && filter.channel !== null && typeof filter.channel !== 'string') {
+    errors.push('channel must be a string or null');
   }
 
   return { valid: errors.length === 0, errors };
