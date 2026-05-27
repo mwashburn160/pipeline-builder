@@ -37,6 +37,7 @@ PLUGINS_DIR="$DEPLOY_DIR/plugins"
 FORCE=false
 RESET=false
 DRY_RUN=false
+BASES_ONLY=false
 CATEGORY_FILTER=""
 MAX_IMAGE_SIZE_MB="${MAX_IMAGE_SIZE_MB:-4096}"
 
@@ -47,6 +48,7 @@ while [ $# -gt 0 ]; do
     --force)     FORCE=true; shift ;;
     --reset)     RESET=true; shift ;;
     --dry-run)   DRY_RUN=true; shift ;;
+    --bases-only) BASES_ONLY=true; shift ;;
     --category)  CATEGORY_FILTER="$2"; shift 2 ;;
     --max-image-size) MAX_IMAGE_SIZE_MB="$2"; shift 2 ;;
     --help|-h)
@@ -56,6 +58,7 @@ while [ $# -gt 0 ]; do
       echo "  --force              Rebuild all images, no prompt for existing"
       echo "  --reset              Revert all plugins to buildType: build_image"
       echo "  --dry-run            Show what would be built without building"
+      echo "  --bases-only         Build + push base images only, skip per-plugin builds"
       echo "  --category CATS      Comma-separated categories (e.g., language,security)"
       echo "  --max-image-size MB  Skip images larger than MB (default: 4096)"
       exit 0
@@ -181,6 +184,13 @@ build_base_images() {
   echo ""
 }
 build_base_images
+
+# Under --bases-only the caller (e.g. init-platform.sh under the
+# build_image strategy) wants only the base images built + pushed —
+# per-plugin image building is deferred to build-at-upload-time.
+if [ "$BASES_ONLY" = true ]; then
+  exit 0
+fi
 
 # ---- Build category list ----
 #

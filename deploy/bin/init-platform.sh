@@ -159,6 +159,15 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   CATEGORY_ARG=""
   [ -n "$SELECTED_CATEGORIES" ] && CATEGORY_ARG="--category $SELECTED_CATEGORIES"
 
+  # Base images must be present in the in-cluster registry for *both*
+  # strategies — even build_image plugin Dockerfiles use bare
+  # `FROM pipeline-plugin-base:24.04`, which buildkit resolves at
+  # build-time via the registry mirror. Run the base-only path
+  # unconditionally so build_image isn't silently broken.
+  echo ""
+  "$SCRIPT_DIR/build-plugin-images.sh" --bases-only
+  echo ""
+
   if [ "$BUILD_STRATEGY" = "prebuilt" ]; then
     echo ""
     BUILD_ARGS=""
@@ -167,6 +176,8 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     # `set -e` that aborts init entirely — typical case is one bad apt mirror
     # killing the whole bootstrap. With --continue-on-build-failure we log
     # and proceed; load-plugins will skip plugins lacking an image.tar.
+    # build_base_images runs again here — it short-circuits when bases are
+    # already present, so the extra invocation is essentially free.
     BUILD_RC=0
     # shellcheck disable=SC2086
     "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS $CATEGORY_ARG || BUILD_RC=$?
