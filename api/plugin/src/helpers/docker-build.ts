@@ -208,13 +208,23 @@ function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: stri
     [`${registry.host}:${registry.port}`]: { auth },
   };
 
-  // Add the token-realm host if PLATFORM_BASE_URL is set. URL.host
-  // already includes any non-default port (e.g. `host:8443`), which
-  // matches how Docker keys auths.
-  const platformBaseUrl = process.env.PLATFORM_BASE_URL;
-  if (platformBaseUrl) {
+  // Add the token-realm host so crane sends Basic auth when the registry
+  // redirects it to the realm to mint a bearer token. URL.host already
+  // includes any non-default port (e.g. `nginx:8080`), which matches how
+  // Docker keys auths.
+  //
+  // The realm URL is whatever the registry advertises via
+  // REGISTRY_AUTH_TOKEN_REALM. In production this is PLATFORM_BASE_URL
+  // (public) so external Docker clients can reach it; in local dev it's
+  // an in-cluster URL (http://nginx:8080/...) because the published
+  // localhost:8443 is not routable from inside the plugin container.
+  // Prefer the explicit env var so the plugin stays in lockstep with the
+  // registry's advertised realm regardless of which deploy this is.
+  const realmUrl = process.env.IMAGE_REGISTRY_TOKEN_REALM
+    || (process.env.PLATFORM_BASE_URL ? `${process.env.PLATFORM_BASE_URL}/image-registry/token` : undefined);
+  if (realmUrl) {
     try {
-      const realmHost = new URL(platformBaseUrl).host;
+      const realmHost = new URL(realmUrl).host;
       if (realmHost) auths[realmHost] = { auth };
     } catch {
       // Malformed URL  skip silently; the in-cluster auth still works

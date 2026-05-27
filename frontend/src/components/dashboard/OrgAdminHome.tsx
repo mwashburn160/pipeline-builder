@@ -25,6 +25,7 @@ import {
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { useFeatures } from '@/hooks/useFeatures';
 import api from '@/lib/api';
 import type { OrgQuotaResponse, QuotaType, Subscription } from '@/types';
 import type { ComplianceAuditEntry } from '@/types/compliance';
@@ -50,6 +51,8 @@ interface Props {
 }
 
 export function OrgAdminHome({ organizationId }: Props) {
+  const { isEnabled } = useFeatures();
+  const billingEnabled = isEnabled('billing');
   const [quotas, setQuotas] = useState<OrgQuotaResponse | null>(null);
   const [pendingInvites, setPendingInvites] = useState<number>(0);
   const [memberCount, setMemberCount] = useState<number | null>(null);
@@ -64,15 +67,21 @@ export function OrgAdminHome({ organizationId }: Props) {
     // an empty section rather than blocking the whole page. The
     // memberCount fetch is conditional on having an org id; cross-org
     // sysadmin sessions hit this path without one and we skip the call.
+    // The subscription fetch is gated on the `billing` feature flag served
+    // from /api/config — when billing is disabled we skip the call entirely
+    // so we don't pile up 503s from a deliberately-disabled service.
     const memberPromise = organizationId
       ? api.getOrganizationMembers(organizationId).catch(() => null)
+      : Promise.resolve(null);
+    const subscriptionPromise = billingEnabled
+      ? api.getSubscription().catch(() => null)
       : Promise.resolve(null);
 
     Promise.allSettled([
       api.getOwnQuotas(),
       api.listInvitations({ status: 'pending', limit: 1 }),
       api.getComplianceAuditLog({ limit: 5 }),
-      api.getSubscription().catch(() => null),
+      subscriptionPromise,
       memberPromise,
     ]).then(([quotaRes, inviteRes, complianceRes, subRes, memberRes]) => {
       if (cancelled) return;
@@ -94,7 +103,7 @@ export function OrgAdminHome({ organizationId }: Props) {
       }
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [organizationId]);
+  }, [organizationId, billingEnabled]);
 
   const blockedEntries = useMemo(
     () => compliance.filter((e) => e.result === 'block').slice(0, 3),
@@ -256,7 +265,9 @@ export function OrgAdminHome({ organizationId }: Props) {
           <Link href="/dashboard/invitations" className="action-link">Invite members</Link>
           <Link href="/dashboard/team" className="action-link">Manage roles</Link>
           <Link href="/dashboard/quotas" className="action-link">Quotas</Link>
-          <Link href="/dashboard/billing" className="action-link">Billing</Link>
+          {billingEnabled && (
+            <Link href="/dashboard/billing" className="action-link">Billing</Link>
+          )}
           <Link href="/dashboard/compliance" className="action-link">Compliance</Link>
           <Link href="/dashboard/observability/alert-destinations" className="action-link">Alert channels</Link>
           <Link href="/dashboard/executions" className="action-link">Executions</Link>
