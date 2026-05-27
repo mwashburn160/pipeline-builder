@@ -51,7 +51,11 @@ class UserProfileService {
    */
   async getProfileWithOrgs(userId: string): Promise<ProfileData> {
     const user = await User.findById(userId)
-      .select('_id username email isEmailVerified lastActiveOrgId featureOverrides tokenVersion')
+      // isSuperAdmin must be selected here — formatUserResponse echoes
+      // it to /api/user/profile so the frontend can gate sysadmin-only
+      // sidebar entries. Without it in the projection, the API always
+      // returned isSuperAdmin: false regardless of mongo state.
+      .select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides tokenVersion')
       .lean();
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
 
