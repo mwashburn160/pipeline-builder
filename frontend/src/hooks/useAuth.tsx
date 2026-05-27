@@ -37,6 +37,7 @@ interface RawUserData {
   role: string;
   organizationId?: string;
   organizationName?: string;
+  isSuperAdmin?: boolean;
   isEmailVerified?: boolean;
   tier?: string;
   features?: string[];
@@ -74,6 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             role: rawUser.role as User['role'],
             organizationId: rawUser.organizationId,
             organizationName: rawUser.organizationName,
+            // Sysadmin claim from the JWT — gates sysadmin-only routes
+            // (Registry, Build Queue, All Users, etc.) via isSystemAdmin().
+            // Missing here previously, so the sidebar filter always saw false.
+            isSuperAdmin: rawUser.isSuperAdmin === true,
             isEmailVerified: rawUser.isEmailVerified ?? false,
             tier: rawUser.tier as User['tier'],
             features: rawUser.features,
