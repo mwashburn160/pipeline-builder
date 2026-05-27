@@ -433,7 +433,15 @@ services:
     expose:
       - "1234"
     volumes:
-      - './data/buildkit-cache/:/home/user/.local/share/buildkit:rw'
+      # Named volume (not a host bind mount) on purpose: buildkit's
+      # overlay snapshotter relies on filesystem features (xattrs,
+      # workdir cleanup semantics, idmapped chown) that macOS Docker
+      # Desktop's virtiofs-backed bind mounts don't fully support. A
+      # named volume lives on the Linux VM's native ext4 and behaves
+      # correctly. Cost: cache survives `rm -rf ./data` and needs an
+      # explicit `docker volume rm pipeline-builder_buildkit-cache`
+      # to wipe.
+      - 'buildkit-cache:/home/user/.local/share/buildkit:rw'
       - './config/buildkitd/buildkitd.toml:/home/user/.config/buildkit/buildkitd.toml:ro'
     networks:
       - backend-network
@@ -591,7 +599,7 @@ services:
   # the Basic-auth password — image-registry verifies the JWT and issues
   # a registry-scoped Bearer token.
   image-registry:
-    image: 'ghcr.io/mwashburn160/image-registry:3.4.59'
+    image: 'ghcr.io/mwashburn160/image-registry:3.4.60'
     container_name: image-registry
     restart: always
     stop_grace_period: 10s
@@ -955,3 +963,9 @@ networks:
   backend-network:
     name: backend-network
     driver: bridge
+
+volumes:
+  # buildkit-cache is the *only* named volume in this compose — see the
+  # rationale on the buildkitd service. Everything else uses bind mounts
+  # under ./data/ for one-command wipeability.
+  buildkit-cache:
