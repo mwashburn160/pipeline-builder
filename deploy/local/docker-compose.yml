@@ -247,7 +247,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:3.4.58'
+    image: 'ghcr.io/mwashburn160/frontend:3.4.59'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -353,7 +353,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:3.4.56'
+    image: 'ghcr.io/mwashburn160/plugin:3.4.57'
     container_name: plugin
     restart: always
     stop_grace_period: 10s

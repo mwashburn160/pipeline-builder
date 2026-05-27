@@ -36,7 +36,7 @@ Parameters:
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:3.4.56
+    Default: ghcr.io/mwashburn160/plugin:3.4.57
     Description: Docker image for the Plugin service
 
   QuotaImage:
@@ -71,7 +71,7 @@ Parameters:
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:3.4.58
+    Default: ghcr.io/mwashburn160/frontend:3.4.59
     Description: Docker image for the Frontend service
 
   AppSecretsName:
