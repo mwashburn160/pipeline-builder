@@ -84,7 +84,7 @@ export const register = withController('Register', async (req, res) => {
   // Fire-and-forget — promotion failure shouldn't block the 201 response;
   // the startup-time bootstrap will catch it on the next restart.
   if (result.sub && result.email) {
-    const { maybePromoteNewUser } = await import('../services/superadmin-bootstrap');
+    const { maybePromoteNewUser } = await import('../services/superadmin-bootstrap.js');
     void maybePromoteNewUser(result.sub, result.email);
   }
 
