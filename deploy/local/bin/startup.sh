@@ -99,7 +99,9 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/registry-data" \
          "$DEPLOY_DIR/data/pgadmin-data" \
          "$DEPLOY_DIR/data/uploads" \
-         "$DEPLOY_DIR/data/cache"
+         "$DEPLOY_DIR/data/cache" \
+         "$DEPLOY_DIR/data/buildkit-cache" \
+         "$DEPLOY_DIR/data/promtail-positions"
 
 # Docker build temp dir — must be the SAME absolute path on both host and
 # container so buildkitd.toml bind mounts resolve correctly.

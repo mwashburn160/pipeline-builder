@@ -139,7 +139,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: platform
     volumes:
-      - 'mongodb-data:/data/db/:rw'
+      - './data/db-data/mongodb/:/data/db/:rw'
       - './mongodb-keyfile:/etc/mongodb-keyfile:ro'
       - './mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
     networks:
@@ -171,7 +171,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - 'postgres-data:/var/lib/postgresql:rw'
+      - './data/db-data/postgres/:/var/lib/postgresql:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
     networks:
       - backend-network
@@ -422,7 +422,7 @@ services:
     expose:
       - "1234"
     volumes:
-      - 'buildkit-cache:/home/user/.local/share/buildkit:rw'
+      - './data/buildkit-cache/:/home/user/.local/share/buildkit:rw'
     networks:
       - backend-network
     healthcheck:
@@ -900,7 +900,7 @@ services:
     volumes:
       - './config/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro'
       - '/var/run/docker.sock:/var/run/docker.sock:ro'
-      - 'promtail-positions:/tmp'
+      - './data/promtail-positions/:/tmp'
     networks:
       - backend-network
     depends_on:
@@ -924,11 +924,10 @@ services:
 # =============================================================================
 # Networks
 # =============================================================================
-volumes:
-  promtail-positions:
-  mongodb-data:
-  postgres-data:
-  buildkit-cache:
+# All persistent data lives under ./data/ (bind mounts) so `rm -rf data/`
+# is the single command for a clean slate. Postgres/Mongo data dirs were
+# previously named volumes for I/O perf — the trade-off is acceptable on
+# dev laptops where reproducibility matters more than raw throughput.
 
 networks:
   proxy-network:
