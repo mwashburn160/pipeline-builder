@@ -99,7 +99,7 @@ export default function SettingsPage() {
   if (!isReady || !user) return <LoadingPage />;
 
   return (
-    <DashboardLayout title="Settings" subtitle="Account preferences and defaults" maxWidth="3xl">
+    <DashboardLayout title="Settings" subtitle="Account preferences and defaults">
       <div className="page-section">
         {/* Profile Settings */}
         <motion.div
