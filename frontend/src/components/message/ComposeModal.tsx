@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { X, Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
+// Aliases are display-only — the recipientOrgId on the wire is always
+// the canonical system org. The server's authorization check
+// (create-message.ts) rejects any non-system recipientOrgId from a
+// non-sysadmin caller, so the previous code sending the alias literally
+// was silently 403-ing every Support/Help message.
+const SUPPORT_RECIPIENT = 'system';
 const SUPPORT_ALIASES = [
   { label: 'Support', value: 'support@pipeline-builder' },
   { label: 'Help', value: 'help@pipeline-builder' },
@@ -58,7 +64,9 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin }: ComposeM
       return;
     }
 
-    const recipient = isAnnouncement ? '*' : (isSuperAdmin ? recipientOrgId.trim().toLowerCase() : selectedAlias);
+    const recipient = isAnnouncement
+      ? '*'
+      : (isSuperAdmin ? recipientOrgId.trim().toLowerCase() : SUPPORT_RECIPIENT);
     if (isSuperAdmin && !isAnnouncement && !recipient) {
       setValidationError('Recipient organization is required');
       return;
