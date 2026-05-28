@@ -118,6 +118,16 @@ for addon in default-storageclass storage-provisioner metrics-server; do
   mk minikube addons enable "$addon" --profile="$PROFILE"
 done
 
+# The minikube-bundled metrics-server doesn't set --kubelet-insecure-tls,
+# but the minikube node uses a self-signed kubelet cert. Without the
+# flag every scrape fails silently with "x509: cannot validate certificate"
+# and every HPA logs FailedGetResourceMetric. Patch the deployment so the
+# flag is appended; idempotent (re-running on an already-patched deploy
+# just appends a duplicate, which is harmless and clobbered on rollout).
+mk kubectl -n kube-system patch deploy metrics-server --type=json \
+  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' \
+  2>/dev/null || echo "  metrics-server patch skipped (already patched or not yet rolled out)"
+
 mk kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
 mk kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  KEDA not ready yet"
 echo "  Addons + KEDA installed"
