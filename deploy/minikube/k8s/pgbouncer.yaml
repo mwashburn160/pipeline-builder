@@ -91,18 +91,18 @@ spec:
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: postgres-credentials
+                  name: postgres-secret
                   key: POSTGRES_USER
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-credentials
+                  name: postgres-secret
                   key: POSTGRES_PASSWORD
+            # DB name is not a secret — hardcoded to match POSTGRES_DB in
+            # the postgres deployment. Keep in sync with the platform
+            # init.sql / postgres ConfigMap if either changes.
             - name: DB_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-credentials
-                  key: POSTGRES_DB
+              value: "pipeline_builder"
             - name: LISTEN_PORT
               value: "6432"
             - name: AUTH_TYPE

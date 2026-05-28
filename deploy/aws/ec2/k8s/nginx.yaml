@@ -207,6 +207,11 @@ spec:
               mountPath: /var/cache/nginx
             - name: nginx-tmp
               mountPath: /tmp
+            # nginx writes its PID file to /run/nginx.pid by default; the
+            # rootfs is read-only so without this mount nginx crashes on
+            # startup with "open() /run/nginx.pid failed".
+            - name: nginx-run
+              mountPath: /run
       volumes:
         - name: nginx-config
           configMap:
@@ -223,6 +228,9 @@ spec:
         - name: nginx-tmp
           emptyDir:
             sizeLimit: 64Mi
+        - name: nginx-run
+          emptyDir:
+            sizeLimit: 8Mi
 
 ---
 # =============================================================================
