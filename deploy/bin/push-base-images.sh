@@ -216,21 +216,29 @@ _push_k8s() {
   local _tag="$1" _remote="$2" _jwt="$3"
   local _podname="crane-push-$(date +%s)-$$"
   local _cmd='cat > /tmp/img.tar && crane --insecure auth login "$REGISTRY_HOST" --username _token --password "$PLATFORM_JWT" >/dev/null && crane --insecure push /tmp/img.tar "$REMOTE"'
-  # Explicit small resource requests/limits. The default kubectl-run
-  # request (no limit / 500m default if a LimitRange exists) trips the
-  # namespace ResourceQuota on tight clusters even though crane is
-  # almost entirely I/O-bound. 50m CPU / 256Mi memory is plenty for
-  # streaming a tarball through.
+
+  # Why an --overrides patch instead of relying purely on CLI flags:
+  # `kubectl run` lost --limits/--requests in recent versions, so the
+  # only way to set explicit resource requests on a one-shot pod is
+  # through --overrides. The patch's container name MUST match the pod
+  # name (kubectl uses pod name as container name by default) — otherwise
+  # the strategic merge adds a second container and the pod fails to
+  # schedule. Resource sizing: crane is I/O-bound (just streaming a
+  # tarball), so 50m CPU / 128Mi requests + 200m / 512Mi limits comfortably
+  # cover the workload without tripping ResourceQuota on tight clusters.
+  #
+  # Note: we deliberately do NOT set `command` in the override. The CLI
+  # `--command -- sh -c "$_cmd"` builds it; if we put `command` in the
+  # override too, the override wins and `args` would be empty → the pod
+  # runs `sh -c` with no argument and exits with "requires an argument".
   local _overrides
   _overrides=$(cat <<JSON
 {
   "spec": {
     "containers": [{
-      "name": "crane-push",
-      "image": "$CRANE_IMAGE",
+      "name": "$_podname",
       "stdin": true,
       "stdinOnce": true,
-      "command": ["sh", "-c"],
       "resources": {
         "requests": { "cpu": "50m",  "memory": "128Mi" },
         "limits":   { "cpu": "200m", "memory": "512Mi" }
@@ -252,15 +260,18 @@ JSON
     return 0
   fi
   # Re-run with output for diagnosis. Pod name reused with a suffix so
-  # there's no name collision against the prior --rm cleanup.
-  docker save "$_tag" | kubectl -n "$NAMESPACE" run "${_podname}-retry" \
+  # there's no name collision against the prior --rm cleanup. Override
+  # JSON is rebuilt with the retry pod name to match its container name.
+  local _retry_podname="${_podname}-retry"
+  local _retry_overrides="${_overrides//$_podname/$_retry_podname}"
+  docker save "$_tag" | kubectl -n "$NAMESPACE" run "$_retry_podname" \
      --rm -i --quiet \
      --restart=Never \
      --image="$CRANE_IMAGE" \
      --env="PLATFORM_JWT=$_jwt" \
      --env="REGISTRY_HOST=$REGISTRY_HOST" \
      --env="REMOTE=$_remote" \
-     --overrides="$_overrides" \
+     --overrides="$_retry_overrides" \
      --command -- sh -c "$_cmd" 2>&1 | tail -15 | sed 's/^/    /' >&2
   return 1
 }
