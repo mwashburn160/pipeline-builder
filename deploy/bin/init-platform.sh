@@ -164,8 +164,12 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   # `FROM pipeline-plugin-base:24.04`, which buildkit resolves at
   # build-time via the registry mirror. Run the base-only path
   # unconditionally so build_image isn't silently broken.
+  #
+  # DEPLOY_TARGET is consumed by push-base-images.sh to pick the right
+  # transport: local→docker-sidecar on backend-network, minikube/ec2→
+  # crane-in-kubectl-run-pod inside the cluster.
   echo ""
-  "$SCRIPT_DIR/build-plugin-images.sh" --bases-only
+  DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" --bases-only
   echo ""
 
   if [ "$BUILD_STRATEGY" = "prebuilt" ]; then
@@ -180,7 +184,7 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     # already present, so the extra invocation is essentially free.
     BUILD_RC=0
     # shellcheck disable=SC2086
-    "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS $CATEGORY_ARG || BUILD_RC=$?
+    DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS $CATEGORY_ARG || BUILD_RC=$?
     if [ "$BUILD_RC" -ne 0 ]; then
       if [ "$CONTINUE_ON_BUILD_FAILURE" = "true" ]; then
         echo "  WARNING: build-plugin-images exited $BUILD_RC — continuing per --continue-on-build-failure" >&2
