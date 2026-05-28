@@ -224,11 +224,11 @@ aws_cdk:
   package: "aws-cdk typescript ts-node"
   tools:
     aws_cdk:
-      versions: ["2.177.0"]
-      default: "2.177.0"
+      versions: ["2.177.0", "2.257.0"]
+      default: "2.257.0"
     typescript:
-      versions: ["5.7.3"]
-      default: "5.7.3"
+      versions: ["5.7.3", "5.9.2"]
+      default: "5.9.2"
     ts_node:
       versions: ["10.9.2"]
       default: "10.9.2"
@@ -240,11 +240,11 @@ aws_cdk_multi_region:
   package: "aws-cdk typescript ts-node"
   tools:
     aws_cdk:
-      versions: ["2.177.0"]
-      default: "2.177.0"
+      versions: ["2.177.0", "2.257.0"]
+      default: "2.257.0"
     typescript:
-      versions: ["5.7.3"]
-      default: "5.7.3"
+      versions: ["5.7.3", "5.9.2"]
+      default: "5.9.2"
     ts_node:
       versions: ["10.9.2"]
       default: "10.9.2"
@@ -298,11 +298,11 @@ cdk_synth:
   package: "aws-cdk typescript ts-node"
   tools:
     aws_cdk:
-      versions: ["2.177.0"]
-      default: "2.177.0"
+      versions: ["2.177.0", "2.257.0"]
+      default: "2.257.0"
     typescript:
-      versions: ["5.7.3"]
-      default: "5.7.3"
+      versions: ["5.7.3", "5.9.2"]
+      default: "5.9.2"
     ts_node:
       versions: ["10.9.2"]
       default: "10.9.2"
@@ -1026,8 +1026,11 @@ semgrep:
   plugin: security/semgrep
   install_type: pip
   package: semgrep
-  versions: ["latest"]
-  default: "latest"
+  # Pinned releases instead of "latest" — floating versions break
+  # reproducibility (rule changes between minors). Keep two: the
+  # current default and the immediate previous as a fallback.
+  versions: ["1.119.0", "1.122.0"]
+  default: "1.122.0"
 
 ggshield:
   plugin: security/gitguardian
