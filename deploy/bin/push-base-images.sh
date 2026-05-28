@@ -243,22 +243,29 @@ _push_local() {
 _push_k8s() {
   local _tag="$1" _remote="$2" _jwt="$3"
   local _podname="crane-push-$(date +%s)-$$"
+  # The actual shell command the pod runs. Variables are expanded by
+  # the *pod's* shell (not the host's), so they resolve against the env
+  # block below at runtime.
   local _cmd='cat > /tmp/img.tar && crane --insecure auth login "$REGISTRY_HOST" --username _token --password "$PLATFORM_JWT" >/dev/null && crane --insecure push /tmp/img.tar "$REMOTE"'
+  # JSON-escape the double quotes so the cmd survives embedding in
+  # the override JSON. Bash parameter substitution: `"` → `\"`.
+  local _cmd_json="${_cmd//\"/\\\"}"
 
-  # Why an --overrides patch instead of relying purely on CLI flags:
-  # `kubectl run` lost --limits/--requests in recent versions, so the
-  # only way to set explicit resource requests on a one-shot pod is
-  # through --overrides. The patch's container name MUST match the pod
-  # name (kubectl uses pod name as container name by default) — otherwise
-  # the strategic merge adds a second container and the pod fails to
-  # schedule. Resource sizing: crane is I/O-bound (just streaming a
-  # tarball), so 50m CPU / 128Mi requests + 200m / 512Mi limits comfortably
-  # cover the workload without tripping ResourceQuota on tight clusters.
+  # Build the full pod spec via --overrides. We put command+args
+  # directly in the override (not via CLI `--command --`) because
+  # strategic merge with kubectl's --overrides on this version
+  # doesn't reliably pull command from CLI flags when the container
+  # is also defined in the patch — the merge resolves to the image's
+  # default entrypoint (which for crane:debug is `crane` with no
+  # args) and the pod just prints help and exits.
   #
-  # Note: we deliberately do NOT set `command` in the override. The CLI
-  # `--command -- sh -c "$_cmd"` builds it; if we put `command` in the
-  # override too, the override wins and `args` would be empty → the pod
-  # runs `sh -c` with no argument and exits with "requires an argument".
+  # Container name MUST match the pod name (kubectl uses pod name
+  # as the implicit container name) — otherwise strategic merge
+  # appends a second container.
+  #
+  # Resource sizing: crane is I/O-bound, so 50m/128Mi requests +
+  # 200m/512Mi limits fit comfortably inside any reasonable
+  # namespace ResourceQuota.
   local _overrides
   _overrides=$(cat <<JSON
 {
@@ -268,6 +275,13 @@ _push_k8s() {
       "image": "$CRANE_IMAGE",
       "stdin": true,
       "stdinOnce": true,
+      "command": ["sh", "-c", "$_cmd_json"],
+      "args": [],
+      "env": [
+        { "name": "PLATFORM_JWT",  "value": "$_jwt" },
+        { "name": "REGISTRY_HOST", "value": "$REGISTRY_HOST" },
+        { "name": "REMOTE",        "value": "$_remote" }
+      ],
       "resources": {
         "requests": { "cpu": "50m",  "memory": "128Mi" },
         "limits":   { "cpu": "200m", "memory": "512Mi" }
@@ -281,11 +295,7 @@ JSON
        --rm -i --quiet \
        --restart=Never \
        --image="$CRANE_IMAGE" \
-       --env="PLATFORM_JWT=$_jwt" \
-       --env="REGISTRY_HOST=$REGISTRY_HOST" \
-       --env="REMOTE=$_remote" \
-       --overrides="$_overrides" \
-       --command -- sh -c "$_cmd" >/dev/null 2>&1; then
+       --overrides="$_overrides" >/dev/null 2>&1; then
     return 0
   fi
   # Re-run with output for diagnosis. Pod name reused with a suffix so
@@ -297,11 +307,7 @@ JSON
      --rm -i --quiet \
      --restart=Never \
      --image="$CRANE_IMAGE" \
-     --env="PLATFORM_JWT=$_jwt" \
-     --env="REGISTRY_HOST=$REGISTRY_HOST" \
-     --env="REMOTE=$_remote" \
-     --overrides="$_retry_overrides" \
-     --command -- sh -c "$_cmd" 2>&1 | tail -15 | sed 's/^/    /' >&2
+     --overrides="$_retry_overrides" 2>&1 | tail -15 | sed 's/^/    /' >&2
   return 1
 }
 
