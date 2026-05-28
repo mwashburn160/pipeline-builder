@@ -217,8 +217,8 @@ export default function MessagesPage() {
         onSend={handleSend}
         isSuperAdmin={isSuperAdmin}
         recipientSuggestions={organizations
-          .filter((o) => o.organizationId.toLowerCase() !== currentOrgId)
-          .map((o) => ({ value: o.organizationId, label: o.organizationName }))}
+          .filter((o) => o.id.toLowerCase() !== currentOrgId)
+          .map((o) => ({ value: o.id, label: o.name }))}
       />
     </DashboardLayout>
   );

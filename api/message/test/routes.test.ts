@@ -508,8 +508,15 @@ describe('POST /messages (create)', () => {
     );
   });
 
-  it('returns 403 when non-sysadmin starts conversation with non-system org', async () => {
+  it('allows non-sysadmin to start a conversation with a non-system org', async () => {
+    // Cross-team / cross-org messaging: non-sysadmins can now address
+    // any recipientOrgId (subject to the read-side visibility check in
+    // buildMessageConditions). The system support inbox path
+    // (recipientOrgId='system' + channel='support') still works and is
+    // covered separately.
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    mockCreate.mockResolvedValue({ id: 'msg-cross', subject: 'Hello' });
+
     const req = mockReq({
       body: {
         recipientOrgId: 'other-org',
@@ -522,11 +529,13 @@ describe('POST /messages (create)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendError).toHaveBeenCalledWith(
-      res,
-      403,
-      'Organizations can only start conversations with the system support inbox',
-      'INSUFFICIENT_PERMISSIONS',
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientOrgId: 'other-org',
+        messageType: 'conversation',
+      }),
+      expect.anything(),
     );
   });
 
