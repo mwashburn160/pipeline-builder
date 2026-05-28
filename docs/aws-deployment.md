@@ -86,7 +86,7 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 | `GhcrToken` | Yes | — | GHCR token for pulling images |
 | `DomainName` | No | — | FQDN for Route 53 + Let's Encrypt |
 | `HostedZoneId` | If domain set | — | Route 53 hosted zone ID |
-| `InstanceType` | No | `t3.xlarge` | EC2 instance type (4 vCPU / 16 GiB recommended) |
+| `InstanceType` | No | `t3.2xlarge` | EC2 instance type (8 vCPU / 32 GiB; full stack fits with the default ResourceQuota) |
 | `GhcrUser` | No | `mwashburn160` | GitHub username for GHCR |
 | `SshCidr` | No | `0.0.0.0/0` | CIDR for SSH access |
 | `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |

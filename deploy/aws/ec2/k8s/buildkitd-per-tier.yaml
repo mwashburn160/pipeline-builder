@@ -311,7 +311,12 @@ spec:
               add: ["SETUID", "SETGID"]
           resources:
             limits:
-              cpu: "4"
+              # Capped at 2 CPU (down from 4) so the unlimited tier fits
+              # inside the namespace ResourceQuota's limits.cpu budget on
+              # single-node minikube. Memory stays at 2Gi to keep
+              # unlimited meaningfully larger than pro on at least one
+              # axis. Bump back to 4 on a clusters with >16 CPU quota.
+              cpu: "2"
               memory: 2Gi
             requests:
               cpu: "500m"

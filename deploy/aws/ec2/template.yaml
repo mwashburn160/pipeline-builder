@@ -23,15 +23,21 @@ Parameters:
 
   InstanceType:
     Type: String
-    Default: t3.xlarge
+    Default: t3.2xlarge
     AllowedValues:
-      - t3.medium
-      - t3.large
       - t3.xlarge
       - t3.2xlarge
+      - m5.2xlarge
+      - m5.4xlarge
     Description: >
-      EC2 instance type. t3.xlarge (4 vCPU/16 GiB) is the recommended default.
-      t3.large (2 vCPU/8 GiB) is insufficient for full deployment.
+      EC2 instance type. t3.2xlarge (8 vCPU / 32 GiB) is the recommended
+      default — the full stack (registry + 3 buildkitd tiers +
+      image-registry HPA + plugin HPA + observability) fits the
+      namespace ResourceQuota declared in k8s/resource-limits.yaml.
+      t3.xlarge (4 vCPU / 16 GiB) works only with optional services
+      (prometheus, loki, mongo-express, pgadmin) disabled. m5.2xlarge /
+      m5.4xlarge are non-burstable alternatives for steady high-CPU
+      workloads.
 
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName

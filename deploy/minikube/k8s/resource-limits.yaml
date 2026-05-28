@@ -8,11 +8,17 @@ metadata:
   name: pipeline-builder-quota
 spec:
   hard:
-    requests.cpu: "8"
-    requests.memory: 12Gi
-    limits.cpu: "16"
-    limits.memory: 20Gi
-    pods: "30"
+    # Sized for the full stack including registry + 3 per-tier buildkitd
+    # Deployments + image-registry (HPA up to 5 replicas) + quota (HPA
+    # up to N) + plugin (HPA up to 4). The previous 16-CPU cap was tight
+    # enough that registry + buildkitd-unlimited got starved on first
+    # boot. Drop to 16/20Gi only on a single-node minikube where the
+    # host has < 8 CPU / 16Gi RAM available.
+    requests.cpu: "12"
+    requests.memory: 24Gi
+    limits.cpu: "24"
+    limits.memory: 48Gi
+    pods: "40"
     persistentvolumeclaims: "10"
 
 ---

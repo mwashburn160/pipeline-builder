@@ -8,11 +8,32 @@ metadata:
   name: pipeline-builder-quota
 spec:
   hard:
-    requests.cpu: "8"
-    requests.memory: 12Gi
-    limits.cpu: "16"
-    limits.memory: 20Gi
-    pods: "30"
+    # Sized for an AWS t3.2xlarge instance (8 vCPU / 32 GiB RAM) running
+    # single-node minikube, hosting the full stack:
+    #   - registry + 3 per-tier buildkitd Deployments
+    #   - image-registry (HPA → 5 replicas)
+    #   - plugin (HPA → 4 replicas, each with a buildkitd sidecar)
+    #   - quota, platform, pipeline, message, compliance, billing,
+    #     reporting, frontend, nginx, postgres, mongo, redis, pgbouncer,
+    #     pgadmin, mongo-express, prometheus, loki, alertmanager, promtail
+    #
+    # requests = what's *actually* scheduled — capped well below physical
+    # capacity so kubelet + OS keep headroom.
+    # limits = sum of declared maxima — intentionally overcommitted on
+    # CPU (3x) because t3 burstable credits + low steady-state usage
+    # across most services make this safe in practice.
+    # memory limits sized to physical capacity with ~4Gi reserved for
+    # system overhead; further overcommit risks OOM-kill cascades.
+    #
+    # If you move to a larger instance (m5.4xlarge / c6i.4xlarge / etc.)
+    # scale these proportionally; on smaller instances (t3.xlarge or
+    # below) the full stack won't fit — disable optional services
+    # (prometheus, loki, mongo-express, pgadmin) first.
+    requests.cpu: "6"
+    requests.memory: 20Gi
+    limits.cpu: "24"
+    limits.memory: 28Gi
+    pods: "40"
     persistentvolumeclaims: "10"
 
 ---

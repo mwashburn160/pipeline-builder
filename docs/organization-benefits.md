@@ -130,7 +130,7 @@ EventBridge captures every CodePipeline and CodeBuild state change. Reports incl
 |--------|----------|---------------|
 | **Local** (Docker Compose) | Development, demos | Single machine, all services in containers |
 | **Minikube** (K8s) | Testing, small teams | Single node Kubernetes, KEDA auto-scaling |
-| **EC2** (Minikube on EC2) | Small-medium production | t3.xlarge+, persistent storage, Let's Encrypt |
+| **EC2** (Minikube on EC2) | Small-medium production | t3.2xlarge default (8 vCPU / 32 GiB), persistent storage, Let's Encrypt |
 | **Fargate** (ECS) | Large-scale production | Serverless containers, managed scaling, RDS/DocumentDB |
 
 All deployment targets run the same services with the same configuration — `.env` files and K8s manifests are consistent across targets.
