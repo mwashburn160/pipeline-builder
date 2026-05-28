@@ -255,7 +255,7 @@ export default function TeamPage() {
       actions={
         <div className="flex gap-2">
           <button onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); createOrgForm.reset(); setCreateOrgOpen(true); }} className="btn btn-secondary">
-            <Building2 className="w-4 h-4 mr-1.5" /> Create Organization
+            <Building2 className="w-4 h-4 mr-1.5" /> Create Sub-Org / Team
           </button>
           <button onClick={() => { setAddEmail(''); addForm.reset(); setAddModalOpen(true); }} className="btn btn-primary">
             <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
@@ -370,36 +370,53 @@ export default function TeamPage() {
       {createOrgOpen && (
         <div className="modal-backdrop" onClick={() => setCreateOrgOpen(false)}>
           <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Create Organization</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Create a new organization. You will be the owner.</p>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Create Sub-Organization / Team</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Create a sub-organization or team under your current organization.
+              You will be the owner; members and quotas are scoped to the new
+              org separately.
+            </p>
             <div className="space-y-3">
-              <input
-                type="text"
-                placeholder="Organization name"
-                value={newOrgName}
-                onChange={(e) => setNewOrgName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateOrg()}
-                className="input text-sm"
-                autoFocus
-                disabled={createOrgForm.loading}
-              />
-              <select
-                value={newOrgTier}
-                onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'unlimited')}
-                className="input text-sm"
-                disabled={createOrgForm.loading}
-              >
-                <option value="developer">Developer</option>
-                <option value="pro">Pro</option>
-                <option value="unlimited">Unlimited</option>
-              </select>
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                  Sub-org / team name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. mobile-team, qa-shared, project-foo"
+                  value={newOrgName}
+                  onChange={(e) => setNewOrgName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreateOrg()}
+                  className="input text-sm"
+                  autoFocus
+                  disabled={createOrgForm.loading}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                  Tier
+                </label>
+                <select
+                  value={newOrgTier}
+                  onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'unlimited')}
+                  className="input text-sm"
+                  disabled={createOrgForm.loading}
+                >
+                  <option value="developer">Developer — small budget, cheapest builds</option>
+                  <option value="pro">Pro — medium budget, faster builds</option>
+                  <option value="unlimited">Unlimited — largest budget, no quota cap</option>
+                </select>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Tier determines build resources and quota. Can be changed later.
+                </p>
+              </div>
             </div>
             {createOrgForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createOrgForm.error}</p>}
             {createOrgForm.success && <p className="text-sm text-green-600 dark:text-green-400 mt-3">{createOrgForm.success}</p>}
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setCreateOrgOpen(false)} className="btn btn-secondary" disabled={createOrgForm.loading}>Cancel</button>
               <button onClick={handleCreateOrg} disabled={createOrgForm.loading || !newOrgName.trim()} className="btn btn-primary">
-                {createOrgForm.loading ? 'Creating...' : 'Create Organization'}
+                {createOrgForm.loading ? 'Creating...' : 'Create Sub-Org'}
               </button>
             </div>
           </div>

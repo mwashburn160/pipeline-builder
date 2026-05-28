@@ -7,6 +7,7 @@ import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { MessageList } from '@/components/message/MessageList';
 import { ThreadView } from '@/components/message/ThreadView';
 import { ComposeModal } from '@/components/message/ComposeModal';
+import { useAuth } from '@/hooks/useAuth';
 import { MessageBadge } from '@/components/message/MessageBadge';
 import type { Message } from '@/types';
 
@@ -28,7 +29,6 @@ type ChannelFilter = 'all' | 'none' | string;
 const CHANNEL_TABS: { key: ChannelFilter; label: string }[] = [
   { key: 'all',     label: 'All channels' },
   { key: 'support', label: 'Support' },
-  { key: 'help',    label: 'Help' },
   { key: 'none',    label: 'Other' },
 ];
 
@@ -46,6 +46,7 @@ function EmptyChat() {
 /** Message inbox page. Displays conversations in a split-panel layout with compose, thread view, and unread tracking. */
 export default function MessagesPage() {
   const { user, isReady, isSuperAdmin } = useAuthGuard();
+  const { organizations } = useAuth();
   const {
     messages,
     loading,
@@ -215,6 +216,9 @@ export default function MessagesPage() {
         onClose={() => setShowCompose(false)}
         onSend={handleSend}
         isSuperAdmin={isSuperAdmin}
+        recipientSuggestions={organizations
+          .filter((o) => o.organizationId.toLowerCase() !== currentOrgId)
+          .map((o) => ({ value: o.organizationId, label: o.organizationName }))}
       />
     </DashboardLayout>
   );

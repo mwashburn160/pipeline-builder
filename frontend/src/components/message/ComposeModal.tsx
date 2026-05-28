@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { X, Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
-// Recipient is always the system org for support inbox messages.
-// The picked alias maps to a structured `channel` field on the message
-// so system-org readers can filter/group by support vs help.
+// Non-sysadmin sends always go to the system support inbox. The display
+// alias `support@pipeline-builder` is shown verbatim in the "To" field
+// for user familiarity; on the wire it's translated to recipientOrgId
+// = "system" with channel = "support" so system-org readers can filter
+// by channel.
+const SUPPORT_ALIAS = 'support@pipeline-builder';
 const SUPPORT_RECIPIENT = 'system';
-const SUPPORT_ALIASES = [
-  { label: 'Support', value: 'support@pipeline-builder', channel: 'support' },
-  { label: 'Help',    value: 'help@pipeline-builder',    channel: 'help' },
-] as const;
+const SUPPORT_CHANNEL = 'support';
 
 /** Props for the ComposeModal component. */
 interface ComposeModalProps {
@@ -28,8 +28,11 @@ interface ComposeModalProps {
   }) => Promise<unknown>;
   /** Whether the current user is a sysadmin (enables free-form recipient
    *  entry and broadcast announcements). Non-sysadmins see the support-alias
-   *  dropdown and can only message the system support inbox. */
+   *  pre-fill with their own org's other teams as datalist suggestions. */
   isSuperAdmin: boolean;
+  /** Other orgs/teams the user can message (e.g. sub-orgs they belong to).
+   *  Rendered as a `<datalist>` so the To input auto-completes by name. */
+  recipientSuggestions?: ReadonlyArray<{ value: string; label: string }>;
 }
 
 /** Derives a subject line from message content, truncating to 60 characters. */
@@ -40,9 +43,11 @@ function autoSubject(content: string): string {
 }
 
 /** Modal for composing and sending new messages or announcements to organizations. */
-export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin }: ComposeModalProps) {
+export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientSuggestions = [] }: ComposeModalProps) {
   const [recipientOrgId, setRecipientOrgId] = useState('');
-  const [selectedAlias, setSelectedAlias] = useState<string>(SUPPORT_ALIASES[0].value);
+  // Non-sysadmin To-field state. Pre-filled with the support alias;
+  // users can override it with a team/member name within their org.
+  const [supportRecipient, setSupportRecipient] = useState(SUPPORT_ALIAS);
   const [content, setContent] = useState('');
   const [validationError, setValidationError] = useState('');
   const [isAnnouncement, setIsAnnouncement] = useState(false);
@@ -63,20 +68,27 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin }: ComposeM
       return;
     }
 
+    // Compute the recipient. Non-sysadmin: the To field is editable —
+    // if the user kept the support alias, route to the system support
+    // inbox; otherwise treat the typed value as a team/member name
+    // within their org and pass it straight through as recipientOrgId
+    // (server-side resolves it / authorizes).
+    const isSupportSend = !isSuperAdmin && supportRecipient.trim().toLowerCase() === SUPPORT_ALIAS;
     const recipient = isAnnouncement
       ? '*'
-      : (isSuperAdmin ? recipientOrgId.trim().toLowerCase() : SUPPORT_RECIPIENT);
-    if (isSuperAdmin && !isAnnouncement && !recipient) {
-      setValidationError('Recipient organization is required');
+      : (isSuperAdmin
+          ? recipientOrgId.trim().toLowerCase()
+          : (isSupportSend ? SUPPORT_RECIPIENT : supportRecipient.trim().toLowerCase()));
+    if (!isAnnouncement && !recipient) {
+      setValidationError(isSuperAdmin
+        ? 'Recipient organization is required'
+        : 'Recipient is required');
       return;
     }
 
-    // Non-sysadmin sends carry the chosen channel ('support' / 'help')
-    // as a structured field. Sysadmin org-to-org messages and
-    // announcements don't belong to a channel.
-    const channel = isSuperAdmin || isAnnouncement
-      ? undefined
-      : SUPPORT_ALIASES.find((a) => a.value === selectedAlias)?.channel;
+    // Only support-channel sends carry the channel field. Direct-to-
+    // teammate sends are org-to-org so they don't need a channel tag.
+    const channel = isSupportSend ? SUPPORT_CHANNEL : undefined;
 
     const result = await sendAsync({
       recipientOrgId: recipient,
@@ -90,6 +102,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin }: ComposeM
     if (result !== null) {
       setContent('');
       setRecipientOrgId('');
+      setSupportRecipient(SUPPORT_ALIAS);
       setIsAnnouncement(false);
       onClose();
     }
@@ -164,21 +177,28 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin }: ComposeM
             />
           )}
 
-          {/* Non-system org: recipient alias dropdown */}
+          {/* Non-system org: pre-filled support recipient (editable; type
+              to override with one of the user's other teams/sub-orgs —
+              the datalist auto-completes from `recipientSuggestions`). */}
           {!isSuperAdmin && (
-            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
-              <span>To:</span>
-              <select
-                value={selectedAlias}
-                onChange={(e) => setSelectedAlias(e.target.value)}
-                className="flex-1 bg-transparent text-gray-700 dark:text-gray-300 font-medium border-none focus:outline-none focus:ring-0 cursor-pointer"
-              >
-                {SUPPORT_ALIASES.map((alias) => (
-                  <option key={alias.value} value={alias.value}>
-                    {alias.label}
+            <div className="flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <span className="text-gray-500 dark:text-gray-400">To:</span>
+              <input
+                type="text"
+                value={supportRecipient}
+                onChange={(e) => setSupportRecipient(e.target.value)}
+                list="compose-recipient-options"
+                className="flex-1 bg-transparent text-gray-700 dark:text-gray-300 font-medium border-none focus:outline-none focus:ring-0"
+                aria-label="Recipient (defaults to support; type a teammate or sub-org name to override)"
+              />
+              <datalist id="compose-recipient-options">
+                <option value={SUPPORT_ALIAS}>Pipeline Builder Support</option>
+                {recipientSuggestions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
                   </option>
                 ))}
-              </select>
+              </datalist>
             </div>
           )}
 

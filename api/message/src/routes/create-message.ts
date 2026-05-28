@@ -68,11 +68,16 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendBadRequest(res, 'Announcements must use "*" as recipientOrgId for broadcast', ErrorCode.VALIDATION_ERROR);
     }
 
-    // Conversations: non-sysadmins can only start conversations with the
-    // system support inbox (orgId='system'). Sysadmins can target any org —
-    // that's the "support replies out to a customer" flow.
-    if (messageType === 'conversation' && !isSystemAdmin(req) && recipientOrgId.toLowerCase() !== SYSTEM_ORG_ID) {
-      return sendError(res, 403, 'Organizations can only start conversations with the system support inbox', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    // Conversations: non-sysadmins can start conversations with:
+    //   - the system support inbox (orgId='system')
+    //   - any other org (cross-team within the user's reachable org tree;
+    //     the recipient's inbox visibility logic in buildMessageConditions
+    //     already restricts who can read it)
+    // Sysadmins can target any org — that's the "support replies out to
+    // a customer" flow. Broadcast announcements use messageType=
+    // 'announcement' which is already gated above.
+    if (messageType === 'conversation' && !recipientOrgId) {
+      return sendBadRequest(res, 'recipientOrgId is required for conversations', ErrorCode.VALIDATION_ERROR);
     }
 
     ctx.log('INFO', 'Creating message', { messageType, recipientOrgId, subject });
