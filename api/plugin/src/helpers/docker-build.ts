@@ -73,26 +73,40 @@ function getConfig(): DockerBuildCfg {
 export const BUILD_TEMP_ROOT = getConfig().tempRoot;
 
 /**
- *  Per-tier buildkitd address resolution. When a deploy uses a
- * dedicated buildkitd Deployment per quota tier (see
- * `deploy/minikube/k8s/buildkitd-per-tier.yaml`), operators set * PLUGIN_BUILDKIT_ADDR_DEVELOPER=tcp://buildkitd-developer:1234
- * PLUGIN_BUILDKIT_ADDR_PRO=tcp://buildkitd-pro:1234
- * PLUGIN_BUILDKIT_ADDR_UNLIMITED=tcp://buildkitd-unlimited:1234
+ * Per-tier buildkitd address resolution. When a deploy uses dedicated
+ * buildkitd Deployments per quota tier (developer / pro / unlimited),
+ * operators set:
+ *   PLUGIN_BUILDKIT_ADDR_DEVELOPER=tcp://buildkitd-developer:1234
+ *   PLUGIN_BUILDKIT_ADDR_PRO=tcp://buildkitd-pro:1234
+ *   PLUGIN_BUILDKIT_ADDR_UNLIMITED=tcp://buildkitd-unlimited:1234
  *
- * Each tier gets a hard kernel-namespace boundary  a noisy Developer-tier
- * build cannot reach a Pro/Unlimited build's filesystem cache, layers, or
- * tmpfs. Plugin pods still talk to the in-pod sidecar by default, so existing
- * deploys are unchanged until operators opt in by setting the env vars.
+ * Each tier gets a hard kernel-namespace boundary — a noisy developer-tier
+ * build cannot reach a pro/unlimited build's filesystem cache, layers, or
+ * tmpfs.
  *
- * Unknown tier (or missing env) falls back to the in-pod sidecar  keeps the
- * dev-tier default working even when only one tier is split out.
+ * Default-tier policy when no explicit tier is provided:
+ *   BILLING_ENABLED=true  → developer (cheap default; customers explicitly
+ *                            upgrade by purchasing higher tiers)
+ *   BILLING_ENABLED=false → unlimited (no per-org tier caps; give every
+ *                            build the biggest budget)
+ *
+ * Final fallback is `cfg.buildkitAddr` (BUILDKIT_HOST) so single-tier
+ * deploys (local docker-compose, minikube) that only ship one buildkitd
+ * and point BUILDKIT_HOST at it keep working unchanged.
  */
 export function getBuildkitAddrForTier(tier: string | undefined): string {
   const cfg = getConfig();
-  if (!tier) return cfg.buildkitAddr;
-  const envKey = `PLUGIN_BUILDKIT_ADDR_${tier.toUpperCase()}`;
-  const override = process.env[envKey];
-  return override && override.length > 0 ? override: cfg.buildkitAddr;
+  // Explicit tier override always wins when the matching env is set.
+  if (tier) {
+    const envKey = `PLUGIN_BUILDKIT_ADDR_${tier.toUpperCase()}`;
+    const override = process.env[envKey];
+    if (override && override.length > 0) return override;
+  }
+  // No tier (or tier with no matching env) → billing-aware default.
+  const defaultTier = process.env.BILLING_ENABLED === 'true' ? 'DEVELOPER' : 'UNLIMITED';
+  const defaultAddr = process.env[`PLUGIN_BUILDKIT_ADDR_${defaultTier}`];
+  if (defaultAddr && defaultAddr.length > 0) return defaultAddr;
+  return cfg.buildkitAddr;
 }
 
 // -----------------------------------------------------------------------------

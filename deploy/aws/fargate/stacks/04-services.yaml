@@ -24,6 +24,17 @@ Parameters:
       PLATFORM_FRONTEND_URL, and NEXT_PUBLIC_API_URL across services.
       Computed by deploy.sh as scheme + DomainName.
 
+  BillingEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >
+      When true, plugin builds default to the `developer` tier
+      (PLUGIN_BUILDKIT_ADDR_DEVELOPER) when no explicit tier is
+      supplied — customers pay-and-upgrade for higher tiers. When false
+      (self-hosted), builds default to `unlimited`. Must agree with the
+      billing service's own BILLING_ENABLED setting.
+
   PlatformImage:
     Type: String
     Default: ghcr.io/mwashburn160/platform:3.4.60
@@ -796,8 +807,25 @@ Resources:
               Value: "4096"
             - Name: IMAGE_REGISTRY_HTTP
               Value: "true"
+            # BUILDKIT_HOST is the *last-resort* fallback when no tier
+            # is provided AND no PLUGIN_BUILDKIT_ADDR_* default matches
+            # the billing-enabled state. Points at the in-pod sidecar so
+            # builds never strand if every per-tier task is down.
             - Name: BUILDKIT_HOST
               Value: "unix:///run/buildkit/buildkitd.sock"
+            # Per-tier buildkitd ECS service-discovery addresses. The
+            # default tier (used when no tier is set on the build) is
+            # selected via BILLING_ENABLED below:
+            #   BILLING_ENABLED=true  → developer  (cheap default, prod)
+            #   BILLING_ENABLED=false → unlimited  (no quota; self-hosted)
+            - Name: PLUGIN_BUILDKIT_ADDR_DEVELOPER
+              Value: "tcp://buildkitd-developer.pipeline-builder.local:1234"
+            - Name: PLUGIN_BUILDKIT_ADDR_PRO
+              Value: "tcp://buildkitd-pro.pipeline-builder.local:1234"
+            - Name: PLUGIN_BUILDKIT_ADDR_UNLIMITED
+              Value: "tcp://buildkitd-unlimited.pipeline-builder.local:1234"
+            - Name: BILLING_ENABLED
+              Value: !Ref BillingEnabled
             - Name: COMPLIANCE_SERVICE_HOST
               Value: compliance.pipeline-builder.local
             - Name: COMPLIANCE_SERVICE_PORT
@@ -1245,7 +1273,7 @@ Resources:
             - Name: SERVICE_NAME
               Value: billing
             - Name: BILLING_ENABLED
-              Value: "false"
+              Value: !Ref BillingEnabled
             - Name: BILLING_PROVIDER
               Value: stub
           Secrets:

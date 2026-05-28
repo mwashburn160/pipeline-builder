@@ -167,8 +167,12 @@ spec:
               value: "5000"
             - name: IMAGE_REGISTRY_HTTP
               value: "true"
+            # Default tier = unlimited. The in-pod buildkitd sidecar
+            # still runs as a fallback (unix socket), but normal builds
+            # route to the standalone buildkitd-unlimited Deployment so
+            # the plugin pod's resource footprint stays small.
             - name: BUILDKIT_HOST
-              value: "unix:///run/buildkit/buildkitd.sock"
+              value: "tcp://buildkitd-unlimited:1234"
             - name: REDIS_HOST
               value: "redis"
             - name: REDIS_PORT

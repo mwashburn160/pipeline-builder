@@ -170,8 +170,29 @@ spec:
               value: "5000"
             - name: IMAGE_REGISTRY_HTTP
               value: "true"
+            # BUILDKIT_HOST is the *last-resort* fallback when no tier is
+            # provided AND no PLUGIN_BUILDKIT_ADDR_* default matches the
+            # billing-enabled state. Points at the in-pod sidecar so
+            # builds never strand if every per-tier deployment is down.
             - name: BUILDKIT_HOST
               value: "unix:///run/buildkit/buildkitd.sock"
+            # Per-tier buildkitd addresses. The plugin worker picks one
+            # based on the build's tier; the *default* tier (used when no
+            # tier is set) is selected via BILLING_ENABLED below:
+            #   BILLING_ENABLED=true  → developer  (cheap default, prod)
+            #   BILLING_ENABLED=false → unlimited  (no quota; self-hosted)
+            - name: PLUGIN_BUILDKIT_ADDR_DEVELOPER
+              value: "tcp://buildkitd-developer:1234"
+            - name: PLUGIN_BUILDKIT_ADDR_PRO
+              value: "tcp://buildkitd-pro:1234"
+            - name: PLUGIN_BUILDKIT_ADDR_UNLIMITED
+              value: "tcp://buildkitd-unlimited:1234"
+            - name: BILLING_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: app-env
+                  key: BILLING_ENABLED
+                  optional: true
             - name: REDIS_HOST
               value: "redis"
             - name: REDIS_PORT
