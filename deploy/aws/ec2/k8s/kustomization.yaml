@@ -17,6 +17,13 @@ resources:
   - platform.yaml
   - pipeline.yaml
   - plugin.yaml
+  # buildkitd-per-tier provides the `buildkitd-config` ConfigMap that
+  # plugin.yaml's in-pod buildkitd sidecar mounts, plus three optional
+  # per-tier buildkitd Deployments. The ConfigMap is REQUIRED — without
+  # it plugin pods stall in PodInitializing with "configmap buildkitd-
+  # config not found". The per-tier Deployments are inert until the
+  # plugin service sets PLUGIN_BUILDKIT_ADDR_* env vars to point at them.
+  - buildkitd-per-tier.yaml
   - message.yaml
   - reporting.yaml
   - quota.yaml
