@@ -49,7 +49,7 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 # AWS CLI v2.
 
 # AWS CDK + TS toolchain. Versions pinned for reproducibility.
-RUN npm install -g aws-cdk@2.257.0 typescript@5.9.2 ts-node@10.9.2
+RUN npm install -g aws-cdk@2.1125.0 typescript@5.9.3 ts-node@10.9.2
 
 # ─── Runtime configuration defaults ───
 ENV CDK_DEPLOY_ACTION=deploy

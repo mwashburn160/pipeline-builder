@@ -224,11 +224,18 @@ aws_cdk:
   package: "aws-cdk typescript ts-node"
   tools:
     aws_cdk:
-      versions: ["2.177.0", "2.257.0"]
-      default: "2.257.0"
+      # To bump: `npm view aws-cdk version` for the current stable.
+      # Don't guess — npm 404s on non-existent versions and breaks every
+      # plugin build that uses this base.
+      versions: ["2.1124.1", "2.1125.0"]
+      default: "2.1125.0"
     typescript:
-      versions: ["5.7.3", "5.9.2"]
-      default: "5.9.2"
+      # Same: `npm view typescript version` for the current stable.
+      # Pinning to 5.9.3 (latest 5.x LTS) instead of 6.0.x for CDK
+      # interop stability; bump to 6.x once CDK's bundled typings ship
+      # broad v6 compatibility.
+      versions: ["5.7.3", "5.9.3"]
+      default: "5.9.3"
     ts_node:
       versions: ["10.9.2"]
       default: "10.9.2"
@@ -240,11 +247,18 @@ aws_cdk_multi_region:
   package: "aws-cdk typescript ts-node"
   tools:
     aws_cdk:
-      versions: ["2.177.0", "2.257.0"]
-      default: "2.257.0"
+      # To bump: `npm view aws-cdk version` for the current stable.
+      # Don't guess — npm 404s on non-existent versions and breaks every
+      # plugin build that uses this base.
+      versions: ["2.1124.1", "2.1125.0"]
+      default: "2.1125.0"
     typescript:
-      versions: ["5.7.3", "5.9.2"]
-      default: "5.9.2"
+      # Same: `npm view typescript version` for the current stable.
+      # Pinning to 5.9.3 (latest 5.x LTS) instead of 6.0.x for CDK
+      # interop stability; bump to 6.x once CDK's bundled typings ship
+      # broad v6 compatibility.
+      versions: ["5.7.3", "5.9.3"]
+      default: "5.9.3"
     ts_node:
       versions: ["10.9.2"]
       default: "10.9.2"
@@ -298,11 +312,18 @@ cdk_synth:
   package: "aws-cdk typescript ts-node"
   tools:
     aws_cdk:
-      versions: ["2.177.0", "2.257.0"]
-      default: "2.257.0"
+      # To bump: `npm view aws-cdk version` for the current stable.
+      # Don't guess — npm 404s on non-existent versions and breaks every
+      # plugin build that uses this base.
+      versions: ["2.1124.1", "2.1125.0"]
+      default: "2.1125.0"
     typescript:
-      versions: ["5.7.3", "5.9.2"]
-      default: "5.9.2"
+      # Same: `npm view typescript version` for the current stable.
+      # Pinning to 5.9.3 (latest 5.x LTS) instead of 6.0.x for CDK
+      # interop stability; bump to 6.x once CDK's bundled typings ship
+      # broad v6 compatibility.
+      versions: ["5.7.3", "5.9.3"]
+      default: "5.9.3"
     ts_node:
       versions: ["10.9.2"]
       default: "10.9.2"

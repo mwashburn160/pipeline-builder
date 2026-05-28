@@ -49,7 +49,7 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 # unpinned (Pipeline Builder internal package, ships frequent versions);
 # pinning here would constantly drift behind the published catalog.
 RUN npm config set @pipeline-builder:registry=https://registry.npmjs.org/
-RUN npm install -g aws-cdk@2.257.0 typescript@5.9.2 ts-node@10.9.2 @pipeline-builder/pipeline-manager
+RUN npm install -g aws-cdk@2.1125.0 typescript@5.9.3 ts-node@10.9.2 @pipeline-builder/pipeline-manager
 
 WORKDIR /app
 CMD ["bash"]
