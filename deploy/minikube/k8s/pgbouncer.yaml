@@ -135,7 +135,11 @@ spec:
               memory: "256Mi"
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            # readOnlyRootFilesystem deliberately not set — edoburu's
+            # entrypoint generates /etc/pgbouncer/userlist.txt at startup
+            # from DB_USER/DB_PASSWORD env vars, which needs the rootfs
+            # writable. Non-root + caps-dropped + seccomp default still
+            # apply; pgbouncer is a stateless proxy with no on-disk state.
             capabilities:
               drop: ["ALL"]
       volumes:
