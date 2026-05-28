@@ -147,7 +147,10 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: quota
-  minReplicas: 2
+  # minReplicas: 1 on single-node minikube — see image-registry.yaml HPA
+  # for the boot-time image-pull saturation rationale. HPA scales up
+  # under real load (and the image is cached by then).
+  minReplicas: 1
   maxReplicas: 5
   metrics:
     - type: Resource

@@ -206,7 +206,12 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: image-registry
-  minReplicas: 2
+  # minReplicas: 1 on single-node minikube — two replicas pulling the
+  # same ~250MB image in parallel saturates gp3 EBS baseline throughput
+  # and blocks every other pod's image pull for 10+ minutes at boot.
+  # HPA scales up to 5 under real load, by which point the image is
+  # already cached in the kubelet and the second pod boots in seconds.
+  minReplicas: 1
   maxReplicas: 5
   metrics:
     - type: Resource
