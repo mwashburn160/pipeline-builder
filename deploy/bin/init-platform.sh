@@ -162,16 +162,18 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   # Base images must be present in the in-cluster registry for *both*
   # strategies — even build_image plugin Dockerfiles use bare
   # `FROM pipeline-plugin-base:24.04`, which buildkit resolves at
-  # build-time via the registry mirror. Run the base-only path
-  # unconditionally so build_image isn't silently broken.
+  # build-time via the registry mirror.
+  #
+  # Strategy selection:
+  #   prebuilt    → full build-plugin-images.sh handles bases internally,
+  #                 so we go straight to it (no --bases-only step).
+  #   build_image → bases never get built by the full script (it only
+  #                 builds per-plugin images), so we run --bases-only
+  #                 to seed the registry before plugin uploads start.
   #
   # DEPLOY_TARGET is consumed by push-base-images.sh to pick the right
   # transport: local→docker-sidecar on backend-network, minikube/ec2→
   # crane-in-kubectl-run-pod inside the cluster.
-  echo ""
-  DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" --bases-only
-  echo ""
-
   if [ "$BUILD_STRATEGY" = "prebuilt" ]; then
     echo ""
     BUILD_ARGS=""
@@ -180,8 +182,6 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     # `set -e` that aborts init entirely — typical case is one bad apt mirror
     # killing the whole bootstrap. With --continue-on-build-failure we log
     # and proceed; load-plugins will skip plugins lacking an image.tar.
-    # build_base_images runs again here — it short-circuits when bases are
-    # already present, so the extra invocation is essentially free.
     BUILD_RC=0
     # shellcheck disable=SC2086
     DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" $BUILD_ARGS $CATEGORY_ARG || BUILD_RC=$?
@@ -193,6 +193,13 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
         exit "$BUILD_RC"
       fi
     fi
+    echo ""
+  else
+    # build_image strategy — seed the in-cluster registry with base
+    # images, since the per-plugin build step is skipped on this path
+    # but plugin Dockerfiles still reference the bases.
+    echo ""
+    DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" --bases-only
     echo ""
   fi
 
