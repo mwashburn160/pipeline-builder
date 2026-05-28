@@ -106,6 +106,13 @@ spec:
             runAsGroup: 1000
             capabilities:
               drop: ["ALL"]
+              # newuidmap/newgidmap (the SETUID-helper binaries that
+              # write /proc/<pid>/uid_map and gid_map for rootlesskit)
+              # need these in the *bounding set* — otherwise their
+              # file-caps can't be granted at exec time and rootlesskit
+              # fails with "newuidmap … operation not permitted" at
+              # startup. Same setting as the in-pod sidecar in plugin.yaml.
+              add: ["SETUID", "SETGID"]
           resources:
             limits:
               cpu: "1"
@@ -197,6 +204,13 @@ spec:
             runAsGroup: 1000
             capabilities:
               drop: ["ALL"]
+              # newuidmap/newgidmap (the SETUID-helper binaries that
+              # write /proc/<pid>/uid_map and gid_map for rootlesskit)
+              # need these in the *bounding set* — otherwise their
+              # file-caps can't be granted at exec time and rootlesskit
+              # fails with "newuidmap … operation not permitted" at
+              # startup. Same setting as the in-pod sidecar in plugin.yaml.
+              add: ["SETUID", "SETGID"]
           resources:
             limits:
               cpu: "2"
@@ -288,6 +302,13 @@ spec:
             runAsGroup: 1000
             capabilities:
               drop: ["ALL"]
+              # newuidmap/newgidmap (the SETUID-helper binaries that
+              # write /proc/<pid>/uid_map and gid_map for rootlesskit)
+              # need these in the *bounding set* — otherwise their
+              # file-caps can't be granted at exec time and rootlesskit
+              # fails with "newuidmap … operation not permitted" at
+              # startup. Same setting as the in-pod sidecar in plugin.yaml.
+              add: ["SETUID", "SETGID"]
           resources:
             limits:
               cpu: "4"
