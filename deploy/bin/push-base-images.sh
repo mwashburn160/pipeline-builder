@@ -49,6 +49,21 @@ DEPLOY_TARGET="${DEPLOY_TARGET:-local}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"
 CRANE_IMAGE="${CRANE_IMAGE:-gcr.io/go-containerregistry/crane:debug}"
 
+# Minikube installs by default use a kubeconfig context named after the
+# minikube profile (`pipeline-builder` per startup.sh). The minikube user
+# on EC2 has this configured, but the running user's *default* kubeconfig
+# context may not be set — bare `kubectl` then talks to the wrong cluster
+# (or no cluster) and looks like a missing secret. Default to the
+# pipeline-builder context for k8s targets; override via KUBECTL_CONTEXT.
+KUBECTL_CONTEXT="${KUBECTL_CONTEXT:-pipeline-builder}"
+kubectl_ctx() {
+  if [ "$DEPLOY_TARGET" = "local" ]; then
+    kubectl "$@"
+  else
+    kubectl --context="$KUBECTL_CONTEXT" "$@"
+  fi
+}
+
 # -----------------------------------------------------------------------
 # Per-target setup: locate JWT_SECRET and the registry coordinates
 # -----------------------------------------------------------------------
@@ -80,11 +95,24 @@ case "$DEPLOY_TARGET" in
     # inside the cluster, so the registry/realm hostnames it sees are
     # the standard ClusterIP DNS names — same form the in-cluster
     # plugin service uses at runtime.
-    JWT_SECRET="$(kubectl -n "$NAMESPACE" get secret jwt-secret -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null | base64 -d || true)"
+    JWT_SECRET="$(kubectl_ctx -n "$NAMESPACE" get secret jwt-secret -o jsonpath='{.data.JWT_SECRET}' 2>/dev/null | base64 -d || true)"
     if [ -z "$JWT_SECRET" ]; then
-      echo "ERROR: JWT_SECRET not found in Secret 'jwt-secret' (namespace: $NAMESPACE)" >&2
-      echo "  Has startup.sh been run? Verify with:" >&2
-      echo "    kubectl -n $NAMESPACE get secret jwt-secret" >&2
+      echo "ERROR: JWT_SECRET not found in Secret 'jwt-secret' (namespace: $NAMESPACE, context: $KUBECTL_CONTEXT)" >&2
+      echo "" >&2
+      echo "  Verify with:" >&2
+      echo "    kubectl --context=$KUBECTL_CONTEXT -n $NAMESPACE get secret jwt-secret" >&2
+      echo "" >&2
+      echo "  Available contexts on this machine:" >&2
+      kubectl config get-contexts -o name 2>/dev/null | sed 's/^/    /' >&2 || echo "    (kubectl not configured)" >&2
+      echo "" >&2
+      echo "  Common causes:" >&2
+      echo "    • Running from a laptop without the EC2 cluster's kubeconfig" >&2
+      echo "      → SSH the cluster's /home/minikube/.kube/config to your laptop" >&2
+      echo "        and set KUBECTL_CONTEXT to its context name." >&2
+      echo "    • Wrong context name (default: pipeline-builder)" >&2
+      echo "      → export KUBECTL_CONTEXT=<your-context> and retry." >&2
+      echo "    • startup.sh hasn't run yet on the target cluster" >&2
+      echo "      → run it before init-platform.sh." >&2
       exit 1
     fi
     REGISTRY_HOST="registry:5000"
@@ -237,6 +265,7 @@ _push_k8s() {
   "spec": {
     "containers": [{
       "name": "$_podname",
+      "image": "$CRANE_IMAGE",
       "stdin": true,
       "stdinOnce": true,
       "resources": {
@@ -248,7 +277,7 @@ _push_k8s() {
 }
 JSON
 )
-  if docker save "$_tag" | kubectl -n "$NAMESPACE" run "$_podname" \
+  if docker save "$_tag" | kubectl_ctx -n "$NAMESPACE" run "$_podname" \
        --rm -i --quiet \
        --restart=Never \
        --image="$CRANE_IMAGE" \
@@ -264,7 +293,7 @@ JSON
   # JSON is rebuilt with the retry pod name to match its container name.
   local _retry_podname="${_podname}-retry"
   local _retry_overrides="${_overrides//$_podname/$_retry_podname}"
-  docker save "$_tag" | kubectl -n "$NAMESPACE" run "$_retry_podname" \
+  docker save "$_tag" | kubectl_ctx -n "$NAMESPACE" run "$_retry_podname" \
      --rm -i --quiet \
      --restart=Never \
      --image="$CRANE_IMAGE" \
