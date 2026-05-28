@@ -21,6 +21,14 @@ golangci-lint Go code quality plugin for running multiple Go linters in parallel
 | `GOLANGCI_LINT_TIMEOUT` | `5m` | Golangci Lint Timeout |
 | `GOLANGCI_LINT_FORMAT` | `json` | Golangci Lint Format |
 
+## Pinned tool versions
+
+| Tool | Version |
+|------|---------|
+| golangci-lint | 1.62.2 (override at build time via `--build-arg GOLANGCI_LINT_VERSION=…`) |
+| Go (default) | 1.24.13 |
+| Go (fallback) | 1.23.12 |
+
 ## Output
 
 Primary output directory: `lint-reports`

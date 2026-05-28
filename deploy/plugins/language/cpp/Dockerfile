@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cppcheck \
     python3 \
     python3-pip \
-    && pip3 install --break-system-packages conan meson \
+    && pip3 install --no-cache-dir --break-system-packages conan meson \
     && rm -rf /var/lib/apt/lists/*
 
 # Build system selection (auto = detect from project files)
