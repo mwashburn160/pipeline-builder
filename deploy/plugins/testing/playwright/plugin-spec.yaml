@@ -34,6 +34,11 @@ installCommands:
     elif [ -f package.json ]; then
       npm install
     fi
+  # Run apt-get update first so playwright's bundled apt-get install
+  # (triggered by --with-deps) sees the current package index. Without
+  # this, the cached cache from image build time can 404 on packages
+  # that Ubuntu has since superseded (e.g. -1ubuntu1.X security rolls).
+  - (command -v sudo >/dev/null 2>&1 && sudo apt-get update) || apt-get update || true
   - npx playwright install --with-deps
 commands:
   - |

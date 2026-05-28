@@ -15,7 +15,15 @@ RUN bash -c "source ${NVM_DIR}/nvm.sh && \
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # ─── Playwright browsers + system dependencies ───
-RUN npx playwright install --with-deps chromium firefox webkit
+# `playwright install --with-deps` shells out to apt-get install for the
+# browser system libraries. The base image's apt-cache is built once and
+# can become stale within days as Ubuntu rolls security updates that
+# supersede the specific `<pkg>=<version>` lines pinned by Playwright's
+# bundled deps list. Running apt-get update immediately before keeps the
+# index fresh; rm -rf /var/lib/apt/lists/* afterwards keeps image size down.
+RUN apt-get update \
+    && npx playwright install --with-deps chromium firefox webkit \
+    && rm -rf /var/lib/apt/lists/*
 
 # Default Node.js version
 ENV NODE_VERSION=24
