@@ -87,7 +87,16 @@ log "Detecting resources"
 TOTAL_CPU=$(nproc)
 TOTAL_MEM=$(($(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024))
 MK_CPUS=$((TOTAL_CPU > 2 ? TOTAL_CPU - 1 : 2))
-MK_MEM=$((TOTAL_MEM * 75 / 100))
+# Memory: reserve 4 GiB for host (kernel + docker daemon + ssh/cron +
+# burst headroom) and give the rest to minikube — but never less than
+# 75% on small instances where 4 GiB would over-reserve.
+#   t3.large   (8G)   → max(6G,    8-4=4G)  = 6G   minikube,  2G  host
+#   t3.xlarge  (16G)  → max(12G,   16-4=12G) = 12G minikube,  4G  host
+#   t3.2xlarge (32G)  → max(24G,   32-4=28G) = 28G minikube,  4G  host  ← was 24G
+#   m5.4xlarge (64G)  → max(48G,   64-4=60G) = 60G minikube,  4G  host  ← was 48G
+MK_MEM_BY_RATIO=$((TOTAL_MEM * 75 / 100))
+MK_MEM_BY_RESERVE=$((TOTAL_MEM - 4096))
+MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RESERVE ))
 echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M RAM → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M"
 
 MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=40g --driver=docker --mount --mount-string="$DATA_DIR:/mnt/data")

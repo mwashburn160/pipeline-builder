@@ -85,7 +85,13 @@ else
   TOTAL_MEM=$(($(sysctl -n hw.memsize) / 1024 / 1024))
 fi
 MK_CPUS=$((TOTAL_CPU > 2 ? TOTAL_CPU - 1 : 2))
-MK_MEM=$((TOTAL_MEM * 75 / 100))
+# Memory: reserve 4 GiB for host (kernel + docker daemon + monitoring +
+# burst headroom) and give the rest to minikube — but never less than
+# 75% on small laptops where 4 GiB would over-reserve. See the EC2
+# startup.sh for the per-instance breakdown.
+MK_MEM_BY_RATIO=$((TOTAL_MEM * 75 / 100))
+MK_MEM_BY_RESERVE=$((TOTAL_MEM - 4096))
+MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RESERVE ))
 echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M, 30g disk"
 
 MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=30g --driver=docker --mount --mount-string="$DATA_DIR:/mnt/data")
