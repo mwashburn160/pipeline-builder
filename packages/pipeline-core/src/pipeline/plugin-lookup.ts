@@ -327,6 +327,9 @@ export class PluginLookup extends Construct {
       ...PluginLookup.basePlugin(),
       name: 'cdk-synth',
       primaryOutputDirectory: 'cdk.out',
+      installCommands: [
+        'command -v pipeline-manager >/dev/null 2>&1 || npm install -g @pipeline-builder/pipeline-manager',
+      ],
       commands: [
         'pipeline-manager synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --no-verify-ssl',
       ],
