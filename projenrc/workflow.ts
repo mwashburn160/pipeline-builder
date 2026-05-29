@@ -156,7 +156,12 @@ export class Workflow extends Component {
                     //
                     // Unrelated changes (.projenrc.ts, deploy/*, docs) don't end
                     // up in nx's affected set, so they trigger zero image builds.
-                    run: 'echo AFFECTED_PROJECTS=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -n --arg LIST "$(comm -12 <(pnpm nx show projects --affected --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}| sort) <(echo $IMAGE_PROJECTS | jq -r \'.[]\' | sort))" \'$LIST | split("\n") | map(select(length>0))\') >> $GITHUB_OUTPUT',
+                    // jq set-intersection on the JSON array nx emits (one-line
+                    // `["plugin","@pipeline-builder/pipeline-core",...]`). The
+                    // previous `comm -12 | sort` approach compared the entire
+                    // JSON string to one-per-line names → always empty → no
+                    // publishes since 3.4.42.
+                    run: 'AFFECTED=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) && echo AFFECTED_PROJECTS=$AFFECTED >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -nc --argjson a "$AFFECTED" --argjson l "$IMAGE_PROJECTS" \'[$a[] | select(IN($l[]))]\') >> $GITHUB_OUTPUT',
                 },
                 {
                     name: 'Affected details',
@@ -230,7 +235,11 @@ export class Workflow extends Component {
                     env: {
                         LIBRARY_PROJECTS: JSON.stringify(LIBRARY_PROJECTS),
                     },
-                    run: 'echo AFFECTED_LIBS=$(jq -n --arg LIST "$(comm -12 <(pnpm nx show projects --affected --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} | sort) <(echo $LIBRARY_PROJECTS | jq -r \'.[]\' | sort))" \'$LIST | split("\n") | map(select(length>0))\') >> $GITHUB_OUTPUT',
+                    // nx emits scoped names (`@pipeline-builder/pipeline-core`)
+                    // while LIBRARY_PROJECTS uses bare names — strip the scope
+                    // before intersecting, otherwise the result is empty even
+                    // when libraries are affected.
+                    run: 'AFFECTED=$(pnpm nx show projects --affected --json --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }}) && echo AFFECTED_LIBS=$(jq -nc --argjson a "$AFFECTED" --argjson l "$LIBRARY_PROJECTS" \'[$a[] | sub("^@pipeline-builder/"; "") | select(IN($l[]))]\') >> $GITHUB_OUTPUT',
                 },
                 {
                     name: 'Publish npm packages',
