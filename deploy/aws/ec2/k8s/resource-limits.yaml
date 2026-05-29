@@ -29,8 +29,15 @@ spec:
     # scale these proportionally; on smaller instances (t3.xlarge or
     # below) the full stack won't fit — disable optional services
     # (prometheus, loki, mongo-express, pgadmin) first.
-    requests.cpu: "6"
-    requests.memory: 20Gi
+    # requests.cpu: 7 — minikube has 7 vCPU on a t3.2xlarge (host 8, 1
+    # reserved for kubelet + OS). kube-system pods (metrics-server,
+    # coredns, kube-proxy) eat ~500m, leaving ~6.5 schedulable; setting
+    # the cap to 7 lets the full stack request 6.0 *and* still admit
+    # transient bootstrap pods (crane-push, init jobs) without thrashing.
+    # Was: 6 — left zero headroom and rejected every crane-push pod
+    # during init-platform.sh's base-image push step.
+    requests.cpu: "7"
+    requests.memory: 22Gi
     limits.cpu: "24"
     limits.memory: 28Gi
     pods: "40"

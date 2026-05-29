@@ -8,12 +8,28 @@ metadata:
   name: pipeline-builder-quota
 spec:
   hard:
-    # Sized for the full stack including registry + 3 per-tier buildkitd
-    # Deployments + image-registry (HPA up to 5 replicas) + quota (HPA
-    # up to N) + plugin (HPA up to 4). The previous 16-CPU cap was tight
-    # enough that registry + buildkitd-unlimited got starved on first
-    # boot. Drop to 16/20Gi only on a single-node minikube where the
-    # host has < 8 CPU / 16Gi RAM available.
+    # Sized for laptop minikube — intentionally generous because devs
+    # run on a wide range of hardware (8-32 vCPU, 16-64 GiB RAM). The
+    # quota's job here is to admit the full stack + transient bootstrap
+    # pods, not to enforce capacity; physical scheduling falls through
+    # to the kubelet on whatever the laptop actually has.
+    #
+    # Full stack on this quota:
+    #   - registry + 3 per-tier buildkitd Deployments
+    #   - image-registry (HPA → 5 replicas)
+    #   - plugin (HPA → 4 replicas, each with a buildkitd sidecar)
+    #   - quota, platform, pipeline, message, compliance, billing,
+    #     reporting, frontend, nginx, postgres, mongo, redis, pgbouncer,
+    #     pgadmin, mongo-express, prometheus, loki, alertmanager, promtail
+    #   - bootstrap-time crane-push pods (during init-platform.sh)
+    #
+    # If your laptop has <8 vCPU or <16 GiB RAM the full stack won't
+    # fit; disable optional services (prometheus, loki, mongo-express,
+    # pgadmin) first and/or drop both quota values proportionally.
+    #
+    # Was: requests.cpu: 8 — left no headroom for the crane-push pod
+    # during init's base-image push, mirroring the same bug we hit on
+    # the EC2 deploy. Bumped to 12 to keep bootstrap reliable.
     requests.cpu: "12"
     requests.memory: 24Gi
     limits.cpu: "24"
