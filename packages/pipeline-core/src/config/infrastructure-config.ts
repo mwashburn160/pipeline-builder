@@ -150,6 +150,7 @@ export function loadAWSConfig(): AWSConfig {
 
     codeBuild: {
       computeType: getComputeType(process.env.CODEBUILD_COMPUTE_TYPE || 'SMALL'),
+      defaultImage: process.env.CODEBUILD_DEFAULT_IMAGE || 'aws/codebuild/standard:7.0',
     },
   };
 }

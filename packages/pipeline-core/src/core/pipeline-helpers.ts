@@ -275,6 +275,29 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   });
 }
 
+/**
+ * Resolve the fallback CodeBuild image for steps without a plugin-baked one.
+ * Reads `aws.codeBuild.defaultImage` (env: `CODEBUILD_DEFAULT_IMAGE`) and
+ * defaults to `aws/codebuild/standard:7.0`. The cached map prevents CDK from
+ * creating duplicate `LinuxBuildImage` constructs across many CodeBuild steps
+ * in the same synth.
+ */
+const defaultBuildImageCache = new Map<string, IBuildImage>();
+function resolveDefaultBuildImage(): IBuildImage {
+  let configured: string;
+  try {
+    configured = Config.get('aws').codeBuild.defaultImage;
+  } catch {
+    configured = 'aws/codebuild/standard:7.0';
+  }
+  let cached = defaultBuildImageCache.get(configured);
+  if (!cached) {
+    cached = LinuxBuildImage.fromDockerRegistry(configured);
+    defaultBuildImageCache.set(configured, cached);
+  }
+  return cached;
+}
+
 export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | CodeBuildStep | ManualApprovalStep {
   const {
     id, input, metadata, network, scope,
@@ -392,7 +415,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
     buildEnvironment: {
       computeType,
-      ...(pluginBuildImage && { buildImage: pluginBuildImage }),
+      buildImage: pluginBuildImage ?? resolveDefaultBuildImage(),
       environmentVariables: {
         ...toCodeBuildEnvVars(env),
         ...secretEnvVars,

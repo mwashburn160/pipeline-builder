@@ -190,6 +190,15 @@ export interface AWSConfig {
   };
   readonly codeBuild: {
     readonly computeType: ComputeType;
+    /**
+     * Image used for CodeBuild steps that don't have a plugin-baked image
+     * (cold-start fallback, ShellSteps with no registry, `metadata_only`
+     * plugins). env: `CODEBUILD_DEFAULT_IMAGE`. Default
+     * `aws/codebuild/standard:7.0`. Point at a private mirror to avoid the
+     * managed-image pull, or at an image with `pipeline-manager` baked in
+     * so cold-start synth doesn't have to `npm install -g` it on each run.
+     */
+    readonly defaultImage: string;
   };
 }
 
