@@ -1,2 +1,3 @@
 pluginSpec: plugin-spec.yaml
-buildType: prebuilt
+dockerfile: Dockerfile
+buildType: build_image
