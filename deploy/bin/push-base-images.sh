@@ -312,6 +312,101 @@ JSON
 }
 
 # -----------------------------------------------------------------------
+# Pre-push: discover which remote tags already exist
+# -----------------------------------------------------------------------
+# Batches all manifest-existence checks into one pod (or one docker
+# sidecar for local), so re-runs against an already-populated registry
+# skip the per-image push entirely. Set FORCE_PUSH=true to bypass the
+# check and re-push everything (useful after rebuilding a base image
+# without bumping its tag).
+FORCE_PUSH="${FORCE_PUSH:-false}"
+
+# Compose the list of remotes we'd push so the check pod can iterate.
+_remotes_to_check=()
+for _tag in "${BASE_TAGS[@]}"; do
+  _remotes_to_check+=("${REGISTRY_HOST}/library/${_tag}")
+done
+
+# Build the existence-check shell snippet — printed remote name on a
+# line if `crane digest` succeeds, silent otherwise. Shared by both
+# the local and k8s transports below.
+_build_check_cmd() {
+  # shellcheck disable=SC2016
+  printf 'for img in %s; do crane --insecure digest "$img" >/dev/null 2>&1 && echo "$img"; done' \
+    "$(printf '%s ' "${_remotes_to_check[@]}")"
+}
+
+# Returns the set of remotes that already exist on stdout (one per line).
+_discover_existing() {
+  local _check_cmd
+  _check_cmd="$(_build_check_cmd)"
+  local _jwt
+  _jwt="$(_sign_platform_jwt)"
+  case "$DEPLOY_TARGET" in
+    local|fargate)
+      # `crane catalog`-style listing also works, but per-image digest
+      # checks are simpler and don't depend on the registry exposing
+      # the catalog API (Docker registry's catalog is admin-only in
+      # some configs).
+      printf '_token:%s' "$_jwt" >/dev/null  # noop; auth set below
+      local _login="crane --insecure auth login '${REGISTRY_HOST}' --username _token --password '${_jwt}' >/dev/null"
+      docker run --rm \
+        --network "$BACKEND_NETWORK" \
+        --entrypoint sh \
+        "$CRANE_IMAGE" -c "$_login && $_check_cmd" 2>/dev/null \
+        || true
+      ;;
+    minikube|ec2)
+      local _podname="crane-check-$(date +%s)-$$"
+      # Inner shell command for the pod's `sh -c`. Must be JSON-escaped
+      # before embedding in the override below — _check_cmd contains
+      # literal `"` characters that would otherwise terminate the JSON
+      # string and break the spec.
+      local _full_cmd='crane --insecure auth login "$REGISTRY_HOST" --username _token --password "$PLATFORM_JWT" >/dev/null && '"$_check_cmd"
+      local _full_cmd_json="${_full_cmd//\"/\\\"}"
+      local _overrides
+      _overrides=$(cat <<JSON
+{
+  "spec": {
+    "containers": [{
+      "name": "$_podname",
+      "image": "$CRANE_IMAGE",
+      "command": ["sh", "-c", "$_full_cmd_json"],
+      "args": [],
+      "env": [
+        { "name": "PLATFORM_JWT",  "value": "$_jwt" },
+        { "name": "REGISTRY_HOST", "value": "$REGISTRY_HOST" }
+      ],
+      "resources": {
+        "requests": { "cpu": "50m",  "memory": "128Mi" },
+        "limits":   { "cpu": "200m", "memory": "256Mi" }
+      }
+    }]
+  }
+}
+JSON
+)
+      kubectl_ctx -n "$NAMESPACE" run "$_podname" \
+        --rm --attach --quiet \
+        --restart=Never \
+        --image="$CRANE_IMAGE" \
+        --overrides="$_overrides" 2>/dev/null \
+        || true
+      ;;
+  esac
+}
+
+EXISTING_REMOTES=""
+if [ "$FORCE_PUSH" != "true" ]; then
+  echo "=== Checking which base images are already in ${REGISTRY_HOST}/library/ ==="
+  EXISTING_REMOTES="$(_discover_existing)"
+fi
+
+_already_exists() {
+  [ -n "$EXISTING_REMOTES" ] && printf '%s\n' "$EXISTING_REMOTES" | grep -Fxq "$1"
+}
+
+# -----------------------------------------------------------------------
 # Main push loop
 # -----------------------------------------------------------------------
 echo "=== Pushing base images to ${REGISTRY_HOST}/library/ ($DEPLOY_TARGET) ==="
@@ -321,6 +416,15 @@ for _tag in "${BASE_TAGS[@]}"; do
     continue
   fi
   _remote="${REGISTRY_HOST}/library/${_tag}"
+
+  # Idempotency short-circuit: skip if the tag already exists at the
+  # remote. Set FORCE_PUSH=true to re-push (e.g. after rebuilding the
+  # base image without bumping its tag).
+  if _already_exists "$_remote"; then
+    echo "  = $_tag already in registry (skipping; FORCE_PUSH=true to override)"
+    continue
+  fi
+
   # Sign a fresh JWT per image — image-registry's token endpoint enforces
   # a 300s expiry, and the slowest base (sonarcloud + JDK) can take longer
   # than that on its own. A loop-wide JWT would work for the first image
