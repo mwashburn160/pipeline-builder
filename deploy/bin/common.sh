@@ -123,6 +123,14 @@ compute_image_tag() {
   # outputs that aren't part of the source. We hash filename+content so a
   # rename also invalidates the tag.
   #
+  # Why config.yaml is excluded: build-plugin-images.sh writes the computed
+  # hash into config.yaml as `imageHash:`. If we hashed config.yaml we'd
+  # get a self-referential dependency — the hash would change on every
+  # build because the file it's hashed from contains the previous build's
+  # hash. config.yaml only carries build metadata (pluginSpec/buildType/
+  # imageHash), not source the platform executes; plugin-spec.yaml is the
+  # contract that actually changes behaviour, and it IS hashed.
+  #
   # `cd` first so find doesn't try (and fail) to restore cwd when the
   # script is invoked via `sudo -u <other>` from a directory the new user
   # can't read (typical EC2 case: cwd=/home/ec2-user, running as minikube).
@@ -133,6 +141,7 @@ compute_image_tag() {
       -not -name 'image.tar' \
       -not -name 'plugin.zip' \
       -not -name '.image-hash' \
+      -not -name 'config.yaml' \
       -not -name '.DS_Store' \
       | LC_ALL=C sort \
       | while read -r _f; do

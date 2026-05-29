@@ -128,6 +128,12 @@ const PluginConfigSchema = z.object({
   pluginSpec: z.string().optional(),
   dockerfile: z.string().optional(),
   buildType: z.enum(['build_image', 'prebuilt', 'metadata_only']).optional(),
+  // Deterministic build hash written by build-plugin-images.sh
+  // (`p-<name>-<sha256:12>`). Informational only on the upload path —
+  // the platform doesn't act on it, but it lives in the same config
+  // file as the rest of the build metadata so re-runs can short-circuit
+  // unchanged plugins without needing a separate .image-hash sidecar.
+  imageHash: z.string().optional(),
 }).strict()
   .refine(d => !(d.buildType === 'prebuilt' && d.dockerfile), {
     message: 'dockerfile is not allowed when buildType is prebuilt',

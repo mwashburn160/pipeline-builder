@@ -275,25 +275,68 @@ while IFS= read -r plugin_dir; do
     label="${category}/${name}"
     tag=$(compute_image_tag "$plugin_dir")
 
-    # Check for existing image.tar. The build hash lives in a sidecar
-    # `.image-hash` file (not config.yaml — that file ships in the plugin
-    # ZIP and its strict schema rejects unknown keys).
-    if [ -f "$plugin_dir/image.tar" ] && [ "$FORCE" != true ]; then
-      existing_tag=$(cat "$plugin_dir/.image-hash" 2>/dev/null || true)
-      if [ "$existing_tag" = "$tag" ]; then
+    # Build-skip decision tree. The build hash now lives inside
+    # config.yaml as `imageHash:` — same file the platform parses on
+    # upload, so build script and runtime share one source of truth.
+    # (Old layout used a `.image-hash` sidecar; if you see one, it's a
+    # leftover from a pre-consolidation run and is safely ignored — the
+    # next successful build cleans it up.)
+    #
+    # Source state we trust: `imageHash:` from config.yaml. Build output:
+    # `image.tar`. Either can be missing independently — `--cleanup`
+    # deletes image.tar, a `git clean` deletes neither (config.yaml is
+    # checked in), an interrupted build leaves config.yaml untouched.
+    #
+    # Reasons we'd skip a build, in priority order:
+    #   1. `imageHash` matches current source AND `image.tar` exists →
+    #      everything is in sync, definitely skip.
+    #   2. `imageHash` matches current source but `image.tar` is gone →
+    #      source is unchanged but the cached tar was deleted (probably
+    #      by --cleanup). Skip only if we know the image is already in
+    #      the in-cluster registry (REGISTRY_CHECK=true); otherwise
+    #      rebuild so the next load-plugins step has something to upload.
+    #   3. `image.tar` exists but `imageHash` is missing or mismatched →
+    #      can't verify freshness, treat as stale and prompt/rebuild.
+    if [ "$FORCE" != true ]; then
+      # Read `imageHash:` from config.yaml. Fall back to the legacy
+      # `.image-hash` sidecar so pre-consolidation builds still skip
+      # correctly on the first post-upgrade run; once that run completes,
+      # the sidecar is gone and the read above always succeeds.
+      existing_tag=$(grep -E '^imageHash:[[:space:]]*' "$plugin_dir/config.yaml" 2>/dev/null | sed -E 's/^imageHash:[[:space:]]*//')
+      if [ -z "$existing_tag" ]; then
+        existing_tag=$(cat "$plugin_dir/.image-hash" 2>/dev/null || true)
+      fi
+      hash_matches=$([ "$existing_tag" = "$tag" ] && echo true || echo false)
+      tar_present=$([ -f "$plugin_dir/image.tar" ] && echo true || echo false)
+
+      if [ "$hash_matches" = true ] && [ "$tar_present" = true ]; then
         echo "  [${CURRENT}/${TOTAL}] SKIP $label (image.tar exists, hash unchanged)"
         SKIPPED=$((SKIPPED + 1))
         continue
       fi
-      # Hash changed — prompt to recreate
-      if [ -t 0 ] && [ "$DRY_RUN" != true ]; then
-        printf "  [${CURRENT}/${TOTAL}] $label has existing image.tar. Recreate? [y/N]: "
-        read -r _answer
-        if [ "$_answer" != "y" ] && [ "$_answer" != "Y" ]; then
-          echo "    Skipped"
-          SKIPPED=$((SKIPPED + 1))
-          continue
+      if [ "$hash_matches" = true ] && [ "$tar_present" = false ] && [ "${REGISTRY_CHECK:-false}" = true ]; then
+        # image.tar was likely deleted by --cleanup. Source is unchanged,
+        # so the registry should still hold the previously-uploaded copy.
+        echo "  [${CURRENT}/${TOTAL}] SKIP $label (image.tar missing, hash unchanged — trusting registry copy)"
+        SKIPPED=$((SKIPPED + 1))
+        continue
+      fi
+      if [ "$tar_present" = true ] && [ "$hash_matches" != true ]; then
+        # Hash mismatch with an existing tar — source changed since the
+        # last build, or .image-hash was clobbered.
+        if [ -t 0 ] && [ "$DRY_RUN" != true ]; then
+          printf "  [${CURRENT}/${TOTAL}] $label has existing image.tar but source changed. Rebuild? [Y/n]: "
+          read -r _answer
+          if [ "$_answer" = "n" ] || [ "$_answer" = "N" ]; then
+            echo "    Skipped (manual)"
+            SKIPPED=$((SKIPPED + 1))
+            continue
+          fi
         fi
+      elif [ "$tar_present" = false ] && [ "$hash_matches" = true ]; then
+        # image.tar gone, .image-hash still here — quiet feedback that
+        # we're rebuilding to recreate the tarball.
+        echo "  [${CURRENT}/${TOTAL}] REBUILD $label (image.tar missing; pass REGISTRY_CHECK=true to skip when the image is already in the in-cluster registry)"
       fi
     fi
 
@@ -370,8 +413,9 @@ while IFS= read -r plugin_dir; do
 
     # Update config.yaml. Synthesize a minimal one if the plugin lacks it
     # (rare — but one outlier plugin shouldn't abort an otherwise-clean run).
-    # The schema's `.strict()` parser rejects unknown keys, so we MUST NOT
-    # write `imageTag:` here — it's no longer part of the upload contract.
+    # The schema's `.strict()` parser rejects unknown keys; the platform
+    # accepts `imageHash` (added alongside this change) but still rejects
+    # `imageTag` so we strip any legacy entries.
     # Image identity is `<name>:<version>` from plugin-spec.yaml; the local
     # docker tag (`plugin:${tag}` saved into image.tar) is incidental and
     # gets re-tagged at push time by `loadAndPush`.
@@ -382,10 +426,16 @@ while IFS= read -r plugin_dir; do
     sed_inplace 's/^buildType: build_image$/buildType: prebuilt/' "$config"
     sed_inplace '/^dockerfile:/d' "$config"
     sed_inplace '/^imageTag:/d' "$config"
+    sed_inplace '/^imageHash:/d' "$config"
+    # Write the freshly-computed hash. Persisted in config.yaml so the
+    # next-run cache-skip check has the same source-of-truth the platform
+    # parses on upload — no separate .image-hash sidecar to keep in sync.
+    printf 'imageHash: %s\n' "$tag" >> "$config"
 
-    # Persist the build hash for the next-run cache-skip check (sidecar file,
-    # not packed into the zip).
-    echo "$tag" > "$plugin_dir/.image-hash"
+    # One-time cleanup of the legacy sidecar file from prior runs of this
+    # script; harmless on plugins that never had one. Remove this block
+    # once every plugin in the tree has been rebuilt at least once.
+    rm -f "$plugin_dir/.image-hash"
 
     # Cleanup docker image
     docker rmi "plugin:${tag}" > /dev/null 2>&1 || true
