@@ -73,26 +73,28 @@ function getConfig(): DockerBuildCfg {
 export const BUILD_TEMP_ROOT = getConfig().tempRoot;
 
 /**
- * Per-tier buildkitd address resolution. When a deploy uses dedicated
- * buildkitd Deployments per quota tier (developer / pro / unlimited),
- * operators set:
+ * Per-tier buildkitd address resolution — escape hatch for operators
+ * who run dedicated buildkitd Deployments per quota tier. Set:
  *   PLUGIN_BUILDKIT_ADDR_DEVELOPER=tcp://buildkitd-developer:1234
  *   PLUGIN_BUILDKIT_ADDR_PRO=tcp://buildkitd-pro:1234
  *   PLUGIN_BUILDKIT_ADDR_UNLIMITED=tcp://buildkitd-unlimited:1234
  *
- * Each tier gets a hard kernel-namespace boundary — a noisy developer-tier
- * build cannot reach a pro/unlimited build's filesystem cache, layers, or
- * tmpfs.
+ * NO shipped deploy currently uses per-tier addresses — every deploy
+ * (local, minikube, ec2, fargate) ships a single shared buildkitd
+ * sidecar reached via `cfg.buildkitAddr` (BUILDKIT_HOST). Tier
+ * partitioning lives at the BullMQ queue level inside the plugin
+ * service; the dispatch target is the same regardless of tier.
+ *
+ * When (none of these env vars are set, this function returns
+ * `cfg.buildkitAddr` for every tier. The env vars exist for operators
+ * who want to reintroduce per-tier kernel-namespace isolation without
+ * a code change.
  *
  * Default-tier policy when no explicit tier is provided:
- *   BILLING_ENABLED=true  → developer (cheap default; customers explicitly
- *                            upgrade by purchasing higher tiers)
+ *   BILLING_ENABLED=true  → developer (cheap default; customers
+ *                            explicitly upgrade by purchasing higher tiers)
  *   BILLING_ENABLED=false → unlimited (no per-org tier caps; give every
  *                            build the biggest budget)
- *
- * Final fallback is `cfg.buildkitAddr` (BUILDKIT_HOST) so single-tier
- * deploys (local docker-compose, minikube) that only ship one buildkitd
- * and point BUILDKIT_HOST at it keep working unchanged.
  */
 export function getBuildkitAddrForTier(tier: string | undefined): string {
   const cfg = getConfig();

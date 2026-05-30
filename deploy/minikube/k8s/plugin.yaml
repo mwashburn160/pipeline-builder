@@ -167,12 +167,12 @@ spec:
               value: "5000"
             - name: IMAGE_REGISTRY_HTTP
               value: "true"
-            # Default tier = unlimited. The in-pod buildkitd sidecar
-            # still runs as a fallback (unix socket), but normal builds
-            # route to the standalone buildkitd-unlimited Deployment so
-            # the plugin pod's resource footprint stays small.
+            # Builds run on the in-pod buildkitd sidecar via the shared
+            # unix socket (volume `buildkit-socket` mounted by both the
+            # sidecar at /run/user/1000/buildkit and the plugin
+            # container at /run/buildkit).
             - name: BUILDKIT_HOST
-              value: "tcp://buildkitd-unlimited:1234"
+              value: "unix:///run/buildkit/buildkitd.sock"
             - name: REDIS_HOST
               value: "redis"
             - name: REDIS_PORT
@@ -279,6 +279,35 @@ spec:
         listName: "bull:plugin-build:wait"
         listLength: "2"
         activationListLength: "1"
+
+---
+# =============================================================================
+# buildkitd sidecar ConfigMap
+# =============================================================================
+# Mirrors docker.io → registry:5000 so plugin Dockerfiles using bare
+# `FROM pipeline-plugin-base:24.04` resolve at the in-cluster registry
+# instead of Docker Hub. Mounted by the buildkitd sidecar in the plugin
+# pod (see initContainers above).
+#
+# Previously lived in buildkitd-per-tier.yaml; moved here when the stale
+# standalone buildkitd-developer/pro/unlimited Deployments were retired
+# and the in-pod sidecar became the sole buildkitd in the cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: buildkitd-config
+  namespace: pipeline-builder
+data:
+  buildkitd.toml: |
+    [registry."docker.io"]
+      mirrors = ["registry:5000"]
+
+    [registry."registry:5000"]
+      # Registry serves plain HTTP on the in-cluster ClusterIP service —
+      # nginx fronts it on HTTPS for external clients. Plain HTTP here
+      # avoids the buildkit-vs-crane scheme-mismatch deadlock on the
+      # token realm (see registry.yaml for the full rationale).
+      http = true
 
 ---
 # =============================================================================

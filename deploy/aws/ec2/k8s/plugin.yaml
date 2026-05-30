@@ -170,23 +170,13 @@ spec:
               value: "5000"
             - name: IMAGE_REGISTRY_HTTP
               value: "true"
-            # BUILDKIT_HOST is the *last-resort* fallback when no tier is
-            # provided AND no PLUGIN_BUILDKIT_ADDR_* default matches the
-            # billing-enabled state. Points at the in-pod sidecar so
-            # builds never strand if every per-tier deployment is down.
+            # Builds run on the in-pod buildkitd sidecar via the shared
+            # unix socket. Tier partitioning lives at the BullMQ queue
+            # level inside the plugin service (developer / pro /
+            # unlimited queues); every tier's worker dispatches to the
+            # same sidecar — no standalone per-tier buildkitd Deployments.
             - name: BUILDKIT_HOST
               value: "unix:///run/buildkit/buildkitd.sock"
-            # Per-tier buildkitd addresses. The plugin worker picks one
-            # based on the build's tier; the *default* tier (used when no
-            # tier is set) is selected via BILLING_ENABLED below:
-            #   BILLING_ENABLED=true  → developer  (cheap default, prod)
-            #   BILLING_ENABLED=false → unlimited  (no quota; self-hosted)
-            - name: PLUGIN_BUILDKIT_ADDR_DEVELOPER
-              value: "tcp://buildkitd-developer:1234"
-            - name: PLUGIN_BUILDKIT_ADDR_PRO
-              value: "tcp://buildkitd-pro:1234"
-            - name: PLUGIN_BUILDKIT_ADDR_UNLIMITED
-              value: "tcp://buildkitd-unlimited:1234"
             - name: BILLING_ENABLED
               valueFrom:
                 configMapKeyRef:
@@ -303,6 +293,35 @@ spec:
         listName: "bull:plugin-build:wait"
         listLength: "2"
         activationListLength: "1"
+
+---
+# =============================================================================
+# buildkitd sidecar ConfigMap
+# =============================================================================
+# Mirrors docker.io → registry:5000 so plugin Dockerfiles using bare
+# `FROM pipeline-plugin-base:24.04` resolve at the in-cluster registry
+# instead of Docker Hub. Mounted by the buildkitd sidecar in the plugin
+# pod (see initContainers above).
+#
+# Previously lived in buildkitd-per-tier.yaml; moved here when the stale
+# standalone buildkitd-developer/pro/unlimited Deployments were retired
+# and the in-pod sidecar became the sole buildkitd in the cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: buildkitd-config
+  namespace: pipeline-builder
+data:
+  buildkitd.toml: |
+    [registry."docker.io"]
+      mirrors = ["registry:5000"]
+
+    [registry."registry:5000"]
+      # Registry serves plain HTTP on the in-cluster ClusterIP service —
+      # nginx fronts it on HTTPS for external clients. Plain HTTP here
+      # avoids the buildkit-vs-crane scheme-mismatch deadlock on the
+      # token realm (see registry.yaml for the full rationale).
+      http = true
 
 ---
 # =============================================================================

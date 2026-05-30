@@ -378,7 +378,7 @@ services:
       # via a named volume fails under the rootless image because the volume
       # mounts at `/run/buildkit/` owned by root inside the container and the
       # rootless daemon (UID 1000) can't bind a socket there.
-      BUILDKIT_HOST: tcp://buildkitd-unlimited:1234
+      BUILDKIT_HOST: tcp://buildkitd:1234
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-900000}
@@ -395,7 +395,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      buildkitd-unlimited:
+      buildkitd:
         condition: service_healthy
     healthcheck: *api-healthcheck
     deploy:
@@ -409,15 +409,14 @@ services:
 
   # ---------------------------------------------------------------------------
   # Rootless BuildKit daemon — replaces dind, no privileged mode, no
-  # CA-trust workaround (buildkitd carries the system CA bundle).
-  # Named `buildkitd-unlimited` to match the minikube/ec2 per-tier naming
-  # convention. This is the only tier in local + minikube; multi-tier
-  # isolation lives only in EC2/Fargate where quota-isolated builds
-  # actually matter.
+  # CA-trust workaround (buildkitd carries the system CA bundle). Single
+  # shared instance for all plugin builds — tier partitioning lives at
+  # the BullMQ queue level inside the plugin service, not at the
+  # buildkitd layer.
   # ---------------------------------------------------------------------------
-  buildkitd-unlimited:
+  buildkitd:
     image: 'moby/buildkit:v0.16.0-rootless'
-    container_name: buildkitd-unlimited
+    container_name: buildkitd
     restart: always
     stop_grace_period: 5s
     user: "1000:1000"

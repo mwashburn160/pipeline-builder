@@ -807,23 +807,14 @@ Resources:
               Value: "4096"
             - Name: IMAGE_REGISTRY_HTTP
               Value: "true"
-            # BUILDKIT_HOST is the *last-resort* fallback when no tier
-            # is provided AND no PLUGIN_BUILDKIT_ADDR_* default matches
-            # the billing-enabled state. Points at the in-pod sidecar so
-            # builds never strand if every per-tier task is down.
+            # Builds run on the co-located buildkitd container in the
+            # plugin task via the shared unix socket. Tier partitioning
+            # lives at the BullMQ queue level inside the plugin service
+            # (developer / pro / unlimited queues); every tier's worker
+            # dispatches to the same buildkitd — no standalone per-tier
+            # ECS services.
             - Name: BUILDKIT_HOST
               Value: "unix:///run/buildkit/buildkitd.sock"
-            # Per-tier buildkitd ECS service-discovery addresses. The
-            # default tier (used when no tier is set on the build) is
-            # selected via BILLING_ENABLED below:
-            #   BILLING_ENABLED=true  → developer  (cheap default, prod)
-            #   BILLING_ENABLED=false → unlimited  (no quota; self-hosted)
-            - Name: PLUGIN_BUILDKIT_ADDR_DEVELOPER
-              Value: "tcp://buildkitd-developer.pipeline-builder.local:1234"
-            - Name: PLUGIN_BUILDKIT_ADDR_PRO
-              Value: "tcp://buildkitd-pro.pipeline-builder.local:1234"
-            - Name: PLUGIN_BUILDKIT_ADDR_UNLIMITED
-              Value: "tcp://buildkitd-unlimited.pipeline-builder.local:1234"
             - Name: BILLING_ENABLED
               Value: !Ref BillingEnabled
             - Name: COMPLIANCE_SERVICE_HOST
