@@ -52,6 +52,15 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 
 The web UI at `https://localhost:8443` provides visual pipeline and plugin management. The AI builder analyzes a Git repository and generates the right stages and plugins automatically.
 
+**Default credentials** (created by `init-platform.sh local` on a fresh install):
+
+| Field | Value |
+|---|---|
+| Identifier | `admin@internal` |
+| Password | `SecurePassword123!` |
+
+These defaults are only accepted on `DEPLOY_TARGET=local`. The `minikube`/`ec2`/`fargate` targets refuse the defaults and require the operator to type real values at the `init-platform.sh` prompt, so a production-style init won't silently create an account with this password. **Change the password from the dashboard immediately after first login on any environment that's reachable beyond your laptop.**
+
 ### CLI
 
 ```bash
@@ -180,6 +189,15 @@ PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh loc
 ```
 
 Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGORY` (comma-separated filter), `PARALLEL_JOBS` (upload concurrency, auto-lowered to 1 for prebuilt), `FORCE_REBUILD` (rebuild existing image.tar files).
+
+**Admin credentials** prompted by `init-platform.sh`:
+
+| Target | Identifier default | Password default | Defaults accepted? |
+|---|---|---|---|
+| `local` | `admin@internal` | `SecurePassword123!` | yes — hit Enter to accept |
+| `minikube` / `ec2` / `fargate` | none | none | no — operator must type real values |
+
+Set `PLATFORM_IDENTIFIER` and `PLATFORM_PASSWORD` env vars (or `PLATFORM_TOKEN` for an existing JWT) to skip the prompts in CI.
 
 ---
 
