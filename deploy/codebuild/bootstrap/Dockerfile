@@ -5,16 +5,18 @@
 # This is NOT a plugin image — it's the CodeBuild runtime image meant to
 # back `CODEBUILD_DEFAULT_IMAGE`, the fallback used when a step has no
 # plugin-baked image:
-#   - cold-start synth (pipeline-core's `fallbackSynth()` path)
+#   - cold-start synth (pipeline-core's `bootstrap()` path)
 #   - ShellSteps that don't have a registry image
 #   - `metadata_only` plugins
 #
 # Without this, the fallback runs on AWS-managed `aws/codebuild/standard:7.0`
-# which DOES NOT have `pipeline-manager` on PATH. The first CodeBuild action
-# in a cold-start pipeline exits 127 ("not found") on the synth command. The
-# fallback path now self-heals via `npm install -g`, but that adds ~30s to
-# every cold start. This image makes that install a no-op because
-# pipeline-manager is already baked in.
+# which DOES NOT have `pipeline-manager` on PATH — the first CodeBuild
+# action in a cold-start pipeline then exits 127 ("not found") on the
+# synth command. `bootstrap()` in pipeline-core deliberately does NOT
+# include a self-heal `npm install -g` step (that masked configuration
+# problems and added ~30s to every cold start); instead the contract is
+# that `CODEBUILD_DEFAULT_IMAGE` MUST point at an image with
+# `pipeline-manager` on PATH, which is exactly what this image provides.
 #
 # This image inherits the FULL AWS-managed CodeBuild runtime (Node, Python,
 # Docker, AWS CLI, Git, etc.) rather than rebuilding it on bare Ubuntu —

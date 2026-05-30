@@ -173,18 +173,19 @@ export class PipelineBuilder extends Construct {
     //   1. Pre-resolved by `pipeline-manager synth/deploy` from the platform
     //      API → use it. Synth step runs on the real `cdk-synth` image with
     //      real commands baked into the template.
-    //   2. Otherwise → `fallbackSynth()`: hardcoded `pipeline-manager synth`
-    //      on standard:7.0. Cold-start path used when the platform isn't
-    //      reachable at synth time (CLI logs a warning per missed plugin).
+    //   2. Otherwise → `bootstrap()`: cold-start `pipeline-manager synth`
+    //      on the configured CODEBUILD_DEFAULT_IMAGE (default
+    //      pipeline-bootstrap:1.0). Used when the platform isn't reachable
+    //      at synth time (CLI logs a warning per missed plugin).
     //
     // pluginLookup.plugin() reads `resolvedPlugins` internally and returns
     // the cached entry when present — so calling it always wins over
-    // fallbackSynth() when pre-resolution succeeded.
+    // bootstrap() when pre-resolution succeeded.
     const synthCacheKey =
       this.config.plugin.alias || `${this.config.plugin.name}-alias`;
     const plugin = props.resolvedPlugins?.[synthCacheKey]
       ? pluginLookup.plugin(this.config.plugin)
-      : pluginLookup.fallbackSynth();
+      : pluginLookup.bootstrap();
     const defaultComputeType = awsConfig.codeBuild.computeType;
     const artifactManager = new ArtifactManager();
     const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;

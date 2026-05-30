@@ -316,20 +316,25 @@ export class PluginLookup extends Construct {
   }
 
   /**
-   * Synth plugin with pipeline-manager commands. Cold-start fallback for the
-   * synth step when pre-resolution by `pipeline-manager synth/deploy` didn't
-   * populate `resolvedPlugins` for the synth plugin. Runs on `standard:7.0`
-   * via the default CodeBuild image and self-bootstraps the real synth via
+   * Synth plugin with pipeline-manager commands. Cold-start bootstrap for
+   * the synth step when pre-resolution by `pipeline-manager synth/deploy`
+   * didn't populate `resolvedPlugins` for the synth plugin. Runs on the
+   * configured `CODEBUILD_DEFAULT_IMAGE` (default `pipeline-bootstrap:1.0`)
+   * and self-bootstraps the real synth via
    * `pipeline-manager synth --id ${PIPELINE_ID}`.
+   *
+   * No `installCommands`: the default image already has `pipeline-manager`
+   * baked in (that's the whole point of `pipeline-bootstrap:1.0`). If the
+   * operator points CODEBUILD_DEFAULT_IMAGE at an image lacking it (e.g.
+   * vanilla aws/codebuild/standard:7.0), this step exits 127 — fix that
+   * by using an image with pipeline-manager rather than papering over it
+   * with a per-build `npm install -g`.
    */
-  public fallbackSynth(): Plugin {
+  public bootstrap(): Plugin {
     return {
       ...PluginLookup.basePlugin(),
       name: 'cdk-synth',
       primaryOutputDirectory: 'cdk.out',
-      installCommands: [
-        'command -v pipeline-manager >/dev/null 2>&1 || npm install -g @pipeline-builder/pipeline-manager',
-      ],
       commands: [
         'pipeline-manager synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --no-verify-ssl',
       ],
