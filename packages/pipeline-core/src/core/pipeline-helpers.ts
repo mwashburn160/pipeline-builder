@@ -282,16 +282,40 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
  * Default: `pipeline-bootstrap:1.0` — the local tag built by
  * `deploy/codebuild/bootstrap/Dockerfile`.
  *
+ * - AWS curated image (`aws/codebuild/*`): use the matching `LinuxBuildImage`
+ *   constant so CDK emits `imagePullCredentialsType: CODEBUILD`. Using
+ *   `fromDockerRegistry()` here would set SERVICE_ROLE credentials, which
+ *   CFN rejects with "cannot use a CodeBuild curated image with
+ *   imagePullCredentialsType SERVICE_ROLE".
  * - Bare tag (no `/`): auto-prefixed to
  *   `<registry-host>:<port>/library/<tag>` using the registry config,
  *   with the per-org platform Secret as Basic auth — same path
  *   `resolvePluginImage()` uses for plugin images. Needs `scope` + `orgId`.
  * - Fully-qualified registry URI (contains `/`): used as-is, no auth wired.
  * - Missing registry config or scope/orgId → falls back to
- *   `aws/codebuild/standard:7.0` with a warning, so synth never crashes
- *   on an under-configured environment.
+ *   `aws/codebuild/standard:7.0` (as a CURATED image, see above), with a
+ *   warning so synth degrades gracefully on partially configured envs.
  */
 const STANDARD_7_0 = 'aws/codebuild/standard:7.0';
+
+/**
+ * Map AWS curated `aws/codebuild/*` image strings to the matching
+ * `LinuxBuildImage` static. Extend when newer standard images ship.
+ * Returns `undefined` for non-curated strings — caller should use
+ * `fromDockerRegistry()` for those.
+ */
+function curatedLinuxBuildImage(imageId: string): IBuildImage | undefined {
+  if (!imageId.startsWith('aws/codebuild/')) return undefined;
+  switch (imageId) {
+    case 'aws/codebuild/standard:7.0': return LinuxBuildImage.STANDARD_7_0;
+    case 'aws/codebuild/standard:6.0': return LinuxBuildImage.STANDARD_6_0;
+    case 'aws/codebuild/standard:5.0': return LinuxBuildImage.STANDARD_5_0;
+    // Newer codenamed images route through fromCodeBuildImageId, which
+    // CDK also marks as CODEBUILD credentials (curated).
+    default: return LinuxBuildImage.fromCodeBuildImageId(imageId);
+  }
+}
+
 export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBuildImage {
   let configured: string;
   try {
@@ -300,15 +324,20 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
     configured = STANDARD_7_0;
   }
 
+  // AWS curated image → CODEBUILD credentials. MUST go through the
+  // LinuxBuildImage constants, not fromDockerRegistry().
+  const curated = curatedLinuxBuildImage(configured);
+  if (curated) return curated;
+
   // Fully-qualified URI — operator owns it. No registry/Secret wiring.
   if (configured.includes('/')) {
     return LinuxBuildImage.fromDockerRegistry(configured);
   }
 
   // Bare tag → auto-prefix with the platform registry, mirroring
-  // resolvePluginImage(). Bail to standard:7.0 (with a warning) at each
-  // missing prerequisite so synth degrades gracefully on partially
-  // configured environments instead of failing.
+  // resolvePluginImage(). Bail to STANDARD_7_0 as a curated fallback
+  // (with a warning) at each missing prerequisite so synth degrades
+  // gracefully on partially configured environments instead of failing.
   let registry;
   try {
     registry = Config.get('registry');
@@ -317,21 +346,21 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
       `CODEBUILD_DEFAULT_IMAGE='${configured}' is a bare tag but registry config not loaded — ` +
       `falling back to ${STANDARD_7_0}. Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT.`,
     );
-    return LinuxBuildImage.fromDockerRegistry(STANDARD_7_0);
+    return LinuxBuildImage.STANDARD_7_0;
   }
   if (!registry?.host) {
     log.warn(
       `CODEBUILD_DEFAULT_IMAGE='${configured}' is a bare tag but IMAGE_REGISTRY_HOST is empty — ` +
       `falling back to ${STANDARD_7_0}.`,
     );
-    return LinuxBuildImage.fromDockerRegistry(STANDARD_7_0);
+    return LinuxBuildImage.STANDARD_7_0;
   }
   if (!scope || !orgId) {
     log.warn(
       `CODEBUILD_DEFAULT_IMAGE='${configured}' needs scope+orgId for Secret auth — ` +
       `falling back to ${STANDARD_7_0}. (Caller did not supply them.)`,
     );
-    return LinuxBuildImage.fromDockerRegistry(STANDARD_7_0);
+    return LinuxBuildImage.STANDARD_7_0;
   }
 
   const portPart = registry.port && registry.port !== 80 && registry.port !== 443
