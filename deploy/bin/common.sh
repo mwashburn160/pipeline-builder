@@ -505,16 +505,21 @@ is_retryable_status() {
 #   $1  label (display name for logging)
 #   $2+ curl arguments (URL, headers, data, etc.)
 #   Env: UPLOAD_RETRIES (default 3), UPLOAD_RETRY_DELAY (default 30)
+#        CURL_BODY_FILE (optional): write response body to this path so the
+#          caller can parse partial-failure detail. Do NOT pass `-o` in
+#          "$@" — curl only honors one `-o` per URL and the hardcoded
+#          `-o /dev/null` below would silently win.
 #   Exits: 0=ok, 1=fail, 2=exists (skip)
 # ---------------------------------------------------------------------------
 curl_with_retry() {
   local _label="$1"; shift
   local _retries="${UPLOAD_RETRIES:-3}"
   local _delay="${UPLOAD_RETRY_DELAY:-30}"
+  local _out="${CURL_BODY_FILE:-/dev/null}"
   local _attempt=1 _status _result
 
   while [ "$_attempt" -le "$_retries" ]; do
-    _status=$(curl -s -o /dev/null -w "%{http_code}" --insecure "$@" 2>/dev/null || echo "000")
+    _status=$(curl -s -o "$_out" -w "%{http_code}" --insecure "$@" 2>/dev/null || echo "000")
     _result="$(classify_status "$_status")"
 
     if [ "$_result" = "fail" ] && is_retryable_status "$_status" && [ "$_attempt" -lt "$_retries" ]; then

@@ -113,12 +113,12 @@ upload_pipelines_bulk() {
 
   echo "  Uploading ${_count} pipeline(s) in single bulk request..."
 
-  # Retry on transient HTTP via the shared helper, and capture the response
-  # body in parallel so partial-failure reporting (created/failed) still
-  # works without re-rolling the retry loop here.
-  curl_with_retry "bulk(${_count})" \
+  # Retry on transient HTTP via the shared helper. CURL_BODY_FILE tells
+  # curl_with_retry where to write the response body — passing `-o` in the
+  # arg list would be silently ignored (curl only honors one `-o` per URL,
+  # and the helper's own `-o` wins).
+  CURL_BODY_FILE="$_body_file" curl_with_retry "bulk(${_count})" \
     -X POST "${PLATFORM_BASE_URL}/api/pipelines/bulk/create" \
-    -o "$_body_file" \
     -H "Authorization: Bearer ${JWT_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "x-org-id: system" \
@@ -128,14 +128,25 @@ upload_pipelines_bulk() {
 
   if [ "$_rc" = 0 ]; then
     local body created failed errors
-    body="$(cat "$_body_file" 2>/dev/null || echo '{}')"
-    created=$(echo "$body" | jq -r '.data.created // 0' 2>/dev/null || echo "0")
-    failed=$(echo "$body" | jq -r '.data.failed // 0' 2>/dev/null || echo "0")
+    body="$(cat "$_body_file" 2>/dev/null)"
+    # Empty input makes jq exit 0 with no output (not 0); coerce via :- to keep numeric arithmetic safe.
+    created=$(echo "$body" | jq -r '(.data.created // 0) | tostring' 2>/dev/null)
+    failed=$(echo "$body" | jq -r '(.data.failed // 0)  | tostring' 2>/dev/null)
+    created="${created:-0}"
+    failed="${failed:-0}"
     SUCCEEDED=$((SUCCEEDED + created))
     FAILED=$((FAILED + failed))
     echo "    created: ${created}, failed: ${failed}"
+    if [ -z "$body" ]; then
+      echo "    WARNING: empty response body — server returned HTTP 2xx but no JSON" >&2
+    fi
     errors=$(echo "$body" | jq -r '.data.errors[]? | "    ERROR [\(.index)]: \(.error)"' 2>/dev/null || true)
-    [ -n "$errors" ] && echo "$errors"
+    # `[ -n "$x" ] && cmd` as the function's last statement returns 1 when $x
+    # is empty, which under `set -e` kills the script before print_summary —
+    # and cascades into init-platform.sh's compliance/dashboard prompts.
+    if [ -n "$errors" ]; then
+      echo "$errors"
+    fi
   else
     FAILED=$((FAILED + _count))
   fi
