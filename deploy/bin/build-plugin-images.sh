@@ -191,10 +191,15 @@ build_base_images() {
   fi
 
   # Family bases — alphabetical, all inherit FROM pipeline-plugin-base:24.04.
+  # Skip `_plugin-base` itself: it matches the `_*-base` glob but is the
+  # root base built above with the `:24.04` tag. Without this guard, the
+  # loop builds the same Dockerfile a second time as `pipeline-plugin-
+  # base:1.0`, wasting build time and publishing a stale duplicate tag.
   for _fam_dir in "$_base_root"/_*-base; do
     [ -d "$_fam_dir" ] || continue
     local _name
     _name=$(basename "$_fam_dir" | sed 's/^_//')
+    [ "$_name" = "plugin-base" ] && continue
     _build_base_quiet "pipeline-${_name}:1.0" "$_fam_dir" || return 1
   done
 
