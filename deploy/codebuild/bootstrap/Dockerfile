@@ -18,45 +18,57 @@
 # that `CODEBUILD_DEFAULT_IMAGE` MUST point at an image with
 # `pipeline-manager` on PATH, which is exactly what this image provides.
 #
-# Why Amazon Linux 2023 instead of Ubuntu:
+# Why a slim base instead of the AWS CodeBuild standard image:
 #
-# AWS does NOT publish the Ubuntu-based `aws/codebuild/standard:7.0`
-# externally — it only exists inside the CodeBuild service. The only
-# CodeBuild curated images available outside the service are the Amazon
-# Linux variants on ECR Public (free unlimited pulls, no auth, no
-# Docker Hub rate limits). We use the AL2023 x86_64 standard:6.0 image
-# (the latest major; CodeBuild's own default for new projects), which
-# ships the same managed runtime set CodePipeline users expect: Node +
-# npm, Python, AWS CLI v2, Docker CLI, Git, etc.
+# Cold-start synth only needs Node + AWS CLI + git on PATH. The full
+# `aws/codebuild/standard:7.0` (and its public-ECR Amazon Linux variants)
+# bundles every language runtime AWS CodeBuild supports — Node, Python,
+# Ruby, Go, multiple JDKs, .NET, PHP, etc. — and weighs ~18 GB. Pushing
+# that through the in-cluster registry on every refresh, and pulling it
+# in CodeBuild on every cold-start, was wildly wasteful for what the
+# bootstrap path actually executes (`pipeline-manager synth`).
 #
-# Distro is AL2023 (not Ubuntu). The package manager is dnf, not apt.
-# That doesn't affect the cold-start synth path — `pipeline-manager synth`
-# only needs Node + AWS CLI on PATH, both of which are baked in.
-#
-# AL2 vs AL2023: AL2 lives at `amazonlinux2-x86_64-standard` (also at
-# 6.0); AL2023 lives at `amazonlinux-x86_64-standard`. AL2023 is the
-# newer distro and what AWS recommends for new CodeBuild projects.
-#
-# Pin to a dated tag (e.g. `6.0-26.05.12`) for reproducible builds; the
-# bare `6.0` floats with AWS's monthly refresh.
+# This image is ~400 MB instead. If a plugin needs a runtime we don't
+# bake here, that plugin already brings its own image (cdk-synth has
+# its own Dockerfile FROM pipeline-aws-cli-base with CDK + Node baked
+# in; per-language plugins have their own runtime). The bootstrap path
+# only fires when pre-resolution fails and falls back to running
+# `pipeline-manager synth` itself — which only needs Node + AWS CLI.
 #
 # This image lives under deploy/codebuild/ (not deploy/plugins/_base/)
 # because it's a CodeBuild runtime, not a plugin base — it doesn't
 # consume `pipeline-plugin-base:24.04`.
 
-FROM public.ecr.aws/codebuild/amazonlinux-x86_64-standard:6.0
+FROM node:24-slim
 
-# pipeline-manager is the only addition. The AL2023 standard image
-# already ships Node (22.x at the time of writing) so npm is on PATH.
-#
-# Left unpinned for the same reason cdk-synth leaves it unpinned: Pipeline
-# Builder ships frequent versions and the catalog drifts faster than we'd
-# refresh a pinned tag. Pin via --build-arg if you need reproducibility.
+# Add: git (source ops), curl + unzip (AWS CLI install), AWS CLI v2,
+# pipeline-manager. node:24-slim already has Node + npm + ca-certs.
+# Matches the runtime baseline in projen (minNodeVersion: 24.14.0).
 ARG PIPELINE_MANAGER_VERSION="latest"
 
-RUN npm config set @pipeline-builder:registry=https://registry.npmjs.org/ \
- && npm install -g "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}" \
- && pipeline-manager --version 2>&1 | tail -1
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      git curl unzip ca-certificates; \
+    rm -rf /var/lib/apt/lists/*; \
+    # AWS CLI v2 — official installer, multi-arch aware.
+    ARCH=$(uname -m); \
+    case "$ARCH" in \
+      x86_64)  AWSCLI_ARCH=x86_64 ;; \
+      aarch64) AWSCLI_ARCH=aarch64 ;; \
+      *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWSCLI_ARCH}.zip" -o /tmp/awscli.zip; \
+    unzip -q /tmp/awscli.zip -d /tmp; \
+    /tmp/aws/install; \
+    rm -rf /tmp/aws /tmp/awscli.zip; \
+    aws --version; \
+    # pipeline-manager — left unpinned because Pipeline Builder ships
+    # frequent versions and the catalog drifts faster than we'd refresh
+    # a pinned tag. Pin via --build-arg if you need reproducibility.
+    npm config set @pipeline-builder:registry=https://registry.npmjs.org/; \
+    npm install -g "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
+    pipeline-manager --version 2>&1 | tail -1
 
 WORKDIR /app
 CMD ["bash"]
