@@ -92,6 +92,43 @@ export const QUERIES: Record<string, QueryEntry> = {
     query: 'sum by (queue, state) (plugin_queue_jobs)',
     allowedVars: [],
   },
+
+  // -- Plugin autoscaling visibility --------------------------------------
+  // The KEDA ScaledObject in plugin.yaml has three independent triggers
+  // (queue depth, pod CPU, pod memory). These keys let operators see
+  // (a) the current replica count — did scaling actually happen, and
+  // (b) the per-trigger signal values — so threshold tuning is grounded.
+
+  // Replica count derived from the Prometheus pod-discovery scrape. Each
+  // plugin pod's /metrics is scraped independently; `up == 1` is one
+  // time series per healthy pod. No new metric source required.
+  plugin_replicas: {
+    source: 'prometheus-range',
+    query: 'count(up{service="plugin"} == 1)',
+    allowedVars: [],
+  },
+  // Exact value KEDA's `type: prometheus` trigger reads each polling
+  // cycle. Compare against the trigger's threshold=2 to predict the
+  // target replica count: target = ceil(value / 2).
+  plugin_keda_trigger_queue: {
+    source: 'prometheus-range',
+    query: 'sum(plugin_queue_jobs{state=~"waiting|active"})',
+    allowedVars: [],
+  },
+  // Per-pod CPU rate from prom-client's collectDefaultMetrics(). Process-
+  // level (not cgroup-level), so absolute numbers differ slightly from
+  // what KEDA's `type: cpu` trigger reads from metrics-server — but the
+  // shape matches: saturation here means saturation there.
+  plugin_pod_cpu_seconds_rate: {
+    source: 'prometheus-range',
+    query: 'sum by (instance) (rate(process_cpu_seconds_total{service="plugin"}[1m]))',
+    allowedVars: [],
+  },
+  plugin_pod_memory_bytes: {
+    source: 'prometheus-range',
+    query: 'sum by (instance) (process_resident_memory_bytes{service="plugin"})',
+    allowedVars: [],
+  },
   plugin_build_p95_duration_sec: {
     source: 'prometheus-range',
     query: 'histogram_quantile(0.95, sum by (le) (rate(plugin_build_duration_seconds_bucket[5m])))',

@@ -3,8 +3,9 @@
 
 /**
  * Queue Health dashboard — deeper view than the Plugin Builds queue panel.
- * Combines wait-time percentiles, DLQ depth, and retry rate so operators
- * can tell at a glance whether the queue is healthy, congested, or stuck.
+ * Combines wait-time percentiles, DLQ depth, retry rate, and scaling
+ * visibility so operators can tell at a glance whether the queue is
+ * healthy, congested, or stuck — and whether the autoscaler is reacting.
  */
 
 export type PanelKind = 'line';
@@ -34,5 +35,13 @@ export const QUEUE_HEALTH_DASHBOARD: { id: string; title: string; panels: QueueH
 
     // Failure rate
     { id: 'retry-rate', kind: 'line', title: 'Failure rate (5m)', queryKey: 'plugin_retry_rate', span: 12 },
+
+    // Plugin autoscaling — replica count (outcome) + one panel per trigger
+    // input (queue / cpu / memory). Lets operators verify the scaler is
+    // reacting and tune the thresholds in plugin.yaml against real signal.
+    { id: 'plugin-replicas',     kind: 'line', title: 'Plugin replicas',          queryKey: 'plugin_replicas',                span: 3 },
+    { id: 'keda-trigger-queue',  kind: 'line', title: 'KEDA queue trigger',       queryKey: 'plugin_keda_trigger_queue',      span: 3 },
+    { id: 'plugin-pod-cpu',      kind: 'line', title: 'Plugin CPU per pod',       queryKey: 'plugin_pod_cpu_seconds_rate',    span: 3, groupBy: 'instance' },
+    { id: 'plugin-pod-memory',   kind: 'line', title: 'Plugin memory per pod',    queryKey: 'plugin_pod_memory_bytes',        span: 3, groupBy: 'instance' },
   ],
 };

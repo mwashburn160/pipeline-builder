@@ -1,12 +1,16 @@
 {
   "name": "Queue Health",
-  "description": "Wait-time percentiles, DLQ depth, retry rate — for diagnosing congestion.",
+  "description": "Wait-time percentiles, DLQ depth, retry rate, and plugin autoscaling visibility.",
   "visibility": "public",
   "panels": [
     { "queryKey": "plugin_job_wait_p50", "vizKind": "line", "title": "p50 wait", "span": 4, "format": "seconds" },
     { "queryKey": "plugin_job_wait_p95", "vizKind": "line", "title": "p95 wait", "span": 4, "format": "seconds" },
     { "queryKey": "plugin_job_wait_p99", "vizKind": "line", "title": "p99 wait", "span": 4, "format": "seconds" },
     { "queryKey": "plugin_dlq_size", "vizKind": "line", "title": "DLQ depth", "span": 6, "groupBy": "state" },
-    { "queryKey": "plugin_retry_rate", "vizKind": "line", "title": "Retry rate", "span": 6 }
+    { "queryKey": "plugin_retry_rate", "vizKind": "line", "title": "Retry rate", "span": 6 },
+    { "queryKey": "plugin_replicas", "vizKind": "line", "title": "Plugin replicas", "span": 3 },
+    { "queryKey": "plugin_keda_trigger_queue", "vizKind": "line", "title": "KEDA queue trigger", "span": 3 },
+    { "queryKey": "plugin_pod_cpu_seconds_rate", "vizKind": "line", "title": "Plugin CPU per pod", "span": 3, "groupBy": "instance" },
+    { "queryKey": "plugin_pod_memory_bytes", "vizKind": "line", "title": "Plugin memory per pod", "span": 3, "groupBy": "instance" }
   ]
 }

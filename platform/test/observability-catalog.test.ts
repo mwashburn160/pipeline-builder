@@ -17,6 +17,11 @@ describe('observability catalog', () => {
       expect(QUERIES).toHaveProperty('plugin_queue_depth');
       expect(QUERIES).toHaveProperty('plugin_build_p95_duration_sec');
       expect(QUERIES).toHaveProperty('plugin_builds_total_24h');
+      // Plugin autoscaling visibility
+      expect(QUERIES).toHaveProperty('plugin_replicas');
+      expect(QUERIES).toHaveProperty('plugin_keda_trigger_queue');
+      expect(QUERIES).toHaveProperty('plugin_pod_cpu_seconds_rate');
+      expect(QUERIES).toHaveProperty('plugin_pod_memory_bytes');
       // Audit Activity
       expect(QUERIES).toHaveProperty('audit_events_per_hour_by_event');
       expect(QUERIES).toHaveProperty('audit_recent_events');
