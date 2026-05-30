@@ -26,11 +26,25 @@ verify_dockerfile() {
 
   log_info "$rel_path"
 
-  # Check curl/wget download URLs (skip apt repos and install scripts like pyenv.run, rustup, sdkman)
-  # Only checks hardcoded URLs — URLs with ${VAR} or $(cmd) are skipped (use generate-plugins.sh for those)
+  # Check curl/wget download URLs.
+  #
+  # Strategy: grep every https:// URL out of `curl`/`wget` lines, then
+  # filter (1) URLs containing shell substitution (use generate-plugins.sh
+  # to verify those — versions live in plugin-versions.yaml), and (2)
+  # known-noisy hosts where a HEAD check isn't meaningful (apt repos that
+  # 403 on /, package-manager registries that serve per-package endpoints
+  # only, install-script entry points like pyenv.run / rustup / sdkman).
+  #
+  # The previous regex only matched github/amazonaws/helm/k8s, missing
+  # gradle.org, nodesource, sury, dl.google, etc. — newer plugins added
+  # download URLs that weren't being verified.
   local urls
-  urls=$(grep -E 'curl.*https://github\.com|curl.*https://[a-z]+\.(amazonaws|helm|k8s)' "$dockerfile" 2>/dev/null \
-    | sed -E 's/.*(https:\/\/[^ "\\]+).*/\1/' || true)
+  urls=$(grep -E '(curl|wget)[[:space:]]' "$dockerfile" 2>/dev/null \
+    | grep -oE 'https://[a-zA-Z0-9._/~?=&%+-]+' \
+    | grep -v '\${' \
+    | grep -v '\$(' \
+    | grep -vE '(deb\.nodesource\.com|launchpad\.net|packagecloud\.io|registry\.npmjs\.org|pyenv\.run|sh\.rustup\.rs|get\.sdkman\.io|repo\.maven\.apache\.org/maven2)' \
+    | sort -u || true)
   while IFS= read -r url; do
     [ -z "$url" ] && continue
     # Skip URLs with unresolved variables, shell substitutions, or malformed captures

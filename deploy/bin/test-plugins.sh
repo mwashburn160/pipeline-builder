@@ -24,10 +24,10 @@ ERRORS=()
 
 # ---- Argument parsing ----
 
-for arg in "$@"; do
-  case "$arg" in
-    --spec-only) SPEC_ONLY=true ;;
-    --build)     BUILD_IMAGES=true ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --spec-only) SPEC_ONLY=true; shift ;;
+    --build)     BUILD_IMAGES=true; shift ;;
     --help|-h)
       echo "Usage: $0 [options] [category/plugin]"
       echo ""
@@ -37,7 +37,7 @@ for arg in "$@"; do
       echo "  category/plugin  Test a specific plugin (e.g., language/java)"
       exit 0
       ;;
-    *) SPECIFIC_PLUGIN="$arg" ;;
+    *) SPECIFIC_PLUGIN="$1"; shift ;;
   esac
 done
 
@@ -194,6 +194,7 @@ validate_spec() {
 validate_dockerfile() {
   local dockerfile="$1"
   local plugin_dir="$2"
+  local specfile="$3"
   local fqn="$(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
 
   if ! grep -q "^FROM " "$dockerfile" 2>/dev/null; then
@@ -281,7 +282,7 @@ validate_config() {
   fi
 
   local bt
-  bt=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//')
+  bt=$(get_spec_field buildType "$config")
   case "$bt" in
     build_image|prebuilt|metadata_only) log_pass "Valid buildType: ${bt}" ;;
     "") log_fail "Missing buildType in config.yaml" "$fqn" ;;
@@ -318,7 +319,7 @@ test_plugin() {
   validate_config "$plugin_dir"
 
   if [ "$SPEC_ONLY" = false ] && [ "$plugin_type" != "ManualApprovalStep" ]; then
-    validate_dockerfile "$dockerfile" "$plugin_dir"
+    validate_dockerfile "$dockerfile" "$plugin_dir" "$specfile"
   fi
 }
 

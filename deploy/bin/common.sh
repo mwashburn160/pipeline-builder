@@ -3,11 +3,17 @@
 # Source this file: . "$(dirname "$0")/common.sh"
 # Note: Requires bash (uses arrays, ERRORS+=(), ${#ERRORS[@]}).
 
-# Common paths (caller may override SCRIPT_DIR before sourcing)
-COMMON_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)"
-SCRIPT_DIR="${SCRIPT_DIR:-$COMMON_DIR}"
+# Common paths.
+#
+# Callers SHOULD set `SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"` before
+# sourcing — the value below is only a fallback for callers that forgot.
+# Because this file is sourced (not exec'd), `$0` here resolves to the
+# OUTER script's path, not common.sh's. So the fallback already gives the
+# caller's dir; we don't gain anything by computing it twice.
+SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)}"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
 PLATFORM_BASE_URL="${PLATFORM_BASE_URL:-https://localhost:8443}"
+DEPLOY_TARGET="${DEPLOY_TARGET:-local}"
 
 # Move out of any cwd we might not be able to restore. When the script is
 # invoked via `sudo -u minikube ...` from `/home/ec2-user`, every `find`
@@ -15,6 +21,10 @@ PLATFORM_BASE_URL="${PLATFORM_BASE_URL:-https://localhost:8443}"
 # the new user can't read ec2-user's home. Working from /tmp (world-readable)
 # sidesteps that entirely. Done in common.sh so EVERY script that sources
 # it inherits the fix without per-script edits.
+#
+# CALLER CONTRACT: do NOT use relative paths in any consumer of common.sh.
+# `pwd` after sourcing is `/tmp`, not the caller's invocation dir. Use
+# absolute paths derived from SCRIPT_DIR / DEPLOY_DIR / "$1".
 cd /tmp 2>/dev/null || cd / 2>/dev/null || true
 
 # ---- Colors ----
@@ -124,11 +134,11 @@ compute_image_tag() {
   # rename also invalidates the tag.
   #
   # Why config.yaml is excluded: build-plugin-images.sh writes the computed
-  # hash into config.yaml as `imageHash:`. If we hashed config.yaml we'd
+  # tag into config.yaml as `imageTag:`. If we hashed config.yaml we'd
   # get a self-referential dependency — the hash would change on every
   # build because the file it's hashed from contains the previous build's
-  # hash. config.yaml only carries build metadata (pluginSpec/buildType/
-  # imageHash), not source the platform executes; plugin-spec.yaml is the
+  # tag. config.yaml only carries build metadata (pluginSpec/buildType/
+  # imageTag), not source the platform executes; plugin-spec.yaml is the
   # contract that actually changes behaviour, and it IS hashed.
   #
   # `cd` first so find doesn't try (and fail) to restore cwd when the
@@ -225,21 +235,47 @@ wait_for_health() {
 # ---------------------------------------------------------------------------
 # prompt_credentials — prompt for identifier/password if not already set
 #   Sets PLATFORM_IDENTIFIER and PLATFORM_PASSWORD
+#
+#   - Password read with `-s` so it doesn't echo to the terminal.
+#   - Default identifier (`admin@internal`) is shown in the prompt only on
+#     the `local` deploy target — for ec2/fargate/minikube, the operator is
+#     forced to type a value to avoid accidentally creating a production
+#     admin with the local-dev default.
+#   - Default password is NEVER shown in the prompt. It's still accepted as
+#     a fallback ONLY on the `local` target, again to keep the trivial
+#     dev-default out of any real environment.
 # ---------------------------------------------------------------------------
 prompt_credentials() {
-  _default_id="admin@internal"
-  _default_pw="SecurePassword123!"
+  local _is_local
+  [ "${DEPLOY_TARGET:-local}" = "local" ] && _is_local=true || _is_local=false
 
   if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
-    printf "Identifier [%s]: " "$_default_id"
-    read -r PLATFORM_IDENTIFIER
-    PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-$_default_id}"
+    if [ "$_is_local" = true ]; then
+      printf "Identifier [admin@internal]: "
+      read -r PLATFORM_IDENTIFIER
+      PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-admin@internal}"
+    else
+      printf "Identifier: "
+      read -r PLATFORM_IDENTIFIER
+      [ -z "$PLATFORM_IDENTIFIER" ] && { echo "ERROR: identifier required on target=${DEPLOY_TARGET}" >&2; return 1; }
+    fi
   fi
 
   if [ -z "${PLATFORM_PASSWORD:-}" ]; then
-    printf "Password [%s]: " "$_default_pw"
-    read -r PLATFORM_PASSWORD
-    PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$_default_pw}"
+    printf "Password: "
+    read -rs PLATFORM_PASSWORD
+    printf "\n"
+    if [ -z "$PLATFORM_PASSWORD" ]; then
+      if [ "$_is_local" = true ]; then
+        # Local-only convenience fallback so `init-platform.sh local` can
+        # still be hit-enter through. Never shown in the prompt, never
+        # accepted on non-local targets.
+        PLATFORM_PASSWORD="SecurePassword123!"
+      else
+        echo "ERROR: password required on target=${DEPLOY_TARGET}" >&2
+        return 1
+      fi
+    fi
   fi
 }
 
@@ -248,7 +284,7 @@ prompt_credentials() {
 #   Requires PLATFORM_IDENTIFIER and PLATFORM_PASSWORD to be set.
 # ---------------------------------------------------------------------------
 login() {
-  local _resp
+  local _resp _err
   _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
     -k -s \
     -H 'Content-Type: application/json' \
@@ -258,11 +294,66 @@ login() {
   JWT_TOKEN=$(printf '%s' "$_resp" | jq -r '.data.accessToken' 2>/dev/null) || true
 
   if [ -z "${JWT_TOKEN}" ] || [ "${JWT_TOKEN}" = "null" ]; then
+    # Only print the server's explicit `.error`/`.message` if present;
+    # avoid dumping the full response which could leak details about the
+    # auth endpoint's internal error shape.
+    _err=$(printf '%s' "$_resp" | jq -r '.error // .message // empty' 2>/dev/null)
     echo "Login failed — could not obtain JWT token" >&2
-    echo "Response: ${_resp}" >&2
+    [ -n "$_err" ] && echo "  ${_err}" >&2
     return 1
   fi
   echo "  Logged in successfully."
+}
+
+# ---------------------------------------------------------------------------
+# sign_platform_jwt — mint a short-lived HS256 platform JWT for system
+# admin access (no Node deps). Used by push-base-images.sh to authenticate
+# against the in-cluster image registry. Same trick the plugin service
+# uses for runtime builds.
+#
+#   $1   JWT_SECRET (HMAC key)
+#   $2?  expiry seconds (default 300)
+#   echoes the compact JWT, exits 1 if openssl is missing.
+#
+# Lives in common.sh so any deploy script needing a platform-scoped JWT
+# (registry pushes, smoke tests, signed API checks) reuses the same
+# signing path. Image-registry's `auth-resolver.ts verifyPlatformJwt`
+# requires `organizationId` (not `orgId`); `isAdmin`/`isSuperAdmin` gate
+# access to `library/*` and `system/*` via the admin-priority rule in
+# `token-service.ts authorizeScope`.
+# ---------------------------------------------------------------------------
+_b64url_jwt() {
+  openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+# ---------------------------------------------------------------------------
+# require_env — assert that one or more env vars are non-empty.
+#   $@  env var names
+#   Exits 1 on first missing var with a clear message.
+# Used by backup.sh/restore.sh and any other script that needs to fail
+# fast on configuration gaps.
+# ---------------------------------------------------------------------------
+require_env() {
+  local _var
+  for _var in "$@"; do
+    if [ -z "${!_var:-}" ]; then
+      echo "ERROR: required env var '$_var' is not set" >&2
+      exit 1
+    fi
+  done
+}
+
+sign_platform_jwt() {
+  local _secret="$1"
+  local _ttl="${2:-300}"
+  command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl required for sign_platform_jwt" >&2; return 1; }
+  local _now _exp _header _payload _signing _sig
+  _now=$(date +%s)
+  _exp=$((_now + _ttl))
+  _header='{"alg":"HS256","typ":"JWT"}'
+  _payload=$(printf '{"sub":"bootstrap-push","organizationId":"system","isAdmin":true,"isSuperAdmin":true,"iat":%s,"exp":%s}' "$_now" "$_exp")
+  _signing="$(printf %s "$_header" | _b64url_jwt).$(printf %s "$_payload" | _b64url_jwt)"
+  _sig=$(printf %s "$_signing" | openssl dgst -binary -sha256 -hmac "$_secret" | _b64url_jwt)
+  printf '%s.%s\n' "$_signing" "$_sig"
 }
 
 # ---------------------------------------------------------------------------

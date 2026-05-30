@@ -125,6 +125,30 @@ echo ""
 echo "=== Logging in ==="
 login
 
+# Build + publish the CodeBuild bootstrap image (pipeline-bootstrap:1.0).
+# Backs CODEBUILD_DEFAULT_IMAGE so cold-start synth runs against an image
+# with pipeline-manager pre-installed, instead of paying ~30s for the
+# npm install on every pipeline. Idempotent — push step skips when the
+# tag is already in the registry library, so this is cheap to re-run.
+# Independent of plugin loading: the runtime image is needed even when
+# plugins aren't being uploaded (e.g. operator only refreshing services).
+#
+# Non-interactive runs (no TTY): skip by default. Set BUILD_BOOTSTRAP=true
+# in CI env to opt in, BUILD_BOOTSTRAP=false to be explicit. Auto-running
+# a docker build + registry push under set -e on a headless host wasn't
+# what callers wanted.
+echo ""
+BUILD_BOOTSTRAP="${BUILD_BOOTSTRAP:-}"
+if [ -z "$BUILD_BOOTSTRAP" ] && [ -t 0 ]; then
+  printf "Build + publish CodeBuild bootstrap image (pipeline-bootstrap:1.0)? [Y/n] "
+  read -r BUILD_BOOTSTRAP
+  BUILD_BOOTSTRAP="${BUILD_BOOTSTRAP:-y}"
+fi
+case "$BUILD_BOOTSTRAP" in
+  y|Y|yes|true) DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-codebuild-bootstrap.sh" ;;
+  *)            echo "  Skipping CodeBuild bootstrap image." ;;
+esac
+
 # Load plugins
 echo ""
 printf "Load plugins? [y/N] "

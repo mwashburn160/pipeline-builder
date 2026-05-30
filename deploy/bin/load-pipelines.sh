@@ -17,6 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PIPELINES_DIR="$DEPLOY_DIR/samples/pipelines"
 UPLOAD_RETRIES=${UPLOAD_RETRIES:-3}
 UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-30}
+UPLOAD_DELAY=${UPLOAD_DELAY:-3}
+[[ "$UPLOAD_DELAY" =~ ^[0-9]+$ ]] || { echo "ERROR: UPLOAD_DELAY must be a non-negative integer (got: '$UPLOAD_DELAY')" >&2; exit 1; }
 DRY_RUN=false
 SINGLE_MODE=false
 SUCCEEDED=0
@@ -106,48 +108,37 @@ upload_pipelines_bulk() {
 
   BULK_PAYLOAD=$(printf '%s\n' "${_items[@]}" | jq -s '.')
   _count="${#_items[@]}"
+  _body_file=$(mktemp)
+  trap 'rm -f "$_body_file"' RETURN
 
   echo "  Uploading ${_count} pipeline(s) in single bulk request..."
 
-  _attempt=1
-  while [ "$_attempt" -le "$UPLOAD_RETRIES" ]; do
-    response=$(curl -X POST "${PLATFORM_BASE_URL}/api/pipelines/bulk/create" \
-      -s -w "\n%{http_code}" \
-      -H "Authorization: Bearer ${JWT_TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "x-org-id: system" \
-      -H "x-internal-service: true" \
-      -d "{\"pipelines\": ${BULK_PAYLOAD}}" \
-      --insecure 2>/dev/null || echo -e "\n000")
+  # Retry on transient HTTP via the shared helper, and capture the response
+  # body in parallel so partial-failure reporting (created/failed) still
+  # works without re-rolling the retry loop here.
+  curl_with_retry "bulk(${_count})" \
+    -X POST "${PLATFORM_BASE_URL}/api/pipelines/bulk/create" \
+    -o "$_body_file" \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -H "x-org-id: system" \
+    -H "x-internal-service: true" \
+    -d "{\"pipelines\": ${BULK_PAYLOAD}}"
+  local _rc=$?
 
-    status=$(echo "$response" | tail -1)
-    body=$(echo "$response" | sed '$d')
-
-    _result="$(classify_status "$status")"
-
-    if [ "$_result" = "fail" ] && is_retryable_status "$status" && [ "$_attempt" -lt "$UPLOAD_RETRIES" ]; then
-      echo "    RETRY (HTTP ${status}) attempt ${_attempt}/${UPLOAD_RETRIES} — waiting ${UPLOAD_RETRY_DELAY}s"
-      sleep "$UPLOAD_RETRY_DELAY"
-      _attempt=$((_attempt + 1))
-      continue
-    fi
-
-    if [ "$_result" = "ok" ]; then
-      created=$(echo "$body" | jq -r '.data.created // 0' 2>/dev/null || echo "0")
-      failed=$(echo "$body" | jq -r '.data.failed // 0' 2>/dev/null || echo "0")
-      SUCCEEDED=$((SUCCEEDED + created))
-      FAILED=$((FAILED + failed))
-      echo "    OK (HTTP ${status}) — created: ${created}, failed: ${failed}"
-
-      # Show individual errors if any
-      errors=$(echo "$body" | jq -r '.data.errors[]? | "    ERROR [\(.index)]: \(.error)"' 2>/dev/null || true)
-      [ -n "$errors" ] && echo "$errors"
-    else
-      echo "    FAIL (HTTP ${status})"
-      FAILED=$((FAILED + _count))
-    fi
-    break
-  done
+  if [ "$_rc" = 0 ]; then
+    local body created failed errors
+    body="$(cat "$_body_file" 2>/dev/null || echo '{}')"
+    created=$(echo "$body" | jq -r '.data.created // 0' 2>/dev/null || echo "0")
+    failed=$(echo "$body" | jq -r '.data.failed // 0' 2>/dev/null || echo "0")
+    SUCCEEDED=$((SUCCEEDED + created))
+    FAILED=$((FAILED + failed))
+    echo "    created: ${created}, failed: ${failed}"
+    errors=$(echo "$body" | jq -r '.data.errors[]? | "    ERROR [\(.index)]: \(.error)"' 2>/dev/null || true)
+    [ -n "$errors" ] && echo "$errors"
+  else
+    FAILED=$((FAILED + _count))
+  fi
 }
 
 # ---- Main ----
@@ -188,7 +179,6 @@ if [ "$DRY_RUN" = true ]; then
   done
 elif [ "$SINGLE_MODE" = true ]; then
   PROCESSED=0
-  UPLOAD_DELAY=${UPLOAD_DELAY:-3}
   for pipeline_dir in "$PIPELINES_DIR"/*/; do
     [ -d "$pipeline_dir" ] || continue
     [ -f "${pipeline_dir}/pipeline.json" ] || continue
@@ -196,7 +186,7 @@ elif [ "$SINGLE_MODE" = true ]; then
     echo "  [$PROCESSED/$TOTAL] $(basename "$pipeline_dir")"
     upload_pipeline_single "$pipeline_dir"
     remaining=$((TOTAL - PROCESSED))
-    [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null && [ "$remaining" -gt 0 ] && sleep "$UPLOAD_DELAY"
+    [ "$UPLOAD_DELAY" -gt 0 ] && [ "$remaining" -gt 0 ] && sleep "$UPLOAD_DELAY"
   done
 else
   upload_pipelines_bulk
@@ -207,3 +197,8 @@ print_summary "$TOTAL" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"
 
 echo ""
 echo "=== Done ==="
+
+# Propagate failure to exit code so CI/init catches partial-failure runs
+# (bulk mode's HTTP 200 with `failed: N` was previously masked).
+[ "$FAILED" -gt 0 ] && exit 1
+exit 0

@@ -36,6 +36,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=common.sh
+. "$SCRIPT_DIR/common.sh"
+
 ENV_NAME="${ENV_NAME:-prod}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 LIST_ONLY=0
@@ -66,10 +70,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-require() {
-  if [ -z "${!1:-}" ]; then echo "ERROR: required env var '$1' not set" >&2; exit 1; fi
-}
-require BACKUP_BUCKET
+require_env BACKUP_BUCKET
 
 # --- List mode --------------------------------------------------------------
 
@@ -118,10 +119,7 @@ if [ "$MONGO_ONLY" != "1" ]; then
   if [ -z "$PG_KEY" ]; then
     echo "ERROR: no postgres key resolved" >&2; exit 1
   fi
-  require POSTGRES_HOST
-  require POSTGRES_USER
-  require POSTGRES_PASSWORD
-  require POSTGRES_DB
+  require_env POSTGRES_HOST POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
 
   PG_LOCAL="${WORKDIR}/$(basename "${PG_KEY}")"
   echo ""
@@ -146,7 +144,7 @@ if [ "$PG_ONLY" != "1" ]; then
   if [ -z "$MONGO_KEY" ]; then
     echo "ERROR: no mongo key resolved" >&2; exit 1
   fi
-  require MONGODB_URI
+  require_env MONGODB_URI
 
   MONGO_LOCAL="${WORKDIR}/$(basename "${MONGO_KEY}")"
   echo ""

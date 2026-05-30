@@ -11,11 +11,16 @@
 
 ```
 deploy/plugins/
-├── _base/                      # SHARED BASE IMAGES (built first, in dep order)
-│   ├── _default/Dockerfile     #   pipeline-plugin-base:24.04 (root)
+├── _base/                      # SHARED PLUGIN BASE IMAGES (built first, in dep order)
+│   ├── _plugin-base/Dockerfile #   pipeline-plugin-base:24.04 (root)
+│   ├── _aws-cli-base/Dockerfile #  pipeline-aws-cli-base:1.0  (root + AWS CLI v2)
 │   ├── _snyk-base/Dockerfile   #   pipeline-snyk-base:1.0     (root + Node + snyk)
 │   ├── _sonarcloud-base/Dockerfile # pipeline-sonarcloud-base:1.0
 │   └── _trivy-base/Dockerfile  #   pipeline-trivy-base:1.0
+│
+# CodeBuild bootstrap image (not a plugin) lives at:
+#   ../codebuild/bootstrap/Dockerfile → pipeline-bootstrap:1.0
+#   FROM aws/codebuild/standard:7.0 + pipeline-manager — backs CODEBUILD_DEFAULT_IMAGE
 ├── ai/                         # 1 plugin
 ├── artifact/                   # 16 plugins  (npm/pypi/maven/docker/ECR push)
 ├── deploy/                     # 13 plugins  (CDK/Terraform/k8s/Helm/Lambda)
@@ -113,15 +118,23 @@ End-to-end via [`deploy/bin/init-platform.sh`](../bin/init-platform.sh):
 
 ## Shared base images (`_base/`)
 
-Four base images live under `deploy/plugins/_base/`. The build script builds
-them in dependency order before any consumer plugin:
+Five plugin base images live under `deploy/plugins/_base/`. The build script
+builds them in dependency order before any consumer plugin:
 
 | Tag | Source | Provides | Consumed by |
 |---|---|---|---|
-| `pipeline-plugin-base:24.04` | `_base/_default/` | git, curl, jq, ca-certificates, gnupg, wget, unzip | ALL plugins |
+| `pipeline-plugin-base:24.04` | `_base/_plugin-base/` | git, curl, jq, ca-certificates, gnupg, wget, unzip | ALL plugins |
+| `pipeline-aws-cli-base:1.0` | `_base/_aws-cli-base/` | AWS CLI v2 | 17 AWS-touching plugins (cdk-*, ecr-push, terraform, ...) |
 | `pipeline-snyk-base:1.0` | `_base/_snyk-base/` | Node + corepack + snyk CLI | 6 snyk-* plugins (excl. snyk-python which uses multistage) |
 | `pipeline-sonarcloud-base:1.0` | `_base/_sonarcloud-base/` | Node + corepack + 2× sonar-scanner-cli versions | 6 sonarcloud-* plugins |
 | `pipeline-trivy-base:1.0` | `_base/_trivy-base/` | 2× trivy versions (COPY from upstream image) | 6 trivy-* plugins |
+
+The CodeBuild bootstrap image (`pipeline-bootstrap:1.0`, built FROM
+`aws/codebuild/standard:7.0` + pipeline-manager) lives separately at
+`../codebuild/bootstrap/` and is built/published by its own script,
+`deploy/bin/build-codebuild-bootstrap.sh`. It backs `CODEBUILD_DEFAULT_IMAGE`,
+the fallback used by cold-start synth. `init-platform.sh` builds and
+publishes it before plugin loading.
 
 **Combined savings:** ~80 MB per plugin from the root base + ~250 MB per
 plugin in each family from the family bases ≈ **~12 GB across the fleet**.

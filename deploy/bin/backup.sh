@@ -31,21 +31,13 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=common.sh
+. "$SCRIPT_DIR/common.sh"
+
 # --- Required env vars -------------------------------------------------------
 
-require() {
-  local var=$1
-  if [ -z "${!var:-}" ]; then
-    echo "ERROR: required env var '$var' is not set" >&2
-    exit 1
-  fi
-}
-
-require BACKUP_BUCKET
-require POSTGRES_HOST
-require POSTGRES_USER
-require POSTGRES_PASSWORD
-require MONGODB_URI
+require_env BACKUP_BUCKET POSTGRES_HOST POSTGRES_USER POSTGRES_PASSWORD MONGODB_URI
 
 ENV_NAME="${ENV_NAME:-prod}"
 AWS_REGION="${AWS_REGION:-us-east-1}"

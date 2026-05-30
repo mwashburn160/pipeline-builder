@@ -59,6 +59,8 @@ command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found in PATH" >&2; exit 
 # Ensure we have a JWT (common.sh sets PLATFORM_TOKEN or prompts for login)
 require_auth
 
+START_TIME=$(date +%s)
+
 # Cache the existing system-org dashboards once so we can do a name-collision
 # skip without round-tripping to the API for each seed file.
 existing_json=$(curl -s -X GET "${PLATFORM_BASE_URL}/api/dashboards" \
@@ -96,39 +98,21 @@ for f in "$DASHBOARDS_DIR"/*.json; do
     continue
   fi
 
-  status=$(curl -s -o /tmp/load-dashboards-resp.$$ -w "%{http_code}" \
+  curl_with_retry "$fname (name='$name')" \
     -X POST "${PLATFORM_BASE_URL}/api/dashboards" \
     -H "Authorization: Bearer ${JWT_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "x-org-id: system" \
     -H "x-internal-service: true" \
-    -d "$parsed" \
-    --insecure 2>/dev/null || echo "000")
-
-  case "$status" in
-    20*)
-      echo "  [$fname] OK  (HTTP $status) — name='$name'"
-      SUCCEEDED=$((SUCCEEDED + 1))
-      ;;
-    409)
-      # Race vs the in-process seeder: another path beat us to it. Treat as
-      # success-equivalent — the dashboard exists either way.
-      echo "  [$fname] SKIP (HTTP 409 already-exists)"
-      SKIPPED=$((SKIPPED + 1))
-      ;;
-    *)
-      msg=$(cat /tmp/load-dashboards-resp.$$ 2>/dev/null | jq -r '.message // .' 2>/dev/null || echo "")
-      echo "  [$fname] FAIL (HTTP $status) — $msg"
-      FAILED=$((FAILED + 1))
-      ;;
+    -d "$parsed"
+  case $? in
+    0) SUCCEEDED=$((SUCCEEDED + 1)) ;;
+    2) SKIPPED=$((SKIPPED + 1)) ;;   # HTTP 409: race vs in-process seeder
+    *) FAILED=$((FAILED + 1)) ;;
   esac
-  rm -f /tmp/load-dashboards-resp.$$
 done
 
-echo ""
-echo "=== Done ==="
-echo "  Created: $SUCCEEDED"
-echo "  Skipped: $SKIPPED"
-echo "  Failed:  $FAILED"
+DURATION=$(( $(date +%s) - START_TIME ))
+print_summary "$((SUCCEEDED + SKIPPED + FAILED))" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"
 
 [ "$FAILED" -eq 0 ]

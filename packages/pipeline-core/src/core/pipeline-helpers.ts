@@ -277,25 +277,79 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
 
 /**
  * Resolve the fallback CodeBuild image for steps without a plugin-baked one.
- * Reads `aws.codeBuild.defaultImage` (env: `CODEBUILD_DEFAULT_IMAGE`) and
- * defaults to `aws/codebuild/standard:7.0`. The cached map prevents CDK from
- * creating duplicate `LinuxBuildImage` constructs across many CodeBuild steps
- * in the same synth.
+ *
+ * Reads `aws.codeBuild.defaultImage` (env: `CODEBUILD_DEFAULT_IMAGE`).
+ * Default: `pipeline-bootstrap:1.0` — the local tag built by
+ * `deploy/codebuild/bootstrap/Dockerfile`.
+ *
+ * - Bare tag (no `/`): auto-prefixed to
+ *   `<registry-host>:<port>/library/<tag>` using the registry config,
+ *   with the per-org platform Secret as Basic auth — same path
+ *   `resolvePluginImage()` uses for plugin images. Needs `scope` + `orgId`.
+ * - Fully-qualified registry URI (contains `/`): used as-is, no auth wired.
+ * - Missing registry config or scope/orgId → falls back to
+ *   `aws/codebuild/standard:7.0` with a warning, so synth never crashes
+ *   on an under-configured environment.
  */
-const defaultBuildImageCache = new Map<string, IBuildImage>();
-function resolveDefaultBuildImage(): IBuildImage {
+const STANDARD_7_0 = 'aws/codebuild/standard:7.0';
+export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBuildImage {
   let configured: string;
   try {
     configured = Config.get('aws').codeBuild.defaultImage;
   } catch {
-    configured = 'aws/codebuild/standard:7.0';
+    configured = STANDARD_7_0;
   }
-  let cached = defaultBuildImageCache.get(configured);
-  if (!cached) {
-    cached = LinuxBuildImage.fromDockerRegistry(configured);
-    defaultBuildImageCache.set(configured, cached);
+
+  // Fully-qualified URI — operator owns it. No registry/Secret wiring.
+  if (configured.includes('/')) {
+    return LinuxBuildImage.fromDockerRegistry(configured);
   }
-  return cached;
+
+  // Bare tag → auto-prefix with the platform registry, mirroring
+  // resolvePluginImage(). Bail to standard:7.0 (with a warning) at each
+  // missing prerequisite so synth degrades gracefully on partially
+  // configured environments instead of failing.
+  let registry;
+  try {
+    registry = Config.get('registry');
+  } catch {
+    log.warn(
+      `CODEBUILD_DEFAULT_IMAGE='${configured}' is a bare tag but registry config not loaded — ` +
+      `falling back to ${STANDARD_7_0}. Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT.`,
+    );
+    return LinuxBuildImage.fromDockerRegistry(STANDARD_7_0);
+  }
+  if (!registry?.host) {
+    log.warn(
+      `CODEBUILD_DEFAULT_IMAGE='${configured}' is a bare tag but IMAGE_REGISTRY_HOST is empty — ` +
+      `falling back to ${STANDARD_7_0}.`,
+    );
+    return LinuxBuildImage.fromDockerRegistry(STANDARD_7_0);
+  }
+  if (!scope || !orgId) {
+    log.warn(
+      `CODEBUILD_DEFAULT_IMAGE='${configured}' needs scope+orgId for Secret auth — ` +
+      `falling back to ${STANDARD_7_0}. (Caller did not supply them.)`,
+    );
+    return LinuxBuildImage.fromDockerRegistry(STANDARD_7_0);
+  }
+
+  const portPart = registry.port && registry.port !== 80 && registry.port !== 443
+    ? `:${registry.port}`
+    : '';
+  const imageUri = `${registry.host}${portPart}/library/${configured}`;
+
+  // Same Secret as resolvePluginImage — per-org platform Secret, CodeBuild
+  // sends it as Basic auth, image-registry verifies the JWT in `password`.
+  const stack = Stack.of(scope);
+  const secretName = CoreConstants.secretPath(orgId, 'platform');
+  const secretConstructId = `PlatformCreds_${secretName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  const credentialsSecret = (stack.node.tryFindChild(secretConstructId) as Secret | undefined)
+    ?? Secret.fromSecretNameV2(stack, secretConstructId, secretName);
+
+  return LinuxBuildImage.fromDockerRegistry(imageUri, {
+    secretsManagerCredentials: credentialsSecret,
+  });
 }
 
 export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | CodeBuildStep | ManualApprovalStep {
@@ -415,7 +469,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
     buildEnvironment: {
       computeType,
-      buildImage: pluginBuildImage ?? resolveDefaultBuildImage(),
+      buildImage: pluginBuildImage ?? resolveDefaultBuildImage(scope, orgId),
       environmentVariables: {
         ...toCodeBuildEnvVars(env),
         ...secretEnvVars,

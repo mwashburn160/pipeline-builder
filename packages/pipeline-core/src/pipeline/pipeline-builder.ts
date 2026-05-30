@@ -23,7 +23,7 @@ import { UniqueId } from '../core/id-generator';
 import { metadataForCodePipeline } from '../core/metadata-builder';
 import { resolveNetwork } from '../core/network';
 import type { CodeBuildDefaults } from '../core/network-types';
-import { createCodeBuildStep } from '../core/pipeline-helpers';
+import { createCodeBuildStep, resolveDefaultBuildImage } from '../core/pipeline-helpers';
 import { MetadataKeys, TriggerType } from '../core/pipeline-types';
 import type { MetaDataType } from '../core/pipeline-types';
 import { resolveRole } from '../core/role';
@@ -228,7 +228,7 @@ export class PipelineBuilder extends Construct {
       ? CoreConstants.secretPath(props.orgId, 'platform')
       : undefined;
 
-    const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl);
+    const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl, props.orgId);
 
     // Resolve IAM role if explicitly provided; otherwise let CDK auto-create
     // the pipeline role with the correct codepipeline.amazonaws.com principal.
@@ -362,6 +362,7 @@ export class PipelineBuilder extends Construct {
     pipelineId: string | undefined,
     platformSecretName: string | undefined,
     platformUrl: string,
+    orgId: string | undefined,
   ): CodeBuildOptions | undefined {
     const networkProps = defaults?.network
       ? resolveNetwork(this, id, defaults.network)
@@ -393,7 +394,16 @@ export class PipelineBuilder extends Construct {
     return {
       ...(networkProps && { vpc: networkProps.vpc, subnetSelection: networkProps.subnetSelection }),
       ...(securityGroups.length > 0 && { securityGroups }),
-      buildEnvironment: { environmentVariables: pipelineEnvVars },
+      // buildImage at this level reaches CDK Pipelines' internally-wrapped
+      // ShellStep CodeBuild action, which otherwise hardcodes
+      // `LinuxBuildImage.STANDARD_7_0`. Setting it here closes the gap
+      // exposed in the same env var (`CODEBUILD_DEFAULT_IMAGE`) that the
+      // CodeBuildStep path already honors via resolvePluginImage()'s
+      // fallback. Per-step `buildImage` on a CodeBuildStep still wins.
+      buildEnvironment: {
+        buildImage: resolveDefaultBuildImage(this, orgId),
+        environmentVariables: pipelineEnvVars,
+      },
     };
   }
 }

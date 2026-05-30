@@ -21,6 +21,8 @@ UPLOAD_TIMEOUT=900
 UPLOAD_RETRIES=${UPLOAD_RETRIES:-3}
 UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-30}
 PARALLEL_JOBS=${PARALLEL_JOBS:-1}
+UPLOAD_DELAY=${UPLOAD_DELAY:-5}
+[[ "$UPLOAD_DELAY" =~ ^[0-9]+$ ]] || { echo "ERROR: UPLOAD_DELAY must be a non-negative integer (got: '$UPLOAD_DELAY')" >&2; exit 1; }
 SERIAL_MODE=false
 DRY_RUN=false
 REBUILD=false
@@ -32,7 +34,7 @@ CATEGORY_FILTER=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)   DRY_RUN=true; shift ;;
-    --rebuild)   REBUILD=true; shift ;;
+    --rebuild|--force) REBUILD=true; shift ;;
     --cleanup)   CLEANUP=true; shift ;;
     --serial)    SERIAL_MODE=true; shift ;;
     --parallel)  PARALLEL_JOBS="$2"
@@ -75,7 +77,7 @@ is_eligible_plugin() {
   [ "$_pt" = "ManualApprovalStep" ] && return 0
   [ -f "$1/Dockerfile" ] && return 0
   local _bt
-  _bt=$(grep '^buildType:' "$1/config.yaml" 2>/dev/null | sed 's/^buildType: *//')
+  _bt=$(get_spec_field buildType "$1/config.yaml")
   [ "$_bt" = "prebuilt" ] && return 0
   return 1
 }
@@ -132,7 +134,6 @@ echo ""
 echo "=== Processing $TOTAL plugin(s) ==="
 
 if [ "$SERIAL_MODE" = true ]; then
-  UPLOAD_DELAY=${UPLOAD_DELAY:-5}
   PROCESSED=0
   for category in $CATEGORIES; do
     echo ""
@@ -143,7 +144,7 @@ if [ "$SERIAL_MODE" = true ]; then
       echo "  [$PROCESSED/$TOTAL] $(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
       "$WORKER_SCRIPT" "$plugin_dir" || true
       remaining=$((TOTAL - PROCESSED))
-      [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] 2>/dev/null && [ "$remaining" -gt 0 ] && sleep "$UPLOAD_DELAY"
+      [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] && [ "$remaining" -gt 0 ] && sleep "$UPLOAD_DELAY"
     done
   done
 else

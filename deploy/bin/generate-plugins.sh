@@ -19,13 +19,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 require_yq
 
 VERSIONS_FILE="$DEPLOY_DIR/plugins/plugin-versions.yaml"
-MODE="${1:---verify}"
-CHECK_ONE="${2:-}"
+MODE="--verify"
+CHECK_ONE=""
 CHECK_TIMEOUT=15
 PASSED=0
 FAILED=0
 SKIPPED=0
 ERRORS=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --verify)    MODE="--verify"; shift ;;
+    --dump)      MODE="--dump"; shift ;;
+    --check-one) MODE="--check-one"
+                 CHECK_ONE="${2:-}"
+                 [ -z "$CHECK_ONE" ] && { echo "ERROR: --check-one requires a tool name" >&2; exit 1; }
+                 shift 2 ;;
+    --help|-h)   echo "Usage: $0 [--verify|--dump|--check-one <tool>]"; exit 0 ;;
+    *)           echo "Usage: $0 [--verify|--dump|--check-one <tool>]" >&2; exit 1 ;;
+  esac
+done
 
 # ── YAML traversal via yq ──
 #
@@ -125,13 +138,12 @@ echo "  Source: $VERSIONS_FILE"
 echo ""
 
 case "$MODE" in
-  --verify|"")
+  --verify)
     verify_versions
     print_results
     print_errors_and_exit "All versions verified!"
     ;;
   --check-one)
-    CHECK_ONE="$2"
     verify_versions
     echo ""
     if [ ${#ERRORS[@]} -gt 0 ]; then

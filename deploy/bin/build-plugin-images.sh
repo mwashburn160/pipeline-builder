@@ -45,7 +45,7 @@ MAX_IMAGE_SIZE_MB="${MAX_IMAGE_SIZE_MB:-4096}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --force)     FORCE=true; shift ;;
+    --force|--rebuild) FORCE=true; shift ;;
     --reset)     RESET=true; shift ;;
     --dry-run)   DRY_RUN=true; shift ;;
     --bases-only) BASES_ONLY=true; shift ;;
@@ -70,14 +70,14 @@ done
 # ---- Build base images FIRST (dependency order) ----
 #
 # All base images live under `_base/`:
-#   _base/_default/        → pipeline-plugin-base:24.04 (root, built first)
+#   _base/_plugin-base/    → pipeline-plugin-base:24.04 (root, built first)
 #   _base/_snyk-base/      → pipeline-snyk-base:1.0     (extends root)
 #   _base/_sonarcloud-base/ → pipeline-sonarcloud-base:1.0
 #   _base/_trivy-base/     → pipeline-trivy-base:1.0
 #
-# `_default` is built before any family base (family bases inherit FROM the
-# root). Family bases are built alphabetically — they don't depend on each
-# other.
+# `_plugin-base` is built before any family base (family bases inherit FROM
+# the root). Family bases are built alphabetically — they don't depend on
+# each other.
 #
 # All `_*` directories at any depth are infrastructure, not plugins —
 # excluded from the upload/load flow by the `! -name '_*'` filter on
@@ -110,6 +110,37 @@ _detect_apt_mirror() {
   [ -n "$_region" ] && echo "${_region}.ec2.archive.ubuntu.com"
 }
 
+# _is_transient_failure — true when a docker-build log matches a known
+# transient apt/network mirror flap. Anything else is a real bug and
+# should fail immediately so the operator sees it. The pattern list is
+# the historical accumulation of mirror failure shapes we've observed
+# (archive.ubuntu.com, launchpad, sury, npm registry, gradle plugin
+# portal, etc.) — extend here, not at the call site, when a new flap
+# shape shows up.
+_TRANSIENT_PATTERNS='connection timed out'
+_TRANSIENT_PATTERNS+='|Could not connect'
+_TRANSIENT_PATTERNS+='|Temporary failure resolving'
+_TRANSIENT_PATTERNS+='|503 Service Unavailable'
+_TRANSIENT_PATTERNS+='|504 Gateway'
+_TRANSIENT_PATTERNS+='|Gateway Time-out'
+_TRANSIENT_PATTERNS+='|Connection reset by peer'
+_TRANSIENT_PATTERNS+='|TLS handshake'
+_TRANSIENT_PATTERNS+='|Connection failed'
+_TRANSIENT_PATTERNS+='|Failed to fetch'
+_TRANSIENT_PATTERNS+='|Unable to fetch some archives'
+_TRANSIENT_PATTERNS+='|did not get expected size'
+_TRANSIENT_PATTERNS+='|hash sum mismatch'
+_TRANSIENT_PATTERNS+="|server can't find"
+_TRANSIENT_PATTERNS+='|HTTP 5[0-9]{2}'
+_TRANSIENT_PATTERNS+='|EOF occurred in violation of protocol'
+_TRANSIENT_PATTERNS+='|read timeout'
+_TRANSIENT_PATTERNS+='|operation timed out'
+_TRANSIENT_PATTERNS+='|Network is unreachable'
+_TRANSIENT_PATTERNS+='|No route to host'
+_is_transient_failure() {
+  grep -qE "$_TRANSIENT_PATTERNS" "$1"
+}
+
 # Build a single base image with output captured. Silent on success
 # (just prints "  ✓ tag (Ns)"); dumps last 30 lines on failure. Set
 # VERBOSE_BUILD=1 to stream output the old way (debugging).
@@ -119,7 +150,7 @@ _build_base_quiet() {
   local _build_extra=""
   # The root base image takes APT_MIRROR as a build arg; family bases
   # don't (they inherit from a fully-installed base image, no apt needed).
-  if [ "$(basename "$_ctx")" = "_default" ]; then
+  if [ "$(basename "$_ctx")" = "_plugin-base" ]; then
     local _mirror
     _mirror=$(_detect_apt_mirror)
     [ -n "$_mirror" ] && _build_extra="--build-arg APT_MIRROR=${_mirror}"
@@ -155,8 +186,8 @@ build_base_images() {
   fi
 
   # Root base must build first.
-  if [ -f "$_base_root/_default/Dockerfile" ]; then
-    _build_base_quiet "pipeline-plugin-base:24.04" "$_base_root/_default" || return 1
+  if [ -f "$_base_root/_plugin-base/Dockerfile" ]; then
+    _build_base_quiet "pipeline-plugin-base:24.04" "$_base_root/_plugin-base" || return 1
   fi
 
   # Family bases — alphabetical, all inherit FROM pipeline-plugin-base:24.04.
@@ -218,14 +249,14 @@ if [ "$RESET" = true ]; then
       config="$plugin_dir/config.yaml"
       [ -f "$config" ] || continue
 
-      _bt=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//')
+      _bt=$(get_spec_field buildType "$config")
       [ "$_bt" = "prebuilt" ] || continue
 
-      # Revert config.yaml
-      sed_inplace '/^imageTag:/d' "$config"
-      sed_inplace 's/^buildType: prebuilt$/buildType: build_image/' "$config"
-      # Re-add dockerfile if missing
-      grep -q '^dockerfile:' "$config" || echo "dockerfile: Dockerfile" >> "$config"
+      # Revert config.yaml — one yq write replaces the prior cascade of
+      # sed deletes + `echo >>` appends so field order is deterministic
+      # across plugins (was non-deterministic when dockerfile got
+      # appended to end).
+      yq -i 'del(.imageTag) | del(.imageHash) | .buildType = "build_image" | .dockerfile = "Dockerfile"' "$config"
 
       # Remove image.tar
       rm -f "$plugin_dir/image.tar"
@@ -275,34 +306,40 @@ while IFS= read -r plugin_dir; do
     label="${category}/${name}"
     tag=$(compute_image_tag "$plugin_dir")
 
-    # Build-skip decision tree. The build hash now lives inside
-    # config.yaml as `imageHash:` — same file the platform parses on
+    # Build-skip decision tree. The build tag now lives inside
+    # config.yaml as `imageTag:` — same file the platform parses on
     # upload, so build script and runtime share one source of truth.
-    # (Old layout used a `.image-hash` sidecar; if you see one, it's a
-    # leftover from a pre-consolidation run and is safely ignored — the
-    # next successful build cleans it up.)
+    # (Old layouts used `imageHash:` (an earlier, misnamed field that
+    # actually stored a tag) and a `.image-hash` sidecar; both are still
+    # accepted on read so existing checkouts keep their skip semantics
+    # across upgrade. Either is overwritten with `imageTag:` on the next
+    # successful build.)
     #
-    # Source state we trust: `imageHash:` from config.yaml. Build output:
+    # Source state we trust: `imageTag:` from config.yaml. Build output:
     # `image.tar`. Either can be missing independently — `--cleanup`
     # deletes image.tar, a `git clean` deletes neither (config.yaml is
     # checked in), an interrupted build leaves config.yaml untouched.
     #
     # Reasons we'd skip a build, in priority order:
-    #   1. `imageHash` matches current source AND `image.tar` exists →
+    #   1. `imageTag` matches current source AND `image.tar` exists →
     #      everything is in sync, definitely skip.
-    #   2. `imageHash` matches current source but `image.tar` is gone →
+    #   2. `imageTag` matches current source but `image.tar` is gone →
     #      source is unchanged but the cached tar was deleted (probably
     #      by --cleanup). Skip only if we know the image is already in
     #      the in-cluster registry (REGISTRY_CHECK=true); otherwise
     #      rebuild so the next load-plugins step has something to upload.
-    #   3. `image.tar` exists but `imageHash` is missing or mismatched →
+    #   3. `image.tar` exists but `imageTag` is missing or mismatched →
     #      can't verify freshness, treat as stale and prompt/rebuild.
     if [ "$FORCE" != true ]; then
-      # Read `imageHash:` from config.yaml. Fall back to the legacy
-      # `.image-hash` sidecar so pre-consolidation builds still skip
-      # correctly on the first post-upgrade run; once that run completes,
-      # the sidecar is gone and the read above always succeeds.
-      existing_tag=$(grep -E '^imageHash:[[:space:]]*' "$plugin_dir/config.yaml" 2>/dev/null | sed -E 's/^imageHash:[[:space:]]*//')
+      # Read `imageTag:` from config.yaml. Fall back to legacy `imageHash:`
+      # and the older `.image-hash` sidecar so pre-rename / pre-consolidation
+      # checkouts still skip correctly on the first post-upgrade run; once
+      # that run completes, the legacy entries are gone and the canonical
+      # read above always succeeds.
+      existing_tag=$(get_spec_field imageTag "$plugin_dir/config.yaml")
+      if [ -z "$existing_tag" ]; then
+        existing_tag=$(get_spec_field imageHash "$plugin_dir/config.yaml")
+      fi
       if [ -z "$existing_tag" ]; then
         existing_tag=$(cat "$plugin_dir/.image-hash" 2>/dev/null || true)
       fi
@@ -368,11 +405,7 @@ while IFS= read -r plugin_dir; do
         build_ok=true
         break
       fi
-      # Detect transient apt/network failures. Anything else is a real bug
-      # and should fail immediately so the operator sees it.
-      if grep -qE \
-        'connection timed out|Could not connect|Temporary failure resolving|503 Service Unavailable|504 Gateway|Gateway Time-out|Connection reset by peer|TLS handshake|Connection failed|Failed to fetch|Unable to fetch some archives|did not get expected size|hash sum mismatch|server can'"'"'t find|HTTP 5[0-9]{2}|EOF occurred in violation of protocol|read timeout|operation timed out|Network is unreachable|No route to host' \
-        "$build_log"; then
+      if _is_transient_failure "$build_log"; then
         backoff=$((attempt * 10))
         echo "    transient network failure on attempt $attempt/$max_attempts — sleeping ${backoff}s"
         sleep "$backoff"
@@ -413,9 +446,9 @@ while IFS= read -r plugin_dir; do
 
     # Update config.yaml. Synthesize a minimal one if the plugin lacks it
     # (rare — but one outlier plugin shouldn't abort an otherwise-clean run).
-    # The schema's `.strict()` parser rejects unknown keys; the platform
-    # accepts `imageHash` (added alongside this change) but still rejects
-    # `imageTag` so we strip any legacy entries.
+    # The schema's `.strict()` parser accepts `imageTag` (the canonical
+    # field) and rejects everything else; strip legacy `imageHash` and any
+    # stray `imageTag` before re-writing.
     # Image identity is `<name>:<version>` from plugin-spec.yaml; the local
     # docker tag (`plugin:${tag}` saved into image.tar) is incidental and
     # gets re-tagged at push time by `loadAndPush`.
@@ -423,14 +456,15 @@ while IFS= read -r plugin_dir; do
     if [ ! -f "$config" ]; then
       printf 'pluginSpec: plugin-spec.yaml\ndockerfile: Dockerfile\nbuildType: build_image\n' > "$config"
     fi
-    sed_inplace 's/^buildType: build_image$/buildType: prebuilt/' "$config"
-    sed_inplace '/^dockerfile:/d' "$config"
-    sed_inplace '/^imageTag:/d' "$config"
-    sed_inplace '/^imageHash:/d' "$config"
-    # Write the freshly-computed hash. Persisted in config.yaml so the
-    # next-run cache-skip check has the same source-of-truth the platform
-    # parses on upload — no separate .image-hash sidecar to keep in sync.
-    printf 'imageHash: %s\n' "$tag" >> "$config"
+    # Single yq write: switch to prebuilt, drop the source-build fields
+    # the .strict() schema would otherwise reject, persist the fresh tag.
+    # Replaces a cascade of sed_inplace deletes + `>>` append that left
+    # field order non-deterministic across plugins.
+    TAG="$tag" yq -i '
+      del(.imageHash) | del(.imageTag) | del(.dockerfile)
+      | .buildType = "prebuilt"
+      | .imageTag = strenv(TAG)
+    ' "$config"
 
     # One-time cleanup of the legacy sidecar file from prior runs of this
     # script; harmless on plugins that never had one. Remove this block

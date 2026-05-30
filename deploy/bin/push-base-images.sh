@@ -45,6 +45,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=common.sh
+. "$SCRIPT_DIR/common.sh"
 DEPLOY_TARGET="${DEPLOY_TARGET:-local}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"
 CRANE_IMAGE="${CRANE_IMAGE:-gcr.io/go-containerregistry/crane:debug}"
@@ -165,31 +167,11 @@ case "$DEPLOY_TARGET" in
 esac
 
 # -----------------------------------------------------------------------
-# JWT signing — shared across targets
+# JWT signing — shared across targets via common.sh `sign_platform_jwt`.
+# Smoke-test once before the loop so a missing JWT_SECRET fails loudly
+# here rather than per-image.
 # -----------------------------------------------------------------------
-# Mint an HS256 JWT signed with JWT_SECRET, no Node deps required.
-# Image-registry's /token endpoint validates this as platform-JWT-as-
-# password — same trick the plugin service uses for runtime builds.
-_b64url() {
-  openssl base64 -A | tr '+/' '-_' | tr -d '='
-}
-_sign_platform_jwt() {
-  local _now _exp _header _payload _signing _sig
-  _now=$(date +%s)
-  _exp=$((_now + 300))
-  _header='{"alg":"HS256","typ":"JWT"}'
-  # image-registry/services/auth-resolver.ts verifyPlatformJwt requires
-  # `organizationId` (not `orgId`) and returns null otherwise. `isAdmin`
-  # gates access to library/* and system/* via the admin-priority rule
-  # in token-service.ts authorizeScope.
-  _payload=$(printf '{"sub":"bootstrap-push","organizationId":"system","isAdmin":true,"isSuperAdmin":true,"iat":%s,"exp":%s}' "$_now" "$_exp")
-  _signing="$(printf %s "$_header" | _b64url).$(printf %s "$_payload" | _b64url)"
-  _sig=$(printf %s "$_signing" | openssl dgst -binary -sha256 -hmac "$JWT_SECRET" | _b64url)
-  printf '%s.%s\n' "$_signing" "$_sig"
-}
-
-# Smoke-test signing before the loop — fail loudly here if JWT_SECRET is
-# missing rather than per-image.
+_sign_platform_jwt() { sign_platform_jwt "$JWT_SECRET"; }
 if [ -z "$(_sign_platform_jwt)" ]; then
   echo "ERROR: failed to sign platform JWT (JWT_SECRET missing?)" >&2
   exit 1
@@ -200,11 +182,22 @@ fi
 # -----------------------------------------------------------------------
 # Matches both the root base (`pipeline-plugin-base:24.04`) and family
 # bases (`pipeline-<name>-base:1.0`) produced by build-plugin-images.sh.
+#
+# Operator override: setting `PUSH_TAGS` (space-separated) bypasses
+# discovery and pushes exactly that list. Used by
+# `build-codebuild-bootstrap.sh` to publish `pipeline-bootstrap:1.0`
+# through the same multi-target push pipeline without conflating it with
+# the plugin-base regex.
 BASE_TAGS=()
-while IFS= read -r _tag; do
-  [ -n "$_tag" ] && BASE_TAGS+=("$_tag")
-done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' | \
-         grep -E '^(pipeline-plugin-base:24\.04|pipeline-[a-z0-9-]+-base:1\.0)$')
+if [ -n "${PUSH_TAGS:-}" ]; then
+  # shellcheck disable=SC2206
+  BASE_TAGS=($PUSH_TAGS)
+else
+  while IFS= read -r _tag; do
+    [ -n "$_tag" ] && BASE_TAGS+=("$_tag")
+  done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' | \
+           grep -E '^(pipeline-plugin-base:24\.04|pipeline-[a-z0-9-]+-base:1\.0)$')
+fi
 
 if [ "${#BASE_TAGS[@]}" -eq 0 ]; then
   echo "ERROR: no base images found in local docker cache." >&2
@@ -235,52 +228,32 @@ _push_local() {
   return 1
 }
 
-# Push via a one-shot kubectl-run crane pod inside the cluster
-# (minikube/ec2). Same auth dance, but DNS resolution happens inside the
-# cluster so the registry + image-registry service names are reachable.
-# JWT is passed via env (--env), not as a CLI arg, so it doesn't leak in
-# the host's process list. The pod is auto-deleted on exit (--rm).
-_push_k8s() {
-  local _tag="$1" _remote="$2" _jwt="$3"
-  local _podname="crane-push-$(date +%s)-$$"
-  # The actual shell command the pod runs. Variables are expanded by
-  # the *pod's* shell (not the host's), so they resolve against the env
-  # block below at runtime.
-  local _cmd='cat > /tmp/img.tar && crane --insecure auth login "$REGISTRY_HOST" --username _token --password "$PLATFORM_JWT" >/dev/null && crane --insecure push /tmp/img.tar "$REMOTE"'
-  # JSON-escape the double quotes so the cmd survives embedding in
-  # the override JSON. Bash parameter substitution: `"` → `\"`.
-  local _cmd_json="${_cmd//\"/\\\"}"
-
-  # Build the full pod spec via --overrides. We put command+args
-  # directly in the override (not via CLI `--command --`) because
-  # strategic merge with kubectl's --overrides on this version
-  # doesn't reliably pull command from CLI flags when the container
-  # is also defined in the patch — the merge resolves to the image's
-  # default entrypoint (which for crane:debug is `crane` with no
-  # args) and the pod just prints help and exits.
-  #
-  # Container name MUST match the pod name (kubectl uses pod name
-  # as the implicit container name) — otherwise strategic merge
-  # appends a second container.
-  #
-  # Resource sizing: crane is I/O-bound, so 50m/128Mi requests +
-  # 200m/512Mi limits fit comfortably inside any reasonable
-  # namespace ResourceQuota.
-  local _overrides
-  _overrides=$(cat <<JSON
+# Build the JSON `--overrides` for a one-shot crane pod. Shared by both
+# the push and existence-check paths. Container name MUST match the pod
+# name (kubectl uses pod name as the implicit container name) — otherwise
+# strategic merge appends a second container. Caller picks stdin/env via
+# the args; resource sizing is fixed since crane is I/O-bound.
+#
+#   $1 podname    $2 escaped sh-c command    $3 enable_stdin (true|false)
+#   $4 PLATFORM_JWT    $5 REGISTRY_HOST    $6? REMOTE (push only)
+_pod_overrides() {
+  local _name="$1" _cmd_json="$2" _stdin="$3" _jwt="$4" _host="$5" _remote="${6:-}"
+  local _stdin_block=""
+  [ "$_stdin" = "true" ] && _stdin_block='"stdin": true, "stdinOnce": true,'
+  local _remote_env=""
+  [ -n "$_remote" ] && _remote_env=$(printf ',\n        { "name": "REMOTE", "value": "%s" }' "$_remote")
+  cat <<JSON
 {
   "spec": {
     "containers": [{
-      "name": "$_podname",
+      "name": "$_name",
       "image": "$CRANE_IMAGE",
-      "stdin": true,
-      "stdinOnce": true,
+      $_stdin_block
       "command": ["sh", "-c", "$_cmd_json"],
       "args": [],
       "env": [
         { "name": "PLATFORM_JWT",  "value": "$_jwt" },
-        { "name": "REGISTRY_HOST", "value": "$REGISTRY_HOST" },
-        { "name": "REMOTE",        "value": "$_remote" }
+        { "name": "REGISTRY_HOST", "value": "$_host" }${_remote_env}
       ],
       "resources": {
         "requests": { "cpu": "50m",  "memory": "128Mi" },
@@ -290,7 +263,32 @@ _push_k8s() {
   }
 }
 JSON
-)
+}
+
+# Push via a one-shot kubectl-run crane pod inside the cluster
+# (minikube/ec2). Same auth dance, but DNS resolution happens inside the
+# cluster so the registry + image-registry service names are reachable.
+# JWT is passed via env (--env), not as a CLI arg, so it doesn't leak in
+# the host's process list. The pod is auto-deleted on exit (--rm).
+#
+# We put command+args directly in the override (not via CLI `--command --`)
+# because strategic merge with kubectl's --overrides on this version
+# doesn't reliably pull command from CLI flags when the container is also
+# defined in the patch — the merge resolves to the image's default
+# entrypoint (which for crane:debug is `crane` with no args) and the pod
+# just prints help and exits.
+_push_k8s() {
+  local _tag="$1" _remote="$2" _jwt="$3"
+  local _podname="crane-push-$(date +%s)-$$"
+  # The actual shell command the pod runs. Variables are expanded by
+  # the *pod's* shell (not the host's), so they resolve against the env
+  # block below at runtime. JSON-escape the double quotes so the cmd
+  # survives embedding in the override JSON.
+  local _cmd='cat > /tmp/img.tar && crane --insecure auth login "$REGISTRY_HOST" --username _token --password "$PLATFORM_JWT" >/dev/null && crane --insecure push /tmp/img.tar "$REMOTE"'
+  local _cmd_json="${_cmd//\"/\\\"}"
+
+  local _overrides
+  _overrides=$(_pod_overrides "$_podname" "$_cmd_json" true "$_jwt" "$REGISTRY_HOST" "$_remote")
   if docker save "$_tag" | kubectl_ctx -n "$NAMESPACE" run "$_podname" \
        --rm -i --quiet \
        --restart=Never \
@@ -299,10 +297,10 @@ JSON
     return 0
   fi
   # Re-run with output for diagnosis. Pod name reused with a suffix so
-  # there's no name collision against the prior --rm cleanup. Override
-  # JSON is rebuilt with the retry pod name to match its container name.
+  # there's no name collision against the prior --rm cleanup.
   local _retry_podname="${_podname}-retry"
-  local _retry_overrides="${_overrides//$_podname/$_retry_podname}"
+  local _retry_overrides
+  _retry_overrides=$(_pod_overrides "$_retry_podname" "$_cmd_json" true "$_jwt" "$REGISTRY_HOST" "$_remote")
   docker save "$_tag" | kubectl_ctx -n "$NAMESPACE" run "$_retry_podname" \
      --rm -i --quiet \
      --restart=Never \
@@ -365,27 +363,7 @@ _discover_existing() {
       local _full_cmd='crane --insecure auth login "$REGISTRY_HOST" --username _token --password "$PLATFORM_JWT" >/dev/null && '"$_check_cmd"
       local _full_cmd_json="${_full_cmd//\"/\\\"}"
       local _overrides
-      _overrides=$(cat <<JSON
-{
-  "spec": {
-    "containers": [{
-      "name": "$_podname",
-      "image": "$CRANE_IMAGE",
-      "command": ["sh", "-c", "$_full_cmd_json"],
-      "args": [],
-      "env": [
-        { "name": "PLATFORM_JWT",  "value": "$_jwt" },
-        { "name": "REGISTRY_HOST", "value": "$REGISTRY_HOST" }
-      ],
-      "resources": {
-        "requests": { "cpu": "50m",  "memory": "128Mi" },
-        "limits":   { "cpu": "200m", "memory": "256Mi" }
-      }
-    }]
-  }
-}
-JSON
-)
+      _overrides=$(_pod_overrides "$_podname" "$_full_cmd_json" false "$_jwt" "$REGISTRY_HOST")
       kubectl_ctx -n "$NAMESPACE" run "$_podname" \
         --rm --attach --quiet \
         --restart=Never \

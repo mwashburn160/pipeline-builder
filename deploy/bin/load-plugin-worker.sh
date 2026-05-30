@@ -60,7 +60,8 @@ dockerfile="$plugin_dir/Dockerfile"
 image_tar="$plugin_dir/image.tar"
 
 build_type="build_image"
-[ -f "$config" ] && build_type=$(grep '^buildType:' "$config" 2>/dev/null | sed 's/^buildType: *//' || echo "build_image")
+[ -f "$config" ] && build_type=$(get_spec_field buildType "$config")
+[ -z "$build_type" ] && build_type="build_image"
 
 # Auto-detect metadata_only: no Dockerfile and no image.tar
 if [ "$build_type" = "build_image" ] && [ ! -f "$dockerfile" ] && [ ! -f "$image_tar" ]; then
