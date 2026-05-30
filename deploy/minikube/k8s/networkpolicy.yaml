@@ -205,6 +205,7 @@ spec:
 ---
 # =============================================================================
 # Prometheus — ingress from platform (for native Observability dashboards)
+#                       and from KEDA (for the plugin ScaledObject trigger)
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -221,6 +222,14 @@ spec:
         - podSelector:
             matchLabels:
               app: platform
+        # KEDA's metrics-adapter scrapes Prometheus on every polling
+        # cycle for the plugin ScaledObject's `type: prometheus` trigger.
+        # `kubernetes.io/metadata.name` is the auto-injected label on
+        # every Namespace (k8s 1.21+) so we don't depend on KEDA's own
+        # pod labels staying stable across upstream releases.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: keda
       ports:
         - port: 9090
 

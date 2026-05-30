@@ -270,9 +270,26 @@ spec:
 
 ---
 # =============================================================================
-# Plugin KEDA ScaledObject — scales on BullMQ queue depth + CPU
+# Plugin KEDA ScaledObject — scales on BullMQ queue depth across all tiers
 # (KEDA creates its own HPA — no standalone HPA needed)
 # =============================================================================
+# Prometheus trigger (not Redis) for two reasons:
+#   1. AGGREGATE across all tiers. The plugin service has three BullMQ
+#      queues (plugin-build, plugin-build-pro, plugin-build-unlimited).
+#      A Redis listLength trigger watches one key; a multi-trigger
+#      ScaledObject takes MAX across triggers, not SUM — so 3 dev jobs +
+#      2 pro jobs would target max(3,2,0)=3 pods instead of the correct 5.
+#      `sum(plugin_queue_jobs{...})` aggregates correctly.
+#   2. INCLUDE in-flight work via state="active". A Redis listLength
+#      drops to zero the instant a job dispatches, so KEDA would decide
+#      "queue empty, scale down" while the buildkitd sidecar is mid-build.
+#      The pod terminates, the build dies, BullMQ retries it on the
+#      surviving pod. Counting `active` keeps the pod alive until the
+#      job moves to `completed`/`failed`.
+#
+# `threshold` is target jobs-per-replica. Activation threshold is
+# unset (defaults to 0) because minReplicaCount=1 — we never scale to
+# zero, so activation is a no-op.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -287,12 +304,29 @@ spec:
   pollingInterval: 15
   cooldownPeriod: 120
   triggers:
-    - type: redis
+    # Queue-driven primary signal.
+    - type: prometheus
       metadata:
-        address: redis.pipeline-builder.svc.cluster.local:6379
-        listName: "bull:plugin-build:wait"
-        listLength: "2"
-        activationListLength: "1"
+        serverAddress: http://prometheus.pipeline-builder.svc:9090
+        query: sum(plugin_queue_jobs{state=~"waiting|active"})
+        threshold: "2"
+    # CPU pressure — pod-level avg utilization across plugin + buildkitd
+    # sidecar. buildkitd saturates one core during a build pull/push, so
+    # avg crossing 80% means the pod is genuinely loaded and another
+    # replica would help. Computed against sum of container requests
+    # (plugin 750m + buildkitd 500m = 1250m): 80% = ~1000m sustained.
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "80"
+    # Memory pressure — backstop. buildkitd's local layer cache grows
+    # over time so a high threshold (85%) avoids scaling just on cache
+    # accumulation; this fires only when an active build's working set
+    # actually exceeds the pod's request envelope.
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: "85"
 
 ---
 # =============================================================================
