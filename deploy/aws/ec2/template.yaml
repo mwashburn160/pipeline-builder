@@ -279,37 +279,59 @@ Resources:
             export GIT_REPO="${GitRepo}"
             export GIT_BRANCH="${GitBranch}"
 
-            # Wait for data volume to attach
-            echo "Waiting for data volume /dev/xvdf..."
-            while [ ! -b /dev/xvdf ]; do sleep 1; done
-            echo "Data volume attached"
+            # ---- Persistent storage ----
+            # EBS mounts at /opt/pipeline (not /opt itself: AMIs may use /opt).
+            # Inside: pipeline-builder/ = code (git checkout), pipeline-data/ =
+            # runtime state. Falls back to root-volume dir if EBS is missing —
+            # boot continues, .ephemeral sentinel surfaces the degraded state.
+            PIPELINE_ROOT=/opt/pipeline
+            mkdir -p "$PIPELINE_ROOT"
 
-            # Format if new (no existing filesystem)
-            if ! blkid /dev/xvdf >/dev/null 2>&1; then
-              echo "Formatting data volume as ext4..."
-              mkfs.ext4 -m 1 -L pipeline-data /dev/xvdf
+            EBS_OK=0
+            echo "Waiting up to 60s for data volume /dev/xvdf..."
+            if [ -b /dev/xvdf ] || timeout 60 bash -c 'until [ -b /dev/xvdf ]; do sleep 1; done'; then
+              if ! blkid /dev/xvdf >/dev/null 2>&1; then
+                echo "Formatting data volume as ext4..."
+                mkfs.ext4 -m 1 -L pipeline-data /dev/xvdf
+              fi
+              if mount /dev/xvdf "$PIPELINE_ROOT"; then
+                EBS_OK=1
+                DATA_UUID=$(blkid -s UUID -o value /dev/xvdf)
+                if ! grep -q "$DATA_UUID" /etc/fstab; then
+                  echo "UUID=$DATA_UUID $PIPELINE_ROOT ext4 defaults,nofail 0 2" >> /etc/fstab
+                fi
+                rm -f "$PIPELINE_ROOT/.ephemeral"
+                echo "EBS mounted at $PIPELINE_ROOT (persistent)"
+              fi
             fi
 
-            # Mount data volume
-            mkdir -p /mnt/data
-            mount /dev/xvdf /mnt/data
-
-            # Persist mount across reboots
-            DATA_UUID=$(blkid -s UUID -o value /dev/xvdf)
-            if ! grep -q "$DATA_UUID" /etc/fstab; then
-              echo "UUID=$DATA_UUID /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
+            if [ "$EBS_OK" != "1" ]; then
+              # Fallback: $PIPELINE_ROOT is a regular dir on the root volume.
+              # Boot continues so services come up; sentinel surfaces the
+              # degraded state to anything that checks it.
+              touch "$PIPELINE_ROOT/.ephemeral"
+              echo "WARNING: EBS unavailable — $PIPELINE_ROOT on root volume (ephemeral; lost on instance replace)" >&2
             fi
-            echo "Data volume mounted at /mnt/data"
 
-            # Install git
+            # ---- Code ----
+            # Install git, then clone or fast-forward. The checkout lives ON
+            # the mount, so EBS-mounted runs persist code across instance
+            # replacement; fallback runs re-clone from scratch each time.
             dnf install -y git
-
-            # Clone repository
-            INSTALL_DIR="/opt/pipeline-builder"
-            git clone --branch "$GIT_BRANCH" "$GIT_REPO" "$INSTALL_DIR"
+            INSTALL_DIR="$PIPELINE_ROOT/pipeline-builder"
+            if [ -d "$INSTALL_DIR/.git" ]; then
+              echo "Existing checkout found — fetching $GIT_BRANCH"
+              git -C "$INSTALL_DIR" fetch --all --prune
+              git -C "$INSTALL_DIR" checkout "$GIT_BRANCH"
+              git -C "$INSTALL_DIR" reset --hard "origin/$GIT_BRANCH"
+            else
+              echo "Cloning $GIT_REPO ($GIT_BRANCH) to $INSTALL_DIR"
+              git clone --branch "$GIT_BRANCH" "$GIT_REPO" "$INSTALL_DIR"
+            fi
 
             # Run bootstrap
             chmod +x "$INSTALL_DIR/deploy/aws/ec2/bin/"*.sh
+            export PIPELINE_ROOT
             bash "$INSTALL_DIR/deploy/aws/ec2/bin/bootstrap.sh"
 
             echo "=== Bootstrap complete: $(date -u) ==="

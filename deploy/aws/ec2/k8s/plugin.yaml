@@ -245,11 +245,11 @@ spec:
       volumes:
         - name: tmp
           hostPath:
-            path: /mnt/data/plugins-data/builds
+            path: /opt/pipeline/pipeline-data/plugins-data/builds
             type: DirectoryOrCreate
         - name: uploads
           hostPath:
-            path: /mnt/data/plugins-data/uploads
+            path: /opt/pipeline/pipeline-data/plugins-data/uploads
             type: DirectoryOrCreate
         # Shared socket between buildkitd sidecar and plugin container.
         - name: buildkit-socket

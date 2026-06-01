@@ -15,6 +15,10 @@ AUTH_DIR="$DEPLOY_DIR/auth"
 NS="pipeline-builder"
 PROFILE="pipeline-builder"
 DATA_DIR="$DEPLOY_DIR/data"
+# VM-side mount target. Kept symmetric with deploy/aws/ec2 so the same k8s
+# hostPath manifests work across both targets (ec2 mounts EBS at this path
+# directly; minikube projects $DATA_DIR onto it via --mount-string).
+VM_DATA_DIR="/opt/pipeline/pipeline-data"
 
 # -- Helpers ------------------------------------------------------------------
 
@@ -62,7 +66,7 @@ set -a; . "$ENV_FILE"; set +a
 
 [ -f "$DEPLOY_DIR/mongodb-keyfile" ] && chmod 400 "$DEPLOY_DIR/mongodb-keyfile"
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/tmp}"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data/builds}"
 
 # -- Clean stale Docker state ------------------------------------------------
 
@@ -94,7 +98,7 @@ MK_MEM_BY_RESERVE=$((TOTAL_MEM - 4096))
 MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RESERVE ))
 echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M, 30g disk"
 
-MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=30g --driver=docker --mount --mount-string="$DATA_DIR:/mnt/data")
+MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=30g --driver=docker --mount --mount-string="$DATA_DIR:$VM_DATA_DIR")
 
 log "Starting Minikube"
 if ! minikube start "${MK_ARGS[@]}"; then
@@ -218,8 +222,8 @@ configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/
 
 # -- Deploy -------------------------------------------------------------------
 
-# Ensure plugin hostPath directories exist on data volume
-minikube ssh --profile="$PROFILE" -- 'sudo mkdir -p /mnt/data/plugins-data/builds /mnt/data/plugins-data/uploads && sudo chown -R 1000:1000 /mnt/data/plugins-data'
+# Ensure plugin hostPath directories exist on data volume.
+minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/plugins-data/builds ${VM_DATA_DIR}/plugins-data/uploads && sudo chown -R 1000:1000 ${VM_DATA_DIR}/plugins-data"
 
 log "Applying Kubernetes manifests"
 kubectl apply -k "$K8S_DIR"

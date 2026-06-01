@@ -33,6 +33,17 @@ DOMAIN="${DOMAIN:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 
+# Persistent-storage layout. PIPELINE_ROOT is the EBS mount (or a fallback
+# root-volume dir when EBS is unavailable; see UserData in template.yaml).
+# All runtime state lives under $PIPELINE_DATA_DIR; the .ephemeral sentinel
+# at $PIPELINE_ROOT signals fallback mode to anything that checks it.
+PIPELINE_ROOT="${PIPELINE_ROOT:-/opt/pipeline}"
+PIPELINE_DATA_DIR="$PIPELINE_ROOT/pipeline-data"
+mkdir -p "$PIPELINE_DATA_DIR"
+if [ -f "$PIPELINE_ROOT/.ephemeral" ]; then
+  echo "  NOTE: running on ephemeral storage ($PIPELINE_ROOT not EBS-backed)" >&2
+fi
+
 echo ""
 echo "========================================"
 echo "Phase 1: System Update"
@@ -93,10 +104,12 @@ echo "Phase 3: Install Docker"
 echo "========================================"
 dnf install -y docker
 
-# Move Docker storage to dedicated data volume to prevent root disk exhaustion
-DATA_MOUNT="/mnt/data"
-DOCKER_DATA_ROOT="$DATA_MOUNT/docker"
-if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
+# Move Docker storage to the persistent volume to prevent root-disk exhaustion
+# (prebuilt plugin images are large). Falls back to the root volume when
+# $PIPELINE_ROOT is in ephemeral mode — services still start, but image
+# storage doesn't survive instance replacement.
+DOCKER_DATA_ROOT="$PIPELINE_DATA_DIR/docker"
+if mountpoint -q "$PIPELINE_ROOT" 2>/dev/null; then
   mkdir -p "$DOCKER_DATA_ROOT"
   mkdir -p /etc/docker
   cat > /etc/docker/daemon.json <<DAEMONJSON
@@ -106,8 +119,8 @@ if mountpoint -q "$DATA_MOUNT" 2>/dev/null; then
 DAEMONJSON
   echo "  Docker data-root: $DOCKER_DATA_ROOT"
 else
-  echo "  WARNING: Data volume not mounted at $DATA_MOUNT — Docker using root volume (/var/lib/docker)" >&2
-  echo "  Prebuilt plugin images may exhaust root disk. Attach a data volume and re-run bootstrap." >&2
+  echo "  WARNING: $PIPELINE_ROOT is not a mountpoint — Docker using root volume (/var/lib/docker)" >&2
+  echo "  Prebuilt plugin images may exhaust root disk on a long-lived instance." >&2
 fi
 
 systemctl enable docker
@@ -247,43 +260,27 @@ if id "$OPERATOR_USER" &>/dev/null && [ "$OPERATOR_USER" != "root" ]; then
   echo "  NOTE: $OPERATOR_USER must log out and back in (or run 'newgrp docker') for the group to take effect"
 fi
 
-# Data directory on dedicated EBS volume (mounted by UserData at /mnt/data)
-if mountpoint -q "/mnt/data" 2>/dev/null; then
-  echo "  Using dedicated data volume at /mnt/data"
-  chown minikube:minikube /mnt/data
-else
-  echo "  WARNING: No data volume at /mnt/data — using root volume"
-  mkdir -p /mnt/data
-  chown minikube:minikube /mnt/data
-fi
+# Hand ownership of the persistent root to the minikube user so it can
+# create subdirs without sudo. Whether $PIPELINE_ROOT is the EBS mount or
+# the fallback dir, both code paths land here.
+chown minikube:minikube "$PIPELINE_ROOT" "$PIPELINE_DATA_DIR"
 chown -R minikube:minikube "$DEPLOY_DIR"
 chown -R minikube:minikube "$INSTALL_DIR/deploy/bin"
 
-# Move plugin build artifacts to data volume (image.tar + plugin.zip are large)
-# Symlink keeps deploy/plugins/ path working while using data volume storage
-PLUGIN_DATA_DIR="/mnt/data/plugin-artifacts"
-PLUGIN_SRC_DIR="$INSTALL_DIR/deploy/plugins"
-if mountpoint -q /mnt/data 2>/dev/null && [ ! -L "$PLUGIN_SRC_DIR" ]; then
-  mkdir -p "$PLUGIN_DATA_DIR"
-  if [ -d "$PLUGIN_SRC_DIR" ] && [ ! -L "$PLUGIN_SRC_DIR" ]; then
-    # Move existing plugin files to data volume
-    cp -a "$PLUGIN_SRC_DIR/." "$PLUGIN_DATA_DIR/"
-    rm -rf "$PLUGIN_SRC_DIR"
-  fi
-  ln -sf "$PLUGIN_DATA_DIR" "$PLUGIN_SRC_DIR"
-  chown -R minikube:minikube "$PLUGIN_DATA_DIR"
-  echo "  Plugin artifacts: $PLUGIN_DATA_DIR (symlinked from deploy/plugins)"
-else
-  chown -R minikube:minikube "$PLUGIN_SRC_DIR"
-fi
+# Plugin build artifacts. Lives on the persistent volume; previously this
+# was a symlink from $INSTALL_DIR/deploy/plugins to a path on /mnt/data,
+# but with $INSTALL_DIR itself now living on the EBS volume the symlink is
+# redundant — point consumers at PLUGIN_ARTIFACTS_DIR via env instead.
+PLUGIN_ARTIFACTS_DIR="$PIPELINE_DATA_DIR/plugin-artifacts"
+mkdir -p "$PLUGIN_ARTIFACTS_DIR"
+chown -R minikube:minikube "$PLUGIN_ARTIFACTS_DIR"
+echo "  Plugin artifacts: $PLUGIN_ARTIFACTS_DIR"
 
-# Create plugin working directories on data volume (hostPath mounts for K8s)
-# These back the plugin pod's /app/tmp and /app/uploads. The buildkitd
-# sidecar's socket + layer cache live in pod-local emptyDir, not here.
-mkdir -p /mnt/data/plugins-data/builds /mnt/data/plugins-data/uploads
-# UID 1000 matches the plugin container's user inside minikube
-chown -R 1000:1000 /mnt/data/plugins-data
-echo "  Plugin working dirs: /mnt/data/plugins-data/{builds,uploads}"
+# Plugin working directories (hostPath mounts for K8s plugin pod).
+# UID 1000 matches the plugin container's user inside minikube.
+mkdir -p "$PIPELINE_DATA_DIR"/plugins-data/{builds,uploads}
+chown -R 1000:1000 "$PIPELINE_DATA_DIR/plugins-data"
+echo "  Plugin working dirs: $PIPELINE_DATA_DIR/plugins-data/{builds,uploads}"
 
 # Allow minikube user to read TLS certs
 if [ -n "$DOMAIN" ]; then

@@ -36,7 +36,7 @@ spec:
   accessModes: ["ReadWriteOnce"]
   persistentVolumeReclaimPolicy: Retain
   hostPath:
-    path: /mnt/data/db-data/mongodb
+    path: /opt/pipeline/pipeline-data/db-data/mongodb
     type: DirectoryOrCreate
 
 ---

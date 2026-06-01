@@ -18,7 +18,13 @@ CERT_DIR="$DEPLOY_DIR/certs"
 AUTH_DIR="$DEPLOY_DIR/auth"
 NS="pipeline-builder"
 PROFILE="pipeline-builder"
-DATA_DIR="/mnt/data"
+# Persistent-storage layout. Honors PIPELINE_ROOT from the host (set by
+# UserData / bootstrap.sh) but defaults to /opt/pipeline for standalone
+# script invocations. The minikube VM mounts $DATA_DIR at the SAME path
+# inside the VM, so k8s hostPath manifests can reference one canonical
+# location regardless of which side of the boundary they describe.
+PIPELINE_ROOT="${PIPELINE_ROOT:-/opt/pipeline}"
+DATA_DIR="$PIPELINE_ROOT/pipeline-data"
 DOMAIN="${DOMAIN:-}"
 
 # -- Helpers ------------------------------------------------------------------
@@ -69,7 +75,7 @@ fi
 # -- Data directories ---------------------------------------------------------
 
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/mnt/data/plugins-data/builds}"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DATA_DIR/plugins-data/builds}"
 
 # -- Clean stale Docker state ------------------------------------------------
 
@@ -99,7 +105,7 @@ MK_MEM_BY_RESERVE=$((TOTAL_MEM - 4096))
 MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RESERVE ))
 echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M RAM → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M"
 
-MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=40g --driver=docker --mount --mount-string="$DATA_DIR:/mnt/data")
+MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=40g --driver=docker --mount --mount-string="$DATA_DIR:$DATA_DIR")
 
 log "Starting Minikube"
 if ! mk minikube start "${MK_ARGS[@]}"; then
@@ -241,14 +247,17 @@ configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/
 
 # -- Deploy -------------------------------------------------------------------
 
-# Ensure plugin hostPath directories exist on data volume
-mk minikube ssh --profile="$PROFILE" -- 'sudo mkdir -p /mnt/data/plugins-data/builds /mnt/data/plugins-data/uploads && sudo chown -R 1000:1000 /mnt/data/plugins-data'
+# Ensure plugin hostPath directories exist on data volume. The minikube
+# mount-string maps $DATA_DIR onto itself, so the path is identical on
+# both sides — feeding it through with quotes (single-quoted command
+# template, then expanded shellword) keeps the var available inside the VM.
+mk minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${DATA_DIR}/plugins-data/builds ${DATA_DIR}/plugins-data/uploads && sudo chown -R 1000:1000 ${DATA_DIR}/plugins-data"
 
 log "Applying Kubernetes manifests"
 mk kubectl apply -k "$K8S_DIR"
 
 log "Post-deploy fixups"
-mk minikube ssh --profile="$PROFILE" -- 'sudo chown -R 1000:1000 /mnt/data/registry-data'
+mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/registry-data"
 REGISTRY_IP=$(mk kubectl get svc registry -n "$NS" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
 [ -n "$REGISTRY_IP" ] && mk minikube ssh --profile="$PROFILE" -- \
   "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$REGISTRY_IP registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"
