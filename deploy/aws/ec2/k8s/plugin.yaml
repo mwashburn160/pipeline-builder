@@ -140,7 +140,7 @@ spec:
             failureThreshold: 3
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:3.4.66
+          image: ghcr.io/mwashburn160/plugin:3.4.67
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -200,10 +200,13 @@ spec:
             - name: TMPDIR
               value: "/tmp"
           volumeMounts:
+            # Mount at the SAME absolute path as the host (which buildkit
+            # also sees) so DOCKER_BUILD_TEMP_ROOT resolves identically on
+            # both sides — buildkit bind mounts won't work otherwise.
             - name: tmp
-              mountPath: /app/tmp
+              mountPath: /opt/pipeline/pipeline-data/plugins-data/builds
             - name: uploads
-              mountPath: /app/uploads
+              mountPath: /opt/pipeline/pipeline-data/plugins-data/uploads
             - name: buildkit-socket
               mountPath: /run/buildkit
             # readOnlyRootFilesystem: true means the Node.js process can't

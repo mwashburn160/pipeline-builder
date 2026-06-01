@@ -37,52 +37,52 @@ Parameters:
 
   PlatformImage:
     Type: String
-    Default: ghcr.io/mwashburn160/platform:3.4.67
+    Default: ghcr.io/mwashburn160/platform:3.4.68
     Description: Docker image for the Platform service
 
   PipelineImage:
     Type: String
-    Default: ghcr.io/mwashburn160/pipeline:3.4.62
+    Default: ghcr.io/mwashburn160/pipeline:3.4.63
     Description: Docker image for the Pipeline service
 
   PluginImage:
     Type: String
-    Default: ghcr.io/mwashburn160/plugin:3.4.66
+    Default: ghcr.io/mwashburn160/plugin:3.4.67
     Description: Docker image for the Plugin service
 
   QuotaImage:
     Type: String
-    Default: ghcr.io/mwashburn160/quota:3.4.62
+    Default: ghcr.io/mwashburn160/quota:3.4.63
     Description: Docker image for the Quota service
 
   BillingImage:
     Type: String
-    Default: ghcr.io/mwashburn160/billing:3.4.62
+    Default: ghcr.io/mwashburn160/billing:3.4.63
     Description: Docker image for the Billing service
 
   MessageImage:
     Type: String
-    Default: ghcr.io/mwashburn160/message:3.4.63
+    Default: ghcr.io/mwashburn160/message:3.4.64
     Description: Docker image for the Message service
 
   ReportingImage:
     Type: String
-    Default: ghcr.io/mwashburn160/reporting:3.4.62
+    Default: ghcr.io/mwashburn160/reporting:3.4.63
     Description: Docker image for the Reporting service
 
   ComplianceImage:
     Type: String
-    Default: ghcr.io/mwashburn160/compliance:3.4.62
+    Default: ghcr.io/mwashburn160/compliance:3.4.63
     Description: Docker image for the Compliance service
 
   ImageRegistryImage:
     Type: String
-    Default: ghcr.io/mwashburn160/image-registry:3.4.66
+    Default: ghcr.io/mwashburn160/image-registry:3.4.67
     Description: Docker image for the pipeline-image-registry service
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:3.4.70
+    Default: ghcr.io/mwashburn160/frontend:3.4.71
     Description: Docker image for the Frontend service
 
   AppSecretsName:
@@ -841,6 +841,11 @@ Resources:
               Value: "900000"
             - Name: PLUGIN_MAX_UPLOAD_MB
               Value: "4096"
+            # Canonical build-temp path — same as k8s deploys. The EFS access
+            # point mounts at this same ContainerPath above so the plugin
+            # code finds the build dir at the path buildkit also sees.
+            - Name: DOCKER_BUILD_TEMP_ROOT
+              Value: /opt/pipeline/pipeline-data/plugins-data/builds
             - Name: IMAGE_REGISTRY_HTTP
               Value: "true"
             # Builds run on the co-located buildkitd container in the
@@ -860,9 +865,12 @@ Resources:
             - Name: COMPLIANCE_BYPASS
               Value: "false"
           MountPoints:
-            - ContainerPath: /app/tmp
+            # Align ContainerPath with the host/EFS path so DOCKER_BUILD_TEMP_ROOT
+            # resolves identically on both sides — buildkit bind mounts won't
+            # work otherwise. Same convention as the k8s deploys.
+            - ContainerPath: /opt/pipeline/pipeline-data/plugins-data/builds
               SourceVolume: plugins-builds
-            - ContainerPath: /app/uploads
+            - ContainerPath: /opt/pipeline/pipeline-data/plugins-data/uploads
               SourceVolume: plugins-uploads
             - ContainerPath: /run/buildkit
               SourceVolume: buildkit-socket

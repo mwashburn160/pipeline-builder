@@ -93,13 +93,20 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/buildkit-cache" \
          "$DEPLOY_DIR/data/promtail-positions"
 
-# Docker build temp dir — must be the SAME absolute path on both host and
-# container so buildkitd.toml bind mounts resolve correctly.
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DEPLOY_DIR/data/tmp}"
-mkdir -p "$DOCKER_BUILD_TEMP_ROOT"
+# Docker build temp dir. Two paths in play:
+#   - Host: where docker-compose binds the volume from (created + chmod'd here)
+#   - Container: the canonical /opt/pipeline/pipeline-data/... target inside
+#     the plugin container; what DOCKER_BUILD_TEMP_ROOT must point at so the
+#     plugin code (running in-container) resolves the build dir.
+# These differ in local because the host volume lives inside the repo checkout.
+# k8s/fargate deploys have host=container path (k8s hostPath + EFS access points).
+PLUGIN_BUILDS_HOST="$DEPLOY_DIR/data/plugins-data/builds"
+PLUGIN_UPLOADS_HOST="$DEPLOY_DIR/data/plugins-data/uploads"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/opt/pipeline/pipeline-data/plugins-data/builds}"
+mkdir -p "$PLUGIN_BUILDS_HOST" "$PLUGIN_UPLOADS_HOST"
 
 # Plugin container runs as node (UID 1000) — ensure writable volume mounts
-chmod 1777 "$DEPLOY_DIR/data/uploads" "$DOCKER_BUILD_TEMP_ROOT"
+chmod 1777 "$PLUGIN_BUILDS_HOST" "$PLUGIN_UPLOADS_HOST"
 
 # Plugin builds run via a rootless buildkitd sidecar — no strategy choice,
 # no dind, no certs to generate. See deploy/local/docker-compose.yml.
