@@ -72,7 +72,7 @@ Parameters:
 
   ComplianceImage:
     Type: String
-    Default: ghcr.io/mwashburn160/compliance:3.4.63
+    Default: ghcr.io/mwashburn160/compliance:3.4.64
     Description: Docker image for the Compliance service
 
   ImageRegistryImage:
