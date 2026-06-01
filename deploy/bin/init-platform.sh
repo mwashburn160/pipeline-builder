@@ -264,17 +264,10 @@ else
   echo "  Skipping compliance loading."
 fi
 
-# Load default observability dashboards. Skipped silently if any are already
-# present (the platform service also has an in-process seeder; this script
-# is the operator-driven equivalent, idempotent by `(orgId='system', name)`).
-echo ""
-printf "Load default observability dashboards? [y/N] "
-read -r LOAD_DASHBOARDS
-if [ "$LOAD_DASHBOARDS" = "y" ] || [ "$LOAD_DASHBOARDS" = "Y" ]; then
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-dashboards.sh"
-else
-  echo "  Skipping dashboard loading."
-fi
+# Default observability dashboards are seeded automatically by the platform
+# service's in-process seeder on every cold start (it writes org_id='system'
+# rows directly, needs no auth, and is idempotent by `(orgId='system', name)`).
+# No separate load step is required here.
 
 echo ""
 echo "=== Initialization complete ==="

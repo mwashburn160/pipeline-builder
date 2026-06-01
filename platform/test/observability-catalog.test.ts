@@ -127,6 +127,20 @@ describe('observability catalog', () => {
       // Invalid org chars → empty-match selector instead of injection
       expect(out).toBe('foo{,org_id="__no_org__"}');
     });
+
+    it('substitutes EVERY $ORG occurrence, not just the first', () => {
+      // Regression: ratio-style panels reference $ORG twice. A first-only
+      // replace left the second `$ORG` literal, which Prometheus rejects
+      // with "unexpected character inside braces: '$'" (HTTP 400 → 500).
+      const out = substituteVars('a{x="1"$ORG} / b{y="2"$ORG}', { isSuperAdmin: true }, []);
+      expect(out).toBe('a{x="1",org_id=~".+"} / b{y="2",org_id=~".+"}');
+      expect(out).not.toContain('$ORG');
+    });
+
+    it('renders the real success-rate panel query with no leftover placeholder', () => {
+      const rendered = substituteVars(QUERIES.plugin_build_success_rate_5m.query, { isSuperAdmin: true }, []);
+      expect(rendered).not.toContain('$');
+    });
   });
 
   describe('stepForRange', () => {

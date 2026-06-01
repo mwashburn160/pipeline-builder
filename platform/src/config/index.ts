@@ -133,9 +133,12 @@ export const config = {
     // Observability endpoints (catalog query, range query, log query) hit
     // Prometheus / Loki directly. A noisy operator clicking through panels
     // can saturate upstream — keep a tighter per-org budget than the
-    // general limiter (30 req / min default).
+    // general limiter. A single dashboard view fans out to one query per
+    // panel (Queue Health = 9, Registry Activity = 6, …) and the client may
+    // refetch on mount, so the budget must cover a couple of full page
+    // loads in a window or legitimate views 429. 120 req / min default.
     observability: {
-      max: parseInt(process.env.OBSERVABILITY_LIMITER_MAX || '30', 10),
+      max: parseInt(process.env.OBSERVABILITY_LIMITER_MAX || '120', 10),
       windowMs: parseInt(process.env.OBSERVABILITY_LIMITER_WINDOWMS || '60000', 10), // 1 min
     },
   },

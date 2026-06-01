@@ -1,4 +1,5 @@
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/router';
 import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { GitBranch, Puzzle, AlertTriangle, FileBarChart } from 'lucide-react';
@@ -61,10 +62,33 @@ const PLUGIN_TABS: { id: PluginSubTab; label: string }[] = [
 // ─── Page ───────────────────────────────────────────────
 export default function ReportsPage() {
   const { user, isReady, isAuthenticated } = useAuthGuard();
+  const router = useRouter();
 
   const [topTab, setTopTab] = useState<TopTab>('pipelines');
   const [pipelineTab, setPipelineTab] = useState<PipelineSubTab>('overview');
   const [pluginTab, setPluginTab] = useState<PluginSubTab>('overview');
+
+  // Honor ?tab=plugins|pipelines on load and on browser back/forward, so the
+  // tab is deep-linkable (e.g. from the command palette or a shared URL).
+  useEffect(() => {
+    if (!router.isReady) return;
+    const raw = router.query.tab;
+    const tab = Array.isArray(raw) ? raw[0] : raw;
+    if (tab === 'plugins' || tab === 'pipelines') {
+      setTopTab((prev) => (prev === tab ? prev : tab));
+    }
+  }, [router.isReady, router.query.tab]);
+
+  // Switch the top-level tab and reflect it in the URL (shallow — no data
+  // refetch from the route change; the effects below already key off topTab).
+  const changeTopTab = useCallback((id: TopTab) => {
+    setTopTab(id);
+    void router.replace(
+      { pathname: router.pathname, query: { ...router.query, tab: id } },
+      undefined,
+      { shallow: true },
+    );
+  }, [router]);
   const [timeInterval, setTimeInterval] = useState<'day' | 'week' | 'month'>('week');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -191,7 +215,7 @@ export default function ReportsPage() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setTopTab(tab.id)}
+                onClick={() => changeTopTab(tab.id)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   active
                     ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 ring-1 ring-blue-200 dark:ring-blue-800'

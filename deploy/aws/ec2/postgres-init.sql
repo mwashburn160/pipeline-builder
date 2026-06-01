@@ -748,6 +748,9 @@ CREATE TABLE IF NOT EXISTS compliance_scans (    id UUID PRIMARY KEY DEFAULT gen
     pass_count INTEGER NOT NULL DEFAULT 0,
     warn_count INTEGER NOT NULL DEFAULT 0,
     block_count INTEGER NOT NULL DEFAULT 0,
+    -- True when a scan stopped early at a per-scan cap, so the counts above
+    -- are a subset rather than the full entity universe. Shown in the UI.
+    truncated BOOLEAN NOT NULL DEFAULT FALSE,
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     cancelled_at TIMESTAMPTZ,

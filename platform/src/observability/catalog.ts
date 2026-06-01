@@ -172,9 +172,9 @@ export const QUERIES: Record<string, QueryEntry> = {
     query: 'sum by (state) (plugin_queue_jobs{queue="plugin-build-dlq"})',
     allowedVars: [],
   },
-  // TODO: also rename queryKey in deploy/seeds/dashboards/queue-health.json
-  //       ("plugin_retry_rate" → "plugin_failed_builds_rate_5m"). That file
-  //       is outside platform/src/ so it ships with the seed-data update.
+  // Renamed from the former "plugin_retry_rate" key. The canonical seed JSON
+  // (observability/dashboards/queue-health.json, loaded by the in-process
+  // dashboard seeder) references the new key.
   plugin_failed_builds_rate_5m: {
     source: 'prometheus-range',
     query: 'sum(rate(plugin_builds_total{status="failed"}[5m]))',
@@ -258,12 +258,12 @@ export function substituteVars(
   // event: alphanumerics + . + - + _ (matches our event-naming convention)
   const eventClause = allowed.includes('event') && vars.event && /^[a-zA-Z0-9._-]+$/.test(vars.event)
     ? `,event="${vars.event}"` : '';
-  result = result.replace('$EVENT', eventClause);
+  result = result.replaceAll('$EVENT', eventClause);
 
   // actor: alphanumerics + - + _ + . + @ (covers user IDs and service principals)
   const actorClause = allowed.includes('actor') && vars.actor && /^[a-zA-Z0-9._@-]+$/.test(vars.actor)
     ? `,actor="${vars.actor}"` : '';
-  result = result.replace('$ACTOR', actorClause);
+  result = result.replaceAll('$ACTOR', actorClause);
 
   // plugin: alphanumerics + . + - + _ (plugin names follow the same convention
   // as events). Substituted as a literal label match — used by the per-plugin
@@ -281,14 +281,19 @@ export function substituteVars(
   // get a regex wildcard so they see all orgs; org admins get a literal
   // match scoped to their org. The substitution happens regardless of
   // `allowed` — `$ORG` is server-driven, not user-supplied.
+  // replaceAll, not replace: several panel queries reference $ORG more than
+  // once (e.g. the success-rate ratio divides two plugin_builds_total sums,
+  // each carrying $ORG). String.replace only swaps the first occurrence,
+  // leaving a literal `$ORG` in the second matcher that Prometheus rejects
+  // with "unexpected character inside braces: '$'".
   if (vars.isSuperAdmin) {
-    result = result.replace('$ORG', ',org_id=~".+"');
+    result = result.replaceAll('$ORG', ',org_id=~".+"');
   } else if (vars.org && /^[a-zA-Z0-9_-]+$/.test(vars.org)) {
-    result = result.replace('$ORG', `,org_id="${vars.org}"`);
+    result = result.replaceAll('$ORG', `,org_id="${vars.org}"`);
   } else {
     // Missing/invalid org for a non-sysadmin — substitute empty match so
     // the query returns nothing rather than leaking all data.
-    result = result.replace('$ORG', ',org_id="__no_org__"');
+    result = result.replaceAll('$ORG', ',org_id="__no_org__"');
   }
 
   return result;

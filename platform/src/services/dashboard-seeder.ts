@@ -5,19 +5,30 @@ import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { and, eq, isNull } from 'drizzle-orm';
 
+import auditActivity from '../observability/dashboards/audit-activity.json';
+import platformOverview from '../observability/dashboards/platform-overview.json';
+import pluginBuilds from '../observability/dashboards/plugin-builds.json';
+import queueHealth from '../observability/dashboards/queue-health.json';
+import registryActivity from '../observability/dashboards/registry-activity.json';
+
 const logger = createLogger('dashboard-seeder');
 
 /**
- * Embedded copy of the 5 static dashboards previously declared in
- * `frontend/src/lib/dashboards/*.ts`. They become `visibility=public,
+ * The default observability dashboards, loaded from the canonical JSON files
+ * in `src/observability/dashboards/*.json`. They become `visibility=public,
  * org_id='system'` rows so the system-org visibility rule covers every
  * authenticated org by default; the frontend's dynamic dashboard renderer
- * (PR-E2) picks them up via `GET /api/dashboards`.
+ * picks them up via `GET /api/dashboards`.
  *
- * PR-E4 will externalize this into JSON under `deploy/<target>/seeds/dashboards/`
- * + a `load-dashboards.sh` script; this in-process seeder is the bootstrap
- * path that runs every cold start to keep the defaults in sync without a
- * separate deploy step.
+ * This in-process seeder is the sole loader: it runs on every platform cold
+ * start, writes org_id='system' rows directly to the DB (no auth, no HTTP),
+ * and is the single source of truth. Editing a default dashboard means
+ * editing its JSON — there's no parallel hand-maintained array to drift from
+ * (that drift is exactly what previously broke a renamed query key).
+ *
+ * The JSON is bundled into `lib/` at compile time (tsc copies imported JSON
+ * under rootDir to outDir) and ships in the Docker image via the existing
+ * `COPY .docker-build/lib/` step.
  *
  * Re-seed semantics: insert-if-missing keyed by `(org_id='system', name)`.
  * Operators who edit a public dashboard get their changes preserved across
@@ -40,65 +51,17 @@ interface SeedDashboard {
   panels: SeedPanel[];
 }
 
+// The JSON modules carry an extra `visibility` field this seeder doesn't read
+// (it always writes 'public'); cast through unknown so that field plus tsc's
+// wide literal inference for the panel arrays don't fight the SeedDashboard
+// shape.
 const DEFAULT_DASHBOARDS: SeedDashboard[] = [
-  {
-    name: 'Platform Overview',
-    description: 'Org/user counts and login activity, plus build + queue health at a glance.',
-    panels: [
-      { queryKey: 'platform_orgs_total', vizKind: 'stat', title: 'Organizations', span: 3 },
-      { queryKey: 'platform_users_total', vizKind: 'stat', title: 'Users', span: 3 },
-      { queryKey: 'platform_memberships_active_total', vizKind: 'stat', title: 'Active memberships', span: 3 },
-      { queryKey: 'platform_logins_24h', vizKind: 'stat', title: 'Logins (24h)', span: 3 },
-      { queryKey: 'platform_logins_per_min', vizKind: 'line', title: 'Logins per minute', span: 6 },
-      { queryKey: 'plugin_builds_per_min', vizKind: 'line', title: 'Plugin builds per minute', span: 6, groupBy: 'status' },
-      { queryKey: 'plugin_build_success_rate_5m', vizKind: 'line', title: 'Build success rate (5m)', span: 6, format: 'percent' },
-      { queryKey: 'plugin_queue_depth', vizKind: 'line', title: 'Build queue depth', span: 6, groupBy: 'state' },
-    ],
-  },
-  {
-    name: 'Plugin Builds',
-    description: 'Build throughput, success rate, duration, and BullMQ queue depth.',
-    panels: [
-      { queryKey: 'plugin_builds_total_24h', vizKind: 'stat', title: 'Total builds (24h)', span: 3 },
-      { queryKey: 'plugin_build_p95_duration_sec', vizKind: 'line', title: 'p95 duration (5m)', span: 9, format: 'seconds' },
-      { queryKey: 'plugin_builds_per_min', vizKind: 'line', title: 'Builds per minute', span: 6, groupBy: 'status' },
-      { queryKey: 'plugin_build_success_rate_5m', vizKind: 'line', title: 'Success rate (5m)', span: 6, format: 'percent' },
-      { queryKey: 'plugin_queue_depth', vizKind: 'line', title: 'Queue depth', span: 12, groupBy: 'state' },
-    ],
-  },
-  {
-    name: 'Queue Health',
-    description: 'Wait-time percentiles, DLQ depth, retry rate — for diagnosing congestion.',
-    panels: [
-      { queryKey: 'plugin_job_wait_p50', vizKind: 'line', title: 'p50 wait', span: 4, format: 'seconds' },
-      { queryKey: 'plugin_job_wait_p95', vizKind: 'line', title: 'p95 wait', span: 4, format: 'seconds' },
-      { queryKey: 'plugin_job_wait_p99', vizKind: 'line', title: 'p99 wait', span: 4, format: 'seconds' },
-      { queryKey: 'plugin_dlq_size', vizKind: 'line', title: 'DLQ depth', span: 6, groupBy: 'state' },
-      { queryKey: 'plugin_retry_rate', vizKind: 'line', title: 'Retry rate', span: 6 },
-    ],
-  },
-  {
-    name: 'Registry Activity',
-    description: 'Copy / delete / promote counters over the in-cluster Docker registry.',
-    panels: [
-      { queryKey: 'registry_copies_24h', vizKind: 'stat', title: 'Copies (24h)', span: 4 },
-      { queryKey: 'registry_deletes_24h', vizKind: 'stat', title: 'Deletes (24h)', span: 4 },
-      { queryKey: 'registry_promotions_24h', vizKind: 'stat', title: 'Promotions (24h)', span: 4 },
-      { queryKey: 'registry_copies_per_min', vizKind: 'line', title: 'Copies per minute', span: 4 },
-      { queryKey: 'registry_deletes_per_min', vizKind: 'line', title: 'Deletes per minute', span: 4 },
-      { queryKey: 'registry_promotions_per_hour', vizKind: 'line', title: 'Promotions per hour', span: 4 },
-    ],
-  },
-  {
-    name: 'Audit Activity',
-    description: 'Audit events over time, top actors, and a searchable recent-events table.',
-    panels: [
-      { queryKey: 'audit_events_per_hour_by_event', vizKind: 'stacked-bar', title: 'Events per hour by type', span: 8 },
-      { queryKey: 'audit_top_actors_24h', vizKind: 'table', title: 'Top actors (24h)', span: 4 },
-      { queryKey: 'audit_recent_events', vizKind: 'table', title: 'Recent events', span: 12 },
-    ],
-  },
-];
+  platformOverview,
+  pluginBuilds,
+  queueHealth,
+  registryActivity,
+  auditActivity,
+] as unknown as SeedDashboard[];
 
 /**
  * Insert any missing default dashboard. Skips dashboards that already exist

@@ -79,7 +79,6 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Insights',
     items: [
       { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart },
-      { title: 'Plugin Reports', href: '/dashboard/reports?tab=plugins', icon: FileBarChart },
       { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
       // Observability is visible to any authenticated user. Server-side
