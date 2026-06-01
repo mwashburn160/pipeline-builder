@@ -298,7 +298,14 @@ spec:
   scaleTargetRef:
     name: plugin
   minReplicaCount: 1
-  maxReplicaCount: 5
+  # Capped at 2: the single minikube node only has CPU headroom for two
+  # plugin pods (each requests 1250m = plugin 750m + buildkitd 500m)
+  # alongside the rest of the namespace. A 3rd replica stays Pending with
+  # "Insufficient cpu", and the unschedulable scale-up churn kills
+  # in-flight builds (BullMQ marks them "stalled more than allowable
+  # limit"). Raise this only after growing the node's CPU
+  # (deploy/minikube/bin/startup.sh MK_CPUS).
+  maxReplicaCount: 2
   pollingInterval: 15
   cooldownPeriod: 120
   triggers:

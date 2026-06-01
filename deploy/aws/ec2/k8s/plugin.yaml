@@ -311,7 +311,15 @@ spec:
   scaleTargetRef:
     name: plugin
   minReplicaCount: 1
-  maxReplicaCount: 5
+  # Capped at 2: the single-node EC2 minikube only has CPU headroom for
+  # two plugin pods (each requests ~1250m = plugin 750m + buildkitd 500m)
+  # alongside the rest of the namespace. A 3rd replica stays Pending with
+  # "Insufficient cpu", and the unschedulable scale-up churn kills
+  # in-flight builds (BullMQ marks them "stalled more than allowable
+  # limit"). Raise this only after growing the instance's vCPUs — the
+  # in-pod buildkitd sidecar is the sole builder, so each replica carries
+  # its full ~1250m cost.
+  maxReplicaCount: 2
   pollingInterval: 15
   cooldownPeriod: 120
   triggers:

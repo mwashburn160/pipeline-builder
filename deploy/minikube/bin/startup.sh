@@ -82,12 +82,34 @@ docker network rm "$PROFILE" 2>/dev/null || true
 # -- Start Minikube -----------------------------------------------------------
 
 log "Detecting resources"
+# Detect CPU and memory independently: `nproc` can be present on macOS via
+# Homebrew coreutils, so don't infer the OS from it — probe /proc/meminfo
+# (Linux) vs hw.memsize (darwin) for memory separately.
 if command -v nproc >/dev/null 2>&1; then
   TOTAL_CPU=$(nproc)
-  TOTAL_MEM=$(($(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024))
 else
   TOTAL_CPU=$(sysctl -n hw.ncpu)
+fi
+if [ -r /proc/meminfo ]; then
+  TOTAL_MEM=$(($(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024))
+else
   TOTAL_MEM=$(($(sysctl -n hw.memsize) / 1024 / 1024))
+fi
+# The docker driver runs minikube inside the Docker VM, whose envelope
+# (Docker Desktop on macOS, cgroup limits on Linux) is often smaller than
+# the host — e.g. a 16G Mac with Docker Desktop capped at ~8G. Clamp to
+# what `docker info` exposes so we never request more memory/CPU than the
+# VM has and trip minikube's MK_USAGE guard.
+if command -v docker >/dev/null 2>&1; then
+  DOCKER_CPU=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo 0)
+  DOCKER_MEM=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)
+  DOCKER_MEM=$((DOCKER_MEM / 1024 / 1024))  # bytes -> MiB
+  if [ "$DOCKER_CPU" -gt 0 ] && [ "$DOCKER_CPU" -lt "$TOTAL_CPU" ]; then
+    TOTAL_CPU=$DOCKER_CPU
+  fi
+  if [ "$DOCKER_MEM" -gt 0 ] && [ "$DOCKER_MEM" -lt "$TOTAL_MEM" ]; then
+    TOTAL_MEM=$DOCKER_MEM
+  fi
 fi
 MK_CPUS=$((TOTAL_CPU > 2 ? TOTAL_CPU - 1 : 2))
 # Memory: reserve 4 GiB for host (kernel + docker daemon + monitoring +
@@ -98,6 +120,18 @@ MK_MEM_BY_RATIO=$((TOTAL_MEM * 75 / 100))
 MK_MEM_BY_RESERVE=$((TOTAL_MEM - 4096))
 MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RESERVE ))
 echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M, 30g disk"
+
+# The full namespace (~3.3 cores of services) plus build pods is tight
+# under 8 GiB. Warn early with an actionable message rather than letting a
+# pod OOM or a build stall mid-run. On the docker driver this envelope is
+# the Docker VM, not the host — raise it in Docker Desktop → Resources.
+RECOMMENDED_MEM=8192
+if [ "$TOTAL_MEM" -lt "$RECOMMENDED_MEM" ]; then
+  echo "  WARNING: only ${TOTAL_MEM}M available (recommended >= ${RECOMMENDED_MEM}M)."
+  echo "  WARNING: the stack will run but builds may be slow and a 2nd plugin"
+  echo "  WARNING: replica may not fit. Raise Docker Desktop memory (Settings ->"
+  echo "  WARNING: Resources) to give minikube more headroom."
+fi
 
 MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size=30g --driver=docker --mount --mount-string="$DATA_DIR:$VM_DATA_DIR")
 
