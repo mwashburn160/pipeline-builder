@@ -68,7 +68,7 @@ spec:
   accessModes: ["ReadWriteOnce"]
   persistentVolumeReclaimPolicy: Retain
   hostPath:
-    path: /opt/pipeline/pipeline-data/db-data/prometheus
+    path: /data/db-data/prometheus
     type: DirectoryOrCreate
 
 ---

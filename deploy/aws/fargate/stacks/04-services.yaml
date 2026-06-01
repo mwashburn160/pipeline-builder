@@ -841,11 +841,15 @@ Resources:
               Value: "900000"
             - Name: PLUGIN_MAX_UPLOAD_MB
               Value: "4096"
-            # Canonical build-temp path — same as k8s deploys. The EFS access
-            # point mounts at this same ContainerPath above so the plugin
-            # code finds the build dir at the path buildkit also sees.
+            # Canonical build-temp + upload paths — same as k8s deploys. The
+            # EFS access points mount at these same ContainerPaths above so
+            # the plugin code finds them at the paths buildkit / multer
+            # also see. PLUGIN_UPLOAD_DIR must be a writable absolute path
+            # because the container runs with ReadonlyRootFilesystem=true.
             - Name: DOCKER_BUILD_TEMP_ROOT
               Value: /opt/pipeline/pipeline-data/plugins-data/builds
+            - Name: PLUGIN_UPLOAD_DIR
+              Value: /opt/pipeline/pipeline-data/plugins-data/uploads
             - Name: IMAGE_REGISTRY_HTTP
               Value: "true"
             # Builds run on the co-located buildkitd container in the

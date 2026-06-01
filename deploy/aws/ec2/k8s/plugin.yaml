@@ -197,6 +197,14 @@ spec:
               value: "4096"
             - name: DOCKER_BUILD_TIMEOUT_MS
               value: "900000"
+            # Canonical build-temp + upload paths. PLUGIN_UPLOAD_DIR must be
+            # a writable absolute path because the container has
+            # readOnlyRootFilesystem=true — a relative `uploads/` resolves
+            # to /app/uploads on the read-only root and EROFS-fails.
+            - name: DOCKER_BUILD_TEMP_ROOT
+              value: "/opt/pipeline/pipeline-data/plugins-data/builds"
+            - name: PLUGIN_UPLOAD_DIR
+              value: "/opt/pipeline/pipeline-data/plugins-data/uploads"
             - name: TMPDIR
               value: "/tmp"
           volumeMounts:

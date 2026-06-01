@@ -366,12 +366,21 @@ services:
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-900000}
       DOCKER_PUSH_TIMEOUT_MS: ${DOCKER_PUSH_TIMEOUT_MS:-300000}
       PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
+      # Plugin code (read-only rootfs) writes uploads + build artifacts here.
+      # MUST match the container-side bind targets in `volumes:` below. Local
+      # uses a laptop-style /data/* container path that mirrors the host
+      # ./data/ checkout layout; k8s/fargate use the canonical
+      # /opt/pipeline/pipeline-data/* paths instead. Either way, the env
+      # vars + mount target must agree so multer/buildkit can write.
+      DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT:-/data/plugins-data/builds}
+      PLUGIN_UPLOAD_DIR: ${PLUGIN_UPLOAD_DIR:-/data/plugins-data/uploads}
       TMPDIR: /tmp
     volumes:
-      # Mount at the canonical pipeline-data path (same target as k8s/fargate)
-      # so DOCKER_BUILD_TEMP_ROOT can resolve identically across deploys.
-      - './data/plugins-data/builds:/opt/pipeline/pipeline-data/plugins-data/builds:rw'
-      - './data/plugins-data/uploads:/opt/pipeline/pipeline-data/plugins-data/uploads:rw'
+      # Host ./data/plugins-data → container /data/plugins-data. Symmetric
+      # naming makes "what's in the laptop dir" obvious from inside the
+      # container too.
+      - './data/plugins-data/builds:/data/plugins-data/builds:rw'
+      - './data/plugins-data/uploads:/data/plugins-data/uploads:rw'
     networks:
       - backend-network
     depends_on:

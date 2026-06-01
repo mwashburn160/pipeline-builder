@@ -15,10 +15,11 @@ AUTH_DIR="$DEPLOY_DIR/auth"
 NS="pipeline-builder"
 PROFILE="pipeline-builder"
 DATA_DIR="$DEPLOY_DIR/data"
-# VM-side mount target. Kept symmetric with deploy/aws/ec2 so the same k8s
-# hostPath manifests work across both targets (ec2 mounts EBS at this path
-# directly; minikube projects $DATA_DIR onto it via --mount-string).
-VM_DATA_DIR="/opt/pipeline/pipeline-data"
+# VM-side mount target. Laptop-style /data/* to mirror local docker-compose
+# (host ./data/* → container /data/*). The minikube k8s hostPath manifests
+# use this same path. ec2's manifests use /opt/pipeline/pipeline-data
+# because that's the canonical EBS mount on a production-style host.
+VM_DATA_DIR="/data"
 
 # -- Helpers ------------------------------------------------------------------
 

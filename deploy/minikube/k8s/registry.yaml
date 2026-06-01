@@ -35,7 +35,7 @@ spec:
   accessModes: ["ReadWriteOnce"]
   persistentVolumeReclaimPolicy: Retain
   hostPath:
-    path: /opt/pipeline/pipeline-data/registry-data
+    path: /data/registry-data
     type: DirectoryOrCreate
 
 ---

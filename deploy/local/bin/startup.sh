@@ -95,14 +95,15 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
 
 # Docker build temp dir. Two paths in play:
 #   - Host: where docker-compose binds the volume from (created + chmod'd here)
-#   - Container: the canonical /opt/pipeline/pipeline-data/... target inside
-#     the plugin container; what DOCKER_BUILD_TEMP_ROOT must point at so the
-#     plugin code (running in-container) resolves the build dir.
-# These differ in local because the host volume lives inside the repo checkout.
-# k8s/fargate deploys have host=container path (k8s hostPath + EFS access points).
+#   - Container: laptop-style /data/plugins-data/* inside the plugin
+#     container, matching the volumeMount in docker-compose.yml. The plugin
+#     code reads DOCKER_BUILD_TEMP_ROOT to find the build dir, so the env
+#     value must equal the container-side bind target.
+# k8s/fargate deploys keep host=container path at /opt/pipeline/pipeline-data/*
+# (k8s hostPath + EFS access points mount the same absolute path on both sides).
 PLUGIN_BUILDS_HOST="$DEPLOY_DIR/data/plugins-data/builds"
 PLUGIN_UPLOADS_HOST="$DEPLOY_DIR/data/plugins-data/uploads"
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/opt/pipeline/pipeline-data/plugins-data/builds}"
+export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/data/plugins-data/builds}"
 mkdir -p "$PLUGIN_BUILDS_HOST" "$PLUGIN_UPLOADS_HOST"
 
 # Plugin container runs as node (UID 1000) — ensure writable volume mounts
