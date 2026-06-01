@@ -187,7 +187,17 @@ function dockerScripts(name: string) {
     // flag deep-copies workspace internal deps (since we don't use
     // inject-workspace-packages); --prod skips devDeps. Cleanup runs even
     // if buildx fails so a half-broken tree doesn't poison the next build.
+    //
+    // CRITICAL: `nx run-many -t build --projects=<name> --with-deps` runs
+    // BEFORE `pnpm deploy` to force a recompile of every workspace dep
+    // (api-core, api-server, pipeline-core, pipeline-data). Without this,
+    // `pnpm deploy` copies whatever lib/ output happens to be on disk —
+    // which means a freshly-edited source in api-core silently ships
+    // a stale compiled bundle inside the docker image, and runtime
+    // behaviour quietly diverges from source. Nx caches the no-op case
+    // so unchanged builds stay fast.
     'docker:build': [
+      `pnpm nx run-many -t build --projects=${name} --with-deps`,
       'rm -rf .docker-build',
       `pnpm deploy --filter ${name} --prod --legacy .docker-build`,
       // The trailing ` .` is the PATH (build context) argument to `docker

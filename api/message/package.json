@@ -13,7 +13,7 @@
     "watch": "pnpm dlx projen watch",
     "projen": "pnpm dlx projen",
     "start": "node lib/index.js",
-    "docker:build": "rm -rf .docker-build; pnpm deploy --filter message --prod --legacy .docker-build; docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-message}:$(jq -r .version package.json) .; status=$?; rm -rf .docker-build; exit $status",
+    "docker:build": "pnpm nx run-many -t build --projects=message --with-deps; rm -rf .docker-build; pnpm deploy --filter message --prod --legacy .docker-build; docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-message}:$(jq -r .version package.json) .; status=$?; rm -rf .docker-build; exit $status",
     "docker:tag": "docker image tag ${PROJECT_NAME:-message}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-message}:$(jq -r .version package.json)",
     "docker:push": "docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-message}:$(jq -r .version package.json)"
   },
@@ -60,7 +60,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.64",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
