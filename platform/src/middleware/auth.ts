@@ -19,6 +19,7 @@ interface UserLike {
   username: string;
   email: string;
   isEmailVerified: boolean;
+  isSuperAdmin?: boolean;
   lastActiveOrgId?: string;
   tokenVersion: number;
 }
@@ -68,6 +69,12 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
     email: user.email,
     role,
     isAdmin: role === 'admin' || role === 'owner',
+    // Propagate the sysadmin claim. Missing this here silently turned every
+    // sysadmin into a regular user as soon as this middleware ran — every
+    // /admin/* and audit route 403'd because `req.user.isSuperAdmin` was
+    // undefined. The User document MUST be loaded with `+isSuperAdmin` for
+    // this to resolve to true (see the .select() call in requireAuth below).
+    isSuperAdmin: user.isSuperAdmin === true,
     isEmailVerified: user.isEmailVerified,
     organizationId,
     organizationName,
@@ -118,7 +125,10 @@ export async function requireAuth(
       return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
     }
 
-    const user = await User.findById(decoded.sub).select('+tokenVersion').lean();
+    // `+isSuperAdmin` — both fields are `select: false` on the schema. Without
+    // them, populateRequestUser silently builds a non-sysadmin req.user even
+    // though the JWT (and the User doc) say otherwise.
+    const user = await User.findById(decoded.sub).select('+tokenVersion +isSuperAdmin').lean();
 
     if (!user || decoded.tokenVersion !== user.tokenVersion) {
       return sendError(res, 401, 'Session invalid');
