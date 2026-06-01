@@ -478,7 +478,7 @@ Resources:
   PlatformScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 3
+      MaxCapacity: 5
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
@@ -695,7 +695,7 @@ Resources:
   PipelineScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 3
+      MaxCapacity: 4
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
@@ -1023,7 +1023,7 @@ Resources:
   PluginScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 3
+      MaxCapacity: 5
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
@@ -1206,7 +1206,7 @@ Resources:
   QuotaScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 5
+      MaxCapacity: 6
       MinCapacity: 2
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
@@ -1411,7 +1411,7 @@ Resources:
   BillingScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 2
+      MaxCapacity: 3
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
@@ -1793,7 +1793,7 @@ Resources:
   ReportingScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 2
+      MaxCapacity: 3
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"
@@ -2155,7 +2155,7 @@ Resources:
   FrontendScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 3
+      MaxCapacity: 4
       MinCapacity: 1
       ResourceId: !Sub
         - "service/${ClusterName}/${ServiceName}"

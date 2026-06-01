@@ -151,7 +151,7 @@ spec:
   # for the boot-time image-pull saturation rationale. HPA scales up
   # under real load (and the image is cached by then).
   minReplicas: 1
-  maxReplicas: 5
+  maxReplicas: 6
   metrics:
     - type: Resource
       resource:
