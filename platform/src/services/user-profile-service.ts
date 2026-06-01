@@ -164,9 +164,14 @@ class UserProfileService {
     await user.save();
   }
 
-  /** Fetch a user with `tokenVersion` selected, suitable for issuing tokens. */
+  /** Fetch a user with `tokenVersion` AND `isSuperAdmin` selected, suitable
+   *  for issuing tokens. Both fields are `select: false` on the schema, and
+   *  `issueTokens` -> `createAccessTokenPayload` reads `user.isSuperAdmin`
+   *  to bake the sysadmin claim into the JWT. Omitting `+isSuperAdmin` here
+   *  silently mints non-sysadmin tokens for promoted users (e.g. when a
+   *  sysadmin clicks "regenerate API token" on the dashboard). */
   async findForTokenIssue(userId: string) {
-    const user = await User.findById(userId).select('+tokenVersion');
+    const user = await User.findById(userId).select('+tokenVersion +isSuperAdmin');
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
     return user;
   }
