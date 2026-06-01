@@ -264,8 +264,12 @@ fi
 # create subdirs without sudo. Whether $PIPELINE_ROOT is the EBS mount or
 # the fallback dir, both code paths land here.
 chown minikube:minikube "$PIPELINE_ROOT" "$PIPELINE_DATA_DIR"
-chown -R minikube:minikube "$DEPLOY_DIR"
-chown -R minikube:minikube "$INSTALL_DIR/deploy/bin"
+# Hand the entire git checkout to the operator. UserData clones as root, so
+# without this every script that writes under the tree (load-plugin-worker.sh
+# creates plugin.zip, build-plugin-images.sh writes image.tar, etc.) hits
+# EACCES. One recursive chown covers them all instead of cataloguing each
+# write site. Takes a few seconds on a fresh tree.
+chown -R minikube:minikube "$INSTALL_DIR"
 
 # Plugin build artifacts. Lives on the persistent volume; previously this
 # was a symlink from $INSTALL_DIR/deploy/plugins to a path on /mnt/data,
