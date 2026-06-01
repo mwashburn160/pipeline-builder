@@ -10,10 +10,24 @@
 
 import type { RuleOperator } from '@pipeline-builder/pipeline-core';
 
-/** Cap on user-supplied regex patterns in compliance rules — long patterns
- *  enable catastrophic-backtracking DoS. Override via
- *  `COMPLIANCE_MAX_REGEX_LENGTH`. */
-const MAX_REGEX_LENGTH = parseInt(process.env.COMPLIANCE_MAX_REGEX_LENGTH || '200', 10);
+/**
+ * Cap on user-supplied regex patterns in compliance rules — long patterns
+ * enable catastrophic-backtracking DoS. Override via
+ * `COMPLIANCE_MAX_REGEX_LENGTH`.
+ *
+ * KNOWN LIMITATION: Node's built-in `RegExp` engine is backtracking-based, so
+ * even short patterns (e.g. `(a+)+$`) can still ReDoS on adversarial input.
+ * The nested-quantifier heuristic in `validateRegexPattern` is narrow and
+ * does not cover every pathological case. A future hardening should swap in
+ * the `re2` package (linear-time) or run evaluation in a worker thread with
+ * a hard timeout — both are out of scope here because they add a native
+ * build dependency. Until then, keeping the length cap small is the cheapest
+ * mitigation we have.
+ */
+const MAX_REGEX_LENGTH = (() => {
+  const n = Number.parseInt(process.env.COMPLIANCE_MAX_REGEX_LENGTH ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : 100;
+})();
 
 /**
  * Safely compile and test a regex pattern with length limits.
@@ -121,6 +135,10 @@ const OPERATORS: Record<string, (fv: unknown, rv: unknown) => boolean> = {
   // Existence
   exists: (fv) => fv !== null && fv !== undefined,
   notExists: (fv) => fv === null || fv === undefined,
+  // Truthy presence — stricter than `exists`: empty string, 0, and false are
+  // treated as not present. Useful for required-but-non-empty checks where
+  // `exists` would still pass on `field: ''`.
+  notEmpty: (fv) => fv !== null && fv !== undefined && fv !== '' && fv !== 0 && fv !== false,
   // Count/length aliases (used with computed $count/$length fields)
   countGt: (fv, rv) => Number(fv) > Number(rv),
   countLt: (fv, rv) => Number(fv) < Number(rv),

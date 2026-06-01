@@ -1,14 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes, Plus, Lock, Building2, Globe } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { api, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
 import type { Dashboard } from '@/types/observability';
 
 /**
@@ -23,27 +23,12 @@ import type { Dashboard } from '@/types/observability';
  */
 export default function ObservabilityIndexPage() {
   const { isReady, isAuthenticated } = useAuthGuard();
-  const [dashboards, setDashboards] = useState<Dashboard[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isReady || !isAuthenticated) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await api.listDashboards();
-        if (!cancelled) setDashboards(res.data?.dashboards ?? []);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof ApiError ? err.message : (err as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isReady, isAuthenticated]);
+  const ready = isReady && isAuthenticated;
+  const { data, loading, error } = useFetch(
+    async () => (ready ? (await api.listDashboards()).data?.dashboards ?? [] : []),
+    [ready],
+  );
+  const dashboards: Dashboard[] = data ?? [];
 
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 
@@ -78,7 +63,7 @@ export default function ObservabilityIndexPage() {
     >
       {error && (
         <div className="mb-4 rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error}
+          {error.message}
         </div>
       )}
 
@@ -111,10 +96,13 @@ export default function ObservabilityIndexPage() {
           </p>
         </Link>
 
-        {/* Loading placeholder */}
-        {loading && (
-          <div className="col-span-full text-sm text-gray-500 dark:text-gray-400">Loading dashboards…</div>
-        )}
+        {/* Loading placeholder — skeleton cards mirroring the dashboard tiles below. */}
+        {loading && Array.from({ length: 4 }).map((_, i) => (
+          <div key={`sk-${i}`} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+            <div className="h-4 skeleton w-1/2 mb-2" />
+            <div className="h-3 skeleton w-3/4" />
+          </div>
+        ))}
 
         {/* DB-stored dashboards (seeded defaults + org-created). */}
         {dashboards.map((d) => {

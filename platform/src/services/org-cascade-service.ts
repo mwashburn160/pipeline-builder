@@ -18,7 +18,7 @@
  * portability) before pulling the trigger.
  */
 
-import { createLogger, createSafeClient, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { db, runWithTenantContext, schema } from '@pipeline-builder/pipeline-core';
 import { eq, sql } from 'drizzle-orm';
 import { config } from '../config';
@@ -28,7 +28,10 @@ import OrgIdpConfig from '../models/org-idp-config';
 
 const logger = createLogger('org-cascade');
 
-/** Cannot delete the system org. Matches the existing org-delete guard. */
+/** Cannot delete the system org. Matches the existing org-delete guard.
+ *  Same string value as `services/organization-service`'s export — the
+ *  controller errorMap uses that one. Kept exported because the cascade
+ *  test imports this constant. */
 export const SYSTEM_ORG_DELETE_FORBIDDEN = 'SYSTEM_ORG_DELETE_FORBIDDEN';
 
 // ---------------------------------------------------------------------------
@@ -98,9 +101,12 @@ function billingClient() {
 // Cascade
 // ---------------------------------------------------------------------------
 
-/** Per-store row counts after cascade  handy for the audit event detail. */
+/** Per-store row counts after cascade  handy for the audit event detail.
+ *  Postgres entries carry an `ok` flag + either a row count or an error
+ *  message so audit consumers can distinguish "deleted 0 rows" from
+ *  "delete failed" — the prior `-1` sentinel conflated the two. */
 export interface CascadeReport {
-  postgres: Record<string, number>;
+  postgres: Record<string, { ok: boolean; rowCount?: number; error?: string }>;
   mongo: { invitations: number; auditEvents: number; idpConfigs: number };
   quota: { ok: boolean; statusCode?: number };
   billing: { ok: boolean; statusCode?: number };
@@ -141,20 +147,20 @@ export async function cascadeDeleteOrg( orgId: string,
         const result = await db.update(table as never)
           .set({ deletedAt: now } as never)
           .where(sql`${(table as { orgId: unknown }).orgId} = ${orgId} AND deleted_at IS NULL`);
-        report.postgres[name] = (result as { rowCount?: number }).rowCount ?? 0;
+        report.postgres[name] = { ok: true, rowCount: (result as { rowCount?: number }).rowCount ?? 0 };
       } catch (err) {
         logger.error('Postgres soft-delete failed', { table: name, orgId, error: errorMessage(err) });
-        report.postgres[name] = -1;
+        report.postgres[name] = { ok: false, error: errorMessage(err) };
       }
     }
     for (const { table, name } of HARD_DELETE_TABLES) {
       try {
         const result = await db.delete(table as never)
           .where(eq((table as { orgId: unknown }).orgId as never, orgId as never));
-        report.postgres[name] = (result as { rowCount?: number }).rowCount ?? 0;
+        report.postgres[name] = { ok: true, rowCount: (result as { rowCount?: number }).rowCount ?? 0 };
       } catch (err) {
         logger.error('Postgres hard-delete failed', { table: name, orgId, error: errorMessage(err) });
-        report.postgres[name] = -1;
+        report.postgres[name] = { ok: false, error: errorMessage(err) };
       }
     }
   });
@@ -284,10 +290,3 @@ export async function exportOrg( orgId: string,
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// Local helpers
-// ---------------------------------------------------------------------------
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message: String(err);
-}

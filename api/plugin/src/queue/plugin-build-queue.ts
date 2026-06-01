@@ -8,6 +8,7 @@ import { createLogger, createRemoteAuditClient, decrementQuota, DEFAULT_TIER, er
 import type { QuotaService, QuotaTier, RemoteAuditClient } from '@pipeline-builder/api-core';
 import { incCounter, observe } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
+import type { PluginBuildConfig } from '@pipeline-builder/pipeline-core';
 import { Config, CoreConstants, db, schema, reportingService, runWithTenantContext, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job } from 'bullmq';
@@ -20,19 +21,19 @@ import { pluginService } from '../services/plugin-service';
 
 const logger = createLogger('plugin-build-queue');
 
-const buildCfg = Config.get('pluginBuild') as {
-  concurrency: number;
-  maxAttempts: number;
-  backoffDelayMs: number;
-  workerTimeoutMs: number;
-  tempDirMaxAgeMs: number;
-  dlqMaxAttempts: number;
-  dlqBackoffBaseMs: number;
-  dlqMaxSize: number;
-};
+/** Lazy accessor so config load errors surface on use, not at module import. */
+function getBuildCfg(): PluginBuildConfig {
+  return Config.get('pluginBuild');
+}
 
-/** Max total attempts across main queue + DLQ before treating as permanent. */
-const MAX_TOTAL_ATTEMPTS = buildCfg.maxAttempts + (buildCfg.dlqMaxAttempts * buildCfg.maxAttempts);
+/**
+ * Total attempt budget across main + DLQ before a job is treated as permanent.
+ * The main queue retries `maxAttempts` times, then each DLQ retry re-enters
+ * the main queue and burns another `maxAttempts`: `mainBudget + dlqBudget`.
+ */
+const mainBudget = () => getBuildCfg().maxAttempts;
+const dlqBudget = () => getBuildCfg().dlqMaxAttempts * getBuildCfg().maxAttempts;
+const totalAttemptBudget = () => mainBudget() + dlqBudget();
 
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
 
@@ -41,43 +42,92 @@ const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENT
 // ---------------------------------------------------------------------------
 //
 // BullMQ OSS doesn't have built-in group-keyed concurrency; we layer a
-// per-org semaphore on top of Redis. Each worker tries to INCR `pb:org-build:<id>`
-// before processing â over the cap, it DECRs back and re-enqueues the job
-// with a short delay so another org's job can take the worker slot. This
-// gives weighted-fair-ish scheduling without partitioning the queue itself.
+// per-org semaphore on top of Redis. Each worker tries to acquire a slot
+// before processing; over the cap it re-enqueues with a short delay so
+// another org's job can take the worker slot. Atomic via Lua so two
+// concurrent acquires can't both observe a stale count and over-allocate.
 //
-// Tuning// PLUGIN_MAX_BUILDS_PER_ORG â max in-flight builds per org (default 3)
-// PLUGIN_ORG_SLOT_DELAY_MS â backoff between re-acquisition tries (default 10s)
-// ORG_SLOT_TTL_SEC â defensive expiry on the counter so a crashed
-// worker doesn't leak slots forever
+// Tuning:
+//   PLUGIN_MAX_BUILDS_PER_ORG  max in-flight builds per org (default 3)
+//   PLUGIN_ORG_SLOT_DELAY_MS   backoff between re-acquisition tries (default 10s)
+//   ORG_SLOT_TTL_SEC           defensive expiry so a crashed worker doesn't leak
 const MAX_BUILDS_PER_ORG = parseInt(process.env.PLUGIN_MAX_BUILDS_PER_ORG || '3', 10);
 const ORG_SLOT_DELAY_MS = parseInt(process.env.PLUGIN_ORG_SLOT_DELAY_MS || '10000', 10);
 const ORG_SLOT_TTL_SEC = parseInt(process.env.PLUGIN_ORG_SLOT_TTL_SEC || '900', 10);
 const orgSlotKey = (orgId: string) => `pb:org-build:${orgId}`;
+/** Sibling hash `jobId -> orgId` for live slot owners. The scrubber walks
+ *  this to reconcile slots that BullMQ no longer knows about. */
+const orgSlotOwnersKey = 'pb:org-build-owners';
+
+/**
+ * Atomic check-and-increment via Lua. Returns 1 if a slot was reserved
+ * (count <= cap), 0 if the cap was already reached. Avoids the INCR-then-DECR
+ * race where two acquires can briefly observe a count over the cap before one
+ * rolls back.
+ */
+const ACQUIRE_SLOT_LUA = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
+if count > tonumber(ARGV[1]) then
+  redis.call('DECR', KEYS[1])
+  return 0
+end
+return 1
+`;
 
 /** Try to acquire an in-flight build slot for `orgId`. Returns true on success;
- * false if the org is already at its cap (caller should re-enqueue).
- *
- * The semaphore lives on db=0 regardless of per-tier queue partitioning —
- * one cap per org spans every tier they have access to. */
-async function tryAcquireOrgSlot(orgId: string): Promise<boolean> {
+ *  false if the org is already at its cap (caller should re-enqueue). Records
+ *  `jobId -> orgId` so the scrubber can reclaim a slot whose job vanished. */
+async function tryAcquireOrgSlot(orgId: string, jobId: string): Promise<boolean> {
   const redis = getConnectionForDb(0);
-  const count = await redis.incr(orgSlotKey(orgId));
-  if (count === 1) await redis.expire(orgSlotKey(orgId), ORG_SLOT_TTL_SEC);
-  if (count > MAX_BUILDS_PER_ORG) {
-    await redis.decr(orgSlotKey(orgId));
-    return false;
-  }
+  const result = await redis.eval(
+    ACQUIRE_SLOT_LUA, 1, orgSlotKey(orgId),
+    String(MAX_BUILDS_PER_ORG), String(ORG_SLOT_TTL_SEC),
+  );
+  if (result !== 1) return false;
+  await redis.hset(orgSlotOwnersKey, jobId, orgId);
   return true;
 }
 
-/** Release the org's slot. Defensive: never let the counter go negative
- * (a previous worker crash could have leaked the EXPIRE TTL and let DECR
- * underflow on the next acquire). */
-async function releaseOrgSlot(orgId: string): Promise<void> {
+/** Release the org's slot. Defensive: never let the counter go negative. */
+async function releaseOrgSlot(orgId: string, jobId: string): Promise<void> {
   const redis = getConnectionForDb(0);
   const count = await redis.decr(orgSlotKey(orgId));
   if (count < 0) await redis.set(orgSlotKey(orgId), '0', 'EX', ORG_SLOT_TTL_SEC);
+  await redis.hdel(orgSlotOwnersKey, jobId);
+}
+
+/**
+ * Reconcile slot counters against live BullMQ state. For each owner entry
+ * whose jobId is no longer in any active/waiting/delayed set across the tier
+ * queues and DLQ, decrement the org's counter and drop the owner record.
+ * Protects against worker crashes that leak slots until TTL expiry.
+ */
+async function scrubOrgSlots(): Promise<void> {
+  const redis = getConnectionForDb(0);
+  try {
+    const owners = await redis.hgetall(orgSlotOwnersKey);
+    const ownerEntries = Object.entries(owners);
+    if (ownerEntries.length === 0) return;
+
+    const activeStates = ['active', 'waiting', 'delayed'] as const;
+    const tierJobLists = await Promise.all([
+      ...getAllTierQueues().map(({ queue }) => queue.getJobs([...activeStates])),
+      getDeadLetterQueue().getJobs([...activeStates]),
+    ]);
+    const liveJobIds = new Set<string>();
+    for (const jobs of tierJobLists) for (const j of jobs) if (j.id) liveJobIds.add(String(j.id));
+
+    for (const [jobId, orgId] of ownerEntries) {
+      if (liveJobIds.has(jobId)) continue;
+      const count = await redis.decr(orgSlotKey(orgId));
+      if (count < 0) await redis.set(orgSlotKey(orgId), '0', 'EX', ORG_SLOT_TTL_SEC);
+      await redis.hdel(orgSlotOwnersKey, jobId);
+      logger.warn('Reclaimed leaked org build slot', { jobId, orgId });
+    }
+  } catch (err) {
+    logger.debug('Org slot scrub failed', { error: errorMessage(err) });
+  }
 }
 
 // Queue name & singleton state
@@ -89,15 +139,12 @@ const DLQ_NAME = `${QUEUE_NAME}-dlq`;
 // Per-tier queue partitioning
 // ---------------------------------------------------------------------------
 //
-// Three independent BullMQ queues â one per quota tier. Each gets its own
-// Worker instance with its own concurrency budget, so a burst from Developer-
-// tier traffic can't block Pro/Unlimited customers from being dispatched.
+// One BullMQ queue + Worker per quota tier; cross-tier scheduling is
+// isolated so a Developer-tier burst can't block Pro/Unlimited dispatch.
 // The per-org semaphore above still enforces intra-tier fairness.
 //
-// Back-compat anchor: the `developer` tier keeps the original QUEUE_NAME
-// (no suffix). Existing in-flight jobs in the original queue continue to be
-// processed by the developer-tier worker, and any caller without a tier
-// (DLQ replay path on an unknown org, tests, monitoring) maps to developer.
+// Back-compat: the `developer` tier keeps the original QUEUE_NAME (no
+// suffix) so in-flight jobs from before partitioning land on it.
 const TIER_QUEUE_NAMES: Record<QuotaTier, string> = {
   developer: QUEUE_NAME,
   pro: `${QUEUE_NAME}-pro`,
@@ -105,20 +152,10 @@ const TIER_QUEUE_NAMES: Record<QuotaTier, string> = {
 };
 
 /**
- * Per-tier Redis DB partitioning. By default every tier shares db=0 (the
- * Redis default). Operators concerned about noisy-neighbor contention at
- * the Redis level — a flood of Developer-tier jobs slowing BLPOP latency
- * for Pro/Unlimited workers — set distinct db numbers per tier via env.
- *
- * Redis supports 0-15 by default; CLUSTER mode collapses this to db=0
- * regardless, so partitioning is only useful on single-instance / replica
- * Redis (which is the in-cluster default for this project). Operators on
- * Redis Cluster should leave the env unset and accept the shared-db model.
- *
- *   REDIS_DB_DEVELOPER=0   REDIS_DB_PRO=1   REDIS_DB_UNLIMITED=2
- *
- * The DLQ shares the developer DB (it's a back-stop for ANY failing tier
- * and is read by the operator dashboard alongside developer-tier jobs).
+ * Per-tier Redis DB partitioning. Defaults to db=0 for every tier; operators
+ * worried about noisy-neighbor contention at the Redis level set distinct
+ * REDIS_DB_<TIER> env vars (0-15). CLUSTER mode collapses everything to db=0
+ * regardless.
  */
 function getRedisDbForTier(tier: QuotaTier): number {
   const envName = `REDIS_DB_${tier.toUpperCase()}`;
@@ -129,9 +166,8 @@ function getRedisDbForTier(tier: QuotaTier): number {
   return parsed;
 }
 
-// One ioredis client per DB number. Reusing a client for multiple Queue/
-// Worker instances in the same DB is the BullMQ-recommended pattern. The
-// connections are constructed lazily on first use of each tier.
+// One ioredis client per DB number, shared across Queue/Worker instances per
+// BullMQ guidance. Constructed lazily on first use.
 const connectionsByDb = new Map<number, IORedis>();
 const tierQueues = new Map<QuotaTier, Queue<PluginBuildJobData>>();
 const tierWorkers = new Map<QuotaTier, Worker<PluginBuildJobData>>();
@@ -141,34 +177,32 @@ let dlqWorker: Worker<PluginBuildJobData> | null = null;
 // ---------------------------------------------------------------------------
 // Per-org tier cache
 // ---------------------------------------------------------------------------
-//
-// Tier changes are operator-initiated and rare (plan upgrade / downgrade);
-// caching per-org for 5 minutes spares the quota service from a round-trip
-// on every plugin build submission without making upgrades feel sluggish.
-// Fail-open lookups return DEFAULT_TIER and are cached too â the next miss
-// re-queries.
+
 const TIER_CACHE_TTL_MS = parseInt(process.env.PLUGIN_TIER_CACHE_TTL_MS || '300000', 10);
 const tierCache = new Map<string, { tier: QuotaTier; expiresAt: number }>();
 
-/** Look up the org's tier with a short-TTL in-process cache. */
-export async function getOrgTier( quotaService: QuotaService,
-  orgId: string,
-  authHeader: string,
-): Promise<QuotaTier> {
+/** Look up the org's tier with a short-TTL in-process cache. Falls open to
+ *  DEFAULT_TIER (and caches the fallback) when the quota service is
+ *  unreachable so a transient outage doesn't fail every build submission. */
+export async function getOrgTier(quotaService: QuotaService, orgId: string, authHeader: string): Promise<QuotaTier> {
   const cached = tierCache.get(orgId);
   if (cached && cached.expiresAt > Date.now()) return cached.tier;
 
-  const tier = await quotaService.getTier(orgId, authHeader);
-  tierCache.set(orgId, { tier, expiresAt: Date.now() + TIER_CACHE_TTL_MS });
-  return tier;
+  try {
+    const tier = await quotaService.getTier(orgId, authHeader);
+    tierCache.set(orgId, { tier, expiresAt: Date.now() + TIER_CACHE_TTL_MS });
+    return tier;
+  } catch (err) {
+    logger.warn('Quota tier lookup failed; using default tier', { orgId, error: errorMessage(err) });
+    tierCache.set(orgId, { tier: DEFAULT_TIER, expiresAt: Date.now() + TIER_CACHE_TTL_MS });
+    return DEFAULT_TIER;
+  }
 }
 
 /**
- * Lazily-constructed remote-audit client. Pointed at the platform's
+ * Lazily-constructed remote-audit client pointed at the platform's
  * `/audit/events` ingest endpoint so `plugin.build.*` events land in the
- * MongoDB audit log alongside platform-emitted actions. The
- * worker continues to emit a structured Loki-bound log entry too â the
- * per-plugin drill-down dashboard reads from that path.
+ * MongoDB audit log alongside platform-emitted actions.
  */
 let auditClient: RemoteAuditClient | null = null;
 function getAuditClient(): RemoteAuditClient {
@@ -180,10 +214,6 @@ function getAuditClient(): RemoteAuditClient {
 // Redis connection
 // ---------------------------------------------------------------------------
 
-/** Get (or create) the Redis client for a specific DB number. The same
- *  client is reused for every Queue/Worker that lands in that DB — the
- *  BullMQ-recommended pattern is one ioredis client shared across all
- *  Queue/Worker constructions for a given (host, port, db). */
 function getConnectionForDb(dbNum: number): IORedis {
   let conn = connectionsByDb.get(dbNum);
   if (!conn) {
@@ -216,8 +246,6 @@ function getConnectionForDb(dbNum: number): IORedis {
   return conn;
 }
 
-/** Get (or create) the Redis client used by BullMQ for a given tier's queue
- *  and worker. Falls through to db=0 when REDIS_DB_<TIER> is unset. */
 function getConnectionForTier(tier: QuotaTier): IORedis {
   return getConnectionForDb(getRedisDbForTier(tier));
 }
@@ -226,9 +254,6 @@ function getConnectionForTier(tier: QuotaTier): IORedis {
 // Queues
 // ---------------------------------------------------------------------------
 
-/** Get (or create) the dead letter queue for failed plugin builds. The
- *  DLQ lives on db=0 — it's a back-stop for ANY tier's failures and the
- *  operator dashboard reads from a single, well-known location. */
 export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
   if (!dlq) {
     dlq = new Queue<PluginBuildJobData>(DLQ_NAME, {
@@ -242,18 +267,15 @@ export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
   return dlq;
 }
 
-/** Get (or create) the BullMQ queue for a given tier. The queue's Redis
- *  client is selected by `REDIS_DB_<TIER>` — operators who want per-tier
- *  Redis DB partitioning set distinct numbers per tier; otherwise every
- *  tier lands on db=0. */
 export function getTierQueue(tier: QuotaTier): Queue<PluginBuildJobData> {
   let q = tierQueues.get(tier);
   if (!q) {
+    const cfg = getBuildCfg();
     q = new Queue<PluginBuildJobData>(TIER_QUEUE_NAMES[tier], {
       connection: getConnectionForTier(tier),
       defaultJobOptions: {
-        attempts: buildCfg.maxAttempts,
-        backoff: { type: 'exponential', delay: buildCfg.backoffDelayMs },
+        attempts: cfg.maxAttempts,
+        backoff: { type: 'exponential', delay: cfg.backoffDelayMs },
         removeOnComplete: { age: COMPLETED_JOB_RETENTION_SECS },
         removeOnFail: { age: CoreConstants.PLUGIN_BUILD_FAILED_RETENTION_SECS },
       },
@@ -263,16 +285,11 @@ export function getTierQueue(tier: QuotaTier): Queue<PluginBuildJobData> {
   return q;
 }
 
-/** All per-tier queues. Used by metrics scraper + queue-status aggregation. */
 export function getAllTierQueues(): Array<{ tier: QuotaTier; queue: Queue<PluginBuildJobData> }> {
   return VALID_TIERS.map((tier) => ({ tier, queue: getTierQueue(tier) }));
 }
 
-/** Submit a build to the queue matching the org's tier. */
-export async function enqueueBuild( tier: QuotaTier,
-  jobName: string,
-  jobData: PluginBuildJobData,
-): Promise<void> {
+export async function enqueueBuild(tier: QuotaTier, jobName: string, jobData: PluginBuildJobData): Promise<void> {
   await getTierQueue(tier).add(jobName, jobData);
 }
 
@@ -280,12 +297,10 @@ export async function enqueueBuild( tier: QuotaTier,
 // Failure classification
 // ---------------------------------------------------------------------------
 
-/** Classify a build error as retryable or permanent. */
 function classifyFailure(error: Error): FailureCategory {
   const msg = error.message;
   const dbCode = extractDbError(error)?.dbCode;
 
-  // Permanent: DB schema errors, constraint violations, compliance, validation
   if (dbCode === '42703' || dbCode === '42P01' || dbCode === '23505') return 'permanent';
   if (msg.includes('COMPLIANCE_VIOLATION') || msg.includes('VALIDATION_ERROR')) return 'permanent';
   if (msg.includes('missing image.tar') || msg.includes('Tarball not found')) return 'permanent';
@@ -297,43 +312,42 @@ function classifyFailure(error: Error): FailureCategory {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Returns true if the developer-tier worker is connected and ready to process
- * jobs. We check the connection for the developer-tier DB specifically —
- * other tiers may run on separate DBs (REDIS_DB_<TIER>) and have their own
- * client whose state we don't conflate with "queue infrastructure is up". */
 function isWorkerReady(): boolean {
-  if (!tierWorkers.get(DEFAULT_TIER)) return false;
-  const conn = connectionsByDb.get(getRedisDbForTier(DEFAULT_TIER));
-  return conn?.status === 'ready';
+  for (const tier of VALID_TIERS) {
+    if (!tierWorkers.get(tier)) return false;
+    const conn = connectionsByDb.get(getRedisDbForTier(tier));
+    if (conn?.status !== 'ready') return false;
+  }
+  return true;
 }
 
 /**
- * Wait for the BullMQ worker infrastructure to connect to Redis.
- * Resolves when ready, rejects after timeout.
+ * Wait for every tier worker's Redis connection to become ready. Each tier
+ * is awaited concurrently against a shared timeout budget; rejects with the
+ * first unmet tier (or a combined timeout) so a stuck Redis on one tier
+ * fails fast instead of hanging behind a single-tier check.
  */
-export function waitForWorkerReady(timeoutMs = buildCfg.workerTimeoutMs): Promise<void> {
+export function waitForWorkerReady(timeoutMs = getBuildCfg().workerTimeoutMs): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (isWorkerReady()) {
-      resolve();
-      return;
-    }
+    if (isWorkerReady()) return resolve();
 
-    const worker = tierWorkers.get(DEFAULT_TIER);
-    const onReady = () => {
-      clearTimeout(timer);
-      resolve();
-    };
+    const waiters = VALID_TIERS.map((tier) => new Promise<void>((res, rej) => {
+      const worker = tierWorkers.get(tier);
+      if (!worker) return rej(new Error(`Worker for tier ${tier} not started`));
+      const conn = connectionsByDb.get(getRedisDbForTier(tier));
+      if (conn?.status === 'ready') return res();
+      const onReady = () => res();
+      const timer = setTimeout(() => {
+        worker.off('ready', onReady);
+        rej(new Error(`Worker for tier ${tier} not ready after ${timeoutMs}ms`));
+      }, timeoutMs);
+      worker.on('ready', () => { clearTimeout(timer); onReady(); });
+    }));
 
-    const timer = setTimeout(() => {
-      worker?.off('ready', onReady);
-      reject(new Error(`Worker not ready after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    worker?.on('ready', onReady);
+    Promise.all(waiters).then(() => resolve(), (err) => reject(err));
   });
 }
 
-/** Remove the temporary build context directory. */
 function cleanupContextDir(dir: string): void {
   if (dir && fs.existsSync(dir)) {
     try {
@@ -345,33 +359,18 @@ function cleanupContextDir(dir: string): void {
 }
 
 /**
- * Persist a plugin build event to the pipeline_events table (fire-and-forget),
- * then invalidate the org's reporting cache so the dashboard reflects it on
- * next read.
+ * Persist a plugin build event then invalidate the org's reporting cache.
  *
- * Plugin builds aren't tied to a pipelineArn (no registry mapping), so we
- * write directly to `pipeline_event` rather than going through the reporting
- * service's `/reports/events` ingest endpoint (which requires an ARN). The
- * cache invalidation runs through the same `reportingService.invalidateOrg`
- * used by the ingest path â without it, the dashboard serves stale data
- * after every plugin build until the org's TTL elapses.
+ * Order matters: invalidate ONLY after the insert resolves so a failed
+ * insert never wipes a still-fresh cache.
  */
-function recordBuildEvent( orgId: string,
-  status: 'completed' | 'failed',
-  job: Job,
-  detail: Record<string, unknown>,
-): void {
+function recordBuildEvent(orgId: string, status: 'completed' | 'failed', job: Job, detail: Record<string, unknown>): void {
   const startedMs = job.processedOn ?? job.timestamp;
   const completedMs = job.finishedOn ?? Date.now();
-  const durationMs = startedMs ? completedMs - startedMs: undefined;
+  const durationMs = startedMs ? completedMs - startedMs : undefined;
 
   if (!db?.insert) return;
 
-  // pipeline_events has an RLS policy keyed on `app.org_id`; once enforcement
-  // is on (FORCE ROW LEVEL SECURITY), the insert needs the GUC set to the
-  // build's orgId. `withTenantTx` opens a tx + SET LOCALs the GUCs for the
-  // duration. Outside FORCE, this is a no-op overhead-wise (~one extra
-  // round-trip per build, well within the existing build latency budget).
   withTenantTx((tx) => tx.insert(schema.pipelineEvent)
     .values({
       orgId,
@@ -379,8 +378,8 @@ function recordBuildEvent( orgId: string,
       eventType: 'BUILD',
       status,
       executionId: job.id ?? undefined,
-      errorMessage: status === 'failed' ? (detail.errorMessage as string): undefined,
-      startedAt: startedMs ? new Date(startedMs): undefined,
+      errorMessage: status === 'failed' ? (detail.errorMessage as string) : undefined,
+      startedAt: startedMs ? new Date(startedMs) : undefined,
       completedAt: new Date(completedMs),
       durationMs,
       detail: {
@@ -390,16 +389,14 @@ function recordBuildEvent( orgId: string,
         maxAttempts: job.opts.attempts,
       },
     }))
-    .catch((err: unknown) => {
-      // The DB insert itself failed â the event was NOT recorded.
-      logger.warn('Failed to record build event', { error: errorMessage(err) });
-    })
-    .then(() => reportingService.invalidateOrg(orgId))
-    .catch((err: unknown) => {
-      // The event was recorded but cache invalidation failed; dashboards
-      // will serve stale data until next TTL.
-      logger.warn('Reporting cache invalidation failed after build event', { orgId, error: errorMessage(err) });
-    });
+    .then(
+      () => reportingService.invalidateOrg(orgId).catch((invalidateErr: unknown) => {
+        logger.warn('Reporting cache invalidation failed after build event', { orgId, error: errorMessage(invalidateErr) });
+      }),
+      (insertErr: unknown) => {
+        logger.warn('Failed to record build event', { error: errorMessage(insertErr) });
+      },
+    );
 }
 
 /**
@@ -424,16 +421,27 @@ async function getProtectedContextDirs(): Promise<Set<string>> {
   return dirs;
 }
 
+const DLQ_ENFORCE_SCAN_INTERVAL_MS = parseInt(process.env.PLUGIN_DLQ_SCAN_INTERVAL_MS || '5000', 10);
+let lastDlqEnforceMs = 0;
+
 /**
- * Enforce DLQ max size by purging oldest terminal jobs first.
- * Only purges completed/failed jobs; active/waiting/delayed jobs are skipped.
+ * Enforce DLQ max size by purging oldest terminal jobs first. Rate-limited
+ * to once per DLQ_ENFORCE_SCAN_INTERVAL_MS and gated by a cheap getJobCounts
+ * total-check so the expensive scan only runs when the queue is close to its
+ * cap.
  */
 async function enforceDlqMaxSize(): Promise<void> {
-  const q = getDeadLetterQueue();
-  const allJobs = await q.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed']);
-  if (allJobs.length < buildCfg.dlqMaxSize) return;
+  const now = Date.now();
+  if (now - lastDlqEnforceMs < DLQ_ENFORCE_SCAN_INTERVAL_MS) return;
+  lastDlqEnforceMs = now;
 
-  // Only purge terminal jobs (completed, or failed with no retries left)
+  const cfg = getBuildCfg();
+  const q = getDeadLetterQueue();
+  const counts = await q.getJobCounts('waiting', 'delayed', 'active', 'completed', 'failed');
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  if (total < cfg.dlqMaxSize) return;
+
+  const allJobs = await q.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed']);
   const terminalJobs = allJobs.filter((job) => {
     if (job.finishedOn == null) return false;
     const maxAttempts = job.opts.attempts ?? 1;
@@ -441,7 +449,7 @@ async function enforceDlqMaxSize(): Promise<void> {
   });
 
   terminalJobs.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
-  const purgeCount = allJobs.length - buildCfg.dlqMaxSize + 1;
+  const purgeCount = allJobs.length - cfg.dlqMaxSize + 1;
   const toPurge = terminalJobs.slice(0, purgeCount);
 
   for (const job of toPurge) {
@@ -451,10 +459,6 @@ async function enforceDlqMaxSize(): Promise<void> {
   }
 }
 
-/**
- * Clean up context dirs for all non-active DLQ jobs, then obliterate the queue.
- * Skips dirs for jobs currently being processed to avoid mid-operation deletion.
- */
 export async function purgeDlq(): Promise<void> {
   const q = getDeadLetterQueue();
   const jobs = await q.getJobs(['waiting', 'delayed', 'completed', 'failed']);
@@ -465,21 +469,14 @@ export async function purgeDlq(): Promise<void> {
 }
 
 /**
- * Replay a single DLQ job back onto the build queue matching the org's tier
- *. Resets retry counters so the job gets a fresh budget. Removes the
- * DLQ entry after successful enqueue so it doesn't show up twice.
- *
- * @returns the new job's id, or null if the source DLQ job was not found.
- * @throws if the requesting org doesn't own the job (caller is responsible
- * for that check; this helper does no auth).
+ * Replay a single DLQ job back onto the build queue matching the org's tier.
+ * Resets retry counters so the job gets a fresh budget. Removes the DLQ
+ * entry after successful enqueue so it doesn't show up twice.
  */
-export async function replayDlqJob( jobId: string,
-  quotaService: QuotaService,
-): Promise<string | null> {
+export async function replayDlqJob(jobId: string, quotaService: QuotaService): Promise<string | null> {
   const dlqJob = await getDeadLetterQueue().getJob(jobId);
   if (!dlqJob) return null;
 
-  // Reset transient failure metadata so the replay starts clean.
   const freshData: PluginBuildJobData = {
     ...dlqJob.data,
     totalAttempts: 0,
@@ -488,9 +485,7 @@ export async function replayDlqJob( jobId: string,
   delete (freshData as { failureCategory?: string }).failureCategory;
 
   const { orgId } = dlqJob.data;
-  const tier = await getOrgTier( quotaService, orgId,
-    getServiceAuthHeader({ serviceName: 'plugin', orgId }),
-  );
+  const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId }));
   const replayed = await getTierQueue(tier).add(`replay-${dlqJob.name}`, freshData);
   await dlqJob.remove();
   return String(replayed.id);
@@ -500,24 +495,10 @@ export async function replayDlqJob( jobId: string,
 // Main worker
 // ---------------------------------------------------------------------------
 
-/**
- * Start one BullMQ worker per quota tier. Each tier runs against
- * its own queue with its own concurrency budget, so Developer-tier traffic
- * can't block Pro/Unlimited dispatch.
- *
- * Idempotent — repeat calls are a no-op when workers are already running.
- *
- * Tunables: PLUGIN_BUILD_CONCURRENCY_<DEVELOPER|PRO|UNLIMITED>
- * Per-tier worker concurrency. Each defaults to PLUGIN_BUILD_CONCURRENCY,
- * giving 3× the in-flight budget across the tiers — intentional, since the
- * whole point of per-tier partitioning is more cross-tier parallelism.
- *
- * Called once from plugin service index.ts after createApp().
- */
 export function startWorker(sseManager: SSEManager, quotaService: QuotaService): void {
   if (tierWorkers.size > 0) return;
 
-  const { concurrency } = buildCfg;
+  const { concurrency } = getBuildCfg();
   const tierConcurrency: Record<QuotaTier, number> = {
     developer: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_DEVELOPER || String(concurrency), 10),
     pro: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_PRO || String(concurrency), 10),
@@ -527,33 +508,13 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {
     const { requestId, orgId, userId, buildRequest, pluginRecord } = job.data;
 
-    // Establish the per-job tenant context so any `withTenantTx` call
-    // through CrudService (e.g. pluginService.deployVersion below) SET
-    // LOCALs `app.org_id` to this build's org. Without this, the worker
-    // runs outside any AsyncLocalStorage scope and the GUCs default to
-    // empty â fine in owner-bypass mode but a hard failure once tables
-    // are FORCE'd. `isSuperAdmin: false` because a build is always
-    // acting on behalf of the org that submitted it.
     return runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
-
-      // Per-org concurrency gate. Acquire BEFORE any other work so a noisy
-      // org's burst can't starve the histogram + SSE notifications below.
-      // On miss → move the job to delayed and exit (Worker.RateLimitError
-      // is BullMQ's signal that the job has been taken out of the worker
-      // lifecycle; `finally` blocks below shouldn't run for this branch).
-      if (!await tryAcquireOrgSlot(orgId)) {
+      const slotJobId = String(job.id ?? job.name);
+      if (!await tryAcquireOrgSlot(orgId, slotJobId)) {
         await job.moveToDelayed(Date.now() + ORG_SLOT_DELAY_MS, token);
         throw Worker.RateLimitError();
       }
-      // From this point onward the slot is held; release in `finally` so
-      // every exit path (success / failure / unexpected throw) frees it.
       try {
-
-        // Histogram for the Queue Health dashboard. `timestamp` is when the
-        // job was enqueued; we observe the wait time (queue depth × concurrency
-        // dynamics) at the moment the worker pulls it. processedOn is set by
-        // BullMQ around the same instant â use `now()` to be safe across
-        // BullMQ versions.
         if (job.timestamp) {
           observe('plugin_job_wait_seconds', {}, (Date.now() - job.timestamp) / 1000);
         }
@@ -563,116 +524,85 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           plugin: `${pluginRecord.name}:${pluginRecord.version}`,
         });
 
-        // Touch the build context directory to prevent cleanup during long queue waits
         try { fs.utimesSync(buildRequest.contextDir, new Date(), new Date()); } catch { /* ignore */ }
 
-        try {
-          const isApprovalStep = pluginRecord.pluginType === 'ManualApprovalStep';
-          let fullImage = '';
+        const isApprovalStep = pluginRecord.pluginType === 'ManualApprovalStep';
+        let fullImage = '';
 
-          if (!isApprovalStep && buildRequest.buildType !== 'metadata_only') {
-          // resolve the org's tier (cached) and pick the per-tier
-          // buildkitd address. Defaults to the in-pod sidecar when no
-          // per-tier env override is set so single-buildkitd deploys are
-          // unaffected.
-            const tier = await getOrgTier( quotaService, orgId,
-              getServiceAuthHeader({ serviceName: 'plugin', orgId }),
-            );
-            const buildkitAddr = getBuildkitAddrForTier(tier);
-            switch (buildRequest.buildType) {
-              case 'prebuilt': {
-                const tarPath = path.join(buildRequest.contextDir, 'image.tar');
-                if (!fs.existsSync(tarPath)) {
-                  throw new Error('Prebuilt plugin is missing image.tar in ZIP archive');
-                }
-                const result = await loadAndPush(tarPath, buildRequest.name, buildRequest.version, buildRequest.registry, orgId);
-                fullImage = result.fullImage;
-                break;
+        if (!isApprovalStep && buildRequest.buildType !== 'metadata_only') {
+          const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId }));
+          const buildkitAddr = getBuildkitAddrForTier(tier);
+          switch (buildRequest.buildType) {
+            case 'prebuilt': {
+              const tarPath = path.join(buildRequest.contextDir, 'image.tar');
+              if (!fs.existsSync(tarPath)) {
+                throw new Error('Prebuilt plugin is missing image.tar in ZIP archive');
               }
-              case 'build_image':
-              default: {
-                const result = await buildAndPush(buildRequest, { buildkitAddr });
-                fullImage = result.fullImage;
-                break;
-              }
+              const result = await loadAndPush(tarPath, buildRequest.name, buildRequest.version, buildRequest.registry, orgId);
+              fullImage = result.fullImage;
+              break;
             }
-            sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
+            case 'build_image':
+            default: {
+              const result = await buildAndPush(buildRequest, { buildkitAddr });
+              fullImage = result.fullImage;
+              break;
+            }
           }
+          sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
+        }
 
-          const result = await pluginService.deployVersion(pluginRecord, userId);
+        const result = await pluginService.deployVersion(pluginRecord, userId);
 
-          // quota slot was reserved at upload time, not here. Success
-          // keeps the reservation; the worker's `failed` handler decrements
-          // on permanent failure to give the slot back.
+        recordBuildEvent(orgId, 'completed', job, {
+          pluginName: result.name,
+          pluginVersion: result.version,
+          pluginId: result.id,
+        });
 
-          recordBuildEvent(orgId, 'completed', job, {
-            pluginName: result.name,
-            pluginVersion: result.version,
-            pluginId: result.id,
-          });
+        const durationMs = job.processedOn && job.finishedOn ? job.finishedOn - job.processedOn : undefined;
+        logger.info('Plugin build event', {
+          eventCategory: 'plugin-build',
+          action: 'plugin.build.completed',
+          event: 'completed',
+          actorId: userId,
+          orgId,
+          targetType: 'plugin',
+          targetId: result.id,
+          pluginName: result.name,
+          pluginVersion: result.version,
+          jobId: job.id,
+          durationMs,
+        });
 
-          // Canonical audit shape â `action` is one of the AuditAction enum
-          // members defined in platform/src/models/audit-event.ts so the
-          // vocabulary is unified across the codebase. `eventCategory`
-          // / `event` / `pluginName` stay populated for promtail (see
-          // deploy/*/config/promtail/*.yml) â the per-plugin drill-down
-          // dashboard still queries against those Loki labels.
-          const durationMs = job.processedOn && job.finishedOn ? job.finishedOn - job.processedOn: undefined;
-          logger.info('Plugin build event', {
-            eventCategory: 'plugin-build',
-            action: 'plugin.build.completed',
-            event: 'completed',
-            actorId: userId,
-            orgId,
-            targetType: 'plugin',
-            targetId: result.id,
+        getAuditClient().record({
+          action: 'plugin.build.completed',
+          actorId: userId,
+          orgId,
+          targetType: 'plugin',
+          targetId: result.id,
+          details: {
             pluginName: result.name,
             pluginVersion: result.version,
             jobId: job.id,
             durationMs,
-          });
+          },
+        }, 'plugin');
 
-          // Push to MongoDB audit_events via the platform's /audit/events
-          // ingest endpoint so the audit log is the single source of truth.
-          // Fire-and-forget; the client never throws back.
-          getAuditClient().record({
-            action: 'plugin.build.completed',
-            actorId: userId,
-            orgId,
-            targetType: 'plugin',
-            targetId: result.id,
-            details: {
-              pluginName: result.name,
-              pluginVersion: result.version,
-              jobId: job.id,
-              durationMs,
-            },
-          }, 'plugin');
+        sseManager.send(requestId, 'COMPLETED', 'Plugin deployed', {
+          id: result.id,
+          name: result.name,
+          version: result.version,
+          fullImage,
+        });
 
-          sseManager.send(requestId, 'COMPLETED', 'Plugin deployed', {
-            id: result.id,
-            name: result.name,
-            version: result.version,
-            fullImage,
-          });
+        cleanupContextDir(buildRequest.contextDir);
 
-          cleanupContextDir(buildRequest.contextDir);
-
-          return { pluginId: result.id, fullImage };
-        } catch (err) {
-        // Don't clean dir here â the 'failed' handler decides based on classification
-          throw err;
-        }
+        return { pluginId: result.id, fullImage };
       } finally {
-        // Outer try/finally that brackets the slot acquire/release. Every
-        // exit path through the build handler â success, BullMQ-caught
-        // throw, or our own moveToDelayed signal â flows through here so the
-        // org slot doesn't leak. (The moveToDelayed branch returns earlier
-        // before this finally and releases nothing because it didn't
-        // acquire â see the `tryAcquireOrgSlot` guard at top.)
-        await releaseOrgSlot(orgId);
+        await releaseOrgSlot(orgId, slotJobId);
       }
-    }); // end runWithTenantContext
+    });
   };
 
   // -- Error handling -------------------------------------------------------
@@ -685,18 +615,12 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     const maxAttempts = job.opts.attempts ?? 1;
     const isFinalAttempt = job.attemptsMade >= maxAttempts;
 
-    // Prometheus counter. Status is `timeout` when error message matches the
-    // BullMQ timeout signal â same shape the docker-build helper uses for the
-    // SIGKILL-on-deadline path. Everything else is `failed`.
+    // Prometheus counter. `plugin_name` is intentionally omitted to keep the
+    // label set bounded -- per-plugin drill-down is served via Loki.
     const isTimeout = /timed out|timeout/i.test(error.message);
     incCounter('plugin_builds_total', {
-      status: isTimeout ? 'timeout': 'failed',
+      status: isTimeout ? 'timeout' : 'failed',
       org_id: orgId ?? 'unknown',
-      // Per-plugin label is on the COUNTER only (low write rate, low cardinality
-      // risk). The duration histogram below intentionally omits plugin_name â
-      // each bucket × label combination explodes for histograms. Drill-down
-      // for durations is served via Loki in PR-D2.
-      plugin_name: pluginRecord.name,
     });
 
     logger.error('Plugin build failed', {
@@ -721,14 +645,11 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       errorMessage: error.message,
     });
 
-    // Per-plugin drill-down event (see analogous emit on completion).
-    // `action` matches the AuditAction enum in platform/src/models/audit-event.ts
-    // for vocabulary parity.
-    const action = isTimeout ? 'plugin.build.timeout': 'plugin.build.failed';
+    const action = isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed';
     logger.info('Plugin build event', {
       eventCategory: 'plugin-build',
       action,
-      event: isTimeout ? 'timeout': 'failed',
+      event: isTimeout ? 'timeout' : 'failed',
       actorId: job.data.userId,
       orgId,
       targetType: 'plugin',
@@ -738,11 +659,6 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       errorMessage: error.message,
     });
 
-    // Only emit to MongoDB on the FINAL attempt â interim retries shouldn't
-    // pollute the audit log. The completion path emits unconditionally
-    // because it only runs once. `isFinalAttempt` is checked below for the
-    // dir-cleanup gate; we mirror that here so the audit log records the
-    // terminal outcome only.
     if (isFinalAttempt) {
       getAuditClient().record({
         action,
@@ -759,17 +675,20 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       }, 'plugin');
     }
 
-    if (!isFinalAttempt) return; // Main queue will retry â keep dir
+    if (!isFinalAttempt) return;
 
     const category = classifyFailure(error);
+    const cfg = getBuildCfg();
+    const budget = totalAttemptBudget();
 
-    // Circuit breaker: if total attempts across all cycles exceeded, treat as permanent
-    if (category === 'permanent' || totalAttempts >= MAX_TOTAL_ATTEMPTS) {
+    // Permanent failure: terminal. Decrement here because the job will not
+    // reach the DLQ. When the failure IS retryable (DLQ-bound branch below),
+    // we deliberately skip decrement -- the dlqWorker's `failed` handler
+    // owns the decrement on DLQ exhaustion, otherwise a single retryable
+    // failure would double-count.
+    if (category === 'permanent' || totalAttempts >= budget) {
       cleanupContextDir(buildRequest.contextDir);
-      // the upload route reserved a `plugins` slot for this build;
-      // permanent failure here means the org never got the plugin, so give
-      // the slot back. Fire-and-forget â logged-only on rollback failure.
-      decrementQuota( quotaService, orgId, 'plugins',
+      decrementQuota(quotaService, orgId, 'plugins',
         getServiceAuthHeader({ serviceName: 'plugin', orgId }),
         logger.warn.bind(logger),
       );
@@ -782,7 +701,8 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       return;
     }
 
-    // Retryable: move to DLQ for retry (keep dir alive)
+    // Retryable: move to DLQ for retry (keep dir alive; do NOT decrement
+    // quota -- the DLQ exhaustion path owns that decrement).
     const dlqData: PluginBuildJobData = {
       ...job.data,
       failureCategory: category,
@@ -793,15 +713,15 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     enforceDlqMaxSize()
       .then(() => getDeadLetterQueue().add(`dlq-${job.id}`, dlqData, {
         jobId: `dlq-${job.id}`,
-        attempts: buildCfg.dlqMaxAttempts,
-        backoff: { type: 'exponential', delay: buildCfg.dlqBackoffBaseMs },
+        attempts: cfg.dlqMaxAttempts,
+        backoff: { type: 'exponential', delay: cfg.dlqBackoffBaseMs },
       }))
       .then(() => {
         logger.info('Moved to DLQ for retry', {
           jobId: job.id,
           pluginName: pluginRecord.name,
           totalAttempts,
-          dlqAttempts: buildCfg.dlqMaxAttempts,
+          dlqAttempts: cfg.dlqMaxAttempts,
         });
       })
       .catch((dlqErr) => {
@@ -816,14 +736,9 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
   const completedHandler = (job: Job<PluginBuildJobData>) => {
     const orgId = job.data?.orgId ?? 'unknown';
-    const pluginName = job.data?.pluginRecord?.name ?? 'unknown';
-    incCounter('plugin_builds_total', { status: 'success', org_id: orgId, plugin_name: pluginName });
-    // Histogram covers wait-to-start as well as run time: `processedOn` is
-    // when the worker picked up the job, `finishedOn` is when the handler
-    // resolved. `finishedOn` should always be set on completion but BullMQ's
-    // types mark it optional, hence the guard.
+    incCounter('plugin_builds_total', { status: 'success', org_id: orgId });
     if (job.processedOn && job.finishedOn) {
-      observe( 'plugin_build_duration_seconds',
+      observe('plugin_build_duration_seconds',
         { org_id: orgId },
         (job.finishedOn - job.processedOn) / 1000,
       );
@@ -831,19 +746,12 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     logger.info('Plugin build completed', { jobId: job.id, name: job.name });
   };
 
-  // Spin up one Worker per tier. They share the same processor + handlers
-  // but read from independent queues so cross-tier scheduling is isolated.
   for (const tier of VALID_TIERS) {
-    const tierQueue = getTierQueue(tier); // ensure queue exists before worker attaches
-    const tierWorker = new Worker<PluginBuildJobData>( tierQueue.name,
-      processor,
-      {
-        // Worker connection matches the queue's — both must speak to the
-        // same Redis DB or the worker won't see the jobs.
-        connection: getConnectionForTier(tier),
-        concurrency: tierConcurrency[tier],
-      },
-    );
+    const tierQueue = getTierQueue(tier);
+    const tierWorker = new Worker<PluginBuildJobData>(tierQueue.name, processor, {
+      connection: getConnectionForTier(tier),
+      concurrency: tierConcurrency[tier],
+    });
 
     tierWorker.on('failed', failedHandler);
     tierWorker.on('error', errorHandler);
@@ -859,6 +767,10 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
   startDlqWorker(quotaService);
   startTempCleanup();
+  // Reconcile any slot leaked across the previous process lifetime on boot,
+  // and then again on every periodic temp-cleanup tick. Fire-and-forget —
+  // errors are logged inside scrubOrgSlots; we don't block startup on it.
+  void scrubOrgSlots();
   startQueueMetricsScraper([
     ...getAllTierQueues().map(({ queue }) => ({ name: queue.name, queue })),
     { name: DLQ_NAME, queue: getDeadLetterQueue() },
@@ -866,21 +778,20 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 }
 
 // ---------------------------------------------------------------------------
-// DLQ worker â re-queues retryable jobs back to main queue
+// DLQ worker -- re-queues retryable jobs back to the main queue
 // ---------------------------------------------------------------------------
 
 function startDlqWorker(quotaService: QuotaService): void {
   if (dlqWorker) return;
 
-  dlqWorker = new Worker<PluginBuildJobData>( DLQ_NAME,
+  dlqWorker = new Worker<PluginBuildJobData>(DLQ_NAME,
     async (job: Job<PluginBuildJobData>) => {
       const { orgId, pluginRecord, buildRequest, totalAttempts } = job.data;
+      const budget = totalAttemptBudget();
 
-      // Circuit breaker: stop retrying if total attempts exceeded
-      if ((totalAttempts ?? 0) >= MAX_TOTAL_ATTEMPTS) {
+      if ((totalAttempts ?? 0) >= budget) {
         cleanupContextDir(buildRequest.contextDir);
-        // terminal failure path â give the reserved quota slot back.
-        decrementQuota( quotaService, orgId, 'plugins',
+        decrementQuota(quotaService, orgId, 'plugins',
           getServiceAuthHeader({ serviceName: 'plugin', orgId }),
           logger.warn.bind(logger),
         );
@@ -896,7 +807,6 @@ function startDlqWorker(quotaService: QuotaService): void {
         throw new Error(`Context dir missing: ${buildRequest.contextDir}`);
       }
 
-      // Touch dir to prevent cleanup during backoff
       try { fs.utimesSync(buildRequest.contextDir, new Date(), new Date()); } catch { /* ignore */ }
 
       logger.info('DLQ: re-queuing job', {
@@ -906,19 +816,11 @@ function startDlqWorker(quotaService: QuotaService): void {
         totalAttempts,
       });
 
-      // Carry totalAttempts forward, strip DLQ-specific metadata
       const { failureCategory: _, lastError: __, ...cleanData } = job.data;
-      // Route retries back to the org's tier queue. Tier lookup
-      // uses the in-process cache and fail-opens to developer â a misroute
-      // here is harmless beyond the cross-tier scheduling property.
-      const tier = await getOrgTier( quotaService, orgId,
-        getServiceAuthHeader({ serviceName: 'plugin', orgId }),
-      );
+      const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId }));
       await getTierQueue(tier).add(`retry-${pluginRecord.name}`, cleanData);
     },
     {
-      // DLQ worker shares db=0 with the DLQ queue itself — see comment on
-      // getDeadLetterQueue() for why the DLQ lives on the default DB.
       connection: getConnectionForDb(0),
       concurrency: 1,
     },
@@ -940,9 +842,8 @@ function startDlqWorker(quotaService: QuotaService): void {
 
     if (isFinalAttempt) {
       cleanupContextDir(job.data.buildRequest.contextDir);
-      // terminal failure path â give the reserved quota slot back.
       const { orgId } = job.data;
-      decrementQuota( quotaService, orgId, 'plugins',
+      decrementQuota(quotaService, orgId, 'plugins',
         getServiceAuthHeader({ serviceName: 'plugin', orgId }),
         logger.warn.bind(logger),
       );
@@ -961,19 +862,22 @@ function startDlqWorker(quotaService: QuotaService): void {
 }
 
 // ---------------------------------------------------------------------------
-// Periodic temp directory cleanup
+// Periodic temp directory cleanup + slot scrub
 // ---------------------------------------------------------------------------
-
-const TEMP_DIR_MAX_AGE_MS = buildCfg.tempDirMaxAgeMs;
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-/** Remove temp directories older than TEMP_DIR_MAX_AGE_MS, skipping dirs with active jobs. */
 function cleanupStaleTempDirs(): void {
   const tmpRoot = BUILD_TEMP_ROOT;
   if (!fs.existsSync(tmpRoot)) return;
 
+  // Piggy-back on the cleanup tick to scrub leaked org slots; both walk
+  // the live BullMQ state so co-locating amortises the queue reads.
+  // Fire-and-forget — errors are logged inside scrubOrgSlots.
+  void scrubOrgSlots();
+
   getProtectedContextDirs().then((protectedDirs) => {
+    const maxAgeMs = getBuildCfg().tempDirMaxAgeMs;
     try {
       const entries = fs.readdirSync(tmpRoot, { withFileTypes: true });
       const now = Date.now();
@@ -983,7 +887,7 @@ function cleanupStaleTempDirs(): void {
         if (protectedDirs.has(dirPath)) continue;
         try {
           const stat = fs.statSync(dirPath);
-          if (now - stat.mtimeMs > TEMP_DIR_MAX_AGE_MS) {
+          if (now - stat.mtimeMs > maxAgeMs) {
             fs.rmSync(dirPath, { recursive: true, force: true });
             logger.debug('Cleaned up stale temp dir', { path: dirPath });
           }
@@ -997,10 +901,9 @@ function cleanupStaleTempDirs(): void {
   }).catch(() => {});
 }
 
-/** Start periodic cleanup of orphaned temp directories. */
 function startTempCleanup(): void {
   if (cleanupTimer) return;
-  cleanupTimer = setInterval(cleanupStaleTempDirs, TEMP_DIR_MAX_AGE_MS);
+  cleanupTimer = setInterval(cleanupStaleTempDirs, getBuildCfg().tempDirMaxAgeMs);
   cleanupTimer.unref();
 }
 
@@ -1008,9 +911,6 @@ function startTempCleanup(): void {
 // Graceful shutdown
 // ---------------------------------------------------------------------------
 
-/** Close all per-tier workers + queues, the DLQ, Redis, and the cleanup
- * timer. Drains the tier cache too so a hot-restart in the same process
- * (tests) starts clean. */
 export async function shutdownQueue(): Promise<void> {
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
@@ -1029,10 +929,6 @@ export async function shutdownQueue(): Promise<void> {
     await dlq.close();
     dlq = null;
   }
-  // Disconnect every per-DB Redis client. With per-tier partitioning this
-  // can be up to 3 clients (one per distinct REDIS_DB_<TIER>); without
-  // partitioning it's just db=0. Iteration is safe — `disconnect()` is
-  // synchronous and the map is cleared right after.
   for (const conn of connectionsByDb.values()) {
     conn.disconnect();
   }

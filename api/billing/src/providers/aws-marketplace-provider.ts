@@ -55,7 +55,7 @@ export class AWSMarketplaceProvider implements PaymentProvider {
    * identifier from an existing marketplace subscription.
    * @see https://docs.aws.amazon.com/marketplace/latest/APIReference/API_ResolveCustomer.html
    */
-  async createCustomer(orgId: string, _email: string): Promise<string> {
+  async createCustomer(orgId: string, _email?: string): Promise<string> {
     const existing = await Subscription.findOne({
       orgId,
       'metadata.provider': 'aws-marketplace',

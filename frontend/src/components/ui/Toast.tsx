@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 import { DEFAULT_TOAST_DURATION_MS } from '@/lib/constants';
@@ -62,8 +62,18 @@ let nextId = 0;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  // Track every auto-dismiss timer so a manual close or provider unmount
+  // can cancel it. Without this, a closed toast's expiry timer keeps
+  // running and calls setState on an unmounted component (a leak in
+  // tests; a stale update in long-lived SPAs).
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const removeToast = useCallback((id: string) => {
+    const timer = timersRef.current.get(id);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timersRef.current.delete(id);
+    }
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
@@ -71,9 +81,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const id = String(++nextId);
     setToasts((prev) => [...prev, { id, type, message, duration }]);
     if (duration > 0) {
-      setTimeout(() => removeToast(id), duration);
+      const timer = setTimeout(() => removeToast(id), duration);
+      timersRef.current.set(id, timer);
     }
   }, [removeToast]);
+
+  // Cancel any pending dismiss timers on unmount.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
 
   const value: ToastContextValue = {
     toast: addToast,

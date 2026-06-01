@@ -15,7 +15,7 @@
  * pulls to pick up operator-authored rules at runtime.
  */
 
-import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit';
 import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota';
@@ -25,8 +25,13 @@ import { PromQLRewriteError } from '../services/promql-rewriter';
 const logger = createLogger('alert-rules-controller');
 
 /** Validate / coerce the POST/PUT body into a `RuleCreate` / `RuleUpdate`.
- * Returns `null` plus an error response when the body is malformed. */
-function parseRuleBody(body: unknown): { create: RuleCreate } | { update: RuleUpdate } | { error: string } {
+ *  The `op` argument disambiguates the two cases explicitly rather than
+ *  inferring shape from "did the caller include name+expr+summary?" — the
+ *  inference was buggy when an update happened to set all three fields. */
+function parseRuleBody(
+  body: unknown,
+  op: 'create' | 'update',
+): { create: RuleCreate } | { update: RuleUpdate } | { error: string } {
   if (typeof body !== 'object' || body === null) return { error: 'body must be a JSON object' };
   const b = body as Record<string, unknown>;
   const out: Record<string, unknown> = {};
@@ -40,10 +45,15 @@ function parseRuleBody(body: unknown): { create: RuleCreate } | { update: RuleUp
     if (typeof b.enabled !== 'boolean') return { error: 'enabled must be a boolean' };
     out.enabled = b.enabled;
   }
-  // Create requires name + expr + summary; update is partial.
-  if ('name' in out && 'expr' in out && 'summary' in out) {
+  if (op === 'create') {
+    // Create requires name + expr + summary; the route translates a missing
+    // required field into a 400 with a stable error message.
+    if (!('name' in out) || !('expr' in out) || !('summary' in out)) {
+      return { error: 'name, expr, and summary are required' };
+    }
     return { create: out as unknown as RuleCreate };
   }
+  // Update is partial — any subset of the same fields.
   return { update: out as RuleUpdate };
 }
 
@@ -69,7 +79,7 @@ export const createAlertRule = withController('Create alert rule', async (req, r
     return sendError(res, 403, 'Org admin required to create alert rules');
   }
 
-  const parsed = parseRuleBody(req.body);
+  const parsed = parseRuleBody(req.body, 'create');
   if ('error' in parsed) return sendError(res, 400, parsed.error);
   if (!('create' in parsed)) return sendError(res, 400, 'name, expr, and summary are required');
 
@@ -118,12 +128,13 @@ export const updateAlertRule = withController('Update alert rule', async (req, r
     return sendError(res, 403, 'Org admin required to update alert rules');
   }
 
-  const idRaw = req.params.id;
-  const id = String(Array.isArray(idRaw) ? idRaw[0]: idRaw);
+  const id = getParam(req.params, 'id')!;
 
-  const parsed = parseRuleBody(req.body);
+  const parsed = parseRuleBody(req.body, 'update');
   if ('error' in parsed) return sendError(res, 400, parsed.error);
 
+  // After op='update' parsed never carries a `create` branch — branch
+  // anyway to satisfy TS narrowing.
   const patch = 'create' in parsed ? parsed.create: parsed.update;
   if (patch.expr !== undefined) {
     try {
@@ -157,8 +168,7 @@ export const deleteAlertRule = withController('Delete alert rule', async (req, r
     return sendError(res, 403, 'Org admin required to delete alert rules');
   }
 
-  const idRaw = req.params.id;
-  const id = String(Array.isArray(idRaw) ? idRaw[0]: idRaw);
+  const id = getParam(req.params, 'id')!;
 
   const ok = await alertRuleService.delete(orgId, id, userId);
   if (!ok) return sendError(res, 404, 'Alert rule not found');

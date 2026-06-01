@@ -34,7 +34,7 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createRegistryRoutes
 
 // -- Bulk routes — auth + orgId + bulk_operations feature gate ---------------
 //    Also before read routes — `/bulk/create` must not hit `/:id`.
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requireFeature('bulk_operations'), createBulkPipelineRoutes());
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requireFeature('bulk_operations'), createBulkPipelineRoutes(quotaService));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));
@@ -46,7 +46,10 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createUpdatePipeline
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createDeletePipelineRoutes());
 
 // -- Register compliance event subscriber for entity lifecycle events --------
-registerComplianceEventSubscriber();
+// `'pipeline'` is the service principal baked into the signed JWT the
+// subscriber mints per event (the compliance route requires a service
+// principal — the previous spoofable `x-internal-service` header is gone).
+registerComplianceEventSubscriber(undefined, 'pipeline');
 
 logger.info('All /pipelines routes registered');
 

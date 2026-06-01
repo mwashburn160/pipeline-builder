@@ -53,7 +53,10 @@ app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requireFeature('bulk_o
 startWorker(sseManager, quotaService);
 
 // -- Register compliance event subscriber for entity lifecycle events --------
-registerComplianceEventSubscriber();
+// `'plugin'` is the service principal baked into the signed JWT the
+// subscriber mints per event (the compliance route requires a service
+// principal — the previous spoofable `x-internal-service` header is gone).
+registerComplianceEventSubscriber(undefined, 'plugin');
 
 logger.info('All /plugins routes registered');
 

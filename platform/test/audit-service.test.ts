@@ -160,21 +160,3 @@ describe('auditService.createEvent', () => {
   });
 });
 
-describe('auditService.createEventAsync', () => {
-  beforeEach(() => {
-    mockCreate.mockReset();
-  });
-
-  it('should call create without awaiting', () => {
-    mockCreate.mockResolvedValue({});
-    const result = auditService.createEventAsync({ action: 'user.logout', actorId: 'u1' });
-    expect(result).toBeUndefined();
-    expect(mockCreate).toHaveBeenCalled();
-  });
-
-  it('should swallow rejections', async () => {
-    mockCreate.mockRejectedValue(new Error('boom'));
-    expect(() => auditService.createEventAsync({ action: 'user.login', actorId: 'u1' })).not.toThrow();
-    await new Promise((r) => setImmediate(r));
-  });
-});

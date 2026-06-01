@@ -89,35 +89,39 @@ export interface AppConfig {
   readonly platformUrl: string;
 }
 
-if (!process.env.IMAGE_REGISTRY_HOST) {
-  throw new Error('IMAGE_REGISTRY_HOST environment variable is required');
+export function loadConfig(): AppConfig {
+  if (!process.env.IMAGE_REGISTRY_HOST) {
+    throw new Error('IMAGE_REGISTRY_HOST environment variable is required');
+  }
+
+  return {
+    port: parseInt(process.env.PORT || '3000', 10),
+
+    registry: {
+      host: process.env.IMAGE_REGISTRY_HOST,
+      port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10),
+      http: process.env.IMAGE_REGISTRY_HTTP === 'true',
+      insecure: process.env.IMAGE_REGISTRY_INSECURE === 'true',
+      username: resolveSecretValue('IMAGE_REGISTRY_USERNAME'),
+      password: resolveSecretValue('IMAGE_REGISTRY_PASSWORD'),
+    },
+
+    tokenSigning: {
+      privateKeyPem: resolveSecretValue('REGISTRY_TOKEN_PRIVATE_KEY'),
+      certificatePem: resolveSecretValue('REGISTRY_TOKEN_CERTIFICATE'),
+      issuer: process.env.REGISTRY_TOKEN_ISSUER || 'platform',
+      service: process.env.REGISTRY_TOKEN_SERVICE || 'pipeline-image-registry',
+      expiresInSeconds: parseInt(process.env.REGISTRY_TOKEN_EXPIRES_IN || '300', 10),
+    },
+
+    platformJwt: {
+      secret: resolveSecretValue('JWT_SECRET'),
+      issuer: process.env.JWT_ISSUER,
+      audience: process.env.JWT_AUDIENCE,
+    },
+
+    platformUrl: process.env.PLATFORM_BASE_URL || '',
+  };
 }
 
-export const config: AppConfig = {
-  port: parseInt(process.env.PORT || '3000', 10),
-
-  registry: {
-    host: process.env.IMAGE_REGISTRY_HOST,
-    port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10),
-    http: process.env.IMAGE_REGISTRY_HTTP === 'true',
-    insecure: process.env.IMAGE_REGISTRY_INSECURE === 'true',
-    username: resolveSecretValue('IMAGE_REGISTRY_USERNAME'),
-    password: resolveSecretValue('IMAGE_REGISTRY_PASSWORD'),
-  },
-
-  tokenSigning: {
-    privateKeyPem: resolveSecretValue('REGISTRY_TOKEN_PRIVATE_KEY'),
-    certificatePem: resolveSecretValue('REGISTRY_TOKEN_CERTIFICATE'),
-    issuer: process.env.REGISTRY_TOKEN_ISSUER || 'platform',
-    service: process.env.REGISTRY_TOKEN_SERVICE || 'pipeline-image-registry',
-    expiresInSeconds: parseInt(process.env.REGISTRY_TOKEN_EXPIRES_IN || '300', 10),
-  },
-
-  platformJwt: {
-    secret: resolveSecretValue('JWT_SECRET'),
-    issuer: process.env.JWT_ISSUER,
-    audience: process.env.JWT_AUDIENCE,
-  },
-
-  platformUrl: process.env.PLATFORM_BASE_URL || '',
-};
+export const config: AppConfig = loadConfig();

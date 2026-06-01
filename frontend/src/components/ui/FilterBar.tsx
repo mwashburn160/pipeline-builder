@@ -27,6 +27,8 @@ interface FilterBarProps {
    * where the filters would otherwise scroll out of view.
    */
   sticky?: boolean;
+  /** Extra classes appended to the root container. */
+  className?: string;
 }
 
 /**
@@ -44,6 +46,7 @@ export function FilterBar({
   onClearAll,
   summary,
   sticky = false,
+  className = '',
 }: FilterBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -67,7 +70,7 @@ export function FilterBar({
   }, []);
 
   return (
-    <div className={`filter-bar${sticky ? ' sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 py-2' : ''}`}>
+    <div className={`filter-bar${sticky ? ' sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 py-2' : ''} ${className}`.trimEnd()}>
       <ActionBar
         left={
           <div className="relative min-w-[200px]">

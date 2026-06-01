@@ -66,21 +66,22 @@ export function useDelete<T>(
     const current = targetRef.current;
     if (!current) return;
     setLoading(true);
+    let caught: unknown = null;
     try {
       await deleteFn(current);
-      targetRef.current = null;
-      setTarget(null);
       onSuccess?.();
     } catch (err) {
+      caught = err;
+    } finally {
+      // Clear target only after loading is reset so the modal doesn't unmount
+      // mid-spin (which would strand the spinner state in the parent tree).
+      setLoading(false);
       targetRef.current = null;
       setTarget(null);
-      if (onError) {
-        onError(err);
-      } else {
-        throw err;
-      }
-    } finally {
-      setLoading(false);
+    }
+    if (caught) {
+      if (onError) onError(caught);
+      else throw caught;
     }
   }, [deleteFn, onSuccess, onError]);
 

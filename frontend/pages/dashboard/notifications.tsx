@@ -24,11 +24,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Bell, Slack, Webhook, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
 import type { AlertDestination } from '@/types/observability';
 
 /** localStorage keys for in-app preferences. Bumped if the shape changes. */
@@ -59,7 +59,11 @@ function loadPrefs(): Prefs {
 
 function savePrefs(prefs: Prefs): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
+  try {
+    localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
+  } catch {
+    // localStorage may be unavailable (Safari private mode, quota exceeded)
+  }
 }
 
 function channelIcon(channel: 'slack' | 'webhook' | 'in-app') {
@@ -71,28 +75,21 @@ function channelIcon(channel: 'slack' | 'webhook' | 'in-app') {
 export default function NotificationsPage() {
   const { isReady, user, isAdmin } = useAuthGuard();
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
-  const [destinations, setDestinations] = useState<AlertDestination[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Load prefs from localStorage on mount.
   useEffect(() => { setPrefs(loadPrefs()); }, []);
 
   // Load the org's alert destinations (read-only, but informative).
-  useEffect(() => {
-    if (!isReady) return;
-    let cancelled = false;
-    setLoading(true);
-    api.listAlertDestinations()
-      .then((res) => {
-        if (cancelled) return;
-        if (res.success && res.data) setDestinations(res.data.destinations);
-        else setError(res.message || 'Failed to load alert destinations');
-      })
-      .catch((e) => !cancelled && setError(formatError(e, 'Failed to load alert destinations')))
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
-  }, [isReady]);
+  const { data, loading, error } = useFetch(
+    async () => {
+      if (!isReady) return [] as AlertDestination[];
+      const res = await api.listAlertDestinations();
+      if (res.success && res.data) return res.data.destinations;
+      throw new Error(res.message || 'Failed to load alert destinations');
+    },
+    [isReady],
+  );
+  const destinations: AlertDestination[] = data ?? [];
 
   const update = (patch: Partial<Prefs>) => {
     setPrefs((prev) => {
@@ -111,7 +108,7 @@ export default function NotificationsPage() {
     >
       {error && (
         <div className="alert-error mb-4">
-          <p>{error}</p>
+          <p>{error.message}</p>
         </div>
       )}
 

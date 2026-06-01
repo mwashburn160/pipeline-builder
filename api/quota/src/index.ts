@@ -18,9 +18,12 @@ const { app, sseManager } = createApp({
   warmupHooks: [async () => { await mongoose.connection.db?.admin().ping(); }],
 });
 
-app.use(attachRequestContext(sseManager));
-// Mongo operator-injection guard — Quota is Mongo-backed.
+// Mongo operator-injection guard — Quota is Mongo-backed. Runs BEFORE the
+// request-context middleware so any structured logging triggered by the
+// sanitizer (or by downstream middleware reading req.body/req.query) sees
+// the already-sanitised payload, not the raw operator-laden one.
 app.use(mongoSanitize());
+app.use(attachRequestContext(sseManager));
 
 app.use('/quotas', createReadQuotaRoutes());
 app.use('/quotas', createUpdateQuotaRoutes());

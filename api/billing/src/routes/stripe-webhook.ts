@@ -43,6 +43,17 @@ export function createStripeWebhookRoutes(): Router {
         );
       }
 
+      // Without a webhook secret, signature verification is impossible —
+      // refuse delivery so Stripe surfaces the misconfiguration via retries
+      // rather than us silently processing unsigned payloads.
+      if (!provider.getWebhookSecret()) {
+        return sendError(
+          res, 503,
+          'Stripe webhook secret not configured',
+          ErrorCode.SERVICE_UNAVAILABLE,
+        );
+      }
+
       const sig = req.headers['stripe-signature'];
       if (!sig) {
         return sendError(res, 400, 'Missing Stripe signature header', ErrorCode.VALIDATION_ERROR);
@@ -121,12 +132,14 @@ async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription
   const orgId = (stripeSubscription.metadata?.orgId || '').trim();
   if (!orgId) {
     logger.warn('Stripe subscription created without orgId metadata — cannot auto-provision', { externalId });
+    await createBillingEvent('unknown', 'subscription_created', { unbound: true, externalId });
     return;
   }
   // Provisioning would need plan ID resolution + a primary contact email,
   // which the in-app create flow already handles. Out-of-band creates need
   // operator follow-up — log and continue.
   logger.warn('Stripe subscription created out-of-band — operator action required', { externalId, orgId });
+  await createBillingEvent(orgId, 'subscription_created', { unbound: true, externalId });
 }
 
 /**
@@ -229,7 +242,7 @@ async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription
   await subscription.save();
 
   // Downgrade to developer tier
-  await syncTierToQuotaService(subscription.orgId, 'developer', '');
+  await syncTierToQuotaService(subscription.orgId, 'developer', '', subscription._id.toString());
 
   await createBillingEvent(subscription.orgId, 'subscription_canceled', {
     provider: 'stripe',
@@ -270,9 +283,17 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
   subscription.failedPaymentAttempts = 0;
   subscription.firstFailedAt = undefined;
 
-  // Advance billing period
-  subscription.currentPeriodStart = new Date();
-  subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, subscription.interval);
+  // Advance billing period using the invoice line's period so our window
+  // tracks Stripe exactly (handles proration, mid-period plan changes,
+  // and timezone drift that wall-clock would lose).
+  const linePeriod = invoice.lines?.data?.[0]?.period;
+  if (linePeriod?.start && linePeriod?.end) {
+    subscription.currentPeriodStart = new Date(linePeriod.start * 1000);
+    subscription.currentPeriodEnd = new Date(linePeriod.end * 1000);
+  } else {
+    subscription.currentPeriodStart = new Date();
+    subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, subscription.interval);
+  }
 
   // Restore active status if recovering from past_due
   if (wasRecovery) {
@@ -281,7 +302,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
     // Re-upgrade to their plan's tier
     const plan = await Plan.findById(subscription.planId);
     if (plan) {
-      await syncTierToQuotaService(subscription.orgId, plan.tier, '');
+      await syncTierToQuotaService(subscription.orgId, plan.tier, '', subscription._id.toString());
     }
   }
 

@@ -18,9 +18,9 @@
  * boundary even when dashboards are user-editable.
  */
 
-import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit';
-import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper';
+import { isOrgAdmin, isSystemAdmin, requireAuthContext, withController } from '../helpers/controller-helper';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota';
 import { QUERIES } from '../observability/catalog';
 import { dashboardService, type PanelInput } from '../services/dashboard-service';
@@ -93,9 +93,9 @@ function validatePanels(body: unknown, sendErr: (msg: string) => void): PanelInp
 
 /** GET /api/dashboards — list dashboards visible to the caller. */
 export const listDashboards = withController('List dashboards', async (req, res) => {
-  const userId = req.user?.sub;
-  const orgId = req.user?.organizationId;
-  if (!userId || !orgId) return sendError(res, 401, 'Unauthorized');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
 
   const rows = await dashboardService.list({
     orgId,
@@ -107,11 +107,11 @@ export const listDashboards = withController('List dashboards', async (req, res)
 
 /** GET /api/dashboards/:id — fetch one (visibility-gated). */
 export const getDashboard = withController('Get dashboard', async (req, res) => {
-  const userId = req.user?.sub;
-  const orgId = req.user?.organizationId;
-  if (!userId || !orgId) return sendError(res, 401, 'Unauthorized');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
 
-  const dashboard = await dashboardService.findById((req.params.id as string));
+  const dashboard = await dashboardService.findById(getParam(req.params, 'id')!);
   if (!dashboard) return sendError(res, 404, 'Dashboard not found');
 
   const ok = dashboardService.canRead(dashboard, { orgId, userId, isSuperAdmin: isSystemAdmin(req) });
@@ -122,9 +122,9 @@ export const getDashboard = withController('Get dashboard', async (req, res) => 
 
 /** POST /api/dashboards — create. */
 export const createDashboard = withController('Create dashboard', async (req, res) => {
-  const userId = req.user?.sub;
-  const orgId = req.user?.organizationId;
-  if (!userId || !orgId) return sendError(res, 401, 'Unauthorized');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
 
   // Org-admin or sysadmin can create. Anyone else gets 403 — keeps random
   // members from churning out org/public dashboards.
@@ -185,11 +185,11 @@ export const createDashboard = withController('Create dashboard', async (req, re
 
 /** PUT /api/dashboards/:id — partial update (with optional full-set panel replace). */
 export const updateDashboard = withController('Update dashboard', async (req, res) => {
-  const userId = req.user?.sub;
-  const orgId = req.user?.organizationId;
-  if (!userId || !orgId) return sendError(res, 401, 'Unauthorized');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
 
-  const existing = await dashboardService.findById((req.params.id as string));
+  const existing = await dashboardService.findById(getParam(req.params, 'id')!);
   if (!existing) return sendError(res, 404, 'Dashboard not found');
 
   const canWrite = dashboardService.canWrite(existing, {
@@ -228,7 +228,7 @@ export const updateDashboard = withController('Update dashboard', async (req, re
   }
 
   const updated = await dashboardService.update(
-    (req.params.id as string),
+    getParam(req.params, 'id')!,
     {
       name: typeof body.name === 'string' ? body.name : undefined,
       description: body.description === null ? null : (typeof body.description === 'string' ? body.description : undefined),
@@ -248,11 +248,11 @@ export const updateDashboard = withController('Update dashboard', async (req, re
 
 /** DELETE /api/dashboards/:id — soft delete. */
 export const deleteDashboard = withController('Delete dashboard', async (req, res) => {
-  const userId = req.user?.sub;
-  const orgId = req.user?.organizationId;
-  if (!userId || !orgId) return sendError(res, 401, 'Unauthorized');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
 
-  const existing = await dashboardService.findById((req.params.id as string));
+  const existing = await dashboardService.findById(getParam(req.params, 'id')!);
   if (!existing) return sendError(res, 404, 'Dashboard not found');
 
   const canWrite = dashboardService.canWrite(existing, {
@@ -263,7 +263,7 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
   });
   if (!canWrite) return sendError(res, 403, 'You cannot delete this dashboard');
 
-  const ok = await dashboardService.delete((req.params.id as string), { userId });
+  const ok = await dashboardService.delete(getParam(req.params, 'id')!, { userId });
   if (!ok) return sendError(res, 404, 'Dashboard not found');
 
   // Release the quota slot the create path reserved against the dashboard's
@@ -275,7 +275,7 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
   // differ from the actor's org — record the dashboard's own orgId.
   audit(req, 'dashboard.delete', {
     targetType: 'dashboard',
-    targetId: (req.params.id as string),
+    targetId: getParam(req.params, 'id')!,
     affectedOrgId: existing.orgId,
     details: { name: existing.name },
   });
@@ -284,9 +284,9 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
 
 /** POST /api/dashboards/:id/clone — fork into the caller's org as private. */
 export const cloneDashboard = withController('Clone dashboard', async (req, res) => {
-  const userId = req.user?.sub;
-  const orgId = req.user?.organizationId;
-  if (!userId || !orgId) return sendError(res, 401, 'Unauthorized');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
 
   // Same gate as create — needs at least org-admin to land a new dashboard
   // in the org's namespace.
@@ -294,17 +294,35 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
     return sendError(res, 403, 'Org admin or system admin required to clone');
   }
 
+  const sourceId = getParam(req.params, 'id')!;
+
   // Cloning a dashboard you can't see is the same as cloning a non-existent
   // one. Source must be visible to the caller.
-  const source = await dashboardService.findById((req.params.id as string));
+  const source = await dashboardService.findById(sourceId);
   if (!source) return sendError(res, 404, 'Dashboard not found');
   if (!dashboardService.canRead(source, { orgId, userId, isSuperAdmin: isSystemAdmin(req) })) {
     return sendError(res, 404, 'Dashboard not found');
   }
 
-  const cloned = await dashboardService.clone((req.params.id as string), { orgId, userId });
-  if (!cloned) return sendError(res, 404, 'Dashboard not found');
+  // Clone lands a NEW dashboard in the caller's org and counts against
+  // that org's quota — mirror the create-path reserve/release pattern so
+  // a flurry of clones can't bypass the cap.
+  const reservation = await reserveFeatureQuota(orgId, 'dashboards');
+  if (reservation.exceeded) {
+    return sendQuotaExceeded(res, 'dashboards', reservation.quota, reservation.quota.resetAt);
+  }
 
-  audit(req, 'dashboard.clone', { targetType: 'dashboard', targetId: cloned.id, details: { sourceId: (req.params.id as string), name: cloned.name } });
-  sendSuccess(res, 201, { dashboard: cloned });
+  try {
+    const cloned = await dashboardService.clone(sourceId, { orgId, userId });
+    if (!cloned) {
+      releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger));
+      return sendError(res, 404, 'Dashboard not found');
+    }
+
+    audit(req, 'dashboard.clone', { targetType: 'dashboard', targetId: cloned.id, details: { sourceId, name: cloned.name } });
+    sendSuccess(res, 201, { dashboard: cloned });
+  } catch (err) {
+    releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger));
+    throw err;
+  }
 });

@@ -64,22 +64,27 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     }
 
     const limit = parseQueryInt(req.query.limit, 50);
-    // failed jobs now live across one queue per tier  union them.
-    // Per-queue `limit` keeps the worst-case read bounded at 3×limit.
-    const failedByTier = await Promise.all( getAllTierQueues().map(({ queue }) => queue.getJobs(['failed'], 0, limit - 1)),
+    // Read a smaller per-tier slice (limit / tierCount, rounded up) then
+    // oversample by 1 so we never return less than `limit` after filtering.
+    // Truncate after the tenant-isolation filter so a noisy tier can't
+    // crowd out another tier's visible jobs.
+    const tiers = getAllTierQueues();
+    const perTierSlice = Math.max(1, Math.ceil(limit / Math.max(tiers.length, 1)) + 1);
+    const failedByTier = await Promise.all(
+      tiers.map(({ queue }) => queue.getJobs(['failed'], 0, perTierSlice - 1)),
     );
-    const failedJobs = failedByTier.flat().slice(0, limit);
+    const failedJobs = failedByTier.flat();
 
     // Tenant isolation: non-system admins only see their own org's failed jobs.
     // Without this filter, an org admin could see another tenant's failure
     // metadata (plugin names, error messages).
     const callerIsSysAdmin = isSystemAdmin(req);
-    const visibleJobs = callerIsSysAdmin
+    const visibleJobs = (callerIsSysAdmin
       ? failedJobs
       : failedJobs.filter((job) => {
         const jobOrg = (job.data?.orgId ?? (job.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
         return typeof jobOrg === 'string' && jobOrg.toLowerCase() === orgId.toLowerCase();
-      });
+      })).slice(0, limit);
 
     const jobs = visibleJobs.map((job) => ({
       id: job.id,
@@ -105,16 +110,20 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
 
     const limit = parseQueryInt(req.query.limit, 50);
     const dlq = getDeadLetterQueue();
-    const allJobs = await dlq.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, limit - 1);
+    // Oversample (2x) so per-tenant filtering for non-system admins still
+    // returns up to `limit` rows in the common case where most DLQ entries
+    // belong to other orgs.
+    const oversample = isSystemAdmin(req) ? limit : limit * 2;
+    const allJobs = await dlq.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, oversample - 1);
 
     // Tenant isolation  same model as /failed above.
     const callerIsSysAdmin = isSystemAdmin(req);
-    const visibleJobs = callerIsSysAdmin
+    const visibleJobs = (callerIsSysAdmin
       ? allJobs
       : allJobs.filter((job) => {
         const jobOrg = (job.data?.orgId ?? (job.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
         return typeof jobOrg === 'string' && jobOrg.toLowerCase() === orgId.toLowerCase();
-      });
+      })).slice(0, limit);
 
     const jobs = visibleJobs.map((job) => ({
       id: job.id,

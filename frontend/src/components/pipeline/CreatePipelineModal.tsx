@@ -141,6 +141,17 @@ export default function CreatePipelineModal({
       const res = await api.dryRunPipelineCompliance(props as unknown as Record<string, unknown>);
       if (res.success && res.data) {
         setComplianceResult(res.data);
+      } else {
+        // Synthesize a failure ComplianceCheckResult from the envelope so the
+        // user sees the same display path as a real violation. Falls back
+        // through error/message and finally a generic copy.
+        const envelope = res as { error?: string; message?: string };
+        const message = envelope.error ?? envelope.message ?? 'Compliance check failed';
+        setComplianceResult({
+          passed: false, blocked: false, rulesEvaluated: 0, rulesSkipped: 0,
+          violations: [{ ruleId: 'error', ruleName: 'Compliance Check', field: '', operator: '', expectedValue: '', actualValue: '', severity: 'error', message }],
+          warnings: [], exemptionsApplied: [],
+        });
       }
     } catch {
       setComplianceResult({
@@ -325,8 +336,6 @@ export default function CreatePipelineModal({
         <FormBuilderTab
           ref={formRef}
           disabled={createLoading}
-          showDescriptionKeywords={false}
-          wizardMode={true}
           currentStep={currentStep}
           onStepChange={setCurrentStep}
           accessStatusSlot={accessSlot}

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError } from '@pipeline-builder/api-core';
+import { ErrorCode, sendError } from '@pipeline-builder/api-core';
 import { Request, Response, NextFunction } from 'express';
 import { toOrgId } from '../helpers/controller-helper';
 import { User, Organization, UserOrganization } from '../models';
@@ -19,7 +19,7 @@ interface UserLike {
   username: string;
   email: string;
   isEmailVerified: boolean;
-  lastActiveOrgId?: { toString(): string } | string;
+  lastActiveOrgId?: string;
   tokenVersion: number;
 }
 
@@ -34,7 +34,7 @@ interface UserLike {
  */
 async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: string): Promise<void> {
   const userId = user._id.toString();
-  const orgId = activeOrgId || user.lastActiveOrgId?.toString();
+  const orgId = activeOrgId || user.lastActiveOrgId;
 
   let role: OrgMemberRole = 'member';
   let organizationId: string | undefined;
@@ -95,14 +95,29 @@ export async function requireAuth(
 ): Promise<void> {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader?.startsWith('Bearer ')) {
-    return sendError(res, 401, 'Invalid header');
+  // Distinguish missing header (no Authorization at all) from malformed
+  // (present but not a Bearer token). The client UI distinguishes "log in"
+  // (TOKEN_MISSING) from "session is broken" (TOKEN_INVALID).
+  if (!authHeader) {
+    return sendError(res, 401, 'Authorization header required', ErrorCode.TOKEN_MISSING);
+  }
+  if (!authHeader.startsWith('Bearer ')) {
+    return sendError(res, 401, 'Malformed authorization header', ErrorCode.TOKEN_INVALID);
   }
 
   const token = authHeader.split(' ')[1];
 
   try {
     const decoded = verifyAccessToken(token);
+
+    // Only access tokens may authenticate Bearer requests. Refresh, step-up,
+    // and impersonation tokens are minted via the same JWT secret but carry
+    // a non-'access' `type` claim; accepting them here would let those
+    // short-lived/special-purpose tokens act as a session bearer.
+    if (decoded.type !== 'access') {
+      return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+    }
+
     const user = await User.findById(decoded.sub).select('+tokenVersion').lean();
 
     if (!user || decoded.tokenVersion !== user.tokenVersion) {
@@ -113,7 +128,7 @@ export async function requireAuth(
     next();
   } catch {
     // Token verification failed - return unauthorized without exposing error details
-    return sendError(res, 401, 'Token invalid');
+    return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
   }
 }
 
@@ -137,13 +152,21 @@ export async function requireServiceAuth(
   next: NextFunction,
 ): Promise<void> {
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return sendError(res, 401, 'Invalid header');
+  if (!authHeader) {
+    return sendError(res, 401, 'Authorization header required', ErrorCode.TOKEN_MISSING);
+  }
+  if (!authHeader.startsWith('Bearer ')) {
+    return sendError(res, 401, 'Malformed authorization header', ErrorCode.TOKEN_INVALID);
   }
   const token = authHeader.split(' ')[1];
 
   try {
     const decoded = verifyAccessToken(token);
+    // Same gate as `requireAuth`: only `type: 'access'` may bear requests.
+    // Service tokens are minted with `type: 'access'` too — see `signServiceToken`.
+    if (decoded.type !== 'access') {
+      return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+    }
     if (!decoded.sub?.startsWith('service:')) {
       return sendError(res, 403, 'Service auth required');
     }
@@ -152,7 +175,7 @@ export async function requireServiceAuth(
     req.user = decoded;
     next();
   } catch {
-    return sendError(res, 401, 'Token invalid');
+    return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
   }
 }
 

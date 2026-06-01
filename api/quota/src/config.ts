@@ -28,6 +28,8 @@ export interface AppConfig {
   quota: {
     defaults: QuotaDefaults;
     resetDays: number;
+    /** TTL (ms) for the at-risk org computation cache served by GET /quotas/at-risk. */
+    atRiskCacheTtlMs: number;
   };
 }
 
@@ -63,5 +65,6 @@ export const config: AppConfig = {
       idpConfigs: parseInt(process.env.QUOTA_DEFAULT_IDP_CONFIGS || '1', 10),
     },
     resetDays: parseInt(process.env.QUOTA_RESET_DAYS || '3', 10),
+    atRiskCacheTtlMs: parseInt(process.env.QUOTA_AT_RISK_CACHE_TTL_MS || '60000', 10),
   },
 };

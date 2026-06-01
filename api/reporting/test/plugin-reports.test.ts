@@ -14,9 +14,19 @@ const mockGetBuildFailures = jest.fn();
 
 jest.mock('@pipeline-builder/api-core', () => ({
   sendSuccess: jest.fn(),
+  sendError: jest.fn(),
   sendBadRequest: jest.fn(),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
+  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS' },
   createLogger: () => ({ info: jest.fn(), debug: jest.fn() }),
+  parseDateRange: jest.fn(() => ({ from: '2026-01-01T00:00:00Z', to: '2026-01-31T00:00:00Z' })),
+  REPORT_INTERVALS: ['day', 'week', 'month'] as const,
+  isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
+  parseQueryIntClamped: jest.fn((val: any, def: number, max: number) =>
+    Math.min(Math.max(1, parseInt(String(val ?? def), 10) || def), max)),
+  validateBulkArray: jest.fn((value: any, _name: string, max?: number) =>
+    Array.isArray(value) && value.length > 0 && (!max || value.length <= max)
+      ? { value }
+      : { error: 'invalid' }),
 }));
 
 jest.mock('@pipeline-builder/api-server', () => ({
@@ -132,7 +142,9 @@ describe('Plugin Report Routes', () => {
     it('should return build failures with limit', async () => {
       mockGetBuildFailures.mockResolvedValue([]);
       const handler = getHandler('/build-failures');
-      const req = { query: { limit: '5' } };
+      // /build-failures is system-admin-only; mark the request principal so the
+      // isSystemAdmin gate passes.
+      const req = { query: { limit: '5' }, user: { isSuperAdmin: true } };
       const res = {};
 
       await handler(req, res);

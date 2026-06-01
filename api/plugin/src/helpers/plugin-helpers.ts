@@ -30,13 +30,29 @@ export function pluginUri(plugin: { orgId: string; name: string; version: string
  * Shape a Plugin row for HTTP responses: normalize array-typed columns and
  * attach the computed `uri`. Single seam so all read routes return the
  * same shape.
+ *
+ * Future: a generic `shapeEntity` helper in api-core could replace this once
+ * other services need the same pattern.
  */
+interface PluginRow {
+  orgId: string;
+  name: string;
+  version: string;
+  keywords?: unknown;
+  installCommands?: unknown;
+  commands?: unknown;
+}
 const PLUGIN_ARRAY_FIELDS = ['keywords', 'installCommands', 'commands'] as const;
-export function shapePlugin<T extends { orgId: string; name: string; version: string }>(plugin: T): T & { uri: string } {
-  return {
-    ...normalizeArrayFields(plugin as unknown as Record<string, unknown>, PLUGIN_ARRAY_FIELDS as unknown as string[]) as unknown as T,
-    uri: pluginUri(plugin),
-  };
+export function shapePlugin<P extends PluginRow>(plugin: P): P & { uri: string } {
+  // normalizeArrayFields requires an index signature; the cast is the single
+  // type-system seam between Drizzle's strict row types and the helper's
+  // generic Record<string, unknown> contract. A future `shapeEntity` helper
+  // in api-core could be re-typed to avoid the cast here.
+  const normalized = normalizeArrayFields(
+    plugin as unknown as Record<string, unknown>,
+    [...PLUGIN_ARRAY_FIELDS],
+  ) as unknown as P;
+  return { ...normalized, uri: pluginUri(plugin) };
 }
 
 // Build job types & factory

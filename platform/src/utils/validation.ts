@@ -5,10 +5,20 @@ import { sendError } from '@pipeline-builder/api-core';
 import { Response } from 'express';
 import { z } from 'zod';
 import { config } from '../config';
+import { PASSWORD_RULES } from '../models/user';
 
 /**
  * Validate data against a Zod schema.
  * Returns parsed value or null (sends 400 response on failure).
+ *
+ * Note: the "side-effect-on-fail + return null" pattern (writing the 400
+ * directly to `res` and signaling failure with `null`) is unusual — most
+ * validation helpers throw and let an error middleware translate. We keep
+ * it because every controller in this service uses the
+ *   `const body = validateBody(...); if (!body) return;`
+ * idiom; switching to throws would touch every consumer for no real win.
+ * If/when controllers move to a centralized error wrapper, swap this for
+ * `validateBodyOrThrow`.
  */
 export function validateBody<T>(
   schema: z.ZodType<T>,
@@ -37,11 +47,16 @@ export function validateBody<T>(
  */
 export const emailSchema = z.string().regex(/^[^\s@]+@[^\s@]+$/, 'Invalid email address');
 
-/** Password schema: enforces minimum length, uppercase, lowercase, and digit requirements. */
-const passwordSchema = z.string().min(config.auth.passwordMinLength).max(128)
-  .regex(/[A-Z]/, 'Must contain at least one uppercase letter')
-  .regex(/[a-z]/, 'Must contain at least one lowercase letter')
-  .regex(/[0-9]/, 'Must contain at least one digit');
+/**
+ * Password schema: enforces minimum length and every rule in `PASSWORD_RULES`
+ * (uppercase, lowercase, digit). Rules are sourced from `models/user.ts` so
+ * the Mongoose pre-save hook and the Zod-based request validators stay in
+ * lockstep; adding a rule there propagates here automatically.
+ */
+const passwordSchema = PASSWORD_RULES.reduce(
+  (schema, rule) => schema.regex(rule.test, rule.message),
+  z.string().min(config.auth.passwordMinLength).max(128),
+);
 
 // Auth Schemas
 
@@ -88,6 +103,18 @@ export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: passwordSchema,
 });
+
+/** Admin user update (PUT /users/:id). Every field optional — server
+ *  treats unset fields as no-ops. `organizationId: null` means "clear
+ *  org assignment" (system-admin only; the controller enforces that gate).
+ *  Password reuses the strict policy schema. */
+export const adminUpdateUserSchema = z.object({
+  username: z.string().min(2).max(30).regex(/^[a-z0-9_-]+$/i).optional(),
+  email: emailSchema.optional(),
+  role: z.enum(['owner', 'admin', 'member']).optional(),
+  organizationId: z.union([z.string().min(1), z.null()]).optional(),
+  password: passwordSchema.optional(),
+}).strict();
 
 // Invitation Schemas
 

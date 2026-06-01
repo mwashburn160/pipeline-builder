@@ -8,16 +8,13 @@ import {
   ErrorCode,
   isSystemAdmin,
   getParam,
-  createLogger,
   sendEntityNotFound,
   errorMessage,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { messageService } from '../services/message-service';
-
-const logger = createLogger('delete-message');
 
 /**
  * Create delete routes for the message service.
@@ -30,13 +27,14 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   // DELETE /messages/:id — Soft delete a message
-  router.delete('/:id', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/:id', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    // System admins can delete any message
-    if (!isSystemAdmin(req)) {
+    const sysadmin = isSystemAdmin(req);
+
+    if (!sysadmin) {
       // Non-admins can only self-delete root messages with no replies
       const message = await messageService.findById(id, orgId);
       if (!message) {
@@ -58,28 +56,34 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
     }
 
     // Cascade soft-delete to all replies if this is a root message.
-    // Pass orgId so the cascade scopes to the caller's tenant.
+    // Sysadmin deletes drop the tenant scope so replies from both
+    // participants are swept.
     if (!deleted.threadId) {
-      await messageService.deleteThread(id, userId, orgId);
+      await messageService.deleteThread(id, userId, orgId, sysadmin);
     }
 
     ctx.log('COMPLETED', 'Message deleted', { id });
 
-    // Notify the other party about the deletion
+    // Notify the other party (or both, when sysadmin-deleting) about the deletion.
     try {
       if (deleted.recipientOrgId && deleted.recipientOrgId !== '*') {
-        const otherOrgId = deleted.orgId.toLowerCase() === orgId
-          ? deleted.recipientOrgId.toLowerCase()
-          : deleted.orgId.toLowerCase();
-
-        sseManager.send(otherOrgId, 'MESSAGE', 'Message deleted', {
+        const payload = {
           action: 'MESSAGE_DELETED' as const,
           messageId: id,
           threadId: deleted.threadId || undefined,
-        });
+        };
+        if (sysadmin) {
+          sseManager.send(deleted.orgId.toLowerCase(), 'MESSAGE', 'Message deleted', payload);
+          sseManager.send(deleted.recipientOrgId.toLowerCase(), 'MESSAGE', 'Message deleted', payload);
+        } else {
+          const otherOrgId = deleted.orgId.toLowerCase() === orgId
+            ? deleted.recipientOrgId.toLowerCase()
+            : deleted.orgId.toLowerCase();
+          sseManager.send(otherOrgId, 'MESSAGE', 'Message deleted', payload);
+        }
       }
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
+      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
     }
 
     return sendSuccess(res, 200, undefined, 'Message deleted successfully');

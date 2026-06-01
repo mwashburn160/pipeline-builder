@@ -16,12 +16,11 @@ import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { INTERNAL_AUTH_OPTS } from '../helpers/quota-helpers';
-import { authorizeOrg } from '../middleware/authorize-org';
-import { quotaService, OrgNotFoundError } from '../services/quota-service';
+import { authorizeOrg, INTERNAL_AUTH_OPTS } from '../middleware/authorize-org';
+import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service';
 import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas';
 
-export function createUpdateQuotaRoutes(): Router {
+export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
 
   // PUT /quotas/:orgId  update org name, slug, and/or quota limits (system admin only)
@@ -37,7 +36,7 @@ export function createUpdateQuotaRoutes(): Router {
       const body = validation.value;
 
       try {
-        const result = await quotaService.update(targetOrgId, body);
+        const result = await svc.update(targetOrgId, body);
         ctx.log('COMPLETED', 'Updated quota', { orgId: targetOrgId });
         return sendSuccess(res, 200, { quota: result }, 'Updated successfully');
       } catch (error) {
@@ -57,7 +56,7 @@ export function createUpdateQuotaRoutes(): Router {
     authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
-      const deleted = await quotaService.delete(targetOrgId);
+      const deleted = await svc.delete(targetOrgId);
       ctx.log('COMPLETED', deleted ? 'Quota org deleted': 'Quota org delete: not found', { orgId: targetOrgId });
       return sendSuccess(res, 200, { deleted }, deleted ? 'Quota org deleted': 'Quota org was already absent');
     }),
@@ -76,7 +75,7 @@ export function createUpdateQuotaRoutes(): Router {
       const { quotaType } = validation.value;
 
       try {
-        const result = await quotaService.resetUsage(targetOrgId, quotaType);
+        const result = await svc.resetUsage(targetOrgId, quotaType);
         ctx.log('COMPLETED', 'Reset quota usage', { orgId: targetOrgId, quotaType });
         return sendSuccess( res, 200,
           { quota: result },
@@ -106,7 +105,9 @@ export function createUpdateQuotaRoutes(): Router {
 
       try {
         const typedType = quotaType as QuotaType;
-        const result = await quotaService.incrementUsage(targetOrgId, typedType, amount, isSystemAdmin(req));
+        const result = await svc.incrementUsage(targetOrgId, typedType, amount, {
+          bypassLimit: isSystemAdmin(req),
+        });
 
         if (result.exceeded) {
           return sendQuotaExceeded( res,
@@ -134,6 +135,11 @@ export function createUpdateQuotaRoutes(): Router {
   // Internal-only, same auth as /increment. Used by routes that adopt the
   // "reserve before action, rollback on failure" pattern to give the
   // quota slot back when the action they were gating fails.
+  //
+  // Body MAY include `resetAtSnapshot` (the `resetAt` ISO string observed at
+  // reserve time). When supplied, the service no-ops the decrement if the
+  // period rolled over between reserve and rollback, so we don't steal
+  // capacity from the new period.
 
   router.post( '/:orgId/decrement',
     requireAuth(INTERNAL_AUTH_OPTS) as RequestHandler,
@@ -143,10 +149,10 @@ export function createUpdateQuotaRoutes(): Router {
 
       const validation = validateBody(req, DecrementQuotaSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-      const { quotaType, amount } = validation.value;
+      const { quotaType, amount, resetAtSnapshot } = validation.value;
 
       const typedType = quotaType as QuotaType;
-      const result = await quotaService.decrementUsage(targetOrgId, typedType, amount);
+      const result = await svc.decrementUsage(targetOrgId, typedType, amount, { resetAtSnapshot });
 
       // Org not found is reported via 200 + `quota: null` rather than 404 so
       // that fire-and-forget rollback paths don't add a spurious error when

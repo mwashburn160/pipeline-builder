@@ -17,7 +17,10 @@ export function HelpSectionCard({ title, blocks }: HelpSectionProps) {
       </h3>
       <div className="space-y-4">
         {blocks.map((block, i) => (
-          <ContentBlockRenderer key={i} block={block} />
+          // Content blocks have no stable id in the help data; pairing the
+          // discriminant `type` with the index is at least more meaningful
+          // than the bare index and survives reordering within a type.
+          <ContentBlockRenderer key={`${block.type}-${i}`} block={block} />
         ))}
       </div>
     </div>
@@ -43,7 +46,10 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
       return (
         <ul className="space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
           {block.items.map((item, i) => (
-            <li key={i} className="flex gap-2">
+            // Help list items are plain strings; the string itself is a
+            // stable identifier within the list. Fall back to the index
+            // only on the (extremely rare) duplicate-string case.
+            <li key={`${item}-${i}`} className="flex gap-2">
               <span className="text-gray-400 dark:text-gray-500 mt-0.5 flex-shrink-0">&#8226;</span>
               <span className="leading-relaxed">{item}</span>
             </li>

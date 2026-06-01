@@ -18,8 +18,6 @@ import { Plan } from '../models/plan';
 const logger = createLogger('billing-plans');
 
 /** Plans rarely change — cache TTL configurable via CACHE_TTL_BILLING_PLANS (default 4 hours). */
-/** Parse a positive integer from an env var, falling back to the default on invalid input. */
-
 const planCache = createCacheService('billing:plans:', parsePositiveInt(process.env.CACHE_TTL_BILLING_PLANS, CACHE_TTL_BILLING_PLANS_SECS));
 
 /**

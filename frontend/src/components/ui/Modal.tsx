@@ -56,10 +56,16 @@ export function Modal({
     tall && 'flex-1 overflow-y-auto',
   ].filter(Boolean).join(' ');
 
-  // Close on Escape
+  // Close on Escape. Only swallow the event if the focused element lives
+  // inside this modal's panel — otherwise a stacked dialog or some other
+  // listener should get a shot at the key (and we'd close prematurely if
+  // focus had been stolen elsewhere).
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-      e.stopPropagation();
+      const focusInside = panelRef.current?.contains(document.activeElement);
+      if (focusInside) {
+        e.stopPropagation();
+      }
       onClose();
       return;
     }
@@ -112,12 +118,15 @@ export function Modal({
       }
     }
 
-    // Prevent background scrolling
+    // Prevent background scrolling. Capture the prior value so we restore
+    // whatever the host page had set (mirrors CommandPalette); blindly
+    // resetting to '' would clobber a parent's intentional `hidden`.
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
+      document.body.style.overflow = previousOverflow;
       // Restore focus to the element that opened the modal — but only if
       // it is still in the document. A parent component may have re-rendered
       // and replaced the trigger; calling .focus() on a detached node is a

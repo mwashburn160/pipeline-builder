@@ -6,6 +6,18 @@ import { Request, Response, NextFunction } from 'express';
 
 const logger = createLogger('authorize-org');
 
+/**
+ * Auth options for **internal service-to-service mutation routes only**
+ * (specifically `POST /:orgId/increment` and `/:orgId/decrement`). The
+ * `allowOrgHeaderOverride` flag lets calling services pin a target orgId
+ * via `x-org-id`.
+ *
+ * SECURITY: This MUST NOT be used on routes reachable from the frontend.
+ * Read routes use plain `requireAuth` (no override) so end-user JWTs cannot
+ * be re-pointed at another tenant by setting the header.
+ */
+export const INTERNAL_AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
 export interface AuthorizeOrgOptions {
   /**
    * If true, only system admins (role=admin in the system org) may access.

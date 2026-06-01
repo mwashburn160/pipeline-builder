@@ -4,20 +4,18 @@
 /**
  *  Service layer for per-org IdP configuration (scaffolding).
  *
- * Sysadmin-only CRUD. Encrypts `clientSecret` at write via api-core's
- * envelope encryption primitive so the secret never sits in Mongo in
- * clear text. Reads return a sanitized shape that elides the secret;
- * `getDecryptedSecret` is the explicit decrypt path for the OIDC
- * dispatcher.
+ * Sysadmin-only CRUD. Encrypts `clientSecret` at write via the shared
+ * secret-blob helper so the secret never sits in Mongo in clear text.
+ * Reads return a sanitized shape that elides the secret entirely.
  *
  * SECRET_ENCRYPTION_KEY is a hard requirement at platform boot — there
  * is no clear-text fallback here. The startup backfill re-encrypts any
  * pre-encryption rows.
  */
 
-import { createLogger, decryptSecret, encryptSecret, isEncryptedBlob } from '@pipeline-builder/api-core';
-import type { EncryptedBlob } from '@pipeline-builder/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import OrgIdpConfig, { type IdpProvider, type OrgIdpConfigDocument } from '../models/org-idp-config';
+import { wrapEncrypted } from '../utils/secret-blob';
 
 const logger = createLogger('org-idp-service');
 
@@ -54,31 +52,6 @@ export interface OrgIdpConfigUpdate {
   enabled?: boolean;
 }
 
-/** Encrypt for storage. `SECRET_ENCRYPTION_KEY` is required at boot so
- *  this never falls back to clear text. */
-function encryptForStorage(plaintext: string, orgId: string): string {
-  return JSON.stringify(encryptSecret(plaintext, orgId));
-}
-
-/** Decrypt a stored client-secret blob. Throws when the value isn't a
- *  well-formed EncryptedBlob — surfacing a corrupt row beats serving stale
- *  clear-text plaintext masquerading as a "configured" secret. */
-function decryptStoredBlob(raw: string, orgId: string): string {
-  if (!raw.startsWith('{')) {
-    throw new Error('Stored IdP client secret is not a JSON-encoded EncryptedBlob');
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`Stored IdP client secret is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  if (!isEncryptedBlob(parsed)) {
-    throw new Error('Stored IdP client secret does not match the EncryptedBlob shape');
-  }
-  return decryptSecret(parsed as EncryptedBlob, orgId);
-}
-
 function toDto(doc: OrgIdpConfigDocument): OrgIdpConfigDto {
   return {
     orgId: doc.orgId,
@@ -111,7 +84,7 @@ export class OrgIdpService {
     if (existing) {
       existing.provider = input.provider;
       existing.clientId = input.clientId;
-      existing.clientSecretEncrypted = encryptForStorage(input.clientSecret, input.orgId);
+      existing.clientSecretEncrypted = wrapEncrypted(input.clientSecret, input.orgId);
       existing.discoveryUrl = input.discoveryUrl;
       existing.allowedEmailDomains = input.allowedEmailDomains ?? [];
       existing.enabled = input.enabled ?? true;
@@ -124,7 +97,7 @@ export class OrgIdpService {
       orgId: input.orgId,
       provider: input.provider,
       clientId: input.clientId,
-      clientSecretEncrypted: encryptForStorage(input.clientSecret, input.orgId),
+      clientSecretEncrypted: wrapEncrypted(input.clientSecret, input.orgId),
       discoveryUrl: input.discoveryUrl,
       allowedEmailDomains: input.allowedEmailDomains ?? [],
       enabled: input.enabled ?? true,
@@ -144,7 +117,7 @@ export class OrgIdpService {
     if (input.provider !== undefined) existing.provider = input.provider;
     if (input.clientId !== undefined) existing.clientId = input.clientId;
     if (input.clientSecret !== undefined && input.clientSecret.length > 0) {
-      existing.clientSecretEncrypted = encryptForStorage(input.clientSecret, orgId);
+      existing.clientSecretEncrypted = wrapEncrypted(input.clientSecret, orgId);
     }
     if (input.discoveryUrl !== undefined) existing.discoveryUrl = input.discoveryUrl;
     if (input.allowedEmailDomains !== undefined) existing.allowedEmailDomains = input.allowedEmailDomains;
@@ -162,20 +135,6 @@ export class OrgIdpService {
     return (res.deletedCount ?? 0) > 0;
   }
 
-  /**
-   * Decrypt path for the FUTURE OIDC dispatcher. The current platform has
-   * no caller; this lives here so the dispatcher can land in a follow-up
-   * with a one-line service call rather than re-implementing the decrypt.
-   *
-   * Throws on alg mismatch / tampered blob  the dispatcher should treat
-   * a throw as "SSO unavailable for this org" and fall through to the
-   * existing password / OAuth login UI.
-   */
-  async getDecryptedSecret(orgId: string): Promise<string | null> {
-    const doc = await OrgIdpConfig.findOne({ orgId }).select('clientSecretEncrypted');
-    if (!doc?.clientSecretEncrypted) return null;
-    return decryptStoredBlob(doc.clientSecretEncrypted, orgId);
-  }
 }
 
 export const orgIdpService = new OrgIdpService();

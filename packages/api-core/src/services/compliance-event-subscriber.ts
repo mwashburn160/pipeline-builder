@@ -4,6 +4,7 @@
 import { enqueueComplianceEvent } from './compliance-queue';
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events';
 import { InternalHttpClient } from './http-client';
+import { getServiceAuthHeader } from '../middleware/auth';
 import { type ServiceConfig } from '../types/common';
 import { createLogger } from '../utils/logger';
 
@@ -17,8 +18,16 @@ const logger = createLogger('compliance-events');
  * are logged but never block the original request.
  *
  * @param config - Optional service config override (defaults to COMPLIANCE_SERVICE_HOST/PORT env vars)
+ * @param serviceName - Service identifier baked into the signed JWT's `sub`
+ *   (e.g. 'pipeline', 'plugin'). The compliance route requires a service
+ *   principal — a spoofable `x-internal-service: true` header is no longer
+ *   accepted. Defaults to a generic 'entity-events' when unspecified, but
+ *   callers should pass their service name for accurate audit trails.
  */
-export function registerComplianceEventSubscriber(config?: Partial<ServiceConfig>): void {
+export function registerComplianceEventSubscriber(
+  config?: Partial<ServiceConfig>,
+  serviceName: string = 'entity-events',
+): void {
   const serviceConfig: ServiceConfig = {
     host: config?.host ?? process.env.COMPLIANCE_SERVICE_HOST ?? 'compliance',
     port: config?.port ?? parseInt(process.env.COMPLIANCE_SERVICE_PORT ?? '3000', 10),
@@ -29,8 +38,13 @@ export function registerComplianceEventSubscriber(config?: Partial<ServiceConfig
   const subscriber: EntityEventSubscriber = {
     async onEntityEvent(event: EntityEvent): Promise<void> {
       try {
+        // Mint a per-event service JWT scoped to the event's org so the
+        // compliance route's `runWithTenantContext` sees the right tenant
+        // GUC. The compliance side enforces `requireAuth` +
+        // `requireServicePrincipal` — the previous `x-internal-service`
+        // header is no longer sufficient (and was spoofable).
         await client.post('/compliance/events/entity', event, {
-          headers: { 'x-internal-service': 'true' },
+          headers: { Authorization: getServiceAuthHeader({ serviceName, orgId: event.orgId }) },
         });
       } catch (err) {
         // Fire-and-forget: log and swallow. Compliance notification is non-fatal.

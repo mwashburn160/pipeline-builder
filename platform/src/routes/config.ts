@@ -7,7 +7,9 @@ import { config } from '../config';
 
 const router = Router();
 
-/** GET /config - Public endpoint returning service feature flags */
+/** GET /config - Public endpoint returning service feature flags.
+ *  `sendSuccess` uses res.status().json() and never touches Cache-Control,
+ *  so the explicit `res.set('Cache-Control', ...)` above survives. */
 router.get('/', (_req, res) => {
   res.set('Cache-Control', 'public, max-age=300');
   sendSuccess(res, 200, {

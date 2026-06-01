@@ -8,7 +8,7 @@
  */
 
 import { randomBytes } from 'crypto';
-import { encryptSecret, resetDefaultKeyProvider } from '@pipeline-builder/api-core';
+import { resetDefaultKeyProvider } from '@pipeline-builder/api-core';
 
 const mockSave = jest.fn();
 const mockCreate = jest.fn();
@@ -163,30 +163,7 @@ describe('OrgIdpService.patch', () => {
   });
 });
 
-describe('OrgIdpService.getDecryptedSecret', () => {
-  it('round-trips through encryptIfConfigured -> decryptIfBlob', async () => {
-    // First, encrypt a secret the same way the service would.
-    const blob = encryptSecret('the-real-secret', 'org-acme');
-    const stored = JSON.stringify(blob);
-
-    mockFindOne.mockReturnValue({ select: () => Promise.resolve({ clientSecretEncrypted: stored }) });
-
-    const plain = await orgIdpService.getDecryptedSecret('org-acme');
-    expect(plain).toBe('the-real-secret');
-  });
-
-  it('returns null when no config exists', async () => {
-    mockFindOne.mockReturnValue({ select: () => Promise.resolve(null) });
-    expect(await orgIdpService.getDecryptedSecret('org-missing')).toBeNull();
-  });
-
-  it('throws on a malformed stored value (legacy clear-text fallback removed)', async () => {
-    // The permissive clear-text fallback was removed alongside the
-    // mandatory-encryption cutover. The startup backfill re-encrypts
-    // pre-encryption rows; reaching this throw means a row escaped the
-    // backfill and needs manual repair.
-    mockFindOne.mockReturnValue({ select: () => Promise.resolve({ clientSecretEncrypted: 'legacy-clear-text' }) });
-    await expect(orgIdpService.getDecryptedSecret('org-acme'))
-      .rejects.toThrow(/not a JSON-encoded EncryptedBlob/);
-  });
-});
+// `OrgIdpService.getDecryptedSecret` was removed (no live callers — the
+// OIDC token-exchange path moved server-side). The describe block that
+// covered it has been deleted; secret round-trips are exercised by
+// `packages/api-core/test/encryption.test.ts`.

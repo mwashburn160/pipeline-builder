@@ -1,11 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Filter / refresh / skeleton / empty / error / "Load more" affordances are
+// now provided by <ResourceList> (src/components/ui/ResourceList.tsx). This
+// file only owns the grouped-namespace body + keyboard-nav imperative handle.
+// Other list surfaces still using bespoke shells should also migrate; the
+// open items are tagged with `migrate to <ResourceList>` comments.
+
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronDown, RefreshCw, Boxes } from 'lucide-react';
+import { ChevronRight, ChevronDown, Boxes } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { Skeleton } from '@/components/ui/Skeleton';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { ResourceList } from '@/components/ui/ResourceList';
 import type { RegistryRepoGroup } from '@/types';
 
 interface RepositoryListProps {
@@ -58,12 +63,12 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
 
   // Flat list of currently-visible repos — used to step the selection
   // by keyboard. Recomputed whenever filter or collapsed-state changes.
+  // isOpen is a local function defined inline; its inputs (filter, collapsed)
+  // are listed individually below. Adding isOpen would force a new identity
+  // each render and recompute this memo every time.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const visibleRepoNames = useMemo(() => {
     return filteredGroups.flatMap((g) => isOpen(g.namespace) ? g.repos.map((r) => r.name) : []);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // isOpen is a local function defined inline; its inputs (filter, collapsed)
-    // are listed individually below. Adding isOpen would force a new identity
-    // each render and recompute this memo every time.
   }, [filteredGroups, filter, collapsed]);
 
   // Filter forces matching groups open by overriding `collapsed`.
@@ -98,64 +103,35 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
     ns.length > NAMESPACE_TRUNCATE_AT ? `${ns.slice(0, NAMESPACE_TRUNCATE_AT - 1)}…` : ns;
 
   return (
-    <div className="flex flex-col h-full border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-      <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-        <label htmlFor="registry-repo-filter" className="sr-only">Filter repositories</label>
-        <input
-          id="registry-repo-filter"
-          type="text"
-          value={filter}
-          onChange={(e) => onFilterChange(e.target.value)}
-          placeholder="Filter repos (press /)…"
-          aria-label="Filter repositories"
-          className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-        />
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          title="Refresh repositories"
-          aria-label="Refresh repositories"
-          className="p-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
-
-      <div ref={containerRef} className="flex-1 overflow-auto">
-        {error && (
-          <div className="m-3 p-3 text-sm border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded">
-            <div className="font-medium mb-1">Failed to load repositories</div>
-            <div className="text-xs mb-2">{error.message}</div>
-            <button onClick={onRefresh} className="text-xs underline">Retry</button>
-          </div>
-        )}
-
-        {/* Skeleton placeholders while the first page loads. */}
-        {loading && filteredGroups.length === 0 && !error && (
-          <div className="p-3 space-y-2">
-            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-4 w-full" />)}
-          </div>
-        )}
-
-        {!loading && !error && filteredGroups.length === 0 && (
-          <div className="px-4">
-            {filter ? (
-              <EmptyState
-                icon={Boxes}
-                title="No repositories match"
-                description={`Nothing matches "${filter}". Clear the filter to see all repos.`}
-              />
-            ) : (
-              <EmptyState
-                icon={Boxes}
-                title="No images yet"
-                description="Plugin builds appear here once uploaded — typically under org-<your-id>/<plugin-name>."
-              />
-            )}
-          </div>
-        )}
-
-        {filteredGroups.map((g) => (
+    <div ref={containerRef} className="h-full border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+      <ResourceList<RegistryRepoGroup>
+        variant="inline"
+        className="h-full"
+        loading={loading}
+        error={error}
+        onRefresh={onRefresh}
+        filter={filter}
+        onFilterChange={onFilterChange}
+        filterPlaceholder="Filter repos (press /)…"
+        filterInputId="registry-repo-filter"
+        errorTitle="Failed to load repositories"
+        hasMore={hasMore}
+        onLoadMore={onLoadMore}
+        isEmpty={filteredGroups.length === 0}
+        emptyState={{
+          icon: Boxes,
+          title: 'No images yet',
+          description: 'Plugin builds appear here once uploaded — typically under org-<your-id>/<plugin-name>.',
+        }}
+        filteredEmptyState={{
+          icon: Boxes,
+          title: 'No repositories match',
+          description: `Nothing matches "${filter}". Clear the filter to see all repos.`,
+        }}
+        // When the body is empty, the shared shell renders the empty state;
+        // when non-empty, we drive the grouped namespace layout below.
+      >
+        {filteredGroups.length > 0 && filteredGroups.map((g) => (
           <div key={g.namespace} className="border-b border-gray-100 dark:border-gray-800">
             <button
               onClick={() => toggleGroup(g.namespace)}
@@ -195,17 +171,7 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
             )}
           </div>
         ))}
-
-        {hasMore && !error && (
-          <button
-            onClick={onLoadMore}
-            disabled={loading}
-            className="w-full p-3 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50"
-          >
-            {loading ? 'Loading…' : 'Load more'}
-          </button>
-        )}
-      </div>
+      </ResourceList>
     </div>
   );
 });

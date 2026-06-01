@@ -3,7 +3,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { type AIProviderStatus } from '@/types';
 import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
 import { formatError } from '@/lib/constants';
-import api from '@/lib/api';
+import api, { ApiError } from '@/lib/api';
 
 interface AIProviderConfigProps {
   isAdmin: boolean;
@@ -30,16 +30,22 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
   const [editApiKey, setEditApiKey] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const response = await api.getOrgAIConfig();
+        if (cancelled) return;
         if (response.data?.providers) {
           setProviders(response.data.providers);
         }
-      } catch {
-        // Non-critical — user may not have an org
+      } catch (err) {
+        if (cancelled) return;
+        // 404 = user doesn't have an org yet; not a real error.
+        if (err instanceof ApiError && err.statusCode === 404) return;
+        setError(err instanceof Error ? err.message : String(err));
       }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   const configuredIds = Object.entries(providers)

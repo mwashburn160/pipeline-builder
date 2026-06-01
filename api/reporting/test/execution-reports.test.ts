@@ -15,9 +15,24 @@ const mockGetErrors = jest.fn();
 
 jest.mock('@pipeline-builder/api-core', () => ({
   sendSuccess: jest.fn(),
+  sendError: jest.fn(),
   sendBadRequest: jest.fn(),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
+  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS' },
   createLogger: () => ({ info: jest.fn(), debug: jest.fn() }),
+  // Pass query.from/to through verbatim so tests can assert on the values
+  // they sent, with a sensible fallback when the test omits them.
+  parseDateRange: jest.fn((query: any) => ({
+    from: query?.from ?? '2026-01-01T00:00:00Z',
+    to: query?.to ?? '2026-01-31T00:00:00Z',
+  })),
+  REPORT_INTERVALS: ['day', 'week', 'month'] as const,
+  isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
+  parseQueryIntClamped: jest.fn((val: any, def: number, max: number) =>
+    Math.min(Math.max(1, parseInt(String(val ?? def), 10) || def), max)),
+  validateBulkArray: jest.fn((value: any, _name: string, max?: number) =>
+    Array.isArray(value) && value.length > 0 && (!max || value.length <= max)
+      ? { value }
+      : { error: 'invalid' }),
 }));
 
 jest.mock('@pipeline-builder/api-server', () => ({
@@ -120,7 +135,9 @@ describe('Execution Report Routes', () => {
     it('should pass limit parameter', async () => {
       mockGetErrors.mockResolvedValue([]);
       const handler = getHandler('/errors');
-      const req = { query: { limit: '10' } };
+      // /errors is system-admin-only; mark the request principal so the
+      // isSystemAdmin gate passes.
+      const req = { query: { limit: '10' }, user: { isSuperAdmin: true } };
       const res = {};
 
       await handler(req, res);

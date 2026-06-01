@@ -33,6 +33,13 @@ class MockNotFoundError extends MockAppError {
   }
 }
 
+class MockValidationError extends MockAppError {
+  constructor(message: string) {
+    super(400, 'VALIDATION_ERROR', message);
+    this.name = 'ValidationError';
+  }
+}
+
 jest.mock('@pipeline-builder/api-core', () => ({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
@@ -40,6 +47,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   isSystemAdmin: mockIsSystemAdmin,
   AppError: MockAppError,
   NotFoundError: MockNotFoundError,
+  ValidationError: MockValidationError,
   ErrorCode: {
     VALIDATION_ERROR: 'VALIDATION_ERROR',
     DATABASE_ERROR: 'DATABASE_ERROR',
@@ -118,6 +126,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
 
 jest.mock('../src/middleware/authorize-org', () => ({
   authorizeOrg: () => (_req: any, _res: any, next: any) => next(),
+  INTERNAL_AUTH_OPTS: { allowOrgHeaderOverride: true },
 }));
 
 const mockFindById = jest.fn();

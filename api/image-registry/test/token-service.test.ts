@@ -125,13 +125,14 @@ describe('authorizeScope', () => {
 // fail-opens, but the call still requires an await.
 describe('authorizeAndIssue', () => {
   it('mints a JWT signed with the configured key', async () => {
-    const token = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
       [{ type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] }],
       'u1',
     );
-    expect(typeof token).toBe('string');
+    expect(typeof result.token).toBe('string');
+    expect(result.accessCount).toBe(1);
 
-    const decoded = jwt.verify(token, publicKeyPem, {
+    const decoded = jwt.verify(result.token, publicKeyPem, {
       algorithms: ['RS256'],
       issuer: 'test-platform',
       audience: 'test-registry',
@@ -144,14 +145,14 @@ describe('authorizeAndIssue', () => {
   });
 
   it('omits scopes that fully fail authorization', async () => {
-    const token = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
       [
         { type: 'repository', name: 'org-acme/foo', actions: ['pull'] },
         { type: 'repository', name: 'org-other/bar', actions: ['pull'] },
       ],
       'u1',
     );
-    const decoded = jwt.verify(token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as {
+    const decoded = jwt.verify(result.token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as {
       access: Array<{ name: string }>;
     };
     expect(decoded.access).toHaveLength(1);
@@ -159,22 +160,22 @@ describe('authorizeAndIssue', () => {
   });
 
   it('issues an empty-access token when nothing is authorized', async () => {
-    const token = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
       [{ type: 'repository', name: 'org-other/foo', actions: ['pull'] }],
       'u1',
     );
-    const decoded = jwt.verify(token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as {
+    const decoded = jwt.verify(result.token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as {
       access: unknown[];
     };
     expect(decoded.access).toEqual([]);
   });
 
   it('issues a token even with no requested scopes (docker login probe)', async () => {
-    const token = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
       [],
       'u1',
     );
-    const decoded = jwt.verify(token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as {
+    const decoded = jwt.verify(result.token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as {
       access: unknown[];
     };
     expect(decoded.access).toEqual([]);

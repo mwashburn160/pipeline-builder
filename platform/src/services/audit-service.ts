@@ -1,10 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
 import AuditEvent, { type AuditAction, type AuditEventDocument } from '../models/audit-event';
-
-const logger = createLogger('audit-service');
+import { escapeRegex } from '../utils/regex';
 
 export interface AuditFilter {
   /** Actor's org at action-time. */
@@ -13,6 +11,14 @@ export interface AuditFilter {
    *  (sysadmin acting on org X). Filtering on this answers "what was done
    *  to org X" regardless of which actor performed it. */
   affectedOrgId?: string;
+  /**
+   * Match events where EITHER `orgId` OR `affectedOrgId` equals this value.
+   * Use for org admins reading their own org's audit: they should see
+   * events their org acted (orgId) AND events another org acted on them
+   * (affectedOrgId). When set, `orgId`/`affectedOrgId` filters above are
+   * ignored to keep the predicate single-shaped.
+   */
+  orgIdOrAffected?: string;
   /** Specific user who performed the action. */
   actorId?: string;
   action?: string;
@@ -53,12 +59,19 @@ class AuditService {
   ): Promise<PaginatedAuditResult> {
     const query: Record<string, unknown> = {};
 
-    if (filter.orgId) query.orgId = filter.orgId;
-    if (filter.affectedOrgId) query.affectedOrgId = filter.affectedOrgId;
+    if (filter.orgIdOrAffected) {
+      // Org-admin reads need union: events actor=their-org OR target=their-org.
+      query.$or = [
+        { orgId: filter.orgIdOrAffected },
+        { affectedOrgId: filter.orgIdOrAffected },
+      ];
+    } else {
+      if (filter.orgId) query.orgId = filter.orgId;
+      if (filter.affectedOrgId) query.affectedOrgId = filter.affectedOrgId;
+    }
     if (filter.actorId) query.actorId = filter.actorId;
     if (filter.action) {
-      const escaped = filter.action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      query.action = { $regex: escaped, $options: 'i' };
+      query.action = { $regex: escapeRegex(filter.action), $options: 'i' };
     }
     if (filter.targetType) query.targetType = filter.targetType;
     if (filter.targetId) query.targetId = filter.targetId;
@@ -75,20 +88,13 @@ class AuditService {
   }
 
   /**
-   * Create a new audit event.
+   * Create a new audit event. For fire-and-forget writes from request
+   * handlers, prefer the `audit()` helper in `helpers/audit.ts` — it
+   * also auto-populates `affectedOrgId` from the Express request.
    */
   async createEvent(input: AuditCreateInput): Promise<AuditEventDocument> {
     const event = await AuditEvent.create(input);
     return event;
-  }
-
-  /**
-   * Create an audit event without blocking the caller (fire-and-forget).
-   */
-  createEventAsync(input: AuditCreateInput): void {
-    AuditEvent.create(input).catch((err) => {
-      logger.warn('Failed to create audit event', { error: String(err), action: input.action });
-    });
   }
 }
 

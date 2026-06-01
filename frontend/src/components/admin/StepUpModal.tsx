@@ -97,14 +97,14 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="btn-secondary"
+              className="btn btn-secondary"
               disabled={submitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="btn-primary inline-flex items-center gap-2"
+              className="btn btn-primary inline-flex items-center gap-2"
               disabled={submitting || !password}
             >
               {submitting && <LoadingSpinner size="sm" />}

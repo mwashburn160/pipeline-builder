@@ -6,6 +6,7 @@ import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { formatRelativeTime } from '@/lib/relative-time';
 import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
+import { RESULT_STYLES } from './_result-styles';
 
 const RuleList = lazy(() => import('./RuleList'));
 const RuleEditor = lazy(() => import('./RuleEditor'));
@@ -38,12 +39,6 @@ const STAT_COLORS: Record<string, string> = {
   green: 'text-green-600 bg-green-50 dark:bg-green-900/20',
   yellow: 'text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20',
   red: 'text-red-600 bg-red-50 dark:bg-red-900/20',
-};
-
-const RESULT_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  pass: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Pass' },
-  warn: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Warn' },
-  block: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Block' },
 };
 
 function TabSpinner() {
@@ -80,45 +75,57 @@ export default function ComplianceDashboard({ isAdmin = false }: ComplianceDashb
         setAudit(res.data.entries);
         if (res.data.pagination) {
           setAuditPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
-          // Update stats from total counts (first page load only)
-          if (offset === 0) {
-            const entries = res.data.entries;
-            setStats(s => ({
-              ...s,
-              pass: entries.filter(e => e.result === 'pass').length,
-              warn: entries.filter(e => e.result === 'warn').length,
-              block: entries.filter(e => e.result === 'block').length,
-            }));
-          }
         }
       }
     } catch { /* handled by API layer */ }
   }, [auditTarget, auditResult, auditPagination.offset, auditPagination.limit]);
 
+  // Pass/warn/block counts come from dedicated `result=` queries that ask
+  // for `limit:1` and read `pagination.total`. We can't derive the totals
+  // from `entries.filter(...).length` because that's only the current page.
   useEffect(() => {
-    fetchAudit();
+    let cancelled = false;
+    const fetchCount = (result: 'pass' | 'warn' | 'block') =>
+      api.getComplianceAuditLog({ result, limit: 1 })
+        .then((res) => (res.success && res.data?.pagination?.total) || 0)
+        .catch(() => 0);
+    Promise.all([fetchCount('pass'), fetchCount('warn'), fetchCount('block')]).then(
+      ([pass, warn, block]) => {
+        if (cancelled) return;
+        setStats((s) => ({ ...s, pass, warn, block }));
+      },
+    );
     api.getComplianceRules({ limit: 1 }).then(res => {
+      if (cancelled) return;
       if (res.success && res.data?.pagination) {
         setStats(s => ({ ...s, rules: res.data!.pagination!.total }));
       }
     }).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
+  }, []);
 
-  // Reset to page 1 when filters change
+  // Reset to page 1 when filters change.
   useEffect(() => {
     setAuditPagination(prev => ({ ...prev, offset: 0 }));
   }, [auditTarget, auditResult]);
 
-  // Refetch audit when filters change (skip initial since above handles it)
-  const filtersActive = auditTarget || auditResult;
+  // Refetch the audit log when the filters change. The previous
+  // `filtersActive` truthy-string indirection skipped fetches when both
+  // filters were cleared at once; this fires on any transition.
   useEffect(() => {
-    if (filtersActive) fetchAudit();
-  }, [filtersActive, fetchAudit]);
+    fetchAudit();
+    // fetchAudit closes over the same deps; we want to fire only when the
+    // user-facing filters change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditTarget, auditResult]);
 
   const handleAuditPageChange = (offset: number) => { fetchAudit(offset, auditPagination.limit); };
   const handleAuditPageSizeChange = (limit: number) => { fetchAudit(0, limit); };
 
-  // Clear sub-views on tab change
+  // Clear sub-views on tab change. NOTE (N37): the RuleHistory view is
+  // intentionally only reachable through this gate (rules tab + a selected
+  // history rule). Tab navigation resets the gate so the user always lands
+  // on the list view, not a stale drill-down.
   useEffect(() => {
     setHistoryRule(null);
     setDetailScanId(null);

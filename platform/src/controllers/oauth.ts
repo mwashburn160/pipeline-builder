@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { withController } from '../helpers/controller-helper';
 import { authService } from '../services';
@@ -159,7 +159,7 @@ function getProvider(name: string): OAuthProvider | null {
 // Route handlers
 
 export const getAuthUrl = withController('Get OAuth URL', async (req, res) => {
-  const providerName = Array.isArray(req.params.provider) ? req.params.provider[0] : req.params.provider;
+  const providerName = getParam(req.params, 'provider')!;
   const provider = getProvider(providerName);
 
   if (!provider) return sendError(res, 400, `Unsupported OAuth provider: ${providerName}`);
@@ -182,7 +182,7 @@ export const getAuthUrl = withController('Get OAuth URL', async (req, res) => {
 });
 
 export const handleCallback = withController('OAuth callback', async (req, res) => {
-  const providerName = Array.isArray(req.params.provider) ? req.params.provider[0] : req.params.provider;
+  const providerName = getParam(req.params, 'provider')!;
   const provider = getProvider(providerName);
 
   if (!provider) return sendError(res, 400, `Unsupported OAuth provider: ${providerName}`);

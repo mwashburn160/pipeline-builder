@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useObservabilityQuery, type RangeKey } from '@/hooks/useObservabilityQuery';
-import type { DataSeries } from '@/types/observability';
 import { Panel } from './Panel';
+import { defaultFormat, prepareSeries } from './_chartUtils';
 
 interface LinePanelProps {
   queryKey: string;
@@ -19,45 +19,9 @@ interface LinePanelProps {
   vars?: { plugin?: string };
 }
 
-const SERIES_COLORS = [
-  '#2563eb', // blue
-  '#16a34a', // green
-  '#dc2626', // red
-  '#ea580c', // orange
-  '#7c3aed', // purple
-  '#0891b2', // cyan
-  '#ca8a04', // yellow
-  '#be185d', // pink
-];
-
 const CHART_WIDTH = 480;
 const CHART_HEIGHT = 160;
 const PAD = { top: 8, right: 8, bottom: 18, left: 32 };
-
-function defaultFormat(v: number): string {
-  if (Math.abs(v) >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
-  if (Math.abs(v) < 1 && v !== 0) return v.toFixed(2);
-  return v.toFixed(1);
-}
-
-interface PreparedSeries {
-  label: string;
-  color: string;
-  points: Array<{ x: number; y: number }>;
-}
-
-function prepareSeries(series: DataSeries[], groupBy: string | undefined): PreparedSeries[] {
-  // Group label name for legend — fall back to status / state / first label key.
-  const groupKey = groupBy
-    ?? (series[0]?.labels.status !== undefined ? 'status'
-      : series[0]?.labels.state !== undefined ? 'state'
-        : Object.keys(series[0]?.labels ?? {})[0]);
-  return series.map((s, i) => ({
-    label: (groupKey && s.labels[groupKey]) || `series ${i + 1}`,
-    color: SERIES_COLORS[i % SERIES_COLORS.length],
-    points: s.values.map((p) => ({ x: p.time, y: parseFloat(p.value) })),
-  }));
-}
 
 export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = defaultFormat, vars }: LinePanelProps) {
   const { data, loading, error } = useObservabilityQuery(queryKey, range, vars);
@@ -71,9 +35,12 @@ export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = 
     return <Panel title={title} span={span} loading={loading} error={error} empty={empty}>{null}</Panel>;
   }
 
+  // `prepareSeries` already filters non-finite ys, so `allPoints` is safe
+  // to min/max directly. If every point was NaN the empty-state branch
+  // above already returned.
   const xMin = Math.min(...allPoints.map((p) => p.x));
   const xMax = Math.max(...allPoints.map((p) => p.x));
-  const yValues = allPoints.map((p) => p.y).filter((v) => Number.isFinite(v));
+  const yValues = allPoints.map((p) => p.y);
   const yMin = Math.min(0, ...yValues);
   const yMax = Math.max(...yValues);
   const ySpan = yMax === yMin ? 1 : yMax - yMin;

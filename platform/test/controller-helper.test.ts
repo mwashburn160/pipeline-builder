@@ -11,6 +11,15 @@ jest.mock('@pipeline-builder/api-core', () => ({
   })),
   sendError: jest.fn(),
   SYSTEM_ORG_ID: 'system',
+  // `isSystemAdmin` is re-exported from api-core into the platform helper;
+  // mock it to match the production semantics (sysadmin iff JWT claim).
+  isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
+  // `isOrgAdmin` uses `isSystemOrgId(orgId, orgName)` to exclude the legacy
+  // 'system' content-holder org from being treated as a real tenant.
+  isSystemOrgId: jest.fn(
+    (orgId?: string, orgName?: string) =>
+      orgId?.toLowerCase() === 'system' || orgName?.toLowerCase() === 'system',
+  ),
 }));
 
 jest.mock('mongoose', () => {
@@ -37,7 +46,6 @@ jest.mock('mongoose', () => {
 
 import { sendError } from '@pipeline-builder/api-core';
 import {
-  isSystemAdmin,
   isOrgAdmin,
   requireAuth,
   requireAuthUserId,
@@ -57,6 +65,7 @@ function mockReq(user?: Partial<{
   organizationId: string;
   organizationName: string;
   sub: string;
+  isSuperAdmin: boolean;
 }>, headers?: Record<string, string>) {
   return { user: user as any, headers: headers || {} } as any;
 }
@@ -69,32 +78,8 @@ function mockRes() {
 describe('controller-helper', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  describe('isSystemAdmin', () => {
-    it('should return true when role=admin and orgId=system', () => {
-      expect(isSystemAdmin(mockReq({ role: 'admin', organizationId: 'system' }))).toBe(true);
-    });
-
-    it('should return true when role=admin and orgName=system', () => {
-      expect(isSystemAdmin(mockReq({ role: 'admin', organizationName: 'system' }))).toBe(true);
-    });
-
-    it('should be case-insensitive', () => {
-      expect(isSystemAdmin(mockReq({ role: 'admin', organizationId: 'SYSTEM' }))).toBe(true);
-      expect(isSystemAdmin(mockReq({ role: 'admin', organizationName: 'System' }))).toBe(true);
-    });
-
-    it('should return false for non-admin role', () => {
-      expect(isSystemAdmin(mockReq({ role: 'user', organizationId: 'system' }))).toBe(false);
-    });
-
-    it('should return false for admin in non-system org', () => {
-      expect(isSystemAdmin(mockReq({ role: 'admin', organizationId: 'org-1' }))).toBe(false);
-    });
-
-    it('should return false when no user', () => {
-      expect(isSystemAdmin(mockReq())).toBe(false);
-    });
-  });
+  // isSystemAdmin is now re-exported from api-core; covered in api-core/test/auth.test.ts.
+  // Local tests verify only the wrapper functions (isOrgAdmin, requireSystemAdmin, etc.).
 
   describe('isOrgAdmin', () => {
     it('should return true for admin in non-system org', () => {
@@ -140,7 +125,9 @@ describe('controller-helper', () => {
 
   describe('requireSystemAdmin', () => {
     it('should return true for system admin', () => {
-      expect(requireSystemAdmin(mockReq({ role: 'admin', organizationId: 'system', sub: 'u1' }), mockRes())).toBe(true);
+      // Sysadmin authority comes from the `isSuperAdmin` JWT claim now;
+      // org name/id is no longer a privilege source.
+      expect(requireSystemAdmin(mockReq({ isSuperAdmin: true, sub: 'u1' }), mockRes())).toBe(true);
     });
 
     it('should return false and send 403 for org admin', () => {
@@ -174,7 +161,8 @@ describe('controller-helper', () => {
 
   describe('getAdminContext', () => {
     it('should return system admin context', () => {
-      const ctx = getAdminContext(mockReq({ role: 'admin', organizationId: 'system' }));
+      // Sysadmin context is driven by the `isSuperAdmin` JWT claim, not org.
+      const ctx = getAdminContext(mockReq({ isSuperAdmin: true }));
       expect(ctx.isSuperAdmin).toBe(true);
       expect(ctx.isOrgAdmin).toBe(false);
       expect(ctx.adminType).toBe('system admin');
@@ -190,7 +178,7 @@ describe('controller-helper', () => {
 
   describe('requireAdminContext', () => {
     it('should return context for system admin', () => {
-      const ctx = requireAdminContext(mockReq({ role: 'admin', organizationId: 'system' }), mockRes());
+      const ctx = requireAdminContext(mockReq({ isSuperAdmin: true }), mockRes());
       expect(ctx).not.toBeNull();
       expect(ctx!.isSuperAdmin).toBe(true);
     });

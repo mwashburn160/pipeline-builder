@@ -24,7 +24,7 @@ const logger = createLogger('storage-usage');
  */
 /** Override via `REGISTRY_STORAGE_CACHE_TTL_MS`. */
 const CACHE_TTL_MS = parseInt(process.env.REGISTRY_STORAGE_CACHE_TTL_MS || '60000', 10);
-const cache = new Map<string, { bytes: number; computedAt: number }>();
+const cache = new Map<string, { bytes: number; repos: number; blobs: number; computedAt: number }>();
 
 export interface StorageUsage {
   /** Repo namespace prefix used to compute the rollup (e.g. `org-acme/`). */
@@ -62,8 +62,8 @@ export async function computeStorageUsage(
     return {
       prefix,
       bytes: cached.bytes,
-      repos: 0,
-      blobs: 0,
+      repos: cached.repos,
+      blobs: cached.blobs,
       computedAt: cached.computedAt,
     };
   }
@@ -125,7 +125,12 @@ export async function computeStorageUsage(
   }
 
   const now = Date.now();
-  cache.set(prefix, { bytes: totalBytes, computedAt: now });
+  cache.set(prefix, {
+    bytes: totalBytes,
+    repos: reposBeingScanned.length,
+    blobs: uniqueBlobs.size,
+    computedAt: now,
+  });
   return {
     prefix,
     bytes: totalBytes,

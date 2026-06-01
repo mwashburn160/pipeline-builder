@@ -3,6 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
+import { loadActiveOrgInfo } from '../helpers/active-org-info';
 import { User, Organization, UserOrganization } from '../models';
 
 const logger = createLogger('user-profile-service');
@@ -124,20 +125,7 @@ class UserProfileService {
     ).lean();
     if (!updated) throw new Error(PROFILE_USER_NOT_FOUND);
 
-    // Fetch active org name + role in parallel for response shaping.
-    const activeOrgId = updated.lastActiveOrgId?.toString();
-    let organizationName: string | null = null;
-    let activeOrgRole: string | undefined;
-
-    if (activeOrgId) {
-      const [org, membership] = await Promise.all([
-        Organization.findById(activeOrgId).select('name').lean(),
-        UserOrganization.findOne({ userId: updated._id, organizationId: activeOrgId, isActive: true }).lean(),
-      ]);
-      organizationName = org?.name || null;
-      activeOrgRole = membership?.role;
-    }
-
+    const { organizationName, activeOrgRole } = await loadActiveOrgInfo(updated._id, updated.lastActiveOrgId?.toString());
     return { user: updated, organizationName, activeOrgRole };
   }
 

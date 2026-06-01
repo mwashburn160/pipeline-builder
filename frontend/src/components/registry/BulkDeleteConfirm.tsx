@@ -42,6 +42,7 @@ const TYPE_CONFIRM_THRESHOLD = 5;
  */
 export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: BulkDeleteConfirmProps) {
   const [submitting, setSubmitting] = useState(false);
+  const [complete, setComplete] = useState(false);
   const [progress, setProgress] = useState({ done: 0, succeeded: 0, failed: 0 });
   const [confirmPhrase, setConfirmPhrase] = useState('');
   const [distinctDigests, setDistinctDigests] = useState<number | null>(null);
@@ -106,6 +107,9 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
       await Promise.all(batch.map(deleteOne));
     }
 
+    // Keep the delete button disabled after the batch completes — re-clicking
+    // would re-issue deletes against already-removed refs.
+    setComplete(true);
     setSubmitting(false);
     onDone({ succeeded, failed });
   };
@@ -178,11 +182,11 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
           </button>
           <button
             onClick={submit}
-            disabled={submitting || !typeConfirmPassed}
+            disabled={submitting || complete || !typeConfirmPassed}
             title={!typeConfirmPassed ? `Type ${expectedPhrase} above to enable` : undefined}
             className="px-4 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? `Deleting (${progress.done}/${refs.length})…` : `Delete ${refs.length}`}
+            {complete ? 'Done' : submitting ? `Deleting (${progress.done}/${refs.length})…` : `Delete ${refs.length}`}
           </button>
         </div>
       </div>

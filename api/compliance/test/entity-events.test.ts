@@ -33,6 +33,11 @@ jest.mock('@pipeline-builder/api-core', () => ({
     getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
     invalidatePattern: () => Promise.resolve(0),
   }),
+  // Route uses `requireAuth` and `isServicePrincipal` as middleware. Pass
+  // through to next() in the auth gate; isServicePrincipal returns true unless
+  // the test sets `req.__notServicePrincipal`.
+  requireAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+  isServicePrincipal: (req: { __notServicePrincipal?: boolean }) => !req?.__notServicePrincipal,
 }));
 
 const mockFindActiveByOrgAndTarget = jest.fn().mockResolvedValue([]);
@@ -66,48 +71,64 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
-import { sendSuccess, sendError, sendBadRequest } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest } from '@pipeline-builder/api-core';
 import { createEntityEventRoutes } from '../src/routes/entity-events';
 
-function getRouteHandler() {
+// The route now has three middlewares: requireAuth, requireServicePrincipal,
+// final handler. Run them sequentially so the service-principal gate fires
+// for the relevant test, but otherwise pass through to the handler.
+// A middleware that does NOT call next() (because it sent a response) must
+// resolve the chain — otherwise the test hangs to the jest timeout.
+function runRoute(req: any, res: any): Promise<unknown> {
   const router = createEntityEventRoutes();
   const layer = (router as unknown as { stack: Array<{ route: { path: string; stack: Array<{ handle: Function }> } }> })
-    .stack.find((l) => l.route?.path === '/');
-  return layer?.route.stack[0].handle;
+    .stack.find((l) => l.route?.path === '/')!;
+  const stack = layer.route.stack.map((s) => s.handle);
+  return new Promise((resolve) => {
+    let i = 0;
+    let settled = false;
+    const finish = (v: unknown) => { if (!settled) { settled = true; resolve(v); } };
+    const tick = () => {
+      if (i >= stack.length || settled) return finish(undefined);
+      const h = stack[i++];
+      const isMiddleware = h.length >= 3;
+      let advanced = false;
+      const next = () => { advanced = true; tick(); };
+      const result = isMiddleware ? h(req, res, next) : h(req, res);
+      const done = () => { if (!advanced && !settled) finish(undefined); };
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        (result as Promise<unknown>).then(done, done);
+      } else {
+        done();
+      }
+    };
+    tick();
+  });
 }
 
 describe('Entity Events Route', () => {
-  let handler: Function;
-
-  beforeAll(() => {
-    handler = getRouteHandler()!;
-  });
-
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  function makeReq(body: Record<string, unknown> = {}, headers: Record<string, string> = {}) {
-    return {
-      headers: { 'x-internal-service': 'true', ...headers },
-      body,
-    };
+  function makeReq(body: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+    return { headers: {}, body, ...extra };
   }
 
   const res = {};
 
-  it('rejects requests without x-internal-service header', async () => {
-    await handler(makeReq({}, { 'x-internal-service': '' }), res);
-    expect(sendError).toHaveBeenCalledWith(res, 403, expect.any(String), expect.any(String));
+  it('rejects non-service-principal callers (e.g. user JWTs)', async () => {
+    await runRoute(makeReq({}, { __notServicePrincipal: true }), res);
+    expect(sendBadRequest).toHaveBeenCalledWith(res, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
   });
 
   it('rejects requests with missing required fields', async () => {
-    await handler(makeReq({}), res);
+    await runRoute(makeReq({}), res);
     expect(sendBadRequest).toHaveBeenCalled();
   });
 
   it('returns evaluated:false for non-compliance targets', async () => {
-    await handler(makeReq({
+    await runRoute(makeReq({
       entityId: 'id-1',
       orgId: 'org-1',
       target: 'user',
@@ -123,7 +144,7 @@ describe('Entity Events Route', () => {
   it('returns evaluated:false when no active rules exist', async () => {
     mockFindActiveByOrgAndTarget.mockResolvedValue([]);
 
-    await handler(makeReq({
+    await runRoute(makeReq({
       entityId: 'id-1',
       orgId: 'org-1',
       target: 'plugin',
@@ -146,7 +167,7 @@ describe('Entity Events Route', () => {
       rulesEvaluated: 1,
     });
 
-    await handler(makeReq({
+    await runRoute(makeReq({
       entityId: 'id-1',
       orgId: 'org-1',
       target: 'plugin',
@@ -171,7 +192,7 @@ describe('Entity Events Route', () => {
       rulesEvaluated: 1,
     });
 
-    await handler(makeReq({
+    await runRoute(makeReq({
       entityId: 'id-2',
       orgId: 'org-2',
       target: 'pipeline',
@@ -189,7 +210,7 @@ describe('Entity Events Route', () => {
   it('returns evaluated:false on evaluation error', async () => {
     mockFindActiveByOrgAndTarget.mockRejectedValue(new Error('DB down'));
 
-    await handler(makeReq({
+    await runRoute(makeReq({
       entityId: 'id-3',
       orgId: 'org-3',
       target: 'plugin',

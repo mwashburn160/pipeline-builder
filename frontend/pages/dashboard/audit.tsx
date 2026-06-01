@@ -21,7 +21,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { Activity, Search, ArrowLeft, Download } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { Pagination } from '@/components/ui/Pagination';
@@ -153,7 +153,21 @@ export default function AuditPage() {
         )}
       </div>
 
-      {loading && <div className="my-4"><LoadingSpinner size="sm" /></div>}
+      {loading && (
+        <div className="card mt-2 overflow-hidden">
+          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="px-4 py-3">
+                <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                  <div className="h-3 skeleton w-1/4" />
+                  <div className="h-3 skeleton w-16" />
+                </div>
+                <div className="h-3 skeleton w-2/3" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Export bar — only on the current page worth of events. The richer
           dashboard at /dashboard/observability/audit-activity is the right

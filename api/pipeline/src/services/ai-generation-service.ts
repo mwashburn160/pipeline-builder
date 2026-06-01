@@ -10,11 +10,12 @@ import {
   streamText,
   Output,
 } from '@pipeline-builder/ai-core';
-import { createLogger, ValidationError, AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, ValidationError } from '@pipeline-builder/api-core';
 
 import { db, schema } from '@pipeline-builder/pipeline-core';
-import { eq, or, and, isNull } from 'drizzle-orm';
+import { and } from 'drizzle-orm';
 import { z } from 'zod';
+import { availablePluginConditions } from './plugin-lookup-service';
 
 export { getAvailableProviders, getProviderModels };
 
@@ -89,14 +90,7 @@ async function getAvailablePlugins(orgId: string): Promise<PluginSummary[]> {
       env: schema.plugin.env,
     })
     .from(schema.plugin)
-    .where(
-      and(
-        eq(schema.plugin.isActive, true),
-        isNull(schema.plugin.deletedAt),
-        eq(schema.plugin.accessModifier, AccessModifier.PUBLIC),
-        or(eq(schema.plugin.orgId, orgId), eq(schema.plugin.orgId, SYSTEM_ORG_ID)),
-      ),
-    ) as Promise<PluginSummary[]>;
+    .where(and(...availablePluginConditions(orgId))) as Promise<PluginSummary[]>;
 }
 
 /**

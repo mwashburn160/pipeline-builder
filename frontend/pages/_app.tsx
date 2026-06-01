@@ -27,21 +27,21 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
   return (
     <ErrorBoundary>
       <AuthProvider>
-      <FeaturesProvider>
-      <ToastProvider>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={router.pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-          >
-            {getLayout(<Component {...pageProps} />)}
-          </motion.div>
-        </AnimatePresence>
-      </ToastProvider>
-      </FeaturesProvider>
+        <FeaturesProvider>
+          <ToastProvider>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={router.pathname}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2, ease: 'easeInOut' }}
+              >
+                {getLayout(<Component {...pageProps} />)}
+              </motion.div>
+            </AnimatePresence>
+          </ToastProvider>
+        </FeaturesProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

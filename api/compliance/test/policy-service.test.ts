@@ -14,6 +14,32 @@ class StubCrudService {
 jest.mock('@pipeline-builder/pipeline-core', () => ({
   CrudService: StubCrudService,
   buildCompliancePolicyConditions: jest.fn(() => []),
+  buildComplianceRuleConditions: jest.fn(() => []),
+  buildPublishedRuleCatalogConditions: jest.fn(() => []),
+  drizzleCount: (r: unknown) => r,
+  runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
+  // tx supports the chain shape used by policy-service.cloneTemplate
+  // (`tx.select().from(...).where(...)`) — returns no template-rules by default.
+  withTenantTx: <T>(fn: (tx: unknown) => T): T => fn({
+    select: () => ({
+      from: () => ({
+        where: () => Promise.resolve([]),
+      }),
+    }),
+  }),
+  // Transitive import (policy-service → compliance-rule-service) reads
+  // CoreConstants.CACHE_TTL_COMPLIANCE_RULES at module load. Provide a stub.
+  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60_000 },
+  // Transitive import chain (policy-service → compliance-rule-service →
+  // rule-change-notifier → message-client) reads Config.getAny('server').
+  Config: {
+    getAny: (key: string) => key === 'server'
+      ? { services: { messageHost: 'localhost', messagePort: 0 } }
+      : undefined,
+    get: (key: string) => key === 'server'
+      ? { services: { messageHost: 'localhost', messagePort: 0 } }
+      : undefined,
+  },
   schema: {
     compliancePolicy: {
       name: 'col_name',
@@ -21,6 +47,11 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
       updatedAt: 'col_updatedAt',
       orgId: 'col_orgId',
       version: 'col_version',
+    },
+    complianceRule: {
+      policyId: 'col_policyId',
+      isActive: 'col_isActive',
+      deletedAt: 'col_deletedAt',
     },
   },
 }));

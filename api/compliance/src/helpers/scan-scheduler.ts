@@ -3,15 +3,24 @@
 
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config, schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-core';
-import { eq, ne, and, lte } from 'drizzle-orm';
+import { eq, and, lte, sql } from 'drizzle-orm';
 import { executeScan } from './scan-executor';
 
 const logger = createLogger('scan-scheduler');
 
-/** How often the scheduler runs (ms). */
-const complianceConfig = Config.getAny('compliance') as { scanSchedulerIntervalMs: number; systemOrgScansEnabled: boolean };
-const SCHEDULER_INTERVAL_MS = complianceConfig.scanSchedulerIntervalMs;
-const SYSTEM_ORG_SCANS_ENABLED = complianceConfig.systemOrgScansEnabled;
+/**
+ * How often the scheduler runs (ms). `Config.getAny('compliance')` is loosely
+ * typed (returns `unknown`-ish), so we read defensively: every field is
+ * defaulted via `??` and coerced with a safe cast rather than asserting the
+ * whole shape — a missing or partially-populated config block (e.g. a fresh
+ * deploy) should still boot the scheduler with sane defaults.
+ */
+const complianceConfig = (Config.getAny('compliance') ?? {}) as Partial<{
+  scanSchedulerIntervalMs: number;
+  systemOrgScansEnabled: boolean;
+}>;
+const SCHEDULER_INTERVAL_MS = Number(complianceConfig.scanSchedulerIntervalMs ?? 60_000);
+const SYSTEM_ORG_SCANS_ENABLED = Boolean(complianceConfig.systemOrgScansEnabled ?? false);
 
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -68,7 +77,8 @@ async function processPendingScans(): Promise<void> {
   // wastes cycles and pollutes the audit feed.
   const conditions = [eq(schema.complianceScan.status, 'pending')];
   if (!SYSTEM_ORG_SCANS_ENABLED) {
-    conditions.push(ne(schema.complianceScan.orgId, SYSTEM_ORG_ID));
+    // Case-insensitive system-org filter (matches SYSTEM_ORG_ID, which is lowercased at module load).
+    conditions.push(sql`lower(${schema.complianceScan.orgId}) <> ${SYSTEM_ORG_ID}`);
   }
   const pendingScans = await withTenantTx(async (tx) => tx
     .select({ id: schema.complianceScan.id })
@@ -94,7 +104,7 @@ async function checkDueSchedules(): Promise<void> {
     lte(schema.complianceScanSchedule.nextRunAt, now),
   ];
   if (!SYSTEM_ORG_SCANS_ENABLED) {
-    conditions.push(ne(schema.complianceScanSchedule.orgId, SYSTEM_ORG_ID));
+    conditions.push(sql`lower(${schema.complianceScanSchedule.orgId}) <> ${SYSTEM_ORG_ID}`);
   }
   const dueSchedules = await withTenantTx(async (tx) => tx
     .select()
@@ -143,21 +153,35 @@ async function checkDueSchedules(): Promise<void> {
  * succeed without falling back to the safety value. Use in route handlers
  * to reject malformed input at insert time, rather than silently storing
  * a schedule that resolves to "1 hour from now" forever.
+ *
+ * Only the minute and hour fields are honored by `calculateNextRun`; the
+ * day-of-month, month, and day-of-week fields are ignored. Reject any
+ * expression where those three fields aren't `*` so users don't think
+ * `0 6 * * 1` will actually fire weekly. (We avoid taking on `cron-parser`
+ * as a dependency just for one helper.)
  */
 export function isValidCronExpression(cronExpression: string): boolean {
   try {
     const parts = cronExpression.trim().split(/\s+/);
     if (parts.length !== 5) return false;
-    const [minuteSpec, hourSpec] = parts;
-    const minute = parseField(minuteSpec, 0, 59);
-    const hour = parseField(hourSpec, 0, 23);
-    return minuteSpec === '*' || minute !== null || /^\*\/\d+$/.test(minuteSpec)
-      ? hourSpec === '*' || hour !== null || /^\*\/\d+$/.test(hourSpec)
-      : false;
+    const [minuteSpec, hourSpec, dom, month, dow] = parts;
+    if (dom !== '*' || month !== '*' || dow !== '*') return false;
+
+    const minuteOk = minuteSpec === '*'
+      || parseField(minuteSpec, 0, 59) !== null
+      || /^\*\/\d+$/.test(minuteSpec);
+    const hourOk = hourSpec === '*'
+      || parseField(hourSpec, 0, 23) !== null
+      || /^\*\/\d+$/.test(hourSpec);
+    return minuteOk && hourOk;
   } catch {
     return false;
   }
 }
+
+/** Human-readable rejection reason for `isValidCronExpression`. */
+export const CRON_VALIDATION_HINT =
+  'Cron expression must have exactly 5 fields and the day-of-month, month, and day-of-week fields must be "*". Only minute and hour are honored.';
 
 /**
  * Calculate the next run time from a cron expression.

@@ -13,10 +13,12 @@ interface DeleteConfirmModalProps {
   onConfirm: () => void;
   /** Callback fired when the user cancels (via Cancel button, Escape, or backdrop click) */
   onCancel: () => void;
+  /** Extra classes appended to the modal panel. */
+  className?: string;
 }
 
 /** Destructive-action confirmation dialog with a warning message and Cancel/Delete buttons. */
-export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCancel }: DeleteConfirmModalProps) {
+export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCancel, className = '' }: DeleteConfirmModalProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -35,7 +37,7 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
 
   return (
     <div className="modal-backdrop" onClick={() => !loading && onCancel()} role="presentation">
-      <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-label={title}>
+      <div className={`modal-panel max-w-md ${className}`} onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-label={title}>
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{title}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
           Are you sure you want to delete <strong className="text-gray-700 dark:text-gray-200">{itemName}</strong>?

@@ -23,10 +23,20 @@ export const MessagePrioritySchema = z.enum(['normal', 'high', 'urgent']);
 export const MessageChannelSchema = z.string().min(1).max(50).regex(/^[a-z0-9_-]+$/);
 
 /**
- * Message filter schema for query parameters
+ * Message filter schema for query parameters.
+ *
+ * Convention for `threadId`:
+ * - Omitted (undefined): no filter applied — returns messages regardless of thread.
+ * - `'root'` or `null`: filter for root messages only (translated to `threadId IS NULL`
+ *   by the route layer / query builder). The string sentinel `'root'` is the
+ *   wire form, since URL query params can't carry a true `null`.
+ * - A UUID: filter for messages in that specific thread.
+ *
+ * `isRead` is honored by `buildMessageConditions` in pipeline-data via a
+ * JSONB `?` membership check on `messages.read_by` for the requesting org.
  */
 export const MessageFilterSchema = BaseFilterSchema.extend({
-  threadId: z.string().uuid().optional(),
+  threadId: z.union([z.string().uuid(), z.literal('root'), z.null()]).optional(),
   recipientOrgId: z.string().min(1).optional(),
   messageType: MessageTypeSchema.optional(),
   isRead: BooleanQuerySchema.optional(),

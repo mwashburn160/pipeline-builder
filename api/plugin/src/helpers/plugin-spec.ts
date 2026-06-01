@@ -8,7 +8,7 @@ import { pipeline } from 'stream/promises';
 
 import { ValidationError } from '@pipeline-builder/api-core';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
-import { validateTemplates, allowedScopeRoots } from '@pipeline-builder/pipeline-core';
+import { validateTemplates, allowedScopeRoots, tokenize } from '@pipeline-builder/pipeline-core';
 import { v7 as uuid } from 'uuid';
 import YAML from 'yaml';
 import yauzl from 'yauzl';
@@ -306,9 +306,6 @@ export function validatePluginTemplates(pluginSpec: PluginSpec): void {
   if (pluginSpec.installCommands) scanStrings.push(...pluginSpec.installCommands);
   if (pluginSpec.env) scanStrings.push(...Object.values(pluginSpec.env));
   if (pluginSpec.buildArgs) scanStrings.push(...Object.values(pluginSpec.buildArgs));
-
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { tokenize } = require('@pipeline-builder/pipeline-core');
 
   // Map coercion filter → declared-type requirement
   const coerceToType: Record<string, string> = { number: 'number', bool: 'bool', json: 'json' };

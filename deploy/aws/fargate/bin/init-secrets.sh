@@ -48,7 +48,6 @@ JWT_SECRET=$(openssl rand -base64 32)
 REFRESH_TOKEN_SECRET=$(openssl rand -base64 32)
 POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '=+/')
 MONGO_PASSWORD=$(openssl rand -base64 24 | tr -d '=+/')
-GRAFANA_ADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 ME_BASICAUTH_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 PGADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 REGISTRY_TOKEN=$(openssl rand -base64 24 | tr -d '=+/')
@@ -78,7 +77,6 @@ SECRETS_JSON=$(cat <<EOF
   "MONGO_INITDB_ROOT_USERNAME": "mongo",
   "MONGO_INITDB_ROOT_PASSWORD": "${MONGO_PASSWORD}",
   "MONGODB_URI": "mongodb://mongo:${MONGO_PASSWORD}@mongodb.pipeline-builder.local:27017/platform?replicaSet=rs0&authSource=admin",
-  "GRAFANA_ADMIN_PASSWORD": "${GRAFANA_ADMIN_PASSWORD}",
   "ME_CONFIG_BASICAUTH_USERNAME": "admin",
   "ME_CONFIG_BASICAUTH_PASSWORD": "${ME_BASICAUTH_PASSWORD}",
   "ME_CONFIG_MONGODB_ADMINUSERNAME": "mongo",
@@ -155,7 +153,6 @@ echo ""
 echo "  Credentials generated:"
 echo "    PostgreSQL:    postgres / ${POSTGRES_PASSWORD}"
 echo "    MongoDB:       mongo / ${MONGO_PASSWORD}"
-echo "    Grafana:       admin / ${GRAFANA_ADMIN_PASSWORD}"
 echo "    Mongo Express: admin / ${ME_BASICAUTH_PASSWORD}"
 echo "    pgAdmin:       admin@${DOMAIN:-localhost} / ${PGADMIN_PASSWORD}"
 echo "    Registry:      admin / ${REGISTRY_TOKEN}"

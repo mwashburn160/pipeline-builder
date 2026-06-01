@@ -1,14 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, sendSuccess } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import type { RequestHandler } from 'express';
 import { buildUsageRollupFor } from '../helpers/usage-helpers';
 import { Plan } from '../models/plan';
 import { Subscription } from '../models/subscription';
 
 const logger = createLogger('billing-usage');
+
+const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
 /**
  * Cost-and-usage rollup for the active org.
@@ -21,14 +24,15 @@ const logger = createLogger('billing-usage');
  * just mirrors the plan price for the active interval. The endpoint is
  * structured so a future per-unit pricing add-on can extend `cost` without
  * changing the response shape.
+ * @returns Express Router
  */
 export function createUsageRoutes(): Router {
   const router: Router = Router();
 
-  router.get('/usage', withRoute(async ({ req, res, orgId }) => {
+  router.get('/usage', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const authHeader = req.headers.authorization || '';
 
-    // Subscription is optional  free / unsubscribed orgs still get a usage
+    // Subscription is optional — free / unsubscribed orgs still get a usage
     // view (against the developer-tier defaults the quota service applies).
     const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
     const plan = subscription

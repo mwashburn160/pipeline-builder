@@ -92,22 +92,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (userData.organizationId) {
             api.setOrganizationId(userData.organizationId);
           }
-          // Use organizations from profile if available, otherwise fetch separately
-          if (userData.organizations) {
-            setOrganizations(userData.organizations);
-          } else {
-            try {
-              const orgRes = await api.getUserOrganizations();
-              const orgs = (orgRes.data?.organizations || []).map(o => ({
-                id: o.organizationId,
-                name: o.organizationName,
-                slug: o.slug,
-                role: o.role as UserOrgMembership['role'],
-              }));
-              setOrganizations(orgs);
-            } catch {
-              setOrganizations([]);
-            }
+          // Profile endpoint never returns `organizations`; always fetch separately.
+          try {
+            const orgRes = await api.getUserOrganizations();
+            const orgs = (orgRes.data?.organizations || []).map(o => ({
+              id: o.organizationId,
+              name: o.organizationName,
+              slug: o.slug,
+              role: o.role as UserOrgMembership['role'],
+            }));
+            setOrganizations(orgs);
+          } catch {
+            setOrganizations([]);
           }
           return;
         }

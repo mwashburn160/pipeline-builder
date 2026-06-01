@@ -13,7 +13,7 @@ import {
   sendEntityNotFound,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
+import { withRoute, incrementQuotaFromCtx, createProtectedRoute } from '@pipeline-builder/api-server';
 import type { MessageFilter } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { messageService } from '../services/message-service';
@@ -31,9 +31,10 @@ import { messageService } from '../services/message-service';
  */
 export function createReadMessageRoutes(quotaService: QuotaService): Router {
   const router = Router();
+  const protect = createProtectedRoute(quotaService, 'apiCalls');
 
   // GET /messages — List inbox (root messages)
-  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', ...protect, withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
 
     // Validate query params with Zod schema
@@ -41,16 +42,21 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
-    const { messageType, priority, channel } = validation.value;
+    const { messageType, priority, channel, isRead, threadId } = validation.value;
 
-    ctx.log('INFO', 'Fetching messages inbox', { orgId, messageType, channel });
+    ctx.log('INFO', 'Fetching messages inbox', { orgId, messageType, channel, isRead });
+
+    // `threadId === 'root'` (sentinel) or `null` both mean "root messages only".
+    // Any UUID value is forwarded literally to filter replies in a thread.
+    const resolvedThreadId = threadId === 'root' || threadId === null ? null : threadId;
 
     const filter: Partial<MessageFilter> = {
       isActive: true,
-      threadId: null, // SQL-level IS NULL — root messages only
+      threadId: resolvedThreadId ?? null,
       ...(messageType && { messageType }),
       ...(priority && { priority }),
       ...(channel && { channel }),
+      ...(isRead !== undefined && { isRead }),
     };
 
     const result = await messageService.findPaginated(
@@ -68,7 +74,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/announcements — List announcements
-  router.get('/announcements', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/announcements', ...protect, withRoute(async ({ req, res, ctx, orgId }) => {
     ctx.log('INFO', 'Fetching announcements', { orgId });
     const announcements = await messageService.findAnnouncements(orgId);
 
@@ -79,7 +85,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/conversations — List conversations
-  router.get('/conversations', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/conversations', ...protect, withRoute(async ({ req, res, ctx, orgId }) => {
     ctx.log('INFO', 'Fetching conversations', { orgId });
     const conversations = await messageService.findConversations(orgId);
 
@@ -90,7 +96,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/unread/count — Get unread count
-  router.get('/unread/count', withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/unread/count', ...protect, withRoute(async ({ res, ctx, orgId }) => {
     ctx.log('INFO', 'Fetching unread count', { orgId });
 
     const count = await messageService.getUnreadCount(orgId);
@@ -101,7 +107,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/:id — Get single message
-  router.get('/:id', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id', ...protect, withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -117,7 +123,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/:id/thread — Get thread messages
-  router.get('/:id/thread', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id/thread', ...protect, withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);

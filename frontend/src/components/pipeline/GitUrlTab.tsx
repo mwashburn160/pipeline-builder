@@ -1,4 +1,4 @@
-import { useState, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { useState, useEffect, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { BuilderProps, Plugin, GeneratedPluginRef, GeneratedStage, GeneratedSynth } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -136,6 +136,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const [organizationOverride, setOrganizationOverride] = useState('');
 
     const ai = useAIProviders(() => api.getAIProviders());
+    const autoGenAttemptedRef = useRef<boolean>(false);
 
     /** Update a plugin reference at the given path when the user swaps via combobox. */
     const handlePluginChange = useCallback((path: string, pluginName: string, plugin: Plugin | null) => {
@@ -145,11 +146,15 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       // Locate the target plugin ref
       let target: GeneratedPluginRef;
       if (path === 'synth') {
+        if (!updated.synth) return;
         target = (updated.synth as unknown as GeneratedSynth).plugin;
       } else {
         const [, stageIdx, , stepIdx] = path.split('.');
         const stages = updated.stages as unknown as GeneratedStage[];
-        target = stages[Number(stageIdx)].steps[Number(stepIdx)].plugin;
+        const si = Number(stageIdx);
+        const stepI = Number(stepIdx);
+        if (!stages?.[si]?.steps?.[stepI]) return;
+        target = stages[si].steps[stepI].plugin;
       }
 
       // Always update name (covers both typing and dropdown selection)
@@ -271,13 +276,24 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       }
     };
 
-    // Auto-generate when initialUrl + autoGenerate are set
+    // Auto-generate when initialUrl + autoGenerate are set. Fire exactly once
+    // when both provider and model become non-empty AND providers finish loading;
+    // the ref guard prevents repeat triggers on later renders (e.g. user
+    // toggling the provider dropdown).
     useEffect(() => {
-      if (autoGenerate && initialUrl && ai.selectedProvider && ai.selectedModel && !ai.loading) {
+      if (
+        autoGenerate &&
+        initialUrl &&
+        ai.selectedProvider &&
+        ai.selectedModel &&
+        !ai.loading &&
+        !autoGenAttemptedRef.current
+      ) {
+        autoGenAttemptedRef.current = true;
         handleGenerate();
       }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally skip initialUrl/autoGenerate to prevent infinite loops on prop changes
-    }, [ai.loading]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally skip initialUrl/autoGenerate/handleGenerate to prevent infinite loops on prop changes
+    }, [ai.loading, ai.selectedProvider, ai.selectedModel]);
 
     if (ai.loading) {
       return (

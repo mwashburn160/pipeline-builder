@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import { toOrgId } from '../helpers/controller-helper';
 import { Organization, User, UserOrganization } from '../models';
 import type { OrgMemberRole } from '../models/user-organization';
+import { withMongoTransaction } from '../utils/mongo-tx';
 
 const logger = createLogger('org-members-service');
 
@@ -94,30 +95,25 @@ class OrgMembersService {
    * Throws OM_ORG_NOT_FOUND / OM_USER_NOT_FOUND / OM_ALREADY_MEMBER.
    */
   async addMember(orgId: string, body: { userId?: string; email?: string; role?: OrgMemberRole }): Promise<void> {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        const org = await Organization.findById(toOrgId(orgId)).session(session);
-        if (!org) throw new Error(OM_ORG_NOT_FOUND);
+    await withMongoTransaction(async (session) => {
+      const org = await Organization.findById(toOrgId(orgId)).session(session);
+      if (!org) throw new Error(OM_ORG_NOT_FOUND);
 
-        const user = body.userId
-          ? await User.findById(body.userId).session(session)
-          : await User.findOne({ email: body.email!.toLowerCase() }).session(session);
-        if (!user) throw new Error(OM_USER_NOT_FOUND);
+      const user = body.userId
+        ? await User.findById(body.userId).session(session)
+        : await User.findOne({ email: body.email!.toLowerCase() }).session(session);
+      if (!user) throw new Error(OM_USER_NOT_FOUND);
 
-        const existing = await UserOrganization.findOne({
-          userId: user._id, organizationId: toOrgId(orgId),
-        }).session(session);
-        if (existing) throw new Error(OM_ALREADY_MEMBER);
+      const existing = await UserOrganization.findOne({
+        userId: user._id, organizationId: toOrgId(orgId),
+      }).session(session);
+      if (existing) throw new Error(OM_ALREADY_MEMBER);
 
-        await UserOrganization.create(
-          [{ userId: user._id, organizationId: toOrgId(orgId), role: body.role || 'member' }],
-          { session },
-        );
-      });
-    } finally {
-      await session.endSession();
-    }
+      await UserOrganization.create(
+        [{ userId: user._id, organizationId: toOrgId(orgId), role: body.role || 'member' }],
+        { session },
+      );
+    });
   }
 
   /**
@@ -132,34 +128,30 @@ class OrgMembersService {
    * org until their access token expires (~2 h default).
    */
   async removeMember(orgId: string, userId: string): Promise<void> {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        const membership = await UserOrganization.findOne({
-          userId, organizationId: toOrgId(orgId),
-        }).session(session);
-        if (!membership) throw new Error(OM_NOT_A_MEMBER);
-        if (membership.role === 'owner') throw new Error(OM_CANNOT_REMOVE_OWNER);
+    await withMongoTransaction(async (session) => {
+      const membership = await UserOrganization.findOne({
+        userId, organizationId: toOrgId(orgId),
+      }).session(session);
+      if (!membership) throw new Error(OM_NOT_A_MEMBER);
+      if (membership.role === 'owner') throw new Error(OM_CANNOT_REMOVE_OWNER);
 
-        await UserOrganization.deleteOne({ _id: membership._id }).session(session);
-        await User.updateOne(
-          { _id: userId },
-          {
-            $inc: { tokenVersion: 1 },
-            $unset: { refreshToken: '' },
-          },
-          { session },
-        ).session(session);
-        // Clear lastActiveOrgId if it pointed at the just-removed org (in a
-        // separate update so the unset only fires for matching docs).
-        await User.updateOne(
-          { _id: userId, lastActiveOrgId: toOrgId(orgId) },
-          { $unset: { lastActiveOrgId: '' } },
-        ).session(session);
-      });
-    } finally {
-      await session.endSession();
-    }
+      await UserOrganization.deleteOne({ _id: membership._id }).session(session);
+      await User.updateOne(
+        { _id: userId },
+        {
+          $inc: { tokenVersion: 1 },
+          $unset: { refreshToken: '' },
+        },
+        { session },
+      );
+      // Clear lastActiveOrgId if it pointed at the just-removed org (in a
+      // separate update so the unset only fires for matching docs).
+      await User.updateOne(
+        { _id: userId, lastActiveOrgId: String(toOrgId(orgId)) },
+        { $unset: { lastActiveOrgId: '' } },
+        { session },
+      );
+    });
   }
 
   /**
@@ -200,33 +192,28 @@ class OrgMembersService {
    * Caller is responsible for verifying the actor (owner or sysadmin).
    */
   async transferOwnership(orgId: string, newOwnerId: string): Promise<void> {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        const org = await Organization.findById(toOrgId(orgId)).session(session);
-        if (!org) throw new Error(OM_ORG_NOT_FOUND);
+    await withMongoTransaction(async (session) => {
+      const org = await Organization.findById(toOrgId(orgId)).session(session);
+      if (!org) throw new Error(OM_ORG_NOT_FOUND);
 
-        const oldOwnerMembership = await UserOrganization.findOne({
-          organizationId: toOrgId(orgId), role: 'owner',
-        }).session(session);
-        if (!oldOwnerMembership) throw new Error(OM_OWNER_MEMBERSHIP_NOT_FOUND);
+      const oldOwnerMembership = await UserOrganization.findOne({
+        organizationId: toOrgId(orgId), role: 'owner',
+      }).session(session);
+      if (!oldOwnerMembership) throw new Error(OM_OWNER_MEMBERSHIP_NOT_FOUND);
 
-        const newOwnerMembership = await UserOrganization.findOne({
-          userId: newOwnerId, organizationId: toOrgId(orgId),
-        }).session(session);
-        if (!newOwnerMembership) throw new Error(OM_NEW_OWNER_MUST_BE_MEMBER);
+      const newOwnerMembership = await UserOrganization.findOne({
+        userId: newOwnerId, organizationId: toOrgId(orgId),
+      }).session(session);
+      if (!newOwnerMembership) throw new Error(OM_NEW_OWNER_MUST_BE_MEMBER);
 
-        oldOwnerMembership.role = 'admin';
-        await oldOwnerMembership.save({ session });
-        newOwnerMembership.role = 'owner';
-        await newOwnerMembership.save({ session });
+      oldOwnerMembership.role = 'admin';
+      await oldOwnerMembership.save({ session });
+      newOwnerMembership.role = 'owner';
+      await newOwnerMembership.save({ session });
 
-        org.owner = new mongoose.Types.ObjectId(newOwnerId);
-        await org.save({ session });
-      });
-    } finally {
-      await session.endSession();
-    }
+      org.owner = new mongoose.Types.ObjectId(newOwnerId);
+      await org.save({ session });
+    });
   }
 
   /** Check if the caller is the org owner — used by ownership-transfer authz. */
@@ -250,7 +237,7 @@ class OrgMembersService {
     await membership.save();
 
     await User.updateOne(
-      { _id: userId, lastActiveOrgId: toOrgId(orgId) },
+      { _id: userId, lastActiveOrgId: String(toOrgId(orgId)) },
       { $unset: { lastActiveOrgId: '' } },
     );
   }

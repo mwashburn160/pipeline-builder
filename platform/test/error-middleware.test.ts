@@ -10,9 +10,17 @@ jest.mock('@pipeline-builder/api-core', () => ({
     debug: jest.fn(),
   })),
   sendError: jest.fn(),
+  // Subset of api-core's ErrorCode enum used by middleware/error.ts.
+  // `pickClientErrorCode` maps 4xx → code; INTERNAL_ERROR is reserved for 5xx.
   ErrorCode: {
     NOT_FOUND: 'NOT_FOUND',
     INTERNAL_ERROR: 'INTERNAL_ERROR',
+    VALIDATION_ERROR: 'VALIDATION_ERROR',
+    UNAUTHORIZED: 'UNAUTHORIZED',
+    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
+    CONFLICT: 'CONFLICT',
+    PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
+    RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
   },
 }));
 
@@ -58,7 +66,9 @@ describe('error middleware', () => {
 
       errorHandler(err, mockReq(), res, jest.fn());
 
-      expect(mockSendError).toHaveBeenCalledWith(res, 403, 'Forbidden', 'INTERNAL_ERROR');
+      // 4xx now picks a status-specific ErrorCode via pickClientErrorCode
+      // (403 → INSUFFICIENT_PERMISSIONS) rather than always INTERNAL_ERROR.
+      expect(mockSendError).toHaveBeenCalledWith(res, 403, 'Forbidden', 'INSUFFICIENT_PERMISSIONS');
     });
 
     it('should default to 500 when no status', () => {
@@ -67,7 +77,9 @@ describe('error middleware', () => {
 
       errorHandler(err, mockReq(), res, jest.fn());
 
-      expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Unexpected', 'INTERNAL_ERROR');
+      // 5xx now substitutes a generic message to avoid leaking err.message
+      // (could contain stack/secret fragments); status + INTERNAL_ERROR stay.
+      expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Internal server error', 'INTERNAL_ERROR');
     });
   });
 });

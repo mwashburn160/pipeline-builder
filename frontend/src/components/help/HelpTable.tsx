@@ -22,10 +22,13 @@ export function HelpTable({ headers, rows }: HelpTableProps) {
         </thead>
         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
           {rows.map((row, i) => (
-            <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+            // The first cell is, in practice, the row's natural identifier
+            // (column name, env-var name, etc.) — preferable to the raw
+            // index because it survives row reordering.
+            <tr key={`${row[0] ?? ''}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
               {row.map((cell, j) => (
                 <td
-                  key={j}
+                  key={`${cell}-${j}`}
                   className="px-4 py-2 text-gray-600 dark:text-gray-400"
                 >
                   {cell}

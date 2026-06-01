@@ -26,6 +26,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { formatError } from '@/lib/constants';
+import { TIER_KEYS, getTierMeta } from '@/lib/tiers';
 import api from '@/lib/api';
 import type { Organization, OrgIdpConfigDto } from '@/types';
 
@@ -191,9 +192,9 @@ export default function OrgDetailPage() {
                 className="filter-select text-xs"
                 aria-label="Change pricing tier"
               >
-                <option value="developer">developer</option>
-                <option value="pro">pro</option>
-                <option value="unlimited">unlimited</option>
+                {TIER_KEYS.map((tier) => (
+                  <option key={tier} value={tier}>{getTierMeta(tier).label}</option>
+                ))}
               </select>
             </div>
             <dl className="text-sm space-y-2">
@@ -326,7 +327,7 @@ export default function OrgDetailPage() {
       )}
 
       {showKms && org && (
-        <OrgKmsConfigModal org={org} onClose={() => { setShowKms(false); void reload(); }} />
+        <OrgKmsConfigModal org={org} onClose={() => { setShowKms(false); void reload(); }} onSaved={reload} />
       )}
 
       {showIdp && org && (

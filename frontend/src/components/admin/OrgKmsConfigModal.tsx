@@ -11,6 +11,9 @@ import type { Organization } from '@/types';
 interface Props {
   org: Organization;
   onClose: () => void;
+  /** Invoked after a successful save or clear so the parent can refresh
+   *  any cached view of the org's KMS state. */
+  onSaved?: () => void;
 }
 
 /**
@@ -25,7 +28,7 @@ interface Props {
  * SECRET_ENCRYPTION_KEY master. Same re-encryption flow runs in reverse
  * if `reencrypt=true` (default).
  */
-export function OrgKmsConfigModal({ org, onClose }: Props) {
+export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState(false);
@@ -44,9 +47,11 @@ export function OrgKmsConfigModal({ org, onClose }: Props) {
     let cancelled = false;
     api.getOrgKmsConfig(org.id).then((res) => {
       if (cancelled) return;
-      if (res.success && res.data) {
-        setConfigured(res.data.configured);
-        setCurrentKeyId(res.data.keyId);
+      if (res.success) {
+        // `data` may be omitted on a not-yet-configured org; treat as
+        // "not configured" rather than an error.
+        setConfigured(res.data?.configured ?? false);
+        setCurrentKeyId(res.data?.keyId);
       } else {
         setError(res.message || 'Failed to load KMS config');
       }
@@ -61,24 +66,23 @@ export function OrgKmsConfigModal({ org, onClose }: Props) {
     setLastResult(null);
     try {
       const res = await api.putOrgKmsConfig(org.id, { keyId, ciphertextBase64 }, undefined, stepUpToken);
-      if (res.success && res.data) {
-        setConfigured(true);
-        setCurrentKeyId(res.data.keyId);
-        const reenc = res.data.aiKeysReencrypted !== undefined
-          ? ` Re-encrypted ${res.data.aiKeysReencrypted} AI key(s)${res.data.idpSecretReencrypted ? ' + IdP secret' : ''}.`
-          : '';
-        setLastResult(`KMS config saved.${reenc}`);
-        setKeyId('');
-        setCiphertextBase64('');
-      } else {
-        setError(res.message || 'Failed to save KMS config');
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to save KMS config');
+      setConfigured(true);
+      setCurrentKeyId(res.data?.keyId);
+      const reenc = res.data?.aiKeysReencrypted !== undefined
+        ? ` Re-encrypted ${res.data.aiKeysReencrypted} AI key(s)${res.data.idpSecretReencrypted ? ' + IdP secret' : ''}.`
+        : '';
+      setLastResult(`KMS config saved.${reenc}`);
+      setKeyId('');
+      setCiphertextBase64('');
+      onSaved?.();
+      onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
     }
-  }, [org.id, keyId, ciphertextBase64]);
+  }, [org.id, keyId, ciphertextBase64, onSaved, onClose]);
 
   /** Dry-run the proposed config without committing. The backend's
    *  /test endpoint constructs an ephemeral provider, calls KMS Decrypt
@@ -108,19 +112,18 @@ export function OrgKmsConfigModal({ org, onClose }: Props) {
     setLastResult(null);
     try {
       const res = await api.deleteOrgKmsConfig(org.id, stepUpToken);
-      if (res.success) {
-        setConfigured(false);
-        setCurrentKeyId(undefined);
-        setLastResult('KMS config cleared.');
-      } else {
-        setError(res.message || 'Failed to clear KMS config');
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to clear KMS config');
+      setConfigured(false);
+      setCurrentKeyId(undefined);
+      setLastResult('KMS config cleared.');
+      onSaved?.();
+      onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
     }
-  }, [org.id]);
+  }, [org.id, onSaved, onClose]);
 
   // Public actions just gate on step-up; the executeXxx fns run after.
   const handleSave = useCallback(() => setPendingOp('save'), []);
@@ -185,25 +188,25 @@ export function OrgKmsConfigModal({ org, onClose }: Props) {
           </div>
 
           <div>
-            <label className="form-label">KMS key id / alias</label>
+            <label className="label">KMS key id / alias</label>
             <input
               type="text"
               value={keyId}
               onChange={(e) => setKeyId(e.target.value)}
               placeholder="alias/pb-org-acme"
-              className="form-input font-mono text-sm"
+              className="input font-mono text-sm"
               disabled={submitting}
             />
           </div>
 
           <div>
-            <label className="form-label">Wrapped master (base64)</label>
+            <label className="label">Wrapped master (base64)</label>
             <textarea
               value={ciphertextBase64}
               onChange={(e) => setCiphertextBase64(e.target.value)}
               placeholder="AQICAHi..."
               rows={4}
-              className="form-input font-mono text-xs"
+              className="input font-mono text-xs"
               disabled={submitting}
             />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">

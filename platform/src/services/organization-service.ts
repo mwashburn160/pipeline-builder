@@ -1,9 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, decryptSecret, encryptSecret, isEncryptedBlob, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import type { EncryptedBlob } from '@pipeline-builder/api-core';
-import mongoose from 'mongoose';
+import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { toOrgId } from '../helpers/controller-helper';
 import {
@@ -13,7 +11,9 @@ import {
 } from '../middleware/quota';
 import { Organization, OrgIdpConfig, User, UserOrganization } from '../models';
 import type { QuotaTier } from '../models/organization';
+import { withMongoTransaction } from '../utils/mongo-tx';
 import { escapeRegex } from '../utils/regex';
+import { wrapEncrypted } from '../utils/secret-blob';
 
 const logger = createLogger('organization-service');
 
@@ -157,45 +157,35 @@ class OrganizationService {
     const tier = body.tier || 'developer';
     const tierConfig = config.quota.tier[tier];
 
-    const session = await mongoose.startSession();
+    return withMongoTransaction(async (session) => {
+      const orgData: Record<string, unknown> = {
+        name: body.name,
+        description: body.description || '',
+        owner: userId,
+        tier,
+      };
 
-    try {
-      let result!: { id: string; name: string; slug: string; description: string; tier: QuotaTier };
-
-      await session.withTransaction(async () => {
-        const orgData: Record<string, unknown> = {
-          name: body.name,
-          description: body.description || '',
-          owner: userId,
-          tier,
+      if (tierConfig) {
+        orgData.quotas = {
+          plugins: tierConfig.plugins,
+          pipelines: tierConfig.pipelines,
+          apiCalls: tierConfig.apiCalls,
+          aiCalls: tierConfig.aiCalls,
         };
+      }
 
-        if (tierConfig) {
-          orgData.quotas = {
-            plugins: tierConfig.plugins,
-            pipelines: tierConfig.pipelines,
-            apiCalls: tierConfig.apiCalls,
-            aiCalls: tierConfig.aiCalls,
-          };
-        }
+      const [org] = await Organization.create([orgData], { session });
+      await UserOrganization.create([{ userId, organizationId: org._id, role: 'owner' }], { session });
+      await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: String(org._id) } }, { session });
 
-        const [org] = await Organization.create([orgData], { session });
-        await UserOrganization.create([{ userId, organizationId: org._id, role: 'owner' }], { session });
-        await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: org._id } }).session(session);
-
-        result = {
-          id: org._id.toString(),
-          name: org.name,
-          slug: org.slug,
-          description: org.description || '',
-          tier,
-        };
-      });
-
-      return result;
-    } finally {
-      await session.endSession();
-    }
+      return {
+        id: org._id.toString(),
+        name: org.name,
+        slug: org.slug,
+        description: org.description || '',
+        tier,
+      };
+    });
   }
 
   /** Get a single org with its full member list. Returns null if not found. */
@@ -256,12 +246,12 @@ class OrganizationService {
     org.tier = newTier;
     const tierConfig = config.quota.tier[newTier];
     if (tierConfig) {
-      org.quotas = {
-        plugins: tierConfig.plugins,
-        pipelines: tierConfig.pipelines,
-        apiCalls: tierConfig.apiCalls,
-        aiCalls: tierConfig.aiCalls,
-      };
+      // Source all limits from QUOTA_TIERS so this stays in lockstep with
+      // api-core's QuotaTierLimits — the schema now requires every field
+      // (plugins/pipelines/apiCalls/aiCalls/storageBytes/dashboards/
+      // alertRules/alertDestinations/idpConfigs), so cherry-picking would
+      // drop the new caps.
+      org.quotas = { ...QUOTA_TIERS[newTier].limits };
       org.markModified('quotas');
     }
     await org.save();
@@ -299,20 +289,20 @@ class OrganizationService {
       throw new Error(SYSTEM_ORG_DELETE_FORBIDDEN);
     }
 
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        const queryId = toOrgId(id);
-        const org = await Organization.findById(queryId).session(session);
-        if (!org) throw new Error(ORG_NOT_FOUND);
-
-        await UserOrganization.deleteMany({ organizationId: queryId }).session(session);
-        await User.updateMany({ lastActiveOrgId: queryId }, { $unset: { lastActiveOrgId: '' } }).session(session);
-        await Organization.findByIdAndDelete(queryId).session(session);
-      });
-    } finally {
-      await session.endSession();
-    }
+    await withMongoTransaction(async (session) => {
+      const queryId = toOrgId(id);
+      // Order: clear memberships + back-references first, then drop the org
+      // doc — and use deleteOne's `deletedCount` as the existence probe so
+      // we skip a redundant `findById` round-trip.
+      await UserOrganization.deleteMany({ organizationId: queryId }).session(session);
+      // `lastActiveOrgId` is stored as a string (with a validator that
+      // accepts ObjectId-shape strings + the 'system' sentinel); the
+      // filter must therefore compare against the stringified org id
+      // for the BSON match to succeed.
+      await User.updateMany({ lastActiveOrgId: String(queryId) }, { $unset: { lastActiveOrgId: '' } }).session(session);
+      const res = await Organization.deleteOne({ _id: queryId }).session(session);
+      if (!res.deletedCount) throw new Error(ORG_NOT_FOUND);
+    });
   }
 
   /**
@@ -376,13 +366,10 @@ class OrganizationService {
       // Quota service unreachable  write to the org doc directly so the cap
       // is at least enforceable on the next request via the fallback path.
       if (!org.quotas) {
-        const tierLimits = config.quota.tier[org.tier || 'developer'];
-        org.quotas = {
-          plugins: tierLimits.plugins,
-          pipelines: tierLimits.pipelines,
-          apiCalls: tierLimits.apiCalls,
-          aiCalls: tierLimits.aiCalls,
-        };
+        // Same lockstep rationale as setTier above — spread the full
+        // QuotaTierLimits shape so we don't drop newer fields.
+        const tierKey = (org.tier as QuotaTier | undefined) ?? 'developer';
+        org.quotas = { ...QUOTA_TIERS[tierKey].limits };
       }
       for (const [key, value] of Object.entries(quotaLimits)) {
         if (value !== undefined) {
@@ -396,8 +383,8 @@ class OrganizationService {
       logger.info(`Organization ${id} quotas updated via service`);
     }
 
-    const updatedOrg = await Organization.findById(toOrgId(id));
-    const finalQuotas = updatedOrg?.quotas || org.quotas;
+    // `org.quotas` is the in-memory post-save state — no need to re-fetch.
+    const finalQuotas = org.quotas;
 
     return {
       plugins: { limit: formatQuotaValue(finalQuotas.plugins), unlimited: finalQuotas.plugins === -1 },
@@ -438,7 +425,7 @@ class OrganizationService {
       if (value === null || value === '') {
         org.aiProviderKeys[p] = undefined;
       } else if (typeof value === 'string') {
-        org.aiProviderKeys[p] = encryptForStorage(value, orgIdStr);
+        org.aiProviderKeys[p] = wrapEncrypted(value, orgIdStr);
       }
     }
 
@@ -446,25 +433,6 @@ class OrganizationService {
     await org.save();
 
     return this.buildProvidersMap(org.aiProviderKeys);
-  }
-
-  /**
-   *  Fetch a single decrypted AI provider key for outbound API use.
-   * Returns null when the org doesn't exist or the provider isn't set.
-   *
-   * On-disk shape: JSON-stringified `EncryptedBlob` written by
-   * `encryptSecret`. The startup backfill (`backfillSecrets`) re-encrypts
-   * any pre-encryption clear-text values; after that, every record is
-   * encrypted and the read path enforces it strictly.
-   *
-   * Throws on tampered ciphertext / wrong-org binding / malformed blob —
-   * we never silently mask a corrupted secret column as "not configured".
-   */
-  async getAiProviderKey(orgId: string, provider: string): Promise<string | null> {
-    const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys').lean();
-    const raw = org?.aiProviderKeys?.[provider as keyof typeof org.aiProviderKeys];
-    if (!raw) return null;
-    return decryptStoredBlob(raw, String(org!._id), `aiProviderKeys.${provider}`);
   }
 
   /** Build a `{ provider: { configured, hint? } }` map from a keys object.
@@ -481,45 +449,6 @@ class OrganizationService {
     }
     return providers;
   }
-}
-
-// ---------------------------------------------------------------------------
-// secret-encryption helpers (module-private)
-// ---------------------------------------------------------------------------
-
-/**
- * Encrypt a plaintext secret for storage. `SECRET_ENCRYPTION_KEY` is a hard
- * requirement at platform boot (see config/index.ts); reaching this function
- * with the env unset is a programmer error and `encryptSecret` throws.
- */
-function encryptForStorage(plaintext: string, orgId: string): string {
-  return JSON.stringify(encryptSecret(plaintext, orgId));
-}
-
-/**
- * Decrypt a JSON-stringified `EncryptedBlob` from disk. Throws when the
- * stored value isn't a well-formed blob — the clear-text fallback was
- * removed alongside the mandatory-encryption cutover. The startup backfill
- * (`backfillSecrets`) re-encrypts any pre-encryption clear-text rows, so a
- * production read should never hit a malformed value.
- *
- * `fieldLabel` is included in the error so on-call can identify which
- * record needs repair without leaking the (encrypted) value itself.
- */
-function decryptStoredBlob(raw: string, orgId: string, fieldLabel: string): string {
-  if (!raw.startsWith('{')) {
-    throw new Error(`Stored secret "${fieldLabel}" is not a JSON-encoded EncryptedBlob`);
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`Stored secret "${fieldLabel}" is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  if (!isEncryptedBlob(parsed)) {
-    throw new Error(`Stored secret "${fieldLabel}" does not match the EncryptedBlob shape`);
-  }
-  return decryptSecret(parsed as EncryptedBlob, orgId);
 }
 
 export const organizationService = new OrganizationService();

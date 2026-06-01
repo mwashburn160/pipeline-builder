@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import Link from 'next/link';
 import { Terminal, Package, Copy, Check, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -96,7 +97,7 @@ export default function DownloadsPage() {
               <div className="flex-1">
                 <p className="text-sm text-gray-700 dark:text-gray-300">
                   Generate an API token from the{' '}
-                  <a href="/dashboard/tokens" className="action-link">API Tokens</a> page.
+                  <Link href="/dashboard/tokens" className="action-link">API Tokens</Link> page.
                 </p>
               </div>
             </div>
@@ -170,20 +171,20 @@ export default function DownloadsPage() {
           transition={{ duration: 0.3, delay: 0.2 }}
           className="flex flex-wrap gap-3"
         >
-          <a
+          <Link
             href="/dashboard/help"
             className="btn btn-secondary"
           >
             <ExternalLink className="w-4 h-4" />
             CLI Reference
-          </a>
-          <a
+          </Link>
+          <Link
             href="/dashboard/tokens"
             className="btn btn-secondary"
           >
             <ExternalLink className="w-4 h-4" />
             API Tokens
-          </a>
+          </Link>
         </motion.div>
       </div>
     </DashboardLayout>

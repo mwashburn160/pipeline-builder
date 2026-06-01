@@ -87,7 +87,14 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   const [data, setData] = useState<T[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pagination, setPagination] = useState<PaginationState>({ limit: pageSize, offset: 0, total: 0 });
+  // `total` is driven by the server response, `limit`/`offset` by the user;
+  // keep them split so we don't bounce pagination state on every fetch.
+  const [total, setTotal] = useState(0);
+  const [pageState, setPageState] = useState<{ limit: number; offset: number }>({ limit: pageSize, offset: 0 });
+  const pagination: PaginationState = useMemo(
+    () => ({ ...pageState, total }),
+    [pageState, total],
+  );
   const [fetchKey, setFetchKey] = useState(0);
 
   // Memoize field key arrays to avoid recalculating on every render
@@ -114,7 +121,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
 
   // Reset to page 0 when filters change
   useEffect(() => {
-    setPagination(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
+    setPageState(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; only filter values matter
   }, [debouncedTextValues, ...selectFieldKeys.map(k => filters[k])]);
 
@@ -140,14 +147,19 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
         const finalParams = buildParams ? { ...params, ...buildParams(debouncedFilters) } : params;
 
         // Add pagination
-        finalParams.limit = String(pagination.limit);
-        finalParams.offset = String(pagination.offset);
+        finalParams.limit = String(pageState.limit);
+        finalParams.offset = String(pageState.offset);
 
         const result = await fetcher(finalParams);
         if (!cancelled) {
           setData(result.items);
           if (result.pagination) {
-            setPagination(prev => ({ ...prev, total: result.pagination!.total, offset: result.pagination!.offset }));
+            setTotal(result.pagination.total);
+            // Only sync offset if the server returned a different one (e.g.
+            // clamped to last page) — avoids a redundant re-render loop.
+            setPageState(prev => prev.offset === result.pagination!.offset
+              ? prev
+              : { ...prev, offset: result.pagination!.offset });
           }
           setError(null);
         }
@@ -165,7 +177,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     doFetch();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; dynamic filter values are spread individually
-  }, [enabled, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), pagination.limit, pagination.offset, fetchKey]);
+  }, [enabled, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), pageState.limit, pageState.offset, fetchKey]);
 
   const updateFilter = useCallback((key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -188,11 +200,11 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   }).length, [fields, filters]);
 
   const handlePageChange = useCallback((offset: number) => {
-    setPagination(prev => ({ ...prev, offset }));
+    setPageState(prev => prev.offset === offset ? prev : { ...prev, offset });
   }, []);
 
   const handlePageSizeChange = useCallback((limit: number) => {
-    setPagination(prev => ({ ...prev, limit, offset: 0 }));
+    setPageState(prev => prev.limit === limit ? prev : { ...prev, limit, offset: 0 });
   }, []);
 
   const refresh = useCallback(() => setFetchKey(k => k + 1), []);

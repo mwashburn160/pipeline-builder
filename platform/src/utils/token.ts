@@ -18,13 +18,13 @@ export interface MembershipContext {
   organizationId: string;
   organizationName?: string;
   role: OrgMemberRole;
-  tier?: string;
+  tier?: QuotaTier;
 }
 
 /** Build an access token JWT payload from a user document and optional membership. */
 function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext): AccessTokenPayload {
   const role = membership?.role ?? 'member';
-  const tier = (membership?.tier as QuotaTier) || 'developer';
+  const tier: QuotaTier = membership?.tier ?? 'developer';
   const isSuperAdmin = user.isSuperAdmin === true;
   const overrides = user.featureOverrides
     ? Object.fromEntries(user.featureOverrides as Map<string, boolean>)
@@ -109,7 +109,7 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
     organizationId: orgId,
     organizationName: org?.name,
     role: first.role as OrgMemberRole,
-    tier: (org as unknown as Record<string, unknown>)?.tier as string | undefined,
+    tier: org?.tier,
   };
 }
 

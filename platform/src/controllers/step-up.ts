@@ -19,10 +19,11 @@
  * Returns a short-lived `stepUpToken` JWT (default 60s TTL) bound to
  * `req.user.sub`. The frontend sends it back as the `X-Step-Up-Token`
  * header on the next destructive request; the `requireStepUp` middleware
- * enforces it. Single-use isn't enforced (no Redis-backed jti set yet) —
- * the 60s window + HTTPS transport keep the replay risk small. If we
- * need true single-use later, plug in a Redis consumption check inside
- * `requireStepUp`.
+ * enforces it. Single-use IS enforced via a process-local consumed-jti
+ * set (`middleware/consumed-jti.ts`) — a replay against the same process
+ * is rejected. Multi-instance deployments get best-effort single-use
+ * within each process; swap the consumed-jti module for a Redis-backed
+ * implementation when that gap matters.
  *
  * Rate-limited (4 attempts per minute per user) to slow brute-force.
  * Failed attempts are recorded to the audit log so a compromised

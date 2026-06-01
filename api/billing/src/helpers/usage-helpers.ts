@@ -3,8 +3,8 @@
 
 import { createLogger, createSafeClient, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
 import { config } from '../config';
+import { getBillingTimeout } from './billing-helpers';
 
 const logger = createLogger('usage-helpers');
 
@@ -73,7 +73,7 @@ async function fetchQuotaSnapshot(orgId: string, authHeader: string): Promise<Qu
   const client = createSafeClient({
     host: config.quotaService.host,
     port: config.quotaService.port,
-    timeout: ((Config as unknown as { getAny(k: string): unknown }).getAny?.('server') as { services?: { billingTimeout?: number } })?.services?.billingTimeout ?? 5000,
+    timeout: getBillingTimeout(),
   });
 
   const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId });

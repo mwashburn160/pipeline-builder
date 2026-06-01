@@ -31,10 +31,6 @@ const BulkSetActiveSchema = z.object({
   isActive: z.boolean(),
 });
 
-const ForkRuleSchema = z.object({
-  ruleId: z.string().uuid(),
-});
-
 const PreviewSchema = z.object({
   ruleId: z.string().uuid(),
   sampleAttributes: z.record(z.string(), z.unknown()).optional(),
@@ -123,8 +119,6 @@ export function createSubscriptionRoutes(): Router {
 
     try {
       const subscription = await subscriptionService.setActive(orgId, ruleId, validation.value.isActive, userId);
-      await complianceRuleService.invalidateRulesCache(orgId);
-
       ctx.log('COMPLETED', `Subscription ${validation.value.isActive ? 'activated' : 'deactivated'}`, { ruleId });
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
@@ -167,8 +161,6 @@ export function createSubscriptionRoutes(): Router {
 
     const { ruleIds, isActive } = validation.value;
     const updated = await subscriptionService.bulkSetActive(orgId, ruleIds, isActive, userId);
-    await complianceRuleService.invalidateRulesCache(orgId);
-
     ctx.log('COMPLETED', `Bulk ${isActive ? 'activated' : 'deactivated'} subscriptions`, { requested: ruleIds.length, updated });
     return sendSuccess(res, 200, { requested: ruleIds.length, updated });
   }));
@@ -177,7 +169,7 @@ export function createSubscriptionRoutes(): Router {
   // upstream link). Previously named `/fork`; "fork" carried git connotations
   // (track upstream for merge) we never delivered.
   router.post('/clone', withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const validation = validateBody(req, ForkRuleSchema);
+    const validation = validateBody(req, SubscribeSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
@@ -302,7 +294,6 @@ export function createSubscriptionRoutes(): Router {
 
     try {
       const subscription = await subscriptionService.unpinVersion(orgId, ruleId);
-      await complianceRuleService.invalidateRulesCache(orgId);
       ctx.log('COMPLETED', 'Unpinned subscription version', { ruleId });
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
@@ -323,8 +314,6 @@ export function createSubscriptionRoutes(): Router {
 
     try {
       await subscriptionService.unsubscribe(orgId, ruleId, userId);
-      await complianceRuleService.invalidateRulesCache(orgId);
-
       ctx.log('COMPLETED', 'Unsubscribed from published rule', { ruleId });
       return sendSuccess(res, 200, { message: 'Unsubscribed successfully' });
     } catch (err) {

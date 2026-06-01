@@ -25,6 +25,16 @@ jest.mock('@pipeline-builder/api-core', () => ({
   createSafeClient: () => ({
     put: mockClientPut,
   }),
+  // api-server's app-factory wires this at module load to inject the metrics
+  // counter into api-core helpers; tests just need it to be callable.
+  setCounterEmitter: jest.fn(),
+  getServiceAuthHeader: jest.fn(() => 'Bearer test-service'),
+}));
+
+// Stub api-server so its idempotency-middleware + app-factory don't try to
+// initialize a real Prometheus registry at module load.
+jest.mock('@pipeline-builder/api-server', () => ({
+  incCounter: jest.fn(),
 }));
 
 jest.mock('@pipeline-builder/pipeline-core', () => {
@@ -32,7 +42,16 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
     if (section === 'server') return { services: { billingTimeout: 5000 } };
     return {};
   };
-  return { Config: { get, getAny: get } };
+  return {
+    Config: { get, getAny: get },
+    // billing-helpers imports incCounter from api-server, whose
+    // idempotency-middleware reads these at module load.
+    CoreConstants: {
+      IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000,
+      IDEMPOTENCY_TTL_MS: 300_000,
+      IDEMPOTENCY_MAX_STORE_SIZE: 10_000,
+    },
+  };
 });
 
 jest.mock('../src/config', () => ({

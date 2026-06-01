@@ -4,9 +4,16 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
+import { z } from 'zod';
 import { config } from '../config';
 
 const logger = createLogger('auth-resolver');
+
+const ORG_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+const PlatformLoginResponseSchema = z.object({
+  accessToken: z.string(),
+});
 
 /**
  * Caller identity. The `jwt` variant is produced by `resolveIdentity` from
@@ -80,16 +87,20 @@ function verifyPlatformJwt(token: string): Identity | null {
       logger.warn('JWT verified but missing organizationId claim', { sub: decoded.sub });
       return null;
     }
+    if (!ORG_ID_PATTERN.test(decoded.organizationId)) {
+      logger.warn('JWT organizationId failed format validation', { sub: decoded.sub });
+      return null;
+    }
     return {
       type: 'jwt',
       orgId: decoded.organizationId,
       userId: decoded.sub,
       isAdmin: !!decoded.isAdmin,
     };
-  } catch (err) {
-    logger.debug('Password is not a verifiable JWT', {
-      error: err instanceof Error ? err.message : String(err),
-    });
+  } catch {
+    // Error contents may include the raw decode string (which is the user's
+    // Basic-auth password) — never log it.
+    logger.debug('Password is not a verifiable JWT', { ok: false });
     return null;
   }
 }
@@ -105,19 +116,31 @@ function verifyPlatformJwt(token: string): Identity | null {
  */
 async function resolvePlatformUser(identifier: string, password: string): Promise<Identity | null> {
   try {
-    const response = await axios.post<{ accessToken?: string }>(
+    const response = await axios.post<unknown>(
       `${config.platformUrl.replace(/\/$/, '')}/auth/login`,
       { identifier, password },
-      { timeout: 5000, validateStatus: (s) => s < 500 },
+      {
+        timeout: 5000,
+        // Treat any non-2xx as a failed lookup; we don't want axios to throw
+        // an error whose `.message` could interpolate the request body
+        // (which contains the user's password).
+        validateStatus: () => true,
+      },
     );
-    const token = response.data?.accessToken;
-    if (!token) return null;
-    return verifyPlatformJwt(token);
-  } catch (err) {
-    logger.warn('Platform login lookup failed', {
-      identifier,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    if (response.status < 200 || response.status >= 300) return null;
+    const parsed = PlatformLoginResponseSchema.safeParse(response.data);
+    if (!parsed.success) {
+      logger.warn('Platform login response shape mismatch', {
+        event: 'platform_login_shape_mismatch',
+        identifier,
+      });
+      return null;
+    }
+    return verifyPlatformJwt(parsed.data.accessToken);
+  } catch {
+    // Never interpolate err.message — axios error messages can include the
+    // outbound request body, which contains the user's password.
+    logger.warn('Platform login lookup failed', { identifier, ok: false });
     return null;
   }
 }

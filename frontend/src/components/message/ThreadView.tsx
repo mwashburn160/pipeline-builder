@@ -12,13 +12,15 @@ interface ThreadViewProps {
   currentOrgId: string;
   /** Callback to navigate back to the message list (mobile). */
   onBack: () => void;
-  /** Callback to mark a single message as read by ID. */
-  onMarkAsRead: (id: string) => void;
   /** Callback to mark the entire thread as read when opened. */
   onThreadRead: (id: string) => void;
   /** Callback to delete the conversation (root message + replies). */
   onDelete?: (id: string) => void;
 }
+// TODO(pages-agent): drop the `onMarkAsRead={...}` prop from the
+// `<ThreadView>` call site in `pages/dashboard/messages.tsx:202` — it's no
+// longer in this component's interface (per-message read-marking is handled
+// implicitly via `onThreadRead`).
 
 /** Formats a date string as a locale-specific date/time string. */
 function formatDateTime(dateStr: string): string {
@@ -43,7 +45,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /** Chat-style thread view displaying a conversation with reply input. */
-export function ThreadView({ rootMessage, currentOrgId, onBack, onMarkAsRead, onThreadRead, onDelete }: ThreadViewProps) {
+export function ThreadView({ rootMessage, currentOrgId, onBack, onThreadRead, onDelete }: ThreadViewProps) {
   const [thread, setThread] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');

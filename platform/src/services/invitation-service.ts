@@ -8,6 +8,7 @@ import { toOrgId } from '../helpers/controller-helper';
 import { Invitation, InvitationDocument, Organization, OrganizationDocument, User, UserDocument, UserOrganization } from '../models';
 import type { InvitationOAuthProvider } from '../models/invitation';
 import { emailService } from '../utils/email';
+import { withMongoTransaction } from '../utils/mongo-tx';
 
 const logger = createLogger('invitation-service');
 
@@ -79,7 +80,7 @@ class InvitationService {
     }], { session });
 
     if (!user.lastActiveOrgId) {
-      user.lastActiveOrgId = org._id as mongoose.Types.ObjectId;
+      user.lastActiveOrgId = String(org._id);
       await user.save({ session });
     }
 
@@ -104,83 +105,74 @@ class InvitationService {
    * single Mongo transaction so half-completed sends can't leak rows.
    */
   async send(input: SendInvitationInput): Promise<SendInvitationResult> {
-    const session = await mongoose.startSession();
-    try {
-      let invitation!: InvitationDocument;
-      let emailSent = false;
+    return withMongoTransaction(async (session) => {
+      const org = await Organization.findById(input.orgId).session(session);
+      if (!org) throw new Error(INV_ORG_NOT_FOUND);
 
-      await session.withTransaction(async () => {
-        const org = await Organization.findById(input.orgId).session(session);
-        if (!org) throw new Error(INV_ORG_NOT_FOUND);
+      if (org.owner.toString() !== input.inviterId && !input.inviterIsAdmin) {
+        throw new Error(INV_UNAUTHORIZED);
+      }
 
-        if (org.owner.toString() !== input.inviterId && !input.inviterIsAdmin) {
-          throw new Error(INV_UNAUTHORIZED);
-        }
-
-        const existingUser = await User.findOne({ email: input.email.toLowerCase() }).session(session);
-        if (existingUser) {
-          const existingMembership = await UserOrganization.findOne({
-            userId: existingUser._id, organizationId: toOrgId(input.orgId),
-          }).session(session);
-          if (existingMembership) throw new Error(INV_ALREADY_MEMBER);
-        }
-
-        const existingInvitation = await Invitation.findOne({
-          email: input.email.toLowerCase(),
-          organizationId: toOrgId(input.orgId),
-          status: 'pending',
+      const existingUser = await User.findOne({ email: input.email.toLowerCase() }).session(session);
+      if (existingUser) {
+        const existingMembership = await UserOrganization.findOne({
+          userId: existingUser._id, organizationId: toOrgId(input.orgId),
         }).session(session);
+        if (existingMembership) throw new Error(INV_ALREADY_MEMBER);
+      }
 
-        if (existingInvitation && !existingInvitation.isExpired()) {
-          throw new Error(INV_ALREADY_SENT);
-        }
+      const existingInvitation = await Invitation.findOne({
+        email: input.email.toLowerCase(),
+        organizationId: toOrgId(input.orgId),
+        status: 'pending',
+      }).session(session);
 
-        const pendingCount = await Invitation.countDocuments({
-          organizationId: toOrgId(input.orgId), status: 'pending',
-        }).session(session);
-        if (pendingCount >= config.invitation.maxPendingPerOrg) {
-          throw new Error(INV_MAX_REACHED);
-        }
+      if (existingInvitation && !existingInvitation.isExpired()) {
+        throw new Error(INV_ALREADY_SENT);
+      }
 
-        if (existingInvitation) {
-          existingInvitation.status = 'expired';
-          await existingInvitation.save({ session });
-        }
+      const pendingCount = await Invitation.countDocuments({
+        organizationId: toOrgId(input.orgId), status: 'pending',
+      }).session(session);
+      if (pendingCount >= config.invitation.maxPendingPerOrg) {
+        throw new Error(INV_MAX_REACHED);
+      }
 
-        const data: Record<string, unknown> = {
-          email: input.email.toLowerCase(),
-          organizationId: toOrgId(input.orgId),
-          invitedBy: input.inviterId,
-          role: input.role,
-          expiresAt: getExpirationDate(),
-          invitationType: input.invitationType,
-        };
-        if (input.allowedOAuthProviders && input.invitationType !== 'email') {
-          data.allowedOAuthProviders = input.allowedOAuthProviders;
-        }
+      if (existingInvitation) {
+        existingInvitation.status = 'expired';
+        await existingInvitation.save({ session });
+      }
 
-        const [created] = await Invitation.create([data], { session });
-        invitation = created;
+      const data: Record<string, unknown> = {
+        email: input.email.toLowerCase(),
+        organizationId: toOrgId(input.orgId),
+        invitedBy: input.inviterId,
+        role: input.role,
+        expiresAt: getExpirationDate(),
+        invitationType: input.invitationType,
+      };
+      if (input.allowedOAuthProviders && input.invitationType !== 'email') {
+        data.allowedOAuthProviders = input.allowedOAuthProviders;
+      }
 
-        const inviter = await User.findById(input.inviterId).session(session);
-        if (!inviter) throw new Error(INV_INVITER_NOT_FOUND);
+      const [invitation] = await Invitation.create([data], { session });
 
-        emailSent = await emailService.sendInvitation({
-          recipientEmail: input.email.toLowerCase(),
-          inviterName: inviter.username,
-          organizationName: org.name,
-          invitationToken: invitation.token,
-          expiresAt: invitation.expiresAt,
-          role: input.role,
-          invitationType: input.invitationType,
-          allowedOAuthProviders: invitation.allowedOAuthProviders,
-        });
+      const inviter = await User.findById(input.inviterId).session(session);
+      if (!inviter) throw new Error(INV_INVITER_NOT_FOUND);
+
+      const emailSent = await emailService.sendInvitation({
+        recipientEmail: input.email.toLowerCase(),
+        inviterName: inviter.username,
+        organizationName: org.name,
+        invitationToken: invitation.token,
+        expiresAt: invitation.expiresAt,
+        role: input.role,
+        invitationType: input.invitationType,
+        allowedOAuthProviders: invitation.allowedOAuthProviders,
       });
 
       return { invitation, emailSent };
-    } finally {
-      await session.endSession();
-    }
+    });
   }
 
   /**
@@ -191,44 +183,47 @@ class InvitationService {
    * etc. on the various failure cases.
    */
   async accept(token: string, userId: string, oauthProvider?: InvitationOAuthProvider): Promise<void> {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        const invitation = await this.validateToken(token, session);
+    // `alreadyMember` is set inside the tx and acted on AFTER commit. If we
+    // threw INV_ALREADY_MEMBER from inside the tx body, withTransaction
+    // would roll back the `invitation.status = 'accepted'` write — losing
+    // the audit-trail tombstone we explicitly want to keep.
+    const alreadyMember = await withMongoTransaction(async (session) => {
+      const invitation = await this.validateToken(token, session);
 
-        if (oauthProvider) {
-          if (!invitation.canAcceptViaOAuth(oauthProvider)) throw new Error(INV_OAUTH_NOT_ALLOWED);
-        } else {
-          if (!invitation.canAcceptViaEmail()) throw new Error(INV_EMAIL_NOT_ALLOWED);
-        }
+      if (oauthProvider) {
+        if (!invitation.canAcceptViaOAuth(oauthProvider)) throw new Error(INV_OAUTH_NOT_ALLOWED);
+      } else {
+        if (!invitation.canAcceptViaEmail()) throw new Error(INV_EMAIL_NOT_ALLOWED);
+      }
 
-        const user = await User.findById(userId).session(session);
-        if (!user) throw new Error(INV_USER_NOT_FOUND);
-        if (user.email !== invitation.email) throw new Error(INV_EMAIL_MISMATCH);
+      const user = await User.findById(userId).session(session);
+      if (!user) throw new Error(INV_USER_NOT_FOUND);
+      if (user.email !== invitation.email) throw new Error(INV_EMAIL_MISMATCH);
 
-        const org = await Organization.findById(invitation.organizationId).session(session);
-        if (!org) throw new Error(INV_ORG_NOT_FOUND);
+      const org = await Organization.findById(invitation.organizationId).session(session);
+      if (!org) throw new Error(INV_ORG_NOT_FOUND);
 
-        const existingMembership = await UserOrganization.findOne({
-          userId: user._id, organizationId: org._id,
-        }).session(session);
+      const existingMembership = await UserOrganization.findOne({
+        userId: user._id, organizationId: org._id,
+      }).session(session);
 
-        if (existingMembership) {
-          // Mark the invitation accepted even though we don't create a new
-          // membership — keeps the audit trail consistent.
-          invitation.status = 'accepted';
-          invitation.acceptedAt = new Date();
-          invitation.acceptedBy = user._id;
-          invitation.acceptedVia = oauthProvider || 'email';
-          await invitation.save({ session });
-          throw new Error(INV_ALREADY_MEMBER);
-        }
+      if (existingMembership) {
+        // Tombstone the invitation as accepted so the audit trail records
+        // the click, then signal the caller (outside the tx) to surface
+        // INV_ALREADY_MEMBER without rolling back the status update.
+        invitation.status = 'accepted';
+        invitation.acceptedAt = new Date();
+        invitation.acceptedBy = user._id;
+        invitation.acceptedVia = oauthProvider || 'email';
+        await invitation.save({ session });
+        return true;
+      }
 
-        await this.processAcceptance(invitation, user, org, oauthProvider || 'email', session);
-      });
-    } finally {
-      await session.endSession();
-    }
+      await this.processAcceptance(invitation, user, org, oauthProvider || 'email', session);
+      return false;
+    });
+
+    if (alreadyMember) throw new Error(INV_ALREADY_MEMBER);
   }
 
   /**
@@ -242,57 +237,56 @@ class InvitationService {
     oauthProvider: InvitationOAuthProvider,
     oauthData: { id: string; email: string; name?: string; picture?: string },
   ): Promise<void> {
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        const invitation = await this.validateToken(token, session);
+    // Same already-member-after-commit pattern as `accept` — see comment there.
+    const alreadyMember = await withMongoTransaction(async (session) => {
+      const invitation = await this.validateToken(token, session);
 
-        if (!invitation.canAcceptViaOAuth(oauthProvider)) throw new Error(INV_OAUTH_NOT_ALLOWED);
-        if (oauthData.email.toLowerCase() !== invitation.email) throw new Error(INV_EMAIL_MISMATCH);
+      if (!invitation.canAcceptViaOAuth(oauthProvider)) throw new Error(INV_OAUTH_NOT_ALLOWED);
+      if (oauthData.email.toLowerCase() !== invitation.email) throw new Error(INV_EMAIL_MISMATCH);
 
-        let user = await User.findOne({
-          $or: [
-            { [`oauth.${oauthProvider}.id`]: oauthData.id },
-            { email: oauthData.email.toLowerCase() },
-          ],
-        }).session(session);
+      let user = await User.findOne({
+        $or: [
+          { [`oauth.${oauthProvider}.id`]: oauthData.id },
+          { email: oauthData.email.toLowerCase() },
+        ],
+      }).session(session);
 
-        if (!user) {
-          user = new User({
-            email: oauthData.email.toLowerCase(),
-            username: oauthData.email.split('@')[0],
-            isEmailVerified: true,
-            tokenVersion: 0,
-            oauth: { [oauthProvider]: { id: oauthData.id, email: oauthData.email, name: oauthData.name, picture: oauthData.picture, linkedAt: new Date() } },
-          });
-          await user.save({ session });
-        } else if (!user.oauth?.[oauthProvider as keyof typeof user.oauth]) {
-          await User.findByIdAndUpdate(user._id, {
-            $set: { [`oauth.${oauthProvider}`]: { id: oauthData.id, email: oauthData.email, name: oauthData.name, picture: oauthData.picture, linkedAt: new Date() } },
-          }, { session });
-        }
+      if (!user) {
+        user = new User({
+          email: oauthData.email.toLowerCase(),
+          username: oauthData.email.split('@')[0],
+          isEmailVerified: true,
+          tokenVersion: 0,
+          oauth: { [oauthProvider]: { id: oauthData.id, email: oauthData.email, name: oauthData.name, picture: oauthData.picture, linkedAt: new Date() } },
+        });
+        await user.save({ session });
+      } else if (!user.oauth?.[oauthProvider as keyof typeof user.oauth]) {
+        await User.findByIdAndUpdate(user._id, {
+          $set: { [`oauth.${oauthProvider}`]: { id: oauthData.id, email: oauthData.email, name: oauthData.name, picture: oauthData.picture, linkedAt: new Date() } },
+        }, { session });
+      }
 
-        const org = await Organization.findById(invitation.organizationId).session(session);
-        if (!org) throw new Error(INV_ORG_NOT_FOUND);
+      const org = await Organization.findById(invitation.organizationId).session(session);
+      if (!org) throw new Error(INV_ORG_NOT_FOUND);
 
-        const existingMembership = await UserOrganization.findOne({
-          userId: user._id, organizationId: org._id,
-        }).session(session);
+      const existingMembership = await UserOrganization.findOne({
+        userId: user._id, organizationId: org._id,
+      }).session(session);
 
-        if (existingMembership) {
-          invitation.status = 'accepted';
-          invitation.acceptedAt = new Date();
-          invitation.acceptedBy = user._id;
-          invitation.acceptedVia = oauthProvider;
-          await invitation.save({ session });
-          throw new Error(INV_ALREADY_MEMBER);
-        }
+      if (existingMembership) {
+        invitation.status = 'accepted';
+        invitation.acceptedAt = new Date();
+        invitation.acceptedBy = user._id;
+        invitation.acceptedVia = oauthProvider;
+        await invitation.save({ session });
+        return true;
+      }
 
-        await this.processAcceptance(invitation, user, org, oauthProvider, session);
-      });
-    } finally {
-      await session.endSession();
-    }
+      await this.processAcceptance(invitation, user, org, oauthProvider, session);
+      return false;
+    });
+
+    if (alreadyMember) throw new Error(INV_ALREADY_MEMBER);
   }
 
   /**

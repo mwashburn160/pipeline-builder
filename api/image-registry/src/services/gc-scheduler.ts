@@ -11,6 +11,8 @@ const logger = createLogger('gc-scheduler');
 const ORG_PREFIX = 'org-';
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let startupTimer: ReturnType<typeof setTimeout> | null = null;
+let stopped = false;
 
 interface SchedulerOptions {
   /** Whether the scheduler should be active. Defaults to false; opt in via env. */
@@ -117,7 +119,7 @@ export function startGcScheduler(): void {
     logger.info('Registry GC scheduler disabled (set REGISTRY_GC_ENABLED=true to opt in)');
     return;
   }
-  if (timer) return;
+  if (timer || startupTimer) return;
 
   logger.info('Registry GC scheduler starting', {
     intervalHours: cfg.intervalMs / 3_600_000,
@@ -125,18 +127,28 @@ export function startGcScheduler(): void {
     startupDelayMs: cfg.startupDelayMs,
   });
 
+  stopped = false;
   // First sweep after a short delay so the registry has had time to start
   // accepting connections. Subsequent sweeps run on the cadence.
-  setTimeout(() => {
+  startupTimer = setTimeout(() => {
+    startupTimer = null;
+    if (stopped) return;
     void sweepOnce(cfg.maxAgeDays);
     timer = setInterval(() => void sweepOnce(cfg.maxAgeDays), cfg.intervalMs);
+    timer.unref();
   }, cfg.startupDelayMs);
+  startupTimer.unref();
 
   process.once('SIGTERM', stopGcScheduler);
 }
 
 /** Stop the scheduler. Exported mainly for tests / clean shutdown. */
 export function stopGcScheduler(): void {
+  stopped = true;
+  if (startupTimer) {
+    clearTimeout(startupTimer);
+    startupTimer = null;
+  }
   if (timer) {
     clearInterval(timer);
     timer = null;

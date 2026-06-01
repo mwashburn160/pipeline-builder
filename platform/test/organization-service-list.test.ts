@@ -23,6 +23,56 @@ jest.mock('@pipeline-builder/api-core', () => ({
   encryptSecret: jest.fn(),
   isEncryptedBlob: jest.fn(() => false),
   SYSTEM_ORG_ID: 'system',
+  // `organization-service.setTier` now reseeds quotas from QUOTA_TIERS so
+  // every QuotaTierLimits field stays in lockstep with api-core. Mirror the
+  // real shape — `setTier` does `{...QUOTA_TIERS[newTier].limits}`. The
+  // tier-config in this file's `../src/config` mock supplies the numeric
+  // shape the *list* tests assert on; this QUOTA_TIERS mock supplies the
+  // shape `setTier` actually spreads into `org.quotas`.
+  QUOTA_TIERS: {
+    developer: {
+      label: 'Developer',
+      limits: {
+        plugins: 10,
+        pipelines: 5,
+        apiCalls: 1000,
+        aiCalls: 100,
+        storageBytes: 1073741824,
+        dashboards: 5,
+        alertRules: 5,
+        alertDestinations: 5,
+        idpConfigs: 1,
+      },
+    },
+    pro: {
+      label: 'Pro',
+      limits: {
+        plugins: 100,
+        pipelines: 50,
+        apiCalls: 10000,
+        aiCalls: 1000,
+        storageBytes: 107374182400,
+        dashboards: 200,
+        alertRules: 500,
+        alertDestinations: 50,
+        idpConfigs: 5,
+      },
+    },
+    unlimited: {
+      label: 'Unlimited',
+      limits: {
+        plugins: -1,
+        pipelines: -1,
+        apiCalls: -1,
+        aiCalls: -1,
+        storageBytes: -1,
+        dashboards: -1,
+        alertRules: -1,
+        alertDestinations: -1,
+        idpConfigs: -1,
+      },
+    },
+  },
 }));
 
 jest.mock('mongoose', () => {
@@ -218,8 +268,20 @@ describe('organizationService.setTier', () => {
 
     expect(result).toEqual({ id: 'o1', previousTier: 'developer', tier: 'pro' });
     expect(org.tier).toBe('pro');
-    // Quotas reseeded from the pro tier config (mocked at the top of the file).
-    expect(org.quotas).toEqual({ plugins: 100, pipelines: 50, apiCalls: 10000, aiCalls: 1000 });
+    // Quotas reseeded from QUOTA_TIERS.pro.limits — schema requires every
+    // QuotaTierLimits field (storageBytes/dashboards/etc.), so the spread
+    // brings them all over.
+    expect(org.quotas).toEqual({
+      plugins: 100,
+      pipelines: 50,
+      apiCalls: 10000,
+      aiCalls: 1000,
+      storageBytes: 107374182400,
+      dashboards: 200,
+      alertRules: 500,
+      alertDestinations: 50,
+      idpConfigs: 5,
+    });
     expect(org.markModified).toHaveBeenCalledWith('quotas');
     expect(org.save).toHaveBeenCalled();
   });
@@ -234,7 +296,18 @@ describe('organizationService.setTier', () => {
     expect(result?.previousTier).toBeUndefined();
     expect(result?.tier).toBe('unlimited');
     expect(org.tier).toBe('unlimited');
-    expect(org.quotas).toEqual({ plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1 });
+    // QUOTA_TIERS.unlimited: every limit -1.
+    expect(org.quotas).toEqual({
+      plugins: -1,
+      pipelines: -1,
+      apiCalls: -1,
+      aiCalls: -1,
+      storageBytes: -1,
+      dashboards: -1,
+      alertRules: -1,
+      alertDestinations: -1,
+      idpConfigs: -1,
+    });
   });
 
   it('saves without reseeding quotas if no tier config exists', async () => {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Search, Sparkles } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -18,12 +19,15 @@ import type { HelpTopic, ContentBlock } from '@/lib/help/types';
  * Each entry should reference a destination page so users can try the
  * feature directly. Keep the list short (top 5) and recent.
  */
-const WHATS_NEW: ReadonlyArray<{ when: string; title: string; href?: string; hint?: string }> = [
-  { when: 'This week', title: 'Read-only "view as user" impersonation for sysadmins', href: '/dashboard/users', hint: 'Reproduce a tenant\'s view safely; writes blocked under impersonation.' },
-  { when: 'This week', title: 'Notifications & alert-channel preferences', href: '/dashboard/notifications' },
-  { when: 'This week', title: 'Executions drill-down with CSV export', href: '/dashboard/executions' },
-  { when: 'Recent', title: 'Step-up password reverify on destructive sysadmin actions' },
-  { when: 'Recent', title: 'Per-org KMS, IdP config, and org-tier change endpoint' },
+// Each entry carries an ISO `date` for at-a-glance staleness. `when` is a
+// human-readable bucket; both are surfaced so reviewers can see what's
+// genuinely fresh vs. carried over from previous sprints.
+const WHATS_NEW: ReadonlyArray<{ when: string; date: string; title: string; href?: string; hint?: string }> = [
+  { when: 'This week', date: '2026-05-28', title: 'Read-only "view as user" impersonation for sysadmins', href: '/dashboard/users', hint: 'Reproduce a tenant\'s view safely; writes blocked under impersonation.' },
+  { when: 'This week', date: '2026-05-27', title: 'Notifications & alert-channel preferences', href: '/dashboard/notifications' },
+  { when: 'This week', date: '2026-05-26', title: 'Executions drill-down with CSV export', href: '/dashboard/executions' },
+  { when: 'Recent', date: '2026-05-15', title: 'Step-up password reverify on destructive sysadmin actions' },
+  { when: 'Recent', date: '2026-05-10', title: 'Per-org KMS, IdP config, and org-tier change endpoint' },
 ];
 
 /**
@@ -107,12 +111,13 @@ export default function HelpPage() {
           <ul className="mt-2 space-y-2 text-xs">
             {WHATS_NEW.map((entry) => (
               <li key={entry.title} className="border-l-2 border-amber-300 dark:border-amber-700 pl-2">
-                <div className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                  {entry.when}
+                <div className="text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                  <span>{entry.when}</span>
+                  <span className="text-gray-400 dark:text-gray-500 font-mono normal-case tracking-normal">· {entry.date}</span>
                 </div>
                 <div className="text-gray-800 dark:text-gray-200">
                   {entry.href
-                    ? <a href={entry.href} className="action-link">{entry.title}</a>
+                    ? <Link href={entry.href} className="action-link">{entry.title}</Link>
                     : entry.title}
                 </div>
                 {entry.hint && (

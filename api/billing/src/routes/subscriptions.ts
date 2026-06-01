@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  requireAuth,
+  requireSystemAdmin,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -13,6 +15,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import type { RequestHandler } from 'express';
 import {
   buildSubscriptionResponse,
   calculatePeriodEnd,
@@ -27,10 +30,13 @@ import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validatio
 
 const logger = createLogger('billing-subscriptions');
 
+const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
 /**
  * Create the subscription management router (authenticated).
  *
- * Registers * - GET /subscriptions -- get current org subscription
+ * Registers:
+ * - GET /subscriptions -- get current org subscription
  * - POST /subscriptions -- create a new subscription (admin)
  * - PUT /subscriptions/:id -- change plan or interval (admin)
  * - POST /subscriptions/:id/cancel -- cancel at period end (admin)
@@ -42,7 +48,7 @@ export function createSubscriptionRoutes(): Router {
 
   // GET /billing/subscriptions  get current org subscription
 
-  router.get('/subscriptions', withRoute(async ({ res, orgId }) => {
+  router.get('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ res, orgId }) => {
     const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
 
     if (!subscription) {
@@ -58,7 +64,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions  create a new subscription
 
-  router.post('/subscriptions', withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const validation = validateBody(req, SubscriptionCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -80,11 +86,14 @@ export function createSubscriptionRoutes(): Router {
       );
     }
 
-    // Call payment provider  pass the user's email so the provider's
-    // dunning/receipt emails reach a real inbox (Stripe accepts blank but
-    // then has no contact for failed-payment notifications).
+    // Pass the user's email to the provider so dunning/receipt emails reach
+    // a real inbox. Stripe accepts undefined but then has no contact for
+    // failed-payment notifications.
+    // TODO: source email from JWT issuance or platform lookup once it's
+    // populated on req.user; current AUTH path leaves email unset.
     const provider = getPaymentProvider();
-    const customerEmail = req.user?.email || '';
+    const rawEmail = req.user?.email;
+    const customerEmail = typeof rawEmail === 'string' && rawEmail.length > 0 ? rawEmail : undefined;
     const customerId = await provider.createCustomer(orgId, customerEmail);
     const externalResult = await provider.createSubscription(customerId, planId, interval);
 
@@ -107,7 +116,7 @@ export function createSubscriptionRoutes(): Router {
     // as a peer service; forwarding the user token would mean a compromised
     // quota service receives the user's full session credential.
     const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId });
-    await syncTierToQuotaService(orgId, plan.tier, serviceAuth);
+    await syncTierToQuotaService(orgId, plan.tier, serviceAuth, subscription._id.toString());
 
     // Log billing event
     await createBillingEvent(orgId, 'subscription_created', {
@@ -123,7 +132,7 @@ export function createSubscriptionRoutes(): Router {
 
   // PUT /billing/subscriptions/:id  change plan or interval
 
-  router.put('/subscriptions/:id', withRoute(async ({ req, res, orgId }) => {
+  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
     const validation = validateBody(req, SubscriptionUpdateSchema);
     if (!validation.ok) {
@@ -178,7 +187,7 @@ export function createSubscriptionRoutes(): Router {
     // the caller's bearer (see create-subscription comment for rationale).
     if (plan) {
       const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId });
-      await syncTierToQuotaService(orgId, plan.tier, serviceAuth);
+      await syncTierToQuotaService(orgId, plan.tier, serviceAuth, subscriptionId);
     }
 
     logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
@@ -190,7 +199,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/cancel  cancel at period end
 
-  router.post('/subscriptions/:id/cancel', withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -201,10 +210,22 @@ export function createSubscriptionRoutes(): Router {
       return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
     }
 
+    // Provider-first: if the upstream cancel fails after we've persisted
+    // cancelAtPeriodEnd=true, the customer's UI says "canceled" but Stripe/etc.
+    // keeps billing them. Roll the local flip back on provider failure so the
+    // two stores can't diverge.
     subscription.cancelAtPeriodEnd = true;
     await subscription.save();
-
-    await getPaymentProvider().cancelSubscription(subscription.externalId || '');
+    try {
+      await getPaymentProvider().cancelSubscription(subscription.externalId || '');
+    } catch (err) {
+      subscription.cancelAtPeriodEnd = false;
+      await subscription.save();
+      logger.error('Provider cancel failed; reverted local cancelAtPeriodEnd', {
+        orgId, subscriptionId, error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
 
     await createBillingEvent(orgId, 'subscription_canceled', {
       planId: subscription.planId,
@@ -232,54 +253,54 @@ export function createSubscriptionRoutes(): Router {
   // The platform's org-cascade-service calls this with a service-minted
   // token; user-initiated org deletes never reach this path (they go
   // through admin.org.delete on platform, which fires us internally).
-  router.delete('/subscriptions/by-org/:orgId', withRoute(async ({ req, res, orgId }) => {
-    // The route uses the path:orgId, but withRoute also pulls the caller's
-    // orgId from the JWT  only system org or matching org may delete.
-    const targetOrgId = getParam(req.params, 'orgId');
-    if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
-    if (orgId !== 'system' && orgId !== targetOrgId) {
-      return sendError(res, 403, 'Cannot delete subscriptions for another org', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
+  router.delete(
+    '/subscriptions/by-org/:orgId',
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
+    withRoute(async ({ req, res }) => {
+      const targetOrgId = getParam(req.params, 'orgId');
+      if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    // Cancel any active subscription at the provider first so we don't
-    // leave billable state running after our local rows are gone.
-    const active = await Subscription.find({ orgId: targetOrgId, status: 'active' });
-    for (const sub of active) {
-      if (sub.externalId) {
-        try {
-          await getPaymentProvider().cancelSubscription(sub.externalId);
-        } catch (err) {
-          logger.warn('Provider cancel failed during cascade  continuing with local delete', {
-            orgId: targetOrgId,
-            subscriptionId: sub._id?.toString(),
-            error: err instanceof Error ? err.message: String(err),
-          });
+      // Cancel any active subscription at the provider first so we don't
+      // leave billable state running after our local rows are gone.
+      const active = await Subscription.find({ orgId: targetOrgId, status: 'active' });
+      for (const sub of active) {
+        if (sub.externalId) {
+          try {
+            await getPaymentProvider().cancelSubscription(sub.externalId);
+          } catch (err) {
+            logger.warn('Provider cancel failed during cascade  continuing with local delete', {
+              orgId: targetOrgId,
+              subscriptionId: sub._id?.toString(),
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
       }
-    }
 
-    const subDelete = await Subscription.deleteMany({ orgId: targetOrgId });
+      const subDelete = await Subscription.deleteMany({ orgId: targetOrgId });
 
-    // Drop billing events too  they're scoped to the org and have no
-    // independent purpose once the subscription is gone. Audit retention
-    // lives in platform's audit_events collection, not here.
-    const eventDelete = await BillingEvent.deleteMany({ orgId: targetOrgId });
+      // Drop billing events too — they're scoped to the org and have no
+      // independent purpose once the subscription is gone. Audit retention
+      // lives in platform's audit_events collection, not here.
+      const eventDelete = await BillingEvent.deleteMany({ orgId: targetOrgId });
 
-    logger.info('Subscription cascade complete', {
-      orgId: targetOrgId,
-      subscriptions: subDelete.deletedCount ?? 0,
-      events: eventDelete.deletedCount ?? 0,
-    });
+      logger.info('Subscription cascade complete', {
+        orgId: targetOrgId,
+        subscriptions: subDelete.deletedCount ?? 0,
+        events: eventDelete.deletedCount ?? 0,
+      });
 
-    return sendSuccess(res, 200, {
-      deleted: subDelete.deletedCount ?? 0,
-      events: eventDelete.deletedCount ?? 0,
-    });
-  }));
+      return sendSuccess(res, 200, {
+        deleted: subDelete.deletedCount ?? 0,
+        events: eventDelete.deletedCount ?? 0,
+      });
+    }, { requireOrgId: false }),
+  );
 
   // POST /billing/subscriptions/:id/reactivate  undo cancellation
 
-  router.post('/subscriptions/:id/reactivate', withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -293,10 +314,21 @@ export function createSubscriptionRoutes(): Router {
       );
     }
 
+    // Mirror cancel: keep local + provider state in sync by reverting the
+    // local flip if the upstream reactivate fails (otherwise the user thinks
+    // they're active but the provider will still terminate at period end).
     subscription.cancelAtPeriodEnd = false;
     await subscription.save();
-
-    await getPaymentProvider().reactivateSubscription(subscription.externalId || '');
+    try {
+      await getPaymentProvider().reactivateSubscription(subscription.externalId || '');
+    } catch (err) {
+      subscription.cancelAtPeriodEnd = true;
+      await subscription.save();
+      logger.error('Provider reactivate failed; reverted local cancelAtPeriodEnd', {
+        orgId, subscriptionId, error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
 
     await createBillingEvent(orgId, 'subscription_reactivated', {
       planId: subscription.planId,

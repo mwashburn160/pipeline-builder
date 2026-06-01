@@ -16,6 +16,12 @@ import { validateBody, sendInvitationSchema } from '../utils/validation';
 
 const logger = createLogger('invitation-controller');
 
+/** Privileged role check for invitation operations. Both `admin` and `owner`
+ *  qualify — owners are a superset of admins for org-level management. */
+function isOrgManager(role: string | undefined): boolean {
+  return role === 'admin' || role === 'owner';
+}
+
 const sendErrorMap = {
   [INV_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
   [INV_UNAUTHORIZED]: { status: 403, message: 'You are not authorized to send invitations' },
@@ -58,7 +64,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
   const { invitation, emailSent } = await invitationService.send({
     orgId,
     inviterId: req.user!.sub,
-    inviterIsAdmin: req.user?.role === 'admin',
+    inviterIsAdmin: isOrgManager(req.user?.role),
     email: body.email,
     role: body.role,
     invitationType: body.invitationType,
@@ -176,7 +182,7 @@ export const revokeInvitation = withController('Revoke invitation', async (req, 
   const { invitationId } = req.params;
 
   await invitationService.revoke(
-    invitationId as string, orgId, req.user!.sub, req.user!.role === 'admin',
+    invitationId as string, orgId, req.user!.sub, isOrgManager(req.user!.role),
   );
 
   logger.info('Invitation revoked', { invitationId, revokedBy: req.user!.sub });
@@ -194,7 +200,7 @@ export const resendInvitation = withController('Resend invitation', async (req, 
   const { invitationId } = req.params;
 
   const { expiresAt, emailSent } = await invitationService.resend(
-    invitationId as string, orgId, req.user!.sub, req.user!.role === 'admin',
+    invitationId as string, orgId, req.user!.sub, isOrgManager(req.user!.role),
   );
 
   if (!emailSent && config.email.enabled) {

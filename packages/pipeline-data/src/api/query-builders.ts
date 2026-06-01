@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { and, eq, ilike, isNull, or, gte, lte, SQL } from 'drizzle-orm';
+import { and, eq, ilike, isNull, not, or, gte, lte, sql, SQL } from 'drizzle-orm';
 import {
   AccessControlQueryBuilder,
   buildJsonbKeywordCondition,
@@ -184,6 +184,15 @@ export function buildMessageConditions(
     } else {
       conditions.push(eq(schema.message.channel, normalizeStringFilter(filter.channel)));
     }
+  }
+
+  // Read-state filter — JSONB key-existence check against `read_by`.
+  // We use jsonb_exists(read_by, $orgId) rather than the `?` operator
+  // because postgres-js / drizzle's parameter binding treats `?` as a
+  // placeholder, which would conflict with the JSONB `?` operator.
+  if (filter.isRead !== undefined) {
+    const keyExists = sql`jsonb_exists(${schema.message.readBy}, ${normalizedOrgId})`;
+    conditions.push(filter.isRead ? keyExists : not(keyExists));
   }
 
   // ID filter

@@ -18,9 +18,18 @@ function nextSelect(): unknown[] {
   return selectResults.length > 0 ? selectResults.shift()! : [];
 }
 
+// Stack of update returning results — each db.update().returning() consumes one
+// entry (FIFO). The scan-executor now claims work atomically via
+// UPDATE ... RETURNING, so the FIRST entry is the claimed scan row (or [] when
+// the scan does not exist / is not pending).
+let updateReturning: unknown[][] = [];
+function nextUpdate(): unknown[] {
+  return updateReturning.length > 0 ? updateReturning.shift()! : [];
+}
+
 const dbSelect = jest.fn(() => makeChain(() => Promise.resolve(nextSelect())));
 const dbInsert = jest.fn(() => makeChain(() => Promise.resolve([])));
-const dbUpdate = jest.fn(() => makeChain(() => Promise.resolve([])));
+const dbUpdate = jest.fn(() => makeChain(() => Promise.resolve(nextUpdate())));
 
 const mockEvaluateRules = jest.fn();
 const mockFindActiveByOrgAndTarget = jest.fn();
@@ -78,6 +87,7 @@ import { executeScan } from '../src/helpers/scan-executor';
 describe('executeScan', () => {
   beforeEach(() => {
     selectResults = [];
+    updateReturning = [];
     dbSelect.mockClear();
     dbInsert.mockClear();
     dbUpdate.mockClear();
@@ -88,20 +98,25 @@ describe('executeScan', () => {
   });
 
   it('exits early when scan does not exist', async () => {
-    selectResults = [[]]; // first select: scan lookup
+    // Atomic claim returns no row (scan id unknown) → executor must bail
+    // before any further updates.
+    updateReturning = [[]];
     await executeScan('scan-x');
-    expect(dbUpdate).not.toHaveBeenCalled();
+    // The atomic claim itself is one UPDATE; no further updates after the bail.
+    expect(dbUpdate).toHaveBeenCalledTimes(1);
   });
 
   it('exits early when scan is not pending', async () => {
-    selectResults = [[{ id: 'scan-1', status: 'completed', orgId: 'org-1', target: 'plugin', userId: 'u' }]];
+    // Atomic claim WHERE status='pending' returns no row when scan is already
+    // completed/running.
+    updateReturning = [[]];
     await executeScan('scan-1');
-    expect(dbUpdate).not.toHaveBeenCalled();
+    expect(dbUpdate).toHaveBeenCalledTimes(1);
   });
 
   it('marks system-org scans as completed without evaluating rules', async () => {
-    selectResults = [
-      [{ id: 'scan-1', status: 'pending', orgId: 'SYSTEM', target: 'plugin', userId: 'u' }],
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'SYSTEM', target: 'plugin', userId: 'u' }],
     ];
     await executeScan('scan-1');
     expect(dbUpdate).toHaveBeenCalled();
@@ -109,8 +124,10 @@ describe('executeScan', () => {
   });
 
   it('completes scan with no rules (counts as all-pass)', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+    ];
     selectResults = [
-      [{ id: 'scan-1', status: 'pending', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
       // entities for plugin target
       [{ id: 'p1', name: 'p1' }, { id: 'p2', name: 'p2' }],
     ];
@@ -120,13 +137,15 @@ describe('executeScan', () => {
 
     expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin');
     expect(mockEvaluateRules).not.toHaveBeenCalled();
-    // First update is "running", second is "totalEntities", third is final "completed"
+    // Atomic claim + totalEntities update + final "completed" update.
     expect(dbUpdate).toHaveBeenCalled();
   });
 
   it('evaluates rules and writes audit entries on full scan', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+    ];
     selectResults = [
-      [{ id: 'scan-1', status: 'pending', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
       [{ id: 'p1', name: 'p1' }],
       [], // exemptions fetch
     ];
@@ -147,8 +166,10 @@ describe('executeScan', () => {
   });
 
   it('skips audit entries on dry-run', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'rule-dry-run' }],
+    ];
     selectResults = [
-      [{ id: 'scan-1', status: 'pending', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'rule-dry-run' }],
       [{ id: 'p1', name: 'p1' }],
       [],
     ];
@@ -167,8 +188,10 @@ describe('executeScan', () => {
   });
 
   it('notifies on blocked entity (non-dry-run)', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+    ];
     selectResults = [
-      [{ id: 'scan-1', status: 'pending', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
       [{ id: 'p1', name: 'p1' }],
       [],
     ];
@@ -187,8 +210,10 @@ describe('executeScan', () => {
   });
 
   it('marks scan failed on unexpected error', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+    ];
     selectResults = [
-      [{ id: 'scan-1', status: 'pending', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
       [{ id: 'p1', name: 'p1' }], // entities
     ];
     // findActive throws, executor enters catch → marks failed
@@ -201,8 +226,10 @@ describe('executeScan', () => {
   });
 
   it('handles scans with target="all" by iterating both targets', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'all', userId: 'u', triggeredBy: 'manual' }],
+    ];
     selectResults = [
-      [{ id: 'scan-1', status: 'pending', orgId: 'org-1', target: 'all', userId: 'u', triggeredBy: 'manual' }],
       [], // plugin entities
       [], // pipeline entities
     ];

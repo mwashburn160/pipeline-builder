@@ -86,8 +86,10 @@ export function OrgAdminHome({ organizationId }: Props) {
     ]).then(([quotaRes, inviteRes, complianceRes, subRes, memberRes]) => {
       if (cancelled) return;
       if (quotaRes.status === 'fulfilled' && quotaRes.value.success && quotaRes.value.data) {
-        const q = quotaRes.value.data as { quota?: OrgQuotaResponse } & OrgQuotaResponse;
-        setQuotas(q.quota ?? q);
+        // api.getOwnQuotas returns `{ quota: OrgQuotaResponse }`; use that
+        // canonical shape directly rather than the previous `q.quota ?? q`
+        // fallback that masked envelope-vs-bare shape drift.
+        setQuotas(quotaRes.value.data.quota);
       }
       if (inviteRes.status === 'fulfilled' && inviteRes.value.success && inviteRes.value.data) {
         setPendingInvites(inviteRes.value.data.pagination?.total ?? inviteRes.value.data.invitations.length);

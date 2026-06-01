@@ -1,6 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+/** Quick-pick window for observability panels. The catalog/backend accepts
+ *  these literal strings; keep in sync with the RangePicker preset list. */
+export type RangeKey = '1h' | '6h' | '24h';
+
 /** Time-value point in a Prometheus or Loki series. */
 export interface DataPoint {
   /** Unix seconds. */
@@ -29,7 +33,7 @@ export type ObservabilityQueryResponse =
   | { series: DataSeries[]; range: string; step: string };
 
 /** A single log entry from `GET /api/observability/logs` (streams response). */
-export interface LogEntry {
+export interface ObservabilityLogEntry {
   /** Unix nanoseconds (Loki convention; render as Date(time/1e6)). */
   time: string;
   line: string;
@@ -38,7 +42,7 @@ export interface LogEntry {
 
 /** Response shape from `GET /api/observability/logs`. */
 export type ObservabilityLogsResponse =
-  | { entries: LogEntry[]; range: string }
+  | { entries: ObservabilityLogEntry[]; range: string }
   | { series: DataSeries[]; range: string; step: string };
 
 /** Optional templated params accepted by `GET /api/observability/logs`. */

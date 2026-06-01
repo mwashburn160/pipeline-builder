@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError, sendSuccess, createLogger } from '@pipeline-builder/api-core';
+import { isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger } from '@pipeline-builder/api-core';
 import { Router, Request, Response } from 'express';
-import { requireAdminContext } from '../helpers/controller-helper';
+import { requireAdminContext, withController } from '../helpers/controller-helper';
 import { requireAuth, requireServiceAuth } from '../middleware';
 import { isAuditAction } from '../models/audit-event';
 import { auditService, type AuditFilter } from '../services/audit-service';
@@ -16,39 +16,43 @@ const router = Router();
  * GET /audit - List audit events (admin only, org-scoped for org admins)
  * Query: action, targetType, targetId, page, limit
  */
-router.get('/', requireAuth, async (req: Request, res: Response) => {
+router.get('/', requireAuth, withController('List audit events', async (req, res) => {
   const admin = requireAdminContext(req, res);
   if (!admin) return;
 
-  try {
-    const { action, targetType, targetId, affectedOrgId, actorId } = req.query;
-    const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
+  // Parse possibly-array query strings safely. Express's qs parser can
+  // return `string | string[] | ParsedQs` — `parseQueryString` collapses
+  // all of those to `string | undefined`.
+  const action = parseQueryString(req.query.action);
+  const targetType = parseQueryString(req.query.targetType);
+  const targetId = parseQueryString(req.query.targetId);
+  const affectedOrgId = parseQueryString(req.query.affectedOrgId);
+  const actorId = parseQueryString(req.query.actorId);
+  const orgIdQuery = parseQueryString(req.query.orgId);
+  const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
 
-    const filter: AuditFilter = {};
+  const filter: AuditFilter = {};
 
-    // Org admins can only see their org's events. Sysadmins can filter on
-    // either `orgId` (actor's org) or `affectedOrgId` (operated-on org) —
-    // the latter is the right query for "what did sysadmins do to org X?".
-    if (admin.isOrgAdmin) {
-      filter.orgId = req.user!.organizationId;
-    } else {
-      if (req.query.orgId) filter.orgId = req.query.orgId as string;
-      if (affectedOrgId) filter.affectedOrgId = affectedOrgId as string;
-      if (actorId) filter.actorId = actorId as string;
-    }
-
-    if (action) filter.action = action as string;
-    if (targetType) filter.targetType = targetType as string;
-    if (targetId) filter.targetId = targetId as string;
-
-    const result = await auditService.findEvents(filter, offset, limitNum);
-
-    sendSuccess(res, 200, result);
-  } catch (error) {
-    logger.error('[AUDIT] List error', error);
-    sendError(res, 500, 'Failed to list audit events');
+  if (admin.isOrgAdmin) {
+    // Org admins see events where their org was either the actor (orgId)
+    // OR the affected target (affectedOrgId). `orgIdOrAffected` translates
+    // to a Mongo `$or` in the service so a sysadmin's cross-tenant action
+    // ON their org is visible alongside their own in-tenant actions.
+    filter.orgIdOrAffected = req.user!.organizationId;
+  } else {
+    if (orgIdQuery) filter.orgId = orgIdQuery;
+    if (affectedOrgId) filter.affectedOrgId = affectedOrgId;
+    if (actorId) filter.actorId = actorId;
   }
-});
+
+  if (action) filter.action = action;
+  if (targetType) filter.targetType = targetType;
+  if (targetId) filter.targetId = targetId;
+
+  const result = await auditService.findEvents(filter, offset, limitNum);
+
+  sendSuccess(res, 200, result);
+}));
 
 /**
  * POST /audit/events  internal ingest endpoint for non-platform services.
@@ -82,16 +86,40 @@ router.post('/events', requireServiceAuth, async (req: Request, res: Response) =
     return sendError(res, 400, 'actorId is required');
   }
 
+  // The service-token's `organizationId` is the authoritative tenant —
+  // a caller cannot record events under another org's name just by setting
+  // `body.orgId`. Sysadmin service tokens (issued with isSuperAdmin) are the
+  // only callers allowed to push cross-tenant events (i.e. `affectedOrgId`
+  // != token org), since they may legitimately ingest on behalf of any org.
+  const tokenOrgId = req.user?.organizationId;
+  const isSysadminService = isSystemAdmin(req);
+  if (body.orgId && tokenOrgId && body.orgId !== tokenOrgId && !isSysadminService) {
+    return sendError(res, 403, 'orgId does not match authenticated service org');
+  }
+  // Force orgId to the token's tenant when the body omitted it or for
+  // non-sysadmin callers — never trust the body field for tenant binding.
+  const effectiveOrgId = (!isSysadminService && tokenOrgId) ? tokenOrgId : (body.orgId ?? tokenOrgId);
+
+  const effectiveAffectedOrgId = body.affectedOrgId ?? effectiveOrgId;
+  if (
+    body.affectedOrgId
+    && tokenOrgId
+    && body.affectedOrgId !== tokenOrgId
+    && !isSysadminService
+  ) {
+    return sendError(res, 403, 'affectedOrgId not allowed for this service token');
+  }
+
   try {
     await auditService.createEvent({
       action: body.action,
       actorId: body.actorId,
       actorEmail: body.actorEmail,
-      orgId: body.orgId,
+      orgId: effectiveOrgId,
       // Mirror the pre-refactor behavior: default affectedOrgId to orgId
-      // for in-tenant actions; explicit cross-tenant callers (sysadmins
-      // acting on another org) pass it themselves.
-      affectedOrgId: body.affectedOrgId ?? body.orgId,
+      // for in-tenant actions; explicit cross-tenant callers (sysadmin
+      // services acting on another org) pass it themselves.
+      affectedOrgId: effectiveAffectedOrgId,
       targetType: body.targetType,
       targetId: body.targetId,
       details: body.details,

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { ErrorCode, sendError } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail } from '../controllers';
@@ -24,12 +25,22 @@ const router = Router();
 const stepUpLimiter = rateLimit({
   windowMs: 60_000,
   max: 5,
-  // requireAuth runs after this middleware in the chain, so req.user is
+  // requireAuth runs BEFORE this middleware in the chain, so req.user is
   // populated already. Fall back to IP for the (unreachable) anon case;
   // route through ipKeyGenerator because express-rate-limit 8.x's validator
   // refuses to start otherwise (see platform/src/index.ts:extractClientIp).
   keyGenerator: (req) => req.user?.sub ?? ipKeyGenerator(req.ip || 'anon', 64),
-  message: { success: false, statusCode: 429, message: 'Too many step-up attempts. Please wait a minute and try again.' },
+  // Surface the limit through `sendError` so the body matches the standard
+  // `{ success: false, statusCode, errorCode, message }` shape every other
+  // 429 in the platform emits. Without this, the raw object above ships
+  // instead of a sendError-shaped one.
+  handler: (_req, res) => {
+    sendError(
+      res, 429,
+      'Too many step-up attempts. Please wait a minute and try again.',
+      ErrorCode.RATE_LIMIT_EXCEEDED,
+    );
+  },
   standardHeaders: true,
   legacyHeaders: false,
 });

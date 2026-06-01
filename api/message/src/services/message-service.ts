@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createCacheService } from '@pipeline-builder/api-core';
 import { CoreConstants, CrudService, schema, withTenantTx, buildMessageConditions, type MessageFilter } from '@pipeline-builder/pipeline-core';
 import { SQL, eq, and, or, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -10,8 +10,6 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 type Message = typeof schema.message.$inferSelect;
 type MessageInsert = typeof schema.message.$inferInsert;
 type MessageUpdate = Partial<Omit<MessageInsert, 'id' | 'createdAt' | 'createdBy'>>;
-
-const logger = createLogger('message-service');
 
 /** Cache for message reads — announcements/conversations are stable between mutations. */
 const messageCache = createCacheService('message:', CoreConstants.CACHE_TTL_MESSAGE);
@@ -60,21 +58,15 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
   // -- Cache invalidation on mutations --
 
   protected async onAfterCreate(entity: Message): Promise<void> {
-    messageCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after message create', { orgId: entity.orgId, error: errorMessage(err) });
-    });
+    await messageCache.invalidatePattern(`${entity.orgId}:*`);
   }
 
   protected async onAfterUpdate(_id: string, entity: Message): Promise<void> {
-    messageCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after message update', { orgId: entity.orgId, error: errorMessage(err) });
-    });
+    await messageCache.invalidatePattern(`${entity.orgId}:*`);
   }
 
   protected async onAfterDelete(_id: string, entity: Message): Promise<void> {
-    messageCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
-      logger.debug('Cache invalidation failed after message delete', { orgId: entity.orgId, error: errorMessage(err) });
-    });
+    await messageCache.invalidatePattern(`${entity.orgId}:*`);
   }
 
   /**
@@ -93,6 +85,11 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
 
   /**
    * Get inbox: root messages (threadId is null) where org is sender or recipient.
+   *
+   * Announcements (recipientOrgId='*') are surfaced to every org and are
+   * counted in the unified inbox total — we intentionally do NOT split inbox
+   * vs broadcasts because the UI treats them as a single feed; consumers that
+   * need a typed view filter with `messageType`.
    *
    * @param orgId - Organization ID for access control
    * @param messageType - Optional filter for announcement or conversation
@@ -148,9 +145,11 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       })
       .where(and(
         eq(schema.message.id, id),
+        sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
         or(
           eq(schema.message.orgId, orgId),
           eq(schema.message.recipientOrgId, orgId),
+          eq(schema.message.recipientOrgId, '*'),
         ),
       ))
       .returning());
@@ -184,6 +183,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         or(
           eq(schema.message.orgId, orgId),
           eq(schema.message.recipientOrgId, orgId),
+          eq(schema.message.recipientOrgId, '*'),
         ),
       ))
       .returning());
@@ -209,6 +209,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         or(
           eq(schema.message.orgId, orgId),
           eq(schema.message.recipientOrgId, orgId),
+          eq(schema.message.recipientOrgId, '*'),
         ),
       )));
     return row?.count ?? 0;
@@ -224,11 +225,16 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * caller's org. Without this filter, a UUID collision (or a buggy
    * client passing an arbitrary threadId) could cascade across tenants.
    *
+   * Sysadmins pass `allOrgs=true` to drop the tenant scope so the cascade
+   * sweeps replies authored by either participant — without it, the
+   * recipient-side replies survive when sysadmin deletes a system-owned root.
+   *
    * @param threadId - Root message ID whose replies should be soft-deleted
    * @param userId - User performing the deletion (for audit)
    * @param orgId - The caller's org — scopes the cascade to that tenant
+   * @param allOrgs - When true, skip the org-scope filter (sysadmin only)
    */
-  async deleteThread(threadId: string, userId: string, orgId: string): Promise<void> {
+  async deleteThread(threadId: string, userId: string, orgId: string, allOrgs = false): Promise<void> {
     await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
@@ -242,7 +248,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         and(
           eq(schema.message.threadId, threadId),
           eq(schema.message.isActive, true),
-          or(
+          allOrgs ? undefined : or(
             eq(schema.message.orgId, orgId),
             eq(schema.message.recipientOrgId, orgId),
           ),

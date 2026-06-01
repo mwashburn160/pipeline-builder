@@ -182,7 +182,13 @@ export class ReportingService {
     // org>` could only write events for that org; bypass via sysadmin is
     // the right gate for this server-internal cross-tenant endpoint. See
     // api/reporting/src/routes/event-ingest.ts for the wrapper.
-    return withTenantTx(async (tx) => {
+    // Run insert inside the tx, but COLLECT affected orgs and invalidate
+    // caches AFTER the tx resolves. Keeping invalidation inside the tx held
+    // the pg locks open for the duration of the cache round-trips (Redis or
+    // in-memory invalidations are unrelated to the tx but still serialized
+    // its commit). Cache TTL is 2-5 min so fire-and-forget post-commit is
+    // an acceptable trade for tighter lock windows.
+    const { inserted, skipped, unregisteredArns, affectedOrgs } = await withTenantTx(async (tx) => {
       // Batch-resolve all unique ARNs in one query
       const uniqueArns = [...new Set(events.map(e => e.pipelineArn))];
       const registryRows = await tx
@@ -198,14 +204,14 @@ export class ReportingService {
 
       // Build insert batch (skip unregistered ARNs)
       const rows: Array<typeof schema.pipelineEvent.$inferInsert> = [];
-      let skipped = 0;
-      const unregisteredArns: string[] = [];
+      let skippedLocal = 0;
+      const unregisteredArnsLocal: string[] = [];
 
       for (const event of events) {
         const registry = arnMap.get(event.pipelineArn);
         if (!registry) {
-          skipped++;
-          unregisteredArns.push(event.pipelineArn);
+          skippedLocal++;
+          unregisteredArnsLocal.push(event.pipelineArn);
           continue;
         }
 
@@ -228,20 +234,27 @@ export class ReportingService {
 
       if (rows.length > 0) {
         await tx.insert(schema.pipelineEvent).values(rows);
-
-        // Per-org cache invalidation runs outside the tx (Redis, not Postgres).
-        // `Promise.all` so the caller doesn't return before invalidation
-        // completes, otherwise dashboards can serve stale data right after ingest.
-        const affectedOrgs = [...new Set(rows.map(r => r.orgId))];
-        await Promise.all(affectedOrgs.map((org) =>
-          this.invalidateOrg(org).catch((err) => {
-            logger.warn('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
-          }),
-        ));
       }
 
-      return { inserted: rows.length, skipped, unregisteredArns };
+      return {
+        inserted: rows.length,
+        skipped: skippedLocal,
+        unregisteredArns: unregisteredArnsLocal,
+        affectedOrgs: [...new Set(rows.map(r => r.orgId))],
+      };
     });
+
+    // Post-commit cache invalidation. Fire-and-forget with logging — TTL is
+    // short enough that a missed invalidation self-heals.
+    if (affectedOrgs.length > 0) {
+      void Promise.all(affectedOrgs.map((org) =>
+        this.invalidateOrg(org).catch((err) => {
+          logger.warn('Reporting cache invalidation failed', { orgId: org, error: errorMessage(err) });
+        }),
+      ));
+    }
+
+    return { inserted, skipped, unregisteredArns };
   }
 
   // ── Category 1: Pipeline Execution & Performance ──
@@ -436,7 +449,20 @@ export class ReportingService {
     );
   }
 
-  /** 2.4 Build success rate over time. */
+  /**
+   * 2.4 Build success rate over time.
+   *
+   * STATUS CASING NOTE: This query filters by `event_source = 'plugin-build'`
+   * and uses lowercase status values (`'completed'`, `'failed'`), while
+   * `getSuccessRate` (1.2) filters by `event_type = 'PIPELINE'` with
+   * uppercase AWS-style statuses (`'SUCCEEDED'`, `'FAILED'`, `'CANCELED'`).
+   * The casing drift is intentional and tracks the producer:
+   *   - `plugin-build` events come from our own build pipeline (lowercase)
+   *   - `PIPELINE` events come from AWS CodePipeline (uppercase)
+   * The ingest Zod schema at api/reporting/src/routes/event-ingest.ts
+   * SHOULD enum these per-eventSource so we catch drift at ingest rather
+   * than silently producing zero rows here. See findings N71.
+   */
   async getBuildSuccessRate(orgId: string, interval: string, from: string, to: string): Promise<BuildTimeSeriesEntry[]> {
     return timeseriesCache.getOrSet(`${orgId}:build-success:${interval}:${from}:${to}`, () =>
       withTenantTx((tx) => tx.execute(sql`

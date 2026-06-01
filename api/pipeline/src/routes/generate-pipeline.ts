@@ -9,6 +9,7 @@ import {
   handleAIError,
   initSSEStream,
   reserveQuota,
+  runConcurrent,
   sendBadRequest,
   sendQuotaExceeded,
   sendSuccess,
@@ -44,21 +45,27 @@ async function streamPartials( stream: AsyncIterable<unknown>,
 }
 
 /** Timeout for the pipeline service's calls into the plugin service.
- * 30s by default  these calls are sometimes slow because plugin upload
+ * 30s by default — these calls are sometimes slow because plugin upload
  * responses include build queue results. Override via
  * `PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS`. */
-const PLUGIN_SERVICE_TIMEOUT_MS = parseInt(process.env.PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS || '30000', 10);
-const { pluginHost, pluginPort } = Config.get('server').services;
-const pluginClient = createSafeClient({
-  host: pluginHost,
-  port: pluginPort,
-  timeout: PLUGIN_SERVICE_TIMEOUT_MS,
-});
+const parsedTimeout = parseInt(process.env.PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS || '30000', 10);
+const PLUGIN_SERVICE_TIMEOUT_MS = Number.isFinite(parsedTimeout) ? parsedTimeout : 30000;
+
+let _pluginClient: ReturnType<typeof createSafeClient> | undefined;
+/** Lazily construct the plugin service client — defers Config.get() until first
+ * request so module load doesn't fail before env is initialized in tests. */
+function getPluginClient(): ReturnType<typeof createSafeClient> {
+  if (!_pluginClient) {
+    const { pluginHost, pluginPort } = Config.get('server').services;
+    _pluginClient = createSafeClient({ host: pluginHost, port: pluginPort, timeout: PLUGIN_SERVICE_TIMEOUT_MS });
+  }
+  return _pluginClient;
+}
 
 /**
  * Create and register AI pipeline generation routes.
  *
- * AI calls consume the org's `apiCalls` quota  until a dedicated `aiCalls`
+ * AI calls consume the org's `apiCalls` quota — until a dedicated `aiCalls`
  * quota type is added, AI usage is bounded by the same per-org budget that
  * gates regular API calls. This prevents an org from spamming the platform
  * AI provider key beyond their tier.
@@ -68,7 +75,7 @@ const pluginClient = createSafeClient({
 export function createGeneratePipelineRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
-  // -- GET /providers  list configured AI providers --------------------------
+  // -- GET /providers — list configured AI providers ------------------------
   /**
    * Returns the list of AI providers that have API keys configured via
    * environment variables on the pipeline service.
@@ -81,7 +88,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
     }),
   );
 
-  // -- POST /generate  generate pipeline config from natural language --------
+  // -- POST /generate — generate pipeline config from natural language ------
   /**
    * Accepts a natural language prompt and returns an AI-generated pipeline
    * configuration (BuilderProps), optional description, and keywords.
@@ -143,14 +150,14 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       } catch (error) {
         const message = errorMessage(error);
         logger.error('AI pipeline generation failed', { requestId: ctx.requestId, error: message });
-        // Roll back the reserved slot  the LLM call never produced output.
+        // Roll back the reserved slot — the LLM call never produced output.
         decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
         handleAIError(res, message, 'Failed to generate pipeline configuration');
       }
     }),
   );
 
-  // -- POST /generate/stream  stream pipeline config as SSE events ----------
+  // -- POST /generate/stream — stream pipeline config as SSE events --------
   /**
    * Accepts a natural language prompt and streams AI-generated pipeline
    * configuration as SSE events. Each event contains a partial JSON object
@@ -216,7 +223,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           }
           res.write('data: [DONE]\n\n');
         } else {
-          // Aborted before completion  caller never consumed the LLM
+          // Aborted before completion — caller never consumed the LLM
           // output, so give the slot back.
           decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
           reserved = false;
@@ -234,17 +241,18 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
     }),
   );
 
-  // -- POST /generate/from-url/stream  analyze Git URL + stream pipeline ----
+  // -- POST /generate/from-url/stream — analyze Git URL + stream pipeline --
   /**
    * Accepts a Git URL, analyzes the repository via the appropriate provider API
    * (GitHub, GitLab, Bitbucket), then streams an AI-generated pipeline config
    * as SSE events.
    *
-   * Events   * - `{type:"analyzing"}`  fetching repo metadata
-   * - `{type:"analyzed", data:{...}}`  repo analysis summary
-   * - `{type:"partial", data:{...}}`  streaming AI generation partial
-   * - `{type:"done", data:{props,...}}`  final generated config
-   * - `{type:"error", message:"..."}`  error during processing
+   * Events
+   * - `{type:"analyzing"}` — fetching repo metadata
+   * - `{type:"analyzed", data:{...}}` — repo analysis summary
+   * - `{type:"partial", data:{...}}` — streaming AI generation partial
+   * - `{type:"done", data:{props,...}}` — final generated config
+   * - `{type:"error", message:"..."}` — error during processing
    *
    * Validated with {@link AIGenerateFromUrlBodySchema}.
    */
@@ -290,7 +298,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         } catch (analyzeError) {
           const msg = errorMessage(analyzeError);
           logger.warn('Repository analysis failed', { requestId: ctx.requestId, error: msg });
-          // Repo analysis failed before any LLM call  roll back the slot.
+          // Repo analysis failed before any LLM call — roll back the slot.
           decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
           reserved = false;
           res.write(`data: ${JSON.stringify({ type: 'error', message: `Repository analysis failed: ${msg}` })}\n\n`);
@@ -392,21 +400,37 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
 
 /**
  * Extract plugin names referenced in a generated pipeline config.
- * Scans `stages[].actions[].pluginName` from the BuilderProps structure.
+ * Walks `synth.plugin.name` and `stages[].steps[].plugin.name` to match the
+ * shape produced by `PipelineGenerationSchema` (see ai-generation-service).
  *
  * @param props - Generated pipeline props (partial BuilderProps)
  * @returns Unique list of plugin names
  */
 function extractPluginNames(props: Record<string, unknown>): string[] {
   const names = new Set<string>();
-  const stages = props.stages as Array<{ actions?: Array<{ pluginName?: string }> }> | undefined;
-  if (!Array.isArray(stages)) return [];
 
+  // Only stage plugins are subject to auto-creation. The synth plugin (build
+  // tool for the synth step) is provisioned out-of-band; including it here
+  // would trigger creating-plugins on every generated pipeline and break the
+  // "skip auto-creation when no stages" guarantee.
+  const stages = props.stages as Array<{
+    steps?: Array<{ plugin?: { name?: unknown } }>;
+    actions?: Array<{ pluginName?: unknown }>;
+  }> | undefined;
+  if (!Array.isArray(stages)) return [];
   for (const stage of stages) {
-    if (!Array.isArray(stage.actions)) continue;
-    for (const action of stage.actions) {
-      if (action.pluginName && typeof action.pluginName === 'string') {
-        names.add(action.pluginName);
+    // Two AI-output shapes are accepted: stages[].steps[].plugin.name
+    // (BuilderProps) and stages[].actions[].pluginName (legacy / alt schema).
+    if (Array.isArray(stage.steps)) {
+      for (const step of stage.steps) {
+        const name = step.plugin?.name;
+        if (typeof name === 'string' && name) names.add(name);
+      }
+    }
+    if (Array.isArray(stage.actions)) {
+      for (const action of stage.actions) {
+        const name = action.pluginName;
+        if (typeof name === 'string' && name) names.add(name);
       }
     }
   }
@@ -417,8 +441,9 @@ function extractPluginNames(props: Record<string, unknown>): string[] {
  * Check which plugins already exist in the database and auto-create
  * missing ones via the plugin service's deploy-generated endpoint.
  *
- * Emits SSE events * - `{type:"checking-plugins", data:{plugins:[...]}}`  list of referenced plugins
- * - `{type:"creating-plugins", data:{creating:[...], existing:[...], builds:[...]}}`  creation results
+ * Emits SSE events
+ * - `{type:"checking-plugins", data:{plugins:[...]}}` — list of referenced plugins
+ * - `{type:"creating-plugins", data:{creating:[...], existing:[...], builds:[...]}}` — creation results
  *
  * @param res - Express response (SSE stream)
  * @param props - Generated pipeline props
@@ -454,10 +479,10 @@ async function autoCreateMissingPlugins( res: import('express').Response,
     return;
   }
 
-  // Auto-create missing plugins via plugin service
-  const builds: Array<{ name: string; requestId?: string; error?: string }> = [];
-
-  for (const name of missing) {
+  // Auto-create missing plugins via plugin service — cap concurrency so a
+  // generation with many plugins doesn't fan out unbounded requests.
+  const pluginClient = getPluginClient();
+  const builds = await runConcurrent(missing, 5, async (name) => {
     try {
       // Idempotency-Key scopes the deploy to (requestId, plugin name) so a
       // client retrying a failed /generate/from-url/stream call doesn't enqueue
@@ -470,7 +495,7 @@ async function autoCreateMissingPlugins( res: import('express').Response,
         pluginType: 'CodeBuildStep',
         computeType: 'MEDIUM',
         installCommands: [],
-        commands: [`echo "Plugin ${name}  replace with real build commands"`],
+        commands: [`echo "Plugin ${name} — replace with real build commands"`],
         dockerfile: `FROM public.ecr.aws/codebuild/amazonlinux2-x86_64-standard:5.0\nRUN echo "Plugin ${name}"`,
         accessModifier: AccessModifier.PRIVATE,
       }, {
@@ -483,15 +508,14 @@ async function autoCreateMissingPlugins( res: import('express').Response,
       });
 
       if (deployResponse && (deployResponse.statusCode === 202 || deployResponse.statusCode === 200)) {
-        builds.push({ name, requestId: deployResponse.body?.data?.requestId });
-      } else {
-        builds.push({ name, error: `HTTP ${deployResponse?.statusCode ?? 'unknown'}` });
+        return { name, requestId: deployResponse.body?.data?.requestId };
       }
+      return { name, error: `HTTP ${deployResponse?.statusCode ?? 'unknown'}` };
     } catch (err) {
-      builds.push({ name, error: errorMessage(err) });
       logger.warn('Auto-plugin creation failed', { plugin: name, error: errorMessage(err) });
+      return { name, error: errorMessage(err) };
     }
-  }
+  });
 
   res.write(`data: ${JSON.stringify({
     type: 'creating-plugins',

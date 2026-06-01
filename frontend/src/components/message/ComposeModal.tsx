@@ -17,7 +17,9 @@ interface ComposeModalProps {
   isOpen: boolean;
   /** Callback to close the modal. */
   onClose: () => void;
-  /** Callback to send the composed message; resolves on success. */
+  /** Callback to send the composed message; resolves to `true` on success
+   *  and `false` on a recoverable failure (the modal stays open so the user
+   *  can edit and retry). Throws bubble up to `useAsyncCallback`'s `error`. */
   onSend: (data: {
     recipientOrgId: string;
     messageType: MessageType;
@@ -25,7 +27,12 @@ interface ComposeModalProps {
     content: string;
     priority?: MessagePriority;
     channel?: string;
-  }) => Promise<unknown>;
+  }) => Promise<boolean>;
+  // TODO(pages-agent): update the `onSend` handlers passed to
+  // `<ComposeModal>` in pages/dashboard/messages.tsx (and any other page
+  // call sites) to return `boolean` — they likely already do an implicit
+  // `Promise<unknown>` via `await api.sendMessage(...)`; just wrap with
+  // `return res.success`.
   /** Whether the current user is a sysadmin (enables free-form recipient
    *  entry and broadcast announcements). Non-sysadmins see the support-alias
    *  pre-fill with their own org's other teams as datalist suggestions. */
@@ -99,7 +106,11 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientS
       ...(channel && { channel }),
     });
 
-    if (result !== null) {
+    // useAsyncCallback wraps a thrown rejection by surfacing it via `error`
+    // and returning `null` from `execute`. Treat both `null` (thrown) and
+    // an explicit `false` from `onSend` as "stay open"; only a truthy
+    // boolean closes the modal and resets the form.
+    if (result === true) {
       setContent('');
       setRecipientOrgId('');
       setSupportRecipient(SUPPORT_ALIAS);

@@ -22,7 +22,7 @@ export class StripeProvider implements PaymentProvider {
    * Create a Stripe customer for the organization.
    * @returns The Stripe Customer ID (e.g., "cus_xxx")
    */
-  async createCustomer(orgId: string, email: string): Promise<string> {
+  async createCustomer(orgId: string, email?: string): Promise<string> {
     logger.info('Creating Stripe customer', { orgId });
 
     const customer = await this.stripe.customers.create({

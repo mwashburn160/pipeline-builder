@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ShieldOff, Check, X, Plus, Loader2, Clock, Trash2, Upload } from 'lucide-react';
 import api from '@/lib/api';
-import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { Pagination } from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
+import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceExemption } from '@/types/compliance';
 import { EXEMPTION_STATUS_STYLES as STATUS_STYLES } from '@/lib/compliance-styles';
 import { parseCsv } from '@/lib/csv';
@@ -15,44 +16,56 @@ interface ExemptionManagerProps {
 
 export default function ExemptionManager({ readOnly = false }: ExemptionManagerProps) {
   const toast = useToast();
-  const [exemptions, setExemptions] = useState<ComplianceExemption[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Read toast via a ref so the fetcher closure stays referentially stable —
+  // useServerPagination compares filters by JSON, but the fetcher itself is
+  // tracked by ref and we don't want toast-context churn to thrash it.
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<{ ruleId: string; entityType: 'plugin' | 'pipeline'; entityId: string; entityName: string; reason: string }>({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
-  const [pagination, setPagination] = useState<PaginationState>({ limit: 10, offset: 0, total: 0 });
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; total: number } | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchExemptions = useCallback(async (offset = pagination.offset, limit = pagination.limit) => {
-    setLoading(true);
-    try {
+  const {
+    items: exemptions,
+    pagination,
+    loading,
+    error: fetchError,
+    setOffset,
+    refetch: fetchExemptions,
+  } = useServerPagination<ComplianceExemption, { status: string }>(
+    async ({ offset, limit, filters }) => {
       const params: Record<string, string | number> = { limit, offset };
-      if (statusFilter) params.status = statusFilter;
+      if (filters.status) params.status = filters.status;
       const res = await api.getExemptions(params);
-      if (res.success && res.data) {
-        setExemptions(res.data.exemptions);
-        if (res.data.pagination) {
-          setPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
-        }
+      if (!res.success || !res.data) {
+        return { items: [], pagination: { offset, limit, total: 0 } };
       }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load exemptions');
-    }
-    setLoading(false);
-  }, [statusFilter, pagination.offset, pagination.limit, toast]);
+      return {
+        items: res.data.exemptions,
+        pagination: res.data.pagination
+          ? { offset: res.data.pagination.offset, limit: res.data.pagination.limit, total: res.data.pagination.total }
+          : { offset, limit, total: res.data.exemptions.length },
+      };
+    },
+    { status: statusFilter },
+    10,
+  );
 
-  useEffect(() => { fetchExemptions(); }, [fetchExemptions]);
-
+  // Surface fetch errors as toasts (replaces the old try/catch inside the fetcher).
   useEffect(() => {
-    setPagination(prev => ({ ...prev, offset: 0 }));
-  }, [statusFilter]);
+    if (fetchError) toastRef.current.error(fetchError.message || 'Failed to load exemptions');
+  }, [fetchError]);
 
-  const handlePageChange = (offset: number) => { fetchExemptions(offset, pagination.limit); };
-  const handlePageSizeChange = (limit: number) => { fetchExemptions(0, limit); };
+  const handlePageChange = (offset: number) => { setOffset(offset); };
+  // Page-size changes were a no-op (pagination.limit isn't externally settable
+  // and the previous code re-fetched with `0,limit` without persisting it).
+  // Keep the Pagination prop wired but drive only the offset.
+  const handlePageSizeChange = (_limit: number) => { setOffset(0); };
 
   const handleCreate = async () => {
     if (!form.ruleId || !form.entityId || !form.reason) return;
@@ -67,21 +80,21 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       if (res.success) {
         setShowForm(false);
         setForm({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
-        toast.success('Exemption requested');
+        toastRef.current.success('Exemption requested');
         fetchExemptions();
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create exemption');
+      toastRef.current.error(err instanceof Error ? err.message : 'Failed to create exemption');
     }
   };
 
   const handleApprove = async (id: string) => {
     try {
       await api.reviewExemption(id, 'approved');
-      toast.success('Exemption approved');
+      toastRef.current.success('Exemption approved');
       fetchExemptions();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to approve exemption');
+      toastRef.current.error(err instanceof Error ? err.message : 'Failed to approve exemption');
     }
   };
 
@@ -90,20 +103,20 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       await api.reviewExemption(id, 'rejected', rejectionReason || undefined);
       setRejectingId(null);
       setRejectionReason('');
-      toast.success('Exemption rejected');
+      toastRef.current.success('Exemption rejected');
       fetchExemptions();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to reject exemption');
+      toastRef.current.error(err instanceof Error ? err.message : 'Failed to reject exemption');
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await api.deleteExemption(id);
-      toast.success('Exemption deleted');
+      toastRef.current.success('Exemption deleted');
       fetchExemptions();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete exemption');
+      toastRef.current.error(err instanceof Error ? err.message : 'Failed to delete exemption');
     }
   };
 

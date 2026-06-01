@@ -605,6 +605,162 @@ describe('CrudService', () => {
     });
   });
 
+  // Lifecycle hooks — Phase 1 cleanup awaits onAfter* before returning.
+  // Verifies post-hook state is observable on a subsequent read, and that
+  // a throwing hook is caught + logged (not propagated to the caller).
+
+  describe('lifecycle hooks', () => {
+    /** Subclass that exposes hook state we can inspect from the test. */
+    class HookedService extends TestService {
+      public createHookCompleted = false;
+      public updateHookCompleted = false;
+      public deleteHookCompleted = false;
+      public hookCallOrder: string[] = [];
+
+      protected override async onAfterCreate(entity: TestEntity, _userId: string): Promise<void> {
+        // Resolve after a microtask to prove the caller awaits us
+        await Promise.resolve();
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        this.createHookCompleted = true;
+        this.hookCallOrder.push(`create:${entity.id}`);
+      }
+
+      protected override async onAfterUpdate(id: string, _entity: TestEntity, _userId: string): Promise<void> {
+        await Promise.resolve();
+        this.updateHookCompleted = true;
+        this.hookCallOrder.push(`update:${id}`);
+      }
+
+      protected override async onAfterDelete(id: string, _entity: TestEntity, _userId: string): Promise<void> {
+        await Promise.resolve();
+        this.deleteHookCompleted = true;
+        this.hookCallOrder.push(`delete:${id}`);
+      }
+    }
+
+    /** Subclass whose hook throws — verifies error containment. */
+    class FailingHookService extends TestService {
+      public hookCalled = false;
+      protected override async onAfterCreate(_entity: TestEntity, _userId: string): Promise<void> {
+        this.hookCalled = true;
+        throw new Error('hook explosion');
+      }
+    }
+
+    const created: TestEntity = {
+      id: 'hook-test',
+      orgId: 'org1',
+      name: 'Hooked',
+      isDefault: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: 'user1',
+      updatedBy: 'user1',
+    };
+
+    it('should await onAfterCreate before resolving create()', async () => {
+      const svc = new HookedService();
+
+      mockInsert.mockReturnValue({
+        values: jest.fn().mockReturnValue({
+          onConflictDoUpdate: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([created]),
+          }),
+        }),
+      });
+
+      expect(svc.createHookCompleted).toBe(false);
+      const result = await svc.create({ name: 'Hooked', orgId: 'org1' }, 'user1');
+      // Post-hook state must be observable on a subsequent read
+      expect(svc.createHookCompleted).toBe(true);
+      expect(svc.hookCallOrder).toEqual(['create:hook-test']);
+      expect(result).toEqual(created);
+    });
+
+    it('should await onAfterUpdate before resolving update()', async () => {
+      const svc = new HookedService();
+
+      mockUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([created]),
+          }),
+        }),
+      });
+
+      const result = await svc.update('hook-test', { name: 'X' }, 'org1', 'user1');
+      expect(svc.updateHookCompleted).toBe(true);
+      expect(svc.hookCallOrder).toEqual(['update:hook-test']);
+      expect(result).toEqual(created);
+    });
+
+    it('should await onAfterDelete before resolving delete()', async () => {
+      const svc = new HookedService();
+
+      mockUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([created]),
+          }),
+        }),
+      });
+
+      const result = await svc.delete('hook-test', 'org1', 'user1');
+      expect(svc.deleteHookCompleted).toBe(true);
+      expect(svc.hookCallOrder).toEqual(['delete:hook-test']);
+      expect(result).toEqual(created);
+    });
+
+    it('should catch and not propagate hook errors from create()', async () => {
+      const svc = new FailingHookService();
+
+      mockInsert.mockReturnValue({
+        values: jest.fn().mockReturnValue({
+          onConflictDoUpdate: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([created]),
+          }),
+        }),
+      });
+
+      // Should NOT throw despite the hook throwing
+      const result = await svc.create({ name: 'X', orgId: 'org1' }, 'user1');
+      expect(svc.hookCalled).toBe(true);
+      expect(result).toEqual(created);
+    });
+
+    it('should not invoke onAfterUpdate when no row is updated', async () => {
+      const svc = new HookedService();
+
+      mockUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+      });
+
+      const result = await svc.update('missing', { name: 'X' }, 'org1', 'user1');
+      expect(result).toBeNull();
+      expect(svc.updateHookCompleted).toBe(false);
+    });
+
+    it('should not invoke onAfterDelete when no row is deleted', async () => {
+      const svc = new HookedService();
+
+      mockUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+      });
+
+      const result = await svc.delete('missing', 'org1', 'user1');
+      expect(result).toBeNull();
+      expect(svc.deleteHookCompleted).toBe(false);
+    });
+  });
+
   // count
 
   describe('count', () => {

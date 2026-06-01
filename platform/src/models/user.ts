@@ -6,9 +6,11 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
 import { config } from '../config';
 
 /**
- * OAuth provider data structure
+ * OAuth provider data structure. Internal to the user model — the user-
+ * profile API returns a flattened shape, so external consumers shouldn't
+ * import this directly.
  */
-export interface OAuthProviderData {
+interface OAuthProviderData {
   id: string;
   email: string;
   name?: string;
@@ -17,9 +19,9 @@ export interface OAuthProviderData {
 }
 
 /**
- * OAuth providers map
+ * OAuth providers map. Internal to the user model (see above).
  */
-export interface OAuthProviders {
+interface OAuthProviders {
   google?: OAuthProviderData;
   github?: OAuthProviderData;
 }
@@ -39,8 +41,12 @@ export interface UserDocument extends Document {
   username: string;
   email: string;
   password?: string;
-  /** Last organization the user interacted with. Replaces the former `organizationId` field. */
-  lastActiveOrgId?: Types.ObjectId | string;
+  /**
+   * Last organization the user interacted with. Stored as a string for
+   * predictable indexing — values are either an ObjectId hex (24 chars) or
+   * the literal `'system'`. Replaces the former `organizationId` field.
+   */
+  lastActiveOrgId?: string;
   isEmailVerified: boolean;
   emailVerificationToken?: string;
   emailVerificationExpires?: Date;
@@ -55,6 +61,12 @@ export interface UserDocument extends Document {
    * Hide from default queries — operators can't grant themselves this via
    * the user-profile API; it's set out-of-band (db update) or via a
    * dedicated sysadmin-only endpoint (future).
+   *
+   * The schema field uses `select: false`, so callers that need to consult
+   * this flag MUST explicitly opt in: `User.findById(id).select('+isSuperAdmin')`.
+   * Reads via a default `.find()` will return the document without the field,
+   * which is the safer default — code paths that haven't been audited for
+   * sysadmin handling can't accidentally elevate.
    */
   isSuperAdmin?: boolean;
   tokenVersion: number;
@@ -105,10 +117,22 @@ const userSchema = new Schema<UserDocument>(
       type: String,
       select: false,
     },
+    // `String` (not `Mixed`) so MongoDB indexes / equality queries behave
+    // predictably; values are either a 24-char ObjectId hex or the literal
+    // 'system' (the bootstrap system-org id). The validator rejects anything
+    // else so a stray write can't park the user on a non-existent org.
     lastActiveOrgId: {
-      type: Schema.Types.Mixed,
+      type: String,
       ref: 'Organization',
       index: true,
+      validate: {
+        validator: (v: unknown) =>
+          v === null
+          || v === undefined
+          || v === 'system'
+          || (typeof v === 'string' && mongoose.isValidObjectId(v)),
+        message: 'lastActiveOrgId must be an ObjectId or "system"',
+      },
     },
     isEmailVerified: {
       type: Boolean,
@@ -119,6 +143,9 @@ const userSchema = new Schema<UserDocument>(
       default: false,
       // Indexed because token-issuance hot-path reads it on every login.
       index: true,
+      // Hidden from default queries — see the interface JSDoc above.
+      // Callers must `.select('+isSuperAdmin')` to read it.
+      select: false,
     },
     emailVerificationToken: {
       type: String,
@@ -161,13 +188,35 @@ const userSchema = new Schema<UserDocument>(
 );
 
 /**
- * Validate password strength: min 8 chars, at least one uppercase, one lowercase, one digit.
+ * Password complexity rules — single source of truth.
+ *
+ * Both the Mongoose `pre('save')` hook below AND the request-body Zod
+ * schema in `utils/validation.ts` (`passwordSchema`) MUST evaluate the
+ * same rules so a value that passes API validation never trips the model
+ * hook (and vice versa). Exporting the regexes here lets the validation
+ * module import them instead of re-typing the patterns.
+ *
+ * Length minimum comes from `config.auth.passwordMinLength` so it's tunable
+ * per environment without a code change.
  */
-function validatePasswordStrength(password: string): string | null {
-  if (password.length < config.auth.passwordMinLength) return `Password must be at least ${config.auth.passwordMinLength} characters`;
-  if (!/[A-Z]/.test(password)) return 'Password must contain at least one uppercase letter';
-  if (!/[a-z]/.test(password)) return 'Password must contain at least one lowercase letter';
-  if (!/[0-9]/.test(password)) return 'Password must contain at least one digit';
+export const PASSWORD_RULES: ReadonlyArray<{ test: RegExp; message: string }> = [
+  { test: /[A-Z]/, message: 'Password must contain at least one uppercase letter' },
+  { test: /[a-z]/, message: 'Password must contain at least one lowercase letter' },
+  { test: /[0-9]/, message: 'Password must contain at least one digit' },
+];
+
+/**
+ * Validate password strength. Returns the first violation message or `null`
+ * if the value satisfies every rule in `PASSWORD_RULES` and meets the
+ * configured minimum length.
+ */
+export function validatePasswordStrength(password: string): string | null {
+  if (password.length < config.auth.passwordMinLength) {
+    return `Password must be at least ${config.auth.passwordMinLength} characters`;
+  }
+  for (const rule of PASSWORD_RULES) {
+    if (!rule.test.test(password)) return rule.message;
+  }
   return null;
 }
 
@@ -182,7 +231,7 @@ userSchema.pre<UserDocument>('save', async function () {
     throw new Error(strengthError);
   }
 
-  const salt = await bcrypt.genSalt(config.auth.jwt.saltRounds);
+  const salt = await bcrypt.genSalt(config.auth.passwordSaltRounds);
   this.password = await bcrypt.hash(this.password, salt);
 });
 

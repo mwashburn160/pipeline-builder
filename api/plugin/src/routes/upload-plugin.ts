@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, errorMessage, reserveQuota, decrementQuota, resolveAccessModifier, sendBadRequest, sendError, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, errorMessage, getServiceAuthHeader, reserveQuota, decrementQuota, resolveAccessModifier, sendBadRequest, sendError, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireAuth, requireOrgId, withRoute } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
@@ -76,7 +76,10 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     // worker permanent failures.
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
-      const authHeader = req.headers.authorization || '';
+      // Service-minted auth for downstream calls (compliance, quota). The
+      // caller's bearer token may carry only end-user scopes that won't pass
+      // service-to-service authorization checks; mint a service token instead.
+      const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId });
 
       let zipPath: string | undefined;
       let reserved = false;
@@ -137,7 +140,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             metadata: s.metadata,
             keywords: s.keywords,
             buildType: plugin.buildType,
-          }, req.headers.authorization || '', undefined, s.name, 'upload');
+          }, authHeader, undefined, s.name, 'upload');
 
           if (complianceResult.blocked) {
             ctx.log('WARN', 'Plugin upload blocked by compliance', {

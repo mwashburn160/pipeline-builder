@@ -23,6 +23,18 @@ jest.mock('@pipeline-builder/api-core', () => ({
   resolveUserFeatures: jest.fn(),
   isValidFeatureFlag: () => true,
   SYSTEM_ORG_ID: 'system',
+  // `validateBulkArray` is the shared guard used by all bulk endpoints.
+  // Mirror api-core's behaviour: empty/non-array → error; over cap → error;
+  // otherwise return { value }.
+  validateBulkArray: jest.fn((value: unknown, fieldName: string, maxItems?: number) => {
+    if (!Array.isArray(value) || value.length === 0) {
+      return { error: `Request body must include a non-empty "${fieldName}" array` };
+    }
+    if (maxItems !== undefined && value.length > maxItems) {
+      return { error: `Maximum ${maxItems} items per bulk operation` };
+    }
+    return { value };
+  }),
 }));
 
 jest.mock('mongoose', () => {

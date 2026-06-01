@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Shield, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, History, Search } from 'lucide-react';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
@@ -13,12 +13,30 @@ interface RuleListProps {
   onViewHistory?: (rule: ComplianceRule) => void;
 }
 
+// `scope` and `name` aren't part of the server-side filter surface today, so
+// we still filter those client-side. `target`/`severity` are forwarded to
+// the API; this prevents the previous "client-filter on already-server-
+// filtered data" duplication that quietly truncated paginated results.
 type RuleParams = { target?: RuleTarget; severity?: RuleSeverity; policyId?: string; limit?: number; offset?: number };
 
 export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleListProps) {
+  const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
+  const [severityFilter, setSeverityFilter] = useState<RuleSeverity | ''>('');
+  const [scopeFilter, setScopeFilter] = useState<RuleScope | ''>('');
+  const [nameSearch, setNameSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'priority' | 'name' | 'severity'>('priority');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
   const crudApi = useMemo(() => ({
     list: async (params?: RuleParams) => {
-      const res = await api.getComplianceRules(params);
+      // Forward target/severity to the server. Other filters (scope, name
+      // search) remain client-side because the API doesn't accept them.
+      const merged: RuleParams = {
+        ...params,
+        ...(targetFilter ? { target: targetFilter } : {}),
+        ...(severityFilter ? { severity: severityFilter } : {}),
+      };
+      const res = await api.getComplianceRules(merged);
       return { success: res.success, data: res.data ? { items: res.data.rules, pagination: res.data.pagination } : undefined };
     },
     create: async (data: ComplianceRuleCreate) => {
@@ -30,19 +48,19 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       return { success: res.success, data: res.data ? { item: res.data.rule } : undefined };
     },
     delete: (id: string) => api.deleteComplianceRule(id),
-  }), []);
-  const { items: rules, loading, error, total, remove: deleteRule, update: updateRule } = useCrudResource<ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleParams>(crudApi, 'compliance rules');
-  const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
-  const [severityFilter, setSeverityFilter] = useState<RuleSeverity | ''>('');
-  const [scopeFilter, setScopeFilter] = useState<RuleScope | ''>('');
-  const [nameSearch, setNameSearch] = useState('');
-  const [sortBy, setSortBy] = useState<'priority' | 'name' | 'severity'>('priority');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  }), [targetFilter, severityFilter]);
+  const { items: rules, loading, error, fetch: fetchRules, remove: deleteRule, update: updateRule } = useCrudResource<ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleParams>(crudApi, 'compliance rules');
+
+  // useCrudResource no longer auto-fetches on mount; trigger the initial
+  // load and refetch when the server-forwarded filters change.
+  useEffect(() => {
+    fetchRules();
+  }, [fetchRules]);
 
   const filteredRules = useMemo(() => {
+    // Only scope + nameSearch run client-side now (target/severity are
+    // applied server-side by `crudApi.list`).
     let result = rules.filter((rule) => {
-      if (targetFilter && rule.target !== targetFilter) return false;
-      if (severityFilter && rule.severity !== severityFilter) return false;
       if (scopeFilter && rule.scope !== scopeFilter) return false;
       if (nameSearch && !rule.name.toLowerCase().includes(nameSearch.toLowerCase())) return false;
       return true;
@@ -56,7 +74,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       return sortOrder === 'desc' ? -cmp : cmp;
     });
     return result;
-  }, [rules, targetFilter, severityFilter, scopeFilter, nameSearch, sortBy, sortOrder]);
+  }, [rules, scopeFilter, nameSearch, sortBy, sortOrder]);
 
   if (loading) {
     return (
@@ -68,7 +86,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
 
   if (error) {
     return (
-      <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-red-700 dark:text-red-300">{error}</div>
+      <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-red-700 dark:text-red-300">{error.message}</div>
     );
   }
 
@@ -79,7 +97,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
         <div className="flex items-center gap-2">
           <Shield className="h-5 w-5 text-blue-600" />
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Compliance Rules ({total})
+            Compliance Rules ({filteredRules.length})
           </h2>
         </div>
         {onCreateNew && (

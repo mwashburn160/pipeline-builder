@@ -155,7 +155,6 @@ aws s3 cp "$DEPLOY_DIR/config/prometheus/prometheus.yml" "s3://${CONFIG_BUCKET}/
 aws s3 cp "$DEPLOY_DIR/config/loki/loki-config.yml" "s3://${CONFIG_BUCKET}/loki/loki-config.yml" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/config/fluent-bit/fluent-bit.conf" "s3://${CONFIG_BUCKET}/fluent-bit/fluent-bit.conf" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/config/fluent-bit/parsers.conf" "s3://${CONFIG_BUCKET}/fluent-bit/parsers.conf" --region "$REGION"
-aws s3 sync "$DEPLOY_DIR/config/grafana/" "s3://${CONFIG_BUCKET}/grafana/" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/postgres-init.sql" "s3://${CONFIG_BUCKET}/postgres/init.sql" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/config/pgbouncer/pgbouncer.ini" "s3://${CONFIG_BUCKET}/pgbouncer/pgbouncer.ini" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/mongodb-init.js" "s3://${CONFIG_BUCKET}/mongodb/mongo-init.js" --region "$REGION"
@@ -201,7 +200,6 @@ if [ -n "$CERTIFICATE_ARN" ]; then
 echo "  HTTPS:         https://${BASE_HOST}  (self-signed — accept browser warning)"
 fi
 echo ""
-echo "  Grafana:       http://${BASE_HOST}/grafana/"
 echo "  pgAdmin:       http://${BASE_HOST}/pgadmin/"
 echo "  Mongo Express: http://${BASE_HOST}/mongo-express/"
 echo "  Registry UI:   http://${BASE_HOST}/dashboard/registry (sysadmin only)"

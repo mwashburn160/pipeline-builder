@@ -40,10 +40,6 @@ interface FormBuilderTabProps {
   initialDescription?: string;
   /** Initial keywords as comma-separated string (used in edit mode). */
   initialKeywords?: string;
-  /** Whether to show description/keywords fields (hidden when parent provides them). */
-  showDescriptionKeywords?: boolean;
-  /** When true, renders one section at a time with stepper navigation. */
-  wizardMode?: boolean;
   /** Zero-based index of the active wizard step. */
   currentStep?: number;
   /** Callback when the active wizard step changes. */
@@ -55,13 +51,12 @@ interface FormBuilderTabProps {
 /**
  * Visual form builder for pipeline configuration.
  *
- * Supports two layout modes: a flat vertical layout (all sections visible) and
- * a wizard mode (one step at a time with stepper navigation). Manages form state
- * via useFormBuilderState reducer and exposes imperative methods through a ref
- * for the parent modal to retrieve assembled BuilderProps.
+ * Renders one wizard step at a time with stepper navigation. Manages form
+ * state via useFormBuilderState reducer and exposes imperative methods
+ * through a ref for the parent modal to retrieve assembled BuilderProps.
  */
 const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
-  ({ disabled, initialProps, initialDescription, initialKeywords, showDescriptionKeywords = true, wizardMode = false, currentStep = 0, onStepChange, accessStatusSlot }, ref) => {
+  ({ disabled, initialProps, initialDescription, initialKeywords, currentStep = 0, onStepChange, accessStatusSlot }, ref) => {
     const initialStateRef = useRef<FormBuilderState | undefined>(
       initialProps
         ? {
@@ -116,12 +111,10 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
         onProjectChange={(v) => dispatch({ type: 'SET_CORE', field: 'project', value: v })}
         onOrganizationChange={(v) => dispatch({ type: 'SET_CORE', field: 'organization', value: v })}
         onPipelineNameChange={(v) => dispatch({ type: 'SET_CORE', field: 'pipelineName', value: v })}
-        {...(showDescriptionKeywords ? {
-          description: state.description,
-          keywords: state.keywords,
-          onDescriptionChange: (v: string) => dispatch({ type: 'SET_DESCRIPTION', value: v }),
-          onKeywordsChange: (v: string) => dispatch({ type: 'SET_KEYWORDS', value: v }),
-        } : {})}
+        description={state.description}
+        keywords={state.keywords}
+        onDescriptionChange={(v: string) => dispatch({ type: 'SET_DESCRIPTION', value: v })}
+        onKeywordsChange={(v: string) => dispatch({ type: 'SET_KEYWORDS', value: v })}
         disabled={disabled}
         errors={validationErrors}
       >
@@ -198,39 +191,26 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
       </div>
     );
 
-    // Wizard mode: show one step at a time with stepper
-    if (wizardMode) {
-      return (
-        <div className="space-y-6">
-          <WizardStepper
-            steps={WIZARD_STEPS}
-            currentStep={currentStep}
-            onStepClick={handleStepClick}
-            stepStatus={getStepStatuses(state, visitedSteps)}
-          />
-
-          <div>
-            {currentStep === 0 && (
-              <div className="space-y-4">
-                {pipelineConfigContent}
-                {accessStatusSlot}
-              </div>
-            )}
-            {currentStep === 1 && synthContent}
-            {currentStep === 2 && stagesContent}
-          </div>
-
-          {validationSummary}
-        </div>
-      );
-    }
-
-    // Default mode: flat vertical layout (used by CreatePipelineModal)
     return (
       <div className="space-y-6">
-        {pipelineConfigContent}
-        {synthContent}
-        {stagesContent}
+        <WizardStepper
+          steps={WIZARD_STEPS}
+          currentStep={currentStep}
+          onStepClick={handleStepClick}
+          stepStatus={getStepStatuses(state, visitedSteps)}
+        />
+
+        <div>
+          {currentStep === 0 && (
+            <div className="space-y-4">
+              {pipelineConfigContent}
+              {accessStatusSlot}
+            </div>
+          )}
+          {currentStep === 1 && synthContent}
+          {currentStep === 2 && stagesContent}
+        </div>
+
         {validationSummary}
       </div>
     );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FileText, Plus, Pencil, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
@@ -30,7 +30,13 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
     },
     delete: (id: string) => api.deleteCompliancePolicy(id),
   }), []);
-  const { items: policies, loading, error, total, create: createPolicy, update: updatePolicy, remove: deletePolicy } = useCrudResource<CompliancePolicy, PolicyCreate, PolicyUpdate, PolicyParams>(crudApi, 'compliance policies');
+  const { items: policies, loading, error, total, fetch: fetchPolicies, create: createPolicy, update: updatePolicy, remove: deletePolicy } = useCrudResource<CompliancePolicy, PolicyCreate, PolicyUpdate, PolicyParams>(crudApi, 'compliance policies');
+
+  // useCrudResource no longer auto-fetches; trigger the initial load.
+  useEffect(() => {
+    fetchPolicies();
+  }, [fetchPolicies]);
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', description: '', version: '1.0.0' });
@@ -70,7 +76,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
   if (error) {
     return (
       <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-red-700 dark:text-red-300">
-        {error}
+        {error.message}
       </div>
     );
   }

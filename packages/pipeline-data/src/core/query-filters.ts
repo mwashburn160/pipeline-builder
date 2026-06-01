@@ -179,6 +179,17 @@ export interface MessageFilter extends CommonFilter {
    * exactly; pass null to match channel IS NULL (org-to-org messages).
    */
   readonly channel?: string | null;
+
+  /**
+   * Filter by read state for the requesting org.
+   * Implemented as a JSONB key-existence check against `messages.read_by`
+   * (a `{ [orgId]: isoTimestamp }` map), using the orgId passed to
+   * `buildMessageConditions`.
+   * - true  → only messages the org has read (orgId key exists in read_by)
+   * - false → only messages the org has NOT read
+   * - undefined → no read-state filter
+   */
+  readonly isRead?: boolean;
 }
 
 // ========================================

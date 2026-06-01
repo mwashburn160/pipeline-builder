@@ -11,19 +11,6 @@ export function Skeleton({ className = '' }: SkeletonProps) {
   );
 }
 
-export function SkeletonText({ lines = 3, className = '' }: { lines?: number; className?: string }) {
-  return (
-    <div aria-hidden="true" className={`space-y-2 ${className}`}>
-      {Array.from({ length: lines }).map((_, i) => (
-        <Skeleton
-          key={`skel-text-${i}`}
-          className={`h-4 ${i === lines - 1 ? 'w-3/4' : 'w-full'}`}
-        />
-      ))}
-    </div>
-  );
-}
-
 export function SkeletonTableRow({ columns = 5 }: { columns?: number }) {
   return (
     <tr aria-hidden="true">

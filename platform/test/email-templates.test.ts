@@ -62,7 +62,10 @@ describe('invitationTemplate', () => {
     const result = invitationTemplate(
       buildData({ invitationType: 'oauth', allowedOAuthProviders: ['google', 'github'] }),
     );
-    expect(result.text).toContain('google, github');
+    // Both text and HTML now render title-case labels via the shared
+    // `providerLabels` map ('Google', 'GitHub'), instead of the previous
+    // lowercase comma-join.
+    expect(result.text).toContain('Google, GitHub');
     expect(result.html).toContain('Google');
     expect(result.html).toContain('GitHub');
   });

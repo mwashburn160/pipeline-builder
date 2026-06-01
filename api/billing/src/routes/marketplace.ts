@@ -94,7 +94,7 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
   // (api/billing/src/helpers/subscription-lifecycle.ts) handles the actual
   // downgrade once `currentPeriodEnd` lapses.
   if (statusChange.status === 'canceled') {
-    await syncTierToQuotaService(subscription.orgId, 'developer', '');
+    await syncTierToQuotaService(subscription.orgId, 'developer', '', subscription._id.toString());
     await createBillingEvent(subscription.orgId, 'subscription_canceled', {
       action,
       provider: 'aws-marketplace',
@@ -114,7 +114,7 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
   } else if (previousStatus === 'canceled' && statusChange.status === 'active') {
     const plan = await Plan.findById(subscription.planId);
     if (plan) {
-      await syncTierToQuotaService(subscription.orgId, plan.tier, '');
+      await syncTierToQuotaService(subscription.orgId, plan.tier, '', subscription._id.toString());
     }
     await createBillingEvent(subscription.orgId, 'subscription_reactivated', {
       action,
@@ -180,7 +180,7 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
   subscription.planId = newPlanId;
   await subscription.save();
 
-  await syncTierToQuotaService(subscription.orgId, plan.tier, '');
+  await syncTierToQuotaService(subscription.orgId, plan.tier, '', subscription._id.toString());
 
   await createBillingEvent(subscription.orgId, 'plan_changed', {
     oldPlanId,
@@ -283,8 +283,18 @@ export function createMarketplaceRoutes(): Router {
           );
         }
 
-        // Step 5: Create the subscription
-        const orgId = req.body?.orgId || resolved.customerAWSAccountId;
+        // Step 5: Create the subscription. This route is unauthenticated
+        // (AWS-redirected), so the orgId MUST come from the AWS-resolved
+        // customer — accepting a body-supplied orgId would let any caller
+        // bind a marketplace subscription to an arbitrary org.
+        if (req.body?.orgId) {
+          return sendError(
+            res, 400,
+            'orgId is not accepted on this endpoint',
+            ErrorCode.VALIDATION_ERROR,
+          );
+        }
+        const orgId = resolved.customerAWSAccountId;
         const now = new Date();
 
         const subscription = await Subscription.create({
@@ -307,7 +317,7 @@ export function createMarketplaceRoutes(): Router {
         });
 
         // Step 6: Sync tier to quota service
-        await syncTierToQuotaService(orgId, plan.tier, '');
+        await syncTierToQuotaService(orgId, plan.tier, '', subscription._id.toString());
 
         // Step 7: Log billing event
         await createBillingEvent(orgId, 'subscription_created', {

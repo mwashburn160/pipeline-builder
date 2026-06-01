@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- *  audit-activity.tsx is now a redirect shim.
+ * audit-activity.tsx is now a redirect shim.
  *
  * The page that USED to live here was the static replacement for Grafana's
  * Explore audit-log surface. That functionality migrated to the DB-stored
@@ -10,7 +10,7 @@
  * DB-stored renderer now honours the URL-param filters (`?event=`, `?actor=`,
  * `?digest=`) that `buildAuditLogLink` produces.
  *
- * Keeping this file as a shim  rather than deleting it outright  preserves
+ * Keeping this file as a shim — rather than deleting it outright — preserves
  * existing deep-links (registry-audit-link, bookmarks) without requiring the
  * helper itself to look up the dashboard id at link-build time. One redirect
  * per click is cheap; rewriting every helper isn't.
@@ -34,8 +34,12 @@ export default function AuditActivityRedirect() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!router.isReady) return;
     if (!isReady || !isAuthenticated) return;
     let cancelled = false;
+    // Capture query inside the effect so we don't depend on the unstable
+    // `router` object — re-renders shouldn't re-trigger the redirect.
+    const query = router.query;
     (async () => {
       try {
         const res = await api.listDashboards();
@@ -48,17 +52,19 @@ export default function AuditActivityRedirect() {
         // Preserve every URL param except `id` (which would conflict with
         // the dashboard route). The DB-stored renderer reads `range`,
         // `event`, `actor`, `digest` directly.
-        const { id: _ignored,...passThrough } = router.query;
-        void router.replace(          { pathname: `/dashboard/observability/${match.id}`, query: passThrough },
+        const { id: _ignored, ...passThrough } = query;
+        void router.replace(
+          { pathname: `/dashboard/observability/${match.id}`, query: passThrough },
         );
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof ApiError ? err.message: (err as Error).message);
+          setError(err instanceof ApiError ? err.message : (err as Error).message);
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [isReady, isAuthenticated, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady, isReady, isAuthenticated]);
 
   if (!isReady || !isAuthenticated) return <LoadingPage />;
   if (error) {

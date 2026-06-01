@@ -26,7 +26,11 @@ function read(orgId: string): Set<string> {
 
 function write(orgId: string, ids: Set<string>): void {
   if (typeof window === 'undefined' || !orgId) return;
-  window.localStorage.setItem(key(orgId), JSON.stringify(Array.from(ids)));
+  try {
+    window.localStorage.setItem(key(orgId), JSON.stringify(Array.from(ids)));
+  } catch {
+    // localStorage may be unavailable (Safari private mode, quota exceeded)
+  }
 }
 
 export function loadFavorites(orgId: string): Set<string> {

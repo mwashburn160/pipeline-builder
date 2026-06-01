@@ -58,6 +58,11 @@ jest.mock('@pipeline-builder/api-core', () => ({
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
+  parseQueryIntClamped: (v: unknown, def: number, max: number) => {
+    const raw = v === undefined ? def : parseInt(String(v), 10);
+    const n = Number.isFinite(raw) ? raw : def;
+    return Math.max(1, Math.min(n, max));
+  },
   createCacheService: () => ({
     getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
     invalidatePattern: () => Promise.resolve(0),
@@ -221,7 +226,17 @@ describe('GET /quotas/all (system admin)', () => {
   it('returns all organizations for system admin', async () => {
     mockIsSystemAdmin.mockReturnValue(true);
     const orgs = [makeOrg({ _id: 'org-1', name: 'Org A' }), makeOrg({ _id: 'org-2', name: 'Org B' })];
-    mockFind.mockReturnValue({ select: jest.fn().mockReturnValue({ sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(orgs) }) }) });
+    // findAll now paginates via .skip().limit() on the Mongoose query object,
+    // then awaits .lean(). Build a chainable mock where each method returns the
+    // same query so the source can call them in any order.
+    const query: any = {
+      select: jest.fn(() => query),
+      sort: jest.fn(() => query),
+      skip: jest.fn(() => query),
+      limit: jest.fn(() => query),
+      lean: jest.fn().mockResolvedValue(orgs),
+    };
+    mockFind.mockReturnValue(query);
 
     const req = mockReq({ user: { organizationId: 'admin-org' } });
     const res = mockRes();
@@ -249,7 +264,14 @@ describe('GET /quotas/all (system admin)', () => {
 
   it('returns 500 on database error', async () => {
     mockIsSystemAdmin.mockReturnValue(true);
-    mockFind.mockReturnValue({ select: jest.fn().mockReturnValue({ sort: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) }) }) });
+    const query: any = {
+      select: jest.fn(() => query),
+      sort: jest.fn(() => query),
+      skip: jest.fn(() => query),
+      limit: jest.fn(() => query),
+      lean: jest.fn().mockRejectedValue(new Error('DB error')),
+    };
+    mockFind.mockReturnValue(query);
 
     const req = mockReq({ user: { organizationId: 'admin-org' } });
     const res = mockRes();

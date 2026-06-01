@@ -80,7 +80,7 @@ export function createRegistryRoutes(): Router {
         stackName: v.stackName,
       });
       ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, arn: safeArn });
-      sendSuccess(res, 200, { registry: result });
+      return sendSuccess(res, 200, { registry: result });
     } catch (err) {
       const code = errorMessage(err);
       if (code === PR_PIPELINE_NOT_OWNED) {
@@ -118,7 +118,7 @@ export function createRegistryRoutes(): Router {
     if (!deleted) return sendError(res, 404, 'Registry entry not found.', ErrorCode.NOT_FOUND);
 
     ctx.log('COMPLETED', 'Pipeline registry row deleted', { id: deleted.id, arn: deleted.pipelineArn });
-    sendSuccess(res, 200, { id: deleted.id });
+    return sendSuccess(res, 200, { id: deleted.id });
   }));
 
   return router;

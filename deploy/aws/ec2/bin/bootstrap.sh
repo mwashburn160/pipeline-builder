@@ -315,7 +315,6 @@ JWT_SECRET=$(openssl rand -base64 32 | tr -d '=+/')
 REFRESH_SECRET=$(openssl rand -base64 32 | tr -d '=+/')
 PG_PASSWORD=$(openssl rand -base64 24 | tr -d '=+/')
 MONGO_PASSWORD=$(openssl rand -base64 24 | tr -d '=+/')
-GRAFANA_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 ME_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 PGADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 REGISTRY_TOKEN=$(openssl rand -base64 24 | tr -d '=+/')
@@ -344,7 +343,6 @@ sed -i "s|mongodb://mongo:CHANGE_ME@|mongodb://mongo:${MONGO_PASSWORD}@|g" .env
 sed -i "s|ME_CONFIG_MONGODB_ADMINPASSWORD=CHANGE_ME|ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGO_PASSWORD}|" .env
 
 # Admin UI passwords
-sed -i "s|GRAFANA_ADMIN_PASSWORD=CHANGE_ME|GRAFANA_ADMIN_PASSWORD=${GRAFANA_PASSWORD}|" .env
 sed -i "s|ME_CONFIG_BASICAUTH_PASSWORD=CHANGE_ME|ME_CONFIG_BASICAUTH_PASSWORD=${ME_PASSWORD}|" .env
 sed -i "s|PGADMIN_DEFAULT_PASSWORD=CHANGE_ME|PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD}|" .env
 

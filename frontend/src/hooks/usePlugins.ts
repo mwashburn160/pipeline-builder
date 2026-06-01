@@ -19,6 +19,9 @@ import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
 let cachedPlugins: Plugin[] | null = null;
 /** Timestamp (epoch ms) of the last successful plugin fetch. */
 let cacheTimestamp = 0;
+/** In-flight cold-start fetch, shared so concurrent mounts don't each fire
+ *  their own request against the platform service. */
+let pendingFetch: Promise<Plugin[]> | null = null;
 
 /**
  * Invalidates the module-level plugin cache.
@@ -27,6 +30,7 @@ let cacheTimestamp = 0;
 export function clearPluginCache() {
   cachedPlugins = null;
   cacheTimestamp = 0;
+  pendingFetch = null;
 }
 
 /** A group of plugins under a shared category label. */
@@ -58,10 +62,21 @@ export function usePlugins(enabled = true) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await api.listPlugins({ limit: '500', isActive: 'true' });
-      const fetched = (response.data?.plugins || []) as Plugin[];
-      cachedPlugins = fetched;
-      cacheTimestamp = Date.now();
+      // Coalesce concurrent cold-start callers onto a single network request.
+      if (!pendingFetch) {
+        pendingFetch = (async () => {
+          try {
+            const response = await api.listPlugins({ limit: '500', isActive: 'true' });
+            const fetched = (response.data?.plugins || []) as Plugin[];
+            cachedPlugins = fetched;
+            cacheTimestamp = Date.now();
+            return fetched;
+          } finally {
+            pendingFetch = null;
+          }
+        })();
+      }
+      const fetched = await pendingFetch;
       setPlugins(fetched);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to load plugins');

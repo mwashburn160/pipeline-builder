@@ -48,22 +48,25 @@ jest.mock('@pipeline-builder/api-server', () => ({
 
 jest.mock('@pipeline-builder/pipeline-core', () => {
   const insertChain = { values: () => insertChain, returning: () => Promise.resolve([]) };
+  const tx = {
+    select: () => ({ from: () => ({ where: () => Promise.resolve(selectChainStub.fromRows) }) }),
+    insert: () => insertChain,
+    update: () => ({
+      set: () => ({
+        where: () => ({ returning: () => Promise.resolve(selectChainStub.updateRows) }),
+      }),
+    }),
+    delete: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }),
+  };
   return {
     schema: {
       complianceExemption: {
         id: 'col_id', orgId: 'col_org', status: 'col_status', createdBy: 'col_createdBy',
       },
     },
-    db: {
-      select: () => ({ from: () => ({ where: () => Promise.resolve(selectChainStub.fromRows) }) }),
-      insert: () => insertChain,
-      update: () => ({
-        set: () => ({
-          where: () => ({ returning: () => Promise.resolve(selectChainStub.updateRows) }),
-        }),
-      }),
-      delete: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }),
-    },
+    db: tx,
+    withTenantTx: (cb: (t: typeof tx) => Promise<unknown>) => cb(tx),
+    runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
     buildComplianceExemptionConditions: () => [],
     drizzleCount: (r: unknown) => r,
   };

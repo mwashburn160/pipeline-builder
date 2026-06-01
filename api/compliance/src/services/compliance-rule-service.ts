@@ -91,9 +91,10 @@ export class ComplianceRuleService extends CrudService<
       // Single query: org's own rules UNION subscribed published rules (via LEFT JOIN)
       const orgRules = await this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
 
-      // Fetch subscribed published rules in one JOIN query instead of 2 separate queries
-      const publishedRules = await withTenantTx(async (tx) => tx
-        .select({ rule: schema.complianceRule })
+      // Fetch subscribed published rules + the subscription row itself so we
+      // can honor a `pinnedVersion` snapshot when present.
+      const publishedRows = await withTenantTx(async (tx) => tx
+        .select({ rule: schema.complianceRule, subscription: schema.complianceRuleSubscription })
         .from(schema.complianceRuleSubscription)
         .innerJoin(
           schema.complianceRule,
@@ -109,16 +110,19 @@ export class ComplianceRuleService extends CrudService<
           eq(schema.complianceRuleSubscription.isActive, true),
         )));
 
-      if (publishedRules.length === 0) return orgRules;
+      if (publishedRows.length === 0) return orgRules;
 
-      // Merge, deduplicate by ID
+      // Merge, deduplicate by ID, and prefer the pinned snapshot when the
+      // subscription has one — the snapshot is the rule body the org last
+      // explicitly accepted, regardless of upstream edits.
       const seenIds = new Set(orgRules.map(r => r.id));
       const merged = [...orgRules];
-      for (const { rule } of publishedRules) {
-        if (!seenIds.has(rule.id)) {
-          merged.push(rule as ComplianceRule);
-          seenIds.add(rule.id);
-        }
+      for (const { rule, subscription } of publishedRows) {
+        if (seenIds.has(rule.id)) continue;
+        const pinned = (subscription as { pinnedVersion?: unknown }).pinnedVersion as Partial<ComplianceRule> | null | undefined;
+        const effective = pinned ? { ...rule, ...pinned } as ComplianceRule : (rule as ComplianceRule);
+        merged.push(effective);
+        seenIds.add(rule.id);
       }
       return merged;
     });
@@ -197,6 +201,8 @@ export class ComplianceRuleService extends CrudService<
         .where(and(
           eq(schema.complianceRule.id, ruleId),
           eq(schema.complianceRule.scope, 'published' as RuleScope),
+          eq(schema.complianceRule.isActive, true),
+          isNull(schema.complianceRule.deletedAt),
         ))),
     );
 
@@ -244,15 +250,32 @@ export class ComplianceRuleService extends CrudService<
   /**
    * Fire-and-forget: create a pending scan triggered by a rule change.
    * The scan scheduler picks it up and executes it automatically.
+   *
+   * Coalesces by (orgId, target): if a pending or running scan for the same
+   * pair already exists, skip the insert. Avoids backlog buildup when many
+   * rules are mutated in quick succession (e.g. bulk imports).
    */
-  private async triggerRuleChangeScan(orgId: string, target: string): Promise<void> {
-    await withTenantTx(async (tx) => tx.insert(schema.complianceScan).values({
-      orgId,
-      target: target as 'plugin' | 'pipeline',
-      status: 'pending',
-      triggeredBy: 'rule-change',
-      userId: 'system',
-    }));
+  private async triggerRuleChangeScan(orgId: string, target: string, userId: string = 'system'): Promise<void> {
+    await withTenantTx(async (tx) => {
+      const [existing] = await tx
+        .select({ id: schema.complianceScan.id })
+        .from(schema.complianceScan)
+        .where(and(
+          eq(schema.complianceScan.orgId, orgId),
+          eq(schema.complianceScan.target, target as 'plugin' | 'pipeline'),
+          inArray(schema.complianceScan.status, ['pending', 'running']),
+        ))
+        .limit(1);
+      if (existing) return;
+
+      await tx.insert(schema.complianceScan).values({
+        orgId,
+        target: target as 'plugin' | 'pipeline',
+        status: 'pending',
+        triggeredBy: 'rule-change',
+        userId,
+      });
+    });
   }
 
   /** Fetch all rules belonging to a policy. */
@@ -304,13 +327,14 @@ export class ComplianceRuleService extends CrudService<
         .from(schema.complianceRule)
         .where(and(
           inArray(schema.complianceRule.id, ids),
+          eq(schema.complianceRule.isActive, true),
           isNull(schema.complianceRule.deletedAt),
         ))),
     );
     return rows as unknown as ComplianceRule[];
   }
 
-  /** Single rule by id, ignoring soft-deleted rows. Returns null on miss. */
+  /** Single rule by id, ignoring soft-deleted/inactive rows. Returns null on miss. */
   async findPublishedById(id: string): Promise<ComplianceRule | null> {
     const [rule] = await runWithTenantContext({ isSuperAdmin: true }, () =>
       withTenantTx(async (tx) => tx
@@ -318,6 +342,7 @@ export class ComplianceRuleService extends CrudService<
         .from(schema.complianceRule)
         .where(and(
           eq(schema.complianceRule.id, id),
+          eq(schema.complianceRule.isActive, true),
           isNull(schema.complianceRule.deletedAt),
         ))),
     );
@@ -381,7 +406,7 @@ export class ComplianceRuleService extends CrudService<
     const created = await super.create(data, userId);
     this.recordHistory(created.id, created.orgId, 'created', null, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
     this.invalidateRulesCache(created.orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-    this.triggerRuleChangeScan(created.orgId, created.target).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+    this.triggerRuleChangeScan(created.orgId, created.target, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
     if (created.scope === 'published') {
       this.invalidateSubscriberCaches(created.id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
     }
@@ -401,7 +426,7 @@ export class ComplianceRuleService extends CrudService<
     if (updated && existing) {
       this.recordHistory(id, orgId, 'updated', existing, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       this.invalidateRulesCache(orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-      this.triggerRuleChangeScan(orgId, existing.target).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+      this.triggerRuleChangeScan(orgId, existing.target, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       if (existing.scope === 'published') {
         this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
         notifyPublishedRuleChange(id, existing.name, 'updated').catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
@@ -416,7 +441,7 @@ export class ComplianceRuleService extends CrudService<
     if (deleted && existing) {
       this.recordHistory(id, orgId, 'deleted', existing, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       this.invalidateRulesCache(orgId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-      this.triggerRuleChangeScan(orgId, existing.target).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+      this.triggerRuleChangeScan(orgId, existing.target, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       if (existing.scope === 'published') {
         this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
         notifyPublishedRuleChange(id, existing.name, 'deleted').catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));

@@ -3,6 +3,7 @@
 
 import type { OrgQuotaResponse, QuotaSummary, QuotaType } from '@/types';
 import { QUOTA_CRITICAL_THRESHOLD, QUOTA_WARNING_THRESHOLD } from './constants';
+import { pct } from './quota-helpers';
 
 /** Banner severity levels driven by the highest quota in pressure. */
 export type QuotaPressureLevel = 'none' | 'info' | 'warning' | 'critical';
@@ -26,8 +27,8 @@ const TYPE_LABEL: Record<QuotaType, string> = {
 
 /** Compute the usage percentage for a single quota (0 for unlimited). */
 function quotaPercent(q: QuotaSummary): number {
-  if (q.unlimited || q.limit <= 0) return 0;
-  return Math.min(100, Math.round((q.used / q.limit) * 100));
+  if (q.unlimited) return 0;
+  return pct(q.used, q.limit);
 }
 
 /**

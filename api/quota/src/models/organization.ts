@@ -36,7 +36,7 @@ export interface QuotaUsageTracking {
    * Measured registry storage usage in bytes. Unlike the other usage
    * fields (which `incrementUsage` bumps as actions land), this is set by
    * the image-registry's GC scheduler / push path via the existing
-   * `incrementUsage` + `resetUsage` flows  push reserves an increment,
+   * `incrementUsage` + `decrementUsage` flows  push reserves an increment,
    * GC freeing bytes reduces it via resetUsage. The image-registry caches
    * the rollup for 60s (see storage-usage.ts) so the value can lag the
    * registry's true state briefly without causing oscillation.
@@ -73,7 +73,7 @@ const quotaUsageSchema = new Schema<QuotaUsage>( {
 const defaultUsage = () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetDays) });
 
 const organizationSchema = new Schema<OrganizationDocument>( {
-  _id: { type: Schema.Types.Mixed },
+  _id: { type: String },
   name: { type: String, required: true },
   slug: { type: String, required: true },
   tier: { type: String, enum: ['developer', 'pro', 'unlimited'], default: 'developer' },
@@ -102,6 +102,10 @@ const organizationSchema = new Schema<OrganizationDocument>( {
 },
 { collection: 'organizations' },
 );
+
+// Index on `name` to keep the admin-list endpoint (sorted by name, paginated)
+// from full-collection scans as the org count grows.
+organizationSchema.index({ name: 1 });
 
 // Model (safe for re-registration in tests)
 

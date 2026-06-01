@@ -36,7 +36,10 @@ export const getOrganizationMembers = withController('Get members', async (req, 
   const result = await orgMembersService.listMembers(id);
   if (!result) return sendError(res, 404, 'Organization not found');
 
-  sendSuccess(res, 200, { ...result, total: result.members.length });
+  // No pagination here yet — dropping `total` rather than implying a paged
+  // shape. Add `parsePaginationParams` + service-side limit/offset if/when
+  // any org grows large enough to need it.
+  sendSuccess(res, 200, result);
 });
 
 /** POST /organization/:id/members */

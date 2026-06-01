@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Sparkles, ChevronDown, ChevronUp, Rocket, CheckCircle, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
@@ -54,13 +54,23 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
   const { status: buildStatus, events, lastEvent } = useBuildStatus(requestId);
 
   const ai = useAIProviders(() => api.getPluginAIProviders());
+  // Track mount state so the 2s auto-close timer never fires onClose after
+  // the parent has already unmounted the tab (e.g. user clicked Cancel).
+  const mountedRef = useRef<boolean>(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // Auto-complete on successful build
   useEffect(() => {
     if (buildStatus === 'completed') {
       setSuccess(`Plugin "${generatedConfig?.name}" deployed successfully!`);
       onCreated();
-      setTimeout(() => onClose(), 2000);
+      setTimeout(() => {
+        if (!mountedRef.current) return;
+        onClose();
+      }, 2000);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when buildStatus changes; other deps are stable callbacks
   }, [buildStatus]);

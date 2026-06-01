@@ -3,6 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
+import { loadActiveOrgInfo } from '../helpers/active-org-info';
 import { toOrgId } from '../helpers/controller-helper';
 import { User, Organization, UserOrganization } from '../models';
 import { escapeRegex } from '../utils/regex';
@@ -106,8 +107,11 @@ class UserAdminService {
    * Throws UA_USER_NOT_FOUND if the user is gone.
    */
   async getByIdWithOrgs(id: string) {
+    // Include `isSuperAdmin` so admin-facing UIs reflect the actual flag
+    // (the schema field defaults to `select: false` to keep it out of
+    // ordinary queries).
     const user = await User.findById(id)
-      .select('_id username email isEmailVerified lastActiveOrgId featureOverrides createdAt updatedAt')
+      .select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides createdAt updatedAt')
       .lean();
     if (!user) throw new Error(UA_USER_NOT_FOUND);
 
@@ -240,26 +244,14 @@ class UserAdminService {
             userId: user._id, organizationId: toOrgId(body.organizationId), role: 'member',
           });
         }
-        user.lastActiveOrgId = body.organizationId as unknown as Types.ObjectId;
+        user.lastActiveOrgId = String(body.organizationId);
         changes.push('organizationId');
       }
     }
 
     await user.save();
 
-    // Re-fetch the active org name + role for response shaping.
-    const activeOrgId = user.lastActiveOrgId?.toString();
-    let organizationName: string | null = null;
-    let activeOrgRole: string | undefined;
-    if (activeOrgId) {
-      const [org, membership] = await Promise.all([
-        Organization.findById(activeOrgId).select('name').lean(),
-        UserOrganization.findOne({ userId: user._id, organizationId: activeOrgId, isActive: true }).lean(),
-      ]);
-      organizationName = org?.name || null;
-      activeOrgRole = membership?.role;
-    }
-
+    const { organizationName, activeOrgRole } = await loadActiveOrgInfo(user._id, user.lastActiveOrgId?.toString());
     return { user, changes, organizationName, activeOrgRole };
   }
 
@@ -286,26 +278,15 @@ class UserAdminService {
    * Throws UA_USER_NOT_FOUND.
    */
   async updateFeatures(id: string, overrides: Record<string, boolean>) {
-    const user = await User.findById(id).select('_id username email isEmailVerified lastActiveOrgId featureOverrides');
+    // `+isSuperAdmin` (schema is `select: false`) is required because the
+    // caller resolves feature flags with a sysadmin-bypass branch.
+    const user = await User.findById(id).select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides');
     if (!user) throw new Error(UA_USER_NOT_FOUND);
 
     user.featureOverrides = new Map(Object.entries(overrides));
     await user.save();
 
-    let organizationName: string | null = null;
-    let activeOrgRole: string | undefined;
-    let tier: string | undefined;
-    const activeOrgId = user.lastActiveOrgId?.toString();
-    if (activeOrgId) {
-      const [org, membership] = await Promise.all([
-        Organization.findById(activeOrgId).select('name tier').lean(),
-        UserOrganization.findOne({ userId: user._id, organizationId: activeOrgId, isActive: true }).lean(),
-      ]);
-      organizationName = org?.name || null;
-      tier = org?.tier;
-      activeOrgRole = membership?.role;
-    }
-
+    const { organizationName, activeOrgRole, tier } = await loadActiveOrgInfo(user._id, user.lastActiveOrgId?.toString());
     return { user, organizationName, activeOrgRole, tier };
   }
 }

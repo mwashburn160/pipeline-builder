@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
+import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
@@ -31,8 +32,6 @@ interface EditPipelineModalProps {
  * active/default status.
  */
 export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onSaved }: EditPipelineModalProps) {
-  const [fullPipeline, setFullPipeline] = useState<Pipeline | null>(null);
-  const [fetching, setFetching] = useState(true);
   const [isActive, setIsActive] = useState(pipeline.isActive);
   const [isDefault, setIsDefault] = useState(pipeline.isDefault);
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(pipeline.accessModifier);
@@ -48,38 +47,29 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Fetch full pipeline data by ID to ensure description/keywords are populated.
-  // Also resets the wizard's step + preview state — re-opening the modal
-  // (parent may keep us mounted within the 1.5s success-close window) would
-  // otherwise leave stale step/preview state from the previous session.
+  // useEntityFetch only re-fetches when `id` changes, so stale re-mounts during
+  // the 1.5s success-close window won't overwrite user edits.
+  const fetchPipeline = useCallback(async (id: string): Promise<Pipeline> => {
+    const response = await api.getPipelineById(id);
+    return response.data?.pipeline ?? pipeline;
+  }, [pipeline]);
+  const { entity: fullPipeline, fetching } = useEntityFetch<Pipeline>(pipeline.id, fetchPipeline, pipeline);
+
+  // Reset wizard/preview state and seed editable fields when the fetched
+  // pipeline changes (parent may keep us mounted within the close window).
   useEffect(() => {
     setCurrentStep(0);
     setShowPreview(false);
     setPreviewJson(null);
     setSuccess(null);
-    setFetching(true);
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await api.getPipelineById(pipeline.id);
-        if (!cancelled) {
-          const fetched = response.data?.pipeline;
-          if (fetched) {
-            setFullPipeline(fetched);
-            setIsActive(fetched.isActive);
-            setIsDefault(fetched.isDefault);
-            setAccessModifier(fetched.accessModifier);
-          } else {
-            setFullPipeline(pipeline);
-          }
-        }
-      } catch {
-        if (!cancelled) setFullPipeline(pipeline);
-      } finally {
-        if (!cancelled) setFetching(false);
-      }
-    })();
-    return () => { cancelled = true; };
   }, [pipeline.id]);
+
+  useEffect(() => {
+    if (!fullPipeline) return;
+    setIsActive(fullPipeline.isActive);
+    setIsDefault(fullPipeline.isDefault);
+    setAccessModifier(fullPipeline.accessModifier);
+  }, [fullPipeline]);
 
   // Scroll to top when step changes
   useEffect(() => {
@@ -119,6 +109,7 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
   };
 
   const handleSave = async () => {
+    clearError();
     setSuccess(null);
 
     const parsedProps = resolveProps();
@@ -299,7 +290,6 @@ export default function EditPipelineModal({ pipeline, isSuperAdmin, onClose, onS
             initialProps={p.props}
             initialDescription={p.description || ''}
             initialKeywords={p.keywords?.join(', ') || ''}
-            wizardMode={true}
             currentStep={currentStep}
             onStepChange={setCurrentStep}
             accessStatusSlot={accessStatusSlot}

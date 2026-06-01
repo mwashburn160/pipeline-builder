@@ -7,7 +7,11 @@ import type { SubscriptionStatus } from '../models/subscription';
 
 const logger = createLogger('stripe-helpers');
 
-/** Stripe status → internal SubscriptionStatus lookup. */
+/** Stripe status → internal SubscriptionStatus lookup.
+ *  `unpaid` maps to `canceled` (not `past_due`): Stripe sets `unpaid` only
+ *  after the configured grace period has expired with the invoice still
+ *  unpaid, so by our policy the subscription is gone and tier should
+ *  downgrade — same as an explicit cancel. */
 const STRIPE_STATUS_MAP: Record<string, SubscriptionStatus> = {
   active: 'active',
   trialing: 'trialing',

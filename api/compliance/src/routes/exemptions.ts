@@ -21,7 +21,7 @@ import {
   CE_SELF_APPROVE,
 } from '../services/compliance-exemption-service';
 
-/** Feature #3: Exemption CRUD routes. */
+/** Exemption CRUD routes. */
 
 const ExemptionCreateSchema = z.object({
   ruleId: z.string().uuid(),
@@ -62,8 +62,9 @@ export function createExemptionRoutes(): Router {
   }));
 
   // POST /bulk — bulk-create exemptions in one request (up to 500).
-  // Skips any (ruleId, entityType, entityId) combination that already has an
-  // active exemption for this org. Returns counts of created vs skipped.
+  // The schema has no unique constraint on (ruleId, entityType, entityId), so
+  // duplicates are NOT deduplicated server-side — every input row produces a
+  // row in the table. Callers are responsible for not double-submitting.
   router.post('/bulk', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, BulkExemptionsSchema);
     if (!validation.ok) {
@@ -72,13 +73,12 @@ export function createExemptionRoutes(): Router {
 
     const ids = await complianceExemptionService.bulkCreate(validation.value.exemptions, orgId, userId);
 
-    ctx.log('COMPLETED', 'Bulk exemption insert', {
-      requested: validation.value.exemptions.length,
-      created: ids.length,
-    });
+    const requested = validation.value.exemptions.length;
+    const created = ids.length;
+    ctx.log('COMPLETED', 'Bulk exemption insert', { requested, created });
     return sendSuccess(res, 201, {
-      created: ids.length,
-      skipped: validation.value.exemptions.length - ids.length,
+      created,
+      skipped: requested - created,
       ids,
     });
   }));

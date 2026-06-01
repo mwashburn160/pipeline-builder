@@ -8,7 +8,7 @@ import type { BillingInterval } from '../models/subscription';
 const logger = createLogger('stub-provider');
 
 export class StubPaymentProvider implements PaymentProvider {
-  async createCustomer(orgId: string, _email: string): Promise<string> {
+  async createCustomer(orgId: string, _email?: string): Promise<string> {
     logger.debug('Stub: createCustomer', { orgId });
     return `stub_cus_${orgId}`;
   }

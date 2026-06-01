@@ -17,11 +17,12 @@
  *   - Valid query returning empty result        → 200 with `{datapoints: []}` / `{entries: []}`
  */
 
-import { sendError, sendSuccess } from '@pipeline-builder/api-core';
-import type { Request, Response } from 'express';
+import { parseQueryString, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import type { Response } from 'express';
 import * as am from './alertmanager-client';
 import {
   QUERIES,
+  type RangeKey,
   rangeSeconds,
   stepForRange,
   substituteVars,
@@ -30,9 +31,15 @@ import * as loki from './loki-client';
 import * as prom from './prometheus-client';
 import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper';
 
-type RangeKey = '1h' | '6h' | '24h';
-
+/**
+ * Parse the `range` query param.
+ *   - missing / undefined  →  '1h' (sensible default for a dashboard load)
+ *   - one of '1h'/'6h'/'24h' →  return as-is
+ *   - any other value      →  null (caller returns 400; previously this path
+ *                              silently defaulted to '1h' and masked bugs)
+ */
 function parseRange(raw: unknown): RangeKey | null {
+  if (raw === undefined) return '1h';
   if (raw === '1h' || raw === '6h' || raw === '24h') return raw;
   return null;
 }
@@ -41,11 +48,6 @@ function parseLimit(raw: unknown): number {
   const n = typeof raw === 'string' ? parseInt(raw, 10) : NaN;
   if (!Number.isFinite(n) || n < 1) return 50;
   return Math.min(n, 500);
-}
-
-function getStringParam(req: Request, name: string): string | undefined {
-  const v = req.query[name];
-  return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
 /** Convert a Prom/Loki error to the right HTTP response per the contract above. */
@@ -82,7 +84,7 @@ export const observabilityQuery = withController('Observability query', async (r
   if (!requireAuth(req, res)) return;
   const sysadmin = isSystemAdmin(req);
 
-  const key = getStringParam(req, 'key');
+  const key = parseQueryString(req.query.key);
   if (!key || !(key in QUERIES)) {
     sendError(res, 400, 'Unknown observability query key');
     return;
@@ -92,10 +94,9 @@ export const observabilityQuery = withController('Observability query', async (r
   const queryStr = substituteVars(
     entry.query,
     {
-      plugin: getStringParam(req, 'plugin'),
-      event: getStringParam(req, 'event'),
-      digest: getStringParam(req, 'digest'),
-      actor: getStringParam(req, 'actor'),
+      plugin: parseQueryString(req.query.plugin),
+      event: parseQueryString(req.query.event),
+      actor: parseQueryString(req.query.actor),
       org: req.user?.organizationId,
       isSuperAdmin: sysadmin,
     },
@@ -108,7 +109,11 @@ export const observabilityQuery = withController('Observability query', async (r
       sendSuccess(res, 200, { samples });
       return;
     }
-    const range = parseRange(req.query.range) ?? '1h';
+    const range = parseRange(req.query.range);
+    if (range === null) {
+      sendError(res, 400, "Invalid range — must be one of '1h', '6h', '24h'");
+      return;
+    }
     const end = Math.floor(Date.now() / 1000);
     const start = end - rangeSeconds(range);
     const step = stepForRange(range);
@@ -143,7 +148,7 @@ export const observabilityLogs = withController('Observability logs', async (req
   if (!requireAuth(req, res)) return;
   const sysadmin = isSystemAdmin(req);
 
-  const key = getStringParam(req, 'key');
+  const key = parseQueryString(req.query.key);
   if (!key || !(key in QUERIES)) {
     sendError(res, 400, 'Unknown observability query key');
     return;
@@ -154,27 +159,34 @@ export const observabilityLogs = withController('Observability logs', async (req
     return;
   }
 
-  const range = parseRange(req.query.range) ?? '1h';
+  const range = parseRange(req.query.range);
+  if (range === null) {
+    sendError(res, 400, "Invalid range — must be one of '1h', '6h', '24h'");
+    return;
+  }
   const end = Math.floor(Date.now() / 1000);
   const start = end - rangeSeconds(range);
   const limit = parseLimit(req.query.limit);
 
   const vars = {
-    event: getStringParam(req, 'event'),
-    digest: getStringParam(req, 'digest'),
-    actor: getStringParam(req, 'actor'),
-    plugin: getStringParam(req, 'plugin'),
+    event: parseQueryString(req.query.event),
+    actor: parseQueryString(req.query.actor),
+    plugin: parseQueryString(req.query.plugin),
     org: req.user?.organizationId,
     isSuperAdmin: sysadmin,
   };
   const logQL = substituteVars(entry.query, vars, entry.allowedVars);
 
   try {
-    // Heuristic: queries that start with `{` and have no `count_over_time`
-    // / `sum` aggregations return streams; everything else returns matrix.
-    // Cheaper than a regex against the source query — Loki itself will
-    // tell us via `resultType`, but the route shape is decided here.
-    const isStreams = /^\s*\{/.test(entry.query) && !/count_over_time|sum\s|topk\(/.test(entry.query);
+    // Prefer the explicit `kind` field on the catalog entry — set it on new
+    // Loki entries so the route shape is unambiguous. Fall back to a
+    // syntactic heuristic for legacy entries that haven't been migrated:
+    // queries starting with `{` and lacking aggregation operators return
+    // streams; everything else is matrix. Loki itself reports `resultType`
+    // in the response, but we need to pick the endpoint *before* calling.
+    const isStreams = entry.kind
+      ? entry.kind === 'stream'
+      : /^\s*\{/.test(entry.query) && !/count_over_time|sum\s|topk\(/.test(entry.query);
     if (isStreams) {
       const entries = await loki.queryStreams(logQL, start, end, limit);
       sendSuccess(res, 200, { entries, range });

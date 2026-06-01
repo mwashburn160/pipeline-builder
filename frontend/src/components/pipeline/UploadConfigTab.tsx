@@ -2,6 +2,19 @@ import { useState, useImperativeHandle, useRef, forwardRef } from 'react';
 import { Upload } from 'lucide-react';
 import { BuilderProps } from '@/types';
 
+/**
+ * Wrapper-only fields on the pipeline upload JSON that must be stripped
+ * before passing the inner shape to the backend as `BuilderProps`. Anything
+ * here that lands inside `props` would otherwise leak through.
+ */
+const WRAPPER_ONLY_FIELDS = ['version', 'tags', 'description', 'keywords', 'props'] as const;
+
+interface BulkValidationItem {
+  index: number;
+  field?: string;
+  message: string;
+}
+
 /** Methods exposed to the parent modal via ref. */
 export interface UploadConfigTabRef {
   /** Parses the uploaded/pasted JSON and returns BuilderProps, or null on validation failure. */
@@ -30,12 +43,14 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
     const [propsInput, setPropsInput] = useState('');
     const [propsFile, setPropsFile] = useState<File | null>(null);
     const [propsError, setPropsError] = useState<string | null>(null);
+    const [itemErrors, setItemErrors] = useState<BulkValidationItem[]>([]);
     const descriptionRef = useRef('');
     const keywordsRef = useRef('');
 
     useImperativeHandle(ref, () => ({
       getProps: async (): Promise<BuilderProps | null> => {
         setPropsError(null);
+        setItemErrors([]);
         let propsData: BuilderProps;
 
         try {
@@ -65,6 +80,13 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
               }
               raw = inner;
             }
+          }
+
+          // Strip wrapper-only fields that may have leaked into the inner shape
+          // (or were on a flat BuilderProps payload). The backend rejects
+          // unknown fields, so drop them rather than fail validation.
+          for (const f of WRAPPER_ONLY_FIELDS) {
+            if (f in raw) delete raw[f];
           }
 
           propsData = raw as unknown as BuilderProps;
@@ -165,6 +187,23 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
 
         {propsError && (
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">{propsError}</p>
+        )}
+
+        {itemErrors.length > 0 && (
+          <div className="mt-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+            <p className="text-xs font-medium text-red-800 dark:text-red-300 mb-1">
+              {itemErrors.length} item{itemErrors.length === 1 ? '' : 's'} failed validation:
+            </p>
+            <ul className="text-xs text-red-700 dark:text-red-300 space-y-0.5">
+              {itemErrors.map((it, i) => (
+                <li key={`${it.index}-${i}`}>
+                  <span className="font-mono">#{it.index}</span>
+                  {it.field && <span className="font-mono"> · {it.field}</span>}
+                  {': '}{it.message}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">

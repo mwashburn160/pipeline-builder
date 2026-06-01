@@ -77,6 +77,13 @@ jest.mock('@pipeline-builder/api-core', () => ({
   reserveQuota: (...args: unknown[]) => mockReserveQuota(...args),
   decrementQuota: (...args: unknown[]) => mockDecrementQuota(...args),
   sendQuotaExceeded: (...args: unknown[]) => mockSendQuotaExceeded(...args),
+  // Concurrency-bounded fan-out helper used by autoCreateMissingPlugins. Tests
+  // don't care about the concurrency bound — run sequentially and aggregate.
+  runConcurrent: async <T, R>(items: T[], _max: number, fn: (item: T) => Promise<R>): Promise<R[]> => {
+    const results: R[] = [];
+    for (const item of items) results.push(await fn(item));
+    return results;
+  },
 }));
 
 jest.mock('@pipeline-builder/api-server', () => ({
@@ -511,10 +518,9 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // DB lookup for plugin existence    // Note: getAvailablePlugins does NOT call.limit(), only autoCreateMissingPlugins does
-    mockDbChain.limit
-      .mockResolvedValueOnce([]) // nodejs-build check  missing
-      .mockResolvedValueOnce([]); // docker-push check  missing
+    // findExistingPluginNames does ONE batched query (await db.select().from().where()),
+    // resolved via the thenable chain — no .limit() call.
+    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([])); // both missing
 
     // Plugin service deploy returns 202
     mockPluginClientPost.mockResolvedValue({
@@ -705,9 +711,8 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // Note: getAvailablePlugins does NOT call.limit(), only autoCreateMissingPlugins does
-    mockDbChain.limit
-      .mockResolvedValueOnce([]); // failing-plugin not found
+    // Batched lookup — failing-plugin not found.
+    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
 
     mockPluginClientPost.mockRejectedValue(new Error('Connection refused'));
 
@@ -756,9 +761,8 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
 
-    // Note: getAvailablePlugins does NOT call.limit(), only autoCreateMissingPlugins does
-    mockDbChain.limit
-      .mockResolvedValueOnce([]); // bad-plugin not found
+    // Batched lookup — bad-plugin not found.
+    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
 
     mockPluginClientPost.mockResolvedValue({
       statusCode: 500,
@@ -1019,10 +1023,9 @@ describe('POST /generate/from-url/stream', () => {
 
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputDuplicatePlugins));
 
-    // Note: getAvailablePlugins does NOT call.limit(), only autoCreateMissingPlugins does
-    mockDbChain.limit
-      .mockResolvedValueOnce([{ name: 'nodejs-build' }]) // nodejs-build found
-      .mockResolvedValueOnce([{ name: 'docker-push' }]); // docker-push found
+    // Batched lookup — both plugins found.
+    mockDbChain.then.mockImplementationOnce((resolve: Function) =>
+      resolve([{ name: 'nodejs-build' }, { name: 'docker-push' }]));
 
     const req = mockReq();
     const res = mockSseRes();

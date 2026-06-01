@@ -21,12 +21,18 @@ import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('compliance-validate');
 
+/** Parse an integer env var, falling back to `fallback` if missing or NaN. */
+function parseIntEnv(value: string | undefined, fallback: number): number {
+  const n = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 /** Max top-level keys for attributes to prevent DoS. Override via
  *  `COMPLIANCE_MAX_ATTRIBUTE_KEYS`. */
-const MAX_ATTRIBUTE_KEYS = parseInt(process.env.COMPLIANCE_MAX_ATTRIBUTE_KEYS || '100', 10);
+const MAX_ATTRIBUTE_KEYS = parseIntEnv(process.env.COMPLIANCE_MAX_ATTRIBUTE_KEYS, 100);
 /** Max nesting depth for attribute values to prevent stack-overflow DoS.
  *  Override via `COMPLIANCE_MAX_ATTRIBUTE_DEPTH`. */
-const MAX_ATTRIBUTE_DEPTH = parseInt(process.env.COMPLIANCE_MAX_ATTRIBUTE_DEPTH || '5', 10);
+const MAX_ATTRIBUTE_DEPTH = parseIntEnv(process.env.COMPLIANCE_MAX_ATTRIBUTE_DEPTH, 5);
 
 /** Recursively check that a value does not exceed the max nesting depth. */
 function checkDepth(value: unknown, depth: number): boolean {

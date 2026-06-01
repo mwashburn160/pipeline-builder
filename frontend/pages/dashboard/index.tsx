@@ -21,6 +21,9 @@ import { dismissKey, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboa
 
 // ─── Types ──────────────────────────────────────────────
 
+// TODO: ExecutionCount overlaps with `Row` in pages/dashboard/executions.tsx.
+// Both describe `/api/reports/execution/count`'s pipelines[] shape. Consolidate
+// into a shared type once src/types/ ownership permits (see also reports.tsx).
 interface ExecutionCount {
   id: string;
   total: number;
@@ -53,12 +56,16 @@ interface ServiceTile {
   icon: typeof GitBranch;
 }
 
+// TODO: SERVICES duplicates the sidebar nav catalog in src/components/ui/Sidebar.tsx.
+// Drift here causes the AWS-Console-style services grid and the sidebar to
+// disagree on labels/hrefs. Consolidate into src/lib/nav.ts once src/lib/
+// ownership permits.
 const SERVICES: ServiceTile[] = [
   { name: 'Pipelines', description: 'Define and manage CI/CD pipelines', href: '/dashboard/pipelines', icon: GitBranch },
   { name: 'Plugins', description: 'Reusable build steps and plugins', href: '/dashboard/plugins', icon: Puzzle },
   { name: 'Compliance', description: 'Rules, policies, and audit trail', href: '/dashboard/compliance', icon: Shield },
   { name: 'Reports', description: 'Execution analytics and metrics', href: '/dashboard/reports', icon: BarChart3 },
-  { name: 'Activity', description: 'Pipeline events and audit log', href: '/dashboard/activity', icon: Activity },
+  { name: 'Activity', description: 'Pipeline events and audit log', href: '/dashboard/audit', icon: Activity },
   { name: 'Team', description: 'Members, roles, and invitations', href: '/dashboard/team', icon: Users },
   { name: 'Messages', description: 'Org announcements and conversations', href: '/dashboard/messages', icon: MessageSquare },
   { name: 'Billing', description: 'Plans, subscriptions, and usage', href: '/dashboard/billing', icon: CreditCard },
@@ -112,7 +119,7 @@ export default function DashboardPage() {
   const fetchData = useCallback(async () => {
     const [execRes, timelineRes, pluginRes, pipelineRes, unreadRes] = await Promise.allSettled([
       api.getExecutionCount(),
-      api.getExecutionTimeline({ interval: 'day' }),
+      api.getSuccessRate({ interval: 'day' }),
       api.getPluginSummary(),
       api.listPipelines({ limit: '1' }),
       api.getUnreadCount(),
@@ -181,7 +188,7 @@ export default function DashboardPage() {
   const trackVisit = (name: string) => {
     if (typeof window === 'undefined') return;
     const updated = [name, ...recent.filter(n => n !== name)].slice(0, 10);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(updated)); } catch { /* localStorage may be unavailable */ }
     setRecent(updated);
   };
 
@@ -297,7 +304,7 @@ export default function DashboardPage() {
                 signals={signals}
                 onDismiss={() => {
                   if (typeof window !== 'undefined' && user?.organizationId) {
-                    localStorage.setItem(dismissKey(user.organizationId), '1');
+                    try { localStorage.setItem(dismissKey(user.organizationId), '1'); } catch { /* localStorage may be unavailable */ }
                   }
                   setOnboardingDismissed(true);
                 }}

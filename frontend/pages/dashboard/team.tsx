@@ -23,7 +23,7 @@ export default function TeamPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'admin'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'member' | 'admin'>('all');
 
   // Add member
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -281,9 +281,9 @@ export default function TeamPage() {
             </div>
           }
           right={
-            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'user' | 'admin')} className="filter-select">
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'member' | 'admin')} className="filter-select">
               <option value="all">All Roles</option>
-              <option value="user">Users</option>
+              <option value="member">Members</option>
               <option value="admin">Admins</option>
             </select>
           }

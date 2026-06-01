@@ -32,6 +32,15 @@ jest.mock('@pipeline-builder/api-core', () => ({
     getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
     invalidatePattern: () => Promise.resolve(0),
   }),
+  parseDateRange: jest.fn(() => ({ from: '2026-01-01T00:00:00Z', to: '2026-01-31T00:00:00Z' })),
+  REPORT_INTERVALS: ['day', 'week', 'month'] as const,
+  isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
+  parseQueryIntClamped: jest.fn((val: any, def: number, max: number) =>
+    Math.min(Math.max(1, parseInt(String(val ?? def), 10) || def), max)),
+  validateBulkArray: jest.fn((value: any, _name: string, max?: number) =>
+    Array.isArray(value) && value.length > 0 && (!max || value.length <= max)
+      ? { value }
+      : { error: 'invalid' }),
 }));
 
 jest.mock('@pipeline-builder/pipeline-data', () => ({
@@ -87,7 +96,7 @@ describe('POST /reports/events', () => {
   });
 
   it('should reject empty events array', async () => {
-    const handler = router.stack.find((l: any) => l.route?.path === '/events')?.route?.stack[0]?.handle;
+    const handler = router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
     expect(handler).toBeDefined();
 
     const req = { body: { events: [] } };
@@ -98,7 +107,7 @@ describe('POST /reports/events', () => {
   });
 
   it('should reject more than 100 events', async () => {
-    const handler = router.stack.find((l: any) => l.route?.path === '/events')?.route?.stack[0]?.handle;
+    const handler = router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
 
     const events = Array.from({ length: 101 }, (_, i) => ({
       pipelineArn: `arn:aws:codepipeline:us-east-1:123:pipe-${i}`,
@@ -114,7 +123,7 @@ describe('POST /reports/events', () => {
   });
 
   it('should reject request without events field', async () => {
-    const handler = router.stack.find((l: any) => l.route?.path === '/events')?.route?.stack[0]?.handle;
+    const handler = router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
 
     const req = { body: {} };
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };

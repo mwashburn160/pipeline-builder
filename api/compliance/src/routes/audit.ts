@@ -6,7 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { complianceAuditService } from '../services/compliance-audit-service';
 
-/** Feature #2: Audit log read endpoint. */
+/** Audit log read endpoint. */
 export function createAuditRoutes(): Router {
   const router = Router();
 

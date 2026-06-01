@@ -4,14 +4,13 @@
 import {
   sendSuccess,
   sendBadRequest,
-  sendError,
   ErrorCode,
   getParam,
-  isSystemAdmin,
+  requireSystemAdmin,
   createLogger,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, type Request, type Response } from 'express';
+import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { runRegistryGc } from '../services/registry-gc';
 import { computeStorageUsage } from '../services/storage-usage';
@@ -36,15 +35,6 @@ const GcSchema = z.object({
   dryRun: z.boolean().optional(),
 });
 
-/** Sysadmin guard — matches the pattern used in routes/images.ts. */
-function requireSystemAdminGuard(req: Request, res: Response): boolean {
-  if (!isSystemAdmin(req)) {
-    sendError(res, 403, 'System admin access required', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    return false;
-  }
-  return true;
-}
-
 /**
  * Admin endpoints — storage rollup + manual GC. All sysadmin-gated.
  *
@@ -57,8 +47,7 @@ export function createAdminRoutes(): Router {
 
   // GET /api/admin/storage/:prefix — per-namespace storage rollup.
   // Cached for 60s (see storage-usage.ts).
-  router.get('/storage/:prefix', withRoute(async ({ req, res, ctx }) => {
-    if (!requireSystemAdminGuard(req, res)) return;
+  router.get('/storage/:prefix', requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const raw = getParam(req.params, 'prefix');
     if (!raw) return sendBadRequest(res, 'prefix is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const prefix = normalizePrefix(raw);
@@ -71,8 +60,7 @@ export function createAdminRoutes(): Router {
 
   // POST /api/admin/gc — prune old manifests under a repo namespace.
   // Body: { prefix: 'org-acme/', maxAgeDays: 30, dryRun: false }
-  router.post('/gc', withRoute(async ({ req, res, ctx }) => {
-    if (!requireSystemAdminGuard(req, res)) return;
+  router.post('/gc', requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const parsed = GcSchema.safeParse(req.body);
     if (!parsed.success) {
       const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');

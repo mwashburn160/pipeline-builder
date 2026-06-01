@@ -101,8 +101,9 @@ export default function MessagesPage() {
     }
   }, [deleteMessage, selectedMessage]);
 
-  const handleSend = useCallback(async (data: Parameters<typeof sendMessage>[0]) => {
-    await sendMessage(data);
+  const handleSend = useCallback(async (data: Parameters<typeof sendMessage>[0]): Promise<boolean> => {
+    const result = await sendMessage(data);
+    return result !== null;
   }, [sendMessage]);
 
   if (!isReady || !user) return <LoadingPage />;
@@ -199,7 +200,6 @@ export default function MessagesPage() {
                 rootMessage={selectedMessage}
                 currentOrgId={currentOrgId}
                 onBack={handleBack}
-                onMarkAsRead={markAsRead}
                 onThreadRead={markThreadAsRead}
                 onDelete={handleDelete}
               />

@@ -33,7 +33,11 @@ const router = Router();
 /** GET /organization - Get current user's organization */
 router.get('/', requireAuth, getMyOrganization);
 
-/** POST /organization - Create a new organization (admin or owner only) */
+/** POST /organization - Create a new organization (admin or owner only).
+ *  Note: self-serve org creation for brand-new users goes through
+ *  /auth/register (which creates a paired user+org), NOT this endpoint.
+ *  This route is for already-org-bound admins/owners adding *additional*
+ *  orgs to their account. */
 router.post('/', requireAuth, requireRole('admin', 'owner'), createOrganization);
 
 /*
@@ -53,8 +57,11 @@ router.put('/ai-config', requireAuth, requireRole('admin', 'owner'), updateOrgAI
 /** GET /organization/:id - Get organization by ID */
 router.get('/:id', requireAuth, getOrganizationById);
 
-/** PUT /organization/:id - Update organization (admin only) */
-router.put('/:id', requireAuth, requireRole('admin', 'owner'), updateOrganization);
+/** PUT /organization/:id - Update organization (sysadmin only).
+ *  Controller enforces `requireSystemAdmin`, which is the stricter gate;
+ *  the route-level `requireRole('admin','owner')` was redundant and
+ *  misleading (org admins/owners do NOT get to PUT this endpoint). */
+router.put('/:id', requireAuth, updateOrganization);
 
 /** PATCH /organization/:id/tier - Change pricing tier (sysadmin only).
  *  Step-up gated because the change resizes quota limits and affects billing. */
@@ -73,8 +80,10 @@ router.get('/:id/export', requireAuth, requireRole('admin', 'owner'), exportOrga
 /** GET /organization/:id/quotas - Get organization quota limits and usage */
 router.get('/:id/quotas', requireAuth, getOrganizationQuotas);
 
-/** PUT /organization/:id/quotas - Update organization quota limits (system admin only) */
-router.put('/:id/quotas', requireAuth, requireRole('admin', 'owner'), updateOrganizationQuotas);
+/** PUT /organization/:id/quotas - Update organization quota limits (sysadmin only).
+ *  Controller enforces `requireSystemAdmin`; route-level role gate was
+ *  redundant and would have implied (incorrectly) that org admins qualify. */
+router.put('/:id/quotas', requireAuth, updateOrganizationQuotas);
 
 /*
  * Organization Members (admin can manage any org)

@@ -1,17 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, Loader2, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import api from '@/lib/api';
-import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { Pagination } from '@/components/ui/Pagination';
+import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan, ComplianceAuditEntry } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG } from '@/lib/compliance-styles';
-
-const RESULT_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  pass: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Pass' },
-  warn: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Warn' },
-  block: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Block' },
-};
+import { RESULT_STYLES } from './_result-styles';
 
 interface ScanDetailProps {
   scanId: string;
@@ -20,36 +16,51 @@ interface ScanDetailProps {
 
 export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   const [scan, setScan] = useState<ComplianceScan | null>(null);
-  const [auditEntries, setAuditEntries] = useState<ComplianceAuditEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [auditPagination, setAuditPagination] = useState<PaginationState>({ limit: 25, offset: 0, total: 0 });
+  const [scanLoading, setScanLoading] = useState(true);
 
-  const fetchScan = useCallback(async () => {
-    try {
-      const res = await api.getScan(scanId);
-      if (res.success && res.data) setScan(res.data.scan);
-    } catch { /* handled by loading state */ }
+  // The scan-detail page has two parallel fetches: the scan record itself
+  // (one-shot, no pagination) and the per-entity audit log (paginated).
+  // useServerPagination handles the latter; the scan fetch stays inline.
+  useEffect(() => {
+    let cancelled = false;
+    setScanLoading(true);
+    api.getScan(scanId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success && res.data) setScan(res.data.scan);
+      })
+      .catch(() => { /* handled by loading state */ })
+      .finally(() => { if (!cancelled) setScanLoading(false); });
+    return () => { cancelled = true; };
   }, [scanId]);
 
-  const fetchAudit = useCallback(async (offset = auditPagination.offset, limit = auditPagination.limit) => {
-    try {
-      const res = await api.getComplianceAuditLog({ scanId, limit, offset });
-      if (res.success && res.data) {
-        setAuditEntries(res.data.entries);
-        if (res.data.pagination) {
-          setAuditPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
-        }
+  const {
+    items: auditEntries,
+    pagination: auditPagination,
+    loading: auditLoading,
+    setOffset: setAuditOffset,
+  } = useServerPagination<ComplianceAuditEntry, { scanId: string }>(
+    async ({ offset, limit, filters }) => {
+      const res = await api.getComplianceAuditLog({ scanId: filters.scanId, limit, offset });
+      if (!res.success || !res.data) {
+        return { items: [], pagination: { offset, limit, total: 0 } };
       }
-    } catch { /* handled by loading state */ }
-  }, [scanId, auditPagination.offset, auditPagination.limit]);
+      return {
+        items: res.data.entries,
+        pagination: res.data.pagination
+          ? { offset: res.data.pagination.offset, limit: res.data.pagination.limit, total: res.data.pagination.total }
+          : { offset, limit, total: res.data.entries.length },
+      };
+    },
+    { scanId },
+    25,
+  );
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchScan(), fetchAudit()]).finally(() => setLoading(false));
-  }, [fetchScan, fetchAudit]);
-
-  const handleAuditPageChange = (offset: number) => { fetchAudit(offset, auditPagination.limit); };
-  const handleAuditPageSizeChange = (limit: number) => { fetchAudit(0, limit); };
+  const loading = scanLoading || auditLoading;
+  const handleAuditPageChange = (offset: number) => { setAuditOffset(offset); };
+  // Page-size changes are not currently supported by useServerPagination's
+  // public surface; keep the Pagination wired but treat resize as a reset.
+  const handleAuditPageSizeChange = (_limit: number) => { setAuditOffset(0); };
 
   if (loading) {
     return (

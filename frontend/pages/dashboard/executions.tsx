@@ -27,6 +27,9 @@ import { downloadCsv } from '@/lib/csv-export';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 
+// TODO: Row overlaps with `ExecutionCount` in pages/dashboard/index.tsx (and
+// the same shape lives inline in pages/dashboard/reports.tsx). Consolidate
+// into a shared type in src/types/ once cross-package ownership permits.
 interface Row {
   id: string;
   project: string;

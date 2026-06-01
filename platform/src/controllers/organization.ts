@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit';
 import {
   isSystemAdmin,
@@ -25,7 +25,10 @@ const logger = createLogger('organization-controller');
  * Accepts numbers >= -1 or the string 'unlimited' (mapped to -1).
  */
 function parseQuotaValue(value: unknown): number | undefined {
-  if (value === undefined) return undefined;
+  // Treat null as "absent" so an explicit `null` in the request body doesn't
+  // produce `NaN >= -1` (false) and silently drop the field with no signal —
+  // callers expect undefined to mean "leave as-is".
+  if (value === undefined || value === null) return undefined;
   if (value === 'unlimited' || value === -1) return -1;
   const num = Number(value);
   return !isNaN(num) && num >= -1 ? num: undefined;
@@ -68,8 +71,7 @@ export const createOrganization = withController('Create organization', async (r
 export const getOrganizationById = withController('Get organization', async (req, res) => {
   if (!requireAuth(req, res)) return;
 
-  const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
+  const id = getParam(req.params, 'id')!;
   if (!isSystemAdmin(req) && req.user!.organizationId !== id) {
     return sendError(res, 403, 'Forbidden');
   }
@@ -85,8 +87,7 @@ export const updateOrganization = withController('Update organization', async (r
   const body = validateBody(updateOrganizationSchema, req.body, res);
   if (!body) return;
 
-  const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
+  const id = getParam(req.params, 'id')!;
   const updated = await organizationService.update(id, body);
   if (!updated) return sendError(res, 404, 'Organization not found');
 
@@ -105,8 +106,7 @@ export const updateOrganization = withController('Update organization', async (r
 export const updateOrganizationTier = withController('Update organization tier', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
 
-  const idRaw = req.params.id;
-  const id = String(Array.isArray(idRaw) ? idRaw[0]: idRaw);
+  const id = getParam(req.params, 'id')!;
   const tier = (req.body as { tier?: unknown })?.tier;
   if (tier !== 'developer' && tier !== 'pro' && tier !== 'unlimited') {
     return sendError(res, 400, 'tier must be one of: developer, pro, unlimited');
@@ -128,15 +128,14 @@ export const updateOrganizationTier = withController('Update organization tier',
 export const deleteOrganization = withController('Delete organization', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
 
-  const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
+  const id = getParam(req.params, 'id')!;
 
   // full cascade across Postgres, Mongo, quota, billing BEFORE the
   // org doc itself is deleted. Cascade returns a report so the audit event
   // captures what was actually touched. We let cascade failures propagate;
   // a partial state is worse than retrying the whole sweep.
   const actorOrgId = (req.user!.organizationId as string) ?? 'system';
-  const cascadeReport = await cascadeDeleteOrg(String(id), actorOrgId);
+  const cascadeReport = await cascadeDeleteOrg(id, actorOrgId);
 
   await organizationService.delete(id);
 
@@ -146,8 +145,8 @@ export const deleteOrganization = withController('Delete organization', async (r
   // dissolved" without joining against `details`.
   audit(req, 'admin.org.delete', {
     targetType: 'organization',
-    targetId: String(id),
-    affectedOrgId: String(id),
+    targetId: id,
+    affectedOrgId: id,
     details: { cascade: cascadeReport },
   });
   sendSuccess(res, 200, { cascade: cascadeReport }, 'Organization deleted successfully');
@@ -164,8 +163,7 @@ export const deleteOrganization = withController('Delete organization', async (r
 export const exportOrganization = withController('Export organization', async (req, res) => {
   if (!requireAuth(req, res)) return;
 
-  const idRaw = req.params.id;
-  const id = String(Array.isArray(idRaw) ? idRaw[0]: idRaw);
+  const id = getParam(req.params, 'id')!;
   const actorOrgId = (req.user!.organizationId as string) ?? 'system';
   const sysAdmin = isSystemAdmin(req);
   const role = req.user!.role;
@@ -203,8 +201,7 @@ export const exportOrganization = withController('Export organization', async (r
 export const getOrganizationQuotas = withController('Get organization quotas', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
 
-  const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
+  const id = getParam(req.params, 'id')!;
 
   const quotas = await organizationService.getQuotas(id, req.headers.authorization || '');
   if (!quotas) return sendError(res, 404, 'Organization not found');
@@ -217,8 +214,7 @@ export const updateOrganizationQuotas = withController('Update organization quot
   const body = validateBody(updateQuotasSchema, req.body, res);
   if (!body) return;
 
-  const idRaw = req.params.id;
-  const id = Array.isArray(idRaw) ? idRaw[0]: idRaw;
+  const id = getParam(req.params, 'id')!;
 
   const quotaLimits: { plugins?: number; pipelines?: number; apiCalls?: number; aiCalls?: number } = {};
   const parsedPlugins = parseQuotaValue(body.plugins);

@@ -57,13 +57,17 @@ jest.mock('ioredis', () => {
     status = 'ready';
     disconnect = jest.fn();
     on = jest.fn();
-    // Per-org concurrency semaphore uses INCR/DECR/EXPIRE/SET on
-    // `pb:org-build:<orgId>` keys. Mock to always succeed under the cap so
-    // the worker proceeds to its main logic.
+    // Per-org concurrency semaphore uses a Lua EVAL on `pb:org-build:<orgId>`
+    // keys plus an `hset/hdel/hgetall` owners hash. Mock EVAL to return 1
+    // ("slot acquired") so the worker proceeds to its main logic.
+    eval = jest.fn().mockResolvedValue(1);
     incr = jest.fn().mockResolvedValue(1);
     decr = jest.fn().mockResolvedValue(0);
     expire = jest.fn().mockResolvedValue(1);
     set = jest.fn().mockResolvedValue('OK');
+    hset = jest.fn().mockResolvedValue(1);
+    hdel = jest.fn().mockResolvedValue(1);
+    hgetall = jest.fn().mockResolvedValue({});
   }
   return { __esModule: true, default: MockRedis };
 });
@@ -270,10 +274,14 @@ describe('plugin-build-queue', () => {
         status = 'ready';
         disconnect = jest.fn();
         on = jest.fn();
+        eval = jest.fn().mockResolvedValue(1);
         incr = jest.fn().mockResolvedValue(1);
         decr = jest.fn().mockResolvedValue(0);
         expire = jest.fn().mockResolvedValue(1);
         set = jest.fn().mockResolvedValue('OK');
+        hset = jest.fn().mockResolvedValue(1);
+        hdel = jest.fn().mockResolvedValue(1);
+        hgetall = jest.fn().mockResolvedValue({});
       }
       return { __esModule: true, default: MockRedis };
     });

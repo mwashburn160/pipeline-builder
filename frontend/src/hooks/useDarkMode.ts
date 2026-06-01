@@ -30,7 +30,7 @@ export function useDarkMode() {
   // Single source of truth: sync DOM class and localStorage whenever isDark changes
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
-    localStorage.setItem(THEME_STORAGE_KEY, isDark ? 'dark' : 'light');
+    try { localStorage.setItem(THEME_STORAGE_KEY, isDark ? 'dark' : 'light'); } catch { /* localStorage may be unavailable */ }
   }, [isDark]);
 
   const toggle = () => setIsDark(prev => !prev);

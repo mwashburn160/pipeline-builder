@@ -11,6 +11,8 @@ interface PaginationProps {
   onPageChange: (offset: number) => void;
   onPageSizeChange: (limit: number) => void;
   pageSizeOptions?: number[];
+  /** Extra classes appended to the root container. */
+  className?: string;
 }
 
 export function Pagination({
@@ -18,6 +20,7 @@ export function Pagination({
   onPageChange,
   onPageSizeChange,
   pageSizeOptions = [10, 25, 50, 100],
+  className = '',
 }: PaginationProps) {
   const { limit, offset, total } = pagination;
   const currentPage = Math.floor(offset / limit) + 1;
@@ -45,7 +48,7 @@ export function Pagination({
   };
 
   return (
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 px-1">
+    <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 px-1 ${className}`}>
       <div className="text-sm text-gray-500 dark:text-gray-400">
         Showing {start}–{end} of {total}
       </div>

@@ -41,13 +41,22 @@ export interface MarketplaceNotification {
 
 // SNS Signature Verification
 
-/** Validate the signing certificate URL — must be HTTPS from amazonaws.com. */
+/** Pin signing cert URLs to the SNS-owned hostname pattern, not any *.amazonaws.com. */
+const SNS_CERT_HOST_RE = /^sns\.[a-z0-9-]+\.amazonaws\.com$/;
+
+/** Cap the body size we accept from the signing-cert endpoint (PEM files are ~2 KB). */
+const MAX_CERT_BYTES = 64 * 1024;
+
+/** In-process cache: cert URL → PEM. Certs rotate on a multi-year cadence. */
+const certCache = new Map<string, string>();
+
+/** Validate the signing certificate URL — must be HTTPS from sns.<region>.amazonaws.com. */
 function isValidCertUrl(certUrl: string): boolean {
   try {
     const url = new URL(certUrl);
     return (
       url.protocol === 'https:'
-      && url.hostname.endsWith('.amazonaws.com')
+      && SNS_CERT_HOST_RE.test(url.hostname)
       && url.pathname.endsWith('.pem')
     );
   } catch {
@@ -55,14 +64,29 @@ function isValidCertUrl(certUrl: string): boolean {
   }
 }
 
-/** Download a PEM certificate from the given URL. */
+/** Download a PEM certificate from the given URL, capped at MAX_CERT_BYTES. */
 function downloadCert(url: string): Promise<string> {
+  const cached = certCache.get(url);
+  if (cached) return Promise.resolve(cached);
+
   return new Promise((resolve, reject) => {
     https
       .get(url, (res) => {
         let data = '';
-        res.on('data', (chunk: string) => { data += chunk; });
-        res.on('end', () => resolve(data));
+        let size = 0;
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          size += Buffer.byteLength(chunk);
+          if (size > MAX_CERT_BYTES) {
+            res.destroy(new Error('Cert response exceeds size cap'));
+            return;
+          }
+          data += chunk;
+        });
+        res.on('end', () => {
+          certCache.set(url, data);
+          resolve(data);
+        });
         res.on('error', reject);
       })
       .on('error', reject);
@@ -71,7 +95,9 @@ function downloadCert(url: string): Promise<string> {
 
 /**
  * Build the string-to-sign for an SNS message.
- * Field ordering varies by message type per AWS specification.
+ * Field ordering varies by message type per AWS specification. For
+ * SubscriptionConfirmation / UnsubscribeConfirmation, AWS includes the
+ * `Token` field alongside `SubscribeURL` in the signed payload.
  */
 function buildStringToSign(message: SNSMessage): string {
   const fields: string[] = [];
@@ -89,6 +115,7 @@ function buildStringToSign(message: SNSMessage): string {
     fields.push('MessageId', message.MessageId);
     fields.push('SubscribeURL', message.SubscribeURL || '');
     fields.push('Timestamp', message.Timestamp);
+    fields.push('Token', message.Token || '');
     fields.push('TopicArn', message.TopicArn);
     fields.push('Type', message.Type);
   }
@@ -99,10 +126,16 @@ function buildStringToSign(message: SNSMessage): string {
 /**
  * Verify the signature of an SNS message.
  * Downloads the signing certificate and validates the signature.
+ * SignatureVersion '1' uses SHA1withRSA; '2' uses SHA256withRSA.
  */
 export async function verifySNSSignature(message: SNSMessage): Promise<boolean> {
   try {
-    if (message.SignatureVersion !== '1') {
+    let algorithm: 'SHA1withRSA' | 'SHA256withRSA';
+    if (message.SignatureVersion === '1') {
+      algorithm = 'SHA1withRSA';
+    } else if (message.SignatureVersion === '2') {
+      algorithm = 'SHA256withRSA';
+    } else {
       logger.warn('Unsupported SNS signature version', { version: message.SignatureVersion });
       return false;
     }
@@ -115,7 +148,7 @@ export async function verifySNSSignature(message: SNSMessage): Promise<boolean> 
     const cert = await downloadCert(message.SigningCertURL);
     const stringToSign = buildStringToSign(message);
 
-    const verifier = crypto.createVerify('SHA1withRSA');
+    const verifier = crypto.createVerify(algorithm);
     verifier.update(stringToSign);
     return verifier.verify(cert, message.Signature, 'base64');
   } catch (error) {

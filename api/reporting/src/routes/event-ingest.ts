@@ -1,29 +1,45 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, createLogger } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants, runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
 
-const logger = createLogger('event-ingest');
+/**
+ * Status values accepted per-eventSource. AWS pipelines use uppercase
+ * enums (`SUCCEEDED`, `FAILED`, etc.); the plugin worker uses lowercase
+ * BullMQ states. Tightening here prevents a typo at the producer from
+ * silently producing zero-result reports — the dashboard queries
+ * `getSuccessRate` (uppercase) and `getBuildSuccessRate` (lowercase) are
+ * shape-coupled to these strings.
+ */
+const AWS_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELED', 'IN_PROGRESS', 'STARTED', 'STOPPED', 'STOPPING', 'SUPERSEDED', 'ABANDONED'] as const;
+const PLUGIN_BUILD_STATUSES = ['completed', 'failed', 'started', 'timeout', 'cancelled'] as const;
 
-/** Zod schema for validating individual ingest events. */
-const ingestEventSchema = z.object({
+const baseIngestFields = {
   pipelineArn: z.string().min(1),
-  eventSource: z.enum(['codepipeline', 'codebuild', 'plugin-build']),
   eventType: z.enum(['PIPELINE', 'STAGE', 'ACTION', 'BUILD']),
-  status: z.string().min(1),
   executionId: z.string().optional(),
   stageName: z.string().optional(),
   actionName: z.string().optional(),
   startedAt: z.string().datetime({ offset: true }).optional(),
   completedAt: z.string().datetime({ offset: true }).optional(),
   durationMs: z.number().int().min(0).optional(),
-  detail: z.record(z.string(), z.unknown()).optional(),
-});
+  detail: z.record(z.string(), z.unknown())
+    .refine(d => JSON.stringify(d).length < 8192, 'detail exceeds 8KB serialized size')
+    .optional(),
+};
+
+/** Discriminated by `eventSource` so the `status` enum is enforced
+ *  per-producer instead of accepting any free-form string. */
+const ingestEventSchema = z.discriminatedUnion('eventSource', [
+  z.object({ eventSource: z.literal('codepipeline'), status: z.enum(AWS_STATUSES), ...baseIngestFields }),
+  z.object({ eventSource: z.literal('codebuild'), status: z.enum(AWS_STATUSES), ...baseIngestFields }),
+  z.object({ eventSource: z.literal('plugin-build'), status: z.enum(PLUGIN_BUILD_STATUSES), ...baseIngestFields }),
+]);
 
 const ingestBatchSchema = z.object({
   events: z.array(ingestEventSchema).min(1, 'At least one event is required'),
@@ -33,7 +49,7 @@ const ingestBatchSchema = z.object({
 export function createEventIngestRoutes(): Router {
   const router = Router();
 
-  router.post('/events', withRoute(async ({ req, res, ctx }) => {
+  router.post('/', withRoute(async ({ req, res, ctx }) => {
     const parsed = ingestBatchSchema.safeParse(req.body);
     if (!parsed.success) {
       const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
@@ -45,23 +61,14 @@ export function createEventIngestRoutes(): Router {
       return sendBadRequest(res, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`, ErrorCode.VALIDATION_ERROR);
     }
 
-    // ingestEvents resolves each ARN to its own org via the pipeline-registry
-    // and inserts events that span MULTIPLE orgs in a single batch. Once
-    // pipeline_events is FORCE'd, a per-org `app.org_id` GUC could only
-    // cover one slice of the batch — bypass via the sysadmin GUC instead.
-    // This endpoint is server-internal (EventBridge / build-event ingest);
-    // the JWT-peek middleware on platform isn't load-bearing here, hence
-    // the explicit context establishment.
+    // see ReportingService.ingestEvents for the cross-tenant rationale
     const { inserted, skipped, unregisteredArns } = await runWithTenantContext(
       { isSuperAdmin: true },
       () => reportingService.ingestEvents(events),
     );
 
-    // Surface unregistered-ARN drops at WARN with the actual ARNs so an
-    // operator can see when EventBridge is delivering events for pipelines
-    // that haven't called POST /pipelines/registry yet.
     if (skipped > 0) {
-      logger.warn('Skipped events for unregistered ARNs', {
+      ctx.log('WARN', 'Skipped events for unregistered ARNs', {
         skipped,
         sampleArns: unregisteredArns.slice(0, 5),
       });

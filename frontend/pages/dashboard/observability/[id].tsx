@@ -7,10 +7,12 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Edit2, Copy, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LinePanel } from '@/components/observability/LinePanel';
+import { StackedBarPanel } from '@/components/observability/StackedBarPanel';
 import { StatPanel } from '@/components/observability/StatPanel';
 import { TablePanel } from '@/components/observability/TablePanel';
 import { RangePicker } from '@/components/observability/RangePicker';
@@ -33,28 +35,27 @@ function parseRange(raw: unknown): RangeKey {
   return '1h';
 }
 
-/** Type-narrow the catalog `span` field â DB stores it as integer (1..12),
- * but the panel components only accept the renderable subset. */
+/** Type-narrow the catalog `span` field — DB stores it as integer (1..12), but the panel components only accept the renderable subset. */
 function asSpan(n: number): 3 | 4 | 6 | 8 | 9 | 12 {
   const valid = [3, 4, 6, 8, 9, 12] as const;
   return (valid.find(v => v === n) ?? 6) as 3 | 4 | 6 | 8 | 9 | 12;
 }
 
-/** URL-param filters that log-mode TablePanels forward to the Loki query
- *. These are read from the page's router query so a deep-link from
+/** URL-param filters that log-mode TablePanels forward to the Loki query.
+ * These are read from the page's router query so a deep-link from
  * the registry-audit helper preserves its filter context across the
  * redirect from /audit-activity to /<dashboard-id>. */
 interface LogUrlFilters { event?: string; actor?: string; digest?: string }
 
 /** Render a single panel by its `vizKind`. Unknown kinds fall through to
- * LinePanel â keeps a misconfigured dashboard partially-functional instead
+ * LinePanel — keeps a misconfigured dashboard partially-functional instead
  * of blank. */
 function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; range: RangeKey; urlFilters: LogUrlFilters }) {
   const span = asSpan(panel.span);
   const format = panel.format ? FORMATTERS[panel.format]: undefined;
   const groupBy = panel.groupBy ?? undefined;
 
-  // Catalog `vars` (e.g. plugin name) are bound at the panel level â the
+  // Catalog `vars` (e.g. plugin name) are bound at the panel level — the
   // backend's substituteVars consumes them server-side after sanitization.
   const vars = Object.keys(panel.vars).length > 0
     ? { plugin: panel.vars.plugin }
@@ -85,8 +86,9 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
           />
         );
       }
-    case 'line':
     case 'stacked-bar':
+      return <StackedBarPanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} groupBy={groupBy} />;
+    case 'line':
     default:
       return <LinePanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} groupBy={groupBy} format={format} vars={vars} />;
   }
@@ -96,11 +98,11 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
  * Dynamic dashboard page. Fetches a DB-stored dashboard by id, renders its
  * panels in `position` order, and exposes Edit / Clone / Delete affordances
  * (write paths gated server-side; the UI shows them all and surfaces 403s as
- * toasts rather than hiding the buttons â keeps the role gating in one place).
+ * toasts rather than hiding the buttons — keeps the role gating in one place).
  *
  * The 5 default dashboards seeded under `org_id='system'` (Platform Overview,
  * Plugin Builds, Queue Health, Registry Activity, Audit Activity) render
- * through this page too â the legacy static pages remain as back-compat
+ * through this page too — the legacy static pages remain as back-compat
  * redirects (handled by the index page's sidebar list, which now points at
  * `/dashboard/observability/[id]`).
  */
@@ -120,34 +122,16 @@ export default function DashboardPage() {
   };
   const hasFilter = !!(urlFilters.event || urlFilters.actor || urlFilters.digest);
 
-  const [dashboard, setDashboard] = useState<DashboardWithPanels | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const ready = isReady && isAuthenticated && !!id;
   // Measure container width for the grid driver. ResizeObserver follows
   // viewport + sidebar toggles without polling.
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
   const [gridWidth, setGridWidth] = useState(960);
 
-  useEffect(() => {
-    if (!isReady || !isAuthenticated || !id) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await api.getDashboard(id);
-        if (!cancelled) setDashboard(res.data?.dashboard ?? null);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof ApiError ? err.message: (err as Error).message);
-          setDashboard(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isReady, isAuthenticated, id]);
+  const { data: dashboard, loading, error } = useFetch<DashboardWithPanels | null>(
+    async () => (ready ? (await api.getDashboard(id)).data?.dashboard ?? null : null),
+    [ready, id],
+  );
 
   const setRange = useCallback((next: RangeKey) => {
     void router.replace({ pathname: router.pathname, query: {...router.query, range: next } }, undefined, { shallow: true });
@@ -194,7 +178,7 @@ export default function DashboardPage() {
   if (error) {
     return (      <DashboardLayout title="Dashboard" subtitle="">
         <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error}
+          {error.message}
         </div>
         <Link href="/dashboard/observability" className="mt-4 inline-block text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
@@ -208,7 +192,7 @@ export default function DashboardPage() {
   }
 
   // Show Edit only when the caller might have write access. Doesn't enforce
-  // anything â server rejects writes the caller isn't allowed to make â but
+  // anything — server rejects writes the caller isn't allowed to make — but
   // hides the button from members who can't touch it to reduce noise.
   const mightEdit = !!user
     && (dashboard.visibility !== 'public' || user.organizationName === 'system')

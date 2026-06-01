@@ -3,15 +3,24 @@
 
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { createLogger, createSafeClient, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { config } from '../config';
 import { BillingEvent } from '../models/billing-event';
 import type { BillingEventType } from '../models/billing-event';
+import type { BillingInterval } from '../models/subscription';
 
 const logger = createLogger('billing-helpers');
 
-/** Billing interval type. */
-export type BillingInterval = 'monthly' | 'annual';
+// Re-export so callers can keep importing from billing-helpers, but the
+// canonical declaration lives with the Mongoose model.
+export type { BillingInterval };
+
+/** Resolve the per-request timeout for billing's outbound service calls. */
+export function getBillingTimeout(): number {
+  const server = Config.get('server') as { services?: { billingTimeout?: number } } | undefined;
+  return server?.services?.billingTimeout ?? 5000;
+}
 
 /**
  * Calculate the end date for a billing period.
@@ -39,6 +48,9 @@ export async function createBillingEvent(
     await BillingEvent.create({ orgId, type, details, subscriptionId });
   } catch (error) {
     logger.error('Failed to create billing event', { orgId, type, error });
+    // Surface audit-write failures on a counter so SRE can alert. Don't
+    // change error behavior — billing flows continue regardless.
+    incCounter('billing_event_write_failed_total', { type });
   }
 }
 
@@ -49,20 +61,28 @@ export async function createBillingEvent(
  * context and should pass `''`. In that case we mint a service token (which
  * satisfies the quota service's system-admin gate). User-initiated paths
  * (POST /subscriptions, PUT /admin) pass through their bearer.
+ *
+ * On failure, writes a `billing_events` audit row so support can see that
+ * the local DB drifted from the quota service. The audit write itself is
+ * best-effort and never throws.
  */
 export async function syncTierToQuotaService(
   orgId: string,
   tier: QuotaTier,
   authHeader: string,
+  subscriptionId?: string,
 ): Promise<boolean> {
   try {
     const client = createSafeClient({
       host: config.quotaService.host,
       port: config.quotaService.port,
-      timeout: ((Config as unknown as { getAny(k: string): unknown }).getAny?.('server') as { services: { billingTimeout: number } })?.services?.billingTimeout ?? 5000,
+      timeout: getBillingTimeout(),
     });
 
-    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId: 'system' });
+    // Mint the service token for the target org so the quota service sees a
+    // real tenant identity rather than 'system' — keeps RLS / audit logs
+    // attributable to the org being mutated.
+    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId });
     const response = await client.put(`/quotas/${orgId}`, { tier }, {
       headers: {
         'Authorization': effectiveAuth,
@@ -75,12 +95,22 @@ export async function syncTierToQuotaService(
       return true;
     }
 
-    logger.warn('Failed to sync tier to quota service', {
+    logger.error('Failed to sync tier to quota service', {
       orgId, tier, statusCode: response?.statusCode,
     });
+    await createBillingEvent(orgId, 'subscription_updated', {
+      reason: 'quota_sync_failed',
+      tier,
+      statusCode: response?.statusCode,
+    }, subscriptionId);
     return false;
   } catch (error) {
     logger.error('Error syncing tier to quota service', { orgId, tier, error });
+    await createBillingEvent(orgId, 'subscription_updated', {
+      reason: 'quota_sync_failed',
+      tier,
+      error: error instanceof Error ? error.message : String(error),
+    }, subscriptionId);
     return false;
   }
 }

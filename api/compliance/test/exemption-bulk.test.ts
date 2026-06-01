@@ -46,6 +46,12 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
     values: () => insertChain,
     returning: () => Promise.resolve(insertedRowsRef.value),
   };
+  const tx = {
+    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+    insert: () => insertChain,
+    update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+    delete: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }),
+  };
   return {
     schema: {
       complianceExemption: { id: 'col_id', orgId: 'col_org', createdAt: 'col_created' },
@@ -54,6 +60,8 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
       select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
       insert: () => insertChain,
     },
+    withTenantTx: (cb: (t: typeof tx) => Promise<unknown>) => cb(tx),
+    runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
     buildComplianceExemptionConditions: () => [],
     drizzleCount: (r: unknown) => r,
   };

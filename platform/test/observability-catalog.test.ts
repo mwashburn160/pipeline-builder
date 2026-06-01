@@ -29,7 +29,8 @@ describe('observability catalog', () => {
     });
 
     it('only declares template vars from the allow-list', () => {
-      const allowed = new Set(['event', 'digest', 'actor', 'plugin']);
+      // `digest` was dropped from the catalog — it had no live callers.
+      const allowed = new Set(['event', 'actor', 'plugin']);
       for (const [key, entry] of Object.entries(QUERIES)) {
         for (const v of entry.allowedVars) {
           expect(allowed.has(v)).toBe(true);
@@ -74,24 +75,8 @@ describe('observability catalog', () => {
       expect(out).toBe('{eventCategory="audit"}');
     });
 
-    it('substitutes a valid sha256 digest into the DIGEST placeholder', () => {
-      const digest = 'sha256:' + 'a'.repeat(64);
-      const out = substituteVars(
-        '{eventCategory="audit"}$DIGEST',
-        { digest },
-        ['digest'],
-      );
-      expect(out).toBe(`{eventCategory="audit"} |= \`${digest}\``);
-    });
-
-    it('rejects a malformed digest', () => {
-      const out = substituteVars(
-        '{eventCategory="audit"}$DIGEST',
-        { digest: 'sha256:zz' },
-        ['digest'],
-      );
-      expect(out).toBe('{eventCategory="audit"}');
-    });
+    // `$DIGEST` placeholder + `digest` var were dropped from the catalog —
+    // no live dashboard used them. Tests removed alongside the source.
 
     it('substitutes a valid actor into the ACTOR placeholder', () => {
       const out = substituteVars(
@@ -104,9 +89,9 @@ describe('observability catalog', () => {
 
     it('drops all placeholders when no vars supplied', () => {
       const out = substituteVars(
-        '{eventCategory="audit"$EVENT$ACTOR}$DIGEST',
+        '{eventCategory="audit"$EVENT$ACTOR}',
         {},
-        ['event', 'actor', 'digest'],
+        ['event', 'actor'],
       );
       expect(out).toBe('{eventCategory="audit"}');
     });

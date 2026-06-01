@@ -128,6 +128,12 @@ jest.mock('@pipeline-builder/api-server', () => ({
     }
   },
   incrementQuotaFromCtx: jest.fn(),
+  // Both helpers are spread into route signatures (`...createAuthenticatedWithOrgRoute()`).
+  // Return [] so the route stack contains only the final withRoute handler —
+  // tests grab handler at stack[0] and invoke it directly without an Express
+  // `next` callback.
+  createProtectedRoute: jest.fn(() => []),
+  createAuthenticatedWithOrgRoute: jest.fn(() => []),
 }));
 
 jest.mock('@pipeline-builder/pipeline-core', () => ({

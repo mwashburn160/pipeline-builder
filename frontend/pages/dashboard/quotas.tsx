@@ -5,6 +5,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import { pct, fmtNum, daysUntil, statusInfo, statusStyles, barStyles, overallHealthColor } from '@/lib/quota-helpers';
+import { TIER_META, TIER_KEYS as SHARED_TIER_KEYS } from '@/lib/tiers';
 import type { OrgQuotaResponse, QuotaType, QuotaTier } from '@/types';
 import api from '@/lib/api';
 
@@ -21,12 +22,27 @@ const QUOTA_META: Record<QuotaType, { label: string; description: string }> = {
   aiCalls: { label: 'AI Calls', description: 'AI generation invocations this period' },
 };
 
-const TIER_KEYS: QuotaTier[] = ['developer', 'pro', 'unlimited'];
+const TIER_KEYS: QuotaTier[] = [...SHARED_TIER_KEYS];
+
+// Tier descriptions + quota limits stay local — they're page-specific and
+// not appropriate for the shared TIER_META catalog. Label and dot color
+// now come from TIER_META so renames stay in one place.
+const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
+  developer: 'Starter tier',
+  pro: 'Production use',
+  unlimited: 'No restrictions',
+};
+
+const TIER_LIMITS: Record<QuotaTier, Record<QuotaType, number>> = {
+  developer: { pipelines: 10, plugins: 100, apiCalls: -1, aiCalls: 100 },
+  pro: { pipelines: 100, plugins: 1000, apiCalls: -1, aiCalls: 5000 },
+  unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, aiCalls: -1 },
+};
 
 const TIER_PRESETS: Record<QuotaTier, { label: string; description: string; color: string; limits: Record<QuotaType, number> }> = {
-  developer: { label: 'Developer', description: 'Starter tier', color: 'bg-green-500', limits: { pipelines: 10, plugins: 100, apiCalls: -1, aiCalls: 100 } },
-  pro:       { label: 'Pro',       description: 'Production use', color: 'bg-blue-500', limits: { pipelines: 100, plugins: 1000, apiCalls: -1, aiCalls: 5000 } },
-  unlimited: { label: 'Unlimited', description: 'No restrictions', color: 'bg-purple-500', limits: { pipelines: -1, plugins: -1, apiCalls: -1, aiCalls: -1 } },
+  developer: { label: TIER_META.developer.label, description: TIER_DESCRIPTIONS.developer, color: TIER_META.developer.dotClass, limits: TIER_LIMITS.developer },
+  pro:       { label: TIER_META.pro.label,       description: TIER_DESCRIPTIONS.pro,       color: TIER_META.pro.dotClass,       limits: TIER_LIMITS.pro },
+  unlimited: { label: TIER_META.unlimited.label, description: TIER_DESCRIPTIONS.unlimited, color: TIER_META.unlimited.dotClass, limits: TIER_LIMITS.unlimited },
 };
 
 // ---------------------------------------------------------------------------
@@ -245,7 +261,11 @@ export default function QuotasPage() {
         ? await api.getOrgQuotas(orgId)
         : await api.getOwnQuotas();
       const quota = (res.data?.quota || res.data) as OrgQuotaResponse;
-      applyOrgData(quota, orgId);
+      // Resolve sidebar metadata at fetch time so applyOrgData doesn't read
+      // platformOrgs from its closure. Avoids re-creating fetchOrg every time
+      // platformOrgs updates (which would loop through the selectedOrgId effect).
+      const sidebarOrg = platformOrgs.find((o) => o.id === (orgId || quota.orgId));
+      applyOrgData(quota, { orgId, sidebarName: sidebarOrg?.name, sidebarSlug: sidebarOrg?.slug });
     } catch {
       // API unavailable
     } finally {
@@ -253,10 +273,12 @@ export default function QuotasPage() {
     }
   }, [isSuperAdmin, platformOrgs]);
 
-  function applyOrgData(d: OrgQuotaResponse, orgId?: string) {
-    const sidebarOrg = platformOrgs.find((o) => o.id === (orgId || d.orgId));
-    const name = d.name || sidebarOrg?.name || user?.organizationName || d.orgId;
-    const slug = d.slug || sidebarOrg?.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || d.orgId;
+  function applyOrgData(
+    d: OrgQuotaResponse,
+    opts?: { orgId?: string; sidebarName?: string; sidebarSlug?: string },
+  ) {
+    const name = d.name || opts?.sidebarName || user?.organizationName || d.orgId;
+    const slug = d.slug || opts?.sidebarSlug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || d.orgId;
     const resolved: OrgQuotaResponse = { ...d, name, slug };
     setOrgData(resolved);
     setEditValues({

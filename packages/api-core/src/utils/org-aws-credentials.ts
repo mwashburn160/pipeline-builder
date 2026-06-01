@@ -104,14 +104,6 @@ export interface OrgAwsCredentialsManagerOptions {
   endpoint?: string;
 }
 
-interface CacheEntry {
-  /** Stable identity of the config we built this entry from. Lets `get`
-   *  detect that the operator changed the config and we should re-build
-   *  rather than serve a stale provider. */
-  fingerprint: string;
-  provider: AwsCredentialIdentityProvider;
-}
-
 /**
  * Per-process manager that resolves and caches per-org credential providers.
  * One instance per service; share it across handlers.
@@ -121,7 +113,7 @@ export class OrgAwsCredentialsManager {
   private readonly fallbackOverride?: AwsCredentialIdentityProvider;
   private readonly region?: string;
   private readonly endpoint?: string;
-  private readonly cache = new Map<string, CacheEntry>();
+  private readonly cache = new Map<string, AwsCredentialIdentityProvider>();
   private readonly inFlight = new Map<string, Promise<AwsCredentialIdentityProvider>>();
   /** Lazy default chain. Built once per manager so we don't import the
    *  credential-providers SDK in test environments that never touch the
@@ -147,7 +139,7 @@ export class OrgAwsCredentialsManager {
     if (!orgId) throw new Error('OrgAwsCredentialsManager.getCredentials requires a non-empty orgId');
 
     const cached = this.cache.get(orgId);
-    if (cached) return cached.provider;
+    if (cached) return cached;
 
     let pending = this.inFlight.get(orgId);
     if (!pending) {
@@ -175,12 +167,12 @@ export class OrgAwsCredentialsManager {
     const cfg = await this.resolver(orgId);
     if (!cfg || !cfg.assumeRoleArn) {
       const fallback = await this.getFallback();
-      this.cache.set(orgId, { fingerprint: 'fallback', provider: fallback });
+      this.cache.set(orgId, fallback);
       return fallback;
     }
 
     const provider = await this.buildAssumeRoleProvider(orgId, cfg);
-    this.cache.set(orgId, { fingerprint: fingerprintConfig(cfg), provider });
+    this.cache.set(orgId, provider);
     return provider;
   }
 
@@ -225,21 +217,6 @@ export class OrgAwsCredentialsManager {
       },
     });
   }
-}
-
-/**
- * Deterministic fingerprint of a config. Used by `getCredentials` to
- * detect "the cache is stale because the operator changed the config" —
- * not exposed publicly, just defense in depth against a missed `evict`.
- */
-function fingerprintConfig(cfg: OrgAwsConfig): string {
-  return [
-    cfg.assumeRoleArn,
-    cfg.externalId ?? '',
-    cfg.region ?? '',
-    cfg.sessionDurationSeconds ?? '',
-    cfg.roleSessionName ?? '',
-  ].join('|');
 }
 
 /** Convenience: directly resolve credentials for a single call. The manager

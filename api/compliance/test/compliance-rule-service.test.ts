@@ -113,7 +113,12 @@ describe('ComplianceRuleService', () => {
 
     it('merges subscribed published rules and dedupes by id', async () => {
       jest.spyOn(svc, 'find').mockResolvedValue([{ id: 'r1' }, { id: 'r2' }] as never);
-      selectResult = [{ rule: { id: 'r2' } }, { rule: { id: 'r3' } }];
+      // Real query selects `{ rule, subscription }` (INNER JOIN), so subscription
+      // is always present — match that shape so destructuring works.
+      selectResult = [
+        { rule: { id: 'r2' }, subscription: {} },
+        { rule: { id: 'r3' }, subscription: {} },
+      ];
 
       const rules = await svc.findActiveByOrgAndTarget('org-1', 'pipeline');
 

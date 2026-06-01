@@ -98,7 +98,7 @@ export default function ReportsPage() {
       if (topTab === 'pipelines') {
         if (pipelineTab === 'overview') {
           const [execRes, timelineRes, successRateRes] = await Promise.allSettled([
-            api.getExecutionCount(), api.getExecutionTimeline({ interval: timeInterval, ...dateParams }), api.getSuccessRate({ interval: timeInterval, ...dateParams }),
+            api.getExecutionCount(), api.getSuccessRate({ interval: timeInterval, ...dateParams }), api.getSuccessRate({ interval: timeInterval, ...dateParams }),
           ]);
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (timelineRes.status === 'fulfilled') setTimeline(timelineRes.value.data?.timeline || []);

@@ -46,11 +46,12 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }
 
-      // reserve the quota slot atomically before any work runs.
-      // Two concurrent requests at the limit can't both pass because the
-      // MongoDB filter on `incrementUsage` rejects the second one. If the
-      // downstream action fails (compliance block, DB save error), the slot
-      // is given back via `decrementQuota` in the catch block.
+      // Reserve the quota slot atomically before any work runs. The quota
+      // service does an atomic UPSERT/UPDATE (Postgres `INSERT ... ON CONFLICT
+      // DO UPDATE` with a `WHERE used < limit` guard), so two concurrent
+      // requests at the limit can't both pass. If the downstream action fails
+      // (compliance block, DB save error), the slot is given back via
+      // `decrementQuota` in the catch block.
       const authHeader = req.headers.authorization || '';
       const reservation = await reserveQuota(quotaService, orgId, 'pipelines', authHeader);
       if (reservation.exceeded) {
@@ -88,7 +89,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
             ctx.log('WARN', 'Pipeline creation blocked by compliance', {
               project, violations: complianceResult.violations.length,
             });
-            // Roll back the quota slot we reserved above  the pipeline was
+            // Roll back the quota slot we reserved above — the pipeline was
             // never created so the org shouldn't be charged for it.
             decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
             return sendError(res, 403, 'Pipeline creation blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
@@ -100,7 +101,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
             error: errorMessage(err),
           });
           decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
-          return sendError(res, 503, 'Compliance service unavailable  pipeline creation rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+          return sendError(res, 503, 'Compliance service unavailable — pipeline creation rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
         }
 
         const result = await pipelineService.createAsDefault( {
@@ -147,7 +148,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         const dbDetails = extractDbError(error);
         logger.error('Pipeline save failed', { requestId: ctx.requestId, error: message, orgId, ...dbDetails });
 
-        // Roll back the quota slot  the action failed so the org shouldn't
+        // Roll back the quota slot — the action failed so the org shouldn't
         // be charged for it.
         decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
         return sendInternalError(res, 'Failed to save pipeline configuration', { details: message, ...dbDetails });

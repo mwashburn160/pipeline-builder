@@ -10,7 +10,7 @@ import { computeStorageUsage } from './storage-usage';
 
 const logger = createLogger('token-service');
 
-/** A parsed scope from the registry's challenge â one resource + actions. */
+/** A parsed scope from the registry's challenge — one resource + actions. */
 export interface RequestedScope {
   type: string;
   name: string;
@@ -62,7 +62,7 @@ export const LIBRARY_NAMESPACE_PREFIX = 'library/';
 /**
  * Authorize a single requested scope for the given identity. Returns the
  * subset of actions that are granted (may be empty, in which case the spec
- * permits issuing a token with no `access` entries â the registry will
+ * permits issuing a token with no `access` entries — the registry will
  * deny the operation).
  *
  * Policy * - **management** (internal only): anything; in-process self-issue
@@ -70,7 +70,7 @@ export const LIBRARY_NAMESPACE_PREFIX = 'library/';
  * pull,push on `org-{orgId}/*`; admins also push on any org
  */
 export function authorizeScope(identity: Identity, requested: RequestedScope): string[] {
-  // Internal management identity bypasses scope-type filtering â it needs
+  // Internal management identity bypasses scope-type filtering — it needs
   // both `repository:*` (manifests/blobs) and `registry:catalog:*` access
   // for the underlying registry's management API.
   if (identity.type === 'management') {
@@ -187,7 +187,7 @@ export function issueRegistryToken( identity: Identity,
  * Lazily-constructed quota service client. Pointed at the platform-wide
  * quota service so push-gate enforcement can read each org's
  * `storageBytes` cap before issuing a token that includes `push` scope.
- * Fail-open semantics on transport errors â matches `checkQuota`
+ * Fail-open semantics on transport errors — matches `checkQuota`
  * middleware in api-server.
  */
 const quotaService = createQuotaService();
@@ -199,14 +199,14 @@ const quotaService = createQuotaService();
  * registry call with a token that doesn't grant the operation.
  *
  * any granted `push` action on `org-{orgId}/*` is gated on the
- * org's `storageBytes` quota â if measured usage exceeds the limit, push
+ * org's `storageBytes` quota — if measured usage exceeds the limit, push
  * is stripped from that scope's actions (pull stays so existing images
  * remain reachable). Management identities bypass the gate.
  */
 export async function authorizeAndIssue( identity: Identity,
   requestedScopes: RequestedScope[],
   account: string,
-): Promise<string> {
+): Promise<{ token: string; accessCount: number }> {
   const access: AccessClaim[] = [];
   let overBudget: boolean | null = null;
   for (const scope of requestedScopes) {
@@ -231,7 +231,10 @@ export async function authorizeAndIssue( identity: Identity,
       access.push({ type: scope.type, name: scope.name, actions: granted });
     }
   }
-  return issueRegistryToken(identity, access, account);
+  return {
+    token: issueRegistryToken(identity, access, account),
+    accessCount: access.length,
+  };
 }
 
 /**

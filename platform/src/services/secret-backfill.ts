@@ -25,29 +25,27 @@
  * complete in milliseconds.
  */
 
-import { createLogger, encryptSecret, isEncryptedBlob } from '@pipeline-builder/api-core';
+import { createLogger, isEncryptedBlob } from '@pipeline-builder/api-core';
 import { Organization } from '../models';
 import OrgIdpConfig from '../models/org-idp-config';
+import { looksEncrypted as looksLikeBlobShape, wrapEncrypted } from '../utils/secret-blob';
 
 const logger = createLogger('secret-backfill');
 
 /** Names of the AI provider key slots on Organization. */
 const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;
 
-/** Returns true when `raw` is the JSON-stringified EncryptedBlob shape. */
-function looksEncrypted(raw: string | undefined): boolean {
-  if (!raw) return false;
-  if (!raw.startsWith('{')) return false;
+/** Backfill-grade encryption probe: the shared `looksEncrypted` does the
+ *  cheap `startsWith('{')` check, but the migration must also confirm the
+ *  JSON actually parses to an `EncryptedBlob` shape so we don't double-
+ *  encrypt a clear-text value that merely happens to begin with `{`. */
+function isAlreadyEncrypted(raw: string | undefined): boolean {
+  if (!raw || !looksLikeBlobShape(raw)) return false;
   try {
     return isEncryptedBlob(JSON.parse(raw));
   } catch {
     return false;
   }
-}
-
-/** Encrypt a clear-text secret to the JSON-stringified blob shape used on disk. */
-function encryptForDisk(plaintext: string, orgId: string): string {
-  return JSON.stringify(encryptSecret(plaintext, orgId));
 }
 
 interface BackfillResult {
@@ -89,8 +87,8 @@ export async function backfillSecrets(): Promise<BackfillResult> {
       const raw = keys[provider];
       if (!raw) continue;
       result.aiKeysScanned++;
-      if (looksEncrypted(raw)) continue;
-      keys[provider] = encryptForDisk(raw, String(org._id));
+      if (isAlreadyEncrypted(raw)) continue;
+      keys[provider] = wrapEncrypted(raw, String(org._id));
       result.aiKeysEncrypted++;
       dirty = true;
     }
@@ -108,10 +106,10 @@ export async function backfillSecrets(): Promise<BackfillResult> {
     const raw = (doc as { clientSecretEncrypted?: string }).clientSecretEncrypted;
     if (!raw) continue;
     result.idpSecretsScanned++;
-    if (looksEncrypted(raw)) continue;
+    if (isAlreadyEncrypted(raw)) continue;
 
     const orgId = (doc as { orgId: string }).orgId;
-    const encrypted = encryptForDisk(raw, orgId);
+    const encrypted = wrapEncrypted(raw, orgId);
     await OrgIdpConfig.updateOne({ _id: doc._id }, { $set: { clientSecretEncrypted: encrypted } });
     result.idpSecretsEncrypted++;
   }

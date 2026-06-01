@@ -30,7 +30,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { User } from '../models';
-import AuditEvent from '../models/audit-event';
+import { auditService } from './audit-service';
 
 const logger = createLogger('superadmin-bootstrap');
 
@@ -80,7 +80,7 @@ export async function bootstrapSuperAdmins(): Promise<number> {
     // distinguishes deploy-time promotions from a future interactive
     // sysadmin-grant flow.
     for (const u of newlyPromoted) {
-      AuditEvent.create({
+      auditService.createEvent({
         action: 'admin.superadmin.grant',
         actorId: 'bootstrap-env',
         targetType: 'user',
@@ -140,7 +140,7 @@ export async function maybePromoteNewUser(userId: string, email: string): Promis
     source: 'BOOTSTRAP_SUPERADMIN_EMAILS',
   });
 
-  AuditEvent.create({
+  auditService.createEvent({
     action: 'admin.superadmin.grant',
     actorId: 'bootstrap-env',
     targetType: 'user',

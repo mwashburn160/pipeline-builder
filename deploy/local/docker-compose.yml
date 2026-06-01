@@ -323,27 +323,9 @@ services:
       OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID}
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET}
       OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:-https://localhost:8443}
-      # Service URLs
-      LIST_PLUGINS_URL: ${LIST_PLUGINS_URL:-https://localhost:8443}
-      GET_PLUGIN_URL: ${GET_PLUGIN_URL:-https://localhost:8443}
-      UPLOAD_PLUGIN_URL: ${UPLOAD_PLUGIN_URL:-https://localhost:8443}
-      LIST_PIPELINES_URL: ${LIST_PIPELINES_URL:-https://localhost:8443}
-      GET_PIPELINE_URL: ${GET_PIPELINE_URL:-https://localhost:8443}
-      CREATE_PIPELINE_URL: ${CREATE_PIPELINE_URL:-https://localhost:8443}
       SERVICE_TIMEOUT: ${SERVICE_TIMEOUT:-30000}
       # Loki
       LOKI_URL: ${LOKI_URL:-http://loki:3100}
-      # Quotas
-      QUOTA_BYPASS_ORG_ID: ${QUOTA_BYPASS_ORG_ID:-system}
-      QUOTA_DEFAULT_WINDOW_MS: ${QUOTA_DEFAULT_WINDOW_MS:-60000}
-      QUOTA_CREATE_PLUGIN_LIMIT: ${QUOTA_CREATE_PLUGIN_LIMIT:-unlimited}
-      QUOTA_CREATE_PLUGIN_WINDOW_MS: ${QUOTA_CREATE_PLUGIN_WINDOW_MS:-60000}
-      QUOTA_GET_PLUGIN_LIMIT: ${QUOTA_GET_PLUGIN_LIMIT:-10}
-      QUOTA_GET_PLUGIN_WINDOW_MS: ${QUOTA_GET_PLUGIN_WINDOW_MS:-60000}
-      QUOTA_CREATE_PIPELINE_LIMIT: ${QUOTA_CREATE_PIPELINE_LIMIT:-unlimited}
-      QUOTA_CREATE_PIPELINE_WINDOW_MS: ${QUOTA_CREATE_PIPELINE_WINDOW_MS:-60000}
-      QUOTA_GET_PIPELINE_LIMIT: ${QUOTA_GET_PIPELINE_LIMIT:-10}
-      QUOTA_GET_PIPELINE_WINDOW_MS: ${QUOTA_GET_PIPELINE_WINDOW_MS:-60000}
     networks:
       - backend-network
     depends_on:
@@ -816,7 +798,8 @@ services:
           memory: 256M
 
   # ---------------------------------------------------------------------------
-  # Observability (Prometheus + Loki + Grafana + Promtail)
+  # Observability (Prometheus + Loki + Promtail). Grafana removed in favor of
+  # the native /dashboard/observability page.
   # ---------------------------------------------------------------------------
   prometheus:
     image: 'prom/prometheus:v3.2.1'

@@ -56,7 +56,12 @@ function dismissKey(quota: OrgQuotaResponse): string {
   return `${DISMISS_KEY}:${quota.orgId}:${reset}`;
 }
 
-export function QuotaBanner() {
+interface QuotaBannerProps {
+  /** Extra classes appended to the root container. */
+  className?: string;
+}
+
+export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
   const [quota, setQuota] = useState<OrgQuotaResponse | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
@@ -69,7 +74,7 @@ export function QuotaBanner() {
         const q = result.data?.quota ?? null;
         setQuota(q);
         if (q) {
-          setDismissed(sessionStorage.getItem(dismissKey(q)) === '1');
+          try { setDismissed(sessionStorage.getItem(dismissKey(q)) === '1'); } catch { /* sessionStorage may be unavailable */ }
         }
       } catch {
         // Quota service unavailable — render nothing.
@@ -90,7 +95,7 @@ export function QuotaBanner() {
   const { Icon } = style;
 
   return (
-    <div className={`flex items-center gap-3 border-b px-4 py-2 text-sm ${style.container}`} role="alert">
+    <div className={`flex items-center gap-3 border-b px-4 py-2 text-sm ${style.container} ${className}`} role="alert">
       <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
       <span className="flex-1">{MESSAGE[pressure.level](pressure)}</span>
       <Link
@@ -102,7 +107,7 @@ export function QuotaBanner() {
       <button
         type="button"
         onClick={() => {
-          sessionStorage.setItem(dismissKey(quota), '1');
+          try { sessionStorage.setItem(dismissKey(quota), '1'); } catch { /* sessionStorage may be unavailable */ }
           setDismissed(true);
         }}
         className="rounded p-1 hover:bg-black/10 dark:hover:bg-white/10"

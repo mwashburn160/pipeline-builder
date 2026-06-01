@@ -11,12 +11,18 @@ import { complianceRuleService } from '../services/compliance-rule-service';
 
 const logger = createLogger('scan-executor');
 
+/** Parse an integer env var, falling back to `fallback` if missing or NaN. */
+function parseIntEnv(value: string | undefined, fallback: number): number {
+  const n = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 /** Progress update interval (every N entities). Override via
  *  `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE`. */
-const PROGRESS_BATCH_SIZE = parseInt(process.env.COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE || '10', 10);
+const PROGRESS_BATCH_SIZE = parseIntEnv(process.env.COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE, 10);
 
 /** Per-batch concurrency for the entity-evaluation loop. Tunable for very large orgs. */
-const SCAN_CONCURRENCY = parseInt(process.env.COMPLIANCE_SCAN_CONCURRENCY ?? '10', 10);
+const SCAN_CONCURRENCY = parseIntEnv(process.env.COMPLIANCE_SCAN_CONCURRENCY, 10);
 
 interface EntityRecord {
   id: string;
@@ -40,28 +46,33 @@ export async function executeScan(scanId: string): Promise<void> {
 }
 
 async function executeScanInternal(scanId: string): Promise<void> {
+  // Atomic claim: transition pending → running in a single UPDATE … RETURNING.
+  // If another scheduler tick (e.g. a peer replica) already grabbed this scan,
+  // the RETURNING clause is empty and we bail without touching it. This
+  // replaces the read-then-update pattern, which had a race window between
+  // SELECT and UPDATE where two workers could claim the same scan.
   const [scan] = await withTenantTx(async (tx) => tx
-    .select()
-    .from(schema.complianceScan)
-    .where(eq(schema.complianceScan.id, scanId)));
+    .update(schema.complianceScan)
+    .set({ status: 'running', startedAt: new Date() })
+    .where(and(
+      eq(schema.complianceScan.id, scanId),
+      eq(schema.complianceScan.status, 'pending'),
+    ))
+    .returning());
 
-  if (!scan || scan.status !== 'pending') return;
+  if (!scan) return;
 
-  // System org is exempt from all compliance scans
-  if (scan.orgId.toLowerCase() === SYSTEM_ORG_ID) {
+  // System org is exempt from all compliance scans.
+  // Use the same case-insensitive comparison style used in DB queries.
+  if ((scan.orgId ?? '').toLowerCase() === SYSTEM_ORG_ID) {
     logger.info('Skipping scan for system org (exempt)', { scanId });
     await withTenantTx(async (tx) => tx.update(schema.complianceScan)
-      .set({ status: 'completed', startedAt: new Date(), completedAt: new Date(), passCount: 0, warnCount: 0, blockCount: 0, processedEntities: 0, totalEntities: 0 })
+      .set({ status: 'completed', completedAt: new Date(), passCount: 0, warnCount: 0, blockCount: 0, processedEntities: 0, totalEntities: 0 })
       .where(eq(schema.complianceScan.id, scanId)));
     return;
   }
 
   const isDryRun = scan.triggeredBy === 'rule-dry-run';
-
-  // Mark as running
-  await withTenantTx(async (tx) => tx.update(schema.complianceScan)
-    .set({ status: 'running', startedAt: new Date() })
-    .where(eq(schema.complianceScan.id, scanId)));
 
   try {
     // Fetch entities based on target
@@ -157,16 +168,29 @@ async function executeScanInternal(scanId: string): Promise<void> {
 
         // One progress update per batch (every PROGRESS_BATCH_SIZE entities of work,
         // not per-entity — fewer DB writes for the same UX).
+        //
+        // Gate the UPDATE on status='running' so a concurrent cancellation that
+        // flipped the row to 'cancelled' isn't silently overwritten. Zero rows
+        // updated = the scan was cancelled (or otherwise transitioned out of
+        // running) — bail out of the loop.
         if (processedEntities % PROGRESS_BATCH_SIZE === 0 || i + concurrency >= entities.length) {
-          await withTenantTx(async (tx) => tx.update(schema.complianceScan)
+          const progressRows = await withTenantTx(async (tx) => tx.update(schema.complianceScan)
             .set({ processedEntities, passCount, warnCount, blockCount })
-            .where(eq(schema.complianceScan.id, scanId)));
+            .where(and(
+              eq(schema.complianceScan.id, scanId),
+              eq(schema.complianceScan.status, 'running'),
+            ))
+            .returning({ id: schema.complianceScan.id }));
+          if (progressRows.length === 0) {
+            logger.info('Scan no longer running, aborting executor', { scanId });
+            return;
+          }
         }
       }
     }
 
-    // Mark completed
-    await withTenantTx(async (tx) => tx.update(schema.complianceScan)
+    // Mark completed — only if still running (don't clobber a concurrent cancel).
+    const completedRows = await withTenantTx(async (tx) => tx.update(schema.complianceScan)
       .set({
         status: 'completed',
         completedAt: new Date(),
@@ -176,7 +200,16 @@ async function executeScanInternal(scanId: string): Promise<void> {
         warnCount,
         blockCount,
       })
-      .where(eq(schema.complianceScan.id, scanId)));
+      .where(and(
+        eq(schema.complianceScan.id, scanId),
+        eq(schema.complianceScan.status, 'running'),
+      ))
+      .returning({ id: schema.complianceScan.id }));
+
+    if (completedRows.length === 0) {
+      logger.info('Scan no longer running at completion (likely cancelled)', { scanId });
+      return;
+    }
 
     logger.info('Scan completed', {
       scanId,
@@ -188,30 +221,51 @@ async function executeScanInternal(scanId: string): Promise<void> {
     });
   } catch (err) {
     logger.error('Scan failed', { scanId, error: errorMessage(err) });
+    // Only flip to 'failed' if the scan is still running — preserve a
+    // concurrent cancellation rather than overwriting it.
     await withTenantTx(async (tx) => tx.update(schema.complianceScan)
       .set({ status: 'failed', completedAt: new Date() })
-      .where(eq(schema.complianceScan.id, scanId)));
+      .where(and(
+        eq(schema.complianceScan.id, scanId),
+        eq(schema.complianceScan.status, 'running'),
+      )));
   }
 }
 
+/** Hard cap on entities fetched per target per scan. Larger orgs are scanned
+ *  truncated — we log a warn so operators can detect this. The scan record
+ *  itself has no metadata column for a `truncated: true` flag (would need a
+ *  schema change), so the warning is the only signal until that lands. */
+const ENTITY_FETCH_CAP = 1000;
+
 /**
  * Fetch entities from plugin or pipeline service via internal HTTP.
+ * If the result length equals `ENTITY_FETCH_CAP` we assume truncation and warn.
  */
 async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityRecord[]> {
   try {
     // Only scan the org's own entities — system org entities are exempt from compliance
+    let rows: EntityRecord[];
     if (target === 'plugin') {
-      return await withTenantTx(async (tx) => tx
+      rows = await withTenantTx(async (tx) => tx
         .select({ id: schema.plugin.id, name: schema.plugin.name })
         .from(schema.plugin)
         .where(and(eq(schema.plugin.isActive, true), eq(schema.plugin.orgId, orgId)))
-        .limit(1000) as Promise<EntityRecord[]>);
+        .limit(ENTITY_FETCH_CAP)) as EntityRecord[];
+    } else {
+      rows = await withTenantTx(async (tx) => tx
+        .select({ id: schema.pipeline.id, name: schema.pipeline.pipelineName })
+        .from(schema.pipeline)
+        .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
+        .limit(ENTITY_FETCH_CAP)) as EntityRecord[];
     }
-    return await withTenantTx(async (tx) => tx
-      .select({ id: schema.pipeline.id, name: schema.pipeline.pipelineName })
-      .from(schema.pipeline)
-      .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
-      .limit(1000) as Promise<EntityRecord[]>);
+
+    if (rows.length >= ENTITY_FETCH_CAP) {
+      logger.warn('Scan entity fetch hit cap — results truncated', {
+        orgId, target, cap: ENTITY_FETCH_CAP,
+      });
+    }
+    return rows;
   } catch (err) {
     logger.warn(`Failed to fetch ${target} entities`, { orgId, error: errorMessage(err) });
     return [];

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Schema, model, Document } from 'mongoose';
+import { config } from '../config';
 
 /**
  * Audit event action categories.
@@ -88,12 +89,10 @@ export type AuditAction =
   // the namespace YAML to apply with kubectl. Tracks "this org got its
   // own namespace at <time> by <sysadmin>".
   | 'admin.org.namespace.render'
-  // Plugin builds  emitted by the plugin build worker (api/plugin/src/queue/plugin-build-queue.ts).
-  // Today these are surfaced via Loki only (the per-plugin drill-down
-  // dashboard reads them); MongoDB ingestion is a separate follow-up that
-  // would add an internal `/audit-events` ingest endpoint on platform.
-  // The action keys live here so the vocabulary is unified + type-checked
-  // before that plumbing lands.
+  // Plugin builds — emitted by the plugin build worker
+  // (api/plugin/src/queue/plugin-build-queue.ts) and posted to the
+  // `POST /audit/events` ingest endpoint on platform, which authenticates
+  // the worker via service-to-service JWT and persists them here.
   | 'plugin.build.completed'
   | 'plugin.build.failed'
   | 'plugin.build.timeout';
@@ -204,8 +203,12 @@ const auditEventSchema = new Schema<AuditEventDocument>( {
 auditEventSchema.index({ orgId: 1, createdAt: -1 });
 auditEventSchema.index({ affectedOrgId: 1, createdAt: -1 });
 
-// TTL index  auto-delete events after 90 days (configurable via AUDIT_RETENTION_DAYS)
-const retentionDays = parseInt(process.env.AUDIT_RETENTION_DAYS || '90', 10);
-auditEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: retentionDays * 86400 });
+// TTL index — auto-delete events after `config.audit.retentionDays` days
+// (default 90, overridable via AUDIT_RETENTION_DAYS at boot). Reading from
+// `config` keeps the env-parse in one place.
+auditEventSchema.index(
+  { createdAt: 1 },
+  { expireAfterSeconds: config.audit.retentionDays * 86400 },
+);
 
 export default model<AuditEventDocument>('AuditEvent', auditEventSchema);

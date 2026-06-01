@@ -94,7 +94,9 @@ describe('impersonateUser', () => {
   });
 
   it('returns 404 when target does not exist', async () => {
-    mockUserFindById.mockResolvedValue(null);
+    // Controller now does `User.findById(...).select('+isSuperAdmin')` to opt
+    // into a `select: false` field — mock must return a thenable-on-.select().
+    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(null) });
     const res = mockRes();
     await (impersonateUser as unknown as (req: any, res: any) => Promise<void>)(
       { user: { sub: 'sysadmin' }, params: { userId: 'missing' } }, res,
@@ -103,7 +105,9 @@ describe('impersonateUser', () => {
   });
 
   it('refuses to impersonate another sysadmin', async () => {
-    mockUserFindById.mockResolvedValue({ _id: 'other-sysadmin', isSuperAdmin: true });
+    mockUserFindById.mockReturnValue({
+      select: jest.fn().mockResolvedValue({ _id: 'other-sysadmin', isSuperAdmin: true }),
+    });
     const res = mockRes();
     await (impersonateUser as unknown as (req: any, res: any) => Promise<void>)(
       { user: { sub: 'sysadmin' }, params: { userId: 'other-sysadmin' } }, res,
@@ -113,7 +117,9 @@ describe('impersonateUser', () => {
   });
 
   it('issues a token and audits the start event on the happy path', async () => {
-    mockUserFindById.mockResolvedValue({ _id: 'target', isSuperAdmin: false });
+    mockUserFindById.mockReturnValue({
+      select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }),
+    });
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
 
     const req: any = { user: { sub: 'sysadmin' }, params: { userId: 'target' } };

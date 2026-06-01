@@ -17,7 +17,7 @@ import { z } from 'zod';
 import { complianceScanService } from '../services/compliance-scan-service';
 
 /**
- * Feature #7: Compliance scan implementation.
+ * Compliance scan implementation.
  * Scans re-evaluate existing entities against current rules.
  */
 

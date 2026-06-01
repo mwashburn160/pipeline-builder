@@ -42,11 +42,11 @@ app.use(attachRequestContext(sseManager));
 // Validation endpoints (auth + org, rate limited) — before CRUD to avoid /:id catch
 app.use('/compliance/validate', ...createAuthenticatedWithOrgRoute(), createValidateRoutes());
 
-// Rule CRUD routes
+// Rule CRUD routes — all mutations and reads run through quota middleware.
 app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), createReadRuleRoutes());
-app.use('/compliance/rules', ...createAuthenticatedWithOrgRoute(), createCreateRuleRoutes());
-app.use('/compliance/rules', ...createAuthenticatedWithOrgRoute(), createUpdateRuleRoutes());
-app.use('/compliance/rules', ...createAuthenticatedWithOrgRoute(), createDeleteRuleRoutes());
+app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), createCreateRuleRoutes());
+app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), createUpdateRuleRoutes());
+app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), createDeleteRuleRoutes());
 
 // Published rules catalog (auth + org, rate limited)
 app.use('/compliance/published-rules', ...createProtectedRoute(quotaService, 'apiCalls'), createPublishedRulesCatalogRoutes());
@@ -75,7 +75,9 @@ app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), createDele
 // Rule templates (auth + org)
 app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTemplateRoutes());
 
-// Internal entity event receiver (service-to-service, no user auth)
+// Internal entity event receiver. The route itself runs `requireAuth` +
+// `requireServicePrincipal`, so peer services must mint a JWT via
+// `getServiceAuthHeader` (a plain HTTP header is no longer sufficient).
 app.use('/compliance/events/entity', createEntityEventRoutes());
 
 logger.info('All /compliance routes registered');

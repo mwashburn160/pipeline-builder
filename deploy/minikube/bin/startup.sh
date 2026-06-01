@@ -269,7 +269,6 @@ echo ""
 echo "  Port-forward (localhost):          NodePort (minikube):"
 echo "    https://localhost:8443             https://$MK_IP:30443"
 echo "    http://localhost:8080              http://$MK_IP:30080"
-echo "    http://localhost:3200  (Grafana)   http://$MK_IP:30200"
 echo "    http://localhost:8081  (Mongo Ex)  http://$MK_IP:30081"
 echo "    http://localhost:5480  (pgAdmin)   http://$MK_IP:30480"
 # Registry browser lives at https://localhost:8443/dashboard/registry (sysadmin).

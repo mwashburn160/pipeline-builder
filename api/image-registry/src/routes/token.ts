@@ -1,12 +1,49 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError, ErrorCode } from '@pipeline-builder/api-core';
+import { createHash } from 'crypto';
+import { sendError, ErrorCode, createLogger } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { config } from '../config';
 import { resolveIdentity } from '../services/auth-resolver';
 import { authorizeAndIssue, parseScope, type RequestedScope } from '../services/token-service';
+
+const logger = createLogger('token-route');
+
+/**
+ * Per-identity in-process rate limit on `/token`. Distribution clients fetch
+ * a token per push/pull op, so the cap is generous; the goal is just to keep
+ * a runaway client from spinning RS256 signatures unbounded. Bucket key is
+ * SHA-256(username + ':' + password) so the password never sits in memory.
+ *
+ * Defaults: 60 requests / 60s. Override via env.
+ */
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS || '60000', 10);
+const RATE_LIMIT_MAX = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_MAX || '60', 10);
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimitKey(username: string, password: string): string {
+  return createHash('sha256').update(`${username}:${password}`).digest('hex');
+}
+
+/** Returns true when the request is allowed; false when over the cap. */
+function checkRateLimit(key: string): boolean {
+  const now = Date.now();
+  const bucket = rateBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    rateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    // Opportunistic GC: prune one expired bucket per call so the map can't
+    // grow unbounded for short-lived identities.
+    for (const [k, v] of rateBuckets) {
+      if (v.resetAt <= now) { rateBuckets.delete(k); break; }
+    }
+    return true;
+  }
+  if (bucket.count >= RATE_LIMIT_MAX) return false;
+  bucket.count++;
+  return true;
+}
 
 /** Parse `scope` query — can be string, array, or absent. */
 function collectScopes(raw: unknown): RequestedScope[] {
@@ -53,6 +90,11 @@ export function createTokenRoute(): Router {
       return;
     }
 
+    if (!checkRateLimit(rateLimitKey(basic.username, basic.password))) {
+      sendError(res, 429, 'Too many token requests; slow down.', ErrorCode.RATE_LIMIT_EXCEEDED);
+      return;
+    }
+
     const identity = await resolveIdentity(basic.username, basic.password);
     if (!identity) {
       res.setHeader('WWW-Authenticate', 'Basic realm="pipeline-image-registry"');
@@ -66,12 +108,22 @@ export function createTokenRoute(): Router {
     // spec — Docker login probes /token without a scope to verify creds.
     const account =
       typeof req.query.account === 'string' ? req.query.account : basic.username;
-    const token = await authorizeAndIssue(identity, scopes, account);
+    const { token, accessCount } = await authorizeAndIssue(identity, scopes, account);
+
+    // Sanity check: a scope-less request is the docker-login probe and must
+    // produce an empty access claim. Any other combination indicates a bug
+    // in the authorizer — surface it as a warn for the operator dashboard.
+    if (scopes.length === 0 && accessCount !== 0) {
+      logger.warn('Empty-scope token request produced non-empty access claim', {
+        identityType: identity.type, accessCount,
+      });
+    }
 
     const issuedAt = new Date();
     ctx.log('COMPLETED', 'Issued registry token', {
       identityType: identity.type,
       scopeCount: scopes.length,
+      accessCount,
     });
 
     res.status(200).json({

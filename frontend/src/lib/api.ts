@@ -63,18 +63,6 @@ export class ConflictError extends ApiError {
 }
 
 /**
- * Thrown by `getImageBlob` when the upstream blob exceeds the platform's
- * config-blob size cap. The UI's manifest summary catches this and falls
- * back to the raw-JSON tab.
- */
-export class PayloadTooLargeError extends ApiError {
-  constructor(message: string, details?: Record<string, unknown>) {
-    super(message, 413, 'PAYLOAD_TOO_LARGE', details);
-    this.name = 'PayloadTooLargeError';
-  }
-}
-
-/**
  * Thrown when a destructive endpoint rejects the request because the
  * step-up token is missing, expired, or invalid.
  *
@@ -107,7 +95,6 @@ function isStepUpErrorCode(code?: string): boolean {
  * status-code switch.
  */
 function toRegistryError(message: string, statusCode: number, code: string | undefined, details?: Record<string, unknown>): ApiError {
-  if (statusCode === 413) return new PayloadTooLargeError(message, details);
   if (statusCode === 409 || (statusCode === 400 && details?.reason === 'source-equals-target')) {
     return new ConflictError(message, statusCode, code, details ?? {});
   }
@@ -217,17 +204,21 @@ class ApiClient {
   setTokens(tokens: AuthTokens) {
     this.accessToken = tokens.accessToken;
     this.refreshToken = tokens.refreshToken;
-    
+
     if (typeof window !== 'undefined') {
-      localStorage.setItem('accessToken', tokens.accessToken);
-      localStorage.setItem('refreshToken', tokens.refreshToken);
-      
+      try {
+        localStorage.setItem('accessToken', tokens.accessToken);
+        localStorage.setItem('refreshToken', tokens.refreshToken);
+      } catch {
+        // localStorage may be unavailable (Safari private mode, quota exceeded)
+      }
+
       // Extract organizationId from JWT token if present
       try {
         const payload = JSON.parse(base64UrlDecode(tokens.accessToken.split('.')[1]));
         if (payload.organizationId) {
           this.organizationId = payload.organizationId;
-          localStorage.setItem('organizationId', payload.organizationId);
+          try { localStorage.setItem('organizationId', payload.organizationId); } catch { /* localStorage unavailable */ }
         }
       } catch {
         // JWT parsing failed - non-critical
@@ -243,7 +234,7 @@ class ApiClient {
   setOrganizationId(orgId: string) {
     this.organizationId = orgId;
     if (typeof window !== 'undefined') {
-      localStorage.setItem('organizationId', orgId);
+      try { localStorage.setItem('organizationId', orgId); } catch { /* localStorage may be unavailable */ }
     }
   }
 
@@ -264,24 +255,30 @@ class ApiClient {
    */
   startImpersonation(impersonationAccessToken: string): void {
     if (typeof window !== 'undefined') {
-      const originalAccess = localStorage.getItem('accessToken');
-      const originalRefresh = localStorage.getItem('refreshToken');
-      const originalOrgId = localStorage.getItem('organizationId');
-      if (originalAccess) sessionStorage.setItem('impersonation.originalAccess', originalAccess);
-      if (originalRefresh) sessionStorage.setItem('impersonation.originalRefresh', originalRefresh);
-      if (originalOrgId) sessionStorage.setItem('impersonation.originalOrgId', originalOrgId);
+      try {
+        const originalAccess = localStorage.getItem('accessToken');
+        const originalRefresh = localStorage.getItem('refreshToken');
+        const originalOrgId = localStorage.getItem('organizationId');
+        if (originalAccess) sessionStorage.setItem('impersonation.originalAccess', originalAccess);
+        if (originalRefresh) sessionStorage.setItem('impersonation.originalRefresh', originalRefresh);
+        if (originalOrgId) sessionStorage.setItem('impersonation.originalOrgId', originalOrgId);
+      } catch {
+        // storage may be unavailable; impersonation still works for the current tab
+      }
     }
     this.accessToken = impersonationAccessToken;
     this.refreshToken = null;
     if (typeof window !== 'undefined') {
-      localStorage.setItem('accessToken', impersonationAccessToken);
-      localStorage.removeItem('refreshToken');
+      try {
+        localStorage.setItem('accessToken', impersonationAccessToken);
+        localStorage.removeItem('refreshToken');
+      } catch { /* localStorage unavailable */ }
       // Update the cached organizationId to the impersonated user's.
       try {
         const payload = JSON.parse(base64UrlDecode(impersonationAccessToken.split('.')[1]));
         if (payload.organizationId) {
           this.organizationId = payload.organizationId;
-          localStorage.setItem('organizationId', payload.organizationId);
+          try { localStorage.setItem('organizationId', payload.organizationId); } catch { /* localStorage unavailable */ }
         }
       } catch { /* non-critical */ }
     }
@@ -386,8 +383,9 @@ class ApiClient {
    *
    * Contract (relied on by every consumer of this client):
    *  - On HTTP 4xx/5xx: throws `ApiError` (or a subclass: `ConflictError`
-   *    for registry 409s, `PayloadTooLargeError` for 413). The thrown
-   *    error carries `statusCode`, `code`, and `details` for inspection.
+   *    for registry 409s). The thrown error carries `statusCode`, `code`,
+   *    and `details` for inspection (e.g. branch on `statusCode === 413` for
+   *    blob-too-large).
    *  - On 401: transparently refreshes the access token once and retries.
    *  - On 503: retries up to 2 times with backoff (read-only requests only).
    *  - On success (2xx): returns the parsed JSON envelope — typically
@@ -460,38 +458,13 @@ class ApiClient {
       );
     }
 
-    // Handle 401 - try to refresh token
-    if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh')) {
+    // Handle 401 - try to refresh token. Recurse into request() so the retry
+    // inherits the full contract (step-up handling, 503-loop guard, Retry-After,
+    // _retryCount cap) instead of duplicating a one-shot fetch here.
+    if (statusCode === 401 && this.refreshToken && !endpoint.includes('/auth/refresh') && _retryCount === 0) {
       const refreshed = await this.refreshAccessToken();
-      
       if (refreshed) {
-        headers['Authorization'] = `Bearer ${this.accessToken}`;
-        const retryController = new AbortController();
-        const retryTimeoutId = setTimeout(() => retryController.abort(), API_REQUEST_TIMEOUT_MS);
-        const retryResponse = await fetch(url, {
-          ...options,
-          headers,
-          credentials: 'same-origin',
-          signal: retryController.signal,
-        }).finally(() => clearTimeout(retryTimeoutId));
-        
-        const retryData = await retryResponse.json().catch(() => ({ 
-          statusCode: retryResponse.status, 
-          message: 'Request failed',
-          success: false,
-        }));
-        
-        const retryStatusCode = retryData.statusCode || retryResponse.status;
-
-        if (retryStatusCode >= 400) {
-          throw new ApiError(
-            retryData.message || 'Request failed',
-            retryStatusCode,
-            retryData.code,
-            retryData.details
-          );
-        }
-        return retryData;
+        return this.request<T>(endpoint, options, _retryCount + 1);
       }
     }
 
@@ -853,10 +826,6 @@ class ApiClient {
   // ============================================
   // Per-org IdP config (sysadmin only)
   // ============================================
-  async listOrgIdpConfigs() {
-    return this.request<ApiResponse<{ configs: OrgIdpConfigDto[] }>>('/api/admin/org-idp');
-  }
-
   async getOrgIdpConfig(orgId: string) {
     return this.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/admin/org-idp/${orgId}`);
   }
@@ -1369,19 +1338,17 @@ class ApiClient {
   // Alert destinations (multi-tenant alerting)
   // ==========================================================================
 
-  /** List this org's alert destinations. Targets are masked on read. */
-  async listAlertDestinations(signal?: AbortSignal) {
+  /** List alert destinations. Targets are masked on read.
+   *  Pass `{ all: true }` (sysadmin only) for cross-tenant view; rows then
+   *  include `orgId` and the UI groups them client-side. */
+  async listAlertDestinations(
+    { all, signal }: { all?: boolean; signal?: AbortSignal } = {},
+  ) {
+    const path = all
+      ? '/api/observability/alert-destinations/all'
+      : '/api/observability/alert-destinations';
     return this.request<ApiResponse<import('@/types/observability').AlertDestinationsResponse>>(
-      '/api/observability/alert-destinations',
-      { signal },
-    );
-  }
-
-  /** Sysadmin cross-tenant view of every alert destination across every org.
-   *  Returned rows include `orgId`; the UI groups them client-side. */
-  async listAllAlertDestinations(signal?: AbortSignal) {
-    return this.request<ApiResponse<import('@/types/observability').AlertDestinationsResponse>>(
-      '/api/observability/alert-destinations/all',
+      path,
       { signal },
     );
   }
@@ -1437,8 +1404,8 @@ class ApiClient {
 
   /**
    * Fetch a config blob (≤ 5 MB). Use to power the manifest summary tab.
-   * @throws {PayloadTooLargeError} when the blob exceeds the 5 MB cap.
-   * @throws {ApiError} for 4xx/5xx other than 413.
+   * @throws {ApiError} with `statusCode === 413` when the blob exceeds the 5 MB cap,
+   *   or other 4xx/5xx codes as-is. Callers branch on `statusCode`.
    */
   async getImageBlob(name: string, digest: string): Promise<unknown> {
     const endpoint = `/api/images/${encodeURIComponent(name)}/blobs/${encodeURIComponent(digest)}`;
@@ -1479,8 +1446,7 @@ class ApiClient {
         { method: 'POST', body: JSON.stringify(body) },
       );
     } catch (err) {
-      // Re-throw as ConflictError when the response shape matches.
-      if (err instanceof ApiError && err.details && (err.statusCode === 409 || (err.statusCode === 400 && err.details.reason === 'source-equals-target'))) {
+      if (err instanceof ApiError) {
         throw toRegistryError(err.message, err.statusCode, err.code, err.details);
       }
       throw err;
@@ -1698,10 +1664,6 @@ class ApiClient {
   }
 
   // ============================================
-  // Pipeline Registry — Region endpoints
-  // ============================================
-
-  // ============================================
   // Reporting endpoints
   // ============================================
 
@@ -1713,11 +1675,6 @@ class ApiClient {
   /** Pipeline success rate over time. */
   async getSuccessRate(params?: { interval?: string; from?: string; to?: string }) {
     return this.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; canceled: number; success_pct: number }> }>>(`/api/reports/execution/success-rate${buildQuery(params)}`);
-  }
-
-  /** Pipeline execution timeline (alias for success rate). */
-  async getExecutionTimeline(params?: { interval?: string; from?: string; to?: string }) {
-    return this.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; canceled: number; success_pct: number }> }>>(`/api/reports/execution/timeline${buildQuery(params)}`);
   }
 
   /** Average pipeline duration stats. */

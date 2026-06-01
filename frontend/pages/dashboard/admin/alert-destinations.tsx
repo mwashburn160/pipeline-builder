@@ -16,38 +16,33 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Bell, ArrowLeft, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
-import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { AlertDestination } from '@/types/observability';
 
 export default function AdminAlertDestinationsPage() {
   const { isReady, user } = useAuthGuard({ requireSystemAdmin: true });
 
-  const [destinations, setDestinations] = useState<AlertDestination[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [channelFilter, setChannelFilter] = useState<'all' | 'slack' | 'webhook' | 'in-app'>('all');
 
-  useEffect(() => {
-    if (!isReady) return;
-    let cancelled = false;
-    const ac = new AbortController();
-    setLoading(true);
-    api.listAllAlertDestinations(ac.signal)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.success && res.data) setDestinations(res.data.destinations);
-        else setError(res.message || 'Failed to load destinations');
-      })
-      .catch((e) => !cancelled && setError(formatError(e, 'Failed to load destinations')))
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; ac.abort(); };
-  }, [isReady]);
+  const { data, loading, error } = useFetch(
+    async () => {
+      if (!isReady) return [] as AlertDestination[];
+      const res = await api.listAlertDestinations({ all: true });
+      if (res.success && res.data) return res.data.destinations;
+      throw new Error(res.message || 'Failed to load destinations');
+    },
+    [isReady],
+  );
+  const destinations: AlertDestination[] = data ?? [];
+  const [dismissedError, setDismissedError] = useState(false);
+  // Reset dismissal when a fresh error arrives so a new failure isn't hidden.
+  useEffect(() => { if (error) setDismissedError(false); }, [error]);
 
   // Group by org for the visual layout — operators reason about
   // "what does org X have" more naturally than a flat list.
@@ -91,10 +86,10 @@ export default function AdminAlertDestinationsPage() {
         </Link>
       </div>
 
-      {error && (
+      {error && !dismissedError && (
         <div className="alert-error mb-4">
-          <p>{error}</p>
-          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
+          <p>{error.message}</p>
+          <button onClick={() => setDismissedError(true)} className="action-link-danger mt-2 underline">Dismiss</button>
         </div>
       )}
 

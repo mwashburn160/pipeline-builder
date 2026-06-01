@@ -109,28 +109,34 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
           </div>
         )}
 
-        {!scanning && digest && (
+        {digest && (
           <div className="text-xs text-gray-500 dark:text-gray-400 font-mono break-all flex items-center gap-2">
             <span className="flex-1">digest: {digest}</span>
             <CopyButton text={digest} />
           </div>
         )}
 
-        {!scanning && sharedTags.length > 1 && (
-          <div className="p-3 text-sm border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-200 rounded">
-            <div className="font-medium mb-1">
-              The following {sharedTags.length} tags share this digest and will stop working:
+        {!scanning && (() => {
+          // `sharedTags` includes the active tag — strip it so the count + list
+          // reflects *other* tags that will stop working.
+          const others = sharedTags.filter((t) => t !== ref);
+          if (others.length === 0) return null;
+          return (
+            <div className="p-3 text-sm border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-200 rounded">
+              <div className="font-medium mb-1">
+                The following {others.length} other tag{others.length === 1 ? '' : 's'} share this digest and will stop working:
+              </div>
+              <ul className="font-mono text-xs space-y-0.5">
+                {others.map((t) => <li key={t}>{t}</li>)}
+              </ul>
+              {extraTagCount > 0 && (
+                <div className="text-xs mt-2 italic">…and {extraTagCount} more tag(s) not scanned.</div>
+              )}
             </div>
-            <ul className="font-mono text-xs space-y-0.5">
-              {sharedTags.map((t) => <li key={t}>{t}</li>)}
-            </ul>
-            {extraTagCount > 0 && (
-              <div className="text-xs mt-2 italic">…and {extraTagCount} more tag(s) not scanned.</div>
-            )}
-          </div>
-        )}
+          );
+        })()}
 
-        {!scanning && sharedTags.length === 1 && extraTagCount > 0 && (
+        {!scanning && sharedTags.filter((t) => t !== ref).length === 0 && extraTagCount > 0 && (
           <div className="text-xs italic text-gray-500 dark:text-gray-400">
             {extraTagCount} additional tag(s) were not scanned — they may also share this digest.
           </div>

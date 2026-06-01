@@ -3,9 +3,9 @@
 
 import {
   buildComplianceExemptionConditions,
-  db,
   drizzleCount,
   schema,
+  withTenantTx,
 } from '@pipeline-builder/pipeline-core';
 import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import type { ActiveExemption } from '../engine/rule-engine';
@@ -36,7 +36,7 @@ class ComplianceExemptionService {
    */
   async getActiveExemptionsForEntity(orgId: string, entityId: string): Promise<ActiveExemption[]> {
     const now = new Date();
-    const rows = await db
+    const rows = await withTenantTx(async (tx) => tx
       .select({
         id: schema.complianceExemption.id,
         ruleId: schema.complianceExemption.ruleId,
@@ -52,7 +52,7 @@ class ComplianceExemptionService {
             gt(schema.complianceExemption.expiresAt, now),
           ),
         ),
-      );
+      ));
 
     return rows.map(row => ({ id: row.id, ruleId: row.ruleId }));
   }
@@ -62,26 +62,26 @@ class ComplianceExemptionService {
     const conditions = buildComplianceExemptionConditions(filter, orgId);
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [countResult] = await db
+    const [countResult] = await withTenantTx(async (tx) => tx
       .select({ count: sql<number>`count(*)::int` })
       .from(schema.complianceExemption)
       .where(whereClause)
-      .then(r => drizzleCount(r));
+      .then(r => drizzleCount(r)));
 
-    const exemptions = await db
+    const exemptions = await withTenantTx(async (tx) => tx
       .select()
       .from(schema.complianceExemption)
       .where(whereClause)
       .orderBy(desc(schema.complianceExemption.createdAt))
       .limit(limit)
-      .offset(offset);
+      .offset(offset));
 
     return { exemptions, total: countResult?.count ?? 0 };
   }
 
   /** Create a single pending exemption request. */
   async create(input: ExemptionInsert, orgId: string, userId: string) {
-    const [exemption] = await db
+    const [exemption] = await withTenantTx(async (tx) => tx
       .insert(schema.complianceExemption)
       .values({
         ...input,
@@ -91,7 +91,7 @@ class ComplianceExemptionService {
         createdBy: userId,
         updatedBy: userId,
       })
-      .returning();
+      .returning());
     return exemption;
   }
 
@@ -110,10 +110,10 @@ class ComplianceExemptionService {
       updatedBy: userId,
     }));
 
-    const inserted = await db
+    const inserted = await withTenantTx(async (tx) => tx
       .insert(schema.complianceExemption)
       .values(rows)
-      .returning({ id: schema.complianceExemption.id });
+      .returning({ id: schema.complianceExemption.id }));
 
     return inserted.map(r => r.id);
   }
@@ -129,49 +129,51 @@ class ComplianceExemptionService {
     decision: 'approved' | 'rejected',
     rejectionReason?: string,
   ) {
-    const [existing] = await db
-      .select({ createdBy: schema.complianceExemption.createdBy })
-      .from(schema.complianceExemption)
-      .where(and(
-        eq(schema.complianceExemption.id, id),
-        eq(schema.complianceExemption.orgId, orgId),
-        eq(schema.complianceExemption.status, 'pending'),
-      ));
+    return withTenantTx(async (tx) => {
+      const [existing] = await tx
+        .select({ createdBy: schema.complianceExemption.createdBy })
+        .from(schema.complianceExemption)
+        .where(and(
+          eq(schema.complianceExemption.id, id),
+          eq(schema.complianceExemption.orgId, orgId),
+          eq(schema.complianceExemption.status, 'pending'),
+        ));
 
-    if (!existing) throw new Error(CE_NOT_FOUND);
-    if (decision === 'approved' && existing.createdBy === reviewerId) {
-      throw new Error(CE_SELF_APPROVE);
-    }
+      if (!existing) throw new Error(CE_NOT_FOUND);
+      if (decision === 'approved' && existing.createdBy === reviewerId) {
+        throw new Error(CE_SELF_APPROVE);
+      }
 
-    const [updated] = await db
-      .update(schema.complianceExemption)
-      .set({
-        status: decision,
-        approvedBy: decision === 'approved' ? reviewerId : undefined,
-        rejectionReason: rejectionReason ?? null,
-        updatedBy: reviewerId,
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(schema.complianceExemption.id, id),
-        eq(schema.complianceExemption.orgId, orgId),
-        eq(schema.complianceExemption.status, 'pending'),
-      ))
-      .returning();
+      const [updated] = await tx
+        .update(schema.complianceExemption)
+        .set({
+          status: decision,
+          approvedBy: decision === 'approved' ? reviewerId : undefined,
+          rejectionReason: rejectionReason ?? null,
+          updatedBy: reviewerId,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(schema.complianceExemption.id, id),
+          eq(schema.complianceExemption.orgId, orgId),
+          eq(schema.complianceExemption.status, 'pending'),
+        ))
+        .returning();
 
-    if (!updated) throw new Error(CE_NOT_FOUND);
-    return updated;
+      if (!updated) throw new Error(CE_NOT_FOUND);
+      return updated;
+    });
   }
 
   /** Hard delete an exemption (revoke). */
   async delete(id: string, orgId: string) {
-    const [deleted] = await db
+    const [deleted] = await withTenantTx(async (tx) => tx
       .delete(schema.complianceExemption)
       .where(and(
         eq(schema.complianceExemption.id, id),
         eq(schema.complianceExemption.orgId, orgId),
       ))
-      .returning();
+      .returning());
     return deleted ?? null;
   }
 }

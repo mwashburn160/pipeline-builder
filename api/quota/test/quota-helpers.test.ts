@@ -29,6 +29,9 @@ jest.mock('@pipeline-builder/api-core', () => ({
   isValidTier: jest.fn((t: string) => ['developer', 'pro', 'unlimited'].includes(t)),
   getTierLimits: jest.fn(),
   isValidQuotaType: jest.fn((t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t)),
+  createLogger: jest.fn(() => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() })),
+  getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
+  isSystemAdmin: jest.fn(() => false),
 }));
 
 import {
@@ -37,8 +40,8 @@ import {
   applyQuotaLimits,
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
-  INTERNAL_AUTH_OPTS,
 } from '../src/helpers/quota-helpers';
+import { INTERNAL_AUTH_OPTS } from '../src/middleware/authorize-org';
 
 // Tests
 

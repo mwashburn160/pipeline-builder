@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Bell, Plus, Trash2, Edit2, Slack, Webhook, Bell as BellIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -26,28 +27,16 @@ import type { AlertDestination, AlertDestinationWrite } from '@/types/observabil
 export default function AlertDestinationsPage() {
   const { isReady, isAuthenticated } = useAuthGuard();
   const toast = useToast();
-  const [destinations, setDestinations] = useState<AlertDestination[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const ready = isReady && isAuthenticated;
   const [editing, setEditing] = useState<AlertDestination | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const refresh = useCallback(async () => {
-    setError(null);
-    try {
-      const res = await api.listAlertDestinations();
-      setDestinations(res.data?.destinations ?? []);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isReady || !isAuthenticated) return;
-    void refresh();
-  }, [isReady, isAuthenticated, refresh]);
+  const { data, loading, error, refetch } = useFetch(
+    async () => (ready ? (await api.listAlertDestinations()).data?.destinations ?? [] : []),
+    [ready],
+  );
+  const destinations: AlertDestination[] = data ?? [];
+  const refresh = async () => { refetch(); };
 
   const onDelete = async (d: AlertDestination) => {
     if (!confirm(`Delete destination "${d.label}"?`)) return;
@@ -81,12 +70,22 @@ export default function AlertDestinationsPage() {
 
       {error && (
         <div className="mb-4 rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
-          {error}
+          {error.message}
         </div>
       )}
 
       {loading ? (
-        <div className="text-sm text-gray-500 dark:text-gray-400">Loading…</div>
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="px-4 py-3 flex items-center gap-3">
+              <div className="w-5 h-5 skeleton rounded" />
+              <div className="flex-1">
+                <div className="h-4 skeleton w-1/3 mb-1.5" />
+                <div className="h-3 skeleton w-2/3" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : destinations.length === 0 ? (
         <div className="rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
           No destinations configured yet. Click <strong>Add destination</strong> above to start receiving alerts in Slack.

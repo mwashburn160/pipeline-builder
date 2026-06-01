@@ -14,7 +14,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { isValidCronExpression } from '../helpers/scan-scheduler';
+import { CRON_VALIDATION_HINT, isValidCronExpression } from '../helpers/scan-scheduler';
 import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service';
 
 /**
@@ -58,7 +58,7 @@ export function createScanScheduleRoutes(): Router {
 
     const { target, cronExpression } = validation.value;
     if (!isValidCronExpression(cronExpression)) {
-      return sendBadRequest(res, `Invalid cron expression: '${cronExpression}'. Expected 5-field cron with parseable minute/hour fields.`, ErrorCode.VALIDATION_ERROR);
+      return sendBadRequest(res, `Invalid cron expression: '${cronExpression}'. ${CRON_VALIDATION_HINT}`, ErrorCode.VALIDATION_ERROR);
     }
 
     const schedule = await complianceScanScheduleService.create(orgId, userId, target, cronExpression);
@@ -77,7 +77,7 @@ export function createScanScheduleRoutes(): Router {
     }
 
     if (validation.value.cronExpression && !isValidCronExpression(validation.value.cronExpression)) {
-      return sendBadRequest(res, `Invalid cron expression: '${validation.value.cronExpression}'. Expected 5-field cron with parseable minute/hour fields.`, ErrorCode.VALIDATION_ERROR);
+      return sendBadRequest(res, `Invalid cron expression: '${validation.value.cronExpression}'. ${CRON_VALIDATION_HINT}`, ErrorCode.VALIDATION_ERROR);
     }
 
     const updated = await complianceScanScheduleService.update(id, orgId, userId, validation.value);

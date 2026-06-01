@@ -4,7 +4,7 @@
 import crypto from 'crypto';
 
 import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
-import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
+import { createApp, runServer, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { Request, Response } from 'express';
 
 import { createCreateMessageRoutes } from './routes/create-message';
@@ -22,11 +22,26 @@ app.use(attachRequestContext(sseManager));
 // -- SSE ticket store ---------------------------------------------------------
 // Short-lived, single-use tickets so JWTs never appear in query strings / logs.
 
-/** Ticket TTL in ms (30 seconds — enough for the client to open the EventSource). */
+/** Ticket TTL — see api-core `SSE_TICKET_TTL_MS` (enough for the client to open the EventSource). */
 const TICKET_TTL_MS = SSE_TICKET_TTL_MS;
+
+/** Hard cap on total live tickets across the process — bounds memory under abuse.
+ *  Override via SSE_MAX_TOTAL_TICKETS. */
+const MAX_TOTAL_TICKETS = parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10);
+/** Per-org cap — prevents a single tenant from saturating the table.
+ *  Override via SSE_MAX_TICKETS_PER_ORG. */
+const MAX_TICKETS_PER_ORG = parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10);
 
 interface SseTicket { orgId: string; expiresAt: number }
 const ticketStore = new Map<string, SseTicket>();
+
+function countLiveTicketsForOrg(orgId: string, now: number): number {
+  let count = 0;
+  for (const ticket of ticketStore.values()) {
+    if (ticket.orgId === orgId && ticket.expiresAt > now) count++;
+  }
+  return count;
+}
 
 // Periodic cleanup of expired tickets
 const ticketCleanup = setInterval(() => {
@@ -47,8 +62,16 @@ app.post(
       return sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
     }
 
+    const now = Date.now();
+    if (ticketStore.size >= MAX_TOTAL_TICKETS) {
+      return sendError(res, 503, 'Notification subsystem at capacity', ErrorCode.QUOTA_EXCEEDED);
+    }
+    if (countLiveTicketsForOrg(orgId, now) >= MAX_TICKETS_PER_ORG) {
+      return sendError(res, 429, 'Too many notification tickets issued', ErrorCode.QUOTA_EXCEEDED);
+    }
+
     const ticketId = crypto.randomBytes(24).toString('base64url');
-    ticketStore.set(ticketId, { orgId, expiresAt: Date.now() + TICKET_TTL_MS });
+    ticketStore.set(ticketId, { orgId, expiresAt: now + TICKET_TTL_MS });
     return sendSuccess(res, 200, { ticket: ticketId });
   },
 );
@@ -95,17 +118,13 @@ app.get(
   },
 );
 
-// -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
-app.use('/messages', ...createProtectedRoute(quotaService, 'apiCalls'), createReadMessageRoutes(quotaService));
-
-// -- Create routes — auth + orgId (no quota check on messages) ----------------
-app.use('/messages', ...createAuthenticatedWithOrgRoute(), createCreateMessageRoutes(sseManager));
-
-// -- Update routes (mark read) — auth + orgId ---------------------------------
-app.use('/messages', ...createAuthenticatedWithOrgRoute(), createUpdateMessageRoutes(sseManager));
-
-// -- Delete route — auth + orgId (permission checked in handler) --------------
-app.use('/messages', ...createAuthenticatedWithOrgRoute(), createDeleteMessageRoutes(sseManager));
+// -- /messages routes ---------------------------------------------------------
+// Each route attaches its own auth/quota middleware so that mounting these
+// at a shared prefix never causes middleware to bleed across verbs.
+app.use('/messages', createReadMessageRoutes(quotaService));
+app.use('/messages', createCreateMessageRoutes(sseManager));
+app.use('/messages', createUpdateMessageRoutes(sseManager));
+app.use('/messages', createDeleteMessageRoutes(sseManager));
 
 logger.info('All /messages routes registered');
 

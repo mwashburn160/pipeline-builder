@@ -6,16 +6,13 @@ import {
   sendSuccess,
   ErrorCode,
   getParam,
-  createLogger,
   sendEntityNotFound,
   errorMessage,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { messageService } from '../services/message-service';
-
-const logger = createLogger('update-message');
 
 /**
  * Create update routes for the message service.
@@ -29,7 +26,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   // PUT /messages/:id/read — Mark message as read
-  router.put('/:id/read', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id/read', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -51,25 +48,27 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
         unreadCount,
       });
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
+      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
     }
 
     return sendSuccess(res, 200, { message }, 'Message marked as read');
   }));
 
   // PUT /messages/:id/thread/read — Mark entire thread as read
-  router.put('/:id/thread/read', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id/thread/read', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
     ctx.log('INFO', 'Marking thread as read', { threadId: id });
 
-    // Also mark the root message as read
-    await messageService.markAsRead(id, orgId, userId);
+    // Also mark the root message as read — null result means it was already read,
+    // so it doesn't contribute to the updated count.
+    const root = await messageService.markAsRead(id, orgId, userId);
     const updatedMessages = await messageService.markThreadAsRead(id, orgId, userId);
+    const total = updatedMessages.length + (root ? 1 : 0);
 
-    ctx.log('COMPLETED', 'Thread marked as read', { threadId: id, count: updatedMessages.length + 1 });
+    ctx.log('COMPLETED', 'Thread marked as read', { threadId: id, count: total });
 
     // Push updated unread count to the reader's org
     try {
@@ -79,10 +78,10 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
         unreadCount,
       });
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
+      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
     }
 
-    return sendSuccess(res, 200, { updated: updatedMessages.length + 1 }, 'Thread marked as read');
+    return sendSuccess(res, 200, { updated: total }, 'Thread marked as read');
   }));
 
   return router;

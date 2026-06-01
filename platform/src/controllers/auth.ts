@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { audit } from '../helpers/audit';
 import { withController } from '../helpers/controller-helper';
@@ -71,7 +71,9 @@ export const register = withController('Register', async (req, res) => {
   if (!body) return;
 
   const result = await authService.register(body);
-  const isSystem = result.organizationId === SYSTEM_ORG_ID;
+  // isSystemOrgId checks BOTH id and name so a system-named org with an
+  // ObjectId id (or vice-versa) is still recognised.
+  const isSystem = isSystemOrgId(result.organizationId, result.organizationName);
 
   if (config.billing.enabled) {
     void createBillingSubscription(result.organizationId, result.planId || 'developer');
@@ -113,9 +115,6 @@ export const login = withController('Login', async (req, res) => {
 
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
 
-  res.cookie('grafana_token', tokens.accessToken, {
-    httpOnly: true, secure: config.auth.cookie.secure, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
-  });
   audit(req, 'user.login', { targetType: 'user', targetId: user._id.toString() });
   // Counter consumed by the Platform Overview dashboard's "logins/min" panel.
   incCounter('platform_logins_total');
@@ -146,9 +145,6 @@ export const refresh = withController('Refresh', async (req, res) => {
   const activeOrgId = req.user.organizationId || user.lastActiveOrgId?.toString();
   const tokens = await issueTokens(user, activeOrgId);
 
-  res.cookie('grafana_token', tokens.accessToken, {
-    httpOnly: true, secure: config.auth.cookie.secure, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
-  });
   sendSuccess(res, 200, tokens);
 });
 
@@ -159,7 +155,6 @@ export const logout = withController('Logout', async (req, res) => {
 
   await authService.invalidateAllSessions(userId);
 
-  res.clearCookie('grafana_token', { httpOnly: true, secure: config.auth.cookie.secure, sameSite: config.auth.cookie.sameSite, path: '/' });
   audit(req, 'user.logout');
   sendSuccess(res, 200, undefined, 'Logged out');
 });
@@ -177,9 +172,6 @@ export const switchOrg = withController('Switch org', async (req, res) => {
 
   const tokens = await issueTokens(user, organizationId);
 
-  res.cookie('grafana_token', tokens.accessToken, {
-    httpOnly: true, secure: config.auth.cookie.secure, sameSite: config.auth.cookie.sameSite, path: '/', maxAge: tokens.expiresIn * 1000,
-  });
   sendSuccess(res, 200, tokens);
 });
 
@@ -199,12 +191,14 @@ export const sendVerificationEmail = withController('Send verification email', a
 
   const verifyUrl = `${config.app.frontendUrl}/auth/verify-email?token=${dispatch.rawToken}`;
   const { emailService } = await import('../utils/email.js');
+  const { verifyEmailTemplate } = await import('../utils/email-templates.js');
 
+  // Routes through the templated email pipeline: HTML body is escape-safe,
+  // wrapped in the shared layout, and the text variant is built from a
+  // template file rather than inline-string concatenation.
   await emailService.send({
     to: dispatch.email,
-    subject: 'Verify your email address',
-    text: `Click this link to verify your email: ${verifyUrl}\n\nThis link expires in 24 hours.`,
-    html: `<p>Click the link below to verify your email address:</p><p><a href="${verifyUrl}">Verify Email</a></p><p>This link expires in 24 hours.</p>`,
+    ...verifyEmailTemplate(verifyUrl),
   });
 
   logger.info('Verification email sent', { userId, email: dispatch.email });

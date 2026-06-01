@@ -26,8 +26,11 @@ router.patch('/profile', requireAuth, updateUser);
  *  Step-up gated — a stolen session shouldn't be able to tombstone the account. */
 router.delete('/account', requireAuth, requireStepUp, deleteUser);
 
-/** POST /user/change-password - Change current user's password */
-router.post('/change-password', requireAuth, changePassword);
+/** POST /user/change-password - Change current user's password.
+ *  Step-up gated — defense-in-depth. The handler still verifies
+ *  `currentPassword`, but step-up makes session-pivot attacks fail before
+ *  the password-comparison side channel can be probed. */
+router.post('/change-password', requireAuth, requireStepUp, changePassword);
 
 /** GET /user/organizations - List all organizations the user belongs to */
 router.get('/organizations', requireAuth, listUserOrganizations);

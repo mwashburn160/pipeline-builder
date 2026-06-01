@@ -4,6 +4,8 @@
 import crypto from 'crypto';
 import { Schema, model, Document, Types } from 'mongoose';
 import { config } from '../config';
+import { MEMBER_ROLES, OrgMemberRole } from './user-organization';
+import { OAuthProviderName, OAUTH_PROVIDER_NAMES } from '../types/oauth-provider';
 
 /**
  * Invitation status
@@ -11,9 +13,11 @@ import { config } from '../config';
 export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
 
 /**
- * OAuth provider type for invitations
+ * OAuth provider type for invitations. Alias of the platform-wide
+ * `OAuthProviderName` so the invitation API and the IdP-config / OAuth
+ * controller all speak the same vocabulary.
  */
-export type InvitationOAuthProvider = 'google' | 'github';
+export type InvitationOAuthProvider = OAuthProviderName;
 
 /**
  * Invitation type - how the invitation can be accepted
@@ -28,7 +32,7 @@ export interface InvitationDocument extends Document {
   email: string;
   organizationId: Types.ObjectId;
   invitedBy: Types.ObjectId;
-  role: 'owner' | 'admin' | 'member';
+  role: OrgMemberRole;
   token: string;
   status: InvitationStatus;
   expiresAt: Date;
@@ -71,7 +75,7 @@ const invitationSchema = new Schema<InvitationDocument>(
     },
     role: {
       type: String,
-      enum: ['owner', 'admin', 'member'],
+      enum: MEMBER_ROLES as unknown as string[],
       default: 'member',
     },
     token: {
@@ -107,12 +111,12 @@ const invitationSchema = new Schema<InvitationDocument>(
     },
     allowedOAuthProviders: {
       type: [String],
-      enum: ['google', 'github'],
+      enum: OAUTH_PROVIDER_NAMES as unknown as string[],
       default: undefined,
     },
     acceptedVia: {
       type: String,
-      enum: ['email', 'google', 'github'],
+      enum: ['email', ...OAUTH_PROVIDER_NAMES],
     },
   },
   {

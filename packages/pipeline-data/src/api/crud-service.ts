@@ -323,7 +323,15 @@ export abstract class CrudService<
       })
       .returning().then(r => drizzleRows<TEntity>(r)));
 
-    this.onAfterCreate(created, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
+    // Awaited intentionally: cache invalidation happens in the hook, and a
+    // fire-and-forget pattern lets a subsequent read inside the same request
+    // return the stale pre-write entry. The hook is expected to be fast
+    // (single Redis op); slow hooks should run their own background work.
+    try {
+      await this.onAfterCreate(created, userId);
+    } catch (err) {
+      this._logger.warn('Lifecycle hook failed', { error: String(err) });
+    }
 
     return created;
   }
@@ -350,7 +358,11 @@ export abstract class CrudService<
       .returning().then(r => drizzleRows<TEntity>(r)));
 
     if (updated) {
-      this.onAfterUpdate(id, updated, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
+      try {
+        await this.onAfterUpdate(id, updated, userId);
+      } catch (err) {
+        this._logger.warn('Lifecycle hook failed', { error: String(err) });
+      }
     }
 
     return updated || null;
@@ -375,7 +387,11 @@ export abstract class CrudService<
       .returning().then(r => drizzleRows<TEntity>(r)));
 
     if (deleted) {
-      this.onAfterDelete(id, deleted, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
+      try {
+        await this.onAfterDelete(id, deleted, userId);
+      } catch (err) {
+        this._logger.warn('Lifecycle hook failed', { error: String(err) });
+      }
     }
 
     return deleted || null;
@@ -511,9 +527,15 @@ export abstract class CrudService<
       return allCreated;
     });
 
-    for (const entity of results) {
-      this.onAfterCreate(entity, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
-    }
+    // Run hooks in parallel but await all before returning so a subsequent
+    // read in the same request sees a coherent post-write view.
+    await Promise.all(
+      results.map(entity =>
+        this.onAfterCreate(entity, userId).catch(err =>
+          this._logger.warn('Lifecycle hook failed', { error: String(err) }),
+        ),
+      ),
+    );
 
     return results;
   }
@@ -547,9 +569,13 @@ export abstract class CrudService<
       .where(and(...conditions))
       .returning().then(r => drizzleRows<TEntity>(r)));
 
-    for (const entity of deleted) {
-      this.onAfterDelete(entity.id, entity, userId).catch(err => this._logger.warn('Lifecycle hook failed', { error: String(err) }));
-    }
+    await Promise.all(
+      deleted.map(entity =>
+        this.onAfterDelete(entity.id, entity, userId).catch(err =>
+          this._logger.warn('Lifecycle hook failed', { error: String(err) }),
+        ),
+      ),
+    );
 
     return deleted;
   }

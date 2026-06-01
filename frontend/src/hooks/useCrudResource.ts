@@ -4,10 +4,13 @@
 /**
  * Generic hook for CRUD resource management — fetch, create, update, delete
  * with loading/error state. Used by RuleList and PolicyManager.
+ *
+ * Callers must trigger the initial load themselves (e.g. from a useEffect that
+ * also handles their own auth/route guards). The hook intentionally does NOT
+ * auto-fetch on mount.
  */
 import { useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { useAsync } from './useAsync';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -24,7 +27,7 @@ interface CrudApi<T, TCreate, TUpdate, TParams> {
 interface UseCrudResourceReturn<T, TCreate, TUpdate, TParams> {
   items: T[];
   loading: boolean;
-  error: string | null;
+  error: Error | null;
   total: number;
   fetch: (params?: TParams) => Promise<void>;
   create: (data: TCreate) => Promise<T | null>;
@@ -38,26 +41,25 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
 ): UseCrudResourceReturn<T, TCreate, TUpdate, TParams> {
   const [items, setItems] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
-  const [mutationError, setMutationError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-  const { loading, error: fetchError } = useAsync(async () => {
-    const res = await api.list();
-    if (res.success && res.data) {
-      setItems(res.data.items);
-      setTotal(res.data.pagination?.total ?? res.data.items.length);
-    }
-  }, []);
+  const toError = (err: unknown, fallback: string): Error =>
+    err instanceof Error ? err : new Error(formatError(err, fallback));
 
   const fetch = useCallback(async (params?: TParams) => {
+    setLoading(true);
+    setError(null);
     try {
-      setMutationError(null);
       const res = await api.list(params);
       if (res.success && res.data) {
         setItems(res.data.items);
         setTotal(res.data.pagination?.total ?? res.data.items.length);
       }
     } catch (err) {
-      setMutationError(formatError(err, `Failed to fetch ${entityName}`));
+      setError(toError(err, `Failed to fetch ${entityName}`));
+    } finally {
+      setLoading(false);
     }
   }, [api, entityName]);
 
@@ -71,7 +73,7 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
       }
       return null;
     } catch (err) {
-      setMutationError(formatError(err, `Failed to create ${entityName}`));
+      setError(toError(err, `Failed to create ${entityName}`));
       return null;
     }
   }, [api, entityName]);
@@ -86,7 +88,7 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
       }
       return null;
     } catch (err) {
-      setMutationError(formatError(err, `Failed to update ${entityName}`));
+      setError(toError(err, `Failed to update ${entityName}`));
       return null;
     }
   }, [api, entityName]);
@@ -97,10 +99,10 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
       setItems((prev) => prev.filter((i) => i.id !== id));
       return true;
     } catch (err) {
-      setMutationError(formatError(err, `Failed to delete ${entityName}`));
+      setError(toError(err, `Failed to delete ${entityName}`));
       return false;
     }
   }, [api, entityName]);
 
-  return { items, loading, error: mutationError || fetchError, total, fetch, create, update, remove };
+  return { items, loading, error, total, fetch, create, update, remove };
 }

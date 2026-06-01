@@ -19,6 +19,12 @@ import type { Request, Response, NextFunction } from 'express';
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+// NOTE: This middleware is security-critical (it's the only gate keeping
+// impersonated sysadmins from writing under another user's identity) but
+// currently has no dedicated test coverage — needs an integration test that
+// exercises a read-only impersonation token against a write endpoint and
+// asserts 403 + the IMPERSONATION_READ_ONLY error code. Flagged for QA.
+
 export function requireWriteAccess(req: Request, res: Response, next: NextFunction): void {
   if (req.user?.impersonationReadOnly === true && !READ_METHODS.has(req.method)) {
     sendError(

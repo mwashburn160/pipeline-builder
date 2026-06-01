@@ -17,6 +17,9 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
   getServiceAuthHeader: () => 'Bearer test-service-token',
   SYSTEM_ORG_ID: 'system',
+  // org-cascade-service uses errorMessage(...) to safely stringify caught
+  // errors into report fields (avoid leaking Error.toString quirks).
+  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
 const mockHttpDelete = jest.fn();
@@ -184,9 +187,11 @@ describe('cascadeDeleteOrg', () => {
       .mockResolvedValue({ rowCount: 1 });
 
     const report = await cascadeDeleteOrg('org-acme', 'system');
-    // The first table reports -1 (failure marker), others 1.
-    const counts = Object.values(report.postgres);
-    expect(counts).toContain(-1);
+    // The first table reports { ok: false, error } (the new structured
+    // failure marker, replacing the old -1 sentinel); others report ok=true.
+    const entries = Object.values(report.postgres);
+    expect(entries.some((e) => e.ok === false)).toBe(true);
+    expect(entries.filter((e) => e.ok === true).length).toBe(entries.length - 1);
     // Other tables still got their delete chains called.
     expect(mockUpdateChain.where).toHaveBeenCalledTimes(7);
     expect(mockDeleteChain.where).toHaveBeenCalledTimes(13);

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useObservabilityLogs, type RangeKey } from '@/hooks/useObservabilityLogs';
-import type { DataSeries, LogEntry } from '@/types/observability';
+import type { DataSeries, ObservabilityLogEntry } from '@/types/observability';
 import { Panel } from './Panel';
 
 interface TablePanelProps {
@@ -26,7 +26,7 @@ interface TablePanelProps {
 export function TablePanel({ queryKey, title, range, span = 6, mode, logOpts = {}, topkLabel = 'actor' }: TablePanelProps) {
   const { data, loading, error } = useObservabilityLogs(queryKey, range, logOpts);
 
-  const entries: LogEntry[] = mode === 'logs' && data && 'entries' in data ? data.entries : [];
+  const entries: ObservabilityLogEntry[] = mode === 'logs' && data && 'entries' in data ? data.entries : [];
   const series: DataSeries[] = mode === 'topk' && data && 'series' in data ? data.series : [];
 
   const rowCount = mode === 'logs' ? entries.length : series.length;

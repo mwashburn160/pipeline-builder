@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { Scan, Play, Square, Loader2, Eye } from 'lucide-react';
 import api from '@/lib/api';
-import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { Pagination } from '@/components/ui/Pagination';
+import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG } from '@/lib/compliance-styles';
 
@@ -13,39 +14,38 @@ interface ScanManagerProps {
 }
 
 export default function ScanManager({ onViewScan, readOnly = false }: ScanManagerProps) {
-  const [scans, setScans] = useState<ComplianceScan[]>([]);
-  const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
   const [targetFilter, setTargetFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [pagination, setPagination] = useState<PaginationState>({ limit: 10, offset: 0, total: 0 });
 
-  const fetchScans = useCallback(async (offset = pagination.offset, limit = pagination.limit) => {
-    setLoading(true);
-    try {
+  const {
+    items: scans,
+    pagination,
+    loading,
+    setOffset,
+    refetch: fetchScans,
+  } = useServerPagination<ComplianceScan, { target: string; status: string }>(
+    async ({ offset, limit, filters }) => {
       const params: Record<string, string | number> = { limit, offset };
-      if (targetFilter) params.target = targetFilter;
-      if (statusFilter) params.status = statusFilter;
+      if (filters.target) params.target = filters.target;
+      if (filters.status) params.status = filters.status;
       const res = await api.getScans(params);
-      if (res.success && res.data) {
-        setScans(res.data.scans);
-        if (res.data.pagination) {
-          setPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
-        }
+      if (!res.success || !res.data) {
+        return { items: [], pagination: { offset, limit, total: 0 } };
       }
-    } catch { /* handled by loading state */ }
-    setLoading(false);
-  }, [targetFilter, statusFilter, pagination.offset, pagination.limit]);
+      return {
+        items: res.data.scans,
+        pagination: res.data.pagination
+          ? { offset: res.data.pagination.offset, limit: res.data.pagination.limit, total: res.data.pagination.total }
+          : { offset, limit, total: res.data.scans.length },
+      };
+    },
+    { target: targetFilter, status: statusFilter },
+    10,
+  );
 
-  useEffect(() => { fetchScans(); }, [fetchScans]);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setPagination(prev => ({ ...prev, offset: 0 }));
-  }, [targetFilter, statusFilter]);
-
-  const handlePageChange = (offset: number) => { fetchScans(offset, pagination.limit); };
-  const handlePageSizeChange = (limit: number) => { fetchScans(0, limit); };
+  const handlePageChange = (offset: number) => { setOffset(offset); };
+  const handlePageSizeChange = (_limit: number) => { setOffset(0); };
 
   const handleTrigger = async (target: 'plugin' | 'pipeline' | 'all') => {
     setTriggering(true);

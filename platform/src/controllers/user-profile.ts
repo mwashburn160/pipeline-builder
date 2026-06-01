@@ -46,7 +46,7 @@ export interface UserResponseInput {
   email: string;
   isEmailVerified: boolean;
   isSuperAdmin?: boolean;
-  lastActiveOrgId?: Types.ObjectId | string;
+  lastActiveOrgId?: string;
   featureOverrides?: Map<string, boolean> | Record<string, boolean>;
   createdAt?: Date;
   updatedAt?: Date;

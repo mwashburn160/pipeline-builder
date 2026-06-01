@@ -85,22 +85,34 @@ export function startAuditPruneCron(opts: {
   const firstRunDelayMs = opts.firstRunDelayMs ?? 60_000;
 
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // `stopped` is consulted in the `finally` block so a `stop()` that fires
+  // mid-tick doesn't reschedule a phantom timer (which would leak past the
+  // requested shutdown and keep the process alive in tests).
+  let stopped = false;
   const tick = async () => {
     try {
       await pruneComplianceAudit(maxAgeDays);
     } catch (err) {
       logger.error('Audit prune tick failed', { err });
     } finally {
-      // Schedule next run (with up to 5 min jitter to spread replicas).
-      const jitter = Math.floor(Math.random() * 5 * 60_000);
-      timer = setTimeout(tick, intervalMs + jitter);
+      if (!stopped) {
+        // Schedule next run with ±2.5 min symmetric jitter to spread replicas.
+        // Floor at a small positive value so we never schedule a setTimeout
+        // with a negative delay (which Node treats as 1 ms).
+        const jitter = Math.floor((Math.random() - 0.5) * 5 * 60_000);
+        const nextDelay = Math.max(1_000, intervalMs + jitter);
+        timer = setTimeout(tick, nextDelay);
+        timer.unref();
+      }
     }
   };
   timer = setTimeout(tick, firstRunDelayMs);
+  timer.unref();
   logger.info('Audit prune cron scheduled', { maxAgeDays, intervalMs, firstRunDelayMs });
 
   return {
     stop: () => {
+      stopped = true;
       if (timer) clearTimeout(timer);
       timer = undefined;
     },

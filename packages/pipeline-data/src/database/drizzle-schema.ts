@@ -643,6 +643,13 @@ export const complianceAuditLog = pgTable('compliance_audit_log', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   orgCreatedAtIdx: index('compliance_audit_org_created_idx').on(table.orgId, table.createdAt),
+  // DESC variant for the dominant "latest audit events per org" query
+  // pattern (audit log UIs sort newest-first). Postgres can use the asc
+  // index for desc scans, but a matching DESC index lets index-only scans
+  // satisfy `ORDER BY created_at DESC LIMIT n` without a reverse step.
+  // MIGRATION REQUIRED: run `pnpm drizzle-kit generate` after pulling.
+  orgCreatedAtDescIdx: index('compliance_audit_org_created_desc_idx')
+    .on(table.orgId, sql`${table.createdAt} DESC`),
   orgTargetResultIdx: index('compliance_audit_org_target_result_idx')
     .on(table.orgId, table.target, table.result),
   scanIdIdx: index('compliance_audit_scan_id_idx').on(table.scanId),
@@ -716,6 +723,11 @@ export const complianceScan = pgTable('compliance_scans', {
   passCount: integer('pass_count').default(0).notNull(),
   warnCount: integer('warn_count').default(0).notNull(),
   blockCount: integer('block_count').default(0).notNull(),
+  // True when the scan stopped early at a configured per-scan cap (so the
+  // counts above represent a subset, not the full entity universe). Surfaced
+  // in the scan-status UI so users know whether to widen the filter.
+  // MIGRATION REQUIRED: run `pnpm drizzle-kit generate` after pulling.
+  truncated: boolean('truncated').default(false).notNull(),
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
   cancelledAt: timestamp('cancelled_at', { withTimezone: true }),

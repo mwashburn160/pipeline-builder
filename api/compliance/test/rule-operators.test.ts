@@ -262,6 +262,7 @@ describe('validateRegexPattern', () => {
   });
 
   it('accepts pattern at max length', () => {
-    expect(validateRegexPattern('a'.repeat(200))).toBeNull();
+    // Default cap is 100 (overridable via COMPLIANCE_MAX_REGEX_LENGTH).
+    expect(validateRegexPattern('a'.repeat(100))).toBeNull();
   });
 });

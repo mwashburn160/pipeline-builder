@@ -24,13 +24,18 @@
  */
 
 import { Schema, model, Document } from 'mongoose';
+import { OAuthProviderName, OAUTH_PROVIDER_NAMES } from '../types/oauth-provider';
 
-/** Supported IdP providers. `generic-oidc` is the broad case  any OIDC-compliant
+/** Supported IdP providers. `generic-oidc` is the broad case — any OIDC-compliant
  * IdP with discovery URL works (Okta, Auth0, Keycloak, AWS Cognito, Azure AD).
- * `google` / `github` are kept as named providers because they have wired-up
- * OAuth flows in `controllers/oauth.ts` that the follow-on dispatcher will
- * re-use rather than duplicate. */
-export type IdpProvider = 'generic-oidc' | 'google' | 'github';
+ * The named providers (`google` / `github`) come from the shared
+ * `OAuthProviderName` union because they have wired-up OAuth flows in
+ * `controllers/oauth.ts` that the follow-on dispatcher will re-use rather
+ * than duplicate. */
+export type IdpProvider = 'generic-oidc' | OAuthProviderName;
+
+/** Runtime list of `IdpProvider` values for Mongoose enum / Zod schemas. */
+const IDP_PROVIDERS: readonly IdpProvider[] = ['generic-oidc', ...OAUTH_PROVIDER_NAMES];
 
 export interface OrgIdpConfigDocument extends Document {
   /** Org this config applies to. One config per org max  enforced by unique index. */
@@ -70,7 +75,7 @@ const orgIdpConfigSchema = new Schema<OrgIdpConfigDocument>( {
   orgId: { type: String, required: true, index: true },
   provider: {
     type: String,
-    enum: ['generic-oidc', 'google', 'github'],
+    enum: IDP_PROVIDERS as unknown as string[],
     required: true,
   },
   clientId: { type: String, required: true },

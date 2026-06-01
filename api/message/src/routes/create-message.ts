@@ -13,20 +13,17 @@ import {
   validateBody,
   MessageCreateSchema,
   MessageReplySchema,
-  createLogger,
   resolveRecipientAlias,
   sendEntityNotFound,
   errorMessage,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { schema } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { messageService } from '../services/message-service';
 
 type MessageInsert = typeof schema.message.$inferInsert;
-
-const logger = createLogger('create-message');
 
 /**
  * Create the message creation router (authenticated).
@@ -41,7 +38,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   // POST /messages — Create new message
-  router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     // Validate request body with Zod schema
     const validation = validateBody(req, MessageCreateSchema);
     if (!validation.ok) {
@@ -82,11 +79,11 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
 
     ctx.log('INFO', 'Creating message', { messageType, recipientOrgId, subject });
 
-    const messageData: Partial<MessageInsert> = {
+    const messageData: MessageInsert = {
       orgId,
       recipientOrgId: recipientOrgId.toLowerCase() === '*' ? '*' : recipientOrgId.toLowerCase(),
       messageType,
-      channel: channel ?? null,
+      channel: channel?.toLowerCase() ?? null,
       subject,
       content,
       priority,
@@ -95,7 +92,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       accessModifier: AccessModifier.PRIVATE,
     };
 
-    const message = await messageService.create(messageData as MessageInsert, userId);
+    const message = await messageService.create(messageData, userId);
 
     ctx.log('COMPLETED', 'Message created', { id: message.id, messageType });
 
@@ -115,14 +112,14 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
         sseManager.send(recipientOrgId.toLowerCase(), 'MESSAGE', 'New message', notificationData);
       }
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
+      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
     }
 
     return sendSuccess(res, 201, message, 'Message created successfully');
   }));
 
   // POST /messages/:id/reply — Reply to a thread
-  router.post('/:id/reply', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/reply', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -163,11 +160,6 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendError(res, 403, 'You are not a participant in this conversation', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    // Validate reply message type matches root message type
-    if (req.body.messageType && req.body.messageType !== rootMessage.messageType) {
-      return sendBadRequest(res, `Reply messageType must match root message type '${rootMessage.messageType}'`, ErrorCode.VALIDATION_ERROR);
-    }
-
     ctx.log('INFO', 'Replying to thread', { threadId: id });
 
     // Determine the recipient for the reply
@@ -183,7 +175,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       replyRecipientOrgId = isSender ? rootMessage.recipientOrgId : rootMessage.orgId;
     }
 
-    const replyData: Partial<MessageInsert> = {
+    const replyData: MessageInsert = {
       orgId,
       threadId: id,
       recipientOrgId: replyRecipientOrgId,
@@ -191,7 +183,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       // Replies inherit the root message's channel so the thread stays
       // in one bucket — system-org filtering by channel sees the whole
       // conversation, not just the first message.
-      channel: rootMessage.channel ?? null,
+      channel: rootMessage.channel?.toLowerCase() ?? null,
       subject: rootMessage.subject,
       content,
       priority: rootMessage.priority,
@@ -200,7 +192,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       accessModifier: AccessModifier.PRIVATE,
     };
 
-    const reply = await messageService.create(replyData as MessageInsert, userId);
+    const reply = await messageService.create(replyData, userId);
 
     ctx.log('COMPLETED', 'Reply created', { id: reply.id, threadId: id });
 
@@ -215,7 +207,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
         messageType: rootMessage.messageType,
       });
     } catch (err) {
-      logger.warn('Failed to send SSE notification', { error: errorMessage(err) });
+      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
     }
 
     return sendSuccess(res, 201, reply, 'Reply sent successfully');

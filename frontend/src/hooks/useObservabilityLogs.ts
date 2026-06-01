@@ -1,19 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback } from 'react';
 import { api } from '@/lib/api';
-import type { ObservabilityLogsResponse, ObservabilityLogsParams } from '@/types/observability';
+import type { ObservabilityLogsResponse, ObservabilityLogsParams, RangeKey } from '@/types/observability';
+import { useObservabilityResource } from './useObservabilityResource';
 
-const REFRESH_INTERVAL_MS = 30_000;
-
-export type RangeKey = '1h' | '6h' | '24h';
-
-interface State {
-  data: ObservabilityLogsResponse | null;
-  loading: boolean;
-  error: Error | null;
-}
+// Re-export for back-compat with consumers that imported RangeKey from this module.
+export type { RangeKey };
 
 /**
  * Mirror of useObservabilityQuery for Loki-backed catalog queries.
@@ -25,44 +19,19 @@ export function useObservabilityLogs(
   range: RangeKey,
   opts: Omit<ObservabilityLogsParams, 'range'> = {},
 ) {
-  const [state, setState] = useState<State>({ data: null, loading: true, error: null });
-  const abortRef = useRef<AbortController | null>(null);
   // Stringify opts so the effect re-runs when any optional param changes
   // without re-running on every render (which would happen with an object dep).
   const optsKey = JSON.stringify(opts);
+  const cacheKey = `${key}|${range}|${optsKey}`;
 
-  const fetchOnce = useCallback(async () => {
-    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const res = await api.observabilityLogs(key, range, opts, controller.signal);
-      if (controller.signal.aborted) return;
-      setState({ data: res.data ?? null, loading: false, error: null });
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      setState({ data: null, loading: false, error: err as Error });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // optsKey above intentionally captures the opts identity so the callback
-    // only changes when params change — listing `opts` would refire each render.
-  }, [key, range, optsKey]);
+  const fetcher = useCallback(
+    async (signal: AbortSignal): Promise<ObservabilityLogsResponse | undefined> => {
+      const res = await api.observabilityLogs(key, range, opts, signal);
+      return res.data;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- opts tracked via optsKey
+    [key, range, optsKey],
+  );
 
-  useEffect(() => {
-    setState({ data: null, loading: true, error: null });
-    void fetchOnce();
-    const timer = setInterval(() => void fetchOnce(), REFRESH_INTERVAL_MS);
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') void fetchOnce();
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', onVisibility);
-      abortRef.current?.abort();
-    };
-  }, [fetchOnce]);
-
-  return { ...state, refresh: fetchOnce };
+  return useObservabilityResource<ObservabilityLogsResponse>(fetcher, cacheKey);
 }

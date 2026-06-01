@@ -6,18 +6,7 @@ import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
 export type { QuotaTier } from '@pipeline-builder/api-core';
 export { QUOTA_TIERS, VALID_TIERS, VALID_QUOTA_TYPES, isValidQuotaType } from '@pipeline-builder/api-core';
 import { config } from '../config';
-import { OrganizationDocument, QuotaLimits, QuotaUsageTracking } from '../models/organization';
-
-/**
- * Auth options for **internal service-to-service mutation routes only**
- * (specifically `POST /:orgId/increment`). The `allowOrgHeaderOverride` flag
- * lets calling services pin a target orgId via `x-org-id`.
- *
- * SECURITY: This MUST NOT be used on routes reachable from the frontend.
- * Read routes use plain `requireAuth` (no override) so end-user JWTs cannot
- * be re-pointed at another tenant by setting the header.
- */
-export const INTERNAL_AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+import { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization';
 
 // Date helpers
 
@@ -110,8 +99,22 @@ function buildSummaries(
   };
 }
 
-/** Build an org quota response from a database document. */
-export function buildOrgQuotaResponse(org: OrganizationDocument): OrgQuotaResponse {
+/**
+ * Plain shape an org-quota response can be built from. Lets the service layer
+ * pass either a hydrated mongoose document or a `.lean()` plain object without
+ * tying this helper to Mongoose's document type.
+ */
+export interface OrgQuotaSource {
+  _id: unknown;
+  name: string;
+  slug: string;
+  tier?: QuotaTier;
+  quotas?: Partial<QuotaLimits>;
+  usage?: Partial<QuotaUsageTracking>;
+}
+
+/** Build an org quota response from a plain org-shape object. */
+export function buildOrgQuotaResponse(org: OrgQuotaSource): OrgQuotaResponse {
   return {
     orgId: String(org._id),
     name: org.name,

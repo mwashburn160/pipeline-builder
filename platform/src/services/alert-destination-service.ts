@@ -37,13 +37,6 @@ function maskTarget(target: string): string {
   return '••••' + target.slice(-12);
 }
 
-/** Strip + mask the target field for API responses. The caller still knows
- *  *which* destination (label / channel / severity) — they just can't read
- *  back the secret URL. */
-export function toApiDestination(d: OrgAlertDestination): Omit<OrgAlertDestination, 'target'> & { target: string; hasTarget: boolean } {
-  return { ...d, target: maskTarget(d.target), hasTarget: !!d.target };
-}
-
 /**
  * Org-scoped CRUD for alert notification destinations. Multi-tenant routing:
  * when an alert fires with `tenancy=org` and an `org_id` label, the platform's
@@ -51,6 +44,13 @@ export function toApiDestination(d: OrgAlertDestination): Omit<OrgAlertDestinati
  * severity ≤ minSeverity, and forwards.
  */
 export class AlertDestinationService {
+  /** Strip + mask the target field for API responses. The caller still knows
+   *  *which* destination (label / channel / severity) — they just can't read
+   *  back the secret URL. */
+  static toApiDestination(d: OrgAlertDestination): Omit<OrgAlertDestination, 'target'> & { target: string; hasTarget: boolean } {
+    return { ...d, target: maskTarget(d.target), hasTarget: !!d.target };
+  }
+
   /**
    * Sysadmin cross-tenant list: every alert destination in every org.
    *
@@ -190,3 +190,7 @@ export class AlertDestinationService {
 }
 
 export const alertDestinationService = new AlertDestinationService();
+
+// Back-compat named export — alert-destinations controller imports
+// `toApiDestination` directly; delegates to the static method above.
+export const toApiDestination = AlertDestinationService.toApiDestination;

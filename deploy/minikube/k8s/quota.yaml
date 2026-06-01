@@ -159,6 +159,16 @@ spec:
         target:
           type: Utilization
           averageUtilization: 40
+    # Memory metric — added alongside CPU so the HPA scales on whichever
+    # signal demands more replicas. 85% chosen to leave headroom for spikes
+    # (memory usually climbs slower than CPU; premature scale-up wastes
+    # resources). Matches the plugin ScaledObject's memory trigger.
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 60

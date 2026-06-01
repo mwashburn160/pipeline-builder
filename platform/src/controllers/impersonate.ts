@@ -39,7 +39,12 @@ export const impersonateUser = withController('Impersonate user', async (req, re
     return sendError(res, 400, 'Cannot impersonate yourself');
   }
 
-  const target = await User.findById(targetUserId);
+  // `+isSuperAdmin` opts in to a schema field with `select: false`. Without
+  // this, the check below would silently see `undefined` and let an
+  // attacker (or a careless admin) impersonate a fellow sysadmin —
+  // exactly the laundering-of-authority case the check is meant to
+  // prevent.
+  const target = await User.findById(targetUserId).select('+isSuperAdmin');
   if (!target) return sendError(res, 404, 'User not found');
 
   // Refuse to impersonate another sysadmin — defense against a compromised

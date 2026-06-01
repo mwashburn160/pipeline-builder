@@ -13,7 +13,12 @@ import api from '@/lib/api';
  * sessionStorage by `api.startImpersonation` and reloads to ditch any
  * cached state held under the impersonated identity.
  */
-export function ImpersonationBanner() {
+interface ImpersonationBannerProps {
+  /** Extra classes appended to the root container. */
+  className?: string;
+}
+
+export function ImpersonationBanner({ className = '' }: ImpersonationBannerProps = {}) {
   const impersonating = api.isImpersonating();
   const targetId = impersonating ? api.getImpersonatedUserId() : null;
 
@@ -25,7 +30,7 @@ export function ImpersonationBanner() {
   if (!impersonating) return null;
 
   return (
-    <div className="sticky top-0 z-50 flex items-center justify-between gap-3 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm dark:border-amber-700 dark:bg-amber-900/30">
+    <div className={`sticky top-0 z-50 flex items-center justify-between gap-3 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm dark:border-amber-700 dark:bg-amber-900/30 ${className}`}>
       <div className="flex items-center gap-2 text-amber-900 dark:text-amber-100">
         <ShieldAlert className="h-4 w-4" />
         <span>

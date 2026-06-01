@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { QUOTA_TIERS } from '@pipeline-builder/api-core';
+import { QUOTA_TIERS, type QuotaTier, VALID_TIERS } from '@pipeline-builder/api-core';
 import { Algorithm } from 'jsonwebtoken';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
@@ -91,20 +91,13 @@ function parseAlertWebhookInstances(raw: string | undefined): AlertWebhookInstan
 // during module load means a misconfigured production deploy throws
 // here, before any HTTP handler can hit the encryption code path.
 // The returned value isn't used (secret-encryption reads process.env
-// directly); we keep it as a typed field on config so the API surface
-// matches the runtime check.
-const secretEncryptionKey = requireEncryptionKey();
+// directly).
+requireEncryptionKey();
 
 export const config = {
   app: {
     port: parseInt(process.env.PORT || '3000', 10),
     frontendUrl: process.env.PLATFORM_FRONTEND_URL || DEFAULT_PLATFORM_URL,
-  },
-
-  // Cryptographic material. Validated at module load — `secretEncryptionKey`
-  // is non-empty here or the import throws.
-  security: {
-    secretEncryptionKey,
   },
 
   server: {
@@ -130,11 +123,9 @@ export const config = {
      */
     tierMultipliers: {
       developer: parseFloat(process.env.LIMITER_MULT_DEVELOPER || '1'),
-      team: parseFloat(process.env.LIMITER_MULT_TEAM || '4'),
-      business: parseFloat(process.env.LIMITER_MULT_BUSINESS || '10'),
-      enterprise: parseFloat(process.env.LIMITER_MULT_ENTERPRISE || '25'),
+      pro: parseFloat(process.env.LIMITER_MULT_PRO || '10'),
       unlimited: parseFloat(process.env.LIMITER_MULT_UNLIMITED || '50'),
-    } as Record<string, number>,
+    } as Record<QuotaTier, number>,
     auth: {
       max: parseInt(process.env.AUTH_LIMITER_MAX || '20', 10),
       windowMs: parseInt(process.env.AUTH_LIMITER_WINDOWMS || '900000', 10), // 15 min
@@ -167,11 +158,21 @@ export const config = {
   },
   auth: {
     passwordMinLength: parseInt(process.env.PASSWORD_MIN_LENGTH || '8', 10),
+    /**
+     * bcrypt cost factor for password hashing. Lives under `auth`, not
+     * `auth.jwt` — it has nothing to do with JWT signing; the previous
+     * placement was a copy-paste artifact. `JWT_SALT_ROUNDS` is honored
+     * as a deprecation fallback for one release so existing deploys keep
+     * working; prefer `BCRYPT_SALT_ROUNDS` going forward.
+     */
+    passwordSaltRounds: parseInt(
+      process.env.BCRYPT_SALT_ROUNDS || process.env.JWT_SALT_ROUNDS || '12',
+      10,
+    ),
     jwt: {
       secret: requireSecret('JWT_SECRET', 'JWT secret'),
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10), // 2 hr
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
-      saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12', 10),
       /**
        * Per-tier access-token TTL overrides (seconds). When a tier's
        * override is unset, falls back to `expiresIn`. Enterprise/
@@ -180,11 +181,14 @@ export const config = {
        * developer tier keeps the default for convenience. The actual
        * lookup happens at token issuance — see `resolveTokenExpiresIn`.
        */
-      tierExpiresIn: {
-        developer: process.env.JWT_EXPIRES_IN_DEVELOPER ? parseInt(process.env.JWT_EXPIRES_IN_DEVELOPER, 10) : undefined,
-        pro: process.env.JWT_EXPIRES_IN_PRO ? parseInt(process.env.JWT_EXPIRES_IN_PRO, 10) : undefined,
-        unlimited: process.env.JWT_EXPIRES_IN_UNLIMITED ? parseInt(process.env.JWT_EXPIRES_IN_UNLIMITED, 10) : undefined,
-      } as Record<string, number | undefined>,
+      // Built from VALID_TIERS so adding a tier in api-core surfaces a
+      // compile error here.
+      tierExpiresIn: Object.fromEntries(
+        VALID_TIERS.map((tier) => {
+          const raw = process.env[`JWT_EXPIRES_IN_${tier.toUpperCase()}`];
+          return [tier, raw ? parseInt(raw, 10) : undefined];
+        }),
+      ) as Record<QuotaTier, number | undefined>,
     },
     refreshToken: {
       secret: requireSecret('REFRESH_TOKEN_SECRET', 'Refresh token secret'),
@@ -194,6 +198,13 @@ export const config = {
       sameSite: (process.env.COOKIE_SAME_SITE || 'lax') as 'lax' | 'strict' | 'none',
       secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
     },
+    /**
+     * Email-verification token lifetime (ms). 24 h default; tokens are
+     * single-use and tied to the user record so a short TTL is mostly a
+     * UX trade-off (users following a stale link have to re-request).
+     * Previously read inline in services/auth-service.ts.
+     */
+    verificationTokenTtlMs: parseInt(process.env.AUTH_VERIFICATION_TOKEN_TTL_MS || '86400000', 10),
   },
 
   mongodb: {
@@ -253,8 +264,10 @@ export const config = {
     },
   },
 
-  services: {
-    timeout: parseInt(process.env.SERVICE_TIMEOUT || '30000', 10), // 30s
+  audit: {
+    // How many days to retain audit events. Read by the AuditEvent TTL
+    // index; was previously parsed inline in models/audit-event.ts.
+    retentionDays: parseInt(process.env.AUDIT_RETENTION_DAYS || '90', 10),
   },
 
   quota: {

@@ -35,6 +35,8 @@ jest.mock('@pipeline-builder/api-core', () => ({
     debug: jest.fn(),
   }),
   SYSTEM_ORG_ID: 'system',
+  isSystemOrgId: (orgId?: string, orgName?: string) =>
+    orgId?.toLowerCase() === 'system' || orgName?.toLowerCase() === 'system',
 }));
 
 const mockInvalidate = jest.fn().mockResolvedValue(undefined);

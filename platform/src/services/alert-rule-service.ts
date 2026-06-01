@@ -49,23 +49,6 @@ export type ValidationResult =
   | { ok: true }
   | { ok: false; message: string };
 
-/**
- *  Auto-inject the `org_id="<orgId>"` matcher into every metric
- * selector in `expr` and return the rewritten string. Route handlers call
- * this BEFORE `validateRule` so an operator who writes
- * `rate(http_requests_total[5m]) > 5` ends up with
- * `rate(http_requests_total{org_id="acme"}[5m]) > 5` in storage. Throws on
- * malformed expressions or cross-tenant attempts.
- */
-export function prepareRuleExpr(expr: string, orgId: string): string {
-  try {
-    return injectOrgId(expr, orgId);
-  } catch (err) {
-    if (err instanceof PromQLRewriteError) throw err;
-    throw new PromQLRewriteError(err instanceof Error ? err.message: String(err));
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -76,51 +59,68 @@ const DURATION_RE = /^(\d+(?:y|w|d|h|m|s|ms))+$/;
 /** Alert name must match `^[a-zA-Z_:][a-zA-Z0-9_:]*$` after slugification. */
 const NAME_RE = /^[a-zA-Z0-9 _-]+$/;
 
-/**
- * Validate a rule's user-supplied fields. The org-scoping check is the
- * load-bearing one  it forbids expressions without an `org_id="<orgId>"`
- * matcher, which is the only thing keeping a rule from firing on another
- * tenant's series.
- */
-export function validateRule(orgId: string, rule: RuleCreate | RuleUpdate): ValidationResult {
-  if (rule.name !== undefined) {
-    if (!rule.name.trim()) return { ok: false, message: 'name is required' };
-    if (rule.name.length > 100) return { ok: false, message: 'name must be <= 100 chars' };
-    if (!NAME_RE.test(rule.name)) return { ok: false, message: 'name may contain letters, digits, space, _, -' };
-  }
-  if (rule.expr !== undefined) {
-    if (!rule.expr.trim()) return { ok: false, message: 'expr is required' };
-    // PromQL-aware tenancy gate (replaces the prior substring check).
-    // Walks the expression, finds every metric selector, and verifies each
-    // one already carries `org_id="<orgId>"` (or the regex form). Catches
-    // expressions that try to reference another org's series even when the
-    // attacker has appended a decoy matcher in a comment/string.
-    const result = validateOrgIdMatchers(rule.expr, orgId);
-    if (!result.ok) {
-      return {
-        ok: false,
-        message: `${result.message}. Either add the matcher to every metric or let the service inject it automatically.`,
-      };
-    }
-  }
-  if (rule.forDuration !== undefined && !DURATION_RE.test(rule.forDuration)) {
-    return { ok: false, message: 'forDuration must be in Prometheus duration syntax (e.g. 30s, 5m, 1h)' };
-  }
-  if (rule.severity !== undefined && rule.severity !== 'warning' && rule.severity !== 'critical') {
-    return { ok: false, message: "severity must be 'warning' or 'critical'" };
-  }
-  if (rule.summary !== undefined) {
-    if (!rule.summary.trim()) return { ok: false, message: 'summary is required' };
-    if (rule.summary.length > 500) return { ok: false, message: 'summary must be <= 500 chars' };
-  }
-  return { ok: true };
-}
-
 // ---------------------------------------------------------------------------
 // CRUD
 // ---------------------------------------------------------------------------
 
 export class AlertRuleService {
+  /**
+   *  Auto-inject the `org_id="<orgId>"` matcher into every metric
+   * selector in `expr` and return the rewritten string. Route handlers call
+   * this BEFORE `validateRule` so an operator who writes
+   * `rate(http_requests_total[5m]) > 5` ends up with
+   * `rate(http_requests_total{org_id="acme"}[5m]) > 5` in storage. Throws on
+   * malformed expressions or cross-tenant attempts.
+   */
+  static prepareRuleExpr(expr: string, orgId: string): string {
+    try {
+      return injectOrgId(expr, orgId);
+    } catch (err) {
+      if (err instanceof PromQLRewriteError) throw err;
+      throw new PromQLRewriteError(err instanceof Error ? err.message: String(err));
+    }
+  }
+
+  /**
+   * Validate a rule's user-supplied fields. The org-scoping check is the
+   * load-bearing one  it forbids expressions without an `org_id="<orgId>"`
+   * matcher, which is the only thing keeping a rule from firing on another
+   * tenant's series.
+   */
+  static validateRule(orgId: string, rule: RuleCreate | RuleUpdate): ValidationResult {
+    if (rule.name !== undefined) {
+      if (!rule.name.trim()) return { ok: false, message: 'name is required' };
+      if (rule.name.length > 100) return { ok: false, message: 'name must be <= 100 chars' };
+      if (!NAME_RE.test(rule.name)) return { ok: false, message: 'name may contain letters, digits, space, _, -' };
+    }
+    if (rule.expr !== undefined) {
+      if (!rule.expr.trim()) return { ok: false, message: 'expr is required' };
+      // PromQL-aware tenancy gate (replaces the prior substring check).
+      // Walks the expression, finds every metric selector, and verifies each
+      // one already carries `org_id="<orgId>"` (or the regex form). Catches
+      // expressions that try to reference another org's series even when the
+      // attacker has appended a decoy matcher in a comment/string.
+      const result = validateOrgIdMatchers(rule.expr, orgId);
+      if (!result.ok) {
+        return {
+          ok: false,
+          message: `${result.message}. Either add the matcher to every metric or let the service inject it automatically.`,
+        };
+      }
+    }
+    if (rule.forDuration !== undefined && !DURATION_RE.test(rule.forDuration)) {
+      return { ok: false, message: 'forDuration must be in Prometheus duration syntax (e.g. 30s, 5m, 1h)' };
+    }
+    if (rule.severity !== undefined && rule.severity !== 'warning' && rule.severity !== 'critical') {
+      return { ok: false, message: "severity must be 'warning' or 'critical'" };
+    }
+    if (rule.summary !== undefined) {
+      if (!rule.summary.trim()) return { ok: false, message: 'summary is required' };
+      if (rule.summary.length > 500) return { ok: false, message: 'summary must be <= 500 chars' };
+    }
+    return { ok: true };
+  }
+
   /** List the rules an org has authored, sorted by name for stable UI. */
   async listForOrg(orgId: string): Promise<OrgAlertRule[]> {
     return withTenantTx(async (tx) => tx
@@ -221,6 +221,11 @@ export class AlertRuleService {
 }
 
 export const alertRuleService = new AlertRuleService();
+
+// Back-compat named exports — the alert-rules controller imports these
+// directly; keep them in sync with the static method bodies above.
+export const prepareRuleExpr = AlertRuleService.prepareRuleExpr;
+export const validateRule = AlertRuleService.validateRule;
 
 // ---------------------------------------------------------------------------
 // Materializer

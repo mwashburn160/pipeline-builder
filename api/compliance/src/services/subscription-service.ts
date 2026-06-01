@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ORG_ID, createLogger } from '@pipeline-builder/api-core';
+import { createLogger, isSystemOrgId } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import type { RuleScope } from '@pipeline-builder/pipeline-core';
 import { eq, and, isNull, inArray } from 'drizzle-orm';
@@ -37,7 +37,7 @@ export class ComplianceRuleSubscriptionService {
    * Uses upsert (onConflictDoUpdate) to handle race conditions atomically.
    */
   async subscribe(orgId: string, ruleId: string, userId: string): Promise<ComplianceRuleSubscription> {
-    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
+    if (isSystemOrgId(orgId)) {
       throw new Error('System org cannot subscribe to published rules');
     }
 
@@ -85,7 +85,7 @@ export class ComplianceRuleSubscriptionService {
    * Only active subscriptions are enforced during validation.
    */
   async setActive(orgId: string, ruleId: string, isActive: boolean, userId: string): Promise<ComplianceRuleSubscription> {
-    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
+    if (isSystemOrgId(orgId)) {
       throw new Error('System org cannot manage subscriptions');
     }
 
@@ -118,7 +118,7 @@ export class ComplianceRuleSubscriptionService {
    * Unsubscribe an org from a published rule (soft delete).
    */
   async unsubscribe(orgId: string, ruleId: string, userId: string): Promise<void> {
-    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
+    if (isSystemOrgId(orgId)) {
       throw new Error('System org cannot manage subscriptions');
     }
 
@@ -144,48 +144,37 @@ export class ComplianceRuleSubscriptionService {
     await invalidateRulesFor(orgId);
   }
 
-  /** List all subscriptions for an org (active + inactive, excludes unsubscribed and soft-deleted rules). */
+  /**
+   * List all subscriptions for an org (active + inactive, excludes unsubscribed
+   * and soft-deleted rules). Selects all subscription columns so newer fields
+   * (`pinnedVersion`, `pausedUntil`, etc.) survive without having to update the
+   * projection every schema bump.
+   */
   async findByOrg(orgId: string): Promise<ComplianceRuleSubscription[]> {
     return withTenantTx(async (tx) => tx
-      .select({
-        id: schema.complianceRuleSubscription.id,
-        orgId: schema.complianceRuleSubscription.orgId,
-        ruleId: schema.complianceRuleSubscription.ruleId,
-        subscribedBy: schema.complianceRuleSubscription.subscribedBy,
-        subscribedAt: schema.complianceRuleSubscription.subscribedAt,
-        isActive: schema.complianceRuleSubscription.isActive,
-        unsubscribedAt: schema.complianceRuleSubscription.unsubscribedAt,
-        unsubscribedBy: schema.complianceRuleSubscription.unsubscribedBy,
-      })
+      .select()
       .from(schema.complianceRuleSubscription)
       .innerJoin(schema.complianceRule, eq(schema.complianceRuleSubscription.ruleId, schema.complianceRule.id))
       .where(and(
         eq(schema.complianceRuleSubscription.orgId, orgId),
         isNull(schema.complianceRuleSubscription.unsubscribedAt),
         isNull(schema.complianceRule.deletedAt),
-      )) as unknown as Promise<ComplianceRuleSubscription[]>);
+      ))
+      .then((rows) => rows.map((r: { compliance_rule_subscriptions: ComplianceRuleSubscription }) => r.compliance_rule_subscriptions)));
   }
 
   /** List all orgs subscribed to a specific rule (system org admin view). */
   async findSubscribers(ruleId: string): Promise<ComplianceRuleSubscription[]> {
     return withTenantTx(async (tx) => tx
-      .select({
-        id: schema.complianceRuleSubscription.id,
-        orgId: schema.complianceRuleSubscription.orgId,
-        ruleId: schema.complianceRuleSubscription.ruleId,
-        subscribedBy: schema.complianceRuleSubscription.subscribedBy,
-        subscribedAt: schema.complianceRuleSubscription.subscribedAt,
-        isActive: schema.complianceRuleSubscription.isActive,
-        unsubscribedAt: schema.complianceRuleSubscription.unsubscribedAt,
-        unsubscribedBy: schema.complianceRuleSubscription.unsubscribedBy,
-      })
+      .select()
       .from(schema.complianceRuleSubscription)
       .innerJoin(schema.complianceRule, eq(schema.complianceRuleSubscription.ruleId, schema.complianceRule.id))
       .where(and(
         eq(schema.complianceRuleSubscription.ruleId, ruleId),
         isNull(schema.complianceRuleSubscription.unsubscribedAt),
         isNull(schema.complianceRule.deletedAt),
-      )) as unknown as Promise<ComplianceRuleSubscription[]>);
+      ))
+      .then((rows) => rows.map((r: { compliance_rule_subscriptions: ComplianceRuleSubscription }) => r.compliance_rule_subscriptions)));
   }
 
   /**
@@ -194,7 +183,7 @@ export class ComplianceRuleSubscriptionService {
    * Skips rules the org is already subscribed to.
    */
   async autoSubscribeToPublished(orgId: string, userId: string = 'system'): Promise<number> {
-    if (orgId.toLowerCase() === SYSTEM_ORG_ID) return 0;
+    if (isSystemOrgId(orgId)) return 0;
 
     // Fetch all active published rules (scope='published' is only allowed for system org)
     const publishedRules = await withTenantTx(async (tx) => tx
@@ -228,11 +217,9 @@ export class ComplianceRuleSubscriptionService {
     return subscribed;
   }
 
-  /**
-   * Feature #4: Bulk activate/deactivate subscriptions.
-   */
+  /** Bulk activate/deactivate subscriptions. */
   async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, _userId: string): Promise<number> {
-    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
+    if (isSystemOrgId(orgId)) {
       throw new Error('System org cannot manage subscriptions');
     }
 
@@ -253,11 +240,9 @@ export class ComplianceRuleSubscriptionService {
     return updated;
   }
 
-  /**
-   * Feature #5: Pin a subscription to a specific rule version snapshot.
-   */
+  /** Pin a subscription to a specific rule version snapshot. */
   async pinVersion(orgId: string, ruleId: string, userId: string): Promise<ComplianceRuleSubscription> {
-    if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
+    if (isSystemOrgId(orgId)) {
       throw new Error('System org cannot manage subscriptions');
     }
 
@@ -280,14 +265,11 @@ export class ComplianceRuleSubscriptionService {
         .where(eq(schema.complianceRule.id, ruleId));
       if (!rule) throw new Error('Rule not found');
 
+      // Snapshot the entire rule row so any field the engine cares about
+      // (effectiveFrom/Until, priority, tags, target, etc.) survives even
+      // if the upstream rule is later edited or deleted.
       const snapshot = {
-        name: rule.name,
-        field: rule.field,
-        operator: rule.operator,
-        value: rule.value,
-        severity: rule.severity,
-        conditions: rule.conditions,
-        conditionMode: rule.conditionMode,
+        ...rule,
         pinnedAt: new Date().toISOString(),
         pinnedBy: userId,
       };
@@ -305,9 +287,7 @@ export class ComplianceRuleSubscriptionService {
     return updated;
   }
 
-  /**
-   * Feature #5: Unpin a subscription (use latest rule version).
-   */
+  /** Unpin a subscription (use latest rule version). */
   async unpinVersion(orgId: string, ruleId: string): Promise<ComplianceRuleSubscription> {
     const [updated] = await withTenantTx(async (tx) => tx
       .update(schema.complianceRuleSubscription)

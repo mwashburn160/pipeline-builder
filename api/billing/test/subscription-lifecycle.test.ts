@@ -118,7 +118,8 @@ describe('Subscription Lifecycle Checker', () => {
       // Wait for the initial async run
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      expect(mockSyncTier).toHaveBeenCalledWith('org-1', 'developer', '');
+      // 4th arg is subscriptionId — passed for audit correlation in the quota service.
+      expect(mockSyncTier).toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1');
       expect(mockCreateBillingEvent).toHaveBeenCalledWith(
         'org-1',
         'subscription_updated',

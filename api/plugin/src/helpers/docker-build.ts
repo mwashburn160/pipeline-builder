@@ -58,8 +58,6 @@ export interface BuildResult {
   fullImage: string;
 }
 
-// Path inside the plugin container for the per-build docker auth dir. Set on
-// `process.env.DOCKER_CONFIG` before buildctl/crane run  both honor it.
 const SYSTEM_ORG_ID = 'system';
 
 // -----------------------------------------------------------------------------
@@ -67,47 +65,22 @@ const SYSTEM_ORG_ID = 'system';
 // -----------------------------------------------------------------------------
 
 function getConfig(): DockerBuildCfg {
-  return Config.getAny('dockerConfig') as DockerBuildCfg;
+  return Config.get('dockerConfig');
 }
 
 export const BUILD_TEMP_ROOT = getConfig().tempRoot;
 
 /**
- * Per-tier buildkitd address resolution — escape hatch for operators
- * who run dedicated buildkitd Deployments per quota tier. Set:
- *   PLUGIN_BUILDKIT_ADDR_DEVELOPER=tcp://buildkitd-developer:1234
- *   PLUGIN_BUILDKIT_ADDR_PRO=tcp://buildkitd-pro:1234
- *   PLUGIN_BUILDKIT_ADDR_UNLIMITED=tcp://buildkitd-unlimited:1234
- *
- * NO shipped deploy currently uses per-tier addresses — every deploy
- * (local, minikube, ec2, fargate) ships a single shared buildkitd
- * sidecar reached via `cfg.buildkitAddr` (BUILDKIT_HOST). Tier
- * partitioning lives at the BullMQ queue level inside the plugin
- * service; the dispatch target is the same regardless of tier.
- *
- * When (none of these env vars are set, this function returns
- * `cfg.buildkitAddr` for every tier. The env vars exist for operators
- * who want to reintroduce per-tier kernel-namespace isolation without
- * a code change.
- *
- * Default-tier policy when no explicit tier is provided:
- *   BILLING_ENABLED=true  → developer (cheap default; customers
- *                            explicitly upgrade by purchasing higher tiers)
- *   BILLING_ENABLED=false → unlimited (no per-org tier caps; give every
- *                            build the biggest budget)
+ * Resolve the buildkitd address for a tier. Short-circuits to the shared
+ * `cfg.buildkitAddr` unless an operator has set a per-tier env override
+ * (`PLUGIN_BUILDKIT_ADDR_<TIER>`); shipped deploys never do.
  */
 export function getBuildkitAddrForTier(tier: string | undefined): string {
   const cfg = getConfig();
-  // Explicit tier override always wins when the matching env is set.
   if (tier) {
-    const envKey = `PLUGIN_BUILDKIT_ADDR_${tier.toUpperCase()}`;
-    const override = process.env[envKey];
+    const override = process.env[`PLUGIN_BUILDKIT_ADDR_${tier.toUpperCase()}`];
     if (override && override.length > 0) return override;
   }
-  // No tier (or tier with no matching env) → billing-aware default.
-  const defaultTier = process.env.BILLING_ENABLED === 'true' ? 'DEVELOPER' : 'UNLIMITED';
-  const defaultAddr = process.env[`PLUGIN_BUILDKIT_ADDR_${defaultTier}`];
-  if (defaultAddr && defaultAddr.length > 0) return defaultAddr;
   return cfg.buildkitAddr;
 }
 
@@ -124,7 +97,7 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
   // single-buildkitd deploy keeps working.
   const buildkitAddr = opts?.buildkitAddr ?? cfg.buildkitAddr;
 
-  writeAuthConfig(req.contextDir, req.registry, req.orgId);
+  const dockerConfigDir = writeAuthConfig(req.contextDir, req.registry, req.orgId);
   patchDockerfile(req.contextDir, req.dockerfile);
 
   logger.info('Building image', { image, buildkitAddr });
@@ -138,7 +111,7 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
     '--opt', `filename=${path.basename(req.dockerfile)}`,
     ...flagBuildArgs(req.buildArgs),
     '--output', outputSpec(image, req.registry),
-  ], cfg.timeoutMs);
+  ], cfg.timeoutMs, { DOCKER_CONFIG: dockerConfigDir });
 
   return { fullImage: image };
 }
@@ -156,14 +129,14 @@ export async function loadAndPush( tarPath: string, name: string, version: strin
   const cfg = getConfig();
   const image = resolveImage(name, version, registry, orgId);
 
-  writeAuthConfig(path.dirname(tarPath), registry, orgId);
+  const dockerConfigDir = writeAuthConfig(path.dirname(tarPath), registry, orgId);
 
   logger.info('Pushing prebuilt image', { image, tarPath });
 
   await run('crane', [
     ...(registry.http ? ['--insecure']: []),
     'push', tarPath, image,
-  ], cfg.pushTimeoutMs);
+  ], cfg.pushTimeoutMs, { DOCKER_CONFIG: dockerConfigDir });
 
   return { fullImage: image };
 }
@@ -213,10 +186,9 @@ function outputSpec(image: string, registry: RegistryInfo): string {
  * to hosts present in `auths`, so without this second entry crane
  * hops to the public realm with no credentials and gets 401.
  */
-function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: string) {
+function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: string): string {
   const dir = path.join(contextDir, '.docker');
   fs.mkdirSync(dir, { recursive: true });
-  process.env.DOCKER_CONFIG = dir;
   const password = signServiceToken({ serviceName: 'platform', orgId });
   const auth = Buffer.from(`_token:${password}`).toString('base64');
 
@@ -249,6 +221,7 @@ function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: stri
   }
 
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ auths }));
+  return dir;
 }
 
 /**
@@ -303,29 +276,49 @@ function validate({ registry, name, version, buildArgs }: BuildRequest) {
 // -----------------------------------------------------------------------------
 
 const SECRET_RE = /(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|CREDENTIALS|AUTH)([=: ]+)([^\s"']+)/gi;
+const BEARER_RE = /\b(BEARER)\s+(\S+)/gi;
+// JWT-shaped (three base64url segments) or long base64 runs (≥32 chars).
+const JWT_RE = /\beyJ[\w-]+\.[\w-]+\.[\w-]+/g;
+const LONG_B64_RE = /\b[A-Za-z0-9+/]{32,}={0,2}\b/g;
 
 function maskSecrets(line: string): string {
-  return line.replace(SECRET_RE, '$1$2***');
+  return line
+    .replace(SECRET_RE, '$1$2***')
+    .replace(BEARER_RE, '$1 ***')
+    .replace(JWT_RE, '***')
+    .replace(LONG_B64_RE, '***');
 }
 
 // -----------------------------------------------------------------------------
 // Process runner
 // -----------------------------------------------------------------------------
 
-function run(binary: string, args: string[], timeoutMs: number): Promise<void> {
+function run(binary: string, args: string[], timeoutMs: number, env?: NodeJS.ProcessEnv): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(binary, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: env ? { ...process.env, ...env } : process.env,
+    });
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
 
-    const pipe = (stream: string) => (data: Buffer) => {
-      for (const line of data.toString().split('\n').filter(Boolean)) logger.info(maskSecrets(line), { stream });
+    // Per-stream line buffer so a chunked JWT (split mid-token across two data
+    // events) still resolves to a single line before masking runs.
+    const buffers = { stdout: '', stderr: '' };
+    const pipe = (stream: 'stdout' | 'stderr') => (data: Buffer) => {
+      buffers[stream] += data.toString();
+      const lines = buffers[stream].split('\n');
+      buffers[stream] = lines.pop() ?? '';
+      for (const line of lines) if (line) logger.info(maskSecrets(line), { stream });
     };
     child.stdout.on('data', pipe('stdout'));
     child.stderr.on('data', pipe('stderr'));
 
     child.on('close', (code) => {
       clearTimeout(timer);
+      for (const stream of ['stdout', 'stderr'] as const) {
+        if (buffers[stream]) logger.info(maskSecrets(buffers[stream]), { stream });
+      }
       if (timedOut) reject(new Error(`Build timed out after ${timeoutMs}ms`));
       else if (code !== 0) reject(new Error(`Build failed with exit code ${code}`));
       else resolve();

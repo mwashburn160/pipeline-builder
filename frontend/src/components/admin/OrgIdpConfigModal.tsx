@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { X, ShieldCheck } from 'lucide-react';
-import api from '@/lib/api';
+import api, { ApiError } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import type { Organization, OrgIdpConfigDto } from '@/types';
 
@@ -52,12 +52,16 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
         setDiscoveryUrl(c.discoveryUrl || '');
         setAllowedEmailDomains((c.allowedEmailDomains || []).join(', '));
         setEnabled(c.enabled);
-      } else if (res.statusCode === 404) {
-        // No config yet — leave defaults. Not an error.
       } else {
         setError(res.message || 'Failed to load IdP config');
       }
-    }).catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
+    }).catch((err) => {
+      if (cancelled) return;
+      // 404 = no config yet; leave defaults so the operator gets an empty
+      // create form rather than a scary error banner.
+      if (err instanceof ApiError && err.statusCode === 404) return;
+      setError(err instanceof Error ? err.message : String(err));
+    })
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
   }, [org.id]);
@@ -154,11 +158,11 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           )}
 
           <div>
-            <label className="form-label">Provider</label>
+            <label className="label">Provider</label>
             <select
               value={provider}
               onChange={(e) => setProvider(e.target.value as Provider)}
-              className="form-input"
+              className="input"
               disabled={submitting}
             >
               <option value="generic-oidc">Generic OIDC</option>
@@ -168,19 +172,19 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           </div>
 
           <div>
-            <label className="form-label">Client ID</label>
+            <label className="label">Client ID</label>
             <input
               type="text"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
               placeholder="oauth-client-id"
-              className="form-input font-mono text-sm"
+              className="input font-mono text-sm"
               disabled={submitting}
             />
           </div>
 
           <div>
-            <label className="form-label">
+            <label className="label">
               Client Secret
               {existing && <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(leave empty to keep existing)</span>}
             </label>
@@ -189,7 +193,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
               placeholder={existing ? '••••••••' : 'Set the OAuth client secret'}
-              className="form-input font-mono text-sm"
+              className="input font-mono text-sm"
               disabled={submitting}
               autoComplete="new-password"
             />
@@ -200,26 +204,26 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
 
           {provider === 'generic-oidc' && (
             <div>
-              <label className="form-label">Discovery URL</label>
+              <label className="label">Discovery URL</label>
               <input
                 type="url"
                 value={discoveryUrl}
                 onChange={(e) => setDiscoveryUrl(e.target.value)}
                 placeholder="https://idp.example.com/.well-known/openid-configuration"
-                className="form-input font-mono text-sm"
+                className="input font-mono text-sm"
                 disabled={submitting}
               />
             </div>
           )}
 
           <div>
-            <label className="form-label">Allowed Email Domains</label>
+            <label className="label">Allowed Email Domains</label>
             <input
               type="text"
               value={allowedEmailDomains}
               onChange={(e) => setAllowedEmailDomains(e.target.value)}
               placeholder="example.com, acme.io"
-              className="form-input text-sm"
+              className="input text-sm"
               disabled={submitting}
             />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">

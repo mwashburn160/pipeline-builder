@@ -14,14 +14,12 @@ import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { Pagination } from '@/components/ui/Pagination';
+import { ResourceList } from '@/components/ui/ResourceList';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import EditPluginModal from '@/components/plugin/EditPluginModal';
 import CreatePluginModal from '@/components/plugin/CreatePluginModal';
-import UploadPluginModal from '@/components/plugin/UploadPluginModal';
 import api from '@/lib/api';
 import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import { visitedPluginsKey } from '@/lib/onboarding';
@@ -69,7 +67,7 @@ export default function PluginsPage() {
   // Mark the "explore plugin catalog" onboarding step as complete on first visit.
   useEffect(() => {
     if (typeof window === 'undefined' || !user?.organizationId) return;
-    localStorage.setItem(visitedPluginsKey(user.organizationId), '1');
+    try { localStorage.setItem(visitedPluginsKey(user.organizationId), '1'); } catch { /* localStorage may be unavailable */ }
   }, [user?.organizationId]);
 
   // Per-org favorited plugin IDs (localStorage-backed).
@@ -198,8 +196,9 @@ export default function PluginsPage() {
   // ── Modals ──
 
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showUploadModal, setShowUploadModal] = useState(false);
+  // CreatePluginModal is a tabbed surface (AI Builder + Upload). The two
+  // toolbar buttons just pick which tab to open it on; only one modal exists.
+  const [createInitialTab, setCreateInitialTab] = useState<'upload' | 'ai' | null>(null);
   const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
   const [viewPlugin, setViewPlugin] = useState<Plugin | null>(null);
 
@@ -418,6 +417,13 @@ export default function PluginsPage() {
 
   if (!isReady || !user) return <LoadingPage />;
 
+  const emptyDescription = isAdmin
+    ? 'Get started by creating your first plugin.'
+    : 'No private plugins available for your organization.';
+  const emptyAction = isAdmin
+    ? <button onClick={() => setCreateInitialTab('ai')} className="btn btn-primary">Create Plugin</button>
+    : undefined;
+
   return (
     <DashboardLayout
       title="Plugins"
@@ -425,11 +431,11 @@ export default function PluginsPage() {
       actions={
         isAdmin ? (
           <div className="flex gap-2">
-            <button onClick={() => setShowUploadModal(true)} className="btn btn-secondary">
+            <button onClick={() => setCreateInitialTab('upload')} className="btn btn-secondary">
               <Upload className="w-4 h-4 mr-1.5" />
               Upload Plugin
             </button>
-            <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">
+            <button onClick={() => setCreateInitialTab('ai')} className="btn btn-primary">
               <Plus className="w-4 h-4 mr-1.5" />
               Create Plugin
             </button>
@@ -440,8 +446,10 @@ export default function PluginsPage() {
       <div className="page-section">
         <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} />
 
-        {list.error && <div className="alert-error"><p>{list.error}</p></div>}
-
+        {/* Sticky search + advanced-filter panel stays above the list shell.
+            FilterBar is its own sticky surface with a "/" hotkey and a
+            collapsible advanced panel — pulling it into ResourceList's
+            inline header would defeat both. */}
         <FilterBar
           sticky
           searchValue={list.filters.name}
@@ -492,42 +500,58 @@ export default function PluginsPage() {
         {/* Spacer when sticky bulk bar is visible */}
         {isAdmin && selectedIds.size > 0 && <div className="h-16" />}
 
-        {!list.isLoading && filteredPlugins.length === 0 && list.hasActiveFilters && list.data.length > 0 ? (
-          <EmptyState
-            icon={Search}
-            title="No plugins match your filters"
-            description="Try adjusting your search or filter criteria."
-            action={<button onClick={list.clearFilters} className="btn btn-secondary">Clear filters</button>}
+        {/* ResourceList owns: error+retry, refresh button, empty state, and
+            offset Pagination. Body is custom so we preserve DataTable's
+            defaultSortColumn + showColumnToggle features (which ResourceList's
+            table-mode slot doesn't forward). We swap emptyState manually when
+            filters are active because ResourceList's built-in
+            `filteredEmptyState` keys off the filter input it renders itself,
+            and our filter input lives in FilterBar above. */}
+        <ResourceList<Plugin>
+          loading={list.isLoading}
+          error={list.error}
+          onRefresh={list.refresh}
+          isEmpty={filteredPlugins.length === 0}
+          pagination={list.pagination}
+          onPageChange={list.handlePageChange}
+          onPageSizeChange={list.handlePageSizeChange}
+          errorTitle="Failed to load plugins"
+          emptyState={list.hasActiveFilters ? {
+            icon: Search,
+            title: 'No plugins match your filters',
+            description: 'Try adjusting your search or filter criteria.',
+            action: <button onClick={list.clearFilters} className="btn btn-secondary">Clear filters</button>,
+          } : {
+            icon: Puzzle,
+            title: 'No plugins yet',
+            description: emptyDescription,
+            action: emptyAction,
+          }}
+        >
+          <DataTable
+            data={filteredPlugins}
+            columns={pluginColumns}
+            isLoading={list.isLoading}
+            emptyState={{
+              icon: Puzzle,
+              title: 'No plugins yet',
+              description: emptyDescription,
+              action: emptyAction,
+            }}
+            getRowKey={(p) => p.id}
+            defaultSortColumn="name"
+            showColumnToggle
           />
-        ) : (
-          <>
-            <DataTable
-              data={filteredPlugins}
-              columns={pluginColumns}
-              isLoading={list.isLoading}
-              emptyState={{
-                icon: Puzzle,
-                title: 'No plugins yet',
-                description: isAdmin ? 'Get started by creating your first plugin.' : 'No private plugins available for your organization.',
-                action: isAdmin ? <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Plugin</button> : undefined,
-              }}
-              getRowKey={(p) => p.id}
-              defaultSortColumn="name"
-              showColumnToggle
-            />
-            {!list.isLoading && list.pagination.total > 0 && (
-              <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
-            )}
-          </>
-        )}
+        </ResourceList>
       </div>
 
-      {showCreateModal && (
-        <CreatePluginModal canUploadPublic={isSuperAdmin} onClose={() => setShowCreateModal(false)} onCreated={list.refresh} />
-      )}
-
-      {showUploadModal && (
-        <UploadPluginModal canUploadPublic={isSuperAdmin} onClose={() => setShowUploadModal(false)} onUploaded={list.refresh} />
+      {createInitialTab && (
+        <CreatePluginModal
+          canUploadPublic={isSuperAdmin}
+          initialTab={createInitialTab}
+          onClose={() => setCreateInitialTab(null)}
+          onCreated={list.refresh}
+        />
       )}
 
       {del.target && (

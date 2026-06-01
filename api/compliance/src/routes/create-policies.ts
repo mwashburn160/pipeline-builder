@@ -3,10 +3,10 @@
 
 import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemAdmin, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { withTenantTx } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { and, eq, inArray } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
-import { complianceRuleService } from '../services/compliance-rule-service';
 import { compliancePolicyService } from '../services/policy-service';
 
 const CompliancePolicyCreateSchema = z.object({
@@ -15,7 +15,6 @@ const CompliancePolicyCreateSchema = z.object({
   version: z.string().max(50).default('1.0.0'),
   isTemplate: z.boolean().default(false),
   isActive: z.boolean().default(true),
-  tags: z.array(z.string()).optional(),
   rules: z.array(z.string()).optional(),
 });
 
@@ -28,7 +27,7 @@ export function createCreatePolicyRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const { rules: ruleNames, tags, ...body } = validation.value;
+    const { rules: ruleNames, ...body } = validation.value;
 
     // Template policies are operator-curated content that ships to every
     // org; only sysadmins may create them.
@@ -39,9 +38,9 @@ export function createCreatePolicyRoutes(): Router {
     // Use a transaction so policy creation + rule linking are atomic.
     // withTenantTx adds the SET LOCAL `app.org_id` + `app.is_sysadmin` GUCs
     // from the request's AsyncLocalStorage scope so the inner CrudService
-    // calls (compliancePolicyService.create, complianceRuleService.update)
+    // call (compliancePolicyService.create) plus the batched rule update
     // are RLS-clean once policies are FORCE'd.
-    const policy = await withTenantTx(async () => {
+    const policy = await withTenantTx(async (tx) => {
       const created = await compliancePolicyService.create({
         ...body,
         orgId,
@@ -49,15 +48,16 @@ export function createCreatePolicyRoutes(): Router {
         updatedBy: userId,
       } as unknown as Parameters<typeof compliancePolicyService.create>[0], userId);
 
-      // Link existing rules by name to this policy
+      // Link existing rules by name to this policy in a single batched UPDATE
+      // rather than fetching every rule and issuing one UPDATE per match.
       if (ruleNames && ruleNames.length > 0) {
-        const allRules = await complianceRuleService.find({}, orgId);
-        for (const ruleName of ruleNames) {
-          const rule = allRules.find(r => r.name === ruleName);
-          if (rule) {
-            await complianceRuleService.update(rule.id, { policyId: created.id }, orgId, userId);
-          }
-        }
+        await tx
+          .update(schema.complianceRule)
+          .set({ policyId: created.id, updatedBy: userId, updatedAt: new Date() })
+          .where(and(
+            eq(schema.complianceRule.orgId, orgId),
+            inArray(schema.complianceRule.name, ruleNames),
+          ));
       }
 
       return created;

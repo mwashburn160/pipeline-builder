@@ -13,12 +13,21 @@ jest.mock('../src/services/quota-service', () => ({
   quotaService: { findAll, findByOrgId: jest.fn(), getQuotaStatus: jest.fn() },
 }));
 
+jest.mock('../src/config', () => ({
+  config: { quota: { atRiskCacheTtlMs: 60_000 } },
+}));
+
 jest.mock('@pipeline-builder/api-core', () => ({
   ErrorCode: { INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS', VALIDATION_ERROR: 'VALIDATION_ERROR' },
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   isSystemAdmin: jest.fn(),
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
   getParam: (p: any, k: string) => p[k],
+  parseQueryIntClamped: (v: unknown, def: number, max: number) => {
+    const raw = v === undefined ? def : parseInt(String(v), 10);
+    const n = Number.isFinite(raw) ? raw : def;
+    return Math.max(1, Math.min(n, max));
+  },
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
   sendError: jest.fn((res: any, status: number, message: string) => res.status(status).json({ success: false, statusCode: status, message })),
 }));
@@ -31,18 +40,21 @@ jest.mock('@pipeline-builder/api-server', () => ({
 
 jest.mock('../src/middleware/authorize-org', () => ({
   authorizeOrg: () => (_req: any, _res: any, next: any) => next(),
+  INTERNAL_AUTH_OPTS: {},
 }));
 
 jest.mock('../src/helpers/quota-helpers', () => ({
-  INTERNAL_AUTH_OPTS: {},
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
 }));
 
 import { isSystemAdmin } from '@pipeline-builder/api-core';
 import { createReadQuotaRoutes } from '../src/routes/read-quotas';
-const router = createReadQuotaRoutes();
 
+// The router owns the at-risk memoization cache (I57). Rebuild per-test so
+// one test's mocked findAll() result doesn't leak through the cache to the
+// next.
 function getHandler(path: string) {
+  const router = createReadQuotaRoutes();
   const layer = (router as any).stack.find((l: any) => l.route?.path === path && l.route?.methods.get);
   if (!layer) throw new Error(`no GET ${path}`);
   // The route stack contains middleware (requireAuth) + the withRoute handler at the end.
@@ -67,11 +79,13 @@ const org = (orgId: string, name: string, quotas: Record<string, { used: number;
 });
 
 describe('GET /quotas/at-risk', () => {
-  const handler = getHandler('/at-risk');
+  let handler: (req: any, res: any) => Promise<unknown>;
 
   beforeEach(() => {
     jest.clearAllMocks();
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    // Fresh router → fresh at-risk cache (see getHandler note).
+    handler = getHandler('/at-risk');
   });
 
   it('rejects non-system-admins with 403', async () => {
@@ -149,6 +163,6 @@ describe('GET /quotas/at-risk', () => {
     ]);
     const res = makeRes();
     await handler({ query: {} } as any, res);
-    expect(res.json.mock.calls[0][0].data).toEqual({ atRisk: [], count: 0, threshold: 80 });
+    expect(res.json.mock.calls[0][0].data).toMatchObject({ atRisk: [], count: 0, threshold: 80 });
   });
 });

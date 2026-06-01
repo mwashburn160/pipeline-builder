@@ -1,14 +1,13 @@
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { History } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
 import type { ComplianceAuditEntry } from '@/types/compliance';
 
 const ComplianceDashboard = dynamic(() => import('@/components/compliance/ComplianceDashboard'), {
@@ -22,23 +21,15 @@ const ComplianceDashboard = dynamic(() => import('@/components/compliance/Compli
  * inside ComplianceDashboard for full filtering / pagination.
  */
 function RecentChangesStrip() {
-  const [entries, setEntries] = useState<ComplianceAuditEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    api.getComplianceAuditLog({ limit: 5 })
-      .then((res) => {
-        if (cancelled) return;
-        if (res.success && res.data) setEntries(res.data.entries);
-        else setError(res.message || 'Failed to load recent changes');
-      })
-      .catch((e) => !cancelled && setError(formatError(e, 'Failed to load recent changes')))
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
-  }, []);
+  const { data, loading, error } = useFetch(
+    async () => {
+      const res = await api.getComplianceAuditLog({ limit: 5 });
+      if (res.success && res.data) return res.data.entries;
+      throw new Error(res.message || 'Failed to load recent changes');
+    },
+    [],
+  );
+  const entries: ComplianceAuditEntry[] = data ?? [];
 
   return (
     <div className="card mb-4">
@@ -47,12 +38,12 @@ function RecentChangesStrip() {
           <History className="w-4 h-4 text-gray-400" />
           Recent compliance activity
         </h2>
-        <Link href="/dashboard/observability/audit-activity?action=compliance" className="action-link text-xs">
+        <Link href="/dashboard/audit?action=compliance" className="action-link text-xs">
           Full audit log →
         </Link>
       </div>
       {loading && <LoadingSpinner size="sm" />}
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error.message}</p>}
       {!loading && entries.length === 0 && (
         <p className="text-xs text-gray-500 dark:text-gray-400 py-2">
           No compliance activity recorded yet. Changes to rules, policies, and scan results appear here.

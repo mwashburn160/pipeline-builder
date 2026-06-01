@@ -252,7 +252,8 @@ describe('POST /subscriptions', () => {
       subscription: expect.objectContaining({ id: 'sub-1' }),
     });
     // Service token, not the user's bearer — see subscriptions.ts comment.
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token');
+    // 4th arg is subscriptionId so the quota service can audit the trigger.
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1');
     expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String));
   });
 

@@ -85,7 +85,7 @@ async function checkGracePeriodExpiry(): Promise<void> {
 
   for (const subscription of expired) {
     try {
-      await syncTierToQuotaService(subscription.orgId, 'developer', '');
+      await syncTierToQuotaService(subscription.orgId, 'developer', '', subscription._id.toString());
 
       await createBillingEvent(subscription.orgId, 'subscription_updated', {
         reason: 'grace_period_expired',
@@ -153,12 +153,13 @@ async function sendRenewalReminders(): Promise<void> {
   const now = new Date();
   const reminderWindow = new Date(now.getTime() + reminderDays * 24 * 60 * 60 * 1000);
 
-  // Find active subscriptions renewing within the window that haven't been reminded
+  // Dedupe by the subscription's own currentPeriodEnd: each period gets
+  // exactly one reminder. Keying off `reminderWindow` (which moves every run)
+  // would re-send on the next cron tick.
   const upcoming = await Subscription.find({
-    'status': 'active',
-    'cancelAtPeriodEnd': false,
-    'currentPeriodEnd': { $gt: now, $lte: reminderWindow },
-    'metadata.lastRenewalReminder': { $ne: formatDate(reminderWindow) },
+    status: 'active',
+    cancelAtPeriodEnd: false,
+    currentPeriodEnd: { $gt: now, $lte: reminderWindow },
   });
 
   if (upcoming.length === 0) return;
@@ -170,6 +171,9 @@ async function sendRenewalReminders(): Promise<void> {
 
   for (const subscription of upcoming) {
     try {
+      const periodKey = formatDate(subscription.currentPeriodEnd);
+      if (subscription.metadata?.lastRenewalReminder === periodKey) continue;
+
       const plan = await Plan.findById(subscription.planId);
       const planName = plan?.name || 'your plan';
       const renewDate = subscription.currentPeriodEnd.toLocaleDateString('en-US', {
@@ -195,10 +199,9 @@ async function sendRenewalReminders(): Promise<void> {
         },
       });
 
-      // Mark as reminded so we don't send duplicates
       subscription.metadata = {
         ...subscription.metadata,
-        lastRenewalReminder: formatDate(reminderWindow),
+        lastRenewalReminder: periodKey,
       };
       await subscription.save();
 

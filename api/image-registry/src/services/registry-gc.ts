@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import {
   listRepositories,
   listTags,
   getManifest,
+  getBlobJson,
   deleteManifest,
   isNotFound,
 } from './registry-client';
@@ -60,6 +62,9 @@ export interface GcResult {
  */
 export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   const { prefix, maxAgeDays = 30, dryRun = false } = opts;
+  // defense-in-depth: prefix is required by callers (Zod-validated at the
+  // route layer, but this function is also invoked directly by the
+  // in-process scheduler).
   if (!prefix) throw new Error('prefix is required');
 
   const cutoffMs = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
@@ -93,14 +98,30 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
           });
           continue;
         }
-        // Determine creation time. Image manifests embed it in the config
-        // blob, but fetching the config requires a blob GET — too expensive.
-        // We fall back on `created` if present at the manifest level (some
-        // CI tools embed it as a label-equivalent) and skip otherwise.
-        // Future enhancement: walk config blobs for more accurate age data.
-        const body = mani.body as { created?: string; annotations?: Record<string, string> };
-        const created = body?.created ?? body?.annotations?.['org.opencontainers.image.created'];
-        if (!created) continue;
+        // Determine creation time. Try the top-level/annotation hint first;
+        // fall back to the config blob's `created` (a small JSON GET) when
+        // missing. Emit a counter when neither is available so operators
+        // can spot manifests we silently skip.
+        const body = mani.body as {
+          created?: string;
+          annotations?: Record<string, string>;
+          config?: { digest?: string };
+        };
+        let created = body?.created ?? body?.annotations?.['org.opencontainers.image.created'];
+        if (!created && body?.config?.digest) {
+          try {
+            const cfg = await getBlobJson<{ created?: string }>(repo, body.config.digest);
+            created = cfg?.created;
+          } catch (err) {
+            logger.debug('GC: config blob fetch for created failed', {
+              repo, tag, error: errorMessage(err),
+            });
+          }
+        }
+        if (!created) {
+          incCounter('gc_skipped_no_timestamp_total', { reason: 'no_created' });
+          continue;
+        }
         const ts = Date.parse(created);
         if (!Number.isFinite(ts) || ts > cutoffMs) continue;
 

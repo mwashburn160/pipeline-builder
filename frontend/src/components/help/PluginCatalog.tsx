@@ -75,7 +75,7 @@ export function PluginCatalog() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr>
+              <tr key="empty-state">
                 <td colSpan={4} className="px-4 py-8 text-center text-gray-400 dark:text-gray-500">
                   No plugins match your search.
                 </td>

@@ -41,6 +41,11 @@ jest.mock('@pipeline-builder/api-core', () => ({
   getServiceAuthHeader: jest.fn(() => 'Bearer service-token'),
   errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   parseQueryInt: jest.fn((_val: unknown, defaultVal: number) => defaultVal),
+  parseQueryIntClamped: jest.fn((val: unknown, def: number, max: number) => {
+    const raw = val === undefined ? def : parseInt(String(val), 10);
+    const n = Number.isFinite(raw) ? raw : def;
+    return Math.max(1, Math.min(n, max));
+  }),
   parseQueryString: jest.fn((_val: unknown) => undefined as string | undefined),
   validateBody: mockValidateBody,
   createCacheService: () => ({

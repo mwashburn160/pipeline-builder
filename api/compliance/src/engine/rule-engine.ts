@@ -152,6 +152,14 @@ function evaluateCrossFieldRule(
   const firstFailure = results.find((r) => !r.passed);
   const failField = firstFailure?.condition.field ?? 'unknown';
   const failOp = firstFailure?.condition.operator ?? 'unknown';
+  const failedCount = results.filter((r) => !r.passed).length;
+
+  // When exactly one condition fails in 'all' mode, naming it gives the user
+  // immediately actionable feedback ("foo failed gt check") instead of the
+  // generic "1 of N conditions violated" rollup.
+  const message = (mode === 'all' && failedCount === 1 && firstFailure)
+    ? `Cross-field rule "${rule.name}" failed: condition "${failField}" ${failOp} ${JSON.stringify(firstFailure.condition.value)} (got ${JSON.stringify(firstFailure.fieldValue)})`
+    : `Cross-field rule "${rule.name}" failed (${mode} mode): ${failedCount} of ${results.length} conditions violated`;
 
   return {
     ruleId: rule.id,
@@ -162,7 +170,7 @@ function evaluateCrossFieldRule(
     expectedValue: firstFailure?.condition.value,
     actualValue: firstFailure?.fieldValue,
     severity: rule.severity,
-    message: `Cross-field rule "${rule.name}" failed (${mode} mode): ${results.filter((r) => !r.passed).length} of ${results.length} conditions violated`,
+    message,
     suppressNotification: rule.suppressNotification,
   };
 }

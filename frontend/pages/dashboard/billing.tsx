@@ -11,28 +11,20 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import type { Plan, Subscription, BillingInterval, UsageRollup } from '@/types';
+import { getTierMeta } from '@/lib/tiers';
 import api from '@/lib/api';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const PLAN_COLORS: Record<string, { border: string; badge: string; bg: string }> = {
-  developer: {
-    border: 'border-green-500',
-    badge: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-    bg: 'bg-green-50 dark:bg-green-950',
-  },
-  pro: {
-    border: 'border-blue-500',
-    badge: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-    bg: 'bg-blue-50 dark:bg-blue-950',
-  },
-  unlimited: {
-    border: 'border-purple-500',
-    badge: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
-    bg: 'bg-purple-50 dark:bg-purple-950',
-  },
+// Plan badge styling comes from the shared TIER_META catalog (`getTierMeta`).
+// Border/background tints stay local because they're page-specific accents
+// (the "current plan" highlight) rather than a tier identity.
+const PLAN_ACCENTS: Record<string, { border: string; bg: string }> = {
+  developer: { border: 'border-green-500', bg: 'bg-green-50 dark:bg-green-950' },
+  pro:       { border: 'border-blue-500',  bg: 'bg-blue-50 dark:bg-blue-950' },
+  unlimited: { border: 'border-purple-500', bg: 'bg-purple-50 dark:bg-purple-950' },
 };
 
 /**
@@ -155,7 +147,7 @@ export default function BillingPage() {
   const [usage, setUsage] = useState<UsageRollup | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [interval, setInterval] = useState<BillingInterval>('monthly');
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>('monthly');
   const [billingEvents, setBillingEvents] = useState<Array<{ id: string; type: string; orgId: string; createdAt: string; detail?: Record<string, unknown> }>>([]);
   const [showEvents, setShowEvents] = useState(false);
 
@@ -184,7 +176,7 @@ export default function BillingPage() {
       if (subRes.success) {
         setSubscription(subRes.data?.subscription ?? null);
         if (subRes.data?.subscription?.interval) {
-          setInterval(subRes.data.subscription.interval);
+          setBillingInterval(subRes.data.subscription.interval);
         }
       }
       if (usageRes?.success && usageRes.data) {
@@ -213,13 +205,13 @@ export default function BillingPage() {
     setActionLoading(true);
     try {
       if (subscription) {
-        const res = await api.changeSubscription(subscription.id, { planId, interval });
+        const res = await api.changeSubscription(subscription.id, { planId, interval: billingInterval });
         if (res.success) {
           toast.success('Plan changed successfully');
           await fetchData();
         }
       } else {
-        const res = await api.createSubscription(planId, interval);
+        const res = await api.createSubscription(planId, billingInterval);
         if (res.success) {
           toast.success('Subscription created successfully');
           await fetchData();
@@ -326,9 +318,9 @@ export default function BillingPage() {
         <div className="flex justify-center">
           <div className="card inline-flex items-center p-1">
             <button
-              onClick={() => setInterval('monthly')}
+              onClick={() => setBillingInterval('monthly')}
               className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                interval === 'monthly'
+                billingInterval === 'monthly'
                   ? 'bg-blue-600 text-white'
 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
               }`}
@@ -336,9 +328,9 @@ export default function BillingPage() {
               Monthly
             </button>
             <button
-              onClick={() => setInterval('annual')}
+              onClick={() => setBillingInterval('annual')}
               className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                interval === 'annual'
+                billingInterval === 'annual'
                   ? 'bg-blue-600 text-white'
 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
               }`}
@@ -352,15 +344,16 @@ export default function BillingPage() {
         {/* Plan Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {plans.map((plan) => {
-            const colors = PLAN_COLORS[plan.id] || PLAN_COLORS.developer;
+            const accents = PLAN_ACCENTS[plan.id] || PLAN_ACCENTS.developer;
+            const tierMeta = getTierMeta(plan.id);
             const isCurrent = subscription?.planId === plan.id;
-            const price = interval === 'annual' ? plan.prices.annual: plan.prices.monthly;
+            const price = billingInterval === 'annual' ? plan.prices.annual: plan.prices.monthly;
 
             return (              <div
                 key={plan.id}
                 className={`card relative p-6 transition-all ${
                   isCurrent
-                    ? `border-2 ${colors.border} ${colors.bg} shadow-lg`
+                    ? `border-2 ${accents.border} ${accents.bg} shadow-lg`
 : 'hover:shadow-md'
                 }`}
               >
@@ -372,14 +365,14 @@ export default function BillingPage() {
                 )}
 
                 <div className="text-center mb-6">
-                  <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full ${colors.badge}`}>
+                  <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full ${tierMeta.pillClass}`}>
                     {plan.name}
                   </span>
                   <p className="mt-4 text-4xl font-bold text-gray-900 dark:text-gray-100">
                     {formatPrice(price)}
                   </p>
                   {price > 0 && (                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      per {interval === 'annual' ? 'year': 'month'}
+                      per {billingInterval === 'annual' ? 'year': 'month'}
                     </p>
                   )}
                   <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{plan.description}</p>

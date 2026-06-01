@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, mongoSanitize, sendError } from '@pipeline-builder/api-core';
+import { createLogger, isValidTier, mongoSanitize, sendError } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
@@ -146,7 +146,12 @@ function peekJwtClaims(req: express.Request): {
  */
 function tierLimitedMax(req: Request): number {
   const { tier } = peekJwtClaims(req);
-  const mult: number = (tier && config.rateLimit.tierMultipliers[tier]) || 1;
+  // `tier` is a JWT claim and arrives untyped — narrow via api-core's
+  // `isValidTier` guard before indexing the strongly-typed
+  // `Record<QuotaTier, number>`. Unknown tiers fall back to 1× (developer
+  // baseline), keeping a renamed-but-not-deployed tier from accidentally
+  // getting an unlimited budget.
+  const mult: number = (tier && isValidTier(tier) ? config.rateLimit.tierMultipliers[tier] : 1) || 1;
   return Math.max(1, Math.floor(config.rateLimit.max * mult));
 }
 

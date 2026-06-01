@@ -11,18 +11,22 @@
  * PromQL/LogQL, so injection / scope-escape attacks have no surface.
  *
  * Adding a new query: pick a key, add an entry. Template variables are
- * limited to `$EVENT`, `$DIGEST`, `$ACTOR` — server substitutes from
- * request query params; nothing else is allowed in catalog strings.
+ * limited to `$EVENT`, `$ACTOR`, `$PLUGIN` (frontend-supplied, sanitized)
+ * and `$ORG` (server-driven scoping) — nothing else is allowed in catalog
+ * strings.
  */
 
 export type QuerySource = 'prometheus-instant' | 'prometheus-range' | 'loki-range';
 
+/** Canonical range keys understood by the observability controller. */
+export type RangeKey = '1h' | '6h' | '24h';
+
 export interface QueryEntry {
   source: QuerySource;
-  /** Raw PromQL or LogQL. May contain `$EVENT`, `$DIGEST`, `$ACTOR`, `$PLUGIN`, `$ORG` placeholders. */
+  /** Raw PromQL or LogQL. May contain `$EVENT`, `$ACTOR`, `$PLUGIN`, `$ORG` placeholders. */
   query: string;
   /** Allow-list of template variables the frontend may pass for this query. */
-  allowedVars: ReadonlyArray<'event' | 'digest' | 'actor' | 'plugin'>;
+  allowedVars: ReadonlyArray<'event' | 'actor' | 'plugin'>;
   /**
    * When true, the controller substitutes `$ORG` with the caller's org
    * (sysadmins get a regex wildcard, org admins get their literal org).
@@ -30,6 +34,14 @@ export interface QueryEntry {
    * entries that have no org context (global health metrics) can omit it.
    */
   orgScoped?: boolean;
+  /**
+   * Explicit hint for how a `loki-range` query's results should be rendered:
+   *   - `stream`  → raw log lines (use `/api/observability/logs`, returns `{entries}`)
+   *   - `matrix`  → aggregated time series (returns `{series}`)
+   * When omitted, the controller falls back to a syntactic heuristic on the
+   * query body — prefer setting this explicitly on new Loki entries.
+   */
+  kind?: 'stream' | 'matrix';
 }
 
 export const QUERIES: Record<string, QueryEntry> = {
@@ -54,16 +66,6 @@ export const QUERIES: Record<string, QueryEntry> = {
     query: 'sum(rate(platform_logins_total[1m]))',
     allowedVars: [],
   },
-  platform_logins_failed_24h: {
-    source: 'prometheus-instant',
-    query: 'sum(increase(platform_logins_failed_total[24h]))',
-    allowedVars: [],
-  },
-  platform_logins_failed_per_min: {
-    source: 'prometheus-range',
-    query: 'sum(rate(platform_logins_failed_total[1m]))',
-    allowedVars: [],
-  },
   platform_memberships_active_total: {
     source: 'prometheus-instant',
     query: 'platform_memberships_active_total',
@@ -75,15 +77,21 @@ export const QUERIES: Record<string, QueryEntry> = {
   // support org-scoping. `$ORG` is substituted server-side per request.
   plugin_builds_per_min: {
     source: 'prometheus-range',
-    query: 'sum by (status) (rate(plugin_builds_total{org_id=~".+"$ORG}[1m]))',
+    // `status!=""` is the always-present, non-empty anchor matcher Prometheus
+    // requires (selectors need at least one non-empty matcher); every emitted
+    // sample carries a status label, so this matches all build samples without
+    // an artificial `org_id=~".+"`. `$ORG` adds the per-caller scoping suffix.
+    query: 'sum by (status) (rate(plugin_builds_total{status!=""$ORG}[1m]))',
     allowedVars: [],
     orgScoped: true,
   },
   plugin_build_success_rate_5m: {
     source: 'prometheus-range',
+    // See plugin_builds_per_min for the `status!=""` rationale — used as the
+    // denominator anchor here so total-builds includes failed + success.
     query:
       'sum(rate(plugin_builds_total{status="success"$ORG}[5m])) '
-      + '/ clamp_min(sum(rate(plugin_builds_total{org_id=~".+"$ORG}[5m])), 1)',
+      + '/ clamp_min(sum(rate(plugin_builds_total{status!=""$ORG}[5m])), 1)',
     allowedVars: [],
     orgScoped: true,
   },
@@ -136,33 +144,10 @@ export const QUERIES: Record<string, QueryEntry> = {
   },
   plugin_builds_total_24h: {
     source: 'prometheus-instant',
-    query: 'sum(increase(plugin_builds_total{org_id=~".+"$ORG}[24h]))',
+    // `status!=""` anchors the selector without an artificial org_id matcher;
+    // every emitted plugin_builds_total sample carries a status label.
+    query: 'sum(increase(plugin_builds_total{status!=""$ORG}[24h]))',
     allowedVars: [],
-    orgScoped: true,
-  },
-
-  // -- Per-plugin drill-down --------------------------------------------------
-  // Filtered by `?plugin=<name>` URL param. Server substitutes `$PLUGIN` after
-  // sanitization (alphanumerics + `.-_`). Counter-only — durations come from
-  // Loki via the recent-builds query below (cardinality safety).
-  plugin_builds_for_plugin: {
-    source: 'prometheus-range',
-    query: 'sum by (status) (rate(plugin_builds_total{plugin_name="$PLUGIN"$ORG}[1m]))',
-    allowedVars: ['plugin'],
-    orgScoped: true,
-  },
-  plugin_builds_success_rate_for_plugin: {
-    source: 'prometheus-range',
-    query:
-      'sum(rate(plugin_builds_total{plugin_name="$PLUGIN",status="success"$ORG}[5m])) '
-      + '/ clamp_min(sum(rate(plugin_builds_total{plugin_name="$PLUGIN"$ORG}[5m])), 1)',
-    allowedVars: ['plugin'],
-    orgScoped: true,
-  },
-  plugin_builds_total_24h_for_plugin: {
-    source: 'prometheus-instant',
-    query: 'sum(increase(plugin_builds_total{plugin_name="$PLUGIN"$ORG}[24h]))',
-    allowedVars: ['plugin'],
     orgScoped: true,
   },
 
@@ -187,7 +172,10 @@ export const QUERIES: Record<string, QueryEntry> = {
     query: 'sum by (state) (plugin_queue_jobs{queue="plugin-build-dlq"})',
     allowedVars: [],
   },
-  plugin_retry_rate: {
+  // TODO: also rename queryKey in deploy/seeds/dashboards/queue-health.json
+  //       ("plugin_retry_rate" → "plugin_failed_builds_rate_5m"). That file
+  //       is outside platform/src/ so it ships with the seed-data update.
+  plugin_failed_builds_rate_5m: {
     source: 'prometheus-range',
     query: 'sum(rate(plugin_builds_total{status="failed"}[5m]))',
     allowedVars: [],
@@ -226,31 +214,26 @@ export const QUERIES: Record<string, QueryEntry> = {
   },
 
   // -- Audit Activity dashboard ----------------------------------------------
+  // not orgScoped: audit log stream has no org_id label; relies on platform-only RBAC
   audit_events_per_hour_by_event: {
     source: 'loki-range',
     query: 'sum by (event) (count_over_time({eventCategory="audit"}[1h]))',
     allowedVars: [],
+    kind: 'matrix',
   },
+  // not orgScoped: audit log stream has no org_id label; relies on platform-only RBAC
   audit_recent_events: {
     source: 'loki-range',
     query: '{eventCategory="audit"$EVENT$ACTOR}',
     allowedVars: ['event', 'actor'],
+    kind: 'stream',
   },
+  // not orgScoped: audit log stream has no org_id label; relies on platform-only RBAC
   audit_top_actors_24h: {
     source: 'loki-range',
     query: 'topk(10, sum by (actor) (count_over_time({eventCategory="audit"}[24h])))',
     allowedVars: [],
-  },
-
-  // -- Per-plugin recent builds (Loki-backed, served on per-plugin drill-down) -
-  // The plugin queue emits structured logs `{ eventCategory: 'plugin-build',
-  // pluginName, event, durationMs|errorMessage }`; promtail promotes the
-  // first two to Loki labels. This stream returns each line as-is so the
-  // frontend can render a recent-builds table without a roundtrip to the DB.
-  plugin_recent_builds: {
-    source: 'loki-range',
-    query: '{eventCategory="plugin-build", pluginName="$PLUGIN"}',
-    allowedVars: ['plugin'],
+    kind: 'matrix',
   },
 };
 
@@ -263,12 +246,12 @@ export const QUERIES: Record<string, QueryEntry> = {
  * Template syntax is bespoke (not regex injection) so callers can't
  * compose a different query by sending crafted variable values — the
  * variable values get sanitized to allow only the character set of
- * legitimate audit-event names, sha256 digests, and actor IDs.
+ * legitimate audit-event names and actor IDs.
  */
 export function substituteVars(
   query: string,
-  vars: { event?: string; digest?: string; actor?: string; plugin?: string; org?: string; isSuperAdmin?: boolean },
-  allowed: ReadonlyArray<'event' | 'digest' | 'actor' | 'plugin'>,
+  vars: { event?: string; actor?: string; plugin?: string; org?: string; isSuperAdmin?: boolean },
+  allowed: ReadonlyArray<'event' | 'actor' | 'plugin'>,
 ): string {
   let result = query;
 
@@ -276,11 +259,6 @@ export function substituteVars(
   const eventClause = allowed.includes('event') && vars.event && /^[a-zA-Z0-9._-]+$/.test(vars.event)
     ? `,event="${vars.event}"` : '';
   result = result.replace('$EVENT', eventClause);
-
-  // digest: sha256:<hex> — used as line filter, not label selector
-  const digestClause = allowed.includes('digest') && vars.digest && /^sha256:[a-f0-9]{64}$/.test(vars.digest)
-    ? ` |= \`${vars.digest}\`` : '';
-  result = result.replace('$DIGEST', digestClause);
 
   // actor: alphanumerics + - + _ + . + @ (covers user IDs and service principals)
   const actorClause = allowed.includes('actor') && vars.actor && /^[a-zA-Z0-9._@-]+$/.test(vars.actor)
@@ -317,26 +295,36 @@ export function substituteVars(
 }
 
 /**
- * Auto-scale Prometheus `step` based on the requested range. Tuned so a
- * 1h chart has ~240 points (15s step), 6h has ~360 points (1m step),
- * and 24h has ~288 points (5m step) — all comfortable for line rendering
- * without overwhelming the response payload.
+ * Single source of truth for the supported range presets. `seconds` is the
+ * lookback window; `step` is the Prometheus query resolution chosen so charts
+ * land near ~240–360 points (1h@15s, 6h@1m, 24h@5m) — comfortable for line
+ * rendering without overwhelming the response payload.
  */
+export const RANGES: Record<RangeKey, { seconds: number; step: string }> = {
+  '1h': { seconds: 3600, step: '15s' },
+  '6h': { seconds: 21_600, step: '60s' },
+  '24h': { seconds: 86_400, step: '300s' },
+};
+
+/**
+ * Fallback step used for any range value not in `RANGES`. Deliberately
+ * coarser than the 1h step (15s) so an unknown range doesn't accidentally
+ * generate a huge response from Prometheus — '60s' matches the 6h
+ * preset's step, which is the historical default.
+ *
+ * `parseRange()` in the controller now rejects unknown ranges with HTTP
+ * 400, so this fallback is reachable only by callers that bypass the
+ * controller (tests, scripts) — but the contract is preserved.
+ */
+const FALLBACK_STEP = '60s';
+const FALLBACK_SECONDS = 3600;
+
+/** Auto-scale Prometheus `step` based on the requested range. */
 export function stepForRange(range: string): string {
-  switch (range) {
-    case '1h': return '15s';
-    case '6h': return '60s';
-    case '24h': return '300s';
-    default: return '60s';
-  }
+  return (RANGES as Record<string, { step: string }>)[range]?.step ?? FALLBACK_STEP;
 }
 
 /** Convert a range string to the equivalent number of seconds. */
 export function rangeSeconds(range: string): number {
-  switch (range) {
-    case '1h': return 3600;
-    case '6h': return 21_600;
-    case '24h': return 86_400;
-    default: return 3600;
-  }
+  return (RANGES as Record<string, { seconds: number }>)[range]?.seconds ?? FALLBACK_SECONDS;
 }

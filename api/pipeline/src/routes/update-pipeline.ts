@@ -53,7 +53,7 @@ export function createUpdatePipelineRoutes(): Router {
         keywords: body.keywords,
         props: body.props, // Validated by PipelineUpdateSchema (BuilderPropsSchema)
         isActive: body.isActive,
-        isDefault: body.isDefault,
+        // isDefault is handled separately below via setDefault() for promotion.
       }),
       // Access modifier requires special handling (admin-only public)
       ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier) } : {}),
@@ -61,12 +61,22 @@ export function createUpdatePipelineRoutes(): Router {
       updatedBy: userId || 'system',
     };
 
-    const updated = await pipelineService.update(
-      id,
-      updateData,
-      orgId,
-      userId || 'system',
-    );
+    let updated;
+    if (body.isDefault === true) {
+      // Promote-to-default takes the FOR UPDATE-locked transactional path so
+      // it can't race a concurrent setDefault on the same project.
+      updated = await pipelineService.setDefault(existing.project, existing.organization, id, userId || 'system');
+
+      // Apply the rest of the update body (if any non-isDefault fields changed).
+      // updatedAt/updatedBy are always present, so >2 means real columns.
+      if (Object.keys(updateData).length > 2) {
+        updated = await pipelineService.update(id, updateData, orgId, userId || 'system');
+      }
+    } else {
+      // Allow explicit demotion (isDefault: false) as a normal column write.
+      if (body.isDefault === false) updateData.isDefault = false;
+      updated = await pipelineService.update(id, updateData, orgId, userId || 'system');
+    }
 
     if (!updated) return sendEntityNotFound(res, 'Pipeline');
 

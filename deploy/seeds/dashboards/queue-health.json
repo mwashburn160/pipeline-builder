@@ -7,7 +7,7 @@
     { "queryKey": "plugin_job_wait_p95", "vizKind": "line", "title": "p95 wait", "span": 4, "format": "seconds" },
     { "queryKey": "plugin_job_wait_p99", "vizKind": "line", "title": "p99 wait", "span": 4, "format": "seconds" },
     { "queryKey": "plugin_dlq_size", "vizKind": "line", "title": "DLQ depth", "span": 6, "groupBy": "state" },
-    { "queryKey": "plugin_retry_rate", "vizKind": "line", "title": "Retry rate", "span": 6 },
+    { "queryKey": "plugin_failed_builds_rate_5m", "vizKind": "line", "title": "Failed builds rate (5m)", "span": 6 },
     { "queryKey": "plugin_replicas", "vizKind": "line", "title": "Plugin replicas", "span": 3 },
     { "queryKey": "plugin_keda_trigger_queue", "vizKind": "line", "title": "KEDA queue trigger", "span": 3 },
     { "queryKey": "plugin_pod_cpu_seconds_rate", "vizKind": "line", "title": "Plugin CPU per pod", "span": 3, "groupBy": "instance" },

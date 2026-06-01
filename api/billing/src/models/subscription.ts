@@ -64,11 +64,25 @@ subscriptionSchema.index(
   { unique: true, partialFilterExpression: { status: 'active' } },
 );
 
-// Sparse index for AWS Marketplace customer lookup (SNS webhook queries)
+// Sparse index for AWS Marketplace customer lookup (SNS webhook queries).
+// Enforce uniqueness on the active row only — historical canceled rows
+// keep their identifier without colliding.
 subscriptionSchema.index(
   { 'metadata.awsCustomerIdentifier': 1 },
-  { sparse: true },
+  {
+    unique: true,
+    partialFilterExpression: {
+      'status': 'active',
+      'metadata.awsCustomerIdentifier': { $exists: true, $type: 'string' },
+    },
+  },
 );
+
+// Grace-period scan in subscription-lifecycle (status='past_due', firstFailedAt $lte cutoff).
+subscriptionSchema.index({ status: 1, firstFailedAt: 1 });
+
+// Stale-active + renewal-reminder scans (status='active', currentPeriodEnd $lt/$lte window).
+subscriptionSchema.index({ status: 1, currentPeriodEnd: 1 });
 
 // Model (safe for re-registration in tests)
 

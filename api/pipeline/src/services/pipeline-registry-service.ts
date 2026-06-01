@@ -23,12 +23,12 @@ class PipelineRegistryService {
   /** Paginated list of registry rows for an org. */
   async list(orgId: string, limit: number, offset: number) {
     return withTenantTx(async (tx) => {
-      const [countRow] = await tx
+      const countQuery = tx
         .select({ count: sql<number>`count(*)::int` })
         .from(schema.pipelineRegistry)
         .where(eq(schema.pipelineRegistry.orgId, orgId));
 
-      const rows = await tx
+      const rowsQuery = tx
         .select()
         .from(schema.pipelineRegistry)
         .where(eq(schema.pipelineRegistry.orgId, orgId))
@@ -36,7 +36,8 @@ class PipelineRegistryService {
         .limit(limit)
         .offset(offset);
 
-      return { rows, total: countRow?.count ?? 0 };
+      const [countResult, rows] = await Promise.all([countQuery, rowsQuery]);
+      return { rows, total: countResult[0]?.count ?? 0 };
     });
   }
 

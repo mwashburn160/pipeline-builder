@@ -29,6 +29,14 @@ export interface InvitationEmailData {
   role: string;
   invitationType?: InvitationType;
   allowedOAuthProviders?: InvitationOAuthProvider[];
+  /**
+   * BCP-47 locale for date formatting in the invitation email
+   * (e.g., the `expiresAt` "expires on …" string).
+   * Defaults to `'en-US'`. No caller passes this today — the field exists
+   * so future i18n work (e.g., recipient-language detection) can flow
+   * through without another signature change.
+   */
+  locale?: string;
 }
 
 /**
@@ -149,25 +157,11 @@ class EmailService {
     return this.send({ to: inviterEmail, subject, text, html });
   }
 
-  /**
-   * Verify email configuration
-   */
-  async verify(): Promise<boolean> {
-    this.initialize();
-
-    if (!config.email.enabled || !this.transporter) {
-      return false;
-    }
-
-    try {
-      await this.transporter.verify();
-      logger.info('Email service verified successfully');
-      return true;
-    } catch (error) {
-      logger.error('Email service verification failed:', error);
-      return false;
-    }
-  }
+  // Note: a `verify()` method (wrapping nodemailer's transporter.verify())
+  // used to live here but was never called from platform startup; removed
+  // rather than left as dead code. If a startup health check is ever wired
+  // in (likely from `platform/src/index.ts`), reintroduce it there and
+  // expose a method here that returns transporter.verify().
 }
 
 // Export singleton instance

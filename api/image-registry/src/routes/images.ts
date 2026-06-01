@@ -8,14 +8,14 @@ import {
   sendEntityNotFound,
   ErrorCode,
   getParam,
-  isSystemAdmin,
+  requireSystemAdmin,
   parsePaginationParams,
   runConcurrent,
   emitAudit,
   createLogger,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
-import { Router, type Request, type Response } from 'express';
+import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import {
   listRepositories,
@@ -31,6 +31,13 @@ import {
 } from '../services/registry-client';
 
 const logger = createLogger('image-routes');
+
+/** Symbolic metric names so all incCounter call-sites stay in sync. */
+const RegistryMetrics = {
+  TAG_DELETE: 'registry_tag_delete_total',
+  TAG_COPY: 'registry_tag_copy_total',
+  TAG_PROMOTE: 'registry_tag_promote_total',
+} as const;
 
 // 5 MB cap for the blob proxy. The endpoint is for previewing config blobs
 // in the registry UI's manifest summary — config blobs are always small
@@ -55,16 +62,9 @@ const CopyImageSchema = z.object({
   source: z.string().regex(/^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9_.-]+$/, 'Invalid source — expected "<repo>:<ref>"'),
   target: z.string().regex(/^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9_.-]+$/, 'Invalid target — expected "<repo>:<ref>"'),
   overwrite: z.boolean().optional().default(false),
+  /** Required when source/target live in different `org-*` tenants. */
+  allowCrossTenant: z.boolean().optional().default(false),
 });
-
-/** Sysadmin guard. */
-function requireSystemAdminGuard(req: Request, res: Response): boolean {
-  if (!isSystemAdmin(req)) {
-    sendError(res, 403, 'System admin access required', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    return false;
-  }
-  return true;
-}
 
 /**
  * Split a `<repo>:<ref>` string into its components. Repo paths can
@@ -75,6 +75,16 @@ function requireSystemAdminGuard(req: Request, res: Response): boolean {
 function parseRepoRef(s: string): { repo: string; ref: string } {
   const i = s.lastIndexOf(':');
   return { repo: s.slice(0, i), ref: s.slice(i + 1) };
+}
+
+/**
+ * Extract the tenant id from a repo path of the form `org-<id>/...`.
+ * Returns null for non-org-prefixed repos (`system/`, `library/`, etc.) —
+ * those are platform-managed and have no per-tenant scope.
+ */
+function tenantOf(repo: string): string | null {
+  const match = repo.match(/^org-([a-z0-9][a-z0-9-]*)\//);
+  return match ? match[1] : null;
 }
 
 /**
@@ -93,10 +103,10 @@ function parseRepoRef(s: string): { repo: string; ref: string } {
  */
 export function createImageRoutes(): Router {
   const router = Router();
+  router.use(requireSystemAdmin as RequestHandler);
 
   // GET /api/images — list all repositories (cursor-paginated via _catalog).
   router.get('/', withRoute(async ({ req, res, ctx }) => {
-    if (!requireSystemAdminGuard(req, res)) return;
     const { limit } = parsePaginationParams(req.query as Record<string, unknown>);
     const last = typeof req.query.last === 'string' ? req.query.last : undefined;
 
@@ -111,7 +121,6 @@ export function createImageRoutes(): Router {
 
   // GET /api/images/:name/tags — list tags for one repository.
   router.get('/:name/tags', withRoute(async ({ req, res, ctx }) => {
-    if (!requireSystemAdminGuard(req, res)) return;
     const name = getParam(req.params, 'name');
     if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -122,7 +131,6 @@ export function createImageRoutes(): Router {
 
   // GET /api/images/:name/manifests/:reference — fetch manifest.
   router.get('/:name/manifests/:reference', withRoute(async ({ req, res, ctx }) => {
-    if (!requireSystemAdminGuard(req, res)) return;
     const name = getParam(req.params, 'name');
     const reference = getParam(req.params, 'reference');
     if (!name || !reference) return sendBadRequest(res, 'name and reference are required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -139,7 +147,6 @@ export function createImageRoutes(): Router {
 
   // DELETE /api/images/:name/manifests/:reference — resolve to digest, then delete.
   router.delete('/:name/manifests/:reference', withRoute(async ({ req, res, ctx }) => {
-    if (!requireSystemAdminGuard(req, res)) return;
     const name = getParam(req.params, 'name');
     const reference = getParam(req.params, 'reference');
     if (!name || !reference) return sendBadRequest(res, 'name and reference are required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -156,7 +163,7 @@ export function createImageRoutes(): Router {
         ref: reference,
         digest,
       });
-      incCounter('registry_tag_delete_total');
+      incCounter(RegistryMetrics.TAG_DELETE);
       return sendSuccess(res, 200, { name, digest, deleted: true });
     } catch (err) {
       if (isNotFound(err)) return sendEntityNotFound(res, 'Manifest');
@@ -166,15 +173,27 @@ export function createImageRoutes(): Router {
 
   // GET /api/images/:name/blobs/:digest — proxy a config blob (5MB cap, streamed).
   router.get('/:name/blobs/:digest', withRoute(async ({ req, res, ctx }) => {
-    if (!requireSystemAdminGuard(req, res)) return;
     const name = getParam(req.params, 'name');
     const digest = getParam(req.params, 'digest');
     if (!name || !digest) return sendBadRequest(res, 'name and digest are required', ErrorCode.MISSING_REQUIRED_FIELD);
 
     // Fast path: HEAD first to reject oversize before opening the stream.
+    // Fail closed when the upstream omits Content-Length — without a known
+    // size we can't preflight the cap, and serving an unbounded body via
+    // this proxy endpoint is what the cap is meant to prevent. Defensive:
+    // each `return sendEntityNotFound(...)` / `return sendError(...)` exits
+    // the route handler before any `stream.on(...)` registration below, so
+    // there's no risk of double-responding for a 404/502 path.
     try {
       const head = await headBlob(name, digest);
-      if (head.contentLength !== undefined && head.contentLength > MAX_BLOB_PROXY_BYTES) {
+      if (head.contentLength === undefined) {
+        return sendError(
+          res, 502,
+          'Upstream registry omitted Content-Length on blob HEAD; refusing to stream uncapped.',
+          ErrorCode.INTERNAL_ERROR,
+        );
+      }
+      if (head.contentLength > MAX_BLOB_PROXY_BYTES) {
         return sendError(
           res, 413,
           'Blob exceeds 5MB cap. This endpoint serves config blobs only; layer blobs are not previewable.',
@@ -186,8 +205,9 @@ export function createImageRoutes(): Router {
       throw err;
     }
 
-    // Stream the body. If the registry omitted Content-Length on HEAD,
-    // byte-count the stream and abort on overrun.
+    // Stream the body. If the registry omitted Content-Length on the GET
+    // (unlikely after a successful HEAD with it set), byte-count the
+    // stream and abort on overrun.
     let stream;
     try {
       const got = await getBlobStream(name, digest);
@@ -240,14 +260,12 @@ export function createImageRoutes(): Router {
 
   // POST /api/images/copy — cross-repo tag-copy, multi-arch aware.
   router.post('/copy', withRoute(async ({ req, res, ctx }) => {
-    if (!requireSystemAdminGuard(req, res)) return;
-
     const parsed = CopyImageSchema.safeParse(req.body);
     if (!parsed.success) {
       const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
       return sendBadRequest(res, msg, ErrorCode.VALIDATION_ERROR);
     }
-    const { source, target, overwrite } = parsed.data;
+    const { source, target, overwrite, allowCrossTenant } = parsed.data;
 
     if (source === target) {
       return sendError(
@@ -260,6 +278,26 @@ export function createImageRoutes(): Router {
 
     const { repo: sourceRepo, ref: sourceRef } = parseRepoRef(source);
     const { repo: targetRepo, ref: targetRef } = parseRepoRef(target);
+
+    // Cross-tenant guard: copying between two distinct `org-*` namespaces
+    // moves data across customer boundaries. Require an explicit opt-in so
+    // operators can't do it by accident. Promotions to `system/` or copies
+    // within the same org continue to work without the flag.
+    const sourceTenant = tenantOf(sourceRepo);
+    const targetTenant = tenantOf(targetRepo);
+    if (
+      sourceTenant !== null &&
+      targetTenant !== null &&
+      sourceTenant !== targetTenant &&
+      !allowCrossTenant
+    ) {
+      return sendError(
+        res, 400,
+        'Cross-tenant copy requires "allowCrossTenant: true" in the request body.',
+        ErrorCode.VALIDATION_ERROR,
+        { reason: 'cross-tenant-not-allowed', sourceTenant, targetTenant },
+      );
+    }
 
     // Resolve source manifest.
     let sourceManifest;
@@ -334,9 +372,9 @@ export function createImageRoutes(): Router {
     });
     // Two counters: total copies + a separate counter for system-promotions
     // so the dashboard can show promotion velocity without dividing series.
-    incCounter('registry_tag_copy_total');
+    incCounter(RegistryMetrics.TAG_COPY);
     if (targetRepo.startsWith('system/')) {
-      incCounter('registry_tag_promote_total');
+      incCounter(RegistryMetrics.TAG_PROMOTE);
     }
 
     return sendSuccess(res, 200, {
@@ -379,6 +417,12 @@ class InvalidManifestError extends Error {
  * Mounts every unique blob digest referenced by the manifest tree, then
  * PUTs the manifest(s) under the target ref. Idempotent: re-running with
  * the same args is a no-op.
+ *
+ * Assumption: every child manifest referenced by a multi-arch index lives
+ * in the same `sourceRepo`. Cross-repo manifest references (which the OCI
+ * spec permits in principle, but our push pipeline never emits) would
+ * throw `SourceIncompleteError` when the child digest isn't resolvable
+ * inside `sourceRepo`.
  */
 async function copyManifestTree(
   sourceManifest: { body: unknown; digest: string; mediaType: string },

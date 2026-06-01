@@ -501,6 +501,24 @@ Resources:
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
 
+  # Memory target-tracking — attached to the same scalable target as the
+  # CPU policy. App Auto Scaling scales up whenever EITHER policy demands
+  # it (memory >= 85% OR CPU >= existing threshold). 85% leaves headroom
+  # for spikes; memory typically climbs slower than CPU, so a tighter
+  # threshold would scale prematurely.
+  PlatformMemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-platform-memory-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref PlatformScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 85
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
   # ===========================================================================
   # Pipeline Service
   # ===========================================================================
@@ -697,6 +715,24 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 60
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
+  # Memory target-tracking — attached to the same scalable target as the
+  # CPU policy. App Auto Scaling scales up whenever EITHER policy demands
+  # it (memory >= 85% OR CPU >= existing threshold). 85% leaves headroom
+  # for spikes; memory typically climbs slower than CPU, so a tighter
+  # threshold would scale prematurely.
+  PipelineMemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-pipeline-memory-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref PipelineScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 85
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
 
@@ -1193,6 +1229,24 @@ Resources:
         ScaleInCooldown: 300
         ScaleOutCooldown: 60
 
+  # Memory target-tracking — attached to the same scalable target as the
+  # CPU policy. App Auto Scaling scales up whenever EITHER policy demands
+  # it (memory >= 85% OR CPU >= existing threshold). 85% leaves headroom
+  # for spikes; memory typically climbs slower than CPU, so a tighter
+  # threshold would scale prematurely.
+  QuotaMemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-quota-memory-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref QuotaScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 85
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
   # ===========================================================================
   # Billing Service
   # ===========================================================================
@@ -1380,6 +1434,24 @@ Resources:
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
 
+  # Memory target-tracking — attached to the same scalable target as the
+  # CPU policy. App Auto Scaling scales up whenever EITHER policy demands
+  # it (memory >= 85% OR CPU >= existing threshold). 85% leaves headroom
+  # for spikes; memory typically climbs slower than CPU, so a tighter
+  # threshold would scale prematurely.
+  BillingMemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-billing-memory-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref BillingScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 85
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
   # ===========================================================================
   # Message Service
   # ===========================================================================
@@ -1561,6 +1633,24 @@ Resources:
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
 
+  # Memory target-tracking — attached to the same scalable target as the
+  # CPU policy. App Auto Scaling scales up whenever EITHER policy demands
+  # it (memory >= 85% OR CPU >= existing threshold). 85% leaves headroom
+  # for spikes; memory typically climbs slower than CPU, so a tighter
+  # threshold would scale prematurely.
+  MessageMemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-message-memory-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref MessageScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 85
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
   # ===========================================================================
   # Reporting Service
   # ===========================================================================
@@ -1723,6 +1813,24 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 70
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
+  # Memory target-tracking — attached to the same scalable target as the
+  # CPU policy. App Auto Scaling scales up whenever EITHER policy demands
+  # it (memory >= 85% OR CPU >= existing threshold). 85% leaves headroom
+  # for spikes; memory typically climbs slower than CPU, so a tighter
+  # threshold would scale prematurely.
+  ReportingMemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-reporting-memory-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ReportingScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 85
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
 
@@ -1904,6 +2012,24 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 60
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 120
+
+  # Memory target-tracking — attached to the same scalable target as the
+  # CPU policy. App Auto Scaling scales up whenever EITHER policy demands
+  # it (memory >= 85% OR CPU >= existing threshold). 85% leaves headroom
+  # for spikes; memory typically climbs slower than CPU, so a tighter
+  # threshold would scale prematurely.
+  ComplianceMemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-compliance-memory-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ComplianceScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 85
         ScaleInCooldown: 300
         ScaleOutCooldown: 120
 
@@ -2214,6 +2340,24 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
         TargetValue: 60
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+  # Memory target-tracking — attached to the same scalable target as the
+  # CPU policy. App Auto Scaling scales up whenever EITHER policy demands
+  # it (memory >= 85% OR CPU >= existing threshold). 85% leaves headroom
+  # for spikes; memory typically climbs slower than CPU, so a tighter
+  # threshold would scale prematurely.
+  ImageRegistryMemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-image-registry-memory-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ImageRegistryScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 85
         ScaleInCooldown: 300
         ScaleOutCooldown: 60
 

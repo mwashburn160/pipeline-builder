@@ -38,7 +38,7 @@ export function createTemplateRoutes(): Router {
     const templates = RULE_TEMPLATES.filter(t => selectedIds.has(t.id));
 
     const created: string[] = [];
-    const skipped: string[] = [];
+    const skipped: Array<{ id: string; reason: string }> = [];
 
     for (const template of templates) {
       try {
@@ -59,17 +59,18 @@ export function createTemplateRoutes(): Router {
         } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
         created.push(rule.id);
       } catch (err) {
+        const reason = errorMessage(err);
         logger.warn('Template application failed', {
           templateId: template.id,
           templateName: template.name,
-          error: errorMessage(err),
+          error: reason,
         });
-        skipped.push(template.id);
+        skipped.push({ id: template.id, reason });
       }
     }
 
     ctx.log('COMPLETED', 'Applied rule templates', { created: created.length, skipped: skipped.length });
-    return sendSuccess(res, 201, { created: created.length, skipped: skipped.length, ruleIds: created });
+    return sendSuccess(res, 201, { created: created.length, skipped, ruleIds: created });
   }));
 
   return router;

@@ -10,12 +10,24 @@ import { authorizeAndIssue } from './token-service';
 
 const logger = createLogger('registry-client');
 
-/** Read timeout for blob streaming  short to fail fast on stuck upstream
+/** Read timeout for blob streaming — short to fail fast on stuck upstream
  * connections. Override via `REGISTRY_BLOB_STREAM_TIMEOUT_MS`. */
 const BLOB_STREAM_TIMEOUT_MS = parseInt(process.env.REGISTRY_BLOB_STREAM_TIMEOUT_MS || '30000', 10);
 
 const protocol = config.registry.http ? 'http': 'https';
 const baseURL = `${protocol}://${config.registry.host}:${config.registry.port}`;
+
+const DIGEST_PATTERN = /^sha(256|512):[0-9a-f]{64,128}$/;
+
+/**
+ * Validate a blob/manifest digest against the OCI distribution form
+ * (`sha256:<64-hex>` or `sha512:<128-hex>`). Used to reject untrusted
+ * inputs before issuing registry calls — a malformed digest could
+ * otherwise be smuggled into the upstream URL path.
+ */
+export function isValidDigest(digest: string): boolean {
+  return DIGEST_PATTERN.test(digest);
+}
 
 /**
  * Encode a Docker registry repository name for use in a URL path. Repo
@@ -23,19 +35,30 @@ const baseURL = `${protocol}://${config.registry.host}:${config.registry.port}`;
  * which `encodeURIComponent` would convert to `%2F` — the registry then
  * treats the whole thing as one missing path component and returns 404.
  * Encode each segment individually, preserving the slashes.
+ *
+ * Rejects names with `//`, leading/trailing `/`, or `..` segments — those
+ * forms could escape into adjacent namespaces or trip up upstream parsers.
  */
 function encodeRepoName(name: string): string {
+  if (
+    name.includes('//') ||
+    name.startsWith('/') ||
+    name.endsWith('/') ||
+    name.split('/').some((s) => s === '..')
+  ) {
+    throw new Error(`Invalid repository name: ${name}`);
+  }
   return name.split('/').map(encodeURIComponent).join('/');
 }
 
 /**
  * Pre-configured client for talking to the underlying Docker registry's
  * v2 HTTP API. Authenticates with the service-account credentials in
- * config (these never leave this service  customers don't see them).
+ * config (these never leave this service — customers don't see them).
  *
  * The registry will respond with 401 + Bearer challenge for token-auth
  * mode, but our service uses the registry's catalog/manifest/blob v2 API
- * for management ops only  and for those, we follow the same flow
+ * for management ops only — and for those, we follow the same flow
  * customers do: we construct a `management` identity in-process and mint
  * a token via `token-service`, and use it here.
  *
@@ -45,7 +68,7 @@ function encodeRepoName(name: string): string {
 const client: AxiosInstance = axios.create({
   baseURL,
   timeout: 30_000,
-  // Self-signed registry support  same flag the existing api/plugin docker
+  // Self-signed registry support — same flag the existing api/plugin docker
   // strategies use (`IMAGE_REGISTRY_INSECURE`).
   httpsAgent: new Agent({ rejectUnauthorized: !config.registry.insecure }),
 });
@@ -74,22 +97,29 @@ async function getManagementToken(scopes: AccessScope[] = []): Promise<string> {
     if (cachedCatalogToken && cachedCatalogToken.expiresAt > now + 30_000) {
       return cachedCatalogToken.token;
     }
-    const token = await authorizeAndIssue(
+    const { token } = await authorizeAndIssue(
       { type: 'management' as const },
       [{ type: 'registry', name: 'catalog', actions: ['*'] }],
       'pipeline-image-registry-management',
     );
+    // Refresh at 80% of the JWT lifetime, minus a 30s safety buffer so a
+    // long request started near expiry can't race the cutover. Floored at
+    // 0 so an absurdly-short configured TTL doesn't go negative; effective
+    // minimum sane TTL is ~60s.
     cachedCatalogToken = {
       token,
-      expiresAt: now + (config.tokenSigning.expiresInSeconds * 1000 * 0.8),
+      expiresAt: now + Math.max(0, config.tokenSigning.expiresInSeconds * 1000 * 0.8 - 30_000),
     };
     return token;
   }
-  return authorizeAndIssue(
+  // Per-op token: don't bloat with the catalog scope — only include the
+  // scopes the operation actually needs.
+  const { token } = await authorizeAndIssue(
     { type: 'management' as const },
-    [{ type: 'registry', name: 'catalog', actions: ['*'] }, ...scopes],
+    scopes,
     'pipeline-image-registry-management',
   );
+  return token;
 }
 
 /** Wrap a request with a fresh bearer token scoped to the named repo + actions. */
@@ -135,7 +165,7 @@ export async function listTags(name: string): Promise<{ name: string; tags: stri
 
 /**
  * GET /v2/<name>/manifests/<reference>. Returns both the raw manifest body
- * and the digest header  callers need both for delete and tag-copy.
+ * and the digest header — callers need both for delete and tag-copy.
  */
 export async function getManifest( name: string,
   reference: string,
@@ -209,7 +239,7 @@ export async function headManifest( name: string,
     );
     const digest = headers['docker-content-digest'] as string | undefined;
     if (digest) return { digest };
-    // Fall back to GET  the body is small (a manifest, not a layer).
+    // Fall back to GET — the body is small (a manifest, not a layer).
     const m = await getManifest(name, reference);
     return { digest: m.digest };
   } catch (err) {
@@ -259,8 +289,23 @@ export async function getBlobStream( name: string,
 }
 
 /**
+ * GET a small blob (e.g. a config blob) as a parsed JSON object. Capped
+ * at 1 MB to keep this path inappropriate for layer blobs. Callers should
+ * use `getBlobStream` for anything larger.
+ */
+export async function getBlobJson<T = unknown>( name: string,
+  digest: string,
+): Promise<T> {
+  const c = await authedClient([{ type: 'repository', name, actions: ['pull'] }]);
+  const { data } = await c.get<T>( `/v2/${encodeRepoName(name)}/blobs/${encodeURIComponent(digest)}`,
+    { maxContentLength: 1024 * 1024, responseType: 'json' },
+  );
+  return data;
+}
+
+/**
  * Cross-mount a blob from `fromRepo` into `toRepo`. The blob bytes are
- * never transferred  the registry just makes the digest reachable from
+ * never transferred — the registry just makes the digest reachable from
  * the target repo's view. Used by cross-repo tag-copy to avoid re-uploading
  * layers that already live on the same registry.
  *
@@ -273,6 +318,9 @@ export async function mountBlob( fromRepo: string,
   toRepo: string,
   digest: string,
 ): Promise<{ mounted: true }> {
+  if (!isValidDigest(digest)) {
+    throw new Error(`Invalid digest format: ${digest}`);
+  }
   const c = await authedClient([
     { type: 'repository', name: fromRepo, actions: ['pull'] },
     { type: 'repository', name: toRepo, actions: ['push', 'pull'] },

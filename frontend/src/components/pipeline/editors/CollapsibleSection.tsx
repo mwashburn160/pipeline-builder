@@ -1,5 +1,5 @@
-import { useState, ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { type ReactNode } from 'react';
+import { Disclosure } from '@/components/ui/Disclosure';
 
 /** Props for {@link CollapsibleSection}. */
 interface CollapsibleSectionProps {
@@ -14,39 +14,32 @@ interface CollapsibleSectionProps {
 }
 
 /**
- * Collapsible form section with a toggle header.
- *
- * Renders a bordered container with a clickable header that expands/collapses
- * the child content. Shows a "configured" badge when hasContent is true to
- * indicate that the section has non-default values.
+ * Thin wrapper around the shared `Disclosure` primitive that preserves the
+ * pipeline-editor-specific "configured" badge UX. New code should use
+ * `@/components/ui/Disclosure` directly; this file remains so the many
+ * existing editor imports keep working without a sweeping rename.
  */
-export default function CollapsibleSection({ title, defaultOpen = false, children, hasContent }: CollapsibleSectionProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
+export default function CollapsibleSection({
+  title,
+  defaultOpen = false,
+  children,
+  hasContent,
+}: CollapsibleSectionProps) {
   return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-xl">
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-      >
-        <span className="flex items-center">
-          {title}
+    <Disclosure
+      defaultOpen={defaultOpen}
+      title={
+        <>
+          <span>{title}</span>
           {hasContent && (
-            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
               configured
             </span>
           )}
-        </span>
-        <ChevronDown
-          className={`w-5 h-5 text-gray-400 dark:text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {isOpen && (
-        <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
-          {children}
-        </div>
-      )}
-    </div>
+        </>
+      }
+    >
+      {children}
+    </Disclosure>
   );
 }

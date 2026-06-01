@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { entityEvents, createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import {
   CoreConstants,
   CrudService,
@@ -77,23 +77,31 @@ export class PluginService extends CrudService<
 
   // -- Lifecycle hooks — emit events + invalidate cache ---------------------
 
-  private invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Plugin, userId: string) {
-    pluginCache.invalidatePattern(`${entity.orgId}:*`).catch((err) => {
+  private async invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Plugin, userId: string): Promise<void> {
+    try {
+      await pluginCache.invalidatePattern(`${entity.orgId}:*`);
+      // System-org content is visible to every tenant via the dashboard;
+      // when a system entity changes, evict the per-id cache key across
+      // every cached org so no tenant serves a stale copy.
+      if (entity.orgId === SYSTEM_ORG_ID) {
+        await pluginCache.invalidatePattern(`*:id:${entity.id}`);
+      }
+    } catch (err) {
       logger.debug(`Cache invalidation failed after plugin ${eventType}`, { orgId: entity.orgId, error: errorMessage(err) });
-    });
+    }
     entityEvents.emit({ eventType, target: 'plugin', entityId: id, orgId: entity.orgId, userId, timestamp: new Date(), attributes: entity });
   }
 
-  protected async onAfterCreate(entity: Plugin): Promise<void> {
-    this.invalidateAndEmit('created', entity.id, entity, entity.createdBy);
+  protected async onAfterCreate(entity: Plugin, userId: string): Promise<void> {
+    await this.invalidateAndEmit('created', entity.id, entity, userId);
   }
 
-  protected async onAfterUpdate(id: string, entity: Plugin): Promise<void> {
-    this.invalidateAndEmit('updated', id, entity, entity.updatedBy);
+  protected async onAfterUpdate(id: string, entity: Plugin, userId: string): Promise<void> {
+    await this.invalidateAndEmit('updated', id, entity, userId);
   }
 
-  protected async onAfterDelete(id: string, entity: Plugin): Promise<void> {
-    this.invalidateAndEmit('deleted', id, entity, entity.updatedBy);
+  protected async onAfterDelete(id: string, entity: Plugin, userId: string): Promise<void> {
+    await this.invalidateAndEmit('deleted', id, entity, userId);
   }
 
   /** Atomically deploy a new plugin version as default (clears old defaults for same name+org). */

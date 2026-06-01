@@ -185,7 +185,8 @@ export class InternalHttpClient {
     options?: RequestOptions,
   ): Promise<HttpClientResponse<T>> {
     return new Promise((resolve, reject) => {
-      const bodyStr = body ? JSON.stringify(body) : undefined;
+      // Serialize when body is defined (including 0/false/'' which are valid JSON values).
+      const bodyStr = body !== undefined ? JSON.stringify(body) : undefined;
 
       const headers: http.OutgoingHttpHeaders = {
         'Content-Type': 'application/json',

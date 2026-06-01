@@ -8,15 +8,9 @@ import * as logService from '../services/log-service';
 /**
  * Query logs with automatic org-scoped filtering.
  *
- * @route GET /logs
- * @query {string} [service] - Filter by service name
- * @query {string} [level] - Filter by log level (error, warn, info, debug)
- * @query {string} [search] - Free-text search within log lines
- * @query {string} [orgId] - Organization ID (system admins only)
- * @query {string} [start] - Start time (ISO 8601 or epoch ms, default: 1h ago)
- * @query {string} [end] - End time (ISO 8601 or epoch ms, default: now)
- * @query {number} [limit=100] - Max entries (1-1000)
- * @query {string} [direction=backward] - Sort: 'forward' or 'backward'
+ * Sysadmins may pass `orgId` (or omit it for all-org search); everyone else
+ * is force-scoped to their own org. Returns at most 1000 entries; `start`/`end`
+ * default to (now-1h, now) and accept ISO 8601 or epoch ms.
  */
 export const queryLogs = withController('Query logs', async (req, res) => {
   if (!requireAuth(req, res)) return;
@@ -56,8 +50,6 @@ export const queryLogs = withController('Query logs', async (req, res) => {
 
 /**
  * Get available service names from Loki.
- *
- * @route GET /logs/services
  */
 export const getLogServices = withController('Get log services', async (req, res) => {
   if (!requireAuth(req, res)) return;
@@ -68,8 +60,6 @@ export const getLogServices = withController('Get log services', async (req, res
 
 /**
  * Get available log levels from Loki.
- *
- * @route GET /logs/levels
  */
 export const getLogLevels = withController('Get log levels', async (req, res) => {
   if (!requireAuth(req, res)) return;

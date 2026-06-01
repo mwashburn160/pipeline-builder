@@ -84,7 +84,6 @@ echo "=== Ensuring data directories exist ==="
 mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/db-data/postgres" \
          "$DEPLOY_DIR/data/db-data/redis" \
-         "$DEPLOY_DIR/data/db-data/grafana" \
          "$DEPLOY_DIR/data/db-data/loki" \
          "$DEPLOY_DIR/data/db-data/prometheus" \
          "$DEPLOY_DIR/data/registry-data" \

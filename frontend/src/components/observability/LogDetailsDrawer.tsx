@@ -34,7 +34,8 @@ export function LogDetailsDrawer({ entry, onClose }: LogDetailsDrawerProps) {
   // we don't want to re-bind the keydown listener on every entry change.
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-      e.stopPropagation();
+      // Listener is only mounted while the drawer is open, so calling
+      // onClose() is sufficient — no need to stop propagation.
       onClose();
     }
   }, [onClose]);

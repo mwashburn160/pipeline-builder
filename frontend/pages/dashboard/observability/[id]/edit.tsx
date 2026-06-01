@@ -15,19 +15,20 @@ import { api, ApiError } from '@/lib/api';
 import type { DashboardWithPanels, DashboardPanel, CatalogEntry, DashboardWrite } from '@/types/observability';
 import type { LayoutPanelInput, PanelCoords } from '@/components/observability/DashboardLayoutGrid';
 
-//  load the grid-layout driver only on this page. `ssr: false` is
+// Load the grid-layout driver only on this page. `ssr: false` is
 // load-bearing: react-grid-layout reads `window` during measurement.
 const DashboardLayoutGrid = dynamic(() => import('@/components/observability/DashboardLayoutGrid'), { ssr: false });
 
 /**
  * Dashboard editor.
  *
- * Two modes share the same draft state * - Grid: react-grid-layout drag-resize; coords flow into
- * `layoutJson` via a position-based key (`p-${index}`) that survives
- * PUT (which re-assigns panel ids).
+ * Two modes share the same draft state:
+ * - Grid: react-grid-layout drag-resize; coords flow into
+ *   `layoutJson` via a position-based key (`p-${index}`) that survives
+ *   PUT (which re-assigns panel ids).
  * - List: linear ArrowUp/Down + span dropdown; kept for keyboard /
- * accessibility users and as the fallback if the grid library fails
- * to load.
+ *   accessibility users and as the fallback if the grid library fails
+ *   to load.
  *
  * The grid module is `next/dynamic`-imported so the ~120 KB react-grid-layout
  * bundle only ships when an editor is open.
@@ -89,8 +90,8 @@ export default function DashboardEditPage() {
         setVisibility(d.visibility);
         setPanels(d.panels.map(({ id: _id, dashboardId: _did,...rest }) => rest));
         // layoutJson keys are `p-${position}` end-to-end (server keeps
-        // whatever map we send). Position-based keys survive PUT  which
-        // re-assigns panel ids  without invalidating the saved layout.
+        // whatever map we send). Position-based keys survive PUT — which
+        // re-assigns panel ids — without invalidating the saved layout.
         setLayoutJson(d.layoutJson ?? {});
         setCatalog(cRes.data?.entries ?? []);
       } catch (err) {
@@ -156,7 +157,7 @@ export default function DashboardEditPage() {
         vars: {},
       },
     ]);
-    // New panels have no saved coords  the grid driver computes a default
+    // New panels have no saved coords — the grid driver computes a default
     // slot on render; no layoutJson update needed at insert time.
     setShowAddPanel(false);
   }, []);
@@ -257,12 +258,12 @@ export default function DashboardEditPage() {
             >
               <option value="private">Private (only me)</option>
               <option value="org">Org (anyone in my organization)</option>
-              <option value="public">Public (every authenticated user)  sysadmin only</option>
+              <option value="public">Public (every authenticated user) — sysadmin only</option>
             </select>
           </div>
         </div>
 
-        {/* Panels  grid or list view; mode-switch keeps the linear
+        {/* Panels — grid or list view; mode-switch keeps the linear
             UI as an option for keyboard / accessibility users. */}
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
@@ -304,7 +305,7 @@ export default function DashboardEditPage() {
                 renderPanel={(_panel, i) => (                  <div className="h-full flex flex-col gap-1">
                     <div className="flex items-center gap-2 mb-1">
                       {/* `.grid-drag-handle` is the only zone where dragging the
-                          panel is allowed  keeps inputs clickable inside. */}
+                          panel is allowed — keeps inputs clickable inside. */}
                       <span className="grid-drag-handle cursor-move text-gray-400" aria-label="Drag panel">
                         <GripVertical className="w-3.5 h-3.5" />
                       </span>

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { config } from '../config';
@@ -18,6 +18,7 @@ import {
   UA_ORG_NOT_FOUND,
 } from '../services';
 import { parsePagination } from '../utils/pagination';
+import { adminUpdateUserSchema, validateBody } from '../utils/validation';
 
 const logger = createLogger('user-admin-controller');
 
@@ -145,20 +146,26 @@ export const updateUserById = withController('Update user', async (req, res) => 
 
   const id = req.params.id as string;
 
+  // Validate body shape + types before any DB work. Rejects unknown fields
+  // (`.strict()`) so an attacker can't slip in tokenVersion / isSuperAdmin
+  // via the admin endpoint.
+  const body = validateBody(adminUpdateUserSchema, req.body, res);
+  if (!body) return;
+
   // Org-admin authz pre-check (separate from the update so we can 403 early
   // without touching the DB record). System-admin can change org assignment;
   // org-admin can't.
   if (admin.isOrgAdmin) {
     const allowed = await userAdminService.hasMembershipInOrg(id, req.user!.organizationId!);
     if (!allowed) return sendError(res, 403, 'Forbidden: Can only update users in your organization');
-    if (req.body.organizationId !== undefined) {
+    if (body.organizationId !== undefined) {
       return sendError(res, 403, 'Forbidden: Only system admins can change user organization');
     }
   }
 
   const { user, changes, organizationName, activeOrgRole } = await userAdminService.updateUserById(
     id,
-    req.body,
+    body,
     {
       isOrgAdmin: admin.isOrgAdmin,
       adminOrgId: admin.isOrgAdmin ? req.user!.organizationId : undefined,
@@ -224,20 +231,19 @@ export const bulkDeleteUsers = withController('Bulk delete users', async (req, r
     return sendError(res, 403, 'Forbidden: Bulk delete is sysadmin-only');
   }
 
-  const ids = (req.body as { ids?: unknown })?.ids;
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return sendError(res, 400, 'ids must be a non-empty array of user ids');
-  }
-  if (ids.length > 100) {
-    return sendError(res, 400, 'Batch size limited to 100 ids per request');
-  }
-  if (ids.some((id) => typeof id !== 'string' || id.length === 0)) {
+  // Shared length/non-empty/cap validation via api-core. The per-item
+  // shape check (string + non-empty) stays local — validateBulkArray
+  // intentionally doesn't validate item shape.
+  const arrCheck = validateBulkArray<string>((req.body as { ids?: unknown })?.ids, 'ids', 100);
+  if ('error' in arrCheck) return sendError(res, 400, arrCheck.error);
+  const ids = arrCheck.value;
+  if (!ids.every((id) => typeof id === 'string' && id.length > 0)) {
     return sendError(res, 400, 'ids must be non-empty strings');
   }
 
   const results: Array<{ id: string; ok: boolean; error?: string; affectedOrgId?: string }> = [];
 
-  for (const id of ids as string[]) {
+  for (const id of ids) {
     if (id === req.user!.sub) {
       results.push({ id, ok: false, error: 'Cannot delete your own account' });
       continue;

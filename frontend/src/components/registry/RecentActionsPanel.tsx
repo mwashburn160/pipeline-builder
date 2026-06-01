@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
-import { History, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { History, ExternalLink } from 'lucide-react';
 import { CopyButton } from '@/components/ui/CopyButton';
+import { Disclosure } from '@/components/ui/Disclosure';
 import { buildAuditLogLink } from '@/lib/registry-audit-link';
 
 export type RecentAction =
@@ -25,23 +25,23 @@ interface RecentActionsPanelProps {
  * structured audit log shipped via `emitAudit` in api-core.
  */
 export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
-  const [open, setOpen] = useState(false);
   if (actions.length === 0) return null;
 
   return (
-    <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-      >
-        {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        <History className="w-3.5 h-3.5" />
-        Recent actions ({actions.length})
-        <span className="ml-auto text-gray-400 font-normal">this session</span>
-      </button>
-      {open && (
-        <ul className="max-h-48 overflow-auto px-4 pb-2 space-y-1 text-xs">
-          {actions.map((a, i) => {
+    <Disclosure
+      className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50"
+      summaryClassName="cursor-pointer list-none w-full flex items-center gap-2 px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+      bodyClassName=""
+      title={
+        <>
+          <History className="w-3.5 h-3.5" />
+          <span>Recent actions ({actions.length})</span>
+          <span className="ml-auto text-gray-400 font-normal">this session</span>
+        </>
+      }
+    >
+      <ul className="max-h-48 overflow-auto px-4 pb-2 space-y-1 text-xs">
+        {actions.map((a, i) => {
             const auditHref = a.kind === 'copy'
               ? buildAuditLogLink({ kind: 'copy', at: a.at, digest: a.digest, source: a.source, target: a.target })
               : buildAuditLogLink({ kind: 'delete', at: a.at, digest: a.digest, repo: a.repo, ref: a.ref });
@@ -85,8 +85,7 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
               </li>
             );
           })}
-        </ul>
-      )}
-    </div>
+      </ul>
+    </Disclosure>
   );
 }

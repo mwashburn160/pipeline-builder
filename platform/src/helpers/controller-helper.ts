@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, isSystemAdmin as apiCoreIsSystemAdmin, isSystemOrgId, sendError } from '@pipeline-builder/api-core';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 
@@ -42,23 +42,46 @@ export function withController(
 
 // Auth Helpers
 
-export function isSystemAdmin(req: Request): boolean {
-  const role = req.user?.role;
-  if (role !== 'admin' && role !== 'owner') return false;
-  const orgId = req.user?.organizationId?.toLowerCase();
-  const orgName = req.user?.organizationName?.toLowerCase();
-  return orgId === SYSTEM_ORG_ID || orgName === SYSTEM_ORG_ID;
-}
+/**
+ * Re-exports api-core's privilege gate. The previous local implementation
+ * granted sysadmin authority based on org membership (`organizationId` or
+ * `organizationName === 'system'`), but that path was a privilege-escalation
+ * vector: any user whose active org was named "system" became a platform
+ * sysadmin. Only the explicit `req.user.isSuperAdmin === true` claim should
+ * confer platform-wide authority. Keeping this re-export so existing
+ * `import { isSystemAdmin } from '../helpers/controller-helper'` callers
+ * keep working.
+ */
+export const isSystemAdmin = apiCoreIsSystemAdmin;
 
+/**
+ * `isOrgAdmin` excludes sysadmins (who get separate handling) AND members
+ * of the legacy "system" content-holder org — the latter holds shared
+ * sample data and is a content boundary, not a write target.
+ */
 export function isOrgAdmin(req: Request): boolean {
   const role = req.user?.role;
-  return (role === 'admin' || role === 'owner') && !isSystemAdmin(req);
+  if (role !== 'admin' && role !== 'owner') return false;
+  if (isSystemAdmin(req)) return false;
+  if (isSystemOrgId(req.user?.organizationId, req.user?.organizationName)) return false;
+  return true;
 }
 
 /**
  * Verify request is authenticated. Sends 401 if not.
  * Acts as a TypeScript type guard — after `if (!requireAuth(req, res)) return;`,
  * `req.user` is narrowed to non-null.
+ *
+ * NOTE: api-core also exports a `requireAuth` (`@pipeline-builder/api-core`)
+ * but that is Express middleware with signature `(req, res, next) => void`.
+ * The two are deliberately kept separate because they solve different
+ * problems:
+ *   - Use api-core's `requireAuth` in a router chain to *enforce* auth as
+ *     middleware: `router.get('/x', requireAuth, handler)`.
+ *   - Use THIS helper inside a controller body to short-circuit + narrow
+ *     the type when the middleware was already applied at the route level
+ *     but TypeScript can't see the guarantee.
+ * If you're tempted to call both, you only need the middleware version.
  */
 export function requireAuth(req: Request, res: Response): req is Request & { user: NonNullable<Request['user']> } {
   if (!req.user) {
@@ -104,6 +127,31 @@ export function requireOrgMembership(req: Request, res: Response): string | null
     return null;
   }
   return orgId;
+}
+
+/**
+ * Combined auth + org-membership guard. Returns `{ userId, orgId }` when
+ * both are present, or `null` after writing a 401/400 response. Lets
+ * controllers replace the recurring three-liner:
+ *
+ *   const userId = req.user?.sub;
+ *   const orgId  = req.user?.organizationId;
+ *   if (!userId || !orgId) return sendError(res, 401, 'Unauthorized');
+ *
+ * with `const ctx = requireAuthContext(req, res); if (!ctx) return;`.
+ *
+ * Status codes match the underlying helpers: 401 for missing user
+ * (via requireAuthUserId), 400 for missing org (via requireOrgMembership).
+ */
+export function requireAuthContext(
+  req: Request,
+  res: Response,
+): { userId: string; orgId: string } | null {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return null;
+  const orgId = requireOrgMembership(req, res);
+  if (!orgId) return null;
+  return { userId, orgId };
 }
 
 // Admin Context

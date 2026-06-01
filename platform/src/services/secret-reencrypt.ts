@@ -28,10 +28,10 @@
  * left in a half-rotated state.
  */
 
-import { createLogger, decryptSecret, encryptSecret, isEncryptedBlob } from '@pipeline-builder/api-core';
-import type { EncryptedBlob } from '@pipeline-builder/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import { Organization } from '../models';
 import OrgIdpConfig from '../models/org-idp-config';
+import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob';
 
 const logger = createLogger('secret-reencrypt');
 
@@ -42,19 +42,6 @@ interface CapturedSecrets {
   aiKeys: Partial<Record<string, string>>;
   /** Decrypted IdP client secret, if the org has one configured. */
   idpClientSecret?: string;
-}
-
-/** Decrypt a stored blob with the active provider. Throws on malformed input. */
-function decryptBlob(raw: string, orgId: string): string {
-  if (!raw.startsWith('{')) throw new Error('value is not a JSON-encoded EncryptedBlob');
-  const parsed = JSON.parse(raw);
-  if (!isEncryptedBlob(parsed)) throw new Error('value does not match EncryptedBlob shape');
-  return decryptSecret(parsed as EncryptedBlob, orgId);
-}
-
-/** Encrypt a plaintext for storage. */
-function encryptForStorage(plaintext: string, orgId: string): string {
-  return JSON.stringify(encryptSecret(plaintext, orgId));
 }
 
 /**
@@ -71,7 +58,7 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
       const raw = (org.aiProviderKeys as Record<string, string | undefined>)[provider];
       if (!raw) continue;
       try {
-        captured.aiKeys[provider] = decryptBlob(raw, orgId);
+        captured.aiKeys[provider] = unwrapEncrypted(raw, orgId, `aiProviderKeys.${provider}`);
       } catch (err) {
         throw new Error(`Failed to decrypt aiProviderKeys.${provider} for org ${orgId} (cannot proceed with rotation without first repairing this row): ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -81,7 +68,7 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
   const idp = await OrgIdpConfig.findOne({ orgId }).select('clientSecretEncrypted').lean();
   if (idp?.clientSecretEncrypted) {
     try {
-      captured.idpClientSecret = decryptBlob(idp.clientSecretEncrypted, orgId);
+      captured.idpClientSecret = unwrapEncrypted(idp.clientSecretEncrypted, orgId, 'idpClientSecret');
     } catch (err) {
       throw new Error(`Failed to decrypt IdP clientSecret for org ${orgId}: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -106,7 +93,7 @@ export async function reencryptOrgSecrets(orgId: string, captured: CapturedSecre
     if (!orgDoc.aiProviderKeys) orgDoc.aiProviderKeys = {};
     for (const [provider, plaintext] of Object.entries(captured.aiKeys)) {
       if (!plaintext) continue;
-      (orgDoc.aiProviderKeys as Record<string, string | undefined>)[provider] = encryptForStorage(plaintext, orgId);
+      (orgDoc.aiProviderKeys as Record<string, string | undefined>)[provider] = wrapEncrypted(plaintext, orgId);
       aiKeysReencrypted++;
     }
     orgDoc.markModified('aiProviderKeys');
@@ -114,7 +101,7 @@ export async function reencryptOrgSecrets(orgId: string, captured: CapturedSecre
   }
 
   if (captured.idpClientSecret) {
-    const wrapped = encryptForStorage(captured.idpClientSecret, orgId);
+    const wrapped = wrapEncrypted(captured.idpClientSecret, orgId);
     await OrgIdpConfig.updateOne({ orgId }, { $set: { clientSecretEncrypted: wrapped } });
     idpSecretReencrypted = true;
   }

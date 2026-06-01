@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
+import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
@@ -21,8 +22,6 @@ interface EditPluginModalProps {
 
 /** Modal for editing plugin metadata, configuration, and access settings. */
 export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved }: EditPluginModalProps) {
-  const [fullPlugin, setFullPlugin] = useState<Plugin | null>(null);
-  const [fetching, setFetching] = useState(true);
   const [name, setName] = useState(plugin.name);
   const [description, setDescription] = useState(plugin.description || '');
   const [keywords, setKeywords] = useState(plugin.keywords?.join(', ') || '');
@@ -42,55 +41,47 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
   const [accessModifier, setAccessModifier] = useState<'public' | 'private'>(plugin.accessModifier);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const { execute: saveAsync, loading, error: saveError } = useAsyncCallback(
+  const { execute: saveAsync, loading, error: saveError, clearError } = useAsyncCallback(
     (data: Parameters<typeof api.updatePlugin>[1]) => api.updatePlugin(plugin.id, data),
   );
   const error = validationError || saveError;
 
-  // Fetch full plugin data by ID to ensure description/keywords are populated
+  // Fetch full plugin by ID; useEntityFetch only re-fires on id change so
+  // a stale re-mount won't overwrite in-progress user edits.
+  const fetchPlugin = useCallback(async (id: string): Promise<Plugin> => {
+    const response = await api.getPluginById(id);
+    return response.data?.plugin ?? plugin;
+  }, [plugin]);
+  const { entity: fullPlugin, fetching } = useEntityFetch<Plugin>(plugin.id, fetchPlugin, plugin);
+
+  // Seed editable fields once the full record loads (only fires when the
+  // fetched entity changes, not on every render).
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await api.getPluginById(plugin.id);
-        if (!cancelled) {
-          const fetched = response.data?.plugin;
-          if (fetched) {
-            setFullPlugin(fetched);
-            setName(fetched.name);
-            setDescription(fetched.description || '');
-            setKeywords(fetched.keywords?.join(', ') || '');
-            setVersion(fetched.version);
-            setMetadata(formatJSON(fetched.metadata || {}));
-            setPluginType(fetched.pluginType);
-            setComputeType(fetched.computeType);
-            setEnv(formatJSON(fetched.env || {}));
-            setInstallCommands(fetched.installCommands?.join('\n') || '');
-            setCommands(fetched.commands?.join('\n') || '');
-            setIsActive(fetched.isActive);
-            setIsDefault(fetched.isDefault);
-            setPrimaryOutputDirectory(fetched.primaryOutputDirectory || '');
-            setPluginTimeout(fetched.timeout != null ? String(fetched.timeout) : '');
-            setFailureBehavior(fetched.failureBehavior || 'fail');
-            setSecrets(formatJSON(fetched.secrets || []));
-            setAccessModifier(fetched.accessModifier);
-          } else {
-            setFullPlugin(plugin);
-          }
-        }
-      } catch {
-        if (!cancelled) setFullPlugin(plugin);
-      } finally {
-        if (!cancelled) setFetching(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [plugin.id]);
+    if (!fullPlugin) return;
+    setName(fullPlugin.name);
+    setDescription(fullPlugin.description || '');
+    setKeywords(fullPlugin.keywords?.join(', ') || '');
+    setVersion(fullPlugin.version);
+    setMetadata(formatJSON(fullPlugin.metadata || {}));
+    setPluginType(fullPlugin.pluginType);
+    setComputeType(fullPlugin.computeType);
+    setEnv(formatJSON(fullPlugin.env || {}));
+    setInstallCommands(fullPlugin.installCommands?.join('\n') || '');
+    setCommands(fullPlugin.commands?.join('\n') || '');
+    setIsActive(fullPlugin.isActive);
+    setIsDefault(fullPlugin.isDefault);
+    setPrimaryOutputDirectory(fullPlugin.primaryOutputDirectory || '');
+    setPluginTimeout(fullPlugin.timeout != null ? String(fullPlugin.timeout) : '');
+    setFailureBehavior(fullPlugin.failureBehavior || 'fail');
+    setSecrets(formatJSON(fullPlugin.secrets || []));
+    setAccessModifier(fullPlugin.accessModifier);
+  }, [fullPlugin]);
 
   // Resolved plugin data (fetched by ID, or fallback to list data)
   const p = fullPlugin ?? plugin;
 
   const handleSave = async () => {
+    clearError();
     setValidationError(null);
     setSuccess(null);
 
@@ -102,6 +93,17 @@ export default function EditPluginModal({ plugin, isSuperAdmin, onClose, onSaved
 
     const parsedSecrets = secrets.trim() ? safeJSONParse<Array<{ name: string; required: boolean; description?: string }> | null>(secrets, null) : [];
     if (parsedSecrets === null) { setValidationError('Invalid JSON in secrets field'); return; }
+
+    // I31: If user explicitly cleared the metadata textarea but the original
+    // record had metadata, confirm before wiping prior fields.
+    const originalHadMetadata = !!fullPlugin?.metadata && Object.keys(fullPlugin.metadata).length > 0;
+    const submittingEmpty = !metadata.trim() || Object.keys(parsedMetadata as Record<string, unknown>).length === 0;
+    if (originalHadMetadata && submittingEmpty) {
+      const ok = typeof window !== 'undefined'
+        ? window.confirm('Clear all metadata fields? This will wipe prior metadata.')
+        : true;
+      if (!ok) return;
+    }
 
     const response = await saveAsync({
       name,

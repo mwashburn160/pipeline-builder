@@ -11,6 +11,7 @@ import {
   getParam,
   getServiceAuthHeader,
   parseQueryInt,
+  parseQueryIntClamped,
   parseQueryString,
   validateBody,
 } from '@pipeline-builder/api-core';
@@ -44,7 +45,7 @@ export function createAdminSubscriptionRoutes(): Router {
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const limit = parseQueryInt(req.query.limit, 50);
+      const limit = parseQueryIntClamped(req.query.limit, 50, 200);
       const offset = parseQueryInt(req.query.offset, 0);
       const status = parseQueryString(req.query.status);
 
@@ -95,23 +96,19 @@ export function createAdminSubscriptionRoutes(): Router {
         // Sync tier via service-to-service auth (avoid forwarding the
         // admin's bearer to the quota service).
         const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId });
-        await syncTierToQuotaService(orgId, plan.tier, serviceAuth);
+        await syncTierToQuotaService(orgId, plan.tier, serviceAuth, subscriptionId);
         await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId);
       }
 
       if (status && status !== subscription.status) {
         subscription.status = status;
         await createBillingEvent(orgId, 'subscription_updated', { status }, subscriptionId);
-      } else if (status) {
-        subscription.status = status;
       }
 
       if (interval && interval !== subscription.interval) {
         const oldInterval = subscription.interval;
         subscription.interval = interval;
         await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId);
-      } else if (interval) {
-        subscription.interval = interval;
       }
 
       if (cancelAtPeriodEnd !== undefined) subscription.cancelAtPeriodEnd = cancelAtPeriodEnd;
@@ -133,7 +130,7 @@ export function createAdminSubscriptionRoutes(): Router {
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const limit = parseQueryInt(req.query.limit, 50);
+      const limit = parseQueryIntClamped(req.query.limit, 50, 200);
       const offset = parseQueryInt(req.query.offset, 0);
       const orgId = parseQueryString(req.query.orgId);
 

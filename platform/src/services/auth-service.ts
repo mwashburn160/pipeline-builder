@@ -3,15 +3,12 @@
 
 import crypto from 'crypto';
 import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import mongoose from 'mongoose';
+import { config } from '../config';
 import { User, Organization, UserOrganization } from '../models';
+import { withMongoTransaction } from '../utils/mongo-tx';
 import { hashRefreshToken } from '../utils/token';
 
 const logger = createLogger('auth-service');
-
-/** Token validity period for email verification. Defaults to 24 hours;
- *  shorten via `AUTH_VERIFICATION_TOKEN_TTL_MS` for stricter security postures. */
-const VERIFICATION_TOKEN_TTL_MS = parseInt(process.env.AUTH_VERIFICATION_TOKEN_TTL_MS || String(24 * 60 * 60 * 1000), 10);
 
 /** Domain error codes thrown by service methods (mapped to HTTP status by the controller). */
 export const DUPLICATE_CREDENTIALS = 'DUPLICATE_CREDENTIALS';
@@ -51,68 +48,61 @@ class AuthService {
    * Throws `DUPLICATE_CREDENTIALS` if email or username is already taken.
    */
   async register(input: RegisterInput): Promise<RegisterResult> {
-    const session = await mongoose.startSession();
+    return withMongoTransaction(async (session) => {
+      const { username, email, password, organizationName, planId } = input;
 
-    try {
-      let result!: RegisterResult;
+      const existing = await User.exists({
+        $or: [{ email: email.toLowerCase() }, { username: username.toLowerCase() }],
+      }).session(session);
 
-      await session.withTransaction(async () => {
-        const { username, email, password, organizationName, planId } = input;
+      if (existing) {
+        throw new Error(DUPLICATE_CREDENTIALS);
+      }
 
-        const existing = await User.exists({
-          $or: [{ email: email.toLowerCase() }, { username: username.toLowerCase() }],
-        }).session(session);
+      const trimmedOrgName = organizationName?.trim();
+      const effectiveOrgName = trimmedOrgName && trimmedOrgName.length >= 2
+        ? trimmedOrgName
+        : username;
 
-        if (existing) {
-          throw new Error(DUPLICATE_CREDENTIALS);
-        }
+      const user = new User({ username, email, password });
 
-        const trimmedOrgName = organizationName?.trim();
-        const effectiveOrgName = trimmedOrgName && trimmedOrgName.length >= 2
-          ? trimmedOrgName
-          : username;
+      const isSystemOrg = effectiveOrgName.toLowerCase() === SYSTEM_ORG_ID;
 
-        const user = new User({ username, email, password });
+      const orgData: Record<string, unknown> = {
+        name: isSystemOrg ? SYSTEM_ORG_ID : effectiveOrgName,
+        owner: user._id,
+      };
 
-        const isSystemOrg = effectiveOrgName.toLowerCase() === SYSTEM_ORG_ID;
+      if (isSystemOrg) {
+        orgData._id = SYSTEM_ORG_ID;
+        orgData.tier = 'unlimited';
+        orgData.quotas = { plugins: -1, pipelines: -1, apiCalls: -1 };
+      }
 
-        const orgData: Record<string, unknown> = {
-          name: isSystemOrg ? SYSTEM_ORG_ID : effectiveOrgName,
-          owner: user._id,
-        };
+      const [org] = await Organization.create([orgData], { session });
+      const orgId = String(org._id);
 
-        if (isSystemOrg) {
-          orgData._id = SYSTEM_ORG_ID;
-          orgData.tier = 'unlimited';
-          orgData.quotas = { plugins: -1, pipelines: -1, apiCalls: -1 };
-        }
+      await UserOrganization.create([{
+        userId: user._id,
+        organizationId: org._id,
+        role: 'owner',
+      }], { session });
 
-        const [org] = await Organization.create([orgData], { session });
-        const orgId = String(org._id);
+      // `lastActiveOrgId` is typed `string` (with a validator that also
+      // accepts the literal 'system' sentinel); always stringify the
+      // ObjectId here so the assignment matches the schema.
+      user.lastActiveOrgId = String(org._id);
+      await user.save({ session });
 
-        await UserOrganization.create([{
-          userId: user._id,
-          organizationId: org._id,
-          role: 'owner',
-        }], { session });
-
-        user.lastActiveOrgId = org._id as mongoose.Types.ObjectId;
-        await user.save({ session });
-
-        result = {
-          sub: user._id.toString(),
-          email: user.email,
-          role: 'owner',
-          organizationId: orgId,
-          organizationName: org.name,
-          planId: isSystemOrg ? 'unlimited' : (planId || 'developer'),
-        };
-      });
-
-      return result;
-    } finally {
-      await session.endSession();
-    }
+      return {
+        sub: user._id.toString(),
+        email: user.email,
+        role: 'owner',
+        organizationId: orgId,
+        organizationName: org.name,
+        planId: isSystemOrg ? 'unlimited' : (planId || 'developer'),
+      };
+    });
   }
 
   /**
@@ -120,9 +110,13 @@ class AuthService {
    * Returns null on no-match or wrong password (controller responds 401).
    */
   async findByCredentials(identifier: string, password: string) {
+    // `+isSuperAdmin` is needed because the schema marks the field
+    // `select: false`; without an explicit opt-in the JWT issued from
+    // this user object would never carry the sysadmin claim and a real
+    // super-admin would silently lose privileges on login.
     const user = await User.findOne({
       $or: [{ email: identifier.toLowerCase() }, { username: identifier.toLowerCase() }],
-    }).select('+password +tokenVersion');
+    }).select('+password +tokenVersion +isSuperAdmin');
 
     if (!user || !(await user.comparePassword(password))) return null;
     return user;
@@ -135,7 +129,11 @@ class AuthService {
    */
   async rotateRefreshToken(userId: string, oldRefreshToken: string) {
     const oldHash = hashRefreshToken(oldRefreshToken);
-    return User.findOne({ _id: userId, refreshToken: oldHash }).select('+refreshToken +tokenVersion');
+    // `+isSuperAdmin` — refresh rotation reissues the access token via
+    // `issueTokens(user)`, which reads `user.isSuperAdmin` to set the JWT
+    // claim. Without the explicit opt-in (schema is `select: false`) every
+    // refresh would silently downgrade a sysadmin.
+    return User.findOne({ _id: userId, refreshToken: oldHash }).select('+refreshToken +tokenVersion +isSuperAdmin');
   }
 
   /**
@@ -164,7 +162,9 @@ class AuthService {
     if (!membership) return null;
 
     await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: organizationId } });
-    return User.findById(userId).select('+tokenVersion');
+    // `+isSuperAdmin` — switching orgs reissues a JWT and must preserve
+    // the sysadmin claim. Schema marks the field `select: false`.
+    return User.findById(userId).select('+tokenVersion +isSuperAdmin');
   }
 
   /**
@@ -181,7 +181,7 @@ class AuthService {
 
     const rawToken = crypto.randomBytes(32).toString('hex');
     user.emailVerificationToken = crypto.createHash('sha256').update(rawToken).digest('hex');
-    user.emailVerificationExpires = new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS);
+    user.emailVerificationExpires = new Date(Date.now() + config.auth.verificationTokenTtlMs);
     await user.save();
 
     return { rawToken, email: user.email, alreadyVerified: false };
@@ -196,10 +196,12 @@ class AuthService {
    * don't collide.
    */
   async findOrCreateOAuthUser(providerName: string, userInfo: { id: string; email: string; name?: string; picture?: string }) {
-    const byOAuth = await User.findOne({ [`oauth.${providerName}.id`]: userInfo.id }).select('+tokenVersion');
+    // `+isSuperAdmin` opts in to a schema field with `select: false`; the
+    // returned user feeds JWT issuance and must carry the real flag.
+    const byOAuth = await User.findOne({ [`oauth.${providerName}.id`]: userInfo.id }).select('+tokenVersion +isSuperAdmin');
     if (byOAuth) return byOAuth;
 
-    const byEmail = await User.findOne({ email: userInfo.email.toLowerCase() }).select('+tokenVersion');
+    const byEmail = await User.findOne({ email: userInfo.email.toLowerCase() }).select('+tokenVersion +isSuperAdmin');
     if (byEmail) {
       await User.updateOne({ _id: byEmail._id }, {
         $set: { [`oauth.${providerName}`]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
@@ -224,7 +226,7 @@ class AuthService {
     // Auto-create personal org + owner membership (mirrors the email-registration flow).
     const org = await Organization.create({ name: username, owner: newUser._id });
     await UserOrganization.create({ userId: newUser._id, organizationId: org._id, role: 'owner' });
-    newUser.lastActiveOrgId = org._id as mongoose.Types.ObjectId;
+    newUser.lastActiveOrgId = String(org._id);
 
     await newUser.save();
     return newUser;

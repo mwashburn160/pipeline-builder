@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import { QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS } from '@pipeline-builder/api-core';
 import { Schema, model, Document, Types, Model } from 'mongoose';
 import slugify from 'slugify';
 import { config } from '../config';
@@ -15,14 +15,14 @@ export interface QuotaUsage {
 }
 
 /**
- * Quota limits interface
+ * Quota limits interface.
+ *
+ * Aliased to api-core's `QuotaTierLimits` so the schema, the in-memory
+ * preset tables, and every consumer stay in lockstep — adding a new
+ * countable resource in `QUOTA_TIERS` surfaces a compile error in the
+ * schema-defaults block below.
  */
-export interface QuotaLimits {
-  plugins: number;
-  pipelines: number;
-  apiCalls: number;
-  aiCalls: number;
-}
+export type QuotaLimits = QuotaTierLimits;
 
 /**
  * Quota usage interface
@@ -120,22 +120,26 @@ function getNextResetDate(resetPeriod: string): Date {
   }
 
   switch (resetPeriod) {
-    case 'hourly':
+    case 'hourly': {
       return new Date(now.getTime() + 60 * 60 * 1000);
-    case 'daily':
+    }
+    case 'daily': {
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
       tomorrow.setHours(0, 0, 0, 0);
       return tomorrow;
-    case 'weekly':
+    }
+    case 'weekly': {
       const nextWeek = new Date(now);
       nextWeek.setDate(nextWeek.getDate() + (7 - nextWeek.getDay()));
       nextWeek.setHours(0, 0, 0, 0);
       return nextWeek;
+    }
     case 'monthly':
-    default:
+    default: {
       const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
       return nextMonth;
+    }
   }
 }
 
@@ -180,7 +184,10 @@ const organizationSchema = new Schema<OrganizationDocument>(
     },
     tier: {
       type: String,
-      enum: ['developer', 'pro', 'unlimited'],
+      // Drive the Mongoose enum from api-core's `VALID_TIERS` tuple so adding
+      // a tier in api-core surfaces here automatically (no string drift
+      // between the type and the schema).
+      enum: VALID_TIERS as unknown as string[],
       default: 'developer',
     },
     owner: {
@@ -189,26 +196,59 @@ const organizationSchema = new Schema<OrganizationDocument>(
       required: true,
       index: true,
     },
+    // Defaults sourced directly from `QUOTA_TIERS.developer.limits` so
+    // every countable resource in `QuotaTierLimits` is represented here
+    // without hand-syncing values. Adding a new limit in api-core surfaces
+    // a missing-field compile error on the `quotas: QuotaLimits` interface
+    // (because `QuotaLimits = QuotaTierLimits`).
     quotas: {
       plugins: {
         type: Number,
-        default: () => config.quota.tier.developer.plugins,
+        default: () => QUOTA_TIERS.developer.limits.plugins,
         min: -1, // -1 means unlimited
       },
       pipelines: {
         type: Number,
-        default: () => config.quota.tier.developer.pipelines,
-        min: -1, // -1 means unlimited
+        default: () => QUOTA_TIERS.developer.limits.pipelines,
+        min: -1,
       },
       apiCalls: {
         type: Number,
-        default: () => config.quota.tier.developer.apiCalls,
-        min: -1, // -1 means unlimited
+        default: () => QUOTA_TIERS.developer.limits.apiCalls,
+        min: -1,
       },
       aiCalls: {
         type: Number,
-        default: () => config.quota.tier.developer.aiCalls,
-        min: -1, // -1 means unlimited
+        default: () => QUOTA_TIERS.developer.limits.aiCalls,
+        min: -1,
+      },
+      // Aggregate registry storage cap (bytes). Enforced by the
+      // image-registry push-gate.
+      storageBytes: {
+        type: Number,
+        default: () => QUOTA_TIERS.developer.limits.storageBytes,
+        min: -1,
+      },
+      // Per-org count caps on user-editable feature tables. -1 means unlimited.
+      dashboards: {
+        type: Number,
+        default: () => QUOTA_TIERS.developer.limits.dashboards,
+        min: -1,
+      },
+      alertRules: {
+        type: Number,
+        default: () => QUOTA_TIERS.developer.limits.alertRules,
+        min: -1,
+      },
+      alertDestinations: {
+        type: Number,
+        default: () => QUOTA_TIERS.developer.limits.alertDestinations,
+        min: -1,
+      },
+      idpConfigs: {
+        type: Number,
+        default: () => QUOTA_TIERS.developer.limits.idpConfigs,
+        min: -1,
       },
     },
     usage: {

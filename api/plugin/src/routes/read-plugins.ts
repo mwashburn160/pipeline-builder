@@ -4,8 +4,11 @@
 import { getParam, ErrorCode, sendBadRequest, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
+import type { RequestContext } from '@pipeline-builder/api-server';
 import { CoreConstants, withTenantTx } from '@pipeline-builder/pipeline-core';
+import type { PluginFilter } from '@pipeline-builder/pipeline-core';
 import { sql } from 'drizzle-orm';
+import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { shapePlugin } from '../helpers/plugin-helpers';
 import { pluginService } from '../services/plugin-service';
@@ -23,15 +26,18 @@ export function createReadPluginRoutes(
   // Lives on the plugin service (not pipeline) because the consumer is the
   // plugins dashboard. The query reads the shared `pipeline` table via the
   // pipeline-data drizzle connection — both services share the same Postgres.
-  router.get('/plugin-usage', withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/plugin-usage', withRoute(async ({ res, ctx }) => {
+    // RLS-ready: `withTenantTx` SET LOCALs `app.org_id`, so once
+    // FORCE ROW LEVEL SECURITY is enabled the RLS policy on `pipelines`
+    // will scope this query to the caller's org without an explicit
+    // org_id predicate in the SQL.
     const rows = await withTenantTx(async (tx) => tx.execute<{ name: string; cnt: string | number }>(sql`
       SELECT step->'plugin'->>'name' AS name,
              COUNT(DISTINCT p.id) AS cnt
         FROM pipelines p,
              jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
              jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
-       WHERE p.org_id = ${orgId.toLowerCase()}
-         AND p.is_active = true
+       WHERE p.is_active = true
          AND step->'plugin'->>'name' IS NOT NULL
        GROUP BY step->'plugin'->>'name'
     `));
@@ -74,46 +80,38 @@ export function createReadPluginRoutes(
     });
   }));
 
-  router.post('/lookup', withRoute(async ({ req, res, ctx, orgId }) => {
-    const { filter } = req.body;
-    if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
-
-    // Validate the filter shape — without this, callers can inject internal
-    // fields (e.g. `deletedAt`, `orgId`) to peek at soft-deleted plugins or
-    // bypass tenant scoping. PluginFilterSchema is the same whitelist the
-    // GET /plugins listing uses.
-    const filterValidation = PluginFilterSchema.safeParse(filter);
-    if (!filterValidation.success) {
-      return sendBadRequest(res, `Invalid filter: ${filterValidation.error.message}`, ErrorCode.VALIDATION_ERROR);
-    }
-
-    const plugins = await pluginService.find(filterValidation.data, orgId);
+  // Shared single-plugin lookup. `/lookup` POST takes the filter from the
+  // body; `/find` GET reads it from query string. Same `PluginFilterSchema`
+  // whitelist as the listing endpoint so callers can't smuggle internal
+  // fields (`deletedAt`, `orgId`) to peek at soft-deleted rows.
+  const respondWithSinglePlugin = async (
+    filter: PluginFilter,
+    req: Request, res: Response, orgId: string,
+    ctx: RequestContext,
+    setCacheHeader: boolean,
+  ) => {
+    const plugins = await pluginService.find(filter, orgId);
     const result = plugins[0];
-
     if (!result) return sendEntityNotFound(res, 'Plugin');
-
     ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
-
+    if (setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
     return sendSuccess(res, 200, { plugin: shapePlugin(result) });
+  };
+
+  router.post('/lookup', withRoute(async ({ req, res, ctx, orgId }) => {
+    const { filter } = req.body ?? {};
+    if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
+    const parsed = PluginFilterSchema.safeParse(filter);
+    if (!parsed.success) return sendBadRequest(res, `Invalid filter: ${parsed.error.message}`, ErrorCode.VALIDATION_ERROR);
+    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, false);
   }));
 
   // GET /plugins/find — single plugin by filter
   router.get('/find', withRoute(async ({ req, res, ctx, orgId }) => {
-    const filter = validateQuery(req, PluginFilterSchema);
-    if (!filter.ok) return sendBadRequest(res, filter.error);
-
-    const plugins = await pluginService.find(filter.value, orgId);
-    const result = plugins[0];
-
-    if (!result) return sendEntityNotFound(res, 'Plugin');
-
-    ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
-    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
-
-    res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
-
-    return sendSuccess(res, 200, { plugin: shapePlugin(result) });
+    const validated = validateQuery(req, PluginFilterSchema);
+    if (!validated.ok) return sendBadRequest(res, validated.error);
+    return respondWithSinglePlugin(validated.value as PluginFilter, req, res, orgId, ctx, true);
   }));
 
   // GET /plugins/:id — single plugin by UUID

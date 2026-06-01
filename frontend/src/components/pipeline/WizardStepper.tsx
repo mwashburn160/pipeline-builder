@@ -37,7 +37,7 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
         const isClickable = onStepClick && (isCompleted || status !== 'untouched');
 
         return (
-          <div key={index} className="flex items-center">
+          <div key={step.label} className="flex items-center">
             {/* Connector line (before all steps except first) */}
             {index > 0 && (
               <div
@@ -63,8 +63,6 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
                     ? 'bg-blue-600 text-white ring-2 ring-blue-200 dark:ring-blue-800'
                     : isCompleted && status === 'valid'
                     ? 'bg-green-600 text-white'
-                    : isCompleted && status === 'error'
-                    ? 'bg-red-500 text-white'
                     : status === 'error'
                     ? 'bg-red-500 text-white'
                     : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'

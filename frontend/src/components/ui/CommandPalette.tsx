@@ -39,10 +39,19 @@ export function CommandPalette({
   const listRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  const navigate = useCallback((path: string) => {
+  // Every command action funnels through `runAndClose` so the palette
+  // always dismisses on activation — previously each non-nav action had
+  // to remember to call `setOpen(false)` itself (and the dark-mode toggle
+  // was the only one that did). Now navigation and side-effect actions
+  // share the same teardown path.
+  const runAndClose = useCallback((fn: () => void) => {
     setOpen(false);
-    router.push(path);
-  }, [router]);
+    fn();
+  }, []);
+
+  const navigate = useCallback((path: string) => {
+    runAndClose(() => router.push(path));
+  }, [router, runAndClose]);
 
   const commands: CommandItem[] = useMemo(() => {
     const items: CommandItem[] = [
@@ -51,7 +60,7 @@ export function CommandPalette({
       { id: 'plugins', label: 'Go to Plugins', icon: Puzzle, section: 'Navigation', action: () => navigate('/dashboard/plugins') },
       { id: 'messages', label: 'Go to Messages', icon: MessageSquare, section: 'Navigation', action: () => navigate('/dashboard/messages') },
       { id: 'pipeline-reports', label: 'Go to Pipeline Reports', icon: FileBarChart, section: 'Navigation', action: () => navigate('/dashboard/reports') },
-      { id: 'plugin-reports', label: 'Go to Plugin Reports', icon: FileBarChart, section: 'Navigation', action: () => navigate('/dashboard/plugin-reports') },
+      { id: 'plugin-reports', label: 'Go to Plugin Reports', icon: FileBarChart, section: 'Navigation', action: () => navigate('/dashboard/reports?tab=plugins') },
       { id: 'logs', label: 'Go to Logs', icon: ScrollText, section: 'Navigation', action: () => navigate('/dashboard/logs') },
       { id: 'quotas', label: 'Go to Quotas', icon: BarChart3, section: 'Navigation', action: () => navigate('/dashboard/quotas') },
       { id: 'billing', label: 'Go to Billing', icon: CreditCard, section: 'Navigation', action: () => navigate('/dashboard/billing') },
@@ -73,11 +82,11 @@ export function CommandPalette({
     }
 
     items.push(
-      { id: 'toggle-dark', label: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: isDark ? Sun : Moon, section: 'Settings', keywords: 'theme', action: () => { onToggleDark(); setOpen(false); } },
+      { id: 'toggle-dark', label: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: isDark ? Sun : Moon, section: 'Settings', keywords: 'theme', action: () => runAndClose(onToggleDark) },
     );
 
     return items;
-  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark]);
+  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose]);
 
   const filtered = useMemo(() => {
     if (!query) return commands;

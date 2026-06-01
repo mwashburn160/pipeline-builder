@@ -12,7 +12,7 @@ export interface ExternalSubscriptionResult {
 /** Payment provider interface (Stripe, AWS Marketplace, or stub for dev). */
 export interface PaymentProvider {
   /** Create a customer in the external payment system. */
-  createCustomer(orgId: string, email: string): Promise<string>;
+  createCustomer(orgId: string, email?: string): Promise<string>;
 
   /** Create a subscription in the external payment system. */
   createSubscription(

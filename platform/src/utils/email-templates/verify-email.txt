@@ -1,0 +1,9 @@
+Hello,
+
+Please confirm your email address by clicking the link below:
+{{verifyUrl}}
+
+If you didn't request this, you can safely ignore this email.
+
+Best regards,
+The {{fromName}} Team

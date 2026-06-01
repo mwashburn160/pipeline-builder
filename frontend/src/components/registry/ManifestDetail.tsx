@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { CopyButton } from '@/components/ui/CopyButton';
+import { Disclosure } from '@/components/ui/Disclosure';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { api } from '@/lib/api';
 import type { RegistryManifestKind, RegistryPlatformRef } from '@/types';
@@ -25,6 +26,8 @@ interface ManifestDetailProps {
   onSelectPlatform?: (osArch: string) => void;
   /** Repo name — needed to scan for tags pointing to this digest. */
   repo: string | null;
+  /** The currently active tag. Excluded from the "other tags pointing to this digest" list. */
+  activeTag?: string;
 }
 
 type Tab = 'summary' | 'json';
@@ -39,7 +42,7 @@ type Tab = 'summary' | 'json';
  * the operator sees the blast radius of a delete without leaving the page.
  */
 export function ManifestDetail({
-  kind, loading, error, breadcrumbs, onSelectPlatform, repo,
+  kind, loading, error, breadcrumbs, onSelectPlatform, repo, activeTag,
 }: ManifestDetailProps) {
   const [tab, setTab] = useState<Tab>('summary');
 
@@ -135,7 +138,7 @@ export function ManifestDetail({
           </pre>
         )}
         {repo && kind.manifest.digest && (
-          <TagsForDigest repo={repo} digest={kind.manifest.digest} />
+          <TagsForDigest repo={repo} digest={kind.manifest.digest} activeTag={activeTag} />
         )}
       </div>
     </div>
@@ -235,7 +238,7 @@ function Field({ label, value, mono = false }: { label: string; value: string; m
  * operator can still toggle it closed; `manualOpen` overrides the auto
  * default after any user interaction.
  */
-function TagsForDigest({ repo, digest }: { repo: string; digest: string }) {
+function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: string; activeTag?: string }) {
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
   const [tags, setTags] = useState<string[] | null>(null);
   const [scanning, setScanning] = useState(true);
@@ -261,7 +264,9 @@ function TagsForDigest({ repo, digest }: { repo: string; digest: string }) {
         const fetchOne = async (t: string) => {
           try {
             const m = await api.getImageManifest(repo, t);
-            if (m.data?.digest === digest) found.push(t);
+            // Exclude the active tag — the panel lists *other* tags
+            // pointing to the same digest.
+            if (m.data?.digest === digest && t !== activeTag) found.push(t);
           } catch {
             // skip
           }
@@ -285,43 +290,46 @@ function TagsForDigest({ repo, digest }: { repo: string; digest: string }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [repo, digest]);
+  }, [repo, digest, activeTag]);
 
-  // Auto-open if 2+ tags share this digest. Manual toggle overrides.
-  const autoOpen = !!tags && tags.length > 1;
+  // Auto-open when other tags share this digest (active tag is excluded
+  // from `tags`). Manual toggle overrides.
+  const autoOpen = !!tags && tags.length > 0;
   const isOpen = manualOpen ?? autoOpen;
   const sharedCount = tags?.length ?? 0;
 
   return (
-    <details
+    <Disclosure
       open={isOpen}
+      onToggle={setManualOpen}
       className="mx-3 mb-3 border border-gray-200 dark:border-gray-700 rounded text-sm"
-      onToggle={(e) => setManualOpen((e.currentTarget as HTMLDetailsElement).open)}
+      summaryClassName="px-3 py-2 cursor-pointer list-none text-gray-700 dark:text-gray-300 font-medium flex items-center gap-2"
+      bodyClassName="px-3 pb-3"
+      title={
+        <>
+          <span>Other tags pointing to this digest</span>
+          {!scanning && (
+            <span className={`ml-auto text-xs font-normal ${sharedCount > 0 ? 'text-orange-700 dark:text-orange-300' : 'text-gray-500'}`}>
+              {sharedCount === 0 ? '(none)' : `(${sharedCount} found)`}
+            </span>
+          )}
+        </>
+      }
     >
-      <summary className="px-3 py-2 cursor-pointer text-gray-700 dark:text-gray-300 font-medium flex items-center gap-2">
-        <span>Other tags pointing to this digest</span>
-        {!scanning && (
-          <span className={`ml-auto text-xs font-normal ${sharedCount > 1 ? 'text-orange-700 dark:text-orange-300' : 'text-gray-500'}`}>
-            {sharedCount === 0 ? '(none)' : `(${sharedCount} found)`}
-          </span>
-        )}
-      </summary>
-      <div className="px-3 pb-3">
-        {scanning && (
-          <div className="text-xs text-gray-500">
-            Scanning… {scannedCount}/{Math.min(totalCount, 50)} tag(s) checked
-          </div>
-        )}
-        {!scanning && tags && tags.length === 0 && (
-          <div className="text-xs text-gray-500">No other tags share this digest{totalCount > 50 ? ' (scan capped at 50 — repo has more)' : ''}.</div>
-        )}
-        {!scanning && tags && tags.length > 0 && (
-          <ul className="font-mono text-xs space-y-0.5">
-            {tags.map((t) => <li key={t}>{t}</li>)}
-            {totalCount > 50 && <li className="italic text-gray-500">…and {totalCount - 50} tag(s) not scanned</li>}
-          </ul>
-        )}
-      </div>
-    </details>
+      {scanning && (
+        <div className="text-xs text-gray-500">
+          Scanning… {scannedCount}/{Math.min(totalCount, 50)} tag(s) checked
+        </div>
+      )}
+      {!scanning && tags && tags.length === 0 && (
+        <div className="text-xs text-gray-500">No other tags share this digest{totalCount > 50 ? ' (scan capped at 50 — repo has more)' : ''}.</div>
+      )}
+      {!scanning && tags && tags.length > 0 && (
+        <ul className="font-mono text-xs space-y-0.5">
+          {tags.map((t) => <li key={t}>{t}</li>)}
+          {totalCount > 50 && <li className="italic text-gray-500">…and {totalCount - 50} tag(s) not scanned</li>}
+        </ul>
+      )}
+    </Disclosure>
   );
 }

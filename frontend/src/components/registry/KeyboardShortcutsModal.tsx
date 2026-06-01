@@ -7,12 +7,17 @@ interface KeyboardShortcutsModalProps {
   onClose: () => void;
 }
 
-interface Shortcut {
+export interface Shortcut {
   keys: string[];
   description: string;
 }
 
-const SHORTCUTS: Shortcut[] = [
+/**
+ * Source of truth for the registry page's keyboard shortcuts. The page-level
+ * key handler should import this list rather than hard-coding the bindings,
+ * so the help modal and the actual handlers stay in lockstep.
+ */
+export const REGISTRY_SHORTCUTS: Shortcut[] = [
   { keys: ['j'], description: 'Move repository selection down' },
   { keys: ['k'], description: 'Move repository selection up' },
   { keys: ['/'], description: 'Focus the repository filter' },
@@ -31,7 +36,7 @@ export function KeyboardShortcutsModal({ onClose }: KeyboardShortcutsModalProps)
   return (
     <Modal title="Keyboard shortcuts" onClose={onClose} maxWidth="max-w-md">
       <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-        {SHORTCUTS.map((s) => (
+        {REGISTRY_SHORTCUTS.map((s) => (
           <li key={s.keys.join('+')} className="flex items-center justify-between py-2">
             <span className="text-sm text-gray-700 dark:text-gray-300">{s.description}</span>
             <span className="flex gap-1">

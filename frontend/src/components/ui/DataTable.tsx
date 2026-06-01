@@ -63,7 +63,18 @@ function compare(a: unknown, b: unknown): number {
   if (typeof a === 'boolean' && typeof b === 'boolean') {
     return a === b ? 0 : a ? -1 : 1;
   }
-  return (a as number) < (b as number) ? -1 : (a as number) > (b as number) ? 1 : 0;
+  if (typeof a === 'number' && typeof b === 'number') {
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  // Mixed / unknown shapes: try numeric coercion first (e.g. numeric
+  // strings), then fall back to a localeCompare on string form so the
+  // sort is at least deterministic instead of silently returning 0.
+  const na = Number(a);
+  const nb = Number(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) {
+    return na < nb ? -1 : na > nb ? 1 : 0;
+  }
+  return String(a).localeCompare(String(b));
 }
 
 /** Sortable data table with loading skeletons, empty state, column visibility, and row animations. */

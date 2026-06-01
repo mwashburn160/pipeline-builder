@@ -5,12 +5,17 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/components/ui/Toast';
 import { clearPluginCache } from '@/hooks/usePlugins';
 
+interface OrgSwitcherProps {
+  /** Extra classes appended to the root container. */
+  className?: string;
+}
+
 /**
  * Organization switcher dropdown.
  * Displays the active organization and allows switching between memberships.
  * Only renders when the user belongs to multiple organizations.
  */
-export function OrgSwitcher() {
+export function OrgSwitcher({ className = '' }: OrgSwitcherProps = {}) {
   const { user, organizations, switchOrganization } = useAuth();
   const toast = useToast();
   const router = useRouter();
@@ -46,13 +51,15 @@ export function OrgSwitcher() {
       const orgName = organizations.find(o => o.id === orgId)?.name || orgId;
       toast.success(`Switched to ${orgName}`);
       router.replace(router.asPath);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to switch organization');
     } finally {
       setSwitching(false);
     }
   };
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className={`relative ${className}`}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
