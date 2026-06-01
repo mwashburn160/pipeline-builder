@@ -22,9 +22,18 @@ const complianceClient = createComplianceClient();
 
 const MAX_UPLOAD_SIZE = CoreConstants.PLUGIN_MAX_UPLOAD_MB * 1024 * 1024;
 
+// Multer needs a writable destination. The plugin container runs with
+// readOnlyRootFilesystem=true, so a relative path like `uploads/` resolves
+// under `/app` and EROFS-fails. The volume is mounted at the canonical
+// /opt/pipeline/pipeline-data/plugins-data/uploads (same on host + container
+// so buildkit bind mounts work). Override via PLUGIN_UPLOAD_DIR for tests
+// or alternate layouts.
+const UPLOAD_DEST = process.env.PLUGIN_UPLOAD_DIR
+  || '/opt/pipeline/pipeline-data/plugins-data/uploads';
+
 const upload = multer({
   limits: { files: 1, fileSize: MAX_UPLOAD_SIZE },
-  dest: 'uploads/',
+  dest: UPLOAD_DEST,
   fileFilter: (_req, file, cb) => {
     const allowedMimes = ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'];
     if (allowedMimes.includes(file.mimetype) || file.originalname.endsWith('.zip')) {
