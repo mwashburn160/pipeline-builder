@@ -46,7 +46,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [platform, pipeline, plugin, message, quota, billing, frontend]
+        values: [platform, pipeline, plugin, message, quota, billing, frontend, compliance, reporting, image-registry]
   policyTypes:
     - Ingress
   ingress:
@@ -54,6 +54,105 @@ spec:
         - podSelector:
             matchLabels:
               app: nginx
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Compliance — ingress from pipeline + plugin (validate calls). Without this,
+# default-deny silently dropped pipeline→compliance, so the bulk pipeline
+# upload's compliance check returned non-2xx with no `data` field and the
+# caller crashed on `.blocked`.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-compliance-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: compliance
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [pipeline, plugin, platform]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Image-registry API — ingress from plugin (token issuance for buildkit push).
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-image-registry-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: image-registry
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [plugin, platform]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Message — ingress from platform + billing (notification fan-out).
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-message-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: message
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, billing, compliance, pipeline, plugin]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Reporting — ingress from platform (analytics rollups).
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-reporting-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: reporting
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin]
       ports:
         - port: 3000
 

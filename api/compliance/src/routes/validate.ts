@@ -31,8 +31,11 @@ function parseIntEnv(value: string | undefined, fallback: number): number {
  *  `COMPLIANCE_MAX_ATTRIBUTE_KEYS`. */
 const MAX_ATTRIBUTE_KEYS = parseIntEnv(process.env.COMPLIANCE_MAX_ATTRIBUTE_KEYS, 100);
 /** Max nesting depth for attribute values to prevent stack-overflow DoS.
- *  Override via `COMPLIANCE_MAX_ATTRIBUTE_DEPTH`. */
-const MAX_ATTRIBUTE_DEPTH = parseIntEnv(process.env.COMPLIANCE_MAX_ATTRIBUTE_DEPTH, 5);
+ *  Default 10 — real pipeline payloads forwarded from bulk routes nest 5+
+ *  levels deep (`attributes.props.stages[].steps[].plugin.field`). A 5-level
+ *  cap silently 400'd every bulk pipeline create until we noticed. Override
+ *  via `COMPLIANCE_MAX_ATTRIBUTE_DEPTH`. */
+const MAX_ATTRIBUTE_DEPTH = parseIntEnv(process.env.COMPLIANCE_MAX_ATTRIBUTE_DEPTH, 10);
 
 /** Recursively check that a value does not exceed the max nesting depth. */
 function checkDepth(value: unknown, depth: number): boolean {
