@@ -83,11 +83,22 @@ export const register = withController('Register', async (req, res) => {
   }
 
   // Auto-promote if the new user's email is in BOOTSTRAP_SUPERADMIN_EMAILS.
-  // Fire-and-forget — promotion failure shouldn't block the 201 response;
-  // the startup-time bootstrap will catch it on the next restart.
+  // Awaited (not fire-and-forget) so a register-then-immediately-login flow
+  // doesn't outrun the promotion — otherwise the first JWT carries
+  // isSuperAdmin=false and the user hits "Forbidden: System admin access
+  // required" on the dashboard until the next login (or restart-time bootstrap).
+  // Promotion failure is logged but not fatal — startup bootstrap retries it.
   if (result.sub && result.email) {
     const { maybePromoteNewUser } = await import('../services/superadmin-bootstrap.js');
-    void maybePromoteNewUser(result.sub, result.email);
+    try {
+      await maybePromoteNewUser(result.sub, result.email);
+    } catch (err) {
+      logger.warn('Super-admin promotion failed (non-fatal — startup bootstrap will retry)', {
+        userId: result.sub,
+        email: result.email,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   audit(req, 'user.register', { targetType: 'user', targetId: result.sub });
