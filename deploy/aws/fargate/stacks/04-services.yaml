@@ -37,7 +37,7 @@ Parameters:
 
   PlatformImage:
     Type: String
-    Default: ghcr.io/mwashburn160/platform:3.4.70
+    Default: ghcr.io/mwashburn160/platform:3.4.71
     Description: Docker image for the Platform service
 
   PipelineImage:
