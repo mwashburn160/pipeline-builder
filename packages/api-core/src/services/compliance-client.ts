@@ -122,15 +122,37 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
 
   const client = new InternalHttpClient(serviceConfig);
 
+  /**
+   * Validate response shape + status. The HTTP client doesn't throw on non-2xx
+   * (it just returns the body), so without this an auth failure / route miss
+   * silently produced `response.body.data === undefined` and the caller
+   * crashed on `.blocked`. Now non-2xx surfaces as a thrown error that the
+   * outer try/catch can turn into either fail-closed (default) or
+   * COMPLIANCE_BYPASS (fail-open).
+   */
+  function unwrap(
+    response: { statusCode: number; body: { success?: boolean; data?: ComplianceCheckResult; message?: string } },
+    op: string,
+  ): ComplianceCheckResult {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      const msg = response.body?.message ?? `HTTP ${response.statusCode}`;
+      throw new Error(`compliance ${op} failed: ${msg}`);
+    }
+    if (!response.body?.data) {
+      throw new Error(`compliance ${op} returned no data (status ${response.statusCode})`);
+    }
+    return response.body.data;
+  }
+
   return {
     async validatePlugin(orgId, attributes, authHeader, entityId, entityName, action) {
       try {
-        const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
+        const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
           '/compliance/validate/plugin',
           { attributes, entityId, entityName, action: action ?? 'upload' },
           { headers: buildHeaders(orgId, authHeader) },
         );
-        return response.body.data;
+        return unwrap(response, 'validatePlugin');
       } catch (error) {
         if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'plugin', entityId, entityName });
         throw error;
@@ -139,12 +161,12 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
 
     async validatePipeline(orgId, attributes, authHeader, entityId, entityName, action) {
       try {
-        const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
+        const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
           '/compliance/validate/pipeline',
           { attributes, entityId, entityName, action: action ?? 'create' },
           { headers: buildHeaders(orgId, authHeader) },
         );
-        return response.body.data;
+        return unwrap(response, 'validatePipeline');
       } catch (error) {
         if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'pipeline', entityId, entityName });
         throw error;
@@ -153,12 +175,12 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
 
     async dryRunPlugin(orgId, attributes, authHeader) {
       try {
-        const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
+        const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
           '/compliance/validate/plugin/dry-run',
           { attributes },
           { headers: buildHeaders(orgId, authHeader) },
         );
-        return response.body.data;
+        return unwrap(response, 'dryRunPlugin');
       } catch (error) {
         if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'plugin', dryRun: true });
         throw error;
@@ -167,12 +189,12 @@ export function createComplianceClient(config?: Partial<ServiceConfig>): Complia
 
     async dryRunPipeline(orgId, attributes, authHeader) {
       try {
-        const response = await client.post<{ success: boolean; data: ComplianceCheckResult }>(
+        const response = await client.post<{ success: boolean; data: ComplianceCheckResult; message?: string }>(
           '/compliance/validate/pipeline/dry-run',
           { attributes },
           { headers: buildHeaders(orgId, authHeader) },
         );
-        return response.body.data;
+        return unwrap(response, 'dryRunPipeline');
       } catch (error) {
         if (COMPLIANCE_BYPASS) return bypassResult({ orgId, entityType: 'pipeline', dryRun: true });
         throw error;
