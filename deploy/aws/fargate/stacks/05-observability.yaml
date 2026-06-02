@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Pipeline Builder Observability Services - Prometheus and Loki (Grafana
-  removed in favor of the native /dashboard/observability page).
+  Pipeline Builder Observability Services - Prometheus, Loki and Alertmanager
   deployed on ECS Fargate with EFS persistent storage and Cloud Map discovery.
+  Visualization is the native /dashboard/observability page (no Grafana).
 
 Parameters:
   StackPrefix:

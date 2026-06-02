@@ -21,7 +21,7 @@ Parameters:
 
   DeployMode:
     Type: String
-    Default: public
+    Default: internal
     AllowedValues: [public, internal]
     Description: >
       public = internet-facing ALB in public subnets. internal = inside-AWS-only:

@@ -23,7 +23,7 @@ Parameters:
 
   DeployMode:
     Type: String
-    Default: public
+    Default: internal
     AllowedValues: [public, internal]
     Description: >
       public = HTTP/HTTPS (80/443) open to the internet. internal =

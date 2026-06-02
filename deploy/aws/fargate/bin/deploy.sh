@@ -137,10 +137,10 @@ deploy_stack() {
 # -----------------------------------------------------------------------
 # Deployment posture: public (internet-facing ALB; CodeBuild over internet) or
 # internal (inside-AWS-only: internal-scheme ALB in private subnets +
-# VPC-attached CodeBuild). Set DEPLOY_MODE=internal in the env to flip it.
+# VPC-attached CodeBuild). Defaults to internal; set DEPLOY_MODE=public to flip it.
 # internal mode REQUIRES an ACM-ISSUED (publicly trusted) cert (CERTIFICATE_ARN)
 # + a Route53 private zone for the domain → the internal ALB.
-DEPLOY_MODE="${DEPLOY_MODE:-public}"
+DEPLOY_MODE="${DEPLOY_MODE:-internal}"
 DEPLOY_MODE_PARAM=("DeployMode=${DEPLOY_MODE}")
 FOUNDATION_PARAMS=("StackPrefix=${STACK_PREFIX}" "${DEPLOY_MODE_PARAM[@]}")
 [ -n "$CERTIFICATE_ARN" ] && FOUNDATION_PARAMS+=("CertificateArn=${CERTIFICATE_ARN}")

@@ -34,7 +34,8 @@ DOMAIN="${DOMAIN:-}"
 # "internal" (inside-AWS-only; no public :80, so Let's Encrypt via DNS-01 over
 # Route53). The cert is publicly trusted either way — required for AWS
 # CodeBuild to pull plugin images over the gateway. See docs/aws-deployment.md.
-DEPLOY_MODE="${DEPLOY_MODE:-public}"
+# Defaults to "internal" (inside-AWS-only); export DEPLOY_MODE=public to open ingress.
+DEPLOY_MODE="${DEPLOY_MODE:-internal}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 

@@ -26,7 +26,7 @@ Parameters:
 
   DeployMode:
     Type: String
-    Default: public
+    Default: internal
     AllowedValues: [public, internal]
     Description: >
       internal = inside-AWS-only: the pipeline service synthesizes CodeBuild

@@ -4,7 +4,7 @@ Two deployment options: **EC2** (single instance, Kubernetes) or **Fargate** (se
 
 Both deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced via the native `/dashboard/observability` page), and admin tools. TLS via Let's Encrypt (custom domain) or self-signed (IP-only).
 
-Note: as of the native-dashboards PR, Grafana is removed from EC2; Fargate retains Grafana pending its own follow-up. The native `/dashboard/observability` page replaces the previously-embedded Grafana iframe. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public `org_id='system'` rows, so they appear automatically for any logged-in org and open at `/dashboard/observability/<id>`. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
+Observability is the native `/dashboard/observability` page across all deployments — there is no Grafana. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public `org_id='system'` rows, so they appear automatically for any logged-in org and open at `/dashboard/observability/<id>`. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
 
 **Related docs:** [Environment Variables](environment-variables.md) | [API Reference](api-reference.md) | [Plugin Catalog](plugins/README.md)
 
@@ -237,15 +237,17 @@ sudo -u minikube kubectl get pods -n pipeline-builder
 
 ### Deployment mode (`DEPLOY_MODE`)
 
-Set `DEPLOY_MODE` in `.env` **before** `bootstrap.sh`. It selects the network posture; both modes use a **publicly-trusted Let's Encrypt cert** (required so AWS CodeBuild can pull plugin images over the gateway).
+`DEPLOY_MODE` **defaults to `internal`** (inside-AWS-only). Set it in `.env` **before** `bootstrap.sh`; export `DEPLOY_MODE=public` for the public-ingress posture. Both modes use a **publicly-trusted Let's Encrypt cert** (required so AWS CodeBuild can pull plugin images over the gateway).
 
-| | `public` (default) | `internal` (inside-AWS-only) |
+| | `internal` (inside-AWS-only, **default**) | `public` |
 |---|---|---|
-| Ingress | Public IP, SG opens 80/443 | No public ingress; VPC-only |
-| Let's Encrypt | HTTP-01 (`--standalone`, needs public :80) | DNS-01 (`--dns-route53`; cert still public-trusted) |
-| DNS | Public Route53 A → public IP | Route53 **private** zone → gateway private IP |
-| CodeBuild | AWS-managed network, reaches gateway over internet | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS`/`SECURITY_GROUP_IDS`) |
-| Plugin pull | `https://<domain>/v2/` (public) | `https://<domain>/v2/` (resolves private) |
+| Ingress | No public ingress; VPC-only | Public IP, SG opens 80/443 |
+| Let's Encrypt | DNS-01 (`--dns-route53`; cert still public-trusted) | HTTP-01 (`--standalone`, needs public :80) |
+| DNS | Route53 **private** zone → gateway private IP | Public Route53 A → public IP |
+| CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS`/`SECURITY_GROUP_IDS`) | AWS-managed network, reaches gateway over internet |
+| Plugin pull | `https://<domain>/v2/` (resolves private) | `https://<domain>/v2/` (public) |
+
+> Because `internal` is the default, a vanilla `bootstrap.sh` run expects the prerequisites below up front (ACM/DNS-01 cert, Route53 **private** zone, VPC endpoints). Set `DEPLOY_MODE=public` for the zero-prereq path.
 
 Both share the registry `/v2/` route + `registry-auth.js` realm rewrite + `IMAGE_REGISTRY_PULL_HOST` — only resolution/networking differ.
 
@@ -317,16 +319,16 @@ bash bin/deploy.sh \
 
 ### Deployment mode (`DEPLOY_MODE`)
 
-Set `DEPLOY_MODE` in the env before `deploy.sh` (passed to the foundation + services stacks):
+`DEPLOY_MODE` **defaults to `internal`** (inside-AWS-only); set it in the env before `deploy.sh` (passed to the foundation + services stacks). Export `DEPLOY_MODE=public` for the internet-facing posture.
 
-| | `public` (default) | `internal` (inside-AWS-only) |
+| | `internal` (inside-AWS-only, **default**) | `public` |
 |---|---|---|
-| ALB | internet-facing, public subnets | internal scheme, private subnets |
-| DNS | public Route53 → ALB | Route53 **private** zone → internal ALB |
-| CodeBuild | AWS-managed network, reaches ALB over internet | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS` wired from the foundation VPC) |
-| Plugin pull | `https://<domain>/v2/` (public) | `https://<domain>/v2/` (private) |
+| ALB | internal scheme, private subnets | internet-facing, public subnets |
+| DNS | Route53 **private** zone → internal ALB | public Route53 → ALB |
+| CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS` wired from the foundation VPC) | AWS-managed network, reaches ALB over internet |
+| Plugin pull | `https://<domain>/v2/` (private) | `https://<domain>/v2/` (public) |
 
-Both require a **publicly-trusted, ACM-*issued*** cert (`--certificate-arn`) — the default self-signed cert from `init-cert.sh` does **not** work for CodeBuild plugin pulls. In `internal` mode `deploy.sh` **automatically deploys `deploy/aws/internal-prereqs.yaml`** after the foundation stack — provisioning the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR), the Route53 **private** hosted zone (alias → internal ALB), and the ALB 443-ingress-from-VPC rule. Still operator-supplied: egress (NAT/mirrors) for build deps. Mirrors the EC2 `DEPLOY_MODE` (EC2 differs only in cert source — Let's Encrypt vs ACM — and runs `internal-prereqs.yaml` as an operator step rather than auto).
+Both require a **publicly-trusted, ACM-*issued*** cert (`--certificate-arn`) — the default self-signed cert from `init-cert.sh` does **not** work for CodeBuild plugin pulls. Because `internal` is the default, supply the ACM-issued cert and a Route53 **private** zone up front, or pass `DEPLOY_MODE=public` for the simpler internet-facing path. In `internal` mode `deploy.sh` **automatically deploys `deploy/aws/internal-prereqs.yaml`** after the foundation stack — provisioning the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR), the Route53 **private** hosted zone (alias → internal ALB), and the ALB 443-ingress-from-VPC rule. Still operator-supplied: egress (NAT/mirrors) for build deps. Mirrors the EC2 `DEPLOY_MODE` (EC2 differs only in cert source — Let's Encrypt vs ACM — and runs `internal-prereqs.yaml` as an operator step rather than auto).
 
 ### Stacks
 
@@ -338,7 +340,7 @@ Deployed in order. Each exports values consumed by downstream stacks.
 | **02-cluster** | ECS Cluster, IAM roles, security groups, log groups |
 | **03-databases** | PostgreSQL, MongoDB, Redis |
 | **04-services** | Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Reporting, Compliance, Frontend, plus the plugin image-registry service |
-| **05-observability** | Prometheus, Loki, Grafana (Fargate only — EC2 retired Grafana in favor of the native `/dashboard/observability` page) |
+| **05-observability** | Prometheus, Loki, Alertmanager (visualized via the native `/dashboard/observability` page — no Grafana) |
 | **06-admin** | Registry, PgAdmin, Mongo Express, Registry UI |
 
 ### Storage Requirements
@@ -771,7 +773,7 @@ deploy/aws/fargate/
 │   ├── 04-services.yaml   # Nginx + app services (incl. Reporting, Compliance, image-registry)
 │   ├── 05-observability.yaml
 │   └── 06-admin.yaml
-├── config/                # Prometheus, Loki, Grafana, Fluent Bit
+├── config/                # Prometheus, Loki, Alertmanager, Fluent Bit, PgBouncer
 ├── nginx/                 # nginx-fargate.conf, jwt.js, metrics.js
 ├── .env.example
 ├── mongodb-init.js
@@ -809,7 +811,7 @@ Pass it as the `GhcrToken` CFN parameter or export it as `GHCR_TOKEN` for `boots
 If you intentionally want to skip auth for a small test deploy, leave `GhcrToken` empty and the bootstrap scripts will fall back to anonymous pulls — expect occasional 429s on retry-storms across all 10 services.
 
 **CrashLoopBackOff on observability pods (EC2):**
-Usually hostPath permission issues. Check pod logs. Init containers handle `chown` for loki (10001), prometheus (65534), grafana (472).
+Usually hostPath permission issues. Check pod logs. Init containers handle `chown` for loki (10001) and prometheus (65534).
 
 **ECS tasks stuck in PROVISIONING (Fargate):**
 Check CloudWatch logs: `aws logs tail /pipeline-builder/<service> --follow`
