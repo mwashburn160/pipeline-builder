@@ -386,7 +386,14 @@
   }
   100% {
     opacity: 1;
-    transform: translateY(0);
+    /* `none`, not translateY(0): `.page-reveal` runs this with
+       `animation-fill-mode: both`, so the final keyframe persists after the
+       animation ends. Any non-`none` transform (even translateY(0)) makes the
+       animated element a containing block for position:fixed descendants,
+       which traps modal `fixed inset-0` backdrops inside the page <main>
+       instead of the viewport (clipped/offset modals). `none` leaves no
+       lingering transform. */
+    transform: none;
   }
 }
 

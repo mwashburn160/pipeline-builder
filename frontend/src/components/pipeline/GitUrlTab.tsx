@@ -336,6 +336,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             <div className="mt-2">
               <input
                 type="password"
+                autoComplete="off"
                 value={repoToken}
                 onChange={(e) => setRepoToken(e.target.value)}
                 placeholder="Personal access token for private repos"
@@ -392,6 +393,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
             <div className="mt-2">
               <input
                 type="password"
+                autoComplete="off"
                 value={ai.customApiKey}
                 onChange={(e) => ai.setCustomApiKey(e.target.value)}
                 placeholder={

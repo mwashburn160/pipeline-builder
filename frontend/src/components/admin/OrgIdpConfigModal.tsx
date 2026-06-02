@@ -190,6 +190,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
             </label>
             <input
               type="password"
+              autoComplete="off"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
               placeholder={existing ? '••••••••' : 'Set the OAuth client secret'}

@@ -152,6 +152,7 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
                     <div className="flex items-center gap-2">
                       <input
                         type="password"
+                        autoComplete="off"
                         value={editApiKey}
                         onChange={(e) => setEditApiKey(e.target.value)}
                         placeholder="Enter new API key"
@@ -230,6 +231,7 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
               <input
                 id="ai-api-key"
                 type="password"
+                autoComplete="off"
                 value={newApiKey}
                 onChange={(e) => setNewApiKey(e.target.value)}
                 placeholder="Enter API key"

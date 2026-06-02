@@ -221,6 +221,7 @@ function DestinationModal(props: {
             </label>
             <input
               type="password"
+              autoComplete="off"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
               placeholder={existing ? '(leave blank to keep existing)' : (channel === 'slack' ? 'https://hooks.slack.com/services/...' : 'https://...')}

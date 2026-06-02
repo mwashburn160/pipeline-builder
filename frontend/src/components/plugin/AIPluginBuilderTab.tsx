@@ -220,6 +220,7 @@ export default function AIPluginBuilderTab({ canUploadPublic, disabled, onCreate
           <div className="mt-2">
             <input
               type="password"
+              autoComplete="off"
               value={ai.customApiKey}
               onChange={(e) => ai.setCustomApiKey(e.target.value)}
               placeholder={
