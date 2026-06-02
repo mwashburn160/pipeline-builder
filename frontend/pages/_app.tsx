@@ -29,12 +29,19 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
       <AuthProvider>
         <FeaturesProvider>
           <ToastProvider>
+            {/* Opacity-only — do NOT add x/y/scale here. framer-motion writes
+                those as an inline `transform`, and any non-none transform makes
+                this page-wrapping div a containing block for position:fixed
+                descendants, which traps every modal's `fixed inset-0` backdrop
+                inside the page box instead of the viewport (clipped/offset
+                modals). The upward page-reveal motion is handled by the
+                `.page-reveal` class on each page's <main>. */}
             <AnimatePresence mode="wait">
               <motion.div
                 key={router.pathname}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
               >
                 {getLayout(<Component {...pageProps} />)}
