@@ -343,19 +343,25 @@ export default function TeamPage() {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Reset Password: {passwordTarget.username}</h3>
             {passwordForm.error && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{passwordForm.error}</p>}
             {passwordForm.success && <p className="text-sm text-green-600 dark:text-green-400 mb-3">{passwordForm.success}</p>}
-            <div>
+            {/* <form> + username field + autocomplete hints so this reads as a
+                credential change to browsers/password managers (silences
+                Chrome's "Password field is not contained in a form" warning).
+                onSubmit also gives us native Enter-to-submit, replacing the
+                manual onKeyDown handler. */}
+            <form onSubmit={(e) => { e.preventDefault(); handlePasswordReset(); }}>
               <label className="label">New Password</label>
+              <input type="text" name="username" autoComplete="username" value={passwordTarget.username} readOnly hidden />
               <input
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handlePasswordReset()}
                 placeholder="Minimum 8 characters"
+                autoComplete="new-password"
                 className="input text-sm"
                 autoFocus
                 disabled={passwordForm.loading}
               />
-            </div>
+            </form>
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setPasswordTarget(null)} className="btn btn-secondary" disabled={passwordForm.loading}>Cancel</button>
               <button onClick={handlePasswordReset} disabled={passwordForm.loading || !newPassword} className="btn btn-primary">

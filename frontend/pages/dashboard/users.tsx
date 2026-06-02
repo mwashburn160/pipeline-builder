@@ -440,10 +440,17 @@ export default function UsersPage() {
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Cannot change your own role</p>
                 )}
               </div>
-              <div>
+              {/* Wrapped in a <form> with a username field + autocomplete hints
+                  so browsers/password managers treat this as a credential change
+                  (silences Chrome's "Password field is not contained in a form"
+                  warning). onSubmit is a no-op — saving goes through the explicit
+                  "Save Changes" button below; this just prevents an Enter keypress
+                  from reloading the page. */}
+              <form onSubmit={(e) => e.preventDefault()}>
                 <label className="label">New Password (leave blank to keep current)</label>
-                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimum 8 characters" className="input" disabled={editForm.loading} />
-              </div>
+                <input type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" className="input" disabled={editForm.loading} />
+              </form>
 
               <SysadminGrantHistory userId={editingUser.id} isSuperAdmin={editingUser.isSuperAdmin === true} />
 
