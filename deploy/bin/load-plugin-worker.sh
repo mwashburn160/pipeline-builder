@@ -125,6 +125,10 @@ fi
 
 # ---- Upload with retry ----
 
+# `|| _rc=$?` is required: curl_with_retry returns 1 (fail) / 2 (exists), and
+# under `set -e` a bare call would abort the worker before the dispatch below,
+# skipping the _count and corrupting the parent's summary.
+_rc=0
 curl_with_retry "$label" \
   -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
   --max-time "$UPLOAD_TIMEOUT" \
@@ -132,8 +136,7 @@ curl_with_retry "$label" \
   -H "x-org-id: system" \
   -H "x-internal-service: true" \
   -F "plugin=@${zip_file}" \
-  -F "accessModifier=public"
-_rc=$?
+  -F "accessModifier=public" || _rc=$?
 case "$_rc" in
   0) _count succeeded; exit 0 ;;
   2) _count skipped;   exit 2 ;;

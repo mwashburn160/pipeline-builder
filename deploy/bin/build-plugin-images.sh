@@ -367,7 +367,7 @@ while IFS= read -r plugin_dir; do
         # Hash mismatch with an existing tar — source changed since the
         # last build, or .image-hash was clobbered.
         if [ -t 0 ] && [ "$DRY_RUN" != true ]; then
-          printf "  [${CURRENT}/${TOTAL}] $label has existing image.tar but source changed. Rebuild? [Y/n]: "
+          printf '  [%s/%s] %s has existing image.tar but source changed. Rebuild? [Y/n]: ' "$CURRENT" "$TOTAL" "$label"
           read -r _answer
           if [ "$_answer" = "n" ] || [ "$_answer" = "N" ]; then
             echo "    Skipped (manual)"

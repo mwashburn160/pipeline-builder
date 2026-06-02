@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/mwashburn160/pipeline-builder/plugin-report-v1",
   "title": "Plugin Report",
+  "$comment": "Canonical contract for the plugin-report.json each plugin emits. Reference/documentation only — it is NOT validated by any deploy/bin script at build time; consumers (report producers/aggregators) validate against it out-of-band.",
   "description": "Standardized output format for all Pipeline Builder plugins. Each plugin writes a plugin-report.json alongside its native report files.",
   "type": "object",
   "required": ["plugin", "version", "status", "startedAt", "completedAt", "summary"],

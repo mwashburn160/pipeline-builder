@@ -85,7 +85,14 @@ if [ -n "$EXISTING_ARN" ] && [ "$EXISTING_ARN" != "None" ]; then
     --output text 2>/dev/null || true)
 
   if [ -n "$NOT_AFTER" ] && [ "$NOT_AFTER" != "None" ]; then
-    EXPIRY_EPOCH=$(date -d "$NOT_AFTER" +%s 2>/dev/null || date -jf "%Y-%m-%dT%H:%M:%S" "$NOT_AFTER" +%s 2>/dev/null || echo "0")
+    # AWS CLI renders NotAfter as ISO8601 with a TZ offset (e.g.
+    # 2026-06-02T10:00:00-04:00). GNU `date -d` parses that; BSD/macOS `date
+    # -jf` cannot handle the offset, so for that path take the first 19 chars
+    # (YYYY-MM-DDTHH:MM:SS) — day-granularity is all the >30d check needs.
+    # Without this, macOS operators get EXPIRY_EPOCH=0 and re-import every run.
+    EXPIRY_EPOCH=$(date -d "$NOT_AFTER" +%s 2>/dev/null \
+      || date -jf "%Y-%m-%dT%H:%M:%S" "${NOT_AFTER:0:19}" +%s 2>/dev/null \
+      || echo "0")
     NOW_EPOCH=$(date +%s)
     DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
 

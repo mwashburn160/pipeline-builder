@@ -28,13 +28,17 @@ START_TIME=$(date +%s)
 #   $1 url  $2 json_file  $3 name
 # ---------------------------------------------------------------------------
 post_with_retry() {
+  # `|| _rc=$?` is required: curl_with_retry returns 1 (fail) / 2 (exists), and
+  # under `set -e` a bare call aborts the whole script mid-loop — so the very
+  # first already-loaded rule (HTTP 409 → exists) would abort the entire
+  # compliance load, making re-runs non-idempotent.
+  local _rc=0
   curl_with_retry "$3" \
     -X POST "$1" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $JWT_TOKEN" \
     -H "x-internal-service: true" \
-    -d @"$2"
-  local _rc=$?
+    -d @"$2" || _rc=$?
   case "$_rc" in
     0) SUCCEEDED=$((SUCCEEDED + 1)) ;;
     2) SKIPPED=$((SKIPPED + 1)) ;;

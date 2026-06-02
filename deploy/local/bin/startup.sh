@@ -20,6 +20,17 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
+# Prefer Compose v2 (the `docker compose` plugin); fall back to legacy
+# `docker-compose` (v1), still common on older Linux. Use "${DC[@]}" below.
+if docker compose version >/dev/null 2>&1; then
+  DC=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  DC=(docker-compose)
+else
+  echo "ERROR: requires 'docker compose' (v2 plugin) or 'docker-compose' (v1)" >&2
+  exit 1
+fi
+
 # yq — required by build-plugin-images.sh and generate-plugins.sh. Check
 # only (don't auto-install) so we don't silently mutate the user's brew state.
 if ! command -v yq >/dev/null 2>&1; then
@@ -44,9 +55,23 @@ AUTH_DIR="$DEPLOY_DIR/auth"
 if [ ! -f "$CERT_DIR/nginx-tls.crt" ] || [ ! -f "$CERT_DIR/nginx-tls.key" ]; then
   echo "=== Generating self-signed nginx TLS certificate ==="
   mkdir -p "$CERT_DIR"
+  # Generate the SAN via a temp config so this works on both OpenSSL and the
+  # LibreSSL shipped by older macOS (which lacks `req -addext`).
+  _sancnf=$(mktemp)
+  cat > "$_sancnf" <<'SANEOF'
+[req]
+distinguished_name = dn
+x509_extensions = v3ext
+prompt = no
+[dn]
+CN = localhost
+[v3ext]
+subjectAltName = DNS:localhost,IP:127.0.0.1
+SANEOF
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout "$CERT_DIR/nginx-tls.key" -out "$CERT_DIR/nginx-tls.crt" \
-    -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+    -config "$_sancnf"
+  rm -f "$_sancnf"
   chmod 644 "$CERT_DIR/nginx-tls.key"
 fi
 
@@ -113,12 +138,7 @@ chmod 1777 "$PLUGIN_BUILDS_HOST" "$PLUGIN_UPLOADS_HOST"
 # no dind, no certs to generate. See deploy/local/docker-compose.yml.
 
 # -----------------------------------------------------------------------
-# Create plugin working directories
-# -----------------------------------------------------------------------
-mkdir -p data/plugins-data/builds data/plugins-data/uploads
-
-# -----------------------------------------------------------------------
 # Start services
 # -----------------------------------------------------------------------
 echo "=== Starting Docker Compose ==="
-docker compose up --remove-orphans "$@"
+"${DC[@]}" up --remove-orphans "$@"

@@ -13,7 +13,6 @@ set -euo pipefail
 
 NAMESPACE="pipeline-builder"
 MINIKUBE_USER="minikube"
-PROFILE="pipeline-builder"
 
 # Use certbot-provided path or detect from domain
 CERT_DIR="${RENEWED_LINEAGE:-}"

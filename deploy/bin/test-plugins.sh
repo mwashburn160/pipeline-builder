@@ -17,9 +17,15 @@ PLUGINS_DIR="$DEPLOY_DIR/plugins"
 SPEC_ONLY=false
 BUILD_IMAGES=false
 SPECIFIC_PLUGIN=""
+# PASSED/FAILED/SKIPPED/ERRORS are read & mutated by common.sh's
+# log_*/print_results/print_errors_and_exit (sourced-globals contract).
+# shellcheck disable=SC2034
 PASSED=0
+# shellcheck disable=SC2034
 FAILED=0
+# shellcheck disable=SC2034
 SKIPPED=0
+# shellcheck disable=SC2034
 ERRORS=()
 
 # ---- Argument parsing ----
@@ -50,6 +56,16 @@ VALID_COMPUTE_TYPES=("SMALL" "MEDIUM" "LARGE")
 VALID_PLUGIN_TYPES=("CodeBuildStep" "ManualApprovalStep")
 VALID_FAILURE_BEHAVIORS=("fail" "warn" "ignore")
 VALID_CATEGORIES=("language" "security" "quality" "monitoring" "artifact" "deploy" "infrastructure" "testing" "notification" "ai" "unknown")
+
+# Literal membership test. Replaces `[[ " ${arr[*]} " =~ " $v " ]]`, whose
+# quoted RHS is still a regex — a value with a metachar (e.g. SM.LL) would
+# wrongly match SMALL (SC2076).
+_in_list() {
+  local _needle="$1"; shift
+  local _x
+  for _x in "$@"; do [ "$_x" = "$_needle" ] && return 0; done
+  return 1
+}
 
 # ---- Validation functions ----
 
@@ -100,7 +116,7 @@ validate_spec() {
   fi
 
   # Valid pluginType
-  if [[ ! " ${VALID_PLUGIN_TYPES[*]} " =~ " ${plugin_type} " ]]; then
+  if ! _in_list "$plugin_type" "${VALID_PLUGIN_TYPES[@]}"; then
     log_fail "Invalid pluginType: ${plugin_type}" "$fqn"
     all_pass=false
   else
@@ -110,7 +126,7 @@ validate_spec() {
   # Valid computeType
   local compute_type
   compute_type=$(get_spec_field computeType "$specfile")
-  if [[ ! " ${VALID_COMPUTE_TYPES[*]} " =~ " ${compute_type} " ]]; then
+  if ! _in_list "$compute_type" "${VALID_COMPUTE_TYPES[@]}"; then
     log_fail "Invalid computeType: ${compute_type}" "$fqn"
     all_pass=false
   else
@@ -131,7 +147,7 @@ validate_spec() {
   if grep -q "^failureBehavior:" "$specfile" 2>/dev/null; then
     local fb
     fb=$(get_spec_field failureBehavior "$specfile")
-    if [[ ! " ${VALID_FAILURE_BEHAVIORS[*]} " =~ " ${fb} " ]]; then
+    if ! _in_list "$fb" "${VALID_FAILURE_BEHAVIORS[@]}"; then
       log_fail "Invalid failureBehavior: ${fb} (expected: fail|warn|ignore)" "$fqn"
       all_pass=false
     else
@@ -155,7 +171,7 @@ validate_spec() {
   if grep -q "^category:" "$specfile" 2>/dev/null; then
     local cat_val
     cat_val=$(get_spec_field category "$specfile")
-    if [[ ! " ${VALID_CATEGORIES[*]} " =~ " ${cat_val} " ]]; then
+    if ! _in_list "$cat_val" "${VALID_CATEGORIES[@]}"; then
       log_fail "Invalid category: ${cat_val} (expected: ${VALID_CATEGORIES[*]})" "$fqn"
       all_pass=false
     elif [ "$cat_val" != "$category" ]; then

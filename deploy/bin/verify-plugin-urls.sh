@@ -14,10 +14,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
 SPECIFIC_PLUGIN="${1:-}"
+# CHECK_TIMEOUT/PASSED/FAILED/SKIPPED/ERRORS are read & mutated by common.sh's
+# check_url/check_docker_image/print_results (sourced-globals contract), so the
+# SC2034 "appears unused" warnings here are false positives.
+# shellcheck disable=SC2034
 CHECK_TIMEOUT=15
+# shellcheck disable=SC2034
 PASSED=0
+# shellcheck disable=SC2034
 FAILED=0
+# shellcheck disable=SC2034
 SKIPPED=0
+# shellcheck disable=SC2034
 ERRORS=()
 
 verify_dockerfile() {

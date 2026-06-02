@@ -21,9 +21,14 @@ require_yq
 VERSIONS_FILE="$DEPLOY_DIR/plugins/plugin-versions.yaml"
 MODE="--verify"
 CHECK_ONE=""
+# CHECK_TIMEOUT/FAILED/SKIPPED are read & mutated by common.sh's check_*/
+# print_results (sourced-globals contract); shellcheck can't see those uses.
+# shellcheck disable=SC2034
 CHECK_TIMEOUT=15
 PASSED=0
+# shellcheck disable=SC2034
 FAILED=0
+# shellcheck disable=SC2034
 SKIPPED=0
 ERRORS=()
 

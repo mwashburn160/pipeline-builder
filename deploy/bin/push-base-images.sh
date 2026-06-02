@@ -346,7 +346,6 @@ _discover_existing() {
       # checks are simpler and don't depend on the registry exposing
       # the catalog API (Docker registry's catalog is admin-only in
       # some configs).
-      printf '_token:%s' "$_jwt" >/dev/null  # noop; auth set below
       local _login="crane --insecure auth login '${REGISTRY_HOST}' --username _token --password '${_jwt}' >/dev/null"
       docker run --rm \
         --network "$BACKEND_NETWORK" \

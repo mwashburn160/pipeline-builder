@@ -210,8 +210,22 @@ fi
 log "Creating TLS certificates"
 mkdir -p "$CERT_DIR" "$AUTH_DIR"
 
+# Generate the SAN via a temp config so this works on both OpenSSL and the
+# LibreSSL shipped by older macOS (which lacks `req -addext`).
+_sancnf=$(mktemp)
+cat > "$_sancnf" <<'SANEOF'
+[req]
+distinguished_name = dn
+x509_extensions = v3ext
+prompt = no
+[dn]
+CN = localhost
+[v3ext]
+subjectAltName = DNS:localhost,IP:127.0.0.1
+SANEOF
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx-tls.key" -out "$CERT_DIR/nginx-tls.crt" \
-  -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" 2>&1
+  -config "$_sancnf" 2>&1
+rm -f "$_sancnf"
 chmod 644 "$CERT_DIR/nginx-tls.key"
 kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NS"
 

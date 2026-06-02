@@ -248,6 +248,31 @@ Resources:
         - Key: Name
           Value: !Sub "pipeline-builder-role"
 
+  # DNS-01 cert (internal mode only): certbot-dns-route53 writes the ACME TXT
+  # challenge into the domain's PUBLIC hosted zone. Without this the instance
+  # silently falls back to a self-signed cert, which CodeBuild plugin pulls then
+  # reject (x509 "unknown authority"). Scoped to the supplied hosted zone;
+  # ListHostedZones/GetChange require "*" per the certbot-dns-route53 IAM model.
+  # public mode uses HTTP-01 and needs no Route53 access, so this is gated off.
+  InstanceRoute53Policy:
+    Type: AWS::IAM::Policy
+    Condition: IsInternal
+    Properties:
+      PolicyName: pipeline-builder-dns01-route53
+      Roles:
+        - !Ref InstanceRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - route53:ListHostedZones
+              - route53:GetChange
+            Resource: "*"
+          - Effect: Allow
+            Action: route53:ChangeResourceRecordSets
+            Resource: !Sub "arn:aws:route53:::hostedzone/${HostedZoneId}"
+
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -291,6 +316,7 @@ Resources:
 
             # Export variables for bootstrap.sh
             export DOMAIN="${DomainName}"
+            export DEPLOY_MODE="${DeployMode}"
             export GHCR_TOKEN="${GhcrToken}"
             export GHCR_USER="${GhcrUser}"
             export GIT_REPO="${GitRepo}"

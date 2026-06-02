@@ -52,7 +52,7 @@ MONGO_KEY=""
 
 usage() {
   grep '^#' "$0" | head -40
-  exit 1
+  exit "${1:-1}"
 }
 
 while [ $# -gt 0 ]; do
@@ -64,8 +64,8 @@ while [ $# -gt 0 ]; do
     --pg-only) PG_ONLY=1 ;;
     --mongo-only) MONGO_ONLY=1 ;;
     --confirm-destructive) CONFIRM=1 ;;
-    -h|--help) usage ;;
-    *) echo "unknown arg: $1" >&2; usage ;;
+    -h|--help) usage 0 ;;
+    *) echo "unknown arg: $1" >&2; usage 1 ;;
   esac
   shift
 done

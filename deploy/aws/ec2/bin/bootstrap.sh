@@ -195,7 +195,11 @@ if [ -n "$DOMAIN" ]; then
     # still publicly trusted, so AWS CodeBuild can pull plugin images over the
     # gateway even though the endpoint is private.
     dnf install -y certbot python3-certbot-dns-route53
-    CERTBOT_CHALLENGE_ARGS="--dns-route53"
+    # Give Route53 time to propagate the TXT challenge before Let's Encrypt
+    # validates — the 10s default is often too short for a fresh zone, and a
+    # timeout here would silently fall back to a self-signed cert (which
+    # CodeBuild plugin pulls then reject).
+    CERTBOT_CHALLENGE_ARGS="--dns-route53 --dns-route53-propagation-seconds 30"
   else
     dnf install -y certbot
     CERTBOT_CHALLENGE_ARGS="--standalone --preferred-challenges http"
@@ -305,6 +309,7 @@ echo "  Plugin working dirs: $PIPELINE_DATA_DIR/plugins-data/{builds,uploads}"
 
 # Allow minikube user to read TLS certs
 if [ -n "$DOMAIN" ]; then
+  LE_DIR="/etc/letsencrypt/live/${DOMAIN}"
   setfacl -R -m u:minikube:rx /etc/letsencrypt/live/ /etc/letsencrypt/archive/ 2>/dev/null || {
     # Copy certs to a separate dir rather than making LE privkeys world-readable
     cp "$LE_DIR/fullchain.pem" "$TLS_CERT_DIR/fullchain.pem"
@@ -312,9 +317,13 @@ if [ -n "$DOMAIN" ]; then
     chown minikube:minikube "$TLS_CERT_DIR/fullchain.pem" "$TLS_CERT_DIR/privkey.pem"
   }
 fi
-# Set cert files readable, private keys restricted
-find "$TLS_CERT_DIR" -name '*.key' -o -name 'privkey.pem' | xargs -r chmod 640
-find "$TLS_CERT_DIR" -name '*.crt' -o -name '*.pem' ! -name 'privkey.pem' ! -name '*.key' | xargs -r chmod 644
+# Set cert files readable, private keys restricted. `-type f` skips the LE
+# symlinks (tls.crt/tls.key → /etc/letsencrypt/...) so chmod doesn't follow
+# them into the archive; the targets are handled by the setfacl/copy above.
+# `\( ... \)` groups the -o predicates so the ! filters bind correctly, and
+# `-exec +` avoids the find|xargs word-splitting (SC2038).
+find "$TLS_CERT_DIR" -type f \( -name '*.key' -o -name 'privkey.pem' \) -exec chmod 640 {} +
+find "$TLS_CERT_DIR" -type f \( -name '*.crt' -o -name '*.pem' \) ! -name 'privkey.pem' ! -name '*.key' -exec chmod 644 {} +
 chown -R root:minikube "$TLS_CERT_DIR"
 
 # =============================================================================

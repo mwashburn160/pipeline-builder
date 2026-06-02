@@ -59,14 +59,16 @@ upload_pipeline_single() {
     echo "    FAIL (invalid JSON)"; FAILED=$((FAILED + 1)); return
   }
 
+  # `|| _rc=$?`: curl_with_retry returns 1/2; a bare call under `set -e` would
+  # abort before the dispatch below, losing the FAILED/SKIPPED accounting.
+  local _rc=0
   curl_with_retry "$dir_name" \
     -X POST "${PLATFORM_BASE_URL}/api/pipeline" \
     -H "Authorization: Bearer ${JWT_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "x-org-id: system" \
     -H "x-internal-service: true" \
-    -d "$BODY"
-  local _rc=$?
+    -d "$BODY" || _rc=$?
   case "$_rc" in
     0) SUCCEEDED=$((SUCCEEDED + 1)) ;;
     2) SKIPPED=$((SKIPPED + 1)) ;;
@@ -106,10 +108,14 @@ upload_pipelines_bulk() {
     return
   fi
 
-  BULK_PAYLOAD=$(printf '%s\n' "${_items[@]}" | jq -s '.')
   _count="${#_items[@]}"
   _body_file=$(mktemp)
-  trap 'rm -f "$_body_file"' RETURN
+  # Build {"pipelines":[...]} into a file and POST it via -d @file. The payload
+  # can be large (many sample pipelines); passing it on the argv risks ARG_MAX
+  # ("Argument list too long").
+  _payload_file=$(mktemp)
+  printf '%s\n' "${_items[@]}" | jq -s '{pipelines: .}' > "$_payload_file"
+  trap 'rm -f "$_body_file" "$_payload_file"' RETURN
 
   echo "  Uploading ${_count} pipeline(s) in single bulk request..."
 
@@ -117,14 +123,14 @@ upload_pipelines_bulk() {
   # curl_with_retry where to write the response body — passing `-o` in the
   # arg list would be silently ignored (curl only honors one `-o` per URL,
   # and the helper's own `-o` wins).
+  local _rc=0
   CURL_BODY_FILE="$_body_file" curl_with_retry "bulk(${_count})" \
     -X POST "${PLATFORM_BASE_URL}/api/pipelines/bulk/create" \
     -H "Authorization: Bearer ${JWT_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "x-org-id: system" \
     -H "x-internal-service: true" \
-    -d "{\"pipelines\": ${BULK_PAYLOAD}}"
-  local _rc=$?
+    -d @"$_payload_file" || _rc=$?
 
   if [ "$_rc" = 0 ]; then
     local body created failed errors

@@ -11,6 +11,8 @@
 # OUTER script's path, not common.sh's. So the fallback already gives the
 # caller's dir; we don't gain anything by computing it twice.
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)}"
+# Consumed by the sibling scripts that source this file (sourced-globals contract).
+# shellcheck disable=SC2034
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
 PLATFORM_BASE_URL="${PLATFORM_BASE_URL:-https://localhost:8443}"
 DEPLOY_TARGET="${DEPLOY_TARGET:-local}"
@@ -49,7 +51,9 @@ log_info() { echo -e "${BLUE}==>${NC} $1"; }
 #   Echoes the value (trimmed), empty string if not found
 # ---------------------------------------------------------------------------
 get_spec_field() {
-  grep "^${1}:" "$2" 2>/dev/null | head -1 | sed "s/^${1}: *//"
+  # Trim the leading "field:" + spaces AND any trailing whitespace, including a
+  # trailing CR, so CRLF-edited specs don't yield values with a stray \r.
+  grep "^${1}:" "$2" 2>/dev/null | head -1 | sed -E "s/^${1}:[[:space:]]*//; s/[[:space:]]+$//"
 }
 
 # ---------------------------------------------------------------------------
@@ -163,16 +167,21 @@ compute_image_tag() {
 
   # buildArgs hashed via yq for the same reason `parse_build_arg_flags`
   # delegates to it: awk-based YAML parsing was fragile across quoting.
-  local _build_args=""
-  if command -v yq >/dev/null 2>&1; then
-    _build_args=$(yq eval '
-      .buildArgs // {}
-      | to_entries
-      | map(.key + "=" + (.value | tostring))
-      | sort
-      | .[]
-    ' "$_plugin_dir/plugin-spec.yaml" 2>/dev/null || true)
-  fi
+  # yq is REQUIRED here — a soft fallback would omit buildArgs from the hash on
+  # a host without yq, so the same plugin would compute a different tag there
+  # (cache misses / shipping a stale image). Fail loudly instead.
+  command -v yq >/dev/null 2>&1 || {
+    echo "ERROR: yq is required for compute_image_tag (the image-tag hash depends on it)" >&2
+    return 1
+  }
+  local _build_args
+  _build_args=$(yq eval '
+    .buildArgs // {}
+    | to_entries
+    | map(.key + "=" + (.value | tostring))
+    | sort
+    | .[]
+  ' "$_plugin_dir/plugin-spec.yaml" 2>/dev/null || true)
 
   local _hash
   _hash=$(printf '%s\n%s' "$_content_hash" "$_build_args" | sha256_hash)
@@ -352,7 +361,19 @@ sign_platform_jwt() {
   _header='{"alg":"HS256","typ":"JWT"}'
   _payload=$(printf '{"sub":"bootstrap-push","organizationId":"system","isAdmin":true,"isSuperAdmin":true,"iat":%s,"exp":%s}' "$_now" "$_exp")
   _signing="$(printf %s "$_header" | _b64url_jwt).$(printf %s "$_payload" | _b64url_jwt)"
-  _sig=$(printf %s "$_signing" | openssl dgst -binary -sha256 -hmac "$_secret" | _b64url_jwt)
+  # Prefer python3 (key via env, off the argv) so the HMAC secret isn't visible
+  # in `ps`/`/proc` to other users on the host. `openssl dgst -hmac` has no
+  # off-argv key option, so it's the fallback when python3 is unavailable.
+  # Both compute HMAC-SHA256 → base64url(no pad), so the signature is identical.
+  if command -v python3 >/dev/null 2>&1; then
+    _sig=$(_PB_HMAC_KEY="$_secret" python3 -c '
+import hmac, hashlib, os, sys, base64
+sig = hmac.new(os.environ["_PB_HMAC_KEY"].encode(), sys.argv[1].encode(), hashlib.sha256).digest()
+sys.stdout.write(base64.urlsafe_b64encode(sig).decode().rstrip("="))
+' "$_signing")
+  else
+    _sig=$(printf %s "$_signing" | openssl dgst -binary -sha256 -hmac "$_secret" | _b64url_jwt)
+  fi
   printf '%s.%s\n' "$_signing" "$_sig"
 }
 

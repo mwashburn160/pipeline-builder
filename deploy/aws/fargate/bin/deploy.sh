@@ -141,6 +141,10 @@ deploy_stack() {
 # internal mode REQUIRES an ACM-ISSUED (publicly trusted) cert (CERTIFICATE_ARN)
 # + a Route53 private zone for the domain → the internal ALB.
 DEPLOY_MODE="${DEPLOY_MODE:-internal}"
+case "$DEPLOY_MODE" in
+  public|internal) ;;
+  *) echo "ERROR: DEPLOY_MODE must be 'public' or 'internal' (got '$DEPLOY_MODE')." >&2; exit 1 ;;
+esac
 DEPLOY_MODE_PARAM=("DeployMode=${DEPLOY_MODE}")
 FOUNDATION_PARAMS=("StackPrefix=${STACK_PREFIX}" "${DEPLOY_MODE_PARAM[@]}")
 [ -n "$CERTIFICATE_ARN" ] && FOUNDATION_PARAMS+=("CertificateArn=${CERTIFICATE_ARN}")
@@ -155,6 +159,12 @@ CONFIG_BUCKET=$(aws cloudformation describe-stacks \
   --stack-name "${STACK_PREFIX}-foundation" \
   --query "Stacks[0].Outputs[?OutputKey=='ConfigBucketName'].OutputValue" \
   --output text --region "$REGION")
+# `--output text` prints "None" (not empty) when the query misses, so guard
+# both — otherwise the uploads below silently target s3://None/...
+if [ -z "$CONFIG_BUCKET" ] || [ "$CONFIG_BUCKET" = "None" ]; then
+  echo "ERROR: could not read ConfigBucketName from ${STACK_PREFIX}-foundation outputs." >&2
+  exit 1
+fi
 
 aws s3 cp "$DEPLOY_DIR/nginx/nginx-fargate.conf" "s3://${CONFIG_BUCKET}/nginx/nginx.conf" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/nginx/jwt.js" "s3://${CONFIG_BUCKET}/nginx/jwt.js" --region "$REGION"
@@ -176,6 +186,10 @@ BASE_HOST=$(aws cloudformation describe-stacks \
   --stack-name "${STACK_PREFIX}-foundation" \
   --query "Stacks[0].Outputs[?OutputKey=='DomainName'].OutputValue" \
   --output text --region "$REGION")
+if [ -z "$BASE_HOST" ] || [ "$BASE_HOST" = "None" ]; then
+  echo "ERROR: could not read DomainName from ${STACK_PREFIX}-foundation outputs." >&2
+  exit 1
+fi
 
 # Scheme tracks TLS availability: ALB has cert => https, else http.
 # Used as the canonical public base URL — passed to every stack so services
@@ -194,16 +208,30 @@ if [ "$DEPLOY_MODE" = "internal" ]; then
   fout() { aws cloudformation describe-stacks --stack-name "${STACK_PREFIX}-foundation" \
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text --region "$REGION"; }
   SHARED_DIR="$(cd "$DEPLOY_DIR/.." && pwd)"
+  # Capture + validate each foundation output; an empty/None value would
+  # otherwise be passed straight into the prereqs stack (e.g. VpcId=None).
+  VPC_ID="$(fout VpcId)"; VPC_CIDR="$(fout VpcCidr)"
+  SUBNET1="$(fout PrivateSubnet1Id)"; SUBNET2="$(fout PrivateSubnet2Id)"
+  ALB_SG="$(fout ALBSecurityGroupId)"; ALB_DNS="$(fout ALBDnsName)"
+  ALB_ZONE="$(fout AlbCanonicalHostedZoneId)"
+  for _pair in "VpcId:$VPC_ID" "VpcCidr:$VPC_CIDR" "PrivateSubnet1Id:$SUBNET1" \
+               "PrivateSubnet2Id:$SUBNET2" "ALBSecurityGroupId:$ALB_SG" \
+               "ALBDnsName:$ALB_DNS" "AlbCanonicalHostedZoneId:$ALB_ZONE"; do
+    if [ -z "${_pair#*:}" ] || [ "${_pair#*:}" = "None" ]; then
+      echo "ERROR: foundation output '${_pair%%:*}' is empty/None — cannot deploy internal-prereqs." >&2
+      exit 1
+    fi
+  done
   deploy_stack "internal-prereqs" "$SHARED_DIR/internal-prereqs.yaml" \
     "StackPrefix=${STACK_PREFIX}" \
-    "VpcId=$(fout VpcId)" \
-    "VpcCidr=$(fout VpcCidr)" \
-    "SubnetIds=$(fout PrivateSubnet1Id),$(fout PrivateSubnet2Id)" \
+    "VpcId=${VPC_ID}" \
+    "VpcCidr=${VPC_CIDR}" \
+    "SubnetIds=${SUBNET1},${SUBNET2}" \
     "DomainName=${BASE_HOST}" \
-    "GatewaySecurityGroupId=$(fout ALBSecurityGroupId)" \
+    "GatewaySecurityGroupId=${ALB_SG}" \
     "GatewayType=alb" \
-    "AlbDnsName=$(fout ALBDnsName)" \
-    "AlbCanonicalHostedZoneId=$(fout AlbCanonicalHostedZoneId)"
+    "AlbDnsName=${ALB_DNS}" \
+    "AlbCanonicalHostedZoneId=${ALB_ZONE}"
 fi
 
 COMMON_PARAMS=("StackPrefix=${STACK_PREFIX}" "DomainName=${BASE_HOST}")

@@ -14,9 +14,6 @@
 # =============================================================================
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-
 # Parse arguments
 DOMAIN=""
 SECRET_NAME="pipeline-builder/app-secrets"
@@ -150,12 +147,20 @@ echo ""
 echo "  App secrets:  $SECRET_NAME"
 echo "  GHCR auth:    $GHCR_SECRET_NAME"
 echo ""
-echo "  Credentials generated:"
-echo "    PostgreSQL:    postgres / ${POSTGRES_PASSWORD}"
-echo "    MongoDB:       mongo / ${MONGO_PASSWORD}"
-echo "    Mongo Express: admin / ${ME_BASICAUTH_PASSWORD}"
-echo "    pgAdmin:       admin@${DOMAIN:-localhost} / ${PGADMIN_PASSWORD}"
-echo "    Registry:      admin / ${REGISTRY_TOKEN}"
-echo ""
-echo "  IMPORTANT: Save these credentials. They are stored in Secrets Manager"
-echo "  but will not be displayed again."
+# Only print the actual passwords to an interactive terminal. When stdout is
+# piped/redirected (CI logs, `tee` transcripts, deploy.sh capture) the values
+# would otherwise be persisted in plaintext — so suppress them there and point
+# the operator at Secrets Manager instead.
+if [ -t 1 ]; then
+  echo "  Credentials generated (shown once — save them):"
+  echo "    PostgreSQL:    postgres / ${POSTGRES_PASSWORD}"
+  echo "    MongoDB:       mongo / ${MONGO_PASSWORD}"
+  echo "    Mongo Express: admin / ${ME_BASICAUTH_PASSWORD}"
+  echo "    pgAdmin:       admin@${DOMAIN:-localhost} / ${PGADMIN_PASSWORD}"
+  echo "    Registry:      admin / ${REGISTRY_TOKEN}"
+else
+  echo "  Credentials stored in Secrets Manager (not printed to a non-interactive"
+  echo "  stream). Retrieve with:"
+  echo "    aws secretsmanager get-secret-value --secret-id ${SECRET_NAME} \\"
+  echo "      --query SecretString --output text"
+fi
