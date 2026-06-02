@@ -86,6 +86,15 @@ export class ComplianceRuleService extends CrudService<
    * Results are cached per org+target (configurable TTL).
    */
   async findActiveByOrgAndTarget(orgId: string, target: RuleTarget): Promise<ComplianceRule[]> {
+    // The 'system' org is inert for compliance enforcement: it's the operator
+    // home for the template/published rule LIBRARY and the bootstrap
+    // plugin/pipeline catalog, not a tenant. Its own rules are never active
+    // policy against its own content (otherwise a bootstrap plugin upload —
+    // orgId='system' — evaluates the whole library against itself and blocks).
+    // Returning [] here makes system inert across every caller: validate
+    // (upload), entity events, scheduled scans, and the /enforced view.
+    if (orgId === 'system') return [];
+
     const cacheKey = `${orgId}:${target}`;
     return rulesCache.getOrSet(cacheKey, async () => {
       // Single query: org's own rules UNION subscribed published rules (via LEFT JOIN)

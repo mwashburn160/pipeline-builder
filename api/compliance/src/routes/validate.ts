@@ -97,6 +97,9 @@ async function validateEntity(
     };
   }
 
+  // Note: the 'system' org is inert for enforcement — findActiveByOrgAndTarget
+  // returns no rules for it (it's the home of the template/published library
+  // and the bootstrap catalog, not a tenant), so evaluation below is a no-op.
   const rules = await complianceRuleService.findActiveByOrgAndTarget(orgId, target);
   const exemptions = entityId
     ? await complianceExemptionService.getActiveExemptionsForEntity(orgId, entityId)
