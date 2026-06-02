@@ -2,10 +2,10 @@
 # =============================================================================
 # Pipeline Builder - EC2 Deployment Script
 # =============================================================================
-# Deploys the EC2 base stack (template.yaml) and, in internal mode, the shared
-# internal-prereqs.yaml stack (VPC interface endpoints + Route53 PRIVATE zone +
+# Deploys the EC2 base stack (template.yaml) and, in private mode, the shared
+# private-prereqs.yaml stack (VPC interface endpoints + Route53 PRIVATE zone +
 # gateway 443-from-VPC ingress). Mirrors the Fargate bin/deploy.sh so EC2 gets
-# the same one-command experience with internal-mode prereqs deployed
+# the same one-command experience with private-mode prereqs deployed
 # automatically — no manual "aws cloudformation deploy" follow-up step.
 #
 # Runs from YOUR machine with YOUR credentials (like Fargate's deploy.sh), so
@@ -14,16 +14,16 @@
 # The instance issues its own publicly-trusted Let's Encrypt cert on first boot
 # (bootstrap.sh):
 #   - public   -> HTTP-01 (needs public :80)
-#   - internal -> DNS-01 over Route53 (uses the instance role's scoped Route53
+#   - private -> DNS-01 over Route53 (uses the instance role's scoped Route53
 #                 permissions, which template.yaml attaches when
-#                 DeployMode=internal)
+#                 DeployMode=private)
 #
 # Usage:
 #   bash bin/deploy.sh --key-pair my-key --domain pipeline.example.com \
 #     --hosted-zone-id Z123 --ghcr-token ghp_xxxx [--region us-east-1]
 #
-# DEPLOY_MODE defaults to internal. Pass --deploy-mode public (or DEPLOY_MODE=
-# public) for the internet-facing / IP-only path. internal mode REQUIRES
+# DEPLOY_MODE defaults to private. Pass --deploy-mode public (or DEPLOY_MODE=
+# public) for the internet-facing / IP-only path. private mode REQUIRES
 # --domain + --hosted-zone-id (a PUBLIC Route53 zone you control) so the
 # publicly-trusted DNS-01 cert can be issued.
 # =============================================================================
@@ -33,12 +33,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"        # deploy/aws/ec2
 SHARED_DIR="$(cd "$DEPLOY_DIR/.." && pwd)"        # deploy/aws
 TEMPLATE="$DEPLOY_DIR/template.yaml"
-PREREQS_TEMPLATE="$SHARED_DIR/internal-prereqs.yaml"
+PREREQS_TEMPLATE="$SHARED_DIR/private-prereqs.yaml"
 
 # Defaults (env-overridable)
 STACK_NAME="${STACK_NAME:-pipeline-builder}"
 REGION="${AWS_REGION:-us-east-1}"
-DEPLOY_MODE="${DEPLOY_MODE:-internal}"
+DEPLOY_MODE="${DEPLOY_MODE:-private}"
 DOMAIN="${DOMAIN:-}"
 HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 KEY_PAIR_NAME="${KEY_PAIR_NAME:-}"
@@ -74,16 +74,16 @@ if [ ! -f "$TEMPLATE" ]; then
   exit 1
 fi
 case "$DEPLOY_MODE" in
-  public|internal) ;;
-  *) echo "ERROR: --deploy-mode must be 'public' or 'internal' (got '$DEPLOY_MODE')." >&2; exit 1 ;;
+  public|private) ;;
+  *) echo "ERROR: --deploy-mode must be 'public' or 'private' (got '$DEPLOY_MODE')." >&2; exit 1 ;;
 esac
-if [ "$DEPLOY_MODE" = "internal" ]; then
-  # internal mode needs a publicly-trusted DNS-01 cert, which requires a real
+if [ "$DEPLOY_MODE" = "private" ]; then
+  # private mode needs a publicly-trusted DNS-01 cert, which requires a real
   # public domain + its Route53 hosted zone you control. Bail early rather than
   # let the instance silently fall back to a self-signed cert (which CodeBuild
   # plugin pulls then reject with x509 "unknown authority").
   if [ -z "$DOMAIN" ] || [ -z "$HOSTED_ZONE_ID" ]; then
-    echo "ERROR: internal mode requires --domain and --hosted-zone-id (a PUBLIC" >&2
+    echo "ERROR: private mode requires --domain and --hosted-zone-id (a PUBLIC" >&2
     echo "       Route53 zone you control) so the DNS-01 cert can be issued." >&2
     echo "       Use --deploy-mode public for an IP-only / self-signed deploy." >&2
     exit 1
@@ -152,14 +152,14 @@ BASE_PARAMS=(
 deploy_stack "$STACK_NAME" "$TEMPLATE" "${BASE_PARAMS[@]}"
 
 # -----------------------------------------------------------------------
-# Step 2: Internal mode — auto-deploy the inside-AWS-only prerequisites
+# Step 2: Private mode — auto-deploy the inside-AWS-only prerequisites
 # -----------------------------------------------------------------------
 # Reads the base stack's outputs (added for exactly this purpose) and stands up
 # the VPC interface endpoints + Route53 PRIVATE zone (A -> instance private IP)
 # + gateway 443-from-VPC ingress, with GatewayType=ip. The instance meanwhile
 # issues its DNS-01 cert against the PUBLIC zone during bootstrap — independent
 # of this private zone, so deploying it now is safe.
-if [ "$DEPLOY_MODE" = "internal" ]; then
+if [ "$DEPLOY_MODE" = "private" ]; then
   # Capture each required output and fail loudly if empty/None — otherwise a
   # mistyped/renamed output would silently feed "VpcId=" (or "None") into the
   # prereqs stack and fail deep inside CloudFormation with a confusing error.
@@ -172,11 +172,11 @@ if [ "$DEPLOY_MODE" = "internal" ]; then
                "SecurityGroupId:$SG_ID" "InstancePrivateIp:$PRIV_IP"; do
     if [ -z "${_pair#*:}" ] || [ "${_pair#*:}" = "None" ]; then
       echo "ERROR: base stack '${STACK_NAME}' output '${_pair%%:*}' is empty/None —" >&2
-      echo "       cannot deploy internal-prereqs. Did the base stack finish?" >&2
+      echo "       cannot deploy private-prereqs. Did the base stack finish?" >&2
       exit 1
     fi
   done
-  deploy_stack "${STACK_NAME}-internal" "$PREREQS_TEMPLATE" \
+  deploy_stack "${STACK_NAME}-private" "$PREREQS_TEMPLATE" \
     "StackPrefix=${STACK_NAME}" \
     "VpcId=${VPC_ID}" \
     "VpcCidr=${VPC_CIDR}" \
@@ -199,10 +199,10 @@ echo "Deployment Complete"
 echo "========================================"
 echo ""
 echo "  Application:  ${APP_URL}"
-if [ "$DEPLOY_MODE" = "internal" ]; then
-echo "  Mode:         internal (reach it from inside the VPC via the private zone)"
+if [ "$DEPLOY_MODE" = "private" ]; then
+echo "  Mode:         private (reach it from inside the VPC via the private zone)"
 echo "  Private IP:   ${PRIVATE_IP}"
-echo "  Prereqs:      ${STACK_NAME}-internal (VPC endpoints + private zone + 443-from-VPC)"
+echo "  Prereqs:      ${STACK_NAME}-private (VPC endpoints + private zone + 443-from-VPC)"
 fi
 echo ""
 echo "  Bootstrap still runs ON the instance (cert + minikube + services),"

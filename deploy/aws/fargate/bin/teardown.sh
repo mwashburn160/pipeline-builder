@@ -70,10 +70,10 @@ for stack in admin observability services databases cluster; do
   delete_stack "${STACK_PREFIX}-${stack}"
 done
 
-# internal-prereqs (internal mode only) attaches a Route53 private zone + VPC
+# private-prereqs (private mode only) attaches a Route53 private zone + VPC
 # interface endpoints to foundation's VPC, so it MUST go before foundation or
 # the VPC delete is blocked. No-op when it was never created (public mode).
-delete_stack "${STACK_PREFIX}-internal-prereqs"
+delete_stack "${STACK_PREFIX}-private-prereqs"
 
 # Empty the S3 config bucket before deleting foundation. The bucket has
 # versioning enabled, so `s3 rm --recursive` (current versions only) leaves

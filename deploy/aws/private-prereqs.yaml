@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Pipeline Builder - internal (inside-AWS-only) deployment prerequisites.
+  Pipeline Builder - private (inside-AWS-only) deployment prerequisites.
   Shared by both the EC2 and Fargate deployments; deployed ONLY when
-  DEPLOY_MODE=internal, AFTER the base network/gateway exists. Provisions the
-  pieces internal mode needs but the base stacks don't create:
+  DEPLOY_MODE=private, AFTER the base network/gateway exists. Provisions the
+  pieces private mode needs but the base stacks don't create:
     1. VPC interface endpoints so VPC-attached CodeBuild reaches AWS APIs
        without internet egress (S3, Logs, Secrets Manager, KMS, STS, CodeBuild,
        and ECR for image pulls).
@@ -193,7 +193,7 @@ Resources:
         - VPCId: !Ref VpcId
           VPCRegion: !Ref "AWS::Region"
       HostedZoneConfig:
-        Comment: !Sub "${StackPrefix} internal-mode private zone"
+        Comment: !Sub "${StackPrefix} private-mode private zone"
 
   DomainRecord:
     Type: AWS::Route53::RecordSet
@@ -219,10 +219,10 @@ Outputs:
     Description: Private hosted zone ID for the domain.
     Value: !Ref PrivateHostedZone
     Export:
-      Name: !Sub "${StackPrefix}-InternalHostedZoneId"
+      Name: !Sub "${StackPrefix}-PrivateHostedZoneId"
 
   EndpointSecurityGroupId:
     Description: Security group fronting the VPC interface endpoints.
     Value: !Ref EndpointSecurityGroup
     Export:
-      Name: !Sub "${StackPrefix}-InternalEndpointSgId"
+      Name: !Sub "${StackPrefix}-PrivateEndpointSgId"

@@ -136,14 +136,14 @@ deploy_stack() {
 # Step 3: Deploy foundation stack
 # -----------------------------------------------------------------------
 # Deployment posture: public (internet-facing ALB; CodeBuild over internet) or
-# internal (inside-AWS-only: internal-scheme ALB in private subnets +
-# VPC-attached CodeBuild). Defaults to internal; set DEPLOY_MODE=public to flip it.
-# internal mode REQUIRES an ACM-ISSUED (publicly trusted) cert (CERTIFICATE_ARN)
+# private (inside-AWS-only: internal-scheme ALB in private subnets +
+# VPC-attached CodeBuild). Defaults to private; set DEPLOY_MODE=public to flip it.
+# private mode REQUIRES an ACM-ISSUED (publicly trusted) cert (CERTIFICATE_ARN)
 # + a Route53 private zone for the domain → the internal ALB.
-DEPLOY_MODE="${DEPLOY_MODE:-internal}"
+DEPLOY_MODE="${DEPLOY_MODE:-private}"
 case "$DEPLOY_MODE" in
-  public|internal) ;;
-  *) echo "ERROR: DEPLOY_MODE must be 'public' or 'internal' (got '$DEPLOY_MODE')." >&2; exit 1 ;;
+  public|private) ;;
+  *) echo "ERROR: DEPLOY_MODE must be 'public' or 'private' (got '$DEPLOY_MODE')." >&2; exit 1 ;;
 esac
 DEPLOY_MODE_PARAM=("DeployMode=${DEPLOY_MODE}")
 FOUNDATION_PARAMS=("StackPrefix=${STACK_PREFIX}" "${DEPLOY_MODE_PARAM[@]}")
@@ -200,11 +200,11 @@ else
   PLATFORM_BASE_URL="http://${BASE_HOST}"
 fi
 
-# Internal mode: provision the inside-AWS-only prerequisites (VPC interface
+# Private mode: provision the inside-AWS-only prerequisites (VPC interface
 # endpoints + Route53 private zone + ALB 443 ingress from the VPC) so the
 # VPC-attached CodeBuild projects can reach AWS APIs and pull plugin images
 # from the internal ALB. Reads the foundation outputs added for this purpose.
-if [ "$DEPLOY_MODE" = "internal" ]; then
+if [ "$DEPLOY_MODE" = "private" ]; then
   fout() { aws cloudformation describe-stacks --stack-name "${STACK_PREFIX}-foundation" \
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text --region "$REGION"; }
   SHARED_DIR="$(cd "$DEPLOY_DIR/.." && pwd)"
@@ -218,11 +218,11 @@ if [ "$DEPLOY_MODE" = "internal" ]; then
                "PrivateSubnet2Id:$SUBNET2" "ALBSecurityGroupId:$ALB_SG" \
                "ALBDnsName:$ALB_DNS" "AlbCanonicalHostedZoneId:$ALB_ZONE"; do
     if [ -z "${_pair#*:}" ] || [ "${_pair#*:}" = "None" ]; then
-      echo "ERROR: foundation output '${_pair%%:*}' is empty/None — cannot deploy internal-prereqs." >&2
+      echo "ERROR: foundation output '${_pair%%:*}' is empty/None — cannot deploy private-prereqs." >&2
       exit 1
     fi
   done
-  deploy_stack "internal-prereqs" "$SHARED_DIR/internal-prereqs.yaml" \
+  deploy_stack "private-prereqs" "$SHARED_DIR/private-prereqs.yaml" \
     "StackPrefix=${STACK_PREFIX}" \
     "VpcId=${VPC_ID}" \
     "VpcCidr=${VPC_CIDR}" \

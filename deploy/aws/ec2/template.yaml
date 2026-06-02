@@ -23,14 +23,14 @@ Parameters:
 
   DeployMode:
     Type: String
-    Default: internal
-    AllowedValues: [public, internal]
+    Default: private
+    AllowedValues: [public, private]
     Description: >
-      public = HTTP/HTTPS (80/443) open to the internet. internal =
+      public = HTTP/HTTPS (80/443) open to the internet. private =
       inside-AWS-only: 80/443 restricted to the VPC CIDR (reach the gateway via
-      a Route53 private zone). In internal mode also set DEPLOY_MODE=internal in
+      a Route53 private zone). In private mode also set DEPLOY_MODE=private in
       the instance .env (DNS-01 cert + VPC-attached CodeBuild) and deploy
-      deploy/aws/internal-prereqs.yaml (GatewayType=ip) using this stack's
+      deploy/aws/private-prereqs.yaml (GatewayType=ip) using this stack's
       outputs. See docs/aws-deployment.md.
 
   InstanceType:
@@ -103,7 +103,12 @@ Parameters:
 # =============================================================================
 Conditions:
   HasDomain: !Not [!Equals [!Ref DomainName, ""]]
-  IsInternal: !Equals [!Ref DeployMode, internal]
+  IsPrivate: !Equals [!Ref DeployMode, private]
+  IsPublic: !Equals [!Ref DeployMode, public]
+  # Public A-record only in public mode with a domain. In private mode the
+  # gateway is private and resolved via the Route53 PRIVATE zone created by
+  # private-prereqs.yaml — no public record (and no EIP to point at).
+  PublicDomain: !And [!Condition IsPublic, !Condition HasDomain]
 
 # =============================================================================
 # Resources
@@ -173,6 +178,71 @@ Resources:
       RouteTableId: !Ref RouteTable
 
   # ---------------------------------------------------------------------------
+  # Private subnet + NAT (private mode only)
+  # ---------------------------------------------------------------------------
+  # In private mode the instance runs in this PRIVATE subnet with NO public IP.
+  # The NAT gateway (in the public subnet, which then exists ONLY to host it)
+  # provides outbound for Let's Encrypt DNS-01, GHCR pulls, and OS packages.
+  # private-prereqs.yaml places the VPC interface endpoints + VPC-attached
+  # CodeBuild in this same subnet (via the SubnetId output). Access is via SSM
+  # Session Manager (outbound to SSM over the NAT), not public SSH.
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-private"
+
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Condition: IsPrivate
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-nat-eip"
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: IsPrivate
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-nat"
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-private-rt"
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Condition: IsPrivate
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IsPrivate
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ---------------------------------------------------------------------------
   # Security Group (Hardened)
   # ---------------------------------------------------------------------------
   SecurityGroup:
@@ -181,27 +251,29 @@ Resources:
       GroupDescription: Pipeline Builder EC2 - SSH, HTTP, HTTPS only
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        # SSH - restricted to SshCidr
+        # SSH - public mode: SshCidr. Private mode: VPC-only (the instance has
+        # no public IP; use SSM Session Manager for access). The rule is inert
+        # without a public IP, but VPC-scoping it keeps the posture clean.
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: !Ref SshCidr
+          CidrIp: !If [IsPrivate, !GetAtt VPC.CidrBlock, !Ref SshCidr]
           Description: SSH access
-        # HTTP - public mode only (Let's Encrypt HTTP-01 + redirect). Internal
+        # HTTP - public mode only (Let's Encrypt HTTP-01 + redirect). Private
         # mode uses DNS-01 and has no public ingress, so 80 is dropped.
         - !If
-          - IsInternal
+          - IsPrivate
           - !Ref "AWS::NoValue"
           - IpProtocol: tcp
             FromPort: 80
             ToPort: 80
             CidrIp: 0.0.0.0/0
             Description: HTTP (LetsEncrypt + redirect)
-        # HTTPS - public (0.0.0.0/0) or, in internal mode, VPC-only.
+        # HTTPS - public (0.0.0.0/0) or, in private mode, VPC-only.
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          CidrIp: !If [IsInternal, !GetAtt VPC.CidrBlock, "0.0.0.0/0"]
+          CidrIp: !If [IsPrivate, !GetAtt VPC.CidrBlock, "0.0.0.0/0"]
           Description: HTTPS (application)
       SecurityGroupEgress:
         - IpProtocol: "-1"
@@ -214,8 +286,10 @@ Resources:
   # ---------------------------------------------------------------------------
   # Elastic IP
   # ---------------------------------------------------------------------------
+  # Public mode only — private mode has no public IP (private subnet + NAT).
   ElasticIP:
     Type: AWS::EC2::EIP
+    Condition: IsPublic
     DependsOn: VPCGatewayAttachment
     Properties:
       Domain: vpc
@@ -225,6 +299,7 @@ Resources:
 
   EIPAssociation:
     Type: AWS::EC2::EIPAssociation
+    Condition: IsPublic
     Properties:
       AllocationId: !GetAtt ElasticIP.AllocationId
       InstanceId: !Ref EC2Instance
@@ -248,7 +323,7 @@ Resources:
         - Key: Name
           Value: !Sub "pipeline-builder-role"
 
-  # DNS-01 cert (internal mode only): certbot-dns-route53 writes the ACME TXT
+  # DNS-01 cert (private mode only): certbot-dns-route53 writes the ACME TXT
   # challenge into the domain's PUBLIC hosted zone. Without this the instance
   # silently falls back to a self-signed cert, which CodeBuild plugin pulls then
   # reject (x509 "unknown authority"). Scoped to the supplied hosted zone;
@@ -256,7 +331,7 @@ Resources:
   # public mode uses HTTP-01 and needs no Route53 access, so this is gated off.
   InstanceRoute53Policy:
     Type: AWS::IAM::Policy
-    Condition: IsInternal
+    Condition: IsPrivate
     Properties:
       PolicyName: pipeline-builder-dns01-route53
       Roles:
@@ -287,7 +362,7 @@ Resources:
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !If [IsPrivate, !Ref PrivateSubnet, !Ref PublicSubnet]
       SecurityGroupIds:
         - !Ref SecurityGroup
       IamInstanceProfile: !Ref InstanceProfile
@@ -414,7 +489,7 @@ Resources:
   # ---------------------------------------------------------------------------
   DNSRecord:
     Type: AWS::Route53::RecordSet
-    Condition: HasDomain
+    Condition: PublicDomain
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !Ref DomainName
@@ -428,19 +503,22 @@ Resources:
 # =============================================================================
 Outputs:
   PublicIP:
-    Description: Elastic IP address of the EC2 instance
-    Value: !Ref ElasticIP
+    Description: Elastic IP (public mode); private mode has no public IP
+    Value: !If [IsPublic, !Ref ElasticIP, "none (private subnet, SSM access)"]
 
   ApplicationURL:
     Description: Application URL
     Value: !If
       - HasDomain
       - !Sub "https://${DomainName}"
-      - !Sub "https://${ElasticIP}"
+      - !If [IsPublic, !Sub "https://${ElasticIP}", "https://<set DomainName for private mode>"]
 
   SSHCommand:
-    Description: SSH command to connect to the instance
-    Value: !Sub "ssh -i <your-key>.pem ec2-user@${ElasticIP}"
+    Description: How to connect to the instance
+    Value: !If
+      - IsPrivate
+      - !Sub "aws ssm start-session --target ${EC2Instance} --region ${AWS::Region}"
+      - !Sub "ssh -i <your-key>.pem ec2-user@${ElasticIP}"
 
   InstanceId:
     Description: EC2 Instance ID
@@ -451,27 +529,30 @@ Outputs:
     Value: !Ref DataVolume
 
   BootstrapLog:
-    Description: Command to check bootstrap progress
-    Value: !Sub "ssh -i <your-key>.pem ec2-user@${ElasticIP} 'tail -f /var/log/user-data.log'"
+    Description: How to watch bootstrap progress
+    Value: !If
+      - IsPrivate
+      - !Sub "aws ssm start-session --target ${EC2Instance} --region ${AWS::Region}  # then: sudo tail -f /var/log/user-data.log"
+      - !Sub "ssh -i <your-key>.pem ec2-user@${ElasticIP} 'tail -f /var/log/user-data.log'"
 
-  # Inputs for internal mode: feed deploy/aws/internal-prereqs.yaml
+  # Inputs for private mode: feed deploy/aws/private-prereqs.yaml
   # (GatewayType=ip) and the instance .env (PIPELINE_VPC_ID / PIPELINE_SUBNET_IDS).
   VpcId:
-    Description: VPC ID (internal-prereqs VpcId + .env PIPELINE_VPC_ID)
+    Description: VPC ID (private-prereqs VpcId + .env PIPELINE_VPC_ID)
     Value: !Ref VPC
 
   SubnetId:
-    Description: Subnet ID (internal-prereqs SubnetIds + .env PIPELINE_SUBNET_IDS)
-    Value: !Ref PublicSubnet
+    Description: Subnet ID (private-prereqs SubnetIds + .env PIPELINE_SUBNET_IDS) — the PRIVATE subnet in private mode
+    Value: !If [IsPrivate, !Ref PrivateSubnet, !Ref PublicSubnet]
 
   VpcCidr:
-    Description: VPC CIDR (internal-prereqs VpcCidr)
+    Description: VPC CIDR (private-prereqs VpcCidr)
     Value: !GetAtt VPC.CidrBlock
 
   SecurityGroupId:
-    Description: Instance SG ID (internal-prereqs GatewaySecurityGroupId)
+    Description: Instance SG ID (private-prereqs GatewaySecurityGroupId)
     Value: !Ref SecurityGroup
 
   InstancePrivateIp:
-    Description: Instance private IP (internal-prereqs GatewayPrivateIp)
+    Description: Instance private IP (private-prereqs GatewayPrivateIp)
     Value: !GetAtt EC2Instance.PrivateIp

@@ -31,11 +31,11 @@ INSTALL_DIR="$(cd "$DEPLOY_DIR/../../.." && pwd)"
 
 DOMAIN="${DOMAIN:-}"
 # Deployment posture: "public" (public ingress; Let's Encrypt via HTTP-01) or
-# "internal" (inside-AWS-only; no public :80, so Let's Encrypt via DNS-01 over
+# "private" (inside-AWS-only; no public :80, so Let's Encrypt via DNS-01 over
 # Route53). The cert is publicly trusted either way — required for AWS
 # CodeBuild to pull plugin images over the gateway. See docs/aws-deployment.md.
-# Defaults to "internal" (inside-AWS-only); export DEPLOY_MODE=public to open ingress.
-DEPLOY_MODE="${DEPLOY_MODE:-internal}"
+# Defaults to "private" (inside-AWS-only); export DEPLOY_MODE=public to open ingress.
+DEPLOY_MODE="${DEPLOY_MODE:-private}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 
@@ -188,7 +188,7 @@ mkdir -p "$TLS_CERT_DIR"
 
 if [ -n "$DOMAIN" ]; then
   # --- Let's Encrypt (domain provided) ---
-  if [ "$DEPLOY_MODE" = "internal" ]; then
+  if [ "$DEPLOY_MODE" = "private" ]; then
     # Inside-AWS-only: no public port 80, so validate via DNS-01 over Route53
     # instead of HTTP-01. Requires the dns-route53 plugin + an instance role
     # with Route53 change permissions on the domain's hosted zone. The cert is

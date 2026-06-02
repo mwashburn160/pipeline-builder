@@ -21,18 +21,18 @@ Parameters:
 
   DeployMode:
     Type: String
-    Default: internal
-    AllowedValues: [public, internal]
+    Default: private
+    AllowedValues: [public, private]
     Description: >
-      public = internet-facing ALB in public subnets. internal = inside-AWS-only:
+      public = internet-facing ALB in public subnets. private = inside-AWS-only:
       an internal-scheme ALB in private subnets (reach it via a Route53 private
       zone), with CodeBuild VPC-attached (see 04-services). Use an ACM-ISSUED
-      cert in internal mode so CodeBuild trusts the gateway when pulling plugin
+      cert in private mode so CodeBuild trusts the gateway when pulling plugin
       images.
 
 Conditions:
   HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
-  IsInternal: !Equals [!Ref DeployMode, internal]
+  IsPrivate: !Equals [!Ref DeployMode, private]
 
 Resources:
 
@@ -293,12 +293,12 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       Name: !Sub "${StackPrefix}-alb"
-      # internal mode → private-subnet, internal-scheme ALB (no public ingress);
+      # private mode → private-subnet, internal-scheme ALB (no public ingress);
       # public mode → internet-facing in the public subnets.
-      Scheme: !If [IsInternal, internal, internet-facing]
+      Scheme: !If [IsPrivate, internal, internet-facing]
       Type: application
       Subnets: !If
-        - IsInternal
+        - IsPrivate
         - [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
         - [!Ref PublicSubnet1, !Ref PublicSubnet2]
       SecurityGroups:
@@ -729,9 +729,9 @@ Outputs:
     Export:
       Name: !Sub "${StackPrefix}-ALBSecurityGroupId"
 
-  # Inputs for the internal-mode prerequisites stack (internal-prereqs.yaml)
+  # Inputs for the private-mode prerequisites stack (private-prereqs.yaml)
   VpcCidr:
-    Description: VPC CIDR (for internal-prereqs endpoint + gateway ingress rules)
+    Description: VPC CIDR (for private-prereqs endpoint + gateway ingress rules)
     Value: !GetAtt VPC.CidrBlock
     Export:
       Name: !Sub "${StackPrefix}-VpcCidr"

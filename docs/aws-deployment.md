@@ -43,12 +43,12 @@ Single hardened EC2 instance running Minikube with all services.
 
 ### Deploy
 
-**Recommended — `bin/deploy.sh`** (mirrors Fargate: one command, and in `internal` mode it auto-deploys `internal-prereqs.yaml` for you using the base stack's outputs — no manual follow-up step):
+**Recommended — `bin/deploy.sh`** (mirrors Fargate: one command, and in `private` mode it auto-deploys `private-prereqs.yaml` for you using the base stack's outputs — no manual follow-up step):
 
 ```bash
 cd deploy/aws/ec2
 
-# internal (default) — inside-AWS-only; requires a public domain + its Route53 zone
+# private (default) — inside-AWS-only; requires a public domain + its Route53 zone
 bash bin/deploy.sh \
   --key-pair my-keypair \
   --domain pipeline.example.com \
@@ -59,9 +59,9 @@ bash bin/deploy.sh \
 bash bin/deploy.sh --deploy-mode public --key-pair my-keypair --ghcr-token ghp_xxxxxxxxxxxx
 ```
 
-`deploy.sh` runs from your machine with your credentials, so the instance role needs no CloudFormation permissions. In `internal` mode it stands up the base stack, reads its outputs, then deploys `${STACK_NAME}-internal` (`GatewayType=ip` → A-record to the instance private IP). It refuses to start an `internal` deploy without `--domain`/`--hosted-zone-id`, so you never get a silent self-signed-cert fallback.
+`deploy.sh` runs from your machine with your credentials, so the instance role needs no CloudFormation permissions. In `private` mode it stands up the base stack, reads its outputs, then deploys `${STACK_NAME}-private` (`GatewayType=ip` → A-record to the instance private IP). It refuses to start an `private` deploy without `--domain`/`--hosted-zone-id`, so you never get a silent self-signed-cert fallback.
 
-**Manual alternative (raw CloudFormation).** Deploys only the base stack — in `internal` mode you must then deploy `internal-prereqs.yaml` yourself (see [internal mode prerequisites](#deployment-mode-deploy_mode) below):
+**Manual alternative (raw CloudFormation).** Deploys only the base stack — in `private` mode you must then deploy `private-prereqs.yaml` yourself (see [private mode prerequisites](#deployment-mode-deploy_mode) below):
 
 ```bash
 cd deploy/aws/ec2
@@ -71,7 +71,7 @@ aws cloudformation deploy \
   --stack-name pipeline-builder \
   --template-file template.yaml \
   --parameter-overrides \
-    DeployMode=internal \
+    DeployMode=private \
     DomainName=pipeline.example.com \
     HostedZoneId=Z1234567890 \
     KeyPairName=my-keypair \
@@ -255,9 +255,9 @@ sudo -u minikube kubectl get pods -n pipeline-builder
 
 ### Deployment mode (`DEPLOY_MODE`)
 
-`DEPLOY_MODE` **defaults to `internal`** (inside-AWS-only). Set it in `.env` **before** `bootstrap.sh`; export `DEPLOY_MODE=public` for the public-ingress posture. Both modes use a **publicly-trusted Let's Encrypt cert** (required so AWS CodeBuild can pull plugin images over the gateway).
+`DEPLOY_MODE` **defaults to `private`** (inside-AWS-only). Set it in `.env` **before** `bootstrap.sh`; export `DEPLOY_MODE=public` for the public-ingress posture. Both modes use a **publicly-trusted Let's Encrypt cert** (required so AWS CodeBuild can pull plugin images over the gateway).
 
-| | `internal` (inside-AWS-only, **default**) | `public` |
+| | `private` (inside-AWS-only, **default**) | `public` |
 |---|---|---|
 | Ingress | No public ingress; VPC-only | Public IP, SG opens 80/443 |
 | Let's Encrypt | DNS-01 (`--dns-route53`; cert still public-trusted) | HTTP-01 (`--standalone`, needs public :80) |
@@ -265,16 +265,16 @@ sudo -u minikube kubectl get pods -n pipeline-builder
 | CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS`/`SECURITY_GROUP_IDS`) | AWS-managed network, reaches gateway over internet |
 | Plugin pull | `https://<domain>/v2/` (resolves private) | `https://<domain>/v2/` (public) |
 
-> Because `internal` is the default, a vanilla `bootstrap.sh` run expects the prerequisites below up front (ACM/DNS-01 cert, Route53 **private** zone, VPC endpoints). Set `DEPLOY_MODE=public` for the zero-prereq path.
+> Because `private` is the default, a vanilla `bootstrap.sh` run expects the prerequisites below up front (ACM/DNS-01 cert, Route53 **private** zone, VPC endpoints). Set `DEPLOY_MODE=public` for the zero-prereq path.
 
 Both share the registry `/v2/` route + `registry-auth.js` realm rewrite + `IMAGE_REGISTRY_PULL_HOST` — only resolution/networking differ.
 
-**`internal` mode prerequisites** — the VPC endpoints, private hosted zone, and gateway-ingress rule are provisioned by **`deploy/aws/internal-prereqs.yaml`** (shared with Fargate). **`bin/deploy.sh` deploys it automatically** (just like Fargate) — it reads the base stack's outputs and applies it with `GatewayType=ip`, so you don't run anything by hand. The instance role's scoped Route53 permissions for the DNS-01 cert are also attached automatically by `template.yaml` whenever `DeployMode=internal`.
+**`private` mode prerequisites** — the VPC endpoints, private hosted zone, and gateway-ingress rule are provisioned by **`deploy/aws/private-prereqs.yaml`** (shared with Fargate). **`bin/deploy.sh` deploys it automatically** (just like Fargate) — it reads the base stack's outputs and applies it with `GatewayType=ip`, so you don't run anything by hand. The instance role's scoped Route53 permissions for the DNS-01 cert are also attached automatically by `template.yaml` whenever `DeployMode=private`.
 
 If you deployed the base stack with raw CloudFormation instead of `deploy.sh`, apply the prereqs yourself with the stack's outputs:
 ```bash
-aws cloudformation deploy --stack-name pipeline-builder-internal \
-  --template-file deploy/aws/internal-prereqs.yaml \
+aws cloudformation deploy --stack-name pipeline-builder-private \
+  --template-file deploy/aws/private-prereqs.yaml \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
     StackPrefix=pipeline-builder \
@@ -340,16 +340,16 @@ bash bin/deploy.sh \
 
 ### Deployment mode (`DEPLOY_MODE`)
 
-`DEPLOY_MODE` **defaults to `internal`** (inside-AWS-only); set it in the env before `deploy.sh` (passed to the foundation + services stacks). Export `DEPLOY_MODE=public` for the internet-facing posture.
+`DEPLOY_MODE` **defaults to `private`** (inside-AWS-only); set it in the env before `deploy.sh` (passed to the foundation + services stacks). Export `DEPLOY_MODE=public` for the internet-facing posture.
 
-| | `internal` (inside-AWS-only, **default**) | `public` |
+| | `private` (inside-AWS-only, **default**) | `public` |
 |---|---|---|
 | ALB | internal scheme, private subnets | internet-facing, public subnets |
 | DNS | Route53 **private** zone → internal ALB | public Route53 → ALB |
 | CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS` wired from the foundation VPC) | AWS-managed network, reaches ALB over internet |
 | Plugin pull | `https://<domain>/v2/` (private) | `https://<domain>/v2/` (public) |
 
-Both require a **publicly-trusted, ACM-*issued*** cert (`--certificate-arn`) — the default self-signed cert from `init-cert.sh` does **not** work for CodeBuild plugin pulls. Because `internal` is the default, supply the ACM-issued cert and a Route53 **private** zone up front, or pass `DEPLOY_MODE=public` for the simpler internet-facing path. In `internal` mode `deploy.sh` **automatically deploys `deploy/aws/internal-prereqs.yaml`** after the foundation stack — provisioning the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR), the Route53 **private** hosted zone (alias → internal ALB), and the ALB 443-ingress-from-VPC rule. Still operator-supplied: egress (NAT/mirrors) for build deps. Mirrors the EC2 `DEPLOY_MODE` — both auto-deploy `internal-prereqs.yaml` from their `bin/deploy.sh`; they differ only in cert source (EC2 uses Let's Encrypt DNS-01, Fargate uses an ACM-issued cert) and gateway type (`ip` for EC2's instance, `alb` for Fargate's load balancer).
+Both require a **publicly-trusted, ACM-*issued*** cert (`--certificate-arn`) — the default self-signed cert from `init-cert.sh` does **not** work for CodeBuild plugin pulls. Because `private` is the default, supply the ACM-issued cert and a Route53 **private** zone up front, or pass `DEPLOY_MODE=public` for the simpler internet-facing path. In `private` mode `deploy.sh` **automatically deploys `deploy/aws/private-prereqs.yaml`** after the foundation stack — provisioning the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR), the Route53 **private** hosted zone (alias → internal ALB), and the ALB 443-ingress-from-VPC rule. Still operator-supplied: egress (NAT/mirrors) for build deps. Mirrors the EC2 `DEPLOY_MODE` — both auto-deploy `private-prereqs.yaml` from their `bin/deploy.sh`; they differ only in cert source (EC2 uses Let's Encrypt DNS-01, Fargate uses an ACM-issued cert) and gateway type (`ip` for EC2's instance, `alb` for Fargate's load balancer).
 
 ### Stacks
 

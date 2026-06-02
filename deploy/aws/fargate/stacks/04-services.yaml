@@ -26,10 +26,10 @@ Parameters:
 
   DeployMode:
     Type: String
-    Default: internal
-    AllowedValues: [public, internal]
+    Default: private
+    AllowedValues: [public, private]
     Description: >
-      internal = inside-AWS-only: the pipeline service synthesizes CodeBuild
+      private = inside-AWS-only: the pipeline service synthesizes CodeBuild
       projects attached to this VPC's private subnets so they reach the internal
       ALB. public = CodeBuild runs in the AWS-managed network and reaches the
       public ALB over the internet.
@@ -122,7 +122,7 @@ Parameters:
     Default: 1
 
 Conditions:
-  IsInternal: !Equals [!Ref DeployMode, internal]
+  IsPrivate: !Equals [!Ref DeployMode, private]
 
 Resources:
 
@@ -610,7 +610,7 @@ Resources:
               Value: !Ref DomainName
             - Name: IMAGE_REGISTRY_PULL_PORT
               Value: "443"
-            # internal mode: attach the synthesized CodeBuild projects to this
+            # private mode: attach the synthesized CodeBuild projects to this
             # VPC's private subnets so they can reach the internal ALB. Read by
             # pipeline-core's networkConfigFromEnv(). Empty in public mode →
             # CodeBuild runs in the AWS-managed network (reaches the public ALB).
@@ -618,12 +618,12 @@ Resources:
             # SG must allow inbound 443 from the VPC CIDR (infra prerequisite).
             - Name: PIPELINE_VPC_ID
               Value: !If
-                - IsInternal
+                - IsPrivate
                 - Fn::ImportValue: !Sub "${StackPrefix}-VpcId"
                 - ""
             - Name: PIPELINE_SUBNET_IDS
               Value: !If
-                - IsInternal
+                - IsPrivate
                 - !Sub
                   - "${S1},${S2}"
                   - S1:
