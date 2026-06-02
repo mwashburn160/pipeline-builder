@@ -16,7 +16,7 @@ Requires Node.js 24.14.0+.
 
 ```bash
 # Authenticate against your Pipeline Builder platform
-pipeline-manager login --platform https://platform.example.com
+pipeline-manager login --url https://platform.example.com
 
 # Bootstrap a new project in the current directory
 pipeline-manager bootstrap
@@ -37,6 +37,7 @@ pipeline-manager deploy
 | `bootstrap` | Scaffold a new pipeline project with `cdk.json` and starter config |
 | `synth` | Run CDK synth to emit the CloudFormation template for the pipeline |
 | `deploy` | Deploy the synthesized pipeline stack to AWS (also registers the deployed ARN with the platform) |
+| `register` | Re-register a deployed pipeline ARN with the platform and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
 | `status` | Report the current deployment and execution status |
 
 ### Resource management
@@ -48,12 +49,13 @@ pipeline-manager deploy
 | `list-plugins` / `get-plugin` | Browse the plugin catalog and fetch a single plugin spec |
 | `upload-plugin` | Publish a custom plugin spec + Dockerfile to the platform |
 | `validate-templates` | Parse and validate `{{ ... }}` templates in a pipeline or plugin spec (local file, registered pipeline by ID, or registered plugin by `name:version`) |
+| `org-export` | Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only) |
 
 ### Auth & infrastructure
 
 | Command | Purpose |
 | --- | --- |
-| `login` | Authenticate against the platform and persist the access token |
+| `login` | Authenticate against the platform and persist the access token (supports `--refresh <token>` and `--org <orgId>` to switch organizations) |
 | `store-token` | Generate a long-lived JWT and store it in AWS Secrets Manager (used by the events Lambda and CodePipeline synth steps) |
 | `setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service |
 
@@ -70,7 +72,7 @@ These commands report drift and exit non-zero when findings exist. Designed to r
 
 | Command | Purpose |
 | --- | --- |
-| `completions` | Print shell completion script. Source it from your `~/.bashrc` / `~/.zshrc`: `eval "$(pipeline-manager completions bash)"` |
+| `completions` | Print a shell completion script for `bash`, `zsh`, or `fish`. Source it from your shell profile, e.g. `eval "$(pipeline-manager completions bash)"` in `~/.bashrc` (completions are derived from the live command list, so they never drift) |
 | `version` | Print CLI version info |
 
 Run `pipeline-manager <command> --help` for the full flag reference on any command.
@@ -80,7 +82,7 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `PLATFORM_TOKEN` | Yes (for API ops) | Auth token for the Pipeline Builder platform |
-| `PLATFORM_URL` | Yes (for API ops) | Base URL of your platform deployment |
+| `PLATFORM_BASE_URL` | Yes (for API ops) | Base URL of your platform deployment |
 | `AWS_REGION` | Yes (for deploy) | Target AWS region for `synth` / `deploy` |
 
 Full reference: [Environment Variables](https://mwashburn160.github.io/pipeline-builder/docs/environment-variables).
@@ -89,7 +91,7 @@ Full reference: [Environment Variables](https://mwashburn160.github.io/pipeline-
 
 - [Getting started](https://mwashburn160.github.io/pipeline-builder/)
 - [CDK usage](https://mwashburn160.github.io/pipeline-builder/docs/cdk-usage)
-- [Plugin catalog (124 plugins)](https://mwashburn160.github.io/pipeline-builder/docs/plugins/)
+- [Plugin catalog (125 plugins)](https://mwashburn160.github.io/pipeline-builder/docs/plugins/)
 - [API reference](https://mwashburn160.github.io/pipeline-builder/docs/api-reference)
 - [AWS deployment](https://mwashburn160.github.io/pipeline-builder/docs/aws-deployment)
 

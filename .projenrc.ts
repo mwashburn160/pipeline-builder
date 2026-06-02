@@ -385,7 +385,7 @@ const manager = new ManagerProject({
 });
 manager.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 manager.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
-addPackageMetadata(manager, 'CLI for Pipeline Builder  self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.');
+addPackageMetadata(manager, 'CLI for Pipeline Builder  self-service AWS CodePipeline platform with 125 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.');
 manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');

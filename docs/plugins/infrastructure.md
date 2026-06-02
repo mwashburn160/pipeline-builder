@@ -14,9 +14,10 @@ For CDK deployment plugins (`cdk-deploy`, `cdk-deploy-multi-region`), see [Deplo
 
 | Plugin | Purpose | Compute | Secrets | Key Env Vars |
 |--------|---------|---------|---------|--------------|
-| manual-approval | Pipeline approval gate with SNS notification | SMALL | `SNS_TOPIC_ARN` (optional) | `APPROVAL_TIMEOUT`, `APPROVAL_MESSAGE` |
-| manual-approval-custom | Custom approval gate with configurable notification targets | SMALL | `SNS_TOPIC_ARN` (optional) | `APPROVAL_TIMEOUT`, `APPROVAL_MESSAGE`, `APPROVAL_CUSTOM_DATA` |
+| manual-approval | Native CDK approval gate that pauses the pipeline and waits for confirmation in the AWS CodePipeline console | SMALL | None | `APPROVAL_COMMENT` |
+| manual-approval-custom | Approval gate that publishes an SNS notification, then polls for approval with a configurable timeout | SMALL | None (AWS IAM) | `APPROVAL_TOPIC_ARN`, `APPROVAL_MESSAGE`, `APPROVAL_TIMEOUT`, `APPROVAL_URL` |
 | s3-cache | S3 build cache with zstd compression | SMALL | None (AWS IAM) | `CACHE_BUCKET`, `CACHE_KEY`, `CACHE_PATHS`, `CACHE_ACTION` |
+| shell | Run arbitrary OS install/build commands on a clean Ubuntu 24.04 step (git/curl/jq/wget/apt) — the escape hatch when no language/tool plugin fits | SMALL | None | `shellInstall`, `shellCommand`, `shellOutputDir` |
 
 ## CDK Workflow
 

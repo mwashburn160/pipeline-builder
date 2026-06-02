@@ -1,6 +1,6 @@
 # Plugin Catalog
 
-Pipeline Builder ships with **124 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
+Pipeline Builder ships with **125 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
 
 **Related docs:** [Samples](../samples.md) | [Metadata Keys](../metadata-keys.md) | [API Reference](../api-reference.md) | [Environment Variables](../environment-variables.md)
 
@@ -26,7 +26,7 @@ Pipeline Builder ships with **124 plugins** across **10 categories**, covering t
 | Monitoring | 3 | APM and release tracking | [monitoring.md](monitoring.md) |
 | Artifact & Registry | 16 | Package publishing, container image push, and binary compilation | [artifact.md](artifact.md) |
 | Deploy | 13 | Cloud provisioning, K8s, serverless, database migration | [deploy.md](deploy.md) |
-| Infrastructure | 4 | AWS CDK synth/deploy, pipeline utilities (approval gates, caching) | [infrastructure.md](infrastructure.md) |
+| Infrastructure | 5 | AWS CDK synth, pipeline utilities (approval gates, S3 cache, raw shell step) | [infrastructure.md](infrastructure.md) |
 | Testing | 14 | Unit, integration, API contract, load/performance, E2E browser, and smoke testing | [testing.md](testing.md) |
 | Notification | 5 | Pipeline status alerts (Slack, Teams, PagerDuty, email, GitHub) | [notification.md](notification.md) |
 | AI | 1 | AI-powered Dockerfile generation (multi-provider) | [ai.md](ai.md) |
@@ -332,7 +332,7 @@ graph LR
 
 ### Shared base image
 
-Every plugin Dockerfile starts with `FROM pipeline-plugin-base:24.04` — a shared base built from [`deploy/plugins/_base/Dockerfile`](../../deploy/plugins/_base/Dockerfile) that provides common system deps (`git`, `curl`, `jq`, `ca-certificates`, `gnupg`, `wget`, `unzip`). Saves ~80 MB per image via Docker layer dedup.
+Most plugin Dockerfiles start with `FROM pipeline-plugin-base:24.04` — a shared base built from [`deploy/plugins/_base/_plugin-base/Dockerfile`](../../deploy/plugins/_base/_plugin-base/Dockerfile) (on `ubuntu:24.04`) that provides common system deps (`git`, `curl`, `jq`, `ca-certificates`, `gnupg`, `wget`, `unzip`, `zip`, `xz-utils`). Saves ~80 MB per image via Docker layer dedup, and gives one place to patch a CVE in a base dep instead of editing every plugin. The base also ships an `apt-retry-install` helper that wraps `apt-get` in a retry loop with backoff, so per-plugin package installs self-heal through transient mirror flaps.
 
 7 plugins use multistage builds to drop heavy build-time dependencies that aren't needed at runtime — see the [multistage patterns](../../deploy/plugins/README.md#multistage-patterns) section in the contributor README.
 
@@ -358,6 +358,7 @@ The `plugin-spec.yaml` declares everything the pipeline builder needs to wire th
 name: my-plugin
 description: ...
 keywords: [...]
+category: security
 version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL | MEDIUM | LARGE
@@ -382,6 +383,7 @@ env:
 | `name` | Unique plugin identifier used in pipeline definitions |
 | `description` | Human-readable summary shown in the plugin catalog |
 | `keywords` | Tags for search and categorization |
+| `category` | Catalog category the plugin belongs to (e.g. `security`, `deploy`) |
 | `version` | Semantic version of the plugin |
 | `pluginType` | Must be `CodeBuildStep` (the only supported type) |
 | `computeType` | CodeBuild instance size: `SMALL` (3 GB / 2 vCPU), `MEDIUM` (7 GB / 4 vCPU), or `LARGE` (15 GB / 8 vCPU) |
@@ -393,6 +395,7 @@ env:
 | `installCommands` | Commands run during the install phase (dependency setup) |
 | `commands` | Commands run during the build phase (the actual work) |
 | `env` | Default environment variables (non-secret values only) |
+| `smokeTest` | Optional shell command run after `docker build` to assert the tool is on `PATH` and reports a version |
 
 ---
 

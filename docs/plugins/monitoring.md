@@ -21,6 +21,8 @@ flowchart LR
 
 ## When to Use
 
-- **datadog** / **newrelic**: Post-deploy APM marker creation and deployment tracking. These plugins notify your observability platform that a new version was deployed so you can correlate performance changes with releases.
-- **sentry-release**: Create Sentry releases and upload source maps so errors in production are mapped back to your source code.
-All monitoring plugins use `failureBehavior: warn` by default, so a notification failure will not block the pipeline.
+- **datadog**: Post-deploy tracking that sends both a deployment event and a `pipeline.deploy` marker metric to Datadog, tagged with service, environment, and version, so you can correlate performance changes with releases.
+- **newrelic**: Records a deployment marker against a New Relic application so releases line up with application performance metrics. Requires `NR_APP_ID` to target the application.
+- **sentry-release**: Creates a Sentry release, auto-associates commits, finalizes the release, and optionally uploads source maps so errors in production map back to your source code. If `SENTRY_RELEASE` is unset, the version is auto-detected from the repository.
+
+All monitoring plugins run on `SMALL` compute and use `failureBehavior: warn` by default, so a notification failure will not block the pipeline.

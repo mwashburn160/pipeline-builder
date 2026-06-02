@@ -222,14 +222,14 @@ new PipelineBuilder(stack, 'Pipeline', {
   },
   synth: {
     source: {
-      type: 'github',
+      type: 'codestar',
       options: {
         repo: 'enterprise/secure-app',
         branch: 'main',
         connectionArn: 'arn:aws:codestar-connections:...',
       },
     },
-    plugin: { name: 'build-synth', version: '1.0.0' },
+    plugin: { name: 'cdk-synth', version: '1.0.0' },
     metadata: {
       [MetadataKeys.STEP_ROLE]: codeBuildRole.roleArn,
       [MetadataKeys.COMPUTE_TYPE]: 'BUILD_GENERAL1_LARGE',

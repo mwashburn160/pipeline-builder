@@ -35,6 +35,8 @@ flowchart LR
 |--------|---------|---------|--------------|
 | docker-build | MEDIUM | ECR: IAM role / DockerHub: `DOCKER_USERNAME`, `DOCKER_PASSWORD` | `DOCKERFILE_PATH`, `DOCKER_CONTEXT`, `REGISTRY_TYPE`, `IMAGE_NAME`, `IMAGE_TAG` |
 
+`docker-build` handles login, build, and push for ECR, DockerHub, and custom registries (`REGISTRY_TYPE`). It supports multi-stage targets (`DOCKER_TARGET`), build-arg injection (`DOCKER_BUILD_ARGS`), and layer caching (`DOCKER_CACHE_FROM`), and can run build-only without pushing via `REGISTRY_TYPE=none`. Built image metadata is written to `docker-output/`.
+
 ## Container Registries
 
 | Plugin | Registry | Compute | Secrets | Key Env Vars |
@@ -61,11 +63,11 @@ flowchart LR
 | Plugin | Language | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
 | go-compile | Go | MEDIUM | None | `GO_VERSION`, `GOOS`, `GOARCH`, `CGO_ENABLED` |
-| cargo-release | Rust | MEDIUM | None | `RUST_VERSION`, `CARGO_BUILD_TARGET`, `CARGO_PROFILE` |
-| nodejs-bundle | Node.js | MEDIUM | None | `NODE_VERSION`, `BUILD_SCRIPT`, `OUTPUT_DIR` |
+| cargo-release | Rust | MEDIUM | None | `RUST_VERSION`, `TARGET`, `CARGO_PROFILE` |
+| nodejs-bundle | Node.js | MEDIUM | None | `NODE_VERSION`, `BUILD_SCRIPT` |
 
 ## Helm Charts
 
 | Plugin | Registry | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
-| helm-push | OCI / ChartMuseum / S3 | SMALL | None | `HELM_REGISTRY`, `HELM_CHART_PATH`, `HELM_REPO_URL` |
+| helm-push | OCI / ChartMuseum | SMALL | None | `HELM_REGISTRY`, `HELM_REGISTRY_TYPE`, `HELM_CHART_PATH`, `CHART_VERSION` |

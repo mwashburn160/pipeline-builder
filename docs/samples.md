@@ -16,21 +16,20 @@ Language-specific CI/CD pipelines based on well-known open source repos. Each sa
 
 | Sample | Language | Source Repo | Stages |
 |--------|----------|-------------|--------|
-| [react-frontend](../deploy/samples/pipelines/react-frontend/) | JS/TS | facebook/react | Lint, Test, Build, Security, Package |
-| [spring-boot-java](../deploy/samples/pipelines/spring-boot-java/) | Java | spring-projects/spring-boot | Quality, Build-Test, Coverage, SAST, Publish |
-| [django-python](../deploy/samples/pipelines/django-python/) | Python | django/django | Lint, Test, Coverage, Security, Package |
-| [gin-golang](../deploy/samples/pipelines/gin-golang/) | Go | gin-gonic/gin | Analysis, Test, Benchmark, Build, Security |
-| [axum-rust](../deploy/samples/pipelines/axum-rust/) | Rust | tokio-rs/axum | Lint, Test, Safety, Build, Publish |
-| [rails-ruby](../deploy/samples/pipelines/rails-ruby/) | Ruby | rails/rails | Lint, Test-SQLite, Test-PG, Security, Publish |
-| [aspnetcore-dotnet](../deploy/samples/pipelines/aspnetcore-dotnet/) | C#/.NET | dotnet/aspnetcore | Analysis, Build-Test, Security, Container, Publish |
+| [react-javascript](../deploy/samples/pipelines/react-javascript/) | JS/TS | facebook/react | Build, Test, Lint, Security, Publish |
+| [spring-boot-java](../deploy/samples/pipelines/spring-boot-java/) | Java | spring-projects/spring-boot | Build, Test, Lint, Security |
+| [django-python](../deploy/samples/pipelines/django-python/) | Python | django/django | Test, Lint, Security, Publish |
+| [gin-golang](../deploy/samples/pipelines/gin-golang/) | Go | gin-gonic/gin | Build, Test, Lint, Security |
+| [axum-rust](../deploy/samples/pipelines/axum-rust/) | Rust | tokio-rs/axum | Build, Test, Lint, Security, Publish |
+| [rails-ruby](../deploy/samples/pipelines/rails-ruby/) | Ruby | rails/rails | Test, Lint, Security, Publish |
+| [aspnetcore-dotnet](../deploy/samples/pipelines/aspnetcore-dotnet/) | C#/.NET | dotnet/aspnetcore | Build, Test, Lint, Security, Publish |
 
 ### Patterns
 
-- **Plugin filters** — every plugin reference includes `filter` with `version`, `accessModifier`, `isActive`
-- **Multi-version testing** — same plugin with different `alias` and `version` (e.g., Java 17 + 21)
-- **Failure behavior** — advisory checks use `failureBehavior: "warn"`
-- **Step positioning** — primary steps use `"pre"`, supplementary use `"post"`
-- **Compute sizing** — heavy steps override to `MEDIUM` or `LARGE` via metadata
+- **Plugin filters** — every plugin reference includes a `filter` (`version`, `accessModifier`, `isActive`, `isDefault`) so the resolved plugin version is explicit and reproducible
+- **Failure behavior** — advisory checks (e.g. dependency audits) use `failureBehavior: "warn"` so they report findings without failing the build
+- **Step positioning** — primary steps use `"pre"`, supplementary steps use `"post"`
+- **Compute sizing** — heavier steps override the default compute to `MEDIUM` or `LARGE` via the `aws:cdk:codebuild:buildenvironment:computetype` metadata key
 
 ---
 
@@ -56,8 +55,8 @@ From [custom-iam-roles-ts](../deploy/samples/cdk/custom-iam-roles-ts/):
 | Level | Config | Trust Principal |
 |-------|--------|-----------------|
 | Pipeline | `BuilderProps.role` | `codepipeline.amazonaws.com` |
-| Step project | `codebuildstep:role` metadata | `codebuild.amazonaws.com` |
-| Step action | `codebuildstep:actionrole` metadata | — |
+| Step project | `aws:cdk:pipelines:codebuildstep:role` metadata | `codebuild.amazonaws.com` |
+| Step action | `aws:cdk:pipelines:codebuildstep:actionrole` metadata | — |
 
 ### Secrets Flow
 
@@ -72,14 +71,20 @@ From [secrets-management-ts](../deploy/samples/cdk/secrets-management-ts/):
 
 ## Loading Samples
 
-Load all sample pipelines into a running Pipeline Builder instance:
+Load all sample pipelines into a running Pipeline Builder instance. By default the script uploads every sample in a single bulk request (validating each `pipeline.json` first), and defaults to `https://localhost:8443`:
 
 ```bash
 cd deploy
 bash bin/load-pipelines.sh
 
-# Custom URL
+# Custom platform URL
 PLATFORM_BASE_URL=https://pipeline.example.com bash bin/load-pipelines.sh
+
+# Validate the sample files without uploading
+bash bin/load-pipelines.sh --dry-run
+
+# Upload one at a time via the single-create endpoint (legacy)
+bash bin/load-pipelines.sh --single
 ```
 
 > **Tip:** Samples are also loaded automatically by `init-platform.sh` during [post-deploy setup](aws-deployment.md#post-deploy-steps).

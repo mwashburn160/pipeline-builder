@@ -514,6 +514,8 @@ pipeline-manager deploy --id <returned-id> --no-verify-ssl --store-tokens
 
 ## Plugin Reference
 
+Pipeline Builder ships with **125 plugins across 10 categories**. Every plugin runs as an isolated container step inside AWS CodePipeline, so build environments are reproducible and secrets never leak into image layers. See the [Plugin Catalog Overview](plugins/README.md) for the full index.
+
 Full plugin documentation by category:
 
 - [Language Plugins](plugins/language.md) — Base build environments for each language
@@ -522,6 +524,7 @@ Full plugin documentation by category:
 - [Testing Plugins](plugins/testing.md) — Test runners, coverage, load testing
 - [Artifact Plugins](plugins/artifact.md) — Docker builds, package publishing
 - [Deploy Plugins](plugins/deploy.md) — Terraform, CloudFormation, Kubernetes, Helm
-- [Infrastructure Plugins](plugins/infrastructure.md) — CDK synth, manual approval, S3 cache
+- [Infrastructure Plugins](plugins/infrastructure.md) — CDK synth, manual approval (built-in and custom), S3 cache, shell
 - [Notification Plugins](plugins/notification.md) — Slack, Teams, PagerDuty, email
 - [Monitoring Plugins](plugins/monitoring.md) — Datadog, New Relic, Sentry
+- [AI Plugins](plugins/ai.md) — AI-powered Dockerfile generation (Anthropic, OpenAI, Google, xAI, Bedrock)

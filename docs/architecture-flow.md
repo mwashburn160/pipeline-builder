@@ -2,7 +2,7 @@
 
 ## Overview
 
-Pipeline Builder is a platform for creating AWS CodePipeline CI/CD pipelines using reusable, containerized plugins. Users define pipelines through the UI/API, and the system synthesizes them into CloudFormation templates via AWS CDK.
+Pipeline Builder is a multi-tenant platform for creating AWS CodePipeline CI/CD pipelines using reusable, containerized plugins. Users define pipelines through the UI/API, and the system synthesizes them into CloudFormation templates via AWS CDK. It ships with 125 ready-to-use plugins spanning build, test, security, quality, monitoring, and infrastructure, and can also generate new plugins and pipelines from natural-language prompts via pluggable AI providers (Anthropic, OpenAI, Amazon Bedrock).
 
 ---
 
@@ -26,6 +26,7 @@ flowchart TB
         BILLING[Billing]
         MESSAGE[Message]
         REPORTING[Reporting]
+        IMGREG[Image Registry<br/>Token / Image API]
     end
 
     subgraph Data
@@ -41,13 +42,15 @@ flowchart TB
 
     FE & CLI & API_EXT --> NGINX
     NGINX --> PLATFORM
-    PLATFORM --> PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING
+    PLATFORM --> PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & IMGREG
     PLUGIN & PIPELINE -->|validate| COMPLIANCE
     PLATFORM --> MONGO
     PIPELINE & PLUGIN & COMPLIANCE & REPORTING --> PG
     PLUGIN --> REDIS
-    PLUGIN -->|buildctl| BK
-    BK --> REG
+    PLUGIN -->|buildctl build_image| BK
+    PLUGIN -->|crane push prebuilt| REG
+    BK -->|push with scoped Bearer token| REG
+    IMGREG -->|mint scoped token| REG
 ```
 
 ---
@@ -65,7 +68,7 @@ sequenceDiagram
     participant Reg as Registry
     participant DB as PostgreSQL
 
-    Dev->>API: POST /plugins/upload (plugin.zip)
+    Dev->>API: POST /plugins (multipart: plugin.zip)
     API->>API: Extract ZIP (spec, Dockerfile, config)
     API->>API: Compliance check (fail-closed)
     API-->>Dev: 202 Accepted
@@ -276,7 +279,8 @@ flowchart LR
 | **Frontend** | Pipeline/plugin management UI | `frontend/pages/dashboard/` |
 | **Platform API** | Auth gateway, user/org management | `platform/src/controllers/` |
 | **Pipeline API** | Pipeline CRUD, compliance | `api/pipeline/src/` |
-| **Plugin API** | Plugin upload, build queue | `api/plugin/src/` |
+| **Plugin API** | Plugin upload, build queue, AI generation | `api/plugin/src/` |
+| **Image Registry** | Registry bearer-token minting, image management/GC | `api/image-registry/src/` |
 | **pipeline-core** | CDK constructs, plugin lookup | `packages/pipeline-core/src/pipeline/` |
 | **pipeline-data** | DB schemas (Drizzle ORM) | `packages/pipeline-data/src/database/` |
 | **pipeline-manager** | CLI for cdk synth/deploy | `packages/pipeline-manager/` |

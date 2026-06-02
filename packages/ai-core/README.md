@@ -44,6 +44,8 @@ const custom = createModelWithKey('openai', 'gpt-4o', 'sk-...');
 - `resolveModel(providerId, modelId)` — Returns a `LanguageModel` from the registry
 - `createModelWithKey(providerId, modelId, apiKey)` — Creates a temporary `LanguageModel` (not cached)
 
+For convenience, the package also re-exports the `LanguageModel` type and the `generateText`, `streamText`, and `Output` helpers from the [`ai`](https://www.npmjs.com/package/ai) SDK, so consumers can generate or stream completions without adding a separate dependency.
+
 ## License
 
 Apache-2.0. See [LICENSE](./LICENSE).

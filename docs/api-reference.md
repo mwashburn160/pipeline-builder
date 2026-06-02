@@ -15,7 +15,7 @@ All requests require two headers:
 | `Authorization` | `Bearer <JWT>` -- obtained from the platform login endpoint |
 | `x-org-id` | Organization ID -- scopes the request to a specific tenant |
 
-Tokens expire after 24 hours by default (configurable via `JWT_EXPIRES_IN`). Use the refresh token endpoint to obtain a new access token without re-authenticating.
+Access tokens expire after 2 hours by default (configurable via `JWT_EXPIRES_IN`, capped at 24 hours). Use the refresh token endpoint to obtain a new access token without re-authenticating.
 
 ---
 
@@ -90,7 +90,7 @@ Tokens expire after 24 hours by default (configurable via `JWT_EXPIRES_IN`). Use
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `limit` | int | `10` | Page size (1-100) |
+| `limit` | int | `10` | Page size (1-`MAX_PAGE_LIMIT`, default cap 1000) |
 | `offset` | int | `0` | Records to skip |
 | `sortBy` | string | `createdAt` | Sort field |
 | `sortOrder` | `asc`/`desc` | `desc` | Sort direction |
@@ -228,15 +228,17 @@ All API responses follow a consistent format:
 ```json
 {
   "success": true,
+  "statusCode": 200,
   "data": { ... }
 }
 ```
 
-**Paginated:**
+**Paginated:** list endpoints return their items under a named key (`pipelines`, `plugins`, `registry`, etc.) alongside a `pagination` object:
 ```json
 {
   "success": true,
-  "data": [ ... ],
+  "statusCode": 200,
+  "pipelines": [ ... ],
   "pagination": {
     "total": 42,
     "limit": 10,
@@ -246,14 +248,13 @@ All API responses follow a consistent format:
 }
 ```
 
-**Error:**
+**Error:** the error `code` and `message` are returned at the top level (not nested), with an optional `details` field:
 ```json
 {
   "success": false,
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Pipeline not found"
-  }
+  "statusCode": 404,
+  "code": "NOT_FOUND",
+  "message": "Pipeline not found"
 }
 ```
 

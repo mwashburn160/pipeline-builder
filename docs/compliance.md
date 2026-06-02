@@ -28,6 +28,8 @@ When validating an entity, the engine merges two rule sets:
 
 Results are cached per org+target (configurable TTL, default 60s). Caches are invalidated automatically on rule mutations and subscription changes.
 
+Inline validation (upload/create) is synchronous and blocking. Existing entities are re-evaluated asynchronously: plugin/pipeline mutations enqueue events on a Redis-backed (BullMQ) queue that a background worker drains under each event's own tenant scope, so already-deployed entities stay continuously checked without slowing down the request path. Bulk and scheduled scans reuse the same engine to sweep an org's entire inventory on demand or on a cron.
+
 ---
 
 ## API Endpoints
@@ -47,9 +49,18 @@ Results are cached per org+target (configurable TTL, default 60s). Caches are in
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/compliance/published-rules` | Browse published rules (includes `subscribed` flag) |
-| `GET` | `/compliance/subscriptions` | List org's active subscriptions |
+| `GET` | `/compliance/published-rules` | Browse published rules (filterable, includes `subscribed` flag) |
+| `GET` | `/compliance/subscriptions` | List org's subscriptions (with rule details) |
 | `POST` | `/compliance/subscriptions` | Subscribe to a published rule |
+| `POST` | `/compliance/subscriptions/clone` | Clone a published rule into an editable org rule |
+| `POST` | `/compliance/subscriptions/auto-subscribe` | Subscribe to all published rules (inactive; used at org onboarding) |
+| `PATCH` | `/compliance/subscriptions/:ruleId` | Activate or deactivate a subscription (`{ isActive: boolean }`) |
+| `POST` | `/compliance/subscriptions/bulk` | Activate/deactivate many subscriptions at once (`{ ruleIds, isActive }`) |
+| `GET` | `/compliance/subscriptions/enforced` | Merged view of all currently-enforced rules (org + active subscriptions) |
+| `POST` | `/compliance/subscriptions/preview/impact` | See how many of the org's existing entities a rule would fail, with samples — before enabling it |
+| `POST` | `/compliance/subscriptions/preview` | Dry-run a rule against caller-supplied sample attributes |
+| `POST` | `/compliance/subscriptions/:ruleId/pin` | Pin a subscription to the rule's current version |
+| `DELETE` | `/compliance/subscriptions/:ruleId/pin` | Unpin (follow latest published version) |
 | `DELETE` | `/compliance/subscriptions/:ruleId` | Unsubscribe |
 
 ### Scans
@@ -82,6 +93,38 @@ Cron expressions use standard 5-field format (`minute hour dayOfMonth month dayO
 | `POST` | `/compliance/validate/plugin/dry-run` | Pre-flight check (no audit/notification) |
 | `POST` | `/compliance/validate/pipeline/dry-run` | Pre-flight check (no audit/notification) |
 
+### Policies
+
+Policies are named groups of rules (e.g. SOC2, Security Baseline) so a team can manage a whole compliance standard as one unit.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/compliance/policies` | List policies (filterable, paginated) |
+| `GET` | `/compliance/policies/:id` | Get policy by ID |
+| `POST` | `/compliance/policies` | Create policy |
+| `PUT` | `/compliance/policies/:id` | Update policy |
+| `DELETE` | `/compliance/policies/:id` | Delete policy |
+
+### Exemptions
+
+Exemptions waive a specific rule for a specific entity, with an approval workflow so the waiver is auditable.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/compliance/exemptions` | List exemptions (filterable) |
+| `POST` | `/compliance/exemptions` | Request an exemption for a rule + entity |
+| `POST` | `/compliance/exemptions/bulk` | Request exemptions for multiple entities |
+| `PUT` | `/compliance/exemptions/:id/review` | Approve or reject an exemption |
+| `DELETE` | `/compliance/exemptions/:id` | Revoke an exemption |
+
+### Templates & Audit
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/compliance/templates` | List built-in rule templates |
+| `POST` | `/compliance/templates/apply` | Instantiate a template as an org rule |
+| `GET` | `/compliance/audit` | Query the audit log (filterable by target, result, entity) |
+
 ---
 
 ## Rule Schema
@@ -108,8 +151,9 @@ Cron expressions use standard 5-field format (`minute hour dayOfMonth month dayO
 | `gt` / `gte` / `lt` / `lte` | Numeric comparison |
 | `contains` / `notContains` | String or array contains |
 | `in` / `notIn` | Value in set |
-| `regex` | Pattern match (max 200 chars) |
+| `regex` | Pattern match (pattern length capped, default 100 chars; configurable via `COMPLIANCE_MAX_REGEX_LENGTH`) |
 | `exists` / `notExists` | Field presence |
+| `notEmpty` | Field present and not empty (`''`, `0`, `false` count as empty) |
 | `countGt` / `countLt` | Array/object count |
 | `lengthGt` / `lengthLt` | String length |
 
@@ -137,7 +181,7 @@ Cron expressions use standard 5-field format (`minute hour dayOfMonth month dayO
 }
 ```
 
-Conditions can also reference other rules via `dependsOnRule`.
+A condition can also depend on another rule via `dependsOnRule` — the rule is only evaluated when the referenced rule has passed, letting you chain rules conditionally.
 
 ---
 
@@ -237,6 +281,8 @@ curl -X POST https://localhost:8443/api/compliance/subscriptions \
 
 All sample rules are `published` scope — teams browse the catalog and subscribe to the ones they want to enforce.
 
+Five starter policies (named rule groups) ship alongside them in `deploy/compliance/policies/`: `security-baseline`, `production-readiness`, `quality-standards`, `naming-conventions`, and `cost-optimization`. `load-compliance.sh` loads both the rules and these policy templates.
+
 Load them during init or standalone:
 
 ```bash
@@ -272,11 +318,17 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COMPLIANCE_SERVICE_HOST` | `compliance` | Hostname (used by plugin/pipeline services) |
+| `COMPLIANCE_SERVICE_HOST` | `compliance` | Hostname (used by plugin/pipeline services to reach compliance) |
 | `COMPLIANCE_SERVICE_PORT` | `3000` | Port |
-| `COMPLIANCE_RULES_CACHE_TTL_SECONDS` | `60` | Active rules cache TTL |
-| `COMPLIANCE_AUDIT_RETENTION_DAYS` | `90` | Audit log retention |
-| `COMPLIANCE_RATE_LIMIT` | `100` | Max validations per minute per org |
+| `CACHE_TTL_COMPLIANCE_RULES` | `60` | Active rules cache TTL (seconds) |
+| `COMPLIANCE_AUDIT_RETENTION_DAYS` | `180` | Audit log retention (daily prune) |
+| `COMPLIANCE_MAX_REGEX_LENGTH` | `100` | Max length of a user-supplied `regex` pattern |
+| `COMPLIANCE_MAX_ATTRIBUTE_DEPTH` | `10` | Max nesting depth of entity attributes evaluated |
+| `COMPLIANCE_MAX_ATTRIBUTE_KEYS` | `100` | Max number of attribute keys evaluated |
+| `COMPLIANCE_SCAN_CONCURRENCY` | `10` | Concurrent entities evaluated per bulk scan |
+| `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE` | `10` | Scan progress flush batch size |
+| `REDIS_HOST` | `redis` | Redis host (BullMQ async re-validation queue) |
+| `REDIS_PORT` | `6379` | Redis port |
 | `MESSAGE_SERVICE_HOST` | `message` | Message service (notifications) |
 | `PLUGIN_SERVICE_HOST` | `plugin` | Plugin service (bulk scans) |
 | `PIPELINE_SERVICE_HOST` | `pipeline` | Pipeline service (bulk scans) |
@@ -289,6 +341,7 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 |-------------|---------------|
 | Local | `deploy/local/docker-compose.yml` — `compliance` service |
 | Minikube | `deploy/minikube/k8s/compliance.yaml` |
-| EC2 | Same K8s manifest via minikube |
+| AWS EC2 | `deploy/aws/ec2/k8s/compliance.yaml` |
+| AWS Fargate | `deploy/aws/fargate/stacks/04-services.yaml` |
 
 Nginx proxies `/api/compliance` to the compliance service in all environments.

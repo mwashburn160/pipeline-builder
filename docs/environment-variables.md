@@ -2,7 +2,7 @@
 
 Complete reference for all environment variables used across Pipeline Builder services. Each variable can be set in your `.env` file or passed directly via your deployment configuration (Docker Compose, Kubernetes ConfigMap, ECS task definition).
 
-**Quick setup:** Copy `.env.example` to `.env` and fill in the required secrets.
+**Quick setup:** Each deploy target ships its own template (`deploy/local/.env.example`, `deploy/minikube/.env.example`, `deploy/aws/fargate/.env.example`, `deploy/aws/ec2/.env.example`). Copy the one for your target to `.env` and fill in the required secrets.
 
 > **Security:** Generate JWT secrets with `openssl rand -base64 32`. Never commit `.env` files to version control.
 
@@ -54,14 +54,15 @@ Complete reference for all environment variables used across Pipeline Builder se
 |----------|---------|-------------|
 | `JWT_SECRET` | — | **Required.** JWT signing secret. Must be **identical across all services** — `signServiceToken()` mints inter-service tokens with this same secret so any service's `requireAuth` can verify them. |
 | `REFRESH_TOKEN_SECRET` | — | **Required.** Refresh token secret |
-| `JWT_EXPIRES_IN` | `86400` | Token TTL in seconds (24h). Per-tier overrides take precedence. |
+| `JWT_EXPIRES_IN` | `7200` | Token TTL in seconds (2h). Per-tier overrides take precedence. |
 | `JWT_EXPIRES_IN_DEVELOPER` | (inherits `JWT_EXPIRES_IN`) | Developer-tier access-token TTL override |
 | `JWT_EXPIRES_IN_PRO` | (inherits `JWT_EXPIRES_IN`) | Pro-tier override — commonly shorter for compliance |
 | `JWT_EXPIRES_IN_UNLIMITED` | (inherits `JWT_EXPIRES_IN`) | Enterprise-tier override (e.g. `1800` = 30 min) |
 | `JWT_ALGORITHM` | `HS256` | `HS256`, `HS384`, `HS512`, `RS256` |
-| `JWT_SALT_ROUNDS` | `12` | bcrypt salt rounds |
+| `BCRYPT_SALT_ROUNDS` | `12` | bcrypt cost factor for password hashing. **Preferred name.** |
+| `JWT_SALT_ROUNDS` | `12` | Deprecated alias for `BCRYPT_SALT_ROUNDS` (kept as a fallback; the name was misleading — it controls bcrypt password hashing, not JWT signing). |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d) |
-| `PASSWORD_MIN_LENGTH` | `12` | Minimum password length |
+| `PASSWORD_MIN_LENGTH` | `8` | Minimum password length |
 | `COOKIE_SAME_SITE` | `lax` | `lax`, `strict`, or `none` for refresh cookie |
 | `COOKIE_SECURE` | `false` (auto-true in prod) | Set `true` to force the `secure` cookie flag; auto-enabled when `NODE_ENV=production` |
 | `BOOTSTRAP_SUPERADMIN_EMAILS` | — | Comma-separated user emails auto-promoted to `isSuperAdmin=true` at platform boot. **Required for fresh installs** — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. |
@@ -299,7 +300,7 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `S
 | `PAYMENT_GRACE_PERIOD_DAYS` | `7` | Grace period for overdue payments |
 | `RENEWAL_REMINDER_DAYS` | `7` | Days before expiry to send renewal reminder |
 
-Plan pricing (`BILLING_PLAN_{TIER}_{PERIOD}`) is in cents. Defaults: Developer free, Pro $7.99/mo, Unlimited $11.99/mo.
+Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, or `UNLIMITED`) is in cents. Defaults: Developer free, Pro $7.99/mo ($79.90/yr), Unlimited $11.99/mo ($119.90/yr). Per-plan `_DESCRIPTION` (string) and `_FEATURES` (JSON array) can also be overridden.
 
 ---
 
@@ -339,7 +340,7 @@ When uploading a large plugin ZIP (up to 4GB with prebuilt image.tar), the reque
 
 ```
 Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)
-  └─ nginx proxy_read_timeout    60s (default) — increase for large uploads
+  └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s
       └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 300s (5 min)
           └─ Express global      HANDLER_TIMEOUT_MS = 25s (overridden by route)
               └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)
@@ -348,7 +349,7 @@ Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)
 
 The upload request returns `202 Accepted` after the ZIP is parsed and the build job is enqueued. The Docker build and push happen asynchronously in the build queue — their timeouts do not affect the upload response.
 
-**If uploads fail with 503 (timeout):** Increase `PLUGIN_UPLOAD_TIMEOUT_MS` and ensure nginx `proxy_read_timeout` is at least as long. Do not increase `HANDLER_TIMEOUT_MS` — it applies globally to all routes.
+**If uploads fail with 503 (timeout):** Increase `PLUGIN_UPLOAD_TIMEOUT_MS` and ensure nginx `proxy_read_timeout` is at least as long (the shipped nginx configs already set it to `900s` for the upload route). Do not increase `HANDLER_TIMEOUT_MS` — it applies globally to all routes.
 
 ---
 

@@ -45,7 +45,7 @@ XAI_API_KEY=your-key
 | mongodb | 27017 (internal) | MongoDB (platform, quota, billing) |
 | redis | 6379 (internal) | Job queue (BullMQ) for plugin builds + compliance events |
 | pgadmin | 5480 (exposed) | PostgreSQL admin UI |
-| mongo-express | 8081 (exposed) | MongoDB admin UI |
+| mongo-express | 27081 (exposed) | MongoDB admin UI |
 | registry | 5000 (exposed) | Docker image registry |
 | prometheus | 9090 (internal) | Metrics scrape target for the native Observability dashboards |
 | loki | 3100 (internal) | Log store for the native Audit Activity dashboard |

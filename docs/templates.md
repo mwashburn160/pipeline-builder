@@ -304,7 +304,7 @@ pipeline-manager synth  --id <uuid> --show-resolved
 ### Validate templates without uploading
 
 ```bash
-# Validate a local plugin-spec.yaml before upload
+# Validate a local plugin-spec.yaml or pipeline.json before upload
 pipeline-manager validate-templates --file ./plugin-spec.yaml
 
 # Validate a pipeline by ID against the platform
@@ -324,8 +324,7 @@ The dashboard editor understands `{{ ... }}` tokens:
   _"Contains 2 template tokens — resolved at synth time"_
 - **Parse errors** surface inline under the field with the source position:  
   _"Expected '}}' at line 1, col 10"_
-- **`TemplateText` + `TemplateInput` components** are exported from `@/components/ui/` and can be dropped into any screen to render templates as inline chips with hover tooltips (path, default, coercion, resolved preview).
-- **`useTemplateValidation(source, scope?)` hook** returns `{ valid, tokens, error, resolved }` for custom editors.
+- **`useTemplateValidation(source, scope?)` hook** powers this feedback. It returns `{ valid, tokens, hasTemplates, error, errorPos, resolved, resolveError }`, so any custom editor can parse for diagnostics and (when a scope is supplied) preview the resolved value live.
 
 No rich editor, no auto-escape — what you type is saved verbatim. Template resolution is a server-side concern; the client only parses for diagnostics + preview.
 

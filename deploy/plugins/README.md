@@ -3,7 +3,7 @@
 > **Public catalog:** [docs/plugins/](../../docs/plugins/README.md) — user-facing reference for what each plugin does, secrets it needs, and parameters it accepts.
 > **This README:** contributor guide for the source layout, build pipeline, and conventions.
 
-124 plugins across 10 categories. Each plugin builds into a Docker image that AWS CodeBuild executes as one stage of a pipeline. Plugin sources live here; the build orchestration lives in [`deploy/bin/`](../bin/).
+125 plugins across 10 categories. Each plugin builds into a Docker image that AWS CodeBuild executes as one stage of a pipeline. Plugin sources live here; the build orchestration lives in [`deploy/bin/`](../bin/).
 
 ---
 
@@ -24,7 +24,7 @@ deploy/plugins/
 ├── ai/                         # 1 plugin
 ├── artifact/                   # 16 plugins  (npm/pypi/maven/docker/ECR push)
 ├── deploy/                     # 13 plugins  (CDK/Terraform/k8s/Helm/Lambda)
-├── infrastructure/             # 4  plugins  (cdk-synth, manual-approval, s3-cache)
+├── infrastructure/             # 5  plugins  (cdk-synth, manual-approval, manual-approval-custom, s3-cache, shell)
 ├── language/                   # 11 plugins  (Node, Python, Go, Rust, Java, .NET, Ruby, PHP, C++)
 ├── monitoring/                 # 3  plugins  (Datadog, NewRelic, Sentry)
 ├── notification/               # 5  plugins  (Slack, Teams, email, GitHub status, PagerDuty)
@@ -60,8 +60,8 @@ my-plugin/
 │ Builds _base then  │    │ schema, checks     │    │ POSTs to platform  │
 │ each plugin's      │    │ Dockerfile sanity  │    │ /api/plugin/upload │
 │ Dockerfile, saves  │    │                    │    │                    │
-│ image.tar          │    │ TODO: actually     │    │ Skips plugins      │
-│                    │    │ run the plugin     │    │ without image.tar  │
+│ image.tar          │    │ With --build also  │    │ Skips plugins      │
+│                    │    │ smoke-runs images  │    │ without image.tar  │
 └────────────────────┘    └────────────────────┘    │ (when               │
                                                     │ SKIP_MISSING_       │
                                                     │ IMAGE_TAR=true)     │
@@ -146,7 +146,7 @@ the next build will rebuild from the new base. Bump deliberately.
 
 ## Multistage patterns
 
-7 plugins use multistage to drop build-time dependencies that aren't needed at
+15 plugins use multistage to drop build-time dependencies that aren't needed at
 runtime. Each is documented inline; the canonical examples:
 
 | Pattern | Reference plugin | What gets dropped | Saving |
@@ -176,8 +176,13 @@ description: One-line user-facing blurb # Shows in dashboard
 keywords: [tool, language, category]    # Search filters; aim for 4-6
 category: security                      # Must match parent directory
 version: 1.0.0                          # Bump when commands/contracts change
-pluginType: scanner                     # scanner | builder | publisher | notifier | deployer
-computeType: BUILD_GENERAL1_SMALL       # CodeBuild instance size
+pluginType: CodeBuildStep               # CodeBuildStep | ManualApprovalStep
+computeType: SMALL                      # CodeBuild instance size: SMALL | MEDIUM | LARGE
+timeout: 10                             # Minutes before the step is killed
+failureBehavior: fail                   # fail | warn | ignore
+secrets: []                             # Runtime secrets injected by CodeBuild
+primaryOutputDirectory: security-reports # Directory whose contents become the step artifact
+dockerfile: Dockerfile
 
 # Optional: typed pipeline contracts (see notification/slack-notify for example)
 requiredMetadata: [namespace]
@@ -227,29 +232,35 @@ needs a focused session to do safely.
 - **CI integration** — no GitHub Actions workflow currently runs `test-plugins.sh`
   on PRs, and no job builds + publishes plugin images. Adding a `plugins.yml`
   workflow would catch breakage at PR time instead of at deploy time.
-- **`test-plugins.sh` is a linter, not a tester** — even with `--build` it only
-  runs `docker build`. Nothing tests the plugin's CMD or asserts an output
-  artifact. A plugin whose CMD segfaults gets 100% pass.
+- **`test-plugins.sh` smoke-tests but doesn't assert outputs** — with `--build`
+  it now builds each image and smoke-runs it (launches `bash`, plus any
+  `smokeTest:` command declared in the spec). It still doesn't run the plugin's
+  real `commands:` or assert that an output artifact appears, so a tool that
+  builds and launches but produces nothing still passes. Adding a default
+  `smokeTest:` to more specs would close most of the gap.
 - **Parameterize the snyk/sonarcloud/trivy clones** — 21 plugins (7 each ×
   3 tool families) duplicate ~80% of their spec. Could collapse to 3 templates
   with a `language` metadata key. Eliminates ~600 lines of duplicated YAML.
-- **Add `set -euo pipefail` to multi-line `commands:` blocks** — currently 0/124
-  specs use it, so a single failing intermediate command silently passes.
-  Per-spec verification needed (some commands rely on partial failure).
+- **Upgrade `set -e` to `set -euo pipefail` in multi-line `commands:` blocks** —
+  121 specs already use `set -e`, but none use the stricter `set -euo pipefail`,
+  so unset variables and mid-pipe failures can still slip through. Per-spec
+  verification needed (some commands rely on partial failure).
 
 ### High-value, design needed
 
-- **Typed contracts on deploy/notification plugins** — 12+ plugins interpolate
-  `${VAR}` from env without declaring `metadataTypes`/`requiredMetadata`. Bring
-  them to `version: 1.1.0` parity with the existing 5 typed plugins.
+- **Typed contracts on more plugins** — several plugins interpolate `${VAR}`
+  from env without declaring `metadataTypes`/`requiredMetadata`. Bring them to
+  `version: 1.1.0` parity with the 9 plugins that already declare typed
+  contracts.
 - **ARM (aarch64) support** — `deploy/flyway`, `security/checkmarx`,
   `security/fortify`, `quality/codacy` hardcode `_x64` in download URLs. Need
   `case "$(dpkg --print-architecture)"` blocks.
-- **SHA256 verification on binary downloads** — currently zero `sha256` checks
-  across 123 files. AWS CLI, dotnet-install.sh, Terraform, kubectl, helm,
-  flyway, fcli, ast-cli, mend, etc. all silently trust HTTPS-TLS.
-- **Drop `USER root` (currently implicit)** — all 123 build steps run as root.
-  Adding `USER nobody` for the long-lived RUN stages reduces blast radius.
+- **SHA256 verification on binary downloads** — only 5 of the 124 plugin
+  Dockerfiles verify a `sha256`. AWS CLI, dotnet-install.sh, Terraform, kubectl,
+  helm, flyway, fcli, ast-cli, mend, etc. all silently trust HTTPS-TLS.
+- **Drop `USER root` (currently implicit)** — none of the 124 plugin Dockerfiles
+  set a `USER`, so every build step runs as root. Adding `USER nobody` for the
+  long-lived RUN stages reduces blast radius.
 
 ### Tool-version freshness
 
@@ -257,7 +268,7 @@ Many tool versions are 1+ year stale. From the May 2026 audit:
 - **Go 1.24 (default)** — series 1.23 is upstream-EOL; bump default to 1.25 or 1.26
 - **kubectl 1.31.4** — past upstream support window; bump to 1.33+
 - **Helm 3.16.4** → 3.20.x or v4.x
-- **AWS CDK 2.177.0** → 2.252.x (75 minors behind)
+- **AWS CDK 2.1125.0** — verify against `npm view aws-cdk version` and bump to current stable
 - **Terraform 1.10.3** → 1.15.x
 - **Kotlin 2.1.0** → 2.3.x
 - **Checkstyle 10.x** → 13.x
@@ -307,7 +318,7 @@ Many tool versions are 1+ year stale. From the May 2026 audit:
 |---|---|
 | [`deploy/bin/build-plugin-images.sh`](../bin/build-plugin-images.sh) | Builds `_base` + each plugin's Dockerfile, saves `image.tar` |
 | [`deploy/bin/load-plugins.sh`](../bin/load-plugins.sh) | Zips each plugin dir, POSTs to platform `/api/plugin/upload` |
-| [`deploy/bin/test-plugins.sh`](../bin/test-plugins.sh) | Validates spec schema + Dockerfile sanity (1846 assertions) |
+| [`deploy/bin/test-plugins.sh`](../bin/test-plugins.sh) | Validates spec schema + Dockerfile sanity; `--build` also builds and smoke-runs each image |
 | [`deploy/bin/generate-plugins.sh`](../bin/generate-plugins.sh) | Verifies all version pins resolve upstream |
 | [`deploy/bin/init-platform.sh`](../bin/init-platform.sh) | End-to-end bootstrap (build + load + register) |
 | [`deploy/bin/common.sh`](../bin/common.sh) | Shared helpers: `compute_image_tag`, `yq_buildargs`, `require_yq` |

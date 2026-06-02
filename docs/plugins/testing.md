@@ -36,34 +36,34 @@ flowchart LR
 
 | Plugin | Language | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
-| jest | Node.js | SMALL | None | `NODE_VERSION`, `JEST_CONFIG`, `JEST_COVERAGE` |
+| jest | Node.js | SMALL | None | `NODE_VERSION`, `JEST_CONFIG`, `JEST_JUNIT_OUTPUT_DIR` |
 | python-pytest | Python | SMALL | None | `PYTHON_VERSION`, `PYTEST_ARGS` |
-| coverage-py | Python | SMALL | None | `PYTHON_VERSION`, `COVERAGE_MIN` |
-| go-test | Go | SMALL | None | `GO_VERSION`, `GO_TEST_FLAGS` |
-| cargo-test | Rust | SMALL | None | `RUST_VERSION`, `CARGO_TEST_FLAGS` |
-| dotnet-test | .NET | SMALL | None | `DOTNET_VERSION`, `DOTNET_TEST_PROJECT` |
-| rails-test | Ruby | SMALL | None | `RUBY_VERSION`, `RAILS_ENV` |
-| minitest-coverage | Ruby | SMALL | None | `RUBY_VERSION`, `COVERAGE_MIN` |
+| coverage-py | Python | SMALL | None | `PYTHON_VERSION`, `COVERAGE_THRESHOLD` |
+| go-test | Go | SMALL | None | `GO_VERSION`, `GOFLAGS` |
+| cargo-test | Rust | MEDIUM | None | `RUST_VERSION` |
+| dotnet-test | .NET | MEDIUM | None | `DOTNET_VERSION`, `CONFIGURATION` |
+| rails-test | Ruby | MEDIUM | None | `RUBY_VERSION`, `RAILS_ENV`, `DATABASE_ADAPTER` |
+| minitest-coverage | Ruby | SMALL | None | `RUBY_VERSION`, `COVERAGE_THRESHOLD` |
 
 ## API Contract
 
 | Plugin | Type | Compute | Secrets | Key Env Vars |
 |--------|------|---------|---------|--------------|
-| postman | API Contract | SMALL | None | `COLLECTION_FILE`, `ENVIRONMENT_FILE`, `ITERATION_COUNT`, `NEWMAN_TIMEOUT` |
+| postman | API Contract | SMALL | None | `COLLECTION_FILE`, `ENVIRONMENT_FILE`, `ITERATION_COUNT`, `NEWMAN_TIMEOUT`, `BAIL_ON_FAILURE` |
 
 ## Load & Performance
 
 | Plugin | Type | Compute | Secrets | Key Env Vars |
 |--------|------|---------|---------|--------------|
-| k6 | Load/Performance | MEDIUM | None | `K6_VERSION`, `K6_SCRIPT`, `K6_VUS`, `K6_DURATION` |
-| artillery | Load/Performance | MEDIUM | None | `ARTILLERY_SCRIPT`, `ARTILLERY_TARGET`, `ARTILLERY_DURATION`, `ARTILLERY_RATE` |
+| k6 | Load/Performance | MEDIUM | None | `K6_VERSION`, `K6_SCRIPT`, `K6_VUS`, `K6_DURATION`, `K6_THRESHOLDS` |
+| artillery | Load/Performance | MEDIUM | None | `ARTILLERY_CONFIG`, `ARTILLERY_TARGET` |
 
 ## E2E Browser
 
 | Plugin | Type | Compute | Secrets | Key Env Vars |
 |--------|------|---------|---------|--------------|
-| cypress | E2E Browser | LARGE | None | `CYPRESS_SPEC`, `CYPRESS_BROWSER`, `CYPRESS_BASE_URL`, `CYPRESS_RECORD_KEY` |
-| playwright | E2E Browser | LARGE | None | `PLAYWRIGHT_PROJECT`, `PLAYWRIGHT_BROWSER`, `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_WORKERS` |
+| cypress | E2E Browser | LARGE | None | `CYPRESS_SPEC`, `CYPRESS_BROWSER`, `CYPRESS_RECORD_KEY` |
+| playwright | E2E Browser | LARGE | None | `PLAYWRIGHT_PROJECT`, `PLAYWRIGHT_WORKERS`, `PLAYWRIGHT_REPORTER` |
 
 ## Smoke Test
 

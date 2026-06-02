@@ -4,7 +4,7 @@ Two deployment options: **EC2** (single instance, Kubernetes) or **Fargate** (se
 
 Both deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced via the native `/dashboard/observability` page), and admin tools. TLS via Let's Encrypt (custom domain) or self-signed (IP-only).
 
-Note: as of the native-dashboards PR, Grafana is removed from EC2; Fargate retains Grafana pending its own follow-up. The native dashboards at `/dashboard/observability/plugin-builds` and `/dashboard/observability/audit-activity` replace the previously-embedded Grafana iframe.
+Note: as of the native-dashboards PR, Grafana is removed from EC2; Fargate retains Grafana pending its own follow-up. The native `/dashboard/observability` page replaces the previously-embedded Grafana iframe. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public `org_id='system'` rows, so they appear automatically for any logged-in org and open at `/dashboard/observability/<id>`. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
 
 **Related docs:** [Environment Variables](environment-variables.md) | [API Reference](api-reference.md) | [Plugin Catalog](plugins/README.md)
 
@@ -337,21 +337,22 @@ Deployed in order. Each exports values consumed by downstream stacks.
 | **01-foundation** | VPC, ALB, Route 53, EFS, S3 config bucket, Cloud Map |
 | **02-cluster** | ECS Cluster, IAM roles, security groups, log groups |
 | **03-databases** | PostgreSQL, MongoDB, Redis |
-| **04-services** | Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Reporting, Frontend |
+| **04-services** | Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Reporting, Compliance, Frontend, plus the plugin image-registry service |
 | **05-observability** | Prometheus, Loki, Grafana (Fargate only — EC2 retired Grafana in favor of the native `/dashboard/observability` page) |
 | **06-admin** | Registry, PgAdmin, Mongo Express, Registry UI |
 
 ### Storage Requirements
 
-Fargate uses managed services — no EBS volumes to manage. Plugin builds use `build_image` with kaniko (prebuilt is not supported on Fargate).
+Fargate has no EBS volumes to manage — persistent state lives on EFS access points and managed AWS services. PostgreSQL, MongoDB, and Redis run as ECS Fargate containers (the `postgres`/`mongo`/`redis` images) backed by EFS, not as RDS/DocumentDB/ElastiCache. Plugin builds use `build_image` with kaniko (prebuilt is not supported on Fargate).
 
 | Resource | Type | Size | Notes |
 |----------|------|------|-------|
 | Task ephemeral | Per-task | 20 GB (30 GB for plugin) | Non-persistent, cleared on task restart |
-| RDS PostgreSQL | RDS gp3 | 50 GB (autoscaling) | Pipelines, plugins, compliance, messages |
-| DocumentDB / MongoDB Atlas | Managed | 10-20 GB | Quota + billing records |
+| PostgreSQL (EFS) | ECS task on EFS | 5-15 GB | Pipelines, plugins, compliance, messages |
+| MongoDB (EFS) | ECS task on EFS | 10-20 GB | Quota + billing records |
+| Redis | ECS task | ephemeral | Caching / queues |
 | ECR | Managed | 40-60 GB | Plugin container images |
-| EFS | Managed | 5-10 GB | Shared config, TLS certs |
+| EFS | Managed | shared volume | DB data, shared config, TLS certs |
 | CloudWatch Logs | Managed | ~5 GB/month | 30-day retention recommended |
 | S3 | Managed | <1 GB | CDK assets, CloudFormation templates |
 
@@ -359,7 +360,7 @@ Fargate uses managed services — no EBS volumes to manage. Plugin builds use `b
 
 | Resource | Setting |
 |----------|---------|
-| RDS storage | 50 GB gp3 with autoscaling enabled |
+| EFS | Elastic — grows automatically with database/config data; no pre-provisioning |
 | ECR lifecycle | Keep last 10 tags per repository |
 | CloudWatch retention | 30 days |
 | Plugin task ephemeral | 30 GB (kaniko builds need temp space) |
@@ -379,29 +380,19 @@ Fargate uses managed services — no EBS volumes to manage. Plugin builds use `b
 
 | Resource | Cost |
 |----------|------|
-| RDS (50 GB gp3) | ~$5 |
 | ECR (60 GB) | ~$6 |
-| EFS (10 GB) | ~$3 |
+| EFS (DB data + config) | ~$3-8 |
 | CloudWatch | ~$3 |
-| **Total** | **~$17/mo** |
+| **Total** | **~$12-17/mo** |
+
+(Database storage is included in the EFS line, since PostgreSQL/MongoDB run as ECS tasks on EFS rather than as managed RDS/DocumentDB. This covers storage only — Fargate task vCPU/memory is the dominant Fargate cost and is not included here.)
 
 ### Expanding Fargate Storage
 
 Unlike EC2, Fargate storage is per-service. Expand each independently:
 
-**RDS PostgreSQL — increase allocated storage:**
-```bash
-aws rds modify-db-instance \
-  --db-instance-identifier pb-postgres \
-  --allocated-storage 100 \
-  --apply-immediately
-
-# Enable autoscaling to avoid manual expansion in the future
-aws rds modify-db-instance \
-  --db-instance-identifier pb-postgres \
-  --max-allocated-storage 200 \
-  --apply-immediately
-```
+**PostgreSQL / MongoDB (EFS) — no manual expansion needed:**
+The databases run as ECS tasks on EFS access points. EFS is elastic and grows automatically as data is written, so there is no allocated-storage limit to raise. To cap growth, prune old data or set per-access-point quotas; to verify usage, check the EFS file system's metered size in the console or via `aws efs describe-file-systems`.
 
 **ECR — add lifecycle policy to prevent unbounded growth:**
 ```bash
@@ -424,10 +415,10 @@ aws ecr put-lifecycle-policy \
 **CloudWatch Logs — set retention to control growth:**
 ```bash
 # List log groups
-aws logs describe-log-groups --log-group-name-prefix /ecs/pb- --query 'logGroups[*].logGroupName' --output table
+aws logs describe-log-groups --log-group-name-prefix /pipeline-builder/ --query 'logGroups[*].logGroupName' --output table
 
 # Set 30-day retention on all
-for lg in $(aws logs describe-log-groups --log-group-name-prefix /ecs/pb- --query 'logGroups[*].logGroupName' --output text); do
+for lg in $(aws logs describe-log-groups --log-group-name-prefix /pipeline-builder/ --query 'logGroups[*].logGroupName' --output text); do
   aws logs put-retention-policy --log-group-name "$lg" --retention-in-days 30
 done
 ```
@@ -752,7 +743,7 @@ deploy/aws/ec2/
 │   ├── startup.sh         # Minikube + K8s deploy
 │   ├── shutdown.sh        # Teardown
 │   └── update-tls-secret.sh
-├── k8s/                   # 22 Kubernetes manifests
+├── k8s/                   # 26 Kubernetes manifests
 │   └── kustomization.yaml # Kustomize entry point
 ├── nginx/
 │   ├── nginx-ec2.conf     # Nginx config (TLS + JWT)
@@ -777,7 +768,7 @@ deploy/aws/fargate/
 │   ├── 01-foundation.yaml # VPC, ALB, EFS, S3, Cloud Map
 │   ├── 02-cluster.yaml    # ECS, IAM, security groups
 │   ├── 03-databases.yaml  # PostgreSQL, MongoDB, Redis
-│   ├── 04-services.yaml   # Nginx + 8 app services (incl. Reporting)
+│   ├── 04-services.yaml   # Nginx + app services (incl. Reporting, Compliance, image-registry)
 │   ├── 05-observability.yaml
 │   └── 06-admin.yaml
 ├── config/                # Prometheus, Loki, Grafana, Fluent Bit
@@ -806,7 +797,7 @@ echo $YOUR_PAT | docker login ghcr.io -u USERNAME --password-stdin
 `YOUR_PAT` is a GitHub Personal Access Token with the `read:packages` scope. The `bootstrap.sh` and `startup.sh` scripts pick up `GHCR_TOKEN` and `GHCR_USER` env vars to create the in-cluster `ghcr-secret` automatically.
 
 **`GhcrToken` rejected with `unauthorized` or `denied`:**
-The pre-built images at `ghcr.io/mwashburn160/*` are **public** — anonymous pulls succeed — but `GhcrToken` is still requested by the CFN templates because anonymous GHCR pulls are subject to a low per-IP rate limit (60 req/hr) that will trip mid-deploy when EC2 pulls 9 service images concurrently. Authenticated pulls raise the limit to 5,000 req/hr.
+The pre-built images at `ghcr.io/mwashburn160/*` are **public** — anonymous pulls succeed — but `GhcrToken` is still requested by the CFN templates because anonymous GHCR pulls are subject to a low per-IP rate limit (60 req/hr) that will trip mid-deploy when EC2 pulls all 10 service images concurrently. Authenticated pulls raise the limit to 5,000 req/hr.
 
 **Use your own GitHub Personal Access Token — do not copy a value from documentation, an example command, or another user's deployment.** Tokens that aren't yours will fail (or worse, succeed temporarily and break later when the original owner rotates them). To create your own:
 
@@ -815,7 +806,7 @@ The pre-built images at `ghcr.io/mwashburn160/*` are **public** — anonymous pu
 
 Pass it as the `GhcrToken` CFN parameter or export it as `GHCR_TOKEN` for `bootstrap.sh`/`startup.sh`. Set `GhcrUser` (or `GHCR_USER`) to **your own GitHub username** to match the token's owner.
 
-If you intentionally want to skip auth for a small test deploy, leave `GhcrToken` empty and the bootstrap scripts will fall back to anonymous pulls — expect occasional 429s on retry-storms across all 9 services.
+If you intentionally want to skip auth for a small test deploy, leave `GhcrToken` empty and the bootstrap scripts will fall back to anonymous pulls — expect occasional 429s on retry-storms across all 10 services.
 
 **CrashLoopBackOff on observability pods (EC2):**
 Usually hostPath permission issues. Check pod logs. Init containers handle `chown` for loki (10001), prometheus (65534), grafana (472).

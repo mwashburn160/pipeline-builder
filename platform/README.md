@@ -10,9 +10,10 @@ Users represent individual accounts. A user can belong to **multiple organizatio
 
 - `username` - Unique, lowercase identifier
 - `email` - Unique, lowercase email address
-- `password` - Bcrypt-hashed (optional for OAuth-only users)
+- `password` - Bcrypt-hashed (optional for OAuth-only users); validated against configurable strength rules (min length, upper/lower/digit) before hashing
 - `lastActiveOrgId` - References the last organization the user interacted with (replaces the former `organizationId` field)
 - `isEmailVerified` - Whether the user has verified their email
+- `isSuperAdmin` - Global super-admin flag (hidden from default queries via `select: false`). When `true`, `isSystemAdmin()` returns true regardless of the user's active org. The canonical operator signal (replaces "membership in the `system` org", which still works during rollout).
 - `tokenVersion` - Incremented to invalidate all active sessions
 - `oauth` - Linked OAuth providers (Google, GitHub)
 - `featureOverrides` - Per-user feature flag overrides
@@ -26,8 +27,8 @@ Organizations are multi-tenant containers for pipelines, plugins, and quotas.
 - `name` / `slug` - Display name and URL-safe identifier
 - `owner` - References the User who owns this organization
 - `tier` - Quota tier: `'developer'` | `'pro'` | `'unlimited'`
-- `quotas` / `usage` - Per-type quota limits and usage tracking (plugins, pipelines, apiCalls)
-- `aiProviderKeys` - Encrypted AI provider API keys
+- `quotas` / `usage` - Per-type quota limits and usage tracking (plugins, pipelines, apiCalls, aiCalls, storageBytes, dashboards, alertRules, alertDestinations, idpConfigs); defaults are sourced from the tier preset, and `-1` means unlimited
+- `aiProviderKeys` - Encrypted AI provider API keys (Anthropic, OpenAI, Google, xAI, Amazon Bedrock)
 
 **Note:** The `members[]` array has been removed from the Organization model. Membership is now managed exclusively through the `UserOrganization` junction collection. Query `UserOrganization` to list members of an organization.
 
@@ -51,6 +52,9 @@ Access tokens contain:
 - `organizationName` - Active organization name
 - `role` - User's role **in the active organization** (`'owner'` | `'admin'` | `'member'`)
 - `isAdmin` - Derived boolean: `true` when `role === 'admin' || role === 'owner'`
+- `isSuperAdmin` - Only present (and `true`) for global super-admins; omitted otherwise to keep the payload small
+- `tier` - The active org's quota tier (`'developer'` | `'pro'` | `'unlimited'`)
+- `features` - Resolved feature flags (tier defaults + per-user overrides; super-admins get all features)
 - `username`, `email`, `isEmailVerified`, `tokenVersion`
 
 Refresh tokens contain only `sub` and `tokenVersion`.

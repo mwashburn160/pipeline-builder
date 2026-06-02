@@ -20,9 +20,10 @@ Core server-side utilities shared by every backend service in [Pipeline Builder]
 Tokens satisfy the standard `requireAuth` middleware unmodified (sub: `service:<name>`, role: `owner`, type: `access`). Use for inter-service HTTP calls (billing → message renewals, platform → billing on register, etc.).
 
 ### Request/Response Utilities
-- `sendSuccess`, `sendError`, `sendBadRequest`, `sendInternalError`, `sendPaginated`, `sendPaginatedNested`
+- `sendSuccess`, `sendError`, `sendBadRequest`, `sendInternalError`, `sendQuotaExceeded`, `sendPaginated`, `sendPaginatedNested`
 - `extractDbError` — Extract database error details
 - `ErrorCode`, `getStatusForErrorCode` — Standard error codes
+- `AppError`, `NotFoundError`, `ForbiddenError`, `ValidationError`, `ConflictError`, `UnauthorizedError` — Typed HTTP error classes
 
 ### Parameter Parsing
 - `getParam`, `getRequiredParam`, `getParams`, `getOrgId`, `getAuthHeader`
@@ -31,10 +32,12 @@ Tokens satisfy the standard `requireAuth` middleware unmodified (sub: `service:<
 ### Validation Schemas (Zod)
 - `AIGenerateBodySchema` — Validates AI generation requests (prompt, provider, model)
 - `AIGenerateFromUrlBodySchema` — Validates Git URL generation requests (gitUrl, provider, model, apiKey?, repoToken?)
+- Plugin, pipeline, and message schemas (`PluginCreateSchema`, `PipelineFilterSchema`, `MessageCreateSchema`, etc.) plus shared building blocks (`PaginationSchema`, `UUIDSchema`, `AccessModifierSchema`)
 
 ### Internal HTTP Client
 - `InternalHttpClient`, `createSafeClient` — Service-to-service HTTP communication
 - `ServiceConfig`, `RequestOptions` — Client types
+- `createComplianceClient` / `ComplianceClient` — Typed client for the compliance service, built on the safe HTTP client
 
 ### AI Provider Constants
 - `AI_PROVIDER_CATALOG` — Static provider/model catalog
@@ -44,10 +47,17 @@ Tokens satisfy the standard `requireAuth` middleware unmodified (sub: `service:<
 ### Logging
 - `createLogger` — Winston logger factory
 
+### Caching & Events
+- `CacheService`, `createCacheService` — In-memory TTL cache with an optional Redis backend
+- `entityEvents` — Process-local domain event pub/sub for entity changes
+
+### OpenAPI
+- `registry`, `generateOpenApiSpec` — Shared schema registry and OpenAPI spec generation, so services expose consistent API documentation
+
 ### Quota Service
 - `QuotaService` (type), `createQuotaService` — Quota enforcement client
-- `QuotaType` — `'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls'`
-- `QuotaCheckResult`, `QuotaTier`, `QUOTA_TIERS`, `getTierLimits` — Quota domain types and tier presets
+- `QuotaType` — `'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls' | 'storageBytes' | 'dashboards' | 'alertRules' | 'alertDestinations' | 'idpConfigs'`
+- `QuotaCheckResult`, `QuotaTier` (`'developer' | 'pro' | 'unlimited'`), `QUOTA_TIERS`, `getTierLimits` — Quota domain types and tier presets
 
 ### Health Endpoints
 - `createHealthRouter({ serviceName, version?, checkDependencies? })` — registers `GET /health` (liveness; always 200 unless process is dead) and `GET /ready` (readiness; 503 when any dependency is `'disconnected'`). Use as Kubernetes/ECS liveness + readiness probes respectively.

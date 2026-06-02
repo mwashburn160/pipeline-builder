@@ -7,7 +7,7 @@ Express server infrastructure for [Pipeline Builder](https://mwashburn160.github
 ## Key Exports
 
 ### App Factory
-- `createApp({ checkDependencies?, warmupHooks?, ... })` — Creates a configured Express app with CORS, Helmet, rate limiting, `/health` (liveness), `/ready` (readiness), `/warmup`, `/metrics`, and OpenAPI/Swagger UI. Pass `warmupHooks: [() => mongoose.connection.db?.admin().ping()]` for services that need to pre-warm Mongo/Redis on cold start.
+- `createApp({ checkDependencies?, warmupHooks?, redisUrl?, ... })` — Creates a configured Express app with CORS, Helmet (strict CSP), gzip/deflate compression, rate limiting, `/health` (liveness), `/ready` (readiness), `/warmup`, `/metrics`, and OpenAPI spec + Swagger UI at `/docs`. Fails fast if `JWT_SECRET` is unset. Rate limiting keys per org (falling back to a normalized IPv6 prefix) and uses a shared Redis store when `redisUrl` is provided, so limits hold across multiple instances. Pass `warmupHooks: [() => mongoose.connection.db?.admin().ping()]` for services that need to pre-warm Mongo/Redis on cold start.
 - `runServer`, `startServer` — Server lifecycle with graceful shutdown
 
 ### Middleware
@@ -25,7 +25,7 @@ Express server infrastructure for [Pipeline Builder](https://mwashburn160.github
 ### Health & Quota Helpers
 - `postgresHealthCheck` — Returns `{ postgres: 'connected' | 'disconnected' }` (the `'unknown'` fallback was removed — a real probe failure now correctly fails `/ready`)
 - `mongoHealthCheck(connection)` — Returns `{ mongodb: 'connected' | 'unknown' | 'disconnected' }` based on mongoose's `readyState` (1 = connected, 2 = connecting/unknown, anything else = disconnected)
-- `incrementQuotaFromCtx(service, { req, ctx, orgId }, type)` — Increments a quota counter using values pulled from the route context. `type` is `'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls'`.
+- `incrementQuotaFromCtx(service, { req, ctx, orgId }, type)` — Increments a quota counter using values pulled from the route context. `type` is `'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls' | 'storageBytes'`.
 
 ### Server-Sent Events
 - `SSEManager` — Connection manager for streaming logs to clients

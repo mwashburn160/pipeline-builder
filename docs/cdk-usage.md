@@ -1,6 +1,6 @@
 # CDK Usage Guide
 
-Use the `PipelineBuilder` CDK construct to define pipelines as infrastructure-as-code. Pipelines deploy as native AWS CodePipeline + CodeBuild in your AWS account.
+Use the `PipelineBuilder` CDK construct to define pipelines as infrastructure-as-code. Pipelines deploy as native AWS CodePipeline + CodeBuild in your AWS account, with build steps drawn from a catalog of 125 ready-to-use plugins.
 
 ```bash
 npm install @mwashburn160/pipeline-core
@@ -72,7 +72,7 @@ synth: {
     options: {
       repo: 'my-org/my-app',       // Required: owner/repo
       branch: 'main',               // Default: 'main'
-      trigger: TriggerType.AUTO,     // AUTO = webhook, NONE = manual, SCHEDULE = cron
+      trigger: TriggerType.AUTO,     // AUTO = poll for changes, NONE = manual, SCHEDULE = cron
     },
   },
   plugin: { name: 'cdk-synth' },
@@ -89,6 +89,7 @@ source: {
     branch: 'main',
     connectionArn: 'arn:aws:codestar-connections:us-east-1:123456789012:connection/abc-123',
     codeBuildCloneOutput: true,   // Enable full git history in CodeBuild
+    trigger: TriggerType.AUTO,    // AUTO = push-based webhook (no polling), NONE = manual
   },
 }
 ```
@@ -101,7 +102,7 @@ source: {
   options: {
     bucketName: 'my-source-bucket',
     objectKey: 'source.zip',       // Default: 'source.zip'
-    trigger: TriggerType.AUTO,     // Poll for changes
+    trigger: TriggerType.AUTO,     // Start on S3 object-change events
   },
 }
 ```
@@ -446,7 +447,7 @@ Metadata controls fine-grained CDK behavior. Set at global, defaults, or step le
 | `network:subnetids` | JSON array of subnet IDs | Subnet placement |
 | `notifications:topic:arn` | SNS topic ARN | Pipeline event notifications |
 
-See [Metadata Keys](metadata-keys.md) for the complete list of 56 keys.
+See [Metadata Keys](metadata-keys.md) for the complete list of 83 keys.
 
 ---
 

@@ -7,32 +7,49 @@ Pipeline Builder emits audit events through two complementary paths.
 The `platform` service writes user/org lifecycle events directly to its
 MongoDB `audit_events` collection via the `audit()` helper in
 [platform/src/helpers/audit.ts](../platform/src/helpers/audit.ts). These
-are queryable via the platform's own audit API.
+are queryable via the platform's own audit API (`GET /audit`, admin-only
+and org-scoped for org admins).
 
-Current platform events:
+The full set of actions lives in the `AuditAction` union in
+[platform/src/models/audit-event.ts](../platform/src/models/audit-event.ts),
+grouped by area:
 
-| Action | When |
-|--------|------|
-| `user.register` | New user account created |
-| `user.login` | User signs in |
-| `user.logout` | User signs out |
-| `user.delete` | User account deleted |
-| `user.tokens.revoke-all` | User invalidates all their sessions |
-| `org.create` | New organization created |
-| `admin.user.delete` | System admin deletes a user |
-| `admin.org.delete` | System admin deletes an organization |
+| Area | Actions |
+|------|---------|
+| User lifecycle | `user.register`, `user.login`, `user.login.failed`, `user.logout`, `user.delete`, `user.profile.update`, `user.password.change`, `user.token.create`, `user.tokens.revoke-all` |
+| Organization | `org.create`, `org.member.add`, `org.member.remove`, `org.member.role.update`, `org.member.deactivate`, `org.member.activate`, `org.ownership.transfer` |
+| Dashboards | `dashboard.create`, `dashboard.update`, `dashboard.delete`, `dashboard.clone` |
+| Alerts | `alert.destination.create/update/delete`, `alert.rule.create/update/delete` |
+| Admin | `admin.user.delete`, `admin.org.delete`, `admin.org.export`, `admin.org-idp.upsert/delete`, `admin.superadmin.grant/revoke`, `admin.org.kms-config.upsert/delete`, `admin.org.tier.update`, `admin.impersonate.start`, `admin.org.namespace.render` |
+| Plugin builds | `plugin.build.completed`, `plugin.build.failed`, `plugin.build.timeout` |
 
-These persist in MongoDB and are not the focus of this document. See
-[platform/src/models/audit-event.ts](../platform/src/models/audit-event.ts)
-for the document schema.
+Each record carries an `actorId`/`actorEmail`, `orgId` (the actor's own
+org), and an `affectedOrgId` (the org actually operated on). They diverge
+when a sysadmin acts on another org, so the audit log can answer "what did
+a sysadmin do to org X?" — required for SOC2 evidence on impersonation-style
+access. Records auto-expire via a MongoDB TTL index after
+`config.audit.retentionDays` days (default 90, overridable via
+`AUDIT_RETENTION_DAYS`).
+
+These persist in MongoDB and are largely out of scope for this document.
+See [platform/src/models/audit-event.ts](../platform/src/models/audit-event.ts)
+for the document schema, and [Cross-service events](#cross-service-events)
+below for the structured-log path that is this document's focus.
 
 ## Path 2: Cross-service (structured logs)
 
-Other services (currently just `image-registry`) emit audit events as
-structured log lines via the `emitAudit` helper in
-[packages/api-core/src/utils/audit.ts](../packages/api-core/src/utils/audit.ts).
-Each line carries `eventCategory: 'audit'` so the log aggregator (Loki,
-in our default deploy) can route these into a dedicated stream.
+Other services emit audit events as structured log lines that the log
+aggregator (Loki, in our default deploy) routes into a dedicated stream.
+There are two categories on this path:
+
+- **`eventCategory: 'audit'`** — emitted by `image-registry` via the
+  `emitAudit` helper in
+  [packages/api-core/src/utils/audit.ts](../packages/api-core/src/utils/audit.ts).
+  Covered in detail below.
+- **`eventCategory: 'plugin-build'`** — emitted by the plugin build worker
+  (`api/plugin/src/queue/plugin-build-queue.ts`) for `plugin.build.*`
+  outcomes. These are also forwarded to platform's MongoDB audit store via
+  the `POST /audit/events` ingest endpoint, so they show up on both paths.
 
 **Best-effort**: if the logger fails, the originating mutation still
 succeeds. We don't roll back a successful operation because the audit
@@ -45,27 +62,33 @@ emitting route.
 
 ### Querying
 
-Audit events land in Loki with `eventCategory`, `event`, `service_name`,
-and `actor` promoted to labels (see
+Audit events land in Loki with `service_name`, `eventCategory`, `event`,
+`actor`, and `pluginName` promoted to labels (plus `level`; see
 [deploy/<target>/config/promtail/promtail-config.yml](../deploy/aws/ec2/config/promtail/promtail-config.yml)).
+Digest fields are intentionally not promoted — they're per-event unique, so
+labeling them would blow up Loki's label cardinality.
 
 **From the UI**: the **Audit Activity** dashboard at
 `/dashboard/observability/audit-activity` is the operator-facing surface.
 Deep-link straight to a filtered view:
-`/dashboard/observability/audit-activity?event=registry.tag.copy&actor=<actor>&since=<iso>&until=<iso>`.
-The registry's `buildAuditLogLink` helper builds these URLs from a
-RecentActionsPanel row click.
+`/dashboard/observability/audit-activity?event=registry.tag.copy&since=<iso>&until=<iso>`.
+The registry's `buildAuditLogLink` helper
+([frontend/src/lib/registry-audit-link.ts](../frontend/src/lib/registry-audit-link.ts))
+builds these URLs from a RecentActionsPanel row click, centering a 5-minute
+window on the event's timestamp (and passing `digest` for forward-compat).
+This is the native replacement for the old Grafana Explore deep-link, so
+operators can confirm an event landed without leaving Pipeline Builder.
 
 **Direct LogQL** (for ad-hoc investigations, hitting Loki at port 3100):
 
 ```logql
-{service_name="image-registry", eventCategory="audit", event="registry.tag.copy"}
+{service_name="pipeline-image-registry", eventCategory="audit", event="registry.tag.copy"}
   | json
   | isPromotionToSystem=`true`
 ```
 
-Stream selectors on the four promoted labels (`service_name`,
-`eventCategory`, `event`, `actor`) are the fast path. Anything else (e.g.
+Stream selectors on the promoted labels (`service_name`, `eventCategory`,
+`event`, `actor`, `pluginName`) are the fast path. Anything else (e.g.
 `isPromotionToSystem`, `sourceDigest`) requires `| json` parsing.
 
 ---

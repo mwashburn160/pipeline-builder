@@ -26,33 +26,33 @@ flowchart TB
 | cloudformation | AWS | SMALL | AWS: IAM role | `CFN_TEMPLATE`, `CFN_STACK_NAME`, `CFN_ACTION`, `CFN_PARAMETERS`, `CFN_REGION` |
 | gcloud-deploy | GCP | MEDIUM | `GOOGLE_APPLICATION_CREDENTIALS` | `GCP_PROJECT`, `GCP_REGION`, `DEPLOY_TYPE` |
 | azure-deploy | Azure | MEDIUM | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | `AZURE_SUBSCRIPTION`, `AZURE_RESOURCE_GROUP`, `DEPLOY_TYPE` |
-| pulumi | Pulumi | MEDIUM | `PULUMI_ACCESS_TOKEN` | `PULUMI_STACK`, `PULUMI_ACTION`, `PULUMI_WORKING_DIR` |
+| pulumi | Pulumi | MEDIUM | `PULUMI_ACCESS_TOKEN` | `PULUMI_STACK`, `PULUMI_ACTION`, `PULUMI_WORK_DIR` |
 
 ## Kubernetes
 
 | Plugin | Method | Compute | Secrets | Key Env Vars |
 |--------|--------|---------|---------|--------------|
-| kubectl-deploy | kubectl apply | MEDIUM | `KUBECONFIG` or cluster credentials | `KUBE_CONTEXT`, `KUBE_NAMESPACE`, `MANIFEST_PATH`, `DEPLOY_STRATEGY` |
-| helm-deploy | Helm charts | MEDIUM | `KUBECONFIG` or cluster credentials | `HELM_RELEASE`, `HELM_CHART`, `HELM_NAMESPACE`, `HELM_VALUES_FILE` |
+| kubectl-deploy | kubectl apply | SMALL | `KUBECONFIG_DATA` (base64) | `KUBE_CONTEXT`, `KUBE_NAMESPACE`, `MANIFEST_PATH`, `DEPLOY_ACTION` |
+| helm-deploy | Helm charts | SMALL | `KUBECONFIG_DATA` (base64) | `HELM_RELEASE`, `HELM_CHART`, `HELM_NAMESPACE`, `HELM_VALUES_FILE` |
 
 ## Database Migration
 
 | Plugin | Tool | Compute | Secrets | Key Env Vars |
 |--------|------|---------|---------|--------------|
-| flyway | Flyway | MEDIUM | `FLYWAY_URL`, `FLYWAY_USER`, `FLYWAY_PASSWORD` | `FLYWAY_LOCATIONS`, `FLYWAY_SCHEMAS`, `FLYWAY_ACTION` |
+| flyway | Flyway | SMALL | `FLYWAY_USER`, `FLYWAY_PASSWORD` | `FLYWAY_URL`, `FLYWAY_LOCATIONS`, `FLYWAY_SCHEMAS`, `FLYWAY_ACTION` |
 
 ## Serverless
 
 | Plugin | Platform | Compute | Secrets | Key Env Vars |
 |--------|----------|---------|---------|--------------|
-| lambda-deploy | AWS Lambda | SMALL | None (AWS IAM) | `FUNCTION_NAME`, `DEPLOY_TYPE`, `LAMBDA_ALIAS`, `S3_BUCKET` |
-| serverless-framework | AWS/Azure/GCP | MEDIUM | None | `SLS_STAGE`, `SLS_REGION`, `SLS_CONFIG` |
+| lambda-deploy | AWS Lambda | SMALL | None (AWS IAM) | `LAMBDA_FUNCTION`, `LAMBDA_PACKAGE_TYPE`, `LAMBDA_ALIAS`, `LAMBDA_PUBLISH` |
+| serverless-framework | AWS/Azure/GCP | MEDIUM | None | `SLS_STAGE`, `SLS_REGION`, `SLS_SERVICE_PATH` |
 
 ## AWS Services
 
 | Plugin | Service | Compute | Secrets | Key Env Vars |
 |--------|---------|---------|---------|--------------|
-| ecs-deploy | Amazon ECS | SMALL | None (AWS IAM) | `ECS_CLUSTER`, `ECS_SERVICE`, `TASK_DEFINITION`, `DEPLOY_STRATEGY` |
+| ecs-deploy | Amazon ECS | SMALL | None (AWS IAM) | `ECS_CLUSTER`, `ECS_SERVICE`, `ECS_TASK_FAMILY`, `IMAGE_URI` |
 | cdk-deploy | AWS CDK | MEDIUM | None (AWS IAM) | `CDK_DEPLOY_ACTION`, `CDK_STACK`, `CDK_REQUIRE_APPROVAL`, `CDK_HOTSWAP` |
 | cdk-deploy-multi-region | AWS CDK | LARGE | None (AWS IAM) | `CDK_REGIONS`, `CDK_PRIMARY_REGION`, `CDK_DEPLOY_STRATEGY`, `CDK_ROLLBACK_ON_FAILURE` |
 
@@ -103,6 +103,6 @@ The `TF_ACTION` env var controls which Terraform operation is executed:
 | apply | Apply the planned changes to infrastructure |
 | destroy | Destroy all resources managed by the Terraform configuration |
 
-`TF_AUTO_APPROVE=true` is required for `apply` and `destroy` actions to skip the interactive confirmation prompt. Without it, the pipeline step will fail waiting for input.
+`TF_AUTO_APPROVE=true` gates the mutating actions as a safety guard. When `apply` runs without it, the step safely falls back to `terraform plan` instead of changing infrastructure; when `destroy` runs without it, the step fails fast with an error rather than tearing down resources.
 
-The Terraform plugin also runs TFLint for configuration linting and tfsec for static security analysis as part of every execution.
+The Terraform plugin also runs TFLint for configuration linting and tfsec for static security analysis on every execution, writing JSON results to `tf-output/` alongside the saved plan. Plugin defaults are Terraform `1.10.3` (overridable via `TF_VERSION`, with `tfenv` selecting the version at runtime) and a `45`-minute step timeout.

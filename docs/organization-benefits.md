@@ -34,16 +34,20 @@ A Java team gets build, test, lint, security scan, and deploy stages in minutes 
 
 ### 2. Shared Plugin Catalog
 
-124 pre-built, containerized plugins covering the full CI/CD lifecycle:
+125 pre-built, containerized plugins covering the full CI/CD lifecycle:
 
 | Category | What It Covers |
 |----------|---------------|
-| **Language** (11) | Java, Python, Node.js, Go, Rust, .NET, C++, PHP, Ruby |
+| **Language** (11) | Java (Corretto/Oracle), Python, Node.js, Go, Rust, .NET, C++, PHP, Ruby |
 | **Security** (40) | Snyk, SonarCloud, Trivy, Semgrep, Veracode, Checkmarx, Fortify |
 | **Quality** (17) | ESLint, Prettier, Checkstyle, Clippy, Ruff, ShellCheck |
 | **Testing** (14) | Jest, Pytest, Cypress, Playwright, k6, Postman, Artillery |
 | **Artifact** (16) | Docker, ECR, GHCR, npm, PyPI, Maven, NuGet, Cargo |
-| **Deploy** (11) | Terraform, CloudFormation, Kubernetes, Helm, Pulumi, ECS, Lambda |
+| **Deploy** (13) | Terraform, CloudFormation, Kubernetes, Helm, Pulumi, ECS, Lambda |
+| **Notification** (5) | Slack, Microsoft Teams, email, PagerDuty, GitHub status |
+| **Infrastructure** (5) | CDK synth, S3 cache, manual approval, shell |
+| **Monitoring** (3) | Datadog, New Relic, Sentry |
+| **AI** (1) | Multi-provider Dockerfile generation |
 
 Every plugin is versioned, tested, and shared across the organization. Teams use the same tools instead of maintaining their own Docker images and build scripts.
 
@@ -53,7 +57,8 @@ The compliance engine validates every pipeline and plugin before creation — no
 
 **How it works:**
 - Platform teams define rules: "all pipelines must include a security scan stage," "plugins must not use privileged containers," "pipeline timeout must not exceed 60 minutes"
-- Rules evaluate against 18 operators (equals, contains, regex, numeric comparison, array count)
+- Rules evaluate against 17 operators (equality, contains, regex, numeric comparison, set membership, existence checks, array/string length)
+- Rules can combine multiple conditions (`all`/`any` mode), and specific plugins or pipelines can be granted scoped exemptions with an audit trail
 - Violations at `error` or `critical` severity **block creation** (HTTP 403)
 - Violations at `warning` severity log and allow
 
@@ -72,7 +77,7 @@ Every resource is scoped to an organization with role-based access control:
 | Pipelines | Scoped to (project, organization, orgId) |
 | Plugins | Scoped by orgId + accessModifier (public/private) |
 | Secrets | AWS Secrets Manager path: `{prefix}/{orgId}/{secretName}` |
-| Quotas | Per-org limits on plugins, pipelines, API calls |
+| Quotas | Per-org limits on plugins, pipelines, API calls, AI calls, storage, and more |
 | Compliance | Per-org rules and policies |
 | Billing | Per-org subscription tiers and usage tracking |
 
@@ -93,10 +98,10 @@ Pipelines deploy as **native AWS CodePipeline + CodeBuild** in the customer's ow
 EventBridge captures every CodePipeline and CodeBuild state change. Reports include:
 
 - Execution counts and success rates per team/project
-- Duration percentiles (p50, p90, p99)
+- Duration statistics — average, min, max, and p95 per pipeline
 - Stage failure heatmaps — which stages fail most across the org
-- Error categorization — build failures vs test failures vs deployment failures
-- Cost attribution per organization
+- Error categorization — grouping failures by message to surface recurring causes
+- Plugin build success rates and durations across the catalog
 
 ---
 
@@ -120,7 +125,7 @@ EventBridge captures every CodePipeline and CodeBuild state change. Reports incl
 ### Engineering Leadership
 **Before:** No visibility into CI/CD health, costs, or adoption. Can't answer "are we secure?" with data.
 
-**After:** Dashboards show pipeline health across the organization. Per-org billing tracks CI/CD costs. Compliance reports prove security posture.
+**After:** Dashboards show pipeline health across the organization. Per-org billing tracks subscription and usage. Compliance reports prove security posture.
 
 ---
 
@@ -131,7 +136,7 @@ EventBridge captures every CodePipeline and CodeBuild state change. Reports incl
 | **Local** (Docker Compose) | Development, demos | Single machine, all services in containers |
 | **Minikube** (K8s) | Testing, small teams | Single node Kubernetes, KEDA auto-scaling |
 | **EC2** (Minikube on EC2) | Small-medium production | t3.2xlarge default (8 vCPU / 32 GiB), persistent storage, Let's Encrypt |
-| **Fargate** (ECS) | Large-scale production | Serverless containers, managed scaling, RDS/DocumentDB |
+| **Fargate** (ECS) | Large-scale production | Serverless containers, managed scaling, containerized PostgreSQL/MongoDB/Redis |
 
 All deployment targets run the same services with the same configuration — `.env` files and K8s manifests are consistent across targets.
 

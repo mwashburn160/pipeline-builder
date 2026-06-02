@@ -40,9 +40,9 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | Document | Description |
 |----------|-------------|
 | [API Reference](api-reference.md) | REST endpoints for pipelines, plugins, compliance, reporting, AI |
-| [Metadata Keys](metadata-keys.md) | 56 CodePipeline / CodeBuild configuration keys |
+| [Metadata Keys](metadata-keys.md) | 83 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
-| [Plugin Catalog](plugins/README.md) | 124 pre-built plugins across 10 categories |
+| [Plugin Catalog](plugins/README.md) | 125 pre-built plugins across 10 categories |
 
 ---
 
@@ -50,7 +50,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 
 ### Dashboard and AI
 
-The web UI at `https://localhost:8443` provides visual pipeline and plugin management. The AI builder analyzes a Git repository and generates the right stages and plugins automatically.
+The web UI at `https://localhost:8443` provides visual pipeline and plugin management. The AI builder analyzes a Git repository (or a natural-language prompt) and generates the right stages and plugins automatically, streaming results over SSE. It works across five providers — Anthropic, OpenAI, Google, xAI, and Amazon Bedrock — and can fall back to a secondary provider if the primary one is unavailable.
 
 **Default credentials** (created by `init-platform.sh local` on a fresh install):
 
@@ -98,7 +98,7 @@ curl -X POST https://localhost:8443/api/pipelines \
 curl -X POST https://localhost:8443/api/pipelines/generate \
   -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK", "provider": "anthropic", "model": "claude-sonnet-4"}'
+  -d '{"prompt": "Build a Node.js app from GitHub, run tests, and deploy with CDK", "provider": "anthropic", "model": "claude-sonnet-4-20250514"}'
 ```
 
 See the [API Reference](api-reference.md) for the full endpoint list.
@@ -284,7 +284,7 @@ For end-to-end request → build → deploy flow diagrams, see [Architecture Flo
 
 ## Plugin Categories
 
-124 plugins across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list.
+125 plugins across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list.
 
 | Category | Count | Details |
 |----------|-------|---------|
@@ -294,7 +294,7 @@ For end-to-end request → build → deploy flow diagrams, see [Architecture Flo
 | [Testing](plugins/testing.md) | 14 | Jest, Pytest, Cypress, Playwright, k6 |
 | [Artifact](plugins/artifact.md) | 16 | Docker, ECR, GHCR, npm, PyPI, Maven |
 | [Deploy](plugins/deploy.md) | 13 | Terraform, CloudFormation, Kubernetes, Helm, CDK |
-| [Infrastructure](plugins/infrastructure.md) | 4 | CDK synth, manual approval, S3 cache |
+| [Infrastructure](plugins/infrastructure.md) | 5 | CDK synth, manual approval, S3 cache, shell |
 | [Monitoring](plugins/monitoring.md) | 3 | Datadog, New Relic, Sentry |
 | [Notification](plugins/notification.md) | 5 | Slack, Teams, PagerDuty, email |
 | [AI](plugins/ai.md) | 1 | Dockerfile generation (multi-provider) |
