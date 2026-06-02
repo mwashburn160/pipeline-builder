@@ -143,8 +143,13 @@ export function storeToken(program: Command): void {
         // - One Secret per customer account replaces the previous two-secret model
         // Decode JWT for orgId — it's a stable identifier for the username field;
         // the actual auth uses the password (JWT) which the token service verifies.
+        // `||` (not `??`): an EMPTY-string organizationId must also fall back. A
+        // sysadmin/system token often carries organizationId="", and CodeBuild
+        // rejects a registry credential whose `username` field is empty with
+        // "AuthorizationData is malformed, empty field" — so username must always
+        // be a non-empty value.
         const payload = decodeTokenPayload(accessToken);
-        const orgId = payload?.organizationId ?? 'unknown-org';
+        const orgId = payload?.organizationId?.trim() || 'unknown-org';
 
         const secretValue = JSON.stringify({
           username: orgId,
