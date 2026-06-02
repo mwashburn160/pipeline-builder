@@ -24,6 +24,16 @@ Parameters:
       PLATFORM_FRONTEND_URL, and NEXT_PUBLIC_API_URL across services.
       Computed by deploy.sh as scheme + DomainName.
 
+  DeployMode:
+    Type: String
+    Default: public
+    AllowedValues: [public, internal]
+    Description: >
+      internal = inside-AWS-only: the pipeline service synthesizes CodeBuild
+      projects attached to this VPC's private subnets so they reach the internal
+      ALB. public = CodeBuild runs in the AWS-managed network and reaches the
+      public ALB over the internet.
+
   BillingEnabled:
     Type: String
     Default: "true"
@@ -82,7 +92,7 @@ Parameters:
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:3.4.74
+    Default: ghcr.io/mwashburn160/frontend:3.4.75
     Description: Docker image for the Frontend service
 
   AppSecretsName:
@@ -110,6 +120,9 @@ Parameters:
   DefaultDesiredCount:
     Type: Number
     Default: 1
+
+Conditions:
+  IsInternal: !Equals [!Ref DeployMode, internal]
 
 Resources:
 
@@ -148,7 +161,8 @@ Resources:
                 mkdir -p /shared-config/njs &&
                 aws s3 cp s3://${ConfigBucket}/nginx/nginx.conf /shared-config/nginx.conf &&
                 aws s3 cp s3://${ConfigBucket}/nginx/jwt.js /shared-config/njs/jwt.js &&
-                aws s3 cp s3://${ConfigBucket}/nginx/metrics.js /shared-config/njs/metrics.js
+                aws s3 cp s3://${ConfigBucket}/nginx/metrics.js /shared-config/njs/metrics.js &&
+                aws s3 cp s3://${ConfigBucket}/nginx/registry-auth.js /shared-config/njs/registry-auth.js
               - ConfigBucket:
                   Fn::ImportValue: !Sub "${StackPrefix}-ConfigBucketName"
           MountPoints:
@@ -587,6 +601,38 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
               Value: !Ref PlatformBaseUrl
+            # Out-of-cluster pull host for the synthesized CodeBuild plugin
+            # image URI. CodeBuild can't resolve the registry.pipeline-builder
+            # .local Cloud Map name, so the URI points at the public ALB/gateway
+            # and pulls flow through nginx's /v2/ route. In-cluster push/build
+            # still uses registry.pipeline-builder.local:5000 (unaffected).
+            - Name: IMAGE_REGISTRY_PULL_HOST
+              Value: !Ref DomainName
+            - Name: IMAGE_REGISTRY_PULL_PORT
+              Value: "443"
+            # internal mode: attach the synthesized CodeBuild projects to this
+            # VPC's private subnets so they can reach the internal ALB. Read by
+            # pipeline-core's networkConfigFromEnv(). Empty in public mode →
+            # CodeBuild runs in the AWS-managed network (reaches the public ALB).
+            # SG left empty → CDK creates an all-egress SG per project; the ALB
+            # SG must allow inbound 443 from the VPC CIDR (infra prerequisite).
+            - Name: PIPELINE_VPC_ID
+              Value: !If
+                - IsInternal
+                - Fn::ImportValue: !Sub "${StackPrefix}-VpcId"
+                - ""
+            - Name: PIPELINE_SUBNET_IDS
+              Value: !If
+                - IsInternal
+                - !Sub
+                  - "${S1},${S2}"
+                  - S1:
+                      Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+                    S2:
+                      Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+                - ""
+            - Name: PIPELINE_SECURITY_GROUP_IDS
+              Value: ""
             - Name: SERVICE_NAME
               Value: pipeline
             - Name: COMPLIANCE_SERVICE_HOST
@@ -921,7 +967,10 @@ Resources:
         # mode, no CA-trust workarounds (buildkitd carries the system CA bundle
         # and honors a real public cert end-to-end).
         - Name: buildkitd
-          Image: moby/buildkit:v0.16.0-rootless
+          # v0.30.0 (was v0.16.0): newer runc reaper avoids the hot
+          # "container not running" retry loop that wedged buildkitd when a
+          # build container was killed mid-flight.
+          Image: moby/buildkit:v0.30.0-rootless
           Essential: true
           User: "1000:1000"
           # Soft reservations — see plugin container above. buildkitd does the

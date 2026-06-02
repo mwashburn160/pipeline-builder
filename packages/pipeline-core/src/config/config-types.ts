@@ -118,6 +118,17 @@ export interface DatabaseConfig {
 export interface RegistryConfig {
   readonly host: string;
   readonly port: number;
+  /**
+   * Host/port an OUT-OF-CLUSTER client (notably AWS CodeBuild) uses to pull
+   * plugin images, when it differs from the in-cluster `host`/`port`. The
+   * in-cluster `registry:5000` ClusterIP isn't resolvable from the VPC, so the
+   * synthesized CodeBuild image URI must point at the public gateway instead.
+   * Env: `IMAGE_REGISTRY_PULL_HOST` / `IMAGE_REGISTRY_PULL_PORT`. Optional;
+   * consumers fall back to `host`/`port` when unset (single-host /
+   * in-cluster-only deploys). `loadRegistryConfig` always populates them.
+   */
+  readonly pullHost?: string;
+  readonly pullPort?: number;
   /** Docker network for build/push (empty string = default). */
   readonly network: string;
   /**

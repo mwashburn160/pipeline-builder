@@ -235,6 +235,32 @@ sudo -u minikube kubectl get pods -n pipeline-builder
 - **With domain:** Let's Encrypt auto-renews daily (cron at 3am)
 - **Without domain:** Self-signed cert at `/etc/pipeline-builder/tls/`
 
+### Deployment mode (`DEPLOY_MODE`)
+
+Set `DEPLOY_MODE` in `.env` **before** `bootstrap.sh`. It selects the network posture; both modes use a **publicly-trusted Let's Encrypt cert** (required so AWS CodeBuild can pull plugin images over the gateway).
+
+| | `public` (default) | `internal` (inside-AWS-only) |
+|---|---|---|
+| Ingress | Public IP, SG opens 80/443 | No public ingress; VPC-only |
+| Let's Encrypt | HTTP-01 (`--standalone`, needs public :80) | DNS-01 (`--dns-route53`; cert still public-trusted) |
+| DNS | Public Route53 A → public IP | Route53 **private** zone → gateway private IP |
+| CodeBuild | AWS-managed network, reaches gateway over internet | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS`/`SECURITY_GROUP_IDS`) |
+| Plugin pull | `https://<domain>/v2/` (public) | `https://<domain>/v2/` (resolves private) |
+
+Both share the registry `/v2/` route + `registry-auth.js` realm rewrite + `IMAGE_REGISTRY_PULL_HOST` — only resolution/networking differ.
+
+**`internal` mode prerequisites** — the VPC endpoints, private hosted zone, and gateway-ingress rule are provisioned by **`deploy/aws/internal-prereqs.yaml`** (shared with Fargate). After the EC2 stack is up, deploy it with this stack's outputs:
+```bash
+aws cloudformation deploy --stack-name pipeline-builder-internal \
+  --template-file deploy/aws/internal-prereqs.yaml \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides \
+    VpcId=<VpcId> VpcCidr=<VpcCidr> SubnetIds=<SubnetId> \
+    DomainName=<DOMAIN> GatewaySecurityGroupId=<SecurityGroupId> \
+    GatewayType=ip GatewayPrivateIp=<InstancePrivateIp>
+```
+(`VpcId`/`VpcCidr`/`SubnetId`/`SecurityGroupId`/`InstancePrivateIp` are EC2-stack outputs.) Then set `PIPELINE_VPC_ID`/`PIPELINE_SUBNET_IDS` in `.env` so the synthesized CodeBuild attaches to the VPC, and `init-platform.sh` will pass its preflight. Still operator-supplied: build-dependency egress (NAT or internal mirrors) + a source path, and an instance role with Route53 change permissions for DNS-01.
+
 ### Teardown
 
 ```bash
@@ -288,6 +314,19 @@ bash bin/deploy.sh \
 | `--region` | No | `us-east-1` | AWS region |
 | `--stack-prefix` | No | `pb` | CloudFormation stack name prefix |
 | `--certificate-arn` | No | *(auto-provisioned)* | Existing ACM certificate ARN |
+
+### Deployment mode (`DEPLOY_MODE`)
+
+Set `DEPLOY_MODE` in the env before `deploy.sh` (passed to the foundation + services stacks):
+
+| | `public` (default) | `internal` (inside-AWS-only) |
+|---|---|---|
+| ALB | internet-facing, public subnets | internal scheme, private subnets |
+| DNS | public Route53 → ALB | Route53 **private** zone → internal ALB |
+| CodeBuild | AWS-managed network, reaches ALB over internet | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS` wired from the foundation VPC) |
+| Plugin pull | `https://<domain>/v2/` (public) | `https://<domain>/v2/` (private) |
+
+Both require a **publicly-trusted, ACM-*issued*** cert (`--certificate-arn`) — the default self-signed cert from `init-cert.sh` does **not** work for CodeBuild plugin pulls. In `internal` mode `deploy.sh` **automatically deploys `deploy/aws/internal-prereqs.yaml`** after the foundation stack — provisioning the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR), the Route53 **private** hosted zone (alias → internal ALB), and the ALB 443-ingress-from-VPC rule. Still operator-supplied: egress (NAT/mirrors) for build deps. Mirrors the EC2 `DEPLOY_MODE` (EC2 differs only in cert source — Let's Encrypt vs ACM — and runs `internal-prereqs.yaml` as an operator step rather than auto).
 
 ### Stacks
 

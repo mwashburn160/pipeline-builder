@@ -102,6 +102,29 @@ esac
 echo ""
 echo "=== Initializing platform ($TARGET) ==="
 echo "  URL: $PLATFORM_BASE_URL"
+
+# Deployment posture (ec2): "public" vs "internal" (inside-AWS-only). The cert
+# + networking posture is set earlier by .env + bootstrap.sh; here we surface
+# it and, for internal mode, gate on the VPC prerequisites CodeBuild needs to
+# pull plugin images — failing fast beats half-loading then 502/pull errors.
+if [ "$TARGET" = "ec2" ]; then
+  DEPLOY_MODE="${DEPLOY_MODE:-public}"
+  echo "  Deploy mode: ${DEPLOY_MODE}"
+  if [ "$DEPLOY_MODE" = "internal" ]; then
+    echo "  Internal (inside-AWS-only): CodeBuild is VPC-attached and pulls plugin images via the private gateway."
+    _missing=()
+    [ -n "${PIPELINE_VPC_ID:-}" ]    || _missing+=("PIPELINE_VPC_ID")
+    [ -n "${PIPELINE_SUBNET_IDS:-}" ] || _missing+=("PIPELINE_SUBNET_IDS")
+    if [ "${#_missing[@]}" -gt 0 ]; then
+      echo "  ERROR: internal mode requires these in .env: ${_missing[*]}" >&2
+      echo "         (VPC + private subnets for the synthesized CodeBuild projects)" >&2
+      echo "  Also confirm provisioned: VPC endpoints (S3,Logs,SecretsManager,KMS,STS,CodeBuild[,ECR])," >&2
+      echo "  a Route53 PRIVATE zone for ${DOMAIN:-<domain>} -> the gateway private IP, and build egress (NAT/mirrors)." >&2
+      exit 1
+    fi
+    echo "  VPC config present. (Ensure the VPC endpoints + private hosted zone above are actually in place.)"
+  fi
+fi
 echo ""
 
 wait_for_health 30 5

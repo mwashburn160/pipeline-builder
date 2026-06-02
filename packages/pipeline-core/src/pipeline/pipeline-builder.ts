@@ -21,7 +21,7 @@ import { Config, CoreConstants } from '../config/app-config';
 import { ArtifactManager } from '../core/artifact-manager';
 import { UniqueId } from '../core/id-generator';
 import { metadataForCodePipeline } from '../core/metadata-builder';
-import { resolveNetwork } from '../core/network';
+import { resolveNetwork, networkConfigFromEnv } from '../core/network';
 import type { CodeBuildDefaults } from '../core/network-types';
 import { createCodeBuildStep, resolveDefaultBuildImage } from '../core/pipeline-helpers';
 import { MetadataKeys, TriggerType } from '../core/pipeline-types';
@@ -365,8 +365,13 @@ export class PipelineBuilder extends Construct {
     platformUrl: string,
     orgId: string | undefined,
   ): CodeBuildOptions | undefined {
-    const networkProps = defaults?.network
-      ? resolveNetwork(this, id, defaults.network)
+    // Per-pipeline network config wins; otherwise fall back to an env-driven
+    // global VPC (internal / inside-AWS-only mode) so every pipeline's
+    // CodeBuild runs in the VPC and can reach the private gateway. Unset in
+    // public deploys → CodeBuild stays in the AWS-managed network.
+    const network = defaults?.network ?? networkConfigFromEnv();
+    const networkProps = network
+      ? resolveNetwork(this, id, network)
       : undefined;
 
     const standaloneSecurityGroups = defaults?.securityGroups

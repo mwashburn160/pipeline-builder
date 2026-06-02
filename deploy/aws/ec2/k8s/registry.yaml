@@ -126,12 +126,13 @@ spec:
             # disabled; htpasswd has been removed.
             - name: REGISTRY_AUTH
               value: "token"
-            # Token realm advertised to clients in WWW-Authenticate.
-            # In-cluster clients hit image-registry directly over plain
-            # HTTP at the service-discovery endpoint. For external Docker
-            # clients pulling via the public hostname, override this to a
-            # publicly-resolvable URL through the app-env ConfigMap (and
-            # re-add a public ingress for /image-registry/token).
+            # Token realm advertised to clients in WWW-Authenticate. Kept as
+            # the in-cluster URL so in-cluster clients (buildkit) reach the
+            # token service directly. For OUT-OF-CLUSTER pulls (AWS CodeBuild),
+            # nginx's /v2/ location rewrites this realm in the response to the
+            # public gateway URL (see registry-auth.js / js_header_filter) —
+            # so the registry config stays internal and in-cluster auth is
+            # unaffected.
             - name: REGISTRY_AUTH_TOKEN_REALM
               value: "http://image-registry:3000/token"
             - name: REGISTRY_AUTH_TOKEN_SERVICE

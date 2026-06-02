@@ -19,8 +19,20 @@ Parameters:
     Default: ""
     Description: ACM certificate ARN for HTTPS. When provided, adds an HTTPS listener on port 443.
 
+  DeployMode:
+    Type: String
+    Default: public
+    AllowedValues: [public, internal]
+    Description: >
+      public = internet-facing ALB in public subnets. internal = inside-AWS-only:
+      an internal-scheme ALB in private subnets (reach it via a Route53 private
+      zone), with CodeBuild VPC-attached (see 04-services). Use an ACM-ISSUED
+      cert in internal mode so CodeBuild trusts the gateway when pulling plugin
+      images.
+
 Conditions:
   HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
+  IsInternal: !Equals [!Ref DeployMode, internal]
 
 Resources:
 
@@ -281,11 +293,14 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       Name: !Sub "${StackPrefix}-alb"
-      Scheme: internet-facing
+      # internal mode → private-subnet, internal-scheme ALB (no public ingress);
+      # public mode → internet-facing in the public subnets.
+      Scheme: !If [IsInternal, internal, internet-facing]
       Type: application
-      Subnets:
-        - !Ref PublicSubnet1
-        - !Ref PublicSubnet2
+      Subnets: !If
+        - IsInternal
+        - [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+        - [!Ref PublicSubnet1, !Ref PublicSubnet2]
       SecurityGroups:
         - !Ref ALBSecurityGroup
       Tags:
@@ -713,6 +728,19 @@ Outputs:
     Value: !Ref ALBSecurityGroup
     Export:
       Name: !Sub "${StackPrefix}-ALBSecurityGroupId"
+
+  # Inputs for the internal-mode prerequisites stack (internal-prereqs.yaml)
+  VpcCidr:
+    Description: VPC CIDR (for internal-prereqs endpoint + gateway ingress rules)
+    Value: !GetAtt VPC.CidrBlock
+    Export:
+      Name: !Sub "${StackPrefix}-VpcCidr"
+
+  AlbCanonicalHostedZoneId:
+    Description: ALB canonical hosted zone ID (for the internal private-zone alias)
+    Value: !GetAtt ALB.CanonicalHostedZoneID
+    Export:
+      Name: !Sub "${StackPrefix}-AlbCanonicalHostedZoneId"
 
   EFSSecurityGroupId:
     Description: EFS Security Group ID

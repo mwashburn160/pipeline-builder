@@ -21,6 +21,18 @@ Parameters:
       Route53 Hosted Zone ID for the domain.
       Required only when DomainName is provided.
 
+  DeployMode:
+    Type: String
+    Default: public
+    AllowedValues: [public, internal]
+    Description: >
+      public = HTTP/HTTPS (80/443) open to the internet. internal =
+      inside-AWS-only: 80/443 restricted to the VPC CIDR (reach the gateway via
+      a Route53 private zone). In internal mode also set DEPLOY_MODE=internal in
+      the instance .env (DNS-01 cert + VPC-attached CodeBuild) and deploy
+      deploy/aws/internal-prereqs.yaml (GatewayType=ip) using this stack's
+      outputs. See docs/aws-deployment.md.
+
   InstanceType:
     Type: String
     Default: t3.2xlarge
@@ -91,6 +103,7 @@ Parameters:
 # =============================================================================
 Conditions:
   HasDomain: !Not [!Equals [!Ref DomainName, ""]]
+  IsInternal: !Equals [!Ref DeployMode, internal]
 
 # =============================================================================
 # Resources
@@ -174,17 +187,21 @@ Resources:
           ToPort: 22
           CidrIp: !Ref SshCidr
           Description: SSH access
-        # HTTP - required for Let's Encrypt ACME challenge
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-          Description: HTTP (LetsEncrypt + redirect)
-        # HTTPS - public application access
+        # HTTP - public mode only (Let's Encrypt HTTP-01 + redirect). Internal
+        # mode uses DNS-01 and has no public ingress, so 80 is dropped.
+        - !If
+          - IsInternal
+          - !Ref "AWS::NoValue"
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+            Description: HTTP (LetsEncrypt + redirect)
+        # HTTPS - public (0.0.0.0/0) or, in internal mode, VPC-only.
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          CidrIp: 0.0.0.0/0
+          CidrIp: !If [IsInternal, !GetAtt VPC.CidrBlock, "0.0.0.0/0"]
           Description: HTTPS (application)
       SecurityGroupEgress:
         - IpProtocol: "-1"
@@ -410,3 +427,25 @@ Outputs:
   BootstrapLog:
     Description: Command to check bootstrap progress
     Value: !Sub "ssh -i <your-key>.pem ec2-user@${ElasticIP} 'tail -f /var/log/user-data.log'"
+
+  # Inputs for internal mode: feed deploy/aws/internal-prereqs.yaml
+  # (GatewayType=ip) and the instance .env (PIPELINE_VPC_ID / PIPELINE_SUBNET_IDS).
+  VpcId:
+    Description: VPC ID (internal-prereqs VpcId + .env PIPELINE_VPC_ID)
+    Value: !Ref VPC
+
+  SubnetId:
+    Description: Subnet ID (internal-prereqs SubnetIds + .env PIPELINE_SUBNET_IDS)
+    Value: !Ref PublicSubnet
+
+  VpcCidr:
+    Description: VPC CIDR (internal-prereqs VpcCidr)
+    Value: !GetAtt VPC.CidrBlock
+
+  SecurityGroupId:
+    Description: Instance SG ID (internal-prereqs GatewaySecurityGroupId)
+    Value: !Ref SecurityGroup
+
+  InstancePrivateIp:
+    Description: Instance private IP (internal-prereqs GatewayPrivateIp)
+    Value: !GetAtt EC2Instance.PrivateIp

@@ -245,14 +245,20 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   // The plugin's own `orgId` (not the caller's) decides the namespace —
   // tenant pipelines pulling shared system plugins still get the `system/`
   // path because that's where the image actually lives.
-  const portPart = registry.port && registry.port !== 80 && registry.port !== 443
-    ? `:${registry.port}`
+  // Use the external pull host/port: this image URI is consumed by AWS
+  // CodeBuild (out-of-cluster), which can't resolve the in-cluster
+  // `registry:5000` ClusterIP. Fall back to `host`/`port` for single-host /
+  // in-cluster-only deploys where no separate pull host is configured.
+  const pullHost = registry.pullHost || registry.host;
+  const pullPort = registry.pullPort ?? registry.port;
+  const portPart = pullPort && pullPort !== 80 && pullPort !== 443
+    ? `:${pullPort}`
     : '';
   const SYSTEM_ORG_ID = 'system';
   const namespace = plugin.orgId === SYSTEM_ORG_ID
     ? 'system'
     : `org-${plugin.orgId}`;
-  const imageUri = `${registry.host}${portPart}/${namespace}/${plugin.name}:${plugin.version}`;
+  const imageUri = `${pullHost}${portPart}/${namespace}/${plugin.name}:${plugin.version}`;
 
   // CodeBuild reads `pipeline-builder/<orgId>/platform` and sends its
   // `username`/`password` fields as HTTP Basic to the registry. The

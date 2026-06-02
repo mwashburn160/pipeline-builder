@@ -30,6 +30,11 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_DIR="$(cd "$DEPLOY_DIR/../../.." && pwd)"
 
 DOMAIN="${DOMAIN:-}"
+# Deployment posture: "public" (public ingress; Let's Encrypt via HTTP-01) or
+# "internal" (inside-AWS-only; no public :80, so Let's Encrypt via DNS-01 over
+# Route53). The cert is publicly trusted either way — required for AWS
+# CodeBuild to pull plugin images over the gateway. See docs/aws-deployment.md.
+DEPLOY_MODE="${DEPLOY_MODE:-public}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 
@@ -182,15 +187,26 @@ mkdir -p "$TLS_CERT_DIR"
 
 if [ -n "$DOMAIN" ]; then
   # --- Let's Encrypt (domain provided) ---
-  dnf install -y certbot
+  if [ "$DEPLOY_MODE" = "internal" ]; then
+    # Inside-AWS-only: no public port 80, so validate via DNS-01 over Route53
+    # instead of HTTP-01. Requires the dns-route53 plugin + an instance role
+    # with Route53 change permissions on the domain's hosted zone. The cert is
+    # still publicly trusted, so AWS CodeBuild can pull plugin images over the
+    # gateway even though the endpoint is private.
+    dnf install -y certbot python3-certbot-dns-route53
+    CERTBOT_CHALLENGE_ARGS="--dns-route53"
+  else
+    dnf install -y certbot
+    CERTBOT_CHALLENGE_ARGS="--standalone --preferred-challenges http"
+  fi
 
-  echo "  Obtaining Let's Encrypt certificate for ${DOMAIN}..."
-  if ! certbot certonly --standalone \
+  echo "  Obtaining Let's Encrypt certificate for ${DOMAIN} (${DEPLOY_MODE} mode)..."
+  # shellcheck disable=SC2086  # intentional word-splitting of challenge args
+  if ! certbot certonly $CERTBOT_CHALLENGE_ARGS \
       --non-interactive \
       --agree-tos \
       --email "admin@${DOMAIN}" \
-      -d "${DOMAIN}" \
-      --preferred-challenges http; then
+      -d "${DOMAIN}"; then
     echo "  ERROR: certbot failed to obtain certificate for ${DOMAIN}" >&2
     echo "  Common causes: domain not pointing to this instance, port 80 blocked, Let's Encrypt rate limit" >&2
     echo "  Falling back to self-signed certificate" >&2

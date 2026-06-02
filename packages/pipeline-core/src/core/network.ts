@@ -30,6 +30,37 @@ export interface ResolvedNetwork {
 }
 
 /**
+ * Build a NetworkConfig from environment, for deployments that want EVERY
+ * synthesized pipeline's CodeBuild to run inside a VPC (the EC2 "internal" /
+ * inside-AWS-only mode) without per-pipeline network config. Returns undefined
+ * when the env isn't set — public/default deployments run CodeBuild in the
+ * AWS-managed network as before.
+ *
+ * Env (set on the pipeline service in internal mode):
+ *   PIPELINE_VPC_ID              VPC the CodeBuild projects join (required)
+ *   PIPELINE_SUBNET_IDS          comma-separated private subnet IDs (required)
+ *   PIPELINE_SECURITY_GROUP_IDS  comma-separated SG IDs (optional)
+ */
+export function networkConfigFromEnv(): NetworkConfig | undefined {
+  const vpcId = (process.env.PIPELINE_VPC_ID || '').trim();
+  const subnetIds = (process.env.PIPELINE_SUBNET_IDS || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  if (!vpcId || subnetIds.length === 0) return undefined;
+
+  const securityGroupIds = (process.env.PIPELINE_SECURITY_GROUP_IDS || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+
+  return {
+    type: 'subnetIds',
+    options: {
+      vpcId,
+      subnetIds,
+      ...(securityGroupIds.length > 0 && { securityGroupIds }),
+    },
+  };
+}
+
+/**
  * Resolve a NetworkConfig into CDK props for CodeBuildStep or codeBuildDefaults.
  * Uses discriminated union narrowing to delegate to the appropriate CDK lookups.
  *

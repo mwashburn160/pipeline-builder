@@ -247,7 +247,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:3.4.74'
+    image: 'ghcr.io/mwashburn160/frontend:3.4.75'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -408,7 +408,9 @@ services:
   # buildkitd layer.
   # ---------------------------------------------------------------------------
   buildkitd:
-    image: 'moby/buildkit:v0.16.0-rootless'
+    # v0.30.0 (was v0.16.0): newer runc reaper avoids the hot
+    # "container not running" retry loop on killed build containers.
+    image: 'moby/buildkit:v0.30.0-rootless'
     container_name: buildkitd
     restart: always
     stop_grace_period: 5s

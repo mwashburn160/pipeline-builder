@@ -14,6 +14,10 @@ import { getComputeType } from '../core/pipeline-helpers';
  * Environment variables:
  * - `IMAGE_REGISTRY_HOST` — Registry hostname (default: `'registry'`)
  * - `IMAGE_REGISTRY_PORT` — Registry port (default: `5000`)
+ * - `IMAGE_REGISTRY_PULL_HOST` — Host an out-of-cluster client (CodeBuild)
+ *   uses to pull plugin images (default: `IMAGE_REGISTRY_HOST`).
+ * - `IMAGE_REGISTRY_PULL_PORT` — Port for the above (default:
+ *   `IMAGE_REGISTRY_PORT`).
  * - `DOCKER_NETWORK` — Docker network for build/push (default: `''`)
  * - `IMAGE_REGISTRY_HTTP` — Use plain HTTP instead of HTTPS (default: `true`,
  *   the in-cluster registry has no TLS).
@@ -21,9 +25,14 @@ import { getComputeType } from '../core/pipeline-helpers';
  * @returns Registry configuration
  */
 export function loadRegistryConfig(): RegistryConfig {
+  const host = process.env.IMAGE_REGISTRY_HOST || 'registry';
+  const port = parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10);
   return {
-    host: process.env.IMAGE_REGISTRY_HOST || 'registry',
-    port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10),
+    host,
+    port,
+    // Fall back to the in-cluster host/port when no external pull host is set.
+    pullHost: process.env.IMAGE_REGISTRY_PULL_HOST || host,
+    pullPort: parseInt(process.env.IMAGE_REGISTRY_PULL_PORT || String(port), 10),
     network: process.env.DOCKER_NETWORK || '',
     http: process.env.IMAGE_REGISTRY_HTTP !== 'false',
   };

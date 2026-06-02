@@ -79,7 +79,10 @@ spec:
         # in initContainers). Replaces the previous privileged dind container —
         # no SYS_ADMIN, no privileged mode, no CA-trust shell wrapper.
         - name: buildkitd
-          image: moby/buildkit:v0.16.0-rootless
+          # v0.30.0 (was v0.16.0): newer runc reaper avoids the hot
+          # "container not running" retry loop that zombified the pod when a
+          # build container was killed mid-flight.
+          image: moby/buildkit:v0.30.0-rootless
           restartPolicy: Always
           args:
             - --addr

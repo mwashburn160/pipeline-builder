@@ -80,7 +80,10 @@ spec:
         # no SYS_ADMIN, no privileged mode, no CA-trust shell wrapper. buildkitd
         # uses the system CA bundle baked into moby/buildkit:rootless directly.
         - name: buildkitd
-          image: moby/buildkit:v0.16.0-rootless
+          # v0.30.0 (was v0.16.0): newer runc reaper no longer wedges in a hot
+          # "container not running" retry loop when a build container is killed
+          # mid-flight, which previously zombified the pod (Init:ContainerStatusUnknown).
+          image: moby/buildkit:v0.30.0-rootless
           restartPolicy: Always
           args:
             - --addr

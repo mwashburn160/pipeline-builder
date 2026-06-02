@@ -54,6 +54,7 @@ for cfg in \
   "$DEPLOY_DIR/nginx/nginx-fargate.conf" \
   "$DEPLOY_DIR/nginx/jwt.js" \
   "$DEPLOY_DIR/nginx/metrics.js" \
+  "$DEPLOY_DIR/nginx/registry-auth.js" \
   "$DEPLOY_DIR/config/prometheus/prometheus.yml" \
   "$DEPLOY_DIR/config/loki/loki-config.yml" \
   "$DEPLOY_DIR/config/fluent-bit/fluent-bit.conf" \
@@ -134,7 +135,14 @@ deploy_stack() {
 # -----------------------------------------------------------------------
 # Step 3: Deploy foundation stack
 # -----------------------------------------------------------------------
-FOUNDATION_PARAMS=("StackPrefix=${STACK_PREFIX}")
+# Deployment posture: public (internet-facing ALB; CodeBuild over internet) or
+# internal (inside-AWS-only: internal-scheme ALB in private subnets +
+# VPC-attached CodeBuild). Set DEPLOY_MODE=internal in the env to flip it.
+# internal mode REQUIRES an ACM-ISSUED (publicly trusted) cert (CERTIFICATE_ARN)
+# + a Route53 private zone for the domain → the internal ALB.
+DEPLOY_MODE="${DEPLOY_MODE:-public}"
+DEPLOY_MODE_PARAM=("DeployMode=${DEPLOY_MODE}")
+FOUNDATION_PARAMS=("StackPrefix=${STACK_PREFIX}" "${DEPLOY_MODE_PARAM[@]}")
 [ -n "$CERTIFICATE_ARN" ] && FOUNDATION_PARAMS+=("CertificateArn=${CERTIFICATE_ARN}")
 deploy_stack "foundation" "$STACKS_DIR/01-foundation.yaml" "${FOUNDATION_PARAMS[@]}"
 
@@ -151,6 +159,7 @@ CONFIG_BUCKET=$(aws cloudformation describe-stacks \
 aws s3 cp "$DEPLOY_DIR/nginx/nginx-fargate.conf" "s3://${CONFIG_BUCKET}/nginx/nginx.conf" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/nginx/jwt.js" "s3://${CONFIG_BUCKET}/nginx/jwt.js" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/nginx/metrics.js" "s3://${CONFIG_BUCKET}/nginx/metrics.js" --region "$REGION"
+aws s3 cp "$DEPLOY_DIR/nginx/registry-auth.js" "s3://${CONFIG_BUCKET}/nginx/registry-auth.js" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/config/prometheus/prometheus.yml" "s3://${CONFIG_BUCKET}/prometheus/prometheus.yml" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/config/loki/loki-config.yml" "s3://${CONFIG_BUCKET}/loki/loki-config.yml" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/config/fluent-bit/fluent-bit.conf" "s3://${CONFIG_BUCKET}/fluent-bit/fluent-bit.conf" --region "$REGION"
@@ -177,13 +186,33 @@ else
   PLATFORM_BASE_URL="http://${BASE_HOST}"
 fi
 
+# Internal mode: provision the inside-AWS-only prerequisites (VPC interface
+# endpoints + Route53 private zone + ALB 443 ingress from the VPC) so the
+# VPC-attached CodeBuild projects can reach AWS APIs and pull plugin images
+# from the internal ALB. Reads the foundation outputs added for this purpose.
+if [ "$DEPLOY_MODE" = "internal" ]; then
+  fout() { aws cloudformation describe-stacks --stack-name "${STACK_PREFIX}-foundation" \
+    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text --region "$REGION"; }
+  SHARED_DIR="$(cd "$DEPLOY_DIR/.." && pwd)"
+  deploy_stack "internal-prereqs" "$SHARED_DIR/internal-prereqs.yaml" \
+    "StackPrefix=${STACK_PREFIX}" \
+    "VpcId=$(fout VpcId)" \
+    "VpcCidr=$(fout VpcCidr)" \
+    "SubnetIds=$(fout PrivateSubnet1Id),$(fout PrivateSubnet2Id)" \
+    "DomainName=${BASE_HOST}" \
+    "GatewaySecurityGroupId=$(fout ALBSecurityGroupId)" \
+    "GatewayType=alb" \
+    "AlbDnsName=$(fout ALBDnsName)" \
+    "AlbCanonicalHostedZoneId=$(fout AlbCanonicalHostedZoneId)"
+fi
+
 COMMON_PARAMS=("StackPrefix=${STACK_PREFIX}" "DomainName=${BASE_HOST}")
 SECRETS_PARAMS=("AppSecretsName=${APP_SECRETS_NAME}" "GhcrAuthSecretName=${GHCR_AUTH_SECRET_NAME}")
 PLATFORM_URL_PARAM=("PlatformBaseUrl=${PLATFORM_BASE_URL}")
 
 deploy_stack "cluster" "$STACKS_DIR/02-cluster.yaml" "${COMMON_PARAMS[@]}"
 deploy_stack "databases" "$STACKS_DIR/03-databases.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
-deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}"
+deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}" "${DEPLOY_MODE_PARAM[@]}"
 deploy_stack "observability" "$STACKS_DIR/05-observability.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
 deploy_stack "admin" "$STACKS_DIR/06-admin.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}"
 

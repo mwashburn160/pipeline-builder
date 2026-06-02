@@ -5,6 +5,25 @@
 # Generates a self-signed TLS certificate and imports it into ACM.
 # Reuses an existing certificate if it has >30 days validity remaining.
 #
+# ⚠️  SELF-SIGNED IS FOR DEMOS / BROWSER-ACCEPT ONLY. It is NOT publicly
+#     trusted, so it does NOT work for the out-of-cluster plugin-image pull
+#     path: AWS CodeBuild pulls plugin images from the ALB gateway
+#     (https://<domain>/v2/...) and verifies the cert against the public trust
+#     store BEFORE your build runs — a self-signed cert fails with
+#     "x509: certificate signed by unknown authority" and there's no way to
+#     inject a custom CA for that pull.
+#
+#     If your pipelines use plugin images (CodeBuildStep), DO NOT use this
+#     script's self-signed cert. Instead, for a domain you control:
+#       1. aws acm request-certificate --domain-name <domain> \
+#            --validation-method DNS
+#       2. Create the CNAME validation record in Route53 and wait for ISSUED.
+#       3. Pass that cert's ARN as CertificateArn to the deploy (foundation
+#          stack), and point <domain> (Route53 alias) at the ALB.
+#     An ACM-ISSUED (DNS-validated) cert is publicly trusted, so CodeBuild
+#     pulls succeed. This script's self-signed import is the equivalent of the
+#     EC2 deployment's self-signed fallback (vs. its Let's Encrypt path).
+#
 # Usage:
 #   bash bin/init-cert.sh --domain pipeline.example.com [--region us-east-1]
 #
@@ -79,6 +98,10 @@ if [ -n "$EXISTING_ARN" ] && [ "$EXISTING_ARN" != "None" ]; then
 fi
 
 # Generate self-signed cert
+echo "  ⚠ Generating a SELF-SIGNED cert — fine for browser/demo use, but NOT" >&2
+echo "    publicly trusted. AWS CodeBuild plugin-image pulls (https://<domain>/v2/)" >&2
+echo "    will fail TLS against it. For pipelines using plugin images, use an" >&2
+echo "    ACM-ISSUED (DNS-validated) cert for your domain instead — see header." >&2
 CERT_DIR="$(mktemp -d)"
 [ -n "$CERT_DIR" ] && [ -d "$CERT_DIR" ] || { echo "ERROR: failed to create temp directory" >&2; exit 1; }
 trap 'rm -rf "$CERT_DIR"' EXIT
