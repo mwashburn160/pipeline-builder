@@ -17,7 +17,7 @@
 
 ## At a Glance
 
-| 125 | 5 | 4 | 12 | 17 |
+| 125 | 5 | 4 | 12 | 18 |
 |:---:|:-:|:-:|:--:|:--:|
 | **plugins** ready to use | **interfaces** to create pipelines | **deploy targets** from laptop to Fargate | **AI models** for pipeline generation | **compliance operators** for guardrails |
 
@@ -123,7 +123,7 @@ Fully backward-compatible: pipelines and plugins without `{{ ... }}` continue wo
 
 Validate plugins and pipelines **before** they're created — not in a quarterly audit. Platform owners define policy at the organization level; every sub-organization / team inherits enforcement automatically.
 
-- **17 operators** — equals, contains, regex, numeric comparison, value-in-set, field presence, array count, string length — plus computed fields (`$count`, `$length`, `$keys`, `$lines`) and cross-field conditions
+- **18 operators** — equals, contains, regex, numeric comparison, value-in-set, field presence, not-empty, array count, string length — plus computed fields (`$count`, `$length`, `$keys`, `$lines`) and cross-field conditions
 - **Three severities** — `warning` (advisory), `error` / `critical` (block creation with HTTP 403)
 - **Published rule catalog** — the platform organization publishes recommended rules; teams (sub-organizations) subscribe and opt-in per rule
 - **Per-entity exemptions** — temporarily bypass a subscribed rule for a specific pipeline or plugin with audit
@@ -255,7 +255,7 @@ Open **https://localhost:8443** — register, create an org, and start building 
 |----------|-------------|
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
-| [Metadata Keys](docs/metadata-keys.md) | 56 CodePipeline/CodeBuild configuration keys |
+| [Metadata Keys](docs/metadata-keys.md) | 83 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](docs/templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
 | [Plugin Catalog](docs/plugins/README.md) | 125 pre-built plugins across 10 categories |
 

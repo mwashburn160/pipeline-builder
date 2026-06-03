@@ -57,7 +57,7 @@ The compliance engine validates every pipeline and plugin before creation — no
 
 **How it works:**
 - Platform teams define rules: "all pipelines must include a security scan stage," "plugins must not use privileged containers," "pipeline timeout must not exceed 60 minutes"
-- Rules evaluate against 17 operators (equality, contains, regex, numeric comparison, set membership, existence checks, array/string length)
+- Rules evaluate against 18 operators (equality, contains, regex, numeric comparison, set membership, existence checks, not-empty, array/string length)
 - Rules can combine multiple conditions (`all`/`any` mode), and specific plugins or pipelines can be granted scoped exemptions with an audit trail
 - Violations at `error` or `critical` severity **block creation** (HTTP 403)
 - Violations at `warning` severity log and allow
