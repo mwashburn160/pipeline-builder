@@ -102,7 +102,7 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 | `InstanceType` | No | `t3.2xlarge` | EC2 instance type (8 vCPU / 32 GiB; full stack fits with the default ResourceQuota) |
 | `GhcrUser` | No | `mwashburn160` | GitHub username for GHCR |
 | `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |
-| `DataVolumeSize` | No | `200` | Data volume size in GiB (Docker, plugins, registry, databases). Increase to 500 for prebuilt. |
+| `DataVolumeSize` | No | `500` | Data volume size in GiB (`/opt/pipeline`, gp3 encrypted) — Docker, plugins, registry, databases. Lower to ~200 for slim/`build_image` deploys. |
 | `GitRepo` | No | *(this repo)* | Git repository URL |
 | `GitBranch` | No | `main` | Branch to deploy |
 
@@ -113,7 +113,7 @@ The EC2 deployment uses two EBS volumes:
 | Volume | Default | Mount | Contents |
 |--------|---------|-------|----------|
 | **Root** | 60 GiB | `/` | OS, Docker/minikube binaries, app code |
-| **Data** | 200 GiB | `/mnt/data` | Docker layers, plugin artifacts, registry, databases, logs |
+| **Data** | 500 GiB | `/opt/pipeline` | Docker layers, plugin artifacts, registry, databases, logs |
 
 Data volume breakdown:
 
@@ -164,14 +164,14 @@ watch -n5 "aws ec2 describe-volumes-modifications --volume-ids $VOL_ID \
 # Wait until it shows "optimizing" or "completed"
 
 # 4. Grow the partition and filesystem (on the EC2 instance)
-DEVICE=$(lsblk -no PKNAME $(findmnt -n -o SOURCE /mnt/data))
-PART=$(lsblk -no PARTNUM $(findmnt -n -o SOURCE /mnt/data) 2>/dev/null)
+DEVICE=$(lsblk -no PKNAME $(findmnt -n -o SOURCE /opt/pipeline))
+PART=$(lsblk -no PARTNUM $(findmnt -n -o SOURCE /opt/pipeline) 2>/dev/null)
 [ -n "$PART" ] && sudo growpart /dev/$DEVICE $PART
-sudo xfs_growfs /mnt/data    # XFS filesystem
-# or: sudo resize2fs $(findmnt -n -o SOURCE /mnt/data)   # ext4 filesystem
+sudo xfs_growfs /opt/pipeline    # XFS filesystem
+# or: sudo resize2fs $(findmnt -n -o SOURCE /opt/pipeline)   # ext4 filesystem
 
 # 5. Verify
-df -h /mnt/data
+df -h /opt/pipeline
 ```
 
 Deploy with a larger data volume upfront:
@@ -212,7 +212,8 @@ The ALB target reports **unhealthy (503)** until the instance finishes bootstrap
 
 ### Scripts
 
-All in `deploy/aws/ec2/bin/`. On the instance: `/opt/pipeline-builder/deploy/aws/ec2/bin/`.
+All in `deploy/aws/ec2/bin/`. On the instance the repo is checked out under the
+data volume, so the scripts live at `/opt/pipeline/pipeline-builder/deploy/aws/ec2/bin/`.
 
 | Script | Purpose | Run as |
 |--------|---------|--------|
@@ -221,12 +222,16 @@ All in `deploy/aws/ec2/bin/`. On the instance: `/opt/pipeline-builder/deploy/aws
 | `startup.sh` | Start Minikube + deploy K8s manifests + the ALB-target iptables bridge | root (sudo) |
 | `shutdown.sh` | Stop Minikube + remove iptables rules | root (sudo) |
 
+The instance has **no public IP / no SSH** — connect with SSM Session Manager first:
+
 ```bash
+aws ssm start-session --target <instance-id>   # then, on the instance:
+
 # Start (after bootstrap or reboot)
-sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/startup.sh
+sudo bash /opt/pipeline/pipeline-builder/deploy/aws/ec2/bin/startup.sh
 
 # Stop
-sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh
+sudo bash /opt/pipeline/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh
 
 # Check pod status
 sudo -u minikube kubectl get pods -n pipeline-builder
@@ -517,8 +522,8 @@ PLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2
 ./deploy/bin/load-plugins.sh --rebuild --cleanup
 
 # EC2 with sudo (required for minikube user context)
-sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline-builder/deploy/bin/init-platform.sh ec2
-sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline-builder/deploy/bin/init-platform.sh --cleanup ec2
+sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2
+sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh --cleanup ec2
 ```
 
 `init-platform.sh` does: health check → register admin → login → select build strategy → load plugins → load pipelines.

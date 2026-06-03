@@ -41,6 +41,20 @@ describe('MetadataKeys', () => {
     expect(MetadataKeys.ROLE_ARN).toBe('aws:cdk:iam:role:rolearn');
   });
 
+  it('should have correct operations and encryption keys', () => {
+    expect(MetadataKeys.ARTIFACT_RETENTION_DAYS).toBe('aws:cdk:operations:artifactretentiondays');
+    expect(MetadataKeys.PIPELINE_VARIABLES).toBe('aws:cdk:operations:variables');
+    expect(MetadataKeys.KMS_KEY_ARN).toBe('aws:cdk:encryption:kmskeyarn');
+  });
+
+  it('should not expose the removed build.* aliases', () => {
+    expect('BUILD_PARALLEL' in MetadataKeys).toBe(false);
+    expect('BUILD_CACHE' in MetadataKeys).toBe(false);
+    expect('BUILD_TIMEOUT' in MetadataKeys).toBe(false);
+    const values = Object.values(MetadataKeys) as string[];
+    expect(values.some(v => v.startsWith('aws:cdk:build:'))).toBe(false);
+  });
+
   it('should all be lowercase except for the object keys', () => {
     for (const [, value] of Object.entries(MetadataKeys)) {
       // MetadataKeys values should be lowercase (aws:cdk:... format)

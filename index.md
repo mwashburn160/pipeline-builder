@@ -140,7 +140,7 @@ See [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) for
 | [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints for pipelines, plugins, compliance, reporting, and AI |
 | [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine with 18 operators, computed fields, audit trail |
-| [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | 83 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
+| [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time interpolation for pipeline configs and plugin specs |
 | [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | EC2 and Fargate deployment, post-deploy setup |
 | [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}) | 125 pre-built plugins across 10 categories |

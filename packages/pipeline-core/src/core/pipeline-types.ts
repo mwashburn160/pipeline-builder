@@ -139,16 +139,13 @@ export const MetadataKeys = {
   NOTIFICATION_TOPIC_ARN: 'aws:cdk:notifications:topic:arn',
   NOTIFICATION_EVENTS: 'aws:cdk:notifications:events',
 
-  // ── Custom build keys (namespace: build — not wired into NAMESPACE_KEY_MAP) ──
-  BUILD_PARALLEL: 'aws:cdk:build:parallel',
-  BUILD_CACHE: 'aws:cdk:build:cache',
-  BUILD_TIMEOUT: 'aws:cdk:build:timeout',
-
-  // ── Pipeline operations ──
+  // ── Pipeline operations (namespace: operations — custom synth in PipelineBuilder) ──
   ENABLE_EXECUTION_EVENTS: 'aws:cdk:operations:executionevents',
   ENABLE_METRICS: 'aws:cdk:operations:metrics',
   ARTIFACT_RETENTION_DAYS: 'aws:cdk:operations:artifactretentiondays',
   PIPELINE_VARIABLES: 'aws:cdk:operations:variables',
+
+  // ── Encryption (namespace: encryption — custom synth in PipelineBuilder) ──
   KMS_KEY_ARN: 'aws:cdk:encryption:kmskeyarn',
 } as const;
 

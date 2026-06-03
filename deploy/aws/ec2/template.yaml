@@ -77,13 +77,14 @@ Parameters:
 
   DataVolumeSize:
     Type: Number
-    Default: 200
+    Default: 500
     MinValue: 50
     MaxValue: 1000
     Description: >
       Dedicated data EBS volume size in GiB (gp3, encrypted).
       Stores databases, container registry, Docker build cache, and plugin artifacts.
-      200 GiB recommended for 125+ plugins.
+      500 GiB default comfortably fits 125+ plugins with prebuilt images; lower it
+      (e.g. 200) for slimmer deploys.
 
   GitRepo:
     Type: String

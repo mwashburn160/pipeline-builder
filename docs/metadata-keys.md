@@ -4,13 +4,19 @@ Strongly-typed configuration keys for customizing CodePipeline and CodeBuild res
 
 Metadata keys let you override default behavior at three levels: **pipeline-wide** (via `global`), **per-stage**, or **per-step** (via `metadata` on individual plugin references).
 
+Every key is consumed by one of three mechanisms — see [How keys are consumed](#how-keys-are-consumed). Each section below states which mechanism applies:
+
+- **Construct prop** — passed straight to a CDK construct via `NAMESPACE_KEY_MAP`.
+- **Typed config** — parsed into a discriminated-union config (network / IAM role / security group) and resolved by the builder.
+- **Custom synth** — read directly in `PipelineBuilder` to create or configure resources (notifications, operations, encryption).
+
 **Related docs:** [Samples](samples.md) | [Plugin Catalog](plugins/README.md) | [API Reference](api-reference.md)
 
 ---
 
 ## CodePipeline Configuration
 
-Control pipeline-level behavior and defaults.
+Control pipeline-level behavior and defaults. **Wiring:** Construct prop — passed to `CodePipelineProps` via `metadataForCodePipeline()`.
 
 | MetadataKeys constant | String value |
 |----|-----|
@@ -40,7 +46,7 @@ Control pipeline-level behavior and defaults.
 
 ## CodeBuild Step Configuration
 
-Customize individual build steps within a pipeline stage.
+Customize individual build steps within a pipeline stage. **Wiring:** Construct prop — passed to `CodeBuildStepProps` via `metadataForCodeBuildStep()`. `CACHE` and `TIMEOUT` are the canonical caching/timeout keys (they replace the removed `build.cache` / `build.timeout` aliases).
 
 | MetadataKeys constant | String value |
 |----|-----|
@@ -64,7 +70,7 @@ Customize individual build steps within a pipeline stage.
 
 ## Shell Step Configuration
 
-Override ShellStep behavior (synth, install commands).
+Override ShellStep behavior (synth, install commands). **Wiring:** Construct prop — passed to `ShellStepProps` via `metadataForShellStep()`.
 
 | MetadataKeys constant | String value |
 |----|-----|
@@ -78,7 +84,7 @@ Override ShellStep behavior (synth, install commands).
 
 ## Build Environment
 
-Configure the CodeBuild build environment (compute, images, Docker).
+Configure the CodeBuild build environment (compute, images, Docker). **Wiring:** Construct prop — passed to `BuildEnvironment` via `metadataForBuildEnvironment()`.
 
 | MetadataKeys constant | String value |
 |----|-----|
@@ -92,7 +98,7 @@ Configure the CodeBuild build environment (compute, images, Docker).
 
 ## Network Configuration
 
-Place builds inside a VPC for accessing private resources (databases, internal APIs).
+Place builds inside a VPC for accessing private resources (databases, internal APIs). **Wiring:** Typed config — parsed by `networkConfigFromMetadata()` into a `NetworkConfig` and resolved via `resolveNetwork()`. Precedence: explicit `prop` > metadata > environment.
 
 | MetadataKeys constant | String value |
 |----|-----|
@@ -111,7 +117,7 @@ Place builds inside a VPC for accessing private resources (databases, internal A
 
 ## IAM Role Configuration
 
-Import existing IAM roles for pipeline and build steps.
+Import existing IAM roles for pipeline and build steps. **Wiring:** Typed config — parsed by `roleConfigFromMetadata()` into a `RoleConfig` and resolved via `resolveRole()`. The four keys express `roleArn` / `roleName` / `codeBuildDefault`; the full `oidc` variant requires the typed `BuilderProps.role` prop.
 
 | MetadataKeys constant | String value |
 |----|-----|
@@ -122,7 +128,7 @@ Import existing IAM roles for pipeline and build steps.
 
 ## Security Group Configuration
 
-Attach security groups to build containers in VPC deployments.
+Attach security groups to build containers in VPC deployments. **Wiring:** Typed config — parsed by `securityGroupConfigFromMetadata()` into a `SecurityGroupConfig` and resolved via `resolveSecurityGroup()`.
 
 | MetadataKeys constant | String value |
 |----|-----|
@@ -134,41 +140,33 @@ Attach security groups to build containers in VPC deployments.
 
 ## Notification Configuration
 
-Configure pipeline event notifications via SNS.
+Configure pipeline event notifications via SNS. **Wiring:** Custom synth — when `NOTIFICATION_TOPIC_ARN` is set, `PipelineBuilder` calls `pipeline.notifyOn()` with the parsed `NOTIFICATION_EVENTS` (default `FAILED,SUCCEEDED`).
 
-| MetadataKeys constant | String value |
-|----|-----|
-| `NOTIFICATION_TOPIC_ARN` | `aws:cdk:notifications:topic:arn` |
-| `NOTIFICATION_EVENTS` | `aws:cdk:notifications:events` |
+| MetadataKeys constant | String value | Effect |
+|----|-----|-----|
+| `NOTIFICATION_TOPIC_ARN` | `aws:cdk:notifications:topic:arn` | SNS topic to notify on pipeline events |
+| `NOTIFICATION_EVENTS` | `aws:cdk:notifications:events` | Comma list: `FAILED`, `SUCCEEDED`, `STARTED`, `CANCELED`, `SUPERSEDED` |
 
 ## Pipeline Operations
 
-Operational settings for execution tracking, metrics, artifact retention, and pipeline variables.
+Operational settings for execution tracking, metrics, artifact retention, and pipeline variables. **Wiring:** Custom synth — read directly in `PipelineBuilder`.
 
-| MetadataKeys constant | String value |
-|----|-----|
-| `ENABLE_EXECUTION_EVENTS` | `aws:cdk:operations:executionevents` |
-| `ENABLE_METRICS` | `aws:cdk:operations:metrics` |
-| `ARTIFACT_RETENTION_DAYS` | `aws:cdk:operations:artifactretentiondays` |
-| `PIPELINE_VARIABLES` | `aws:cdk:operations:variables` |
+| MetadataKeys constant | String value | Effect |
+|----|-----|-----|
+| `ENABLE_EXECUTION_EVENTS` | `aws:cdk:operations:executionevents` | Forwards pipeline execution state changes to the notification SNS topic (EventBridge rule). Requires `NOTIFICATION_TOPIC_ARN`. |
+| `ENABLE_METRICS` | `aws:cdk:operations:metrics` | Creates a CloudWatch alarm on `FailedPipelineExecutionCount`. |
+| `ARTIFACT_RETENTION_DAYS` | `aws:cdk:operations:artifactretentiondays` | Adds an S3 lifecycle expiration rule to a custom artifact bucket. |
+| `PIPELINE_VARIABLES` | `aws:cdk:operations:variables` | Declares CodePipeline V2 pipeline-level variables. JSON array (`[{"name":"ENV","default":"prod","description":"..."}]`) or compact `name=default` comma list. |
 
 ## Encryption
 
-Control KMS encryption for pipeline artifacts and resources.
+Control KMS encryption for pipeline artifacts. **Wiring:** Custom synth — read directly in `PipelineBuilder`.
 
-| MetadataKeys constant | String value |
-|----|-----|
-| `KMS_KEY_ARN` | `aws:cdk:encryption:kmskeyarn` |
+| MetadataKeys constant | String value | Effect |
+|----|-----|-----|
+| `KMS_KEY_ARN` | `aws:cdk:encryption:kmskeyarn` | Attaches a customer-managed KMS key to a custom artifact bucket (`BucketEncryption.KMS`). |
 
-## Custom Build Keys
-
-Convenience keys for common build settings.
-
-| MetadataKeys constant | String value |
-|----|-----|
-| `BUILD_PARALLEL` | `aws:cdk:build:parallel` |
-| `BUILD_CACHE` | `aws:cdk:build:cache` |
-| `BUILD_TIMEOUT` | `aws:cdk:build:timeout` |
+> **Note:** `ARTIFACT_RETENTION_DAYS` and/or `KMS_KEY_ARN` cause `PipelineBuilder` to create a dedicated artifact bucket (`enforceSSL`, public access blocked, `RemovalPolicy.DESTROY` + `autoDeleteObjects`) and pass it as `CodePipelineProps.artifactBucket`. With neither key set, CDK auto-creates the default artifact bucket.
 
 ---
 
@@ -181,6 +179,18 @@ Metadata keys can be applied at different scopes. More specific scopes override 
 | **Global** | `BuilderProps.global` | All steps in the pipeline |
 | **Stage** | Stage-level `metadata` | All steps in that stage |
 | **Step** | Step-level `metadata` | That specific build step only |
+
+---
+
+## How keys are consumed
+
+Keys are merged (global → stage → step) into a single metadata map, then routed by one of three mechanisms:
+
+1. **Construct prop (`NAMESPACE_KEY_MAP`)** — keys under `pipelines:codepipeline`, `pipelines:codebuildstep`, `pipelines:shellstep`, and `codebuild:buildenvironment` are extracted by `buildConfigFromMetadata()` (`metadata-builder.ts`) and spread directly into the matching CDK construct props (`metadataForCodePipeline` / `metadataForCodeBuildStep` / `metadataForShellStep` / `metadataForBuildEnvironment`). Boolean keys are coerced from `"true"`/`"false"`.
+
+2. **Typed config extractors** — `ec2:network`, `iam:role`, and `ec2:securitygroup` keys are parsed into discriminated-union configs by `networkConfigFromMetadata()`, `roleConfigFromMetadata()`, and `securityGroupConfigFromMetadata()`, then materialized by `resolveNetwork()` / `resolveRole()` / `resolveSecurityGroup()`. These follow `prop > metadata > env` precedence — an explicit `BuilderProps` value wins, then metadata, then environment defaults.
+
+3. **Custom synth** — `notifications:*`, `operations:*`, and `encryption:*` keys are read directly in `PipelineBuilder` to create resources (SNS `notifyOn`, EventBridge rules, CloudWatch alarms, a custom KMS-encrypted artifact bucket with a retention lifecycle, and CodePipeline V2 variables).
 
 ---
 

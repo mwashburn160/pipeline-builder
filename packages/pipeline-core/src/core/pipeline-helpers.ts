@@ -9,7 +9,7 @@ import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { CodeBuildStep, ManualApprovalStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import type { Construct } from 'constructs';
 import type { ArtifactKey } from './artifact-manager';
-import { metadataForShellStep, metadataForCodeBuildStep, metadataForBuildEnvironment } from './metadata-builder';
+import { metadataForShellStep, metadataForCodeBuildStep, metadataForBuildEnvironment, networkConfigFromMetadata } from './metadata-builder';
 import { resolveNetwork } from './network';
 import { PluginType, ComputeType, MetaDataType, CDK_METADATA_PREFIX } from './pipeline-types';
 import { Config, CoreConstants } from '../config/app-config';
@@ -484,8 +484,10 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     plugin.computeType ?? options.defaultComputeType ?? 'SMALL',
   );
 
-  const networkProps = network
-    ? resolveNetwork(scope, options.uniqueId, network)
+  // Step network: explicit step config wins, else this step's `ec2:network` metadata.
+  const resolvedNetwork = network ?? networkConfigFromMetadata(merged);
+  const networkProps = resolvedNetwork
+    ? resolveNetwork(scope, options.uniqueId, resolvedNetwork)
     : {};
 
   // Metadata spread last so it can override programmatic defaults.

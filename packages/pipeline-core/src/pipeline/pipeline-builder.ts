@@ -3,12 +3,13 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
-import { Duration, Tags } from 'aws-cdk-lib';
+import { Duration, RemovalPolicy, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
-import { PipelineNotificationEvents, PipelineType } from 'aws-cdk-lib/aws-codepipeline';
+import { PipelineNotificationEvents, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as kms from 'aws-cdk-lib/aws-kms';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { CodePipeline, type CodeBuildOptions } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
@@ -20,7 +21,14 @@ import type { StageOptions, SynthOptions } from './step-types';
 import { Config, CoreConstants } from '../config/app-config';
 import { ArtifactManager } from '../core/artifact-manager';
 import { UniqueId } from '../core/id-generator';
-import { metadataForCodePipeline } from '../core/metadata-builder';
+import {
+  asInt,
+  metadataForCodePipeline,
+  networkConfigFromMetadata,
+  parsePipelineVariables,
+  roleConfigFromMetadata,
+  securityGroupConfigFromMetadata,
+} from '../core/metadata-builder';
 import { resolveNetwork, networkConfigFromEnv } from '../core/network';
 import type { CodeBuildDefaults } from '../core/network-types';
 import { createCodeBuildStep, resolveDefaultBuildImage } from '../core/pipeline-helpers';
@@ -231,23 +239,33 @@ export class PipelineBuilder extends Construct {
 
     const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl, props.orgId);
 
-    // Resolve IAM role if explicitly provided; otherwise let CDK auto-create
-    // the pipeline role with the correct codepipeline.amazonaws.com principal.
-    if (props.role?.type === 'codeBuildDefault') {
+    // Resolve IAM role: explicit prop wins, else `iam:role` metadata, else let
+    // CDK auto-create the pipeline role (codepipeline.amazonaws.com principal).
+    const roleConfig = props.role ?? roleConfigFromMetadata(this.config.metadata.merged);
+    if (roleConfig?.type === 'codeBuildDefault') {
       createLogger('pipeline-builder').warn(
         'codeBuildDefault role type uses codebuild.amazonaws.com trust principal — ' +
         'this is not suitable as the pipeline-level role. Consider using roleArn/roleName ' +
         'or omitting the role to let CDK auto-create one with codepipeline.amazonaws.com.',
       );
     }
-    const role = props.role
-      ? resolveRole(this, uniqueId, props.role)
+    const role = roleConfig
+      ? resolveRole(this, uniqueId, roleConfig)
       : undefined;
+
+    // ── Artifact bucket (KMS encryption + retention) ──
+    // When `encryption.kmsKeyArn` and/or `operations.artifactRetentionDays` are
+    // set we create a custom artifact bucket and pass it to CodePipeline; that
+    // is the only way to attach a customer-managed key (the L3 construct exposes
+    // `artifactBucket`, not `encryptionKey`). Absent both keys, CDK auto-creates
+    // the bucket and behavior is unchanged.
+    const artifactBucket = this.buildArtifactBucket();
 
     // Create CodePipeline construct
     this.pipeline = new CodePipeline(this, uniqueId.generate('pipelines:codepipeline'), {
       ...(codeBuildDefaults && { codeBuildDefaults }),
       ...(role && { role }),
+      ...(artifactBucket && { artifactBucket }),
       pipelineType: PipelineType.V2,
       pipelineName: this.config.pipelineName,
       synth,
@@ -290,6 +308,15 @@ export class PipelineBuilder extends Construct {
     const cdkPipeline = this.pipeline.pipeline;
     const meta = this.config.metadata.merged;
 
+    // ── Pipeline-level Variables (CodePipeline V2) ──
+    for (const v of parsePipelineVariables(meta[MetadataKeys.PIPELINE_VARIABLES])) {
+      cdkPipeline.addVariable(new Variable({
+        variableName: v.name,
+        ...(v.defaultValue !== undefined && { defaultValue: v.defaultValue }),
+        ...(v.description !== undefined && { description: v.description }),
+      }));
+    }
+
     // ── SNS Notifications ──
     const notificationTopicArn = meta[MetadataKeys.NOTIFICATION_TOPIC_ARN];
     if (typeof notificationTopicArn === 'string') {
@@ -325,13 +352,6 @@ export class PipelineBuilder extends Construct {
       });
     }
 
-    // ── Artifact Encryption (KMS key) ──
-    const kmsKeyArn = this.config.metadata.merged[MetadataKeys.KMS_KEY_ARN];
-    if (typeof kmsKeyArn === 'string') {
-      const key = kms.Key.fromKeyArn(this, 'ArtifactKey', kmsKeyArn);
-      Tags.of(key).add('pipeline', this.config.pipelineName);
-    }
-
     // ── Pipeline Metrics & Alarms ──
     const enableMetrics = this.config.metadata.merged[MetadataKeys.ENABLE_METRICS];
     if (enableMetrics) {
@@ -353,6 +373,39 @@ export class PipelineBuilder extends Construct {
   }
 
   /**
+   * Build a custom artifact bucket when `encryption.kmsKeyArn` and/or
+   * `operations.artifactRetentionDays` are set. Returns undefined otherwise so
+   * CDK auto-creates the default artifact bucket (unchanged behavior).
+   */
+  private buildArtifactBucket(): s3.IBucket | undefined {
+    const meta = this.config.metadata.merged;
+    const kmsKeyArn = typeof meta[MetadataKeys.KMS_KEY_ARN] === 'string'
+      ? (meta[MetadataKeys.KMS_KEY_ARN] as string)
+      : undefined;
+    const retentionDays = asInt(meta[MetadataKeys.ARTIFACT_RETENTION_DAYS]);
+
+    if (!kmsKeyArn && retentionDays === undefined) return undefined;
+
+    const encryptionKey = kmsKeyArn
+      ? kms.Key.fromKeyArn(this, 'ArtifactKey', kmsKeyArn)
+      : undefined;
+
+    const bucket = new s3.Bucket(this, 'ArtifactBucket', {
+      encryption: encryptionKey ? s3.BucketEncryption.KMS : s3.BucketEncryption.S3_MANAGED,
+      ...(encryptionKey && { encryptionKey }),
+      ...(retentionDays !== undefined && {
+        lifecycleRules: [{ expiration: Duration.days(retentionDays) }],
+      }),
+      enforceSSL: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+    Tags.of(bucket).add('pipeline', this.config.pipelineName);
+    return bucket;
+  }
+
+  /**
    * Resolves CodeBuildDefaults into the shape expected by CDK's codeBuildDefaults.
    * Combines network config, security groups, and pipeline-level environment variables
    * (PIPELINE_ID, EXECUTION_ID, PLATFORM_BASE_URL) available to all CodeBuild actions.
@@ -369,13 +422,16 @@ export class PipelineBuilder extends Construct {
     // global VPC (internal / inside-AWS-only mode) so every pipeline's
     // CodeBuild runs in the VPC and can reach the private gateway. Unset in
     // public deploys → CodeBuild stays in the AWS-managed network.
-    const network = defaults?.network ?? networkConfigFromEnv();
+    // Precedence: explicit prop > `ec2:network` metadata > env-driven global VPC.
+    const network = defaults?.network ?? networkConfigFromMetadata(this.config.metadata.merged) ?? networkConfigFromEnv();
     const networkProps = network
       ? resolveNetwork(this, id, network)
       : undefined;
 
-    const standaloneSecurityGroups = defaults?.securityGroups
-      ? resolveSecurityGroup(this, id, defaults.securityGroups)
+    // Same precedence for standalone security groups (prop > `ec2:securitygroup` metadata).
+    const securityGroupConfig = defaults?.securityGroups ?? securityGroupConfigFromMetadata(this.config.metadata.merged);
+    const standaloneSecurityGroups = securityGroupConfig
+      ? resolveSecurityGroup(this, id, securityGroupConfig)
       : undefined;
 
     // Pipeline-level env vars available to all CodeBuild actions

@@ -447,7 +447,7 @@ Metadata controls fine-grained CDK behavior. Set at global, defaults, or step le
 | `network:subnetids` | JSON array of subnet IDs | Subnet placement |
 | `notifications:topic:arn` | SNS topic ARN | Pipeline event notifications |
 
-See [Metadata Keys](metadata-keys.md) for the complete list of 83 keys.
+See [Metadata Keys](metadata-keys.md) for the complete list of 80 keys.
 
 ---
 

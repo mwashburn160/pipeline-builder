@@ -255,7 +255,7 @@ Open **https://localhost:8443** — register, create an org, and start building 
 |----------|-------------|
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
-| [Metadata Keys](docs/metadata-keys.md) | 83 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
+| [Metadata Keys](docs/metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](docs/templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
 | [Plugin Catalog](docs/plugins/README.md) | 125 pre-built plugins across 10 categories |
 

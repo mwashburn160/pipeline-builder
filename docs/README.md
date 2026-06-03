@@ -40,7 +40,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | Document | Description |
 |----------|-------------|
 | [API Reference](api-reference.md) | REST endpoints for pipelines, plugins, compliance, reporting, AI |
-| [Metadata Keys](metadata-keys.md) | 83 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
+| [Metadata Keys](metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
 | [Plugin Catalog](plugins/README.md) | 125 pre-built plugins across 10 categories |
 
@@ -157,8 +157,8 @@ kubectl get pods -n pipeline-builder       # Check
 ### AWS EC2
 
 ```bash
-sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/startup.sh    # Start
-sudo bash /opt/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh   # Stop
+sudo bash /opt/pipeline/pipeline-builder/deploy/aws/ec2/bin/startup.sh    # Start
+sudo bash /opt/pipeline/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh   # Stop
 sudo -u minikube kubectl get pods -n pipeline-builder             # Check
 ```
 
@@ -182,7 +182,7 @@ After starting any target, run `init-platform.sh` to register the admin user and
 ./deploy/bin/init-platform.sh minikube
 
 # EC2 — requires minikube user context
-sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline-builder/deploy/bin/init-platform.sh ec2
+sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2
 
 # Non-interactive with prebuilt images and controlled parallelism
 PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh local
