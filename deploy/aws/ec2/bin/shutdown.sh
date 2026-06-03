@@ -22,7 +22,9 @@ IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p')
 IF="${IF:-eth0}"
 
 if [ -n "$MINIKUBE_IP" ]; then
-  for port_pair in "443:30443" "80:30080"; do
+  # Remove the current ALB-target bridge (30080) plus any legacy 443/80 DNAT
+  # rules from older deploys, so an upgrade-in-place leaves no stale rules.
+  for port_pair in "30080:30080" "443:30443" "80:30080"; do
     EXT="${port_pair%%:*}"; INT="${port_pair##*:}"
     iptables -t nat -D PREROUTING -i "$IF" -p tcp --dport "$EXT" -j DNAT --to-destination "${MINIKUBE_IP}:${INT}" 2>/dev/null || true
     iptables -t nat -D PREROUTING -p tcp --dport "$EXT" -j DNAT --to-destination "${MINIKUBE_IP}:${INT}" 2>/dev/null || true

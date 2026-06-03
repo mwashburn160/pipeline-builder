@@ -14,25 +14,34 @@ Parameters:
     Default: pipeline-builder.local
     Description: Private DNS namespace for Cloud Map service discovery
 
-  CertificateArn:
+  DomainName:
     Type: String
-    Default: ""
-    Description: ACM certificate ARN for HTTPS. When provided, adds an HTTPS listener on port 443.
+    Description: >
+      Fully qualified domain name (e.g., pipeline.example.com). REQUIRED — the
+      ALB terminates TLS with an ACM cert issued for this name, and the Route53
+      alias (public) / private zone (private) resolve it to the ALB.
+
+  HostedZoneId:
+    Type: String
+    Description: >
+      Route53 PUBLIC Hosted Zone ID authoritative for DomainName. REQUIRED —
+      used for ACM DNS validation (auto-creates the CNAME) and, in public mode,
+      the alias A-record to the ALB.
 
   DeployMode:
     Type: String
     Default: private
     AllowedValues: [public, private]
     Description: >
-      public = internet-facing ALB in public subnets. private = inside-AWS-only:
-      an internal-scheme ALB in private subnets (reach it via a Route53 private
-      zone), with CodeBuild VPC-attached (see 04-services). Use an ACM-ISSUED
-      cert in private mode so CodeBuild trusts the gateway when pulling plugin
-      images.
+      public = internet-facing ALB in public subnets, resolved by a public
+      Route53 alias. private = inside-AWS-only: an internal-scheme ALB in
+      private subnets, resolved by an in-stack Route53 PRIVATE zone, with
+      CodeBuild VPC-attached (see 04-services). TLS is an ACM cert this stack
+      requests + DNS-validates either way, so CodeBuild trusts the gateway.
 
 Conditions:
-  HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
   IsPrivate: !Equals [!Ref DeployMode, private]
+  IsPublic: !Equals [!Ref DeployMode, public]
 
 Resources:
 
@@ -268,15 +277,12 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: Allow HTTP from anywhere
-        - !If
-          - HasCertificate
-          - IpProtocol: tcp
-            FromPort: 443
-            ToPort: 443
-            CidrIp: 0.0.0.0/0
-            Description: Allow HTTPS from anywhere
-          - !Ref "AWS::NoValue"
+          Description: Allow HTTP from anywhere (redirected to HTTPS)
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS from anywhere
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
@@ -345,22 +351,190 @@ Resources:
       Port: 80
       Protocol: HTTP
       DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref NginxTargetGroup
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            StatusCode: HTTP_301
 
   HTTPSListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
-    Condition: HasCertificate
     Properties:
       LoadBalancerArn: !Ref ALB
       Port: 443
       Protocol: HTTPS
       SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
       Certificates:
-        - CertificateArn: !Ref CertificateArn
+        - CertificateArn: !Ref Certificate
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref NginxTargetGroup
+
+  # ---------------------------------------------------------------------------
+  # ACM certificate (DNS-validated) + Route53 records resolving DomainName to
+  # the ALB. Public mode: a public alias A-record. Private mode: an in-stack
+  # PRIVATE hosted zone alias (so VPC-attached CodeBuild resolves DomainName to
+  # the internal ALB). The cert is publicly trusted either way, so CodeBuild's
+  # plugin-image pulls over https://<domain>/v2/ verify successfully.
+  # ---------------------------------------------------------------------------
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-cert"
+
+  PublicDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: IsPublic
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+        EvaluateTargetHealth: false
+
+  PrivateHostedZone:
+    Type: AWS::Route53::HostedZone
+    Condition: IsPrivate
+    Properties:
+      Name: !Ref DomainName
+      VPCs:
+        - VPCId: !Ref VPC
+          VPCRegion: !Ref "AWS::Region"
+      HostedZoneConfig:
+        Comment: !Sub "${StackPrefix} private-mode zone"
+
+  PrivateDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: IsPrivate
+    Properties:
+      HostedZoneId: !Ref PrivateHostedZone
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+        EvaluateTargetHealth: false
+
+  # ---------------------------------------------------------------------------
+  # Private mode (IsPrivate): VPC interface endpoints — folded in from the
+  # former private-prereqs.yaml. They let VPC-attached CodeBuild reach AWS APIs
+  # over PrivateLink instead of NAT. The private hosted zone + extra 443 ingress
+  # the old stack also created are NOT needed here: Fargate uses the ALB's own
+  # DNS name (an internal-scheme ALB resolves natively in-VPC), and the ALB SG
+  # already admits 443.
+  # ---------------------------------------------------------------------------
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: IsPrivate
+    Properties:
+      GroupDescription: !Sub "${StackPrefix} VPC interface endpoints"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt VPC.CidrBlock
+          Description: HTTPS from within the VPC (CodeBuild -> endpoints)
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-vpce-sg"
+
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.logs"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  KmsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.kms"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  StsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.sts"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  CodeBuildEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.codebuild"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.api"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  S3InterfaceEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
 
   # ---------------------------------------------------------------------------
   # Storage - EFS File System
@@ -729,9 +903,9 @@ Outputs:
     Export:
       Name: !Sub "${StackPrefix}-ALBSecurityGroupId"
 
-  # Inputs for the private-mode prerequisites stack (private-prereqs.yaml)
+  # Inputs for the private-mode VPC endpoints (now in this stack)
   VpcCidr:
-    Description: VPC CIDR (for private-prereqs endpoint + gateway ingress rules)
+    Description: VPC CIDR (informational)
     Value: !GetAtt VPC.CidrBlock
     Export:
       Name: !Sub "${StackPrefix}-VpcCidr"
@@ -750,7 +924,7 @@ Outputs:
 
   # Base URL
   DomainName:
-    Description: ALB DNS name used as application hostname
-    Value: !GetAtt ALB.DNSName
+    Description: Application hostname (the registered domain; resolves to the ALB)
+    Value: !Ref DomainName
     Export:
       Name: !Sub "${StackPrefix}-DomainName"

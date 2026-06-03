@@ -142,7 +142,7 @@ spec:
             # the platform service, which fans out per the org_alert_destinations
             # table.
             - name: PLATFORM_ALERT_WEBHOOK_URL
-              value: "https://nginx:8443/api/observability/alert-webhook"
+              value: "http://nginx:8080/api/observability/alert-webhook"
             - name: ALERT_WEBHOOK_INSTANCE_ID
               valueFrom:
                 secretKeyRef:

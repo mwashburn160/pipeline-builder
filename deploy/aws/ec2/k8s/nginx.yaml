@@ -9,13 +9,10 @@ metadata:
   labels:
     app: nginx
 spec:
+  # HTTP-only NodePort. The ALB terminates TLS and forwards plain HTTP to
+  # 30080 (bridged to this NodePort by the instance's iptables rule). No 8443.
   type: NodePort
   ports:
-    - port: 8443
-      targetPort: 8443
-      nodePort: 30443
-      protocol: TCP
-      name: https
     - port: 8080
       targetPort: 8080
       nodePort: 30080
@@ -48,9 +45,9 @@ spec:
         app.kubernetes.io/component: gateway
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8443"
+        prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
-        prometheus.io/scheme: "https"
+        prometheus.io/scheme: "http"
     spec:
       initContainers:
         # Wait for upstream Service DNS to resolve before starting nginx.
@@ -152,8 +149,6 @@ spec:
             capabilities:
               drop: ["ALL"]
           ports:
-            - containerPort: 8443
-              name: https
             - containerPort: 8080
               name: http
           env:
@@ -174,7 +169,7 @@ spec:
               command:
                 - sh
                 - -c
-                - "curl -sfk https://localhost:8443/health || exit 1"
+                - "curl -sf http://localhost:8080/health || exit 1"
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 10
@@ -184,7 +179,7 @@ spec:
               command:
                 - sh
                 - -c
-                - "curl -sfk https://localhost:8443/health || exit 1"
+                - "curl -sf http://localhost:8080/health || exit 1"
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
@@ -196,9 +191,6 @@ spec:
               readOnly: true
             - name: nginx-njs
               mountPath: /etc/nginx/njs
-              readOnly: true
-            - name: tls-certs
-              mountPath: /etc/nginx/certs
               readOnly: true
             # readOnlyRootFilesystem: true means nginx can't write anywhere
             # under `/` unless we provide an emptyDir. Cache + temp dirs +
@@ -219,9 +211,6 @@ spec:
         - name: nginx-njs
           configMap:
             name: nginx-njs
-        - name: tls-certs
-          secret:
-            secretName: nginx-tls-secret
         - name: nginx-cache
           emptyDir:
             sizeLimit: 256Mi

@@ -2,38 +2,32 @@
 # =============================================================================
 # Pipeline Builder - EC2 Deployment Script
 # =============================================================================
-# Deploys the EC2 base stack (template.yaml) and, in private mode, the shared
-# private-prereqs.yaml stack (VPC interface endpoints + Route53 PRIVATE zone +
-# gateway 443-from-VPC ingress). Mirrors the Fargate bin/deploy.sh so EC2 gets
-# the same one-command experience with private-mode prereqs deployed
-# automatically — no manual "aws cloudformation deploy" follow-up step.
+# Deploys the EC2 stack (template.yaml). In private mode the template itself
+# also creates the inside-AWS-only prerequisites (VPC interface endpoints +
+# Route53 private zone aliasing the domain to the internal ALB), gated on
+# DeployMode=private — there is no separate prereqs stack.
 #
 # Runs from YOUR machine with YOUR credentials (like Fargate's deploy.sh), so
-# the EC2 instance role needs NO CloudFormation permissions to stand these up.
+# the EC2 instance role needs NO CloudFormation permissions.
 #
-# The instance issues its own publicly-trusted Let's Encrypt cert on first boot
-# (bootstrap.sh):
-#   - public   -> HTTP-01 (needs public :80)
-#   - private -> DNS-01 over Route53 (uses the instance role's scoped Route53
-#                 permissions, which template.yaml attaches when
-#                 DeployMode=private)
+# TLS is terminated at the ALB with an ACM cert that the template REQUESTS and
+# DNS-validates against --hosted-zone-id (no certbot / Let's Encrypt on the
+# box). The instance is always PRIVATE; DEPLOY_MODE only flips the ALB scheme
+# (public = internet-facing, private = internal).
 #
 # Usage:
 #   bash bin/deploy.sh --key-pair my-key --domain pipeline.example.com \
 #     --hosted-zone-id Z123 --ghcr-token ghp_xxxx [--region us-east-1]
 #
-# DEPLOY_MODE defaults to private. Pass --deploy-mode public (or DEPLOY_MODE=
-# public) for the internet-facing / IP-only path. private mode REQUIRES
-# --domain + --hosted-zone-id (a PUBLIC Route53 zone you control) so the
-# publicly-trusted DNS-01 cert can be issued.
+# --domain + --hosted-zone-id are REQUIRED in BOTH modes (a PUBLIC Route53 zone
+# you control) — used for ACM DNS validation + the public/private DNS alias.
+# DEPLOY_MODE defaults to private; pass --deploy-mode public for internet-facing.
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"        # deploy/aws/ec2
-SHARED_DIR="$(cd "$DEPLOY_DIR/.." && pwd)"        # deploy/aws
 TEMPLATE="$DEPLOY_DIR/template.yaml"
-PREREQS_TEMPLATE="$SHARED_DIR/private-prereqs.yaml"
 
 # Defaults (env-overridable)
 STACK_NAME="${STACK_NAME:-pipeline-builder}"
@@ -66,7 +60,7 @@ done
 # Validate
 # -----------------------------------------------------------------------
 if [ -z "$KEY_PAIR_NAME" ]; then
-  echo "ERROR: --key-pair is required (an EC2 key pair name in $REGION for SSH access)." >&2
+  echo "ERROR: --key-pair is required (an EC2 key pair in $REGION — serial-console/break-glass; routine access is via SSM)." >&2
   exit 1
 fi
 if [ ! -f "$TEMPLATE" ]; then
@@ -77,17 +71,13 @@ case "$DEPLOY_MODE" in
   public|private) ;;
   *) echo "ERROR: --deploy-mode must be 'public' or 'private' (got '$DEPLOY_MODE')." >&2; exit 1 ;;
 esac
-if [ "$DEPLOY_MODE" = "private" ]; then
-  # private mode needs a publicly-trusted DNS-01 cert, which requires a real
-  # public domain + its Route53 hosted zone you control. Bail early rather than
-  # let the instance silently fall back to a self-signed cert (which CodeBuild
-  # plugin pulls then reject with x509 "unknown authority").
-  if [ -z "$DOMAIN" ] || [ -z "$HOSTED_ZONE_ID" ]; then
-    echo "ERROR: private mode requires --domain and --hosted-zone-id (a PUBLIC" >&2
-    echo "       Route53 zone you control) so the DNS-01 cert can be issued." >&2
-    echo "       Use --deploy-mode public for an IP-only / self-signed deploy." >&2
-    exit 1
-  fi
+# ACM (DNS-validated) terminates TLS at the ALB in BOTH modes, so a real public
+# domain + its Route53 hosted zone are ALWAYS required. Bail early rather than
+# let the ACM cert hang unvalidated.
+if [ -z "$DOMAIN" ] || [ -z "$HOSTED_ZONE_ID" ]; then
+  echo "ERROR: --domain and --hosted-zone-id are required (a PUBLIC Route53 zone" >&2
+  echo "       you control) — used for ACM DNS validation and the DNS alias to the ALB." >&2
+  exit 1
 fi
 if [ -z "$GHCR_TOKEN" ]; then
   echo "WARNING: No --ghcr-token provided. Anonymous ghcr.io pulls are rate-limited (60/hr)."
@@ -100,7 +90,7 @@ echo "========================================"
 echo "  Region:      $REGION"
 echo "  Stack:       $STACK_NAME"
 echo "  Deploy mode: $DEPLOY_MODE"
-echo "  Domain:      ${DOMAIN:-<none — Elastic IP + self-signed>}"
+echo "  Domain:      ${DOMAIN}"
 echo ""
 
 # -----------------------------------------------------------------------
@@ -151,47 +141,15 @@ BASE_PARAMS=(
 [ -n "$INSTANCE_TYPE" ]  && BASE_PARAMS+=("InstanceType=${INSTANCE_TYPE}")
 deploy_stack "$STACK_NAME" "$TEMPLATE" "${BASE_PARAMS[@]}"
 
-# -----------------------------------------------------------------------
-# Step 2: Private mode — auto-deploy the inside-AWS-only prerequisites
-# -----------------------------------------------------------------------
-# Reads the base stack's outputs (added for exactly this purpose) and stands up
-# the VPC interface endpoints + Route53 PRIVATE zone (A -> instance private IP)
-# + gateway 443-from-VPC ingress, with GatewayType=ip. The instance meanwhile
-# issues its DNS-01 cert against the PUBLIC zone during bootstrap — independent
-# of this private zone, so deploying it now is safe.
-if [ "$DEPLOY_MODE" = "private" ]; then
-  # Capture each required output and fail loudly if empty/None — otherwise a
-  # mistyped/renamed output would silently feed "VpcId=" (or "None") into the
-  # prereqs stack and fail deep inside CloudFormation with a confusing error.
-  VPC_ID="$(out VpcId)"
-  VPC_CIDR="$(out VpcCidr)"
-  SUBNET_ID="$(out SubnetId)"
-  SG_ID="$(out SecurityGroupId)"
-  PRIV_IP="$(out InstancePrivateIp)"
-  for _pair in "VpcId:$VPC_ID" "VpcCidr:$VPC_CIDR" "SubnetId:$SUBNET_ID" \
-               "SecurityGroupId:$SG_ID" "InstancePrivateIp:$PRIV_IP"; do
-    if [ -z "${_pair#*:}" ] || [ "${_pair#*:}" = "None" ]; then
-      echo "ERROR: base stack '${STACK_NAME}' output '${_pair%%:*}' is empty/None —" >&2
-      echo "       cannot deploy private-prereqs. Did the base stack finish?" >&2
-      exit 1
-    fi
-  done
-  deploy_stack "${STACK_NAME}-private" "$PREREQS_TEMPLATE" \
-    "StackPrefix=${STACK_NAME}" \
-    "VpcId=${VPC_ID}" \
-    "VpcCidr=${VPC_CIDR}" \
-    "SubnetIds=${SUBNET_ID}" \
-    "DomainName=${DOMAIN}" \
-    "GatewaySecurityGroupId=${SG_ID}" \
-    "GatewayType=ip" \
-    "GatewayPrivateIp=${PRIV_IP}"
-fi
+# Private-mode prerequisites (VPC interface endpoints + Route53 private zone
+# aliasing the domain to the internal ALB) are now created IN the base stack
+# itself, gated on DeployMode=private — there is no separate prereqs stack to
+# deploy. (The ALB's DNS is known in-stack, which is what allowed the merge.)
 
 # -----------------------------------------------------------------------
 # Done
 # -----------------------------------------------------------------------
 APP_URL="$(out ApplicationURL)"
-PRIVATE_IP="$(out InstancePrivateIp)"
 
 echo ""
 echo "========================================"
@@ -200,13 +158,13 @@ echo "========================================"
 echo ""
 echo "  Application:  ${APP_URL}"
 if [ "$DEPLOY_MODE" = "private" ]; then
-echo "  Mode:         private (reach it from inside the VPC via the private zone)"
-echo "  Private IP:   ${PRIVATE_IP}"
-echo "  Prereqs:      ${STACK_NAME}-private (VPC endpoints + private zone + 443-from-VPC)"
+echo "  Mode:         private (internal ALB — reach it from inside the VPC via the private zone)"
+else
+echo "  Mode:         public (internet-facing ALB)"
 fi
 echo ""
-echo "  Bootstrap still runs ON the instance (cert + minikube + services),"
-echo "  asynchronously after the stack completes. Watch it with:"
+echo "  The ALB target stays UNHEALTHY (503) until the instance finishes"
+echo "  bootstrapping minikube + services asynchronously. Watch bootstrap:"
 echo "    aws cloudformation describe-stacks --stack-name ${STACK_NAME} --region ${REGION} \\"
 echo "      --query \"Stacks[0].Outputs[?OutputKey=='BootstrapLog'].OutputValue\" --output text"
 echo ""

@@ -46,10 +46,7 @@ scrape_configs:
     tls_config:
       insecure_skip_verify: true
 
-  # Static targets not auto-discovered by kubernetes-pods
-  - job_name: 'nginx'
-    scheme: https
-    tls_config:
-      insecure_skip_verify: true
-    static_configs:
-      - targets: ['nginx:8443']
+  # nginx is scraped via the kubernetes-pods job (it carries
+  # prometheus.io/scrape annotations on port 8080/http), so no static target
+  # is needed. (The old static https://nginx:8443 job was removed when nginx
+  # moved to plain HTTP behind the ALB.)

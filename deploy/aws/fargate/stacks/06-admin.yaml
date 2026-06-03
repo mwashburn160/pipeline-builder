@@ -14,14 +14,6 @@ Parameters:
     Default: ""
     Description: Application hostname (custom domain or ALB DNS name)
 
-  PlatformBaseUrl:
-    Type: String
-    Default: ""
-    Description: >
-      Public base URL clients use to reach the platform (e.g.
-      "https://example.com"). Used verbatim in the docker registry's bearer
-      challenge — must be resolvable by every docker client that pulls from
-      the registry. Computed by deploy.sh as scheme + DomainName.
 
   AppSecretsName:
     Type: String

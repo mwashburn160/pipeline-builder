@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Pipeline Builder - EC2 deployment with minikube, optional Let's Encrypt SSL,
-  optional Route53 DNS, and hardened security.
+  Pipeline Builder - EC2 deployment: a private minikube instance fronted by an
+  ALB that terminates TLS with an ACM cert (DNS-validated). Hardened security,
+  SSM-only access. DeployMode flips the ALB scheme (public/private).
 
 # =============================================================================
 # Parameters
@@ -9,29 +10,29 @@ Description: >
 Parameters:
   DomainName:
     Type: String
-    Default: ""
     Description: >
-      Fully qualified domain name (e.g., pipeline.example.com).
-      Leave empty to skip DNS and use Elastic IP with self-signed TLS.
+      Fully qualified domain name (e.g., pipeline.example.com). REQUIRED — the
+      ALB terminates TLS with an ACM cert issued for this name, and the Route53
+      alias / private zone resolve to the ALB.
 
   HostedZoneId:
     Type: String
-    Default: ""
     Description: >
-      Route53 Hosted Zone ID for the domain.
-      Required only when DomainName is provided.
+      Route53 PUBLIC Hosted Zone ID authoritative for DomainName. REQUIRED —
+      used for ACM DNS validation (auto-creates the CNAME) and, in public mode,
+      the alias A-record to the ALB.
 
   DeployMode:
     Type: String
     Default: private
     AllowedValues: [public, private]
     Description: >
-      public = HTTP/HTTPS (80/443) open to the internet. private =
-      inside-AWS-only: 80/443 restricted to the VPC CIDR (reach the gateway via
-      a Route53 private zone). In private mode also set DEPLOY_MODE=private in
-      the instance .env (DNS-01 cert + VPC-attached CodeBuild) and deploy
-      deploy/aws/private-prereqs.yaml (GatewayType=ip) using this stack's
-      outputs. See docs/aws-deployment.md.
+      Controls the ALB scheme only — the instance is ALWAYS private (no public
+      IP) in both modes. public = internet-facing ALB in public subnets.
+      private = inside-AWS-only, internal-scheme ALB in private subnets, and the
+      template additionally creates the VPC interface endpoints + a Route53
+      private zone aliasing the domain to the internal ALB (no separate stack).
+      See docs/aws-deployment.md.
 
   InstanceType:
     Type: String
@@ -53,7 +54,9 @@ Parameters:
 
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: EC2 key pair name for SSH access
+    Description: >
+      EC2 key pair — assigned for serial-console / break-glass only. There is
+      no public SSH ingress; routine access is via SSM Session Manager.
 
   GhcrToken:
     Type: String
@@ -64,12 +67,6 @@ Parameters:
     Type: String
     Default: mwashburn160
     Description: GitHub username for GHCR authentication
-
-  SshCidr:
-    Type: String
-    Default: "0.0.0.0/0"
-    AllowedPattern: "^(\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
-    Description: CIDR range allowed for SSH access (recommend restricting to your IP/32)
 
   EbsVolumeSize:
     Type: Number
@@ -105,10 +102,6 @@ Conditions:
   HasDomain: !Not [!Equals [!Ref DomainName, ""]]
   IsPrivate: !Equals [!Ref DeployMode, private]
   IsPublic: !Equals [!Ref DeployMode, public]
-  # Public A-record only in public mode with a domain. In private mode the
-  # gateway is private and resolved via the Route53 PRIVATE zone created by
-  # private-prereqs.yaml — no public record (and no EIP to point at).
-  PublicDomain: !And [!Condition IsPublic, !Condition HasDomain]
 
 # =============================================================================
 # Resources
@@ -144,6 +137,13 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
+  # ---------------------------------------------------------------------------
+  # Subnets — 2 AZs (the ALB requires >=2 subnets in >=2 AZs). The instance +
+  # DataVolume stay pinned to AZ0; the AZ1 subnets carry no instance and exist
+  # only to satisfy the ALB. Cross-zone load balancing (default ON) sends all
+  # traffic to the single AZ0 target.
+  # ---------------------------------------------------------------------------
+  # Public subnets host the internet-facing ALB (public mode) + the NAT gateway.
   PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
@@ -153,7 +153,18 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-public"
+          Value: !Sub "pipeline-builder-public-a"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-public-b"
 
   RouteTable:
     Type: AWS::EC2::RouteTable
@@ -161,7 +172,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-rt"
+          Value: !Sub "pipeline-builder-public-rt"
 
   PublicRoute:
     Type: AWS::EC2::Route
@@ -177,30 +188,43 @@ Resources:
       SubnetId: !Ref PublicSubnet
       RouteTableId: !Ref RouteTable
 
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref RouteTable
+
   # ---------------------------------------------------------------------------
-  # Private subnet + NAT (private mode only)
+  # Private subnets + NAT (ALWAYS — the instance is private in BOTH modes; only
+  # the ALB scheme/subnets change). The instance lives in PrivateSubnet (AZ0)
+  # with NO public IP; the NAT gateway (PublicSubnet, AZ0) provides outbound for
+  # GHCR pulls + OS packages. this template (private mode) creates the VPC interface
+  # endpoints in these subnets. Access is via SSM Session Manager.
   # ---------------------------------------------------------------------------
-  # In private mode the instance runs in this PRIVATE subnet with NO public IP.
-  # The NAT gateway (in the public subnet, which then exists ONLY to host it)
-  # provides outbound for Let's Encrypt DNS-01, GHCR pulls, and OS packages.
-  # private-prereqs.yaml places the VPC interface endpoints + VPC-attached
-  # CodeBuild in this same subnet (via the SubnetId output). Access is via SSM
-  # Session Manager (outbound to SSM over the NAT), not public SSH.
   PrivateSubnet:
     Type: AWS::EC2::Subnet
-    Condition: IsPrivate
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.0.2.0/24
+      CidrBlock: 10.0.10.0/24
       MapPublicIpOnLaunch: false
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-private"
+          Value: !Sub "pipeline-builder-private-a"
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.11.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-private-b"
 
   NatEIP:
     Type: AWS::EC2::EIP
-    Condition: IsPrivate
     DependsOn: VPCGatewayAttachment
     Properties:
       Domain: vpc
@@ -210,7 +234,6 @@ Resources:
 
   NatGateway:
     Type: AWS::EC2::NatGateway
-    Condition: IsPrivate
     Properties:
       AllocationId: !GetAtt NatEIP.AllocationId
       SubnetId: !Ref PublicSubnet
@@ -220,7 +243,6 @@ Resources:
 
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
-    Condition: IsPrivate
     Properties:
       VpcId: !Ref VPC
       Tags:
@@ -229,7 +251,6 @@ Resources:
 
   PrivateRoute:
     Type: AWS::EC2::Route
-    Condition: IsPrivate
     Properties:
       RouteTableId: !Ref PrivateRouteTable
       DestinationCidrBlock: 0.0.0.0/0
@@ -237,44 +258,59 @@ Resources:
 
   PrivateSubnetRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
-    Condition: IsPrivate
     Properties:
       SubnetId: !Ref PrivateSubnet
       RouteTableId: !Ref PrivateRouteTable
 
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
   # ---------------------------------------------------------------------------
-  # Security Group (Hardened)
+  # ALB security group — the only internet-facing surface. public: 80/443 from
+  # the world; private: 80/443 from the VPC CIDR only.
   # ---------------------------------------------------------------------------
-  SecurityGroup:
+  AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Pipeline Builder EC2 - SSH, HTTP, HTTPS only
+      GroupDescription: Pipeline Builder ALB - 80/443 ingress
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        # SSH - public mode: SshCidr. Private mode: VPC-only (the instance has
-        # no public IP; use SSM Session Manager for access). The rule is inert
-        # without a public IP, but VPC-scoping it keeps the posture clean.
         - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !If [IsPrivate, !GetAtt VPC.CidrBlock, !Ref SshCidr]
-          Description: SSH access
-        # HTTP - public mode only (Let's Encrypt HTTP-01 + redirect). Private
-        # mode uses DNS-01 and has no public ingress, so 80 is dropped.
-        - !If
-          - IsPrivate
-          - !Ref "AWS::NoValue"
-          - IpProtocol: tcp
-            FromPort: 80
-            ToPort: 80
-            CidrIp: 0.0.0.0/0
-            Description: HTTP (LetsEncrypt + redirect)
-        # HTTPS - public (0.0.0.0/0) or, in private mode, VPC-only.
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !If [IsPrivate, !GetAtt VPC.CidrBlock, "0.0.0.0/0"]
+          Description: HTTP (redirect to HTTPS)
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
           CidrIp: !If [IsPrivate, !GetAtt VPC.CidrBlock, "0.0.0.0/0"]
-          Description: HTTPS (application)
+          Description: HTTPS (application + registry /v2/)
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-alb-sg"
+
+  # ---------------------------------------------------------------------------
+  # Instance security group — NO public ingress. Only the ALB SG reaches the
+  # nginx NodePort (30080); shell access is SSM-only (no SSH rule).
+  # ---------------------------------------------------------------------------
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Pipeline Builder EC2 - ALB target + SSM only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 30080
+          ToPort: 30080
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+          Description: nginx HTTP NodePort from the ALB only
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
@@ -284,25 +320,233 @@ Resources:
           Value: !Sub "pipeline-builder-sg"
 
   # ---------------------------------------------------------------------------
-  # Elastic IP
+  # ACM certificate — DNS-validated against the supplied public hosted zone.
+  # ACM auto-writes the CNAME and CloudFormation blocks until ISSUED (a few
+  # minutes). Publicly trusted, so AWS CodeBuild trusts the gateway on plugin
+  # pulls. Replaces the on-instance Let's Encrypt/certbot flow entirely.
   # ---------------------------------------------------------------------------
-  # Public mode only — private mode has no public IP (private subnet + NAT).
-  ElasticIP:
-    Type: AWS::EC2::EIP
-    Condition: IsPublic
-    DependsOn: VPCGatewayAttachment
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
     Properties:
-      Domain: vpc
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-eip"
+          Value: !Sub "pipeline-builder-cert"
 
-  EIPAssociation:
-    Type: AWS::EC2::EIPAssociation
-    Condition: IsPublic
+  # ---------------------------------------------------------------------------
+  # Application Load Balancer — internet-facing (public) or internal-scheme
+  # (private). Terminates TLS with the ACM cert; forwards plain HTTP to the
+  # instance's nginx NodePort. The box never terminates TLS.
+  # ---------------------------------------------------------------------------
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      AllocationId: !GetAtt ElasticIP.AllocationId
-      InstanceId: !Ref EC2Instance
+      Name: !Sub "pipeline-builder-alb"
+      Scheme: !If [IsPrivate, internal, internet-facing]
+      Type: application
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Subnets: !If
+        - IsPrivate
+        - [!Ref PrivateSubnet, !Ref PrivateSubnet2]
+        - [!Ref PublicSubnet, !Ref PublicSubnet2]
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-alb"
+
+  # Targets the EC2 INSTANCE on the nginx HTTP NodePort (30080). startup.sh
+  # bridges the instance's primary IP:30080 → the minikube node IP:30080 via a
+  # single iptables DNAT, so the ALB health check (HTTP /health) and real
+  # traffic traverse the identical path.
+  NginxTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "pipeline-builder-tg"
+      VpcId: !Ref VPC
+      Port: 30080
+      Protocol: HTTP
+      TargetType: instance
+      Targets:
+        - Id: !Ref EC2Instance
+          Port: 30080
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+
+  # Port 80 → 301 redirect to 443 (the redirect lives on the ALB, not nginx).
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            StatusCode: HTTP_301
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates:
+        - CertificateArn: !Ref Certificate
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref NginxTargetGroup
+
+  # ---------------------------------------------------------------------------
+  # Private mode (IsPrivate): inside-AWS-only prerequisites — folded in from the
+  # former private-prereqs.yaml. The ALB's DNS is known in-stack, so the private
+  # hosted zone + VPC interface endpoints live here directly (no separate stack).
+  # No extra gateway-ingress rule: the ALB SG already allows 443 from the VPC
+  # CIDR in private mode.
+  # ---------------------------------------------------------------------------
+  # SG fronting the interface endpoints (443 from the VPC).
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: IsPrivate
+    Properties:
+      GroupDescription: Pipeline Builder VPC interface endpoints
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt VPC.CidrBlock
+          Description: HTTPS from within the VPC (CodeBuild -> endpoints)
+      Tags:
+        - Key: Name
+          Value: !Sub "pipeline-builder-vpce-sg"
+
+  # Interface endpoints — VPC-attached CodeBuild reaches AWS APIs over PrivateLink
+  # instead of leaning on NAT. PrivateDnsEnabled routes the public hostnames here.
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.logs"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  KmsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.kms"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  StsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.sts"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  CodeBuildEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.codebuild"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.api"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: IsPrivate
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  # Private hosted zone → the domain resolves to the internal ALB for in-VPC
+  # clients (and VPC-attached CodeBuild pulling plugin images via /v2/).
+  PrivateHostedZone:
+    Type: AWS::Route53::HostedZone
+    Condition: IsPrivate
+    Properties:
+      Name: !Ref DomainName
+      VPCs:
+        - VPCId: !Ref VPC
+          VPCRegion: !Ref "AWS::Region"
+      HostedZoneConfig:
+        Comment: !Sub "pipeline-builder private-mode zone"
+
+  PrivateDomainRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: IsPrivate
+    Properties:
+      HostedZoneId: !Ref PrivateHostedZone
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+        EvaluateTargetHealth: false
 
   # ---------------------------------------------------------------------------
   # IAM Role (for SSM Session Manager access)
@@ -323,31 +567,6 @@ Resources:
         - Key: Name
           Value: !Sub "pipeline-builder-role"
 
-  # DNS-01 cert (private mode only): certbot-dns-route53 writes the ACME TXT
-  # challenge into the domain's PUBLIC hosted zone. Without this the instance
-  # silently falls back to a self-signed cert, which CodeBuild plugin pulls then
-  # reject (x509 "unknown authority"). Scoped to the supplied hosted zone;
-  # ListHostedZones/GetChange require "*" per the certbot-dns-route53 IAM model.
-  # public mode uses HTTP-01 and needs no Route53 access, so this is gated off.
-  InstanceRoute53Policy:
-    Type: AWS::IAM::Policy
-    Condition: IsPrivate
-    Properties:
-      PolicyName: pipeline-builder-dns01-route53
-      Roles:
-        - !Ref InstanceRole
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Action:
-              - route53:ListHostedZones
-              - route53:GetChange
-            Resource: "*"
-          - Effect: Allow
-            Action: route53:ChangeResourceRecordSets
-            Resource: !Sub "arn:aws:route53:::hostedzone/${HostedZoneId}"
-
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -362,7 +581,8 @@ Resources:
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
-      SubnetId: !If [IsPrivate, !Ref PrivateSubnet, !Ref PublicSubnet]
+      # Always private now — the ALB is the only entry point, in both modes.
+      SubnetId: !Ref PrivateSubnet
       SecurityGroupIds:
         - !Ref SecurityGroup
       IamInstanceProfile: !Ref InstanceProfile
@@ -391,7 +611,6 @@ Resources:
 
             # Export variables for bootstrap.sh
             export DOMAIN="${DomainName}"
-            export DEPLOY_MODE="${DeployMode}"
             export GHCR_TOKEN="${GhcrToken}"
             export GHCR_USER="${GhcrUser}"
             export GIT_REPO="${GitRepo}"
@@ -485,40 +704,45 @@ Resources:
       VolumeId: !Ref DataVolume
 
   # ---------------------------------------------------------------------------
-  # Route53 DNS Record (only when DomainName is provided)
+  # Route53 public A-record → ALB alias (public mode). In private mode the
+  # gateway is resolved via the in-stack Route53 PRIVATE zone
+  # (PrivateHostedZone/PrivateDomainRecord above), so no public record here.
   # ---------------------------------------------------------------------------
   DNSRecord:
     Type: AWS::Route53::RecordSet
-    Condition: PublicDomain
+    Condition: IsPublic
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !Ref DomainName
       Type: A
-      TTL: "300"
-      ResourceRecords:
-        - !Ref ElasticIP
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+        EvaluateTargetHealth: false
 
 # =============================================================================
 # Outputs
 # =============================================================================
 Outputs:
-  PublicIP:
-    Description: Elastic IP (public mode); private mode has no public IP
-    Value: !If [IsPublic, !Ref ElasticIP, "none (private subnet, SSM access)"]
-
   ApplicationURL:
     Description: Application URL
-    Value: !If
-      - HasDomain
-      - !Sub "https://${DomainName}"
-      - !If [IsPublic, !Sub "https://${ElasticIP}", "https://<set DomainName for private mode>"]
+    Value: !Sub "https://${DomainName}"
+
+  AlbDnsName:
+    Description: ALB DNS name (the ALB endpoint)
+    Value: !GetAtt ALB.DNSName
+
+  AlbCanonicalHostedZoneId:
+    Description: ALB canonical hosted zone ID (informational)
+    Value: !GetAtt ALB.CanonicalHostedZoneID
+
+  AlbSecurityGroupId:
+    Description: ALB SG ID (the ALB security group)
+    Value: !Ref AlbSecurityGroup
 
   SSHCommand:
-    Description: How to connect to the instance
-    Value: !If
-      - IsPrivate
-      - !Sub "aws ssm start-session --target ${EC2Instance} --region ${AWS::Region}"
-      - !Sub "ssh -i <your-key>.pem ec2-user@${ElasticIP}"
+    Description: How to connect to the instance (SSM only — no public IP / SSH)
+    Value: !Sub "aws ssm start-session --target ${EC2Instance} --region ${AWS::Region}"
 
   InstanceId:
     Description: EC2 Instance ID
@@ -530,29 +754,26 @@ Outputs:
 
   BootstrapLog:
     Description: How to watch bootstrap progress
-    Value: !If
-      - IsPrivate
-      - !Sub "aws ssm start-session --target ${EC2Instance} --region ${AWS::Region}  # then: sudo tail -f /var/log/user-data.log"
-      - !Sub "ssh -i <your-key>.pem ec2-user@${ElasticIP} 'tail -f /var/log/user-data.log'"
+    Value: !Sub "aws ssm start-session --target ${EC2Instance} --region ${AWS::Region}  # then: sudo tail -f /var/log/user-data.log"
 
-  # Inputs for private mode: feed deploy/aws/private-prereqs.yaml
-  # (GatewayType=ip) and the instance .env (PIPELINE_VPC_ID / PIPELINE_SUBNET_IDS).
+  # Inputs for private mode: feed the instance .env
+  # and the instance .env (PIPELINE_VPC_ID / PIPELINE_SUBNET_IDS).
   VpcId:
-    Description: VPC ID (private-prereqs VpcId + .env PIPELINE_VPC_ID)
+    Description: VPC ID (.env PIPELINE_VPC_ID)
     Value: !Ref VPC
 
-  SubnetId:
-    Description: Subnet ID (private-prereqs SubnetIds + .env PIPELINE_SUBNET_IDS) — the PRIVATE subnet in private mode
-    Value: !If [IsPrivate, !Ref PrivateSubnet, !Ref PublicSubnet]
+  SubnetIds:
+    Description: Private subnet IDs (.env PIPELINE_SUBNET_IDS)
+    Value: !Join [",", [!Ref PrivateSubnet, !Ref PrivateSubnet2]]
 
   VpcCidr:
-    Description: VPC CIDR (private-prereqs VpcCidr)
+    Description: VPC CIDR (informational)
     Value: !GetAtt VPC.CidrBlock
 
   SecurityGroupId:
-    Description: Instance SG ID (private-prereqs GatewaySecurityGroupId)
+    Description: Instance SG ID
     Value: !Ref SecurityGroup
 
   InstancePrivateIp:
-    Description: Instance private IP (private-prereqs GatewayPrivateIp)
+    Description: Instance private IP
     Value: !GetAtt EC2Instance.PrivateIp

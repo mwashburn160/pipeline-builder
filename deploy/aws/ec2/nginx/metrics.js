@@ -59,7 +59,7 @@ function json_metrics(r) {
         },
         server: {
             name: r.variables.server_name || 'localhost',
-            port: r.variables.server_port || '8443'
+            port: r.variables.server_port || '8080'
         }
     };
     return JSON.stringify(metrics, null, 2);

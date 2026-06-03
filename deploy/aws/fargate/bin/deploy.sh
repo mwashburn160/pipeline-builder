@@ -2,14 +2,15 @@
 # =============================================================================
 # Pipeline Builder - Fargate Deployment Script
 # =============================================================================
-# Deploys all CloudFormation stacks in dependency order and uploads
-# config files to S3. Uses the ALB DNS name (CNAME) directly.
-#
-# Both HTTP (port 80) and HTTPS (port 443, self-signed cert) are enabled.
-# Browsers will show a certificate warning on HTTPS — accept once to proceed.
+# Deploys all CloudFormation stacks in dependency order and uploads config
+# files to S3. The foundation stack requests a DNS-validated ACM cert for your
+# domain and terminates TLS at the ALB (80 -> 443 redirect); the cert is
+# publicly trusted, so CodeBuild plugin-image pulls work. --domain +
+# --hosted-zone-id are required in both modes.
 #
 # Usage:
-#   bash bin/deploy.sh --ghcr-token ghp_xxxx [--region us-east-1]
+#   bash bin/deploy.sh --domain pipeline.example.com --hosted-zone-id Z123 \
+#     --ghcr-token ghp_xxxx [--deploy-mode public] [--region us-east-1]
 # =============================================================================
 set -euo pipefail
 
@@ -24,11 +25,13 @@ GHCR_USER="mwashburn160"
 REGION="${AWS_REGION:-us-east-1}"
 APP_SECRETS_NAME="${APP_SECRETS_NAME:-pipeline-builder/app-secrets}"
 GHCR_AUTH_SECRET_NAME="${GHCR_AUTH_SECRET_NAME:-pipeline-builder/ghcr-auth}"
-# DOMAIN is the hostname clients will use to reach the ALB. For the very
-# first deploy the ALB DNS isn't known yet — pass a placeholder, deploy,
-# then re-run with the real ALB DNS name (printed at the end) so the cert
-# gets a matching SAN. Subsequent re-deploys reuse the cert if >30d valid.
-DOMAIN="${DOMAIN:-pipeline-builder.local}"
+# DOMAIN + HOSTED_ZONE_ID are REQUIRED: the foundation stack requests a
+# DNS-validated ACM cert for DOMAIN against HOSTED_ZONE_ID (publicly trusted, so
+# CodeBuild trusts the gateway on plugin-image pulls) and resolves DOMAIN to the
+# ALB via a public alias (public mode) or an in-stack private zone (private).
+DOMAIN="${DOMAIN:-}"
+HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
+DEPLOY_MODE="${DEPLOY_MODE:-private}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -38,11 +41,22 @@ while [[ $# -gt 0 ]]; do
     --region) REGION="$2"; shift 2 ;;
     --stack-prefix) STACK_PREFIX="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
+    --hosted-zone-id) HOSTED_ZONE_ID="$2"; shift 2 ;;
+    --deploy-mode) DEPLOY_MODE="$2"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
 
 # Validate
+case "$DEPLOY_MODE" in
+  public|private) ;;
+  *) echo "ERROR: --deploy-mode must be 'public' or 'private' (got '$DEPLOY_MODE')." >&2; exit 1 ;;
+esac
+if [ -z "$DOMAIN" ] || [ -z "$HOSTED_ZONE_ID" ]; then
+  echo "ERROR: --domain and --hosted-zone-id are required (a PUBLIC Route53 zone" >&2
+  echo "       you control) — used for ACM DNS validation and the DNS alias to the ALB." >&2
+  exit 1
+fi
 if [ -z "$GHCR_TOKEN" ]; then
   echo "WARNING: No --ghcr-token provided. Private image pulls from ghcr.io may fail."
   echo ""
@@ -74,26 +88,17 @@ echo "Pipeline Builder - Fargate Deployment"
 echo "========================================"
 echo "  Region:         $REGION"
 echo "  Stack Prefix:   $STACK_PREFIX"
+echo "  Deploy mode:    $DEPLOY_MODE"
 echo "  Domain:         $DOMAIN"
 echo ""
+# TLS is an ACM cert the foundation stack requests + DNS-validates against
+# --hosted-zone-id (no init-cert.sh / self-signed step). The cert is publicly
+# trusted, so CodeBuild's plugin-image pulls verify successfully in both modes.
 
 # -----------------------------------------------------------------------
-# Step 1: Generate self-signed certificate for HTTPS
+# Step 1: Initialize secrets (if not already done)
 # -----------------------------------------------------------------------
-echo "=== Step 1: Ensure TLS certificate exists ==="
-CERT_OUTPUT=$(bash "$SCRIPT_DIR/init-cert.sh" --domain "$DOMAIN" --region "$REGION")
-CERTIFICATE_ARN=$(echo "$CERT_OUTPUT" | grep "^CERTIFICATE_ARN=" | cut -d= -f2)
-if [ -z "$CERTIFICATE_ARN" ]; then
-  echo "  WARNING: Failed to obtain certificate. HTTPS will be disabled."
-else
-  echo "  Certificate: $CERTIFICATE_ARN"
-fi
-
-# -----------------------------------------------------------------------
-# Step 2: Initialize secrets (if not already done)
-# -----------------------------------------------------------------------
-echo ""
-echo "=== Step 2: Ensure secrets exist ==="
+echo "=== Step 1: Ensure secrets exist ==="
 if ! aws secretsmanager describe-secret --secret-id "$APP_SECRETS_NAME" --region "$REGION" >/dev/null 2>&1; then
   echo "  Secrets not found. Running init-secrets.sh..."
   bash "$SCRIPT_DIR/init-secrets.sh" \
@@ -133,21 +138,20 @@ deploy_stack() {
 }
 
 # -----------------------------------------------------------------------
-# Step 3: Deploy foundation stack
+# Step 2: Deploy foundation stack
 # -----------------------------------------------------------------------
 # Deployment posture: public (internet-facing ALB; CodeBuild over internet) or
-# private (inside-AWS-only: internal-scheme ALB in private subnets +
-# VPC-attached CodeBuild). Defaults to private; set DEPLOY_MODE=public to flip it.
-# private mode REQUIRES an ACM-ISSUED (publicly trusted) cert (CERTIFICATE_ARN)
-# + a Route53 private zone for the domain → the internal ALB.
-DEPLOY_MODE="${DEPLOY_MODE:-private}"
-case "$DEPLOY_MODE" in
-  public|private) ;;
-  *) echo "ERROR: DEPLOY_MODE must be 'public' or 'private' (got '$DEPLOY_MODE')." >&2; exit 1 ;;
-esac
+# private (inside-AWS-only: internal-scheme ALB in private subnets + a private
+# Route53 zone + VPC-attached CodeBuild). The foundation requests a DNS-validated
+# ACM cert for DOMAIN against HostedZoneId (publicly trusted) and DNS-validates
+# during stack creation — expect a few minutes in CREATE_IN_PROGRESS.
 DEPLOY_MODE_PARAM=("DeployMode=${DEPLOY_MODE}")
-FOUNDATION_PARAMS=("StackPrefix=${STACK_PREFIX}" "${DEPLOY_MODE_PARAM[@]}")
-[ -n "$CERTIFICATE_ARN" ] && FOUNDATION_PARAMS+=("CertificateArn=${CERTIFICATE_ARN}")
+FOUNDATION_PARAMS=(
+  "StackPrefix=${STACK_PREFIX}"
+  "${DEPLOY_MODE_PARAM[@]}"
+  "DomainName=${DOMAIN}"
+  "HostedZoneId=${HOSTED_ZONE_ID}"
+)
 deploy_stack "foundation" "$STACKS_DIR/01-foundation.yaml" "${FOUNDATION_PARAMS[@]}"
 
 # -----------------------------------------------------------------------
@@ -182,57 +186,16 @@ echo "  Done"
 # -----------------------------------------------------------------------
 # Step 5: Deploy remaining stacks
 # -----------------------------------------------------------------------
-BASE_HOST=$(aws cloudformation describe-stacks \
-  --stack-name "${STACK_PREFIX}-foundation" \
-  --query "Stacks[0].Outputs[?OutputKey=='DomainName'].OutputValue" \
-  --output text --region "$REGION")
-if [ -z "$BASE_HOST" ] || [ "$BASE_HOST" = "None" ]; then
-  echo "ERROR: could not read DomainName from ${STACK_PREFIX}-foundation outputs." >&2
-  exit 1
-fi
+# The canonical host is the registered domain (resolved to the ALB by the
+# public alias / private zone the foundation created). Passed to every stack so
+# services + the docker registry's bearer realm derive from the same source.
+BASE_HOST="$DOMAIN"
+PLATFORM_BASE_URL="https://${BASE_HOST}"
 
-# Scheme tracks TLS availability: ALB has cert => https, else http.
-# Used as the canonical public base URL — passed to every stack so services
-# and the docker registry's bearer realm derive from the same source.
-if [ -n "$CERTIFICATE_ARN" ]; then
-  PLATFORM_BASE_URL="https://${BASE_HOST}"
-else
-  PLATFORM_BASE_URL="http://${BASE_HOST}"
-fi
-
-# Private mode: provision the inside-AWS-only prerequisites (VPC interface
-# endpoints + Route53 private zone + ALB 443 ingress from the VPC) so the
-# VPC-attached CodeBuild projects can reach AWS APIs and pull plugin images
-# from the internal ALB. Reads the foundation outputs added for this purpose.
-if [ "$DEPLOY_MODE" = "private" ]; then
-  fout() { aws cloudformation describe-stacks --stack-name "${STACK_PREFIX}-foundation" \
-    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text --region "$REGION"; }
-  SHARED_DIR="$(cd "$DEPLOY_DIR/.." && pwd)"
-  # Capture + validate each foundation output; an empty/None value would
-  # otherwise be passed straight into the prereqs stack (e.g. VpcId=None).
-  VPC_ID="$(fout VpcId)"; VPC_CIDR="$(fout VpcCidr)"
-  SUBNET1="$(fout PrivateSubnet1Id)"; SUBNET2="$(fout PrivateSubnet2Id)"
-  ALB_SG="$(fout ALBSecurityGroupId)"; ALB_DNS="$(fout ALBDnsName)"
-  ALB_ZONE="$(fout AlbCanonicalHostedZoneId)"
-  for _pair in "VpcId:$VPC_ID" "VpcCidr:$VPC_CIDR" "PrivateSubnet1Id:$SUBNET1" \
-               "PrivateSubnet2Id:$SUBNET2" "ALBSecurityGroupId:$ALB_SG" \
-               "ALBDnsName:$ALB_DNS" "AlbCanonicalHostedZoneId:$ALB_ZONE"; do
-    if [ -z "${_pair#*:}" ] || [ "${_pair#*:}" = "None" ]; then
-      echo "ERROR: foundation output '${_pair%%:*}' is empty/None — cannot deploy private-prereqs." >&2
-      exit 1
-    fi
-  done
-  deploy_stack "private-prereqs" "$SHARED_DIR/private-prereqs.yaml" \
-    "StackPrefix=${STACK_PREFIX}" \
-    "VpcId=${VPC_ID}" \
-    "VpcCidr=${VPC_CIDR}" \
-    "SubnetIds=${SUBNET1},${SUBNET2}" \
-    "DomainName=${BASE_HOST}" \
-    "GatewaySecurityGroupId=${ALB_SG}" \
-    "GatewayType=alb" \
-    "AlbDnsName=${ALB_DNS}" \
-    "AlbCanonicalHostedZoneId=${ALB_ZONE}"
-fi
+# Private mode: the inside-AWS-only prerequisites (VPC interface endpoints +
+# the private Route53 zone aliasing DOMAIN to the internal ALB) are created IN
+# the foundation stack itself, gated on DeployMode=private — no separate
+# prereqs stack to deploy here.
 
 COMMON_PARAMS=("StackPrefix=${STACK_PREFIX}" "DomainName=${BASE_HOST}")
 SECRETS_PARAMS=("AppSecretsName=${APP_SECRETS_NAME}" "GhcrAuthSecretName=${GHCR_AUTH_SECRET_NAME}")
@@ -242,7 +205,7 @@ deploy_stack "cluster" "$STACKS_DIR/02-cluster.yaml" "${COMMON_PARAMS[@]}"
 deploy_stack "databases" "$STACKS_DIR/03-databases.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
 deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}" "${DEPLOY_MODE_PARAM[@]}"
 deploy_stack "observability" "$STACKS_DIR/05-observability.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
-deploy_stack "admin" "$STACKS_DIR/06-admin.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}"
+deploy_stack "admin" "$STACKS_DIR/06-admin.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
 
 # -----------------------------------------------------------------------
 # Done
@@ -252,13 +215,15 @@ echo "========================================"
 echo "Deployment Complete"
 echo "========================================"
 echo ""
-echo "  HTTP:          http://${BASE_HOST}"
-if [ -n "$CERTIFICATE_ARN" ]; then
-echo "  HTTPS:         https://${BASE_HOST}  (self-signed — accept browser warning)"
+echo "  Application:   https://${BASE_HOST}  (ACM cert at the ALB; 80 redirects to 443)"
+if [ "$DEPLOY_MODE" = "private" ]; then
+echo "  Mode:          private (internal ALB — reach it from inside the VPC)"
+else
+echo "  Mode:          public (internet-facing ALB)"
 fi
 echo ""
-echo "  pgAdmin:       http://${BASE_HOST}/pgadmin/"
-echo "  Mongo Express: http://${BASE_HOST}/mongo-express/"
-echo "  Registry UI:   http://${BASE_HOST}/dashboard/registry (sysadmin only)"
+echo "  pgAdmin:       https://${BASE_HOST}/pgadmin/"
+echo "  Mongo Express: https://${BASE_HOST}/mongo-express/"
+echo "  Registry UI:   https://${BASE_HOST}/dashboard/registry (sysadmin only)"
 echo ""
 echo "  ECS Console:   https://${REGION}.console.aws.amazon.com/ecs/v2/clusters/pipeline-builder"

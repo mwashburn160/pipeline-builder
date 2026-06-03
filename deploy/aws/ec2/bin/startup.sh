@@ -176,33 +176,15 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
   echo "  ghcr-secret"
 fi
 
-# -- TLS certificates --------------------------------------------------------
+# -- Registry token-signing keypair ------------------------------------------
+# The gateway no longer terminates TLS — the ALB does, with an ACM cert — so
+# there is NO nginx-tls-secret and no gateway cert on the box. nginx serves
+# plain HTTP on the NodePort; the ALB forwards to it. Only the image-registry
+# token-signing keypair (unrelated to gateway TLS) is created here.
 
-log "Creating TLS certificates"
+log "Creating registry token-signing keypair"
 mkdir -p "$CERT_DIR" "$AUTH_DIR"
 chown root:minikube "$CERT_DIR"
-
-LE_DIR="/etc/letsencrypt/live/${DOMAIN}"
-if [ -n "$DOMAIN" ] && [ -d "$LE_DIR" ]; then
-  echo "  Using Let's Encrypt for ${DOMAIN}"
-  kube create secret tls nginx-tls-secret --cert="$LE_DIR/fullchain.pem" --key="$LE_DIR/privkey.pem" -n "$NS"
-else
-  CN="${DOMAIN:-localhost}"
-  # OpenSSL/RFC 6125: when the connection target is an IP literal, the cert
-  # MUST present an `IP:` SAN. A `DNS:` SAN with the same IP string is NOT
-  # accepted — verify will fail with "certificate verify failed" even though
-  # the CN matches. Emit the right SAN type based on whether CN is an IPv4
-  # literal.
-  if printf '%s' "$CN" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-    CN_SAN="IP:${CN}"
-  else
-    CN_SAN="DNS:${CN}"
-  fi
-  openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx-tls.key" -out "$CERT_DIR/nginx-tls.crt" \
-    -subj "/CN=${CN}" -addext "subjectAltName=${CN_SAN},DNS:localhost,IP:127.0.0.1" 2>&1
-  chmod 644 "$CERT_DIR/nginx-tls.key" "$CERT_DIR/nginx-tls.crt"
-  kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NS"
-fi
 
 # JWT signing keypair for image-registry's token-auth endpoint. Mounted by
 # both the underlying registry (as the trusted public cert) and the
@@ -283,28 +265,25 @@ if [ "$(id -u)" = "0" ]; then
     IF="${IF:-eth0}"
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
-    for port_pair in "443:30443" "80:30080"; do
-      EXT="${port_pair%%:*}"; INT="${port_pair##*:}"
-      iptables -t nat -D PREROUTING -i "$IF" -p tcp --dport "$EXT" -j DNAT --to-destination "${MINIKUBE_IP}:${INT}" 2>/dev/null || true
-      iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport "$INT" -j ACCEPT 2>/dev/null || true
-      iptables -t nat -A PREROUTING -i "$IF" -p tcp --dport "$EXT" -j DNAT --to-destination "${MINIKUBE_IP}:${INT}"
-      iptables -I FORWARD 1 -d "$MINIKUBE_IP" -p tcp --dport "$INT" -j ACCEPT
-    done
+    # Single HTTP bridge: the ALB connects to this instance's primary IP on
+    # 30080 (the nginx NodePort); DNAT it to the minikube node IP:30080. No
+    # TLS/443 rule — the ALB terminates TLS and only ever forwards plain HTTP
+    # to 30080. Identity port (30080→30080) so the ALB health check and real
+    # traffic traverse the same path.
+    iptables -t nat -D PREROUTING -i "$IF" -p tcp --dport 30080 -j DNAT --to-destination "${MINIKUBE_IP}:30080" 2>/dev/null || true
+    iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT 2>/dev/null || true
+    iptables -t nat -A PREROUTING -i "$IF" -p tcp --dport 30080 -j DNAT --to-destination "${MINIKUBE_IP}:30080"
+    iptables -I FORWARD 1 -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT
     iptables -t nat -C POSTROUTING -o "$IF" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "$IF" -j MASQUERADE
     iptables-save > /etc/sysconfig/iptables 2>/dev/null || true
-    echo "  ${IF}: 443→${MINIKUBE_IP}:30443, 80→${MINIKUBE_IP}:30080"
+    echo "  ${IF}: 30080→${MINIKUBE_IP}:30080 (ALB target bridge)"
   fi
 fi
 
 # -- Summary ------------------------------------------------------------------
 
-log "Access URLs"
-if [ -n "$DOMAIN" ]; then
-  echo "  Application:   https://${DOMAIN}"
-  echo "  Mongo Express: https://${DOMAIN}/mongo-express/"
-  echo "  pgAdmin:       https://${DOMAIN}/pgadmin/"
-else
-  IP=$(mk minikube ip --profile="$PROFILE" 2>/dev/null || echo "unknown")
-  echo "  HTTPS: https://$IP:30443   HTTP: http://$IP:30080"
-fi
+log "Access URLs (via the ALB — TLS terminated there with the ACM cert)"
+echo "  Application:   https://${DOMAIN}"
+echo "  Mongo Express: https://${DOMAIN}/mongo-express/"
+echo "  pgAdmin:       https://${DOMAIN}/pgadmin/"
 echo "  Credentials: see $ENV_FILE"

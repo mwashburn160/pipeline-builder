@@ -5,10 +5,10 @@
 # Runs as root on first boot via UserData. Handles:
 #   1. System hardening (fail2ban, SSH lockdown, auto-updates)
 #   2. Docker, minikube, kubectl installation
-#   3. Let's Encrypt certificate provisioning
-#   4. Environment configuration (.env generation)
-#   5. iptables port forwarding (443→30443, 80→30080)
-#   6. Launch minikube startup
+#   3. Environment configuration (.env generation)
+#   4. iptables HTTP bridge (instance:30080 → minikube NodePort 30080)
+#   5. Launch minikube startup
+# TLS is terminated at the ALB (ACM cert) — no cert/certbot on this instance.
 #
 # Expected environment variables (set by CloudFormation UserData):
 #   DOMAIN       - Fully qualified domain name
@@ -30,12 +30,10 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_DIR="$(cd "$DEPLOY_DIR/../../.." && pwd)"
 
 DOMAIN="${DOMAIN:-}"
-# Deployment posture: "public" (public ingress; Let's Encrypt via HTTP-01) or
-# "private" (inside-AWS-only; no public :80, so Let's Encrypt via DNS-01 over
-# Route53). The cert is publicly trusted either way — required for AWS
-# CodeBuild to pull plugin images over the gateway. See docs/aws-deployment.md.
-# Defaults to "private" (inside-AWS-only); export DEPLOY_MODE=public to open ingress.
-DEPLOY_MODE="${DEPLOY_MODE:-private}"
+# Note: DEPLOY_MODE (public/private) is enforced at the CloudFormation/ALB
+# layer (ALB scheme + subnets), not on the instance — the box behaves
+# identically in both modes (plain-HTTP nginx behind the ALB), so it is not
+# read here.
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 
@@ -176,81 +174,14 @@ chmod +x /usr/local/bin/yq
 echo "  yq $(/usr/local/bin/yq --version)"
 
 # =============================================================================
-# Phase 5: TLS Certificate
+# Phase 5: TLS — handled by the ALB, NOT this instance
 # =============================================================================
+# The ALB terminates TLS with an ACM cert (DNS-validated, auto-rotated, issued
+# by CloudFormation). There is no certbot / Let's Encrypt / renewal cron / cert
+# on this box — nginx serves plain HTTP on its NodePort and the ALB forwards to
+# it. Nothing to do here.
 echo ""
-echo "========================================"
-echo "Phase 5: TLS Certificate"
-echo "========================================"
-
-TLS_CERT_DIR="/etc/pipeline-builder/tls"
-mkdir -p "$TLS_CERT_DIR"
-
-if [ -n "$DOMAIN" ]; then
-  # --- Let's Encrypt (domain provided) ---
-  if [ "$DEPLOY_MODE" = "private" ]; then
-    # Inside-AWS-only: no public port 80, so validate via DNS-01 over Route53
-    # instead of HTTP-01. Requires the dns-route53 plugin + an instance role
-    # with Route53 change permissions on the domain's hosted zone. The cert is
-    # still publicly trusted, so AWS CodeBuild can pull plugin images over the
-    # gateway even though the endpoint is private.
-    dnf install -y certbot python3-certbot-dns-route53
-    # Give Route53 time to propagate the TXT challenge before Let's Encrypt
-    # validates — the 10s default is often too short for a fresh zone, and a
-    # timeout here would silently fall back to a self-signed cert (which
-    # CodeBuild plugin pulls then reject).
-    CERTBOT_CHALLENGE_ARGS="--dns-route53 --dns-route53-propagation-seconds 30"
-  else
-    dnf install -y certbot
-    CERTBOT_CHALLENGE_ARGS="--standalone --preferred-challenges http"
-  fi
-
-  echo "  Obtaining Let's Encrypt certificate for ${DOMAIN} (${DEPLOY_MODE} mode)..."
-  # shellcheck disable=SC2086  # intentional word-splitting of challenge args
-  if ! certbot certonly $CERTBOT_CHALLENGE_ARGS \
-      --non-interactive \
-      --agree-tos \
-      --email "admin@${DOMAIN}" \
-      -d "${DOMAIN}"; then
-    echo "  ERROR: certbot failed to obtain certificate for ${DOMAIN}" >&2
-    echo "  Common causes: domain not pointing to this instance, port 80 blocked, Let's Encrypt rate limit" >&2
-    echo "  Falling back to self-signed certificate" >&2
-    # OpenSSL/RFC 6125: IP literals require `IP:` SAN, not `DNS:`. Without
-    # this, verify fails when clients connect by IP.
-    if printf '%s' "$DOMAIN" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-      SAN="IP:${DOMAIN}"
-    else
-      SAN="DNS:${DOMAIN}"
-    fi
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-      -keyout "$TLS_CERT_DIR/tls.key" -out "$TLS_CERT_DIR/tls.crt" \
-      -subj "/CN=${DOMAIN}" -addext "subjectAltName=${SAN}"
-  else
-    # Symlink to standard location
-    ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "$TLS_CERT_DIR/tls.crt"
-    ln -sf "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" "$TLS_CERT_DIR/tls.key"
-    echo "  Certificate obtained: /etc/letsencrypt/live/${DOMAIN}/"
-  fi
-
-  # Setup auto-renewal cron
-  cat > /etc/cron.d/certbot-renew << CRON
-# Certbot auto-renewal - runs daily at 3am
-0 3 * * * root certbot renew --quiet --deploy-hook "${DEPLOY_DIR}/bin/update-tls-secret.sh"
-CRON
-  echo "  Auto-renewal cron configured"
-else
-  # --- Self-signed certificate (no domain) ---
-  # CN=localhost + matching SAN: modern TLS clients (OpenSSL 3+, Go stdlib)
-  # reject certs without a SAN entry that matches the connection target.
-  # localhost is the only meaningful target when no domain is configured.
-  echo "  No domain provided — generating self-signed certificate..."
-  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout "$TLS_CERT_DIR/tls.key" \
-    -out "$TLS_CERT_DIR/tls.crt" \
-    -subj "/CN=localhost/O=pipeline-builder" \
-    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-  echo "  Self-signed certificate generated at ${TLS_CERT_DIR}/"
-fi
+echo "Phase 5: TLS terminated at the ALB (ACM) — no on-instance cert"
 
 # =============================================================================
 # Phase 6: Create minikube user
@@ -307,24 +238,7 @@ mkdir -p "$PIPELINE_DATA_DIR"/plugins-data/{builds,uploads}
 chown -R 1000:1000 "$PIPELINE_DATA_DIR/plugins-data"
 echo "  Plugin working dirs: $PIPELINE_DATA_DIR/plugins-data/{builds,uploads}"
 
-# Allow minikube user to read TLS certs
-if [ -n "$DOMAIN" ]; then
-  LE_DIR="/etc/letsencrypt/live/${DOMAIN}"
-  setfacl -R -m u:minikube:rx /etc/letsencrypt/live/ /etc/letsencrypt/archive/ 2>/dev/null || {
-    # Copy certs to a separate dir rather than making LE privkeys world-readable
-    cp "$LE_DIR/fullchain.pem" "$TLS_CERT_DIR/fullchain.pem"
-    cp "$LE_DIR/privkey.pem" "$TLS_CERT_DIR/privkey.pem"
-    chown minikube:minikube "$TLS_CERT_DIR/fullchain.pem" "$TLS_CERT_DIR/privkey.pem"
-  }
-fi
-# Set cert files readable, private keys restricted. `-type f` skips the LE
-# symlinks (tls.crt/tls.key → /etc/letsencrypt/...) so chmod doesn't follow
-# them into the archive; the targets are handled by the setfacl/copy above.
-# `\( ... \)` groups the -o predicates so the ! filters bind correctly, and
-# `-exec +` avoids the find|xargs word-splitting (SC2038).
-find "$TLS_CERT_DIR" -type f \( -name '*.key' -o -name 'privkey.pem' \) -exec chmod 640 {} +
-find "$TLS_CERT_DIR" -type f \( -name '*.crt' -o -name '*.pem' \) ! -name 'privkey.pem' ! -name '*.key' -exec chmod 644 {} +
-chown -R root:minikube "$TLS_CERT_DIR"
+# (No gateway TLS material on the instance — the ALB terminates TLS with ACM.)
 
 # =============================================================================
 # Phase 7: Generate .env from template
@@ -346,15 +260,9 @@ ME_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 PGADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
 REGISTRY_TOKEN=$(openssl rand -base64 24 | tr -d '=+/')
 
-# Replace domain placeholder (use Elastic IP metadata if no domain)
-if [ -n "$DOMAIN" ]; then
-  sed -i "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" .env
-else
-  # Fetch Elastic IP from instance metadata (IMDSv2)
-  IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
-  PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4 || echo "localhost")
-  sed -i "s|YOUR_DOMAIN_HERE|${PUBLIC_IP}|g" .env
-fi
+# Replace domain placeholder. A domain is always set now (the ALB needs an
+# ACM cert for it), so there's no IP fallback.
+sed -i "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" .env
 
 # Replace CHANGE_ME secrets
 sed -i "s|JWT_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|JWT_SECRET=${JWT_SECRET}|" .env
@@ -423,12 +331,7 @@ echo ""
 echo "========================================"
 echo "Bootstrap Complete"
 echo "========================================"
-if [ -n "$DOMAIN" ]; then
-  echo "  Application URL: https://${DOMAIN}"
-else
-  echo "  Application URL: https://${PUBLIC_IP:-<elastic-ip>}"
-  echo "  (self-signed TLS — browser will show certificate warning)"
-fi
-echo "  SSH: ssh ec2-user@<elastic-ip>"
+echo "  Application URL: https://${DOMAIN}  (via the ALB; TLS at the ALB)"
+echo "  Access: aws ssm start-session --target <this-instance-id>"
 echo "  Logs: /var/log/user-data.log"
 echo "  Pods: sudo -u minikube kubectl get pods -n pipeline-builder"

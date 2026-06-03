@@ -30,7 +30,6 @@ spec:
     - Ingress
   ingress:
     - ports:
-        - port: 8443
         - port: 8080
 
 ---
@@ -407,7 +406,7 @@ spec:
       ports:
         - port: 3000
         - port: 3100
-        - port: 8443
+        - port: 8080
         - port: 9090
 
 ---

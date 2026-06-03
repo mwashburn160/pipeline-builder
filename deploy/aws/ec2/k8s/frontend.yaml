@@ -71,10 +71,10 @@ spec:
             - configMapRef:
                 name: app-env
           env:
+            # nginx now serves plain HTTP on 8080 (TLS is terminated at the ALB),
+            # so server-side calls go over http — no TLS-reject override needed.
             - name: PLATFORM_BASE_URL
-              value: "https://nginx:8443"
-            - name: NODE_TLS_REJECT_UNAUTHORIZED
-              value: "0"
+              value: "http://nginx:8080"
           volumeMounts:
             - name: next-cache
               mountPath: /app/.next/cache

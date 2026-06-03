@@ -2,7 +2,7 @@
 
 Two deployment options: **EC2** (single instance, Kubernetes) or **Fargate** (serverless containers).
 
-Both deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced via the native `/dashboard/observability` page), and admin tools. TLS via Let's Encrypt (custom domain) or self-signed (IP-only).
+Both deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced via the native `/dashboard/observability` page), and admin tools. Both front the workload with an **ALB that terminates TLS using an ACM cert** (DNS-validated); the compute is always in private subnets. A domain + public Route 53 zone is required.
 
 Observability is the native `/dashboard/observability` page across all deployments — there is no Grafana. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public `org_id='system'` rows, so they appear automatically for any logged-in org and open at `/dashboard/observability/<id>`. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
 
@@ -23,7 +23,8 @@ Observability is the native `/dashboard/observability` page across all deploymen
 |--|-----|---------|
 | Runtime | Minikube on EC2 | ECS Fargate |
 | Infra | 1 CloudFormation stack | 6 CloudFormation stacks |
-| TLS | Let's Encrypt or self-signed | Let's Encrypt + ACM |
+| TLS | ACM cert at the ALB | ACM cert at the ALB |
+| Public surface | ALB only (instance private) | ALB only (tasks private) |
 | Storage | hostPath PVCs on EBS | EFS access points |
 | Scaling | Vertical (instance resize) | Horizontal (task count) |
 | Cost | ~$30-80/mo | ~$100-300/mo |
@@ -43,30 +44,33 @@ Single hardened EC2 instance running Minikube with all services.
 
 ### Deploy
 
-**Recommended — `bin/deploy.sh`** (mirrors Fargate: one command, and in `private` mode it auto-deploys `private-prereqs.yaml` for you using the base stack's outputs — no manual follow-up step):
+**Recommended — `bin/deploy.sh`** (mirrors Fargate: one command. In `private` mode the template itself also creates the VPC endpoints + private zone — no separate stack, no follow-up step):
+
+An **ALB fronts the always-private instance** and terminates TLS with an **ACM cert** the template requests + DNS-validates against your hosted zone — so `--domain` + `--hosted-zone-id` are **required in both modes**.
 
 ```bash
 cd deploy/aws/ec2
 
-# private (default) — inside-AWS-only; requires a public domain + its Route53 zone
+# private (default) — internal-scheme ALB, inside-AWS-only
 bash bin/deploy.sh \
   --key-pair my-keypair \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
   --ghcr-token ghp_xxxxxxxxxxxx
 
-# public — internet-facing / IP-only (self-signed TLS if no domain)
-bash bin/deploy.sh --deploy-mode public --key-pair my-keypair --ghcr-token ghp_xxxxxxxxxxxx
+# public — internet-facing ALB (instance still private behind it)
+bash bin/deploy.sh --deploy-mode public \
+  --key-pair my-keypair --domain pipeline.example.com \
+  --hosted-zone-id Z1234567890 --ghcr-token ghp_xxxxxxxxxxxx
 ```
 
-`deploy.sh` runs from your machine with your credentials, so the instance role needs no CloudFormation permissions. In `private` mode it stands up the base stack, reads its outputs, then deploys `${STACK_NAME}-private` (`GatewayType=ip` → A-record to the instance private IP). It refuses to start an `private` deploy without `--domain`/`--hosted-zone-id`, so you never get a silent self-signed-cert fallback.
+`deploy.sh` runs from your machine with your credentials, so the instance role needs no CloudFormation permissions. In `private` mode the single stack also creates the VPC endpoints + the private-zone alias to the internal ALB (gated on `DeployMode=private`). It refuses to start without `--domain`/`--hosted-zone-id` (the ACM cert can't validate otherwise).
 
-**Manual alternative (raw CloudFormation).** Deploys only the base stack — in `private` mode you must then deploy `private-prereqs.yaml` yourself (see [private mode prerequisites](#deployment-mode-deploy_mode) below):
+**Manual alternative (raw CloudFormation).** Deploys the same single stack — nothing to follow up with. The ACM cert DNS-validates during stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`:
 
 ```bash
 cd deploy/aws/ec2
 
-# With custom domain
 aws cloudformation deploy \
   --stack-name pipeline-builder \
   --template-file template.yaml \
@@ -77,16 +81,7 @@ aws cloudformation deploy \
     KeyPairName=my-keypair \
     GhcrToken=ghp_xxxxxxxxxxxx \
   --capabilities CAPABILITY_IAM
-
-# Without domain (public mode, self-signed TLS)
-aws cloudformation deploy \
-  --stack-name pipeline-builder \
-  --template-file template.yaml \
-  --parameter-overrides \
-    DeployMode=public \
-    KeyPairName=my-keypair \
-    GhcrToken=ghp_xxxxxxxxxxxx \
-  --capabilities CAPABILITY_IAM
+# (DeployMode=public for an internet-facing ALB; domain + zone still required.)
 ```
 
 Get the URL:
@@ -100,13 +95,12 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `KeyPairName` | Yes | — | EC2 key pair for SSH |
+| `KeyPairName` | Yes | — | EC2 key pair (serial-console/break-glass; routine access is via SSM) |
 | `GhcrToken` | Yes | — | GHCR token for pulling images |
-| `DomainName` | No | — | FQDN for Route 53 + Let's Encrypt |
-| `HostedZoneId` | If domain set | — | Route 53 hosted zone ID |
+| `DomainName` | **Yes** | — | FQDN — ACM cert + Route 53 alias to the ALB |
+| `HostedZoneId` | **Yes** | — | Public Route 53 zone ID (ACM DNS validation + alias) |
 | `InstanceType` | No | `t3.2xlarge` | EC2 instance type (8 vCPU / 32 GiB; full stack fits with the default ResourceQuota) |
 | `GhcrUser` | No | `mwashburn160` | GitHub username for GHCR |
-| `SshCidr` | No | `0.0.0.0/0` | CIDR for SSH access |
 | `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |
 | `DataVolumeSize` | No | `200` | Data volume size in GiB (Docker, plugins, registry, databases). Increase to 500 for prebuilt. |
 | `GitRepo` | No | *(this repo)* | Git repository URL |
@@ -194,28 +188,27 @@ aws cloudformation deploy \
 
 ### What Happens
 
-1. CloudFormation creates VPC, subnet, security group, Elastic IP, EC2 instance, and optional Route 53 record
+1. CloudFormation creates the VPC (2 AZs: public + private subnets), NAT gateway, ALB + ACM cert, security groups, the **private** EC2 instance, and the Route 53 alias to the ALB
 2. EC2 UserData clones the repo and runs `bootstrap.sh`, which:
    - Updates OS, installs fail2ban, disables SSH password auth
    - Installs Docker, Minikube, kubectl
    - Generates `.env` with random secrets (JWT keys, DB passwords)
-   - Provisions TLS (Let's Encrypt or self-signed)
    - Starts Minikube, deploys all K8s manifests
-   - Configures iptables DNAT (443 → 30443, 80 → 30080)
+   - Sets one iptables bridge: instance `:30080` → Minikube NodePort `30080` (the ALB target). TLS is terminated at the ALB (ACM) — no cert on the box.
 
 ### Post-Deploy
 
+The instance is private (no public IP); use **SSM**:
+
 ```bash
 # Watch bootstrap progress
-ssh -i my-keypair.pem ec2-user@<ip> 'tail -f /var/log/user-data.log'
+aws ssm start-session --target <instance-id>   # then: sudo tail -f /var/log/user-data.log
 
 # Check pods
-ssh -i my-keypair.pem ec2-user@<ip> \
-  'sudo -u minikube kubectl --context=pipeline-builder get pods -n pipeline-builder'
-
-# SSM (no SSH key needed)
-aws ssm start-session --target <instance-id>
+aws ssm start-session --target <instance-id>   # then: sudo -u minikube kubectl get pods -n pipeline-builder
 ```
+
+The ALB target reports **unhealthy (503)** until the instance finishes bootstrapping Minikube + services — expected; it self-heals.
 
 ### Scripts
 
@@ -223,10 +216,10 @@ All in `deploy/aws/ec2/bin/`. On the instance: `/opt/pipeline-builder/deploy/aws
 
 | Script | Purpose | Run as |
 |--------|---------|--------|
+| `deploy.sh` | Deploy the stack (private mode folds endpoints + private zone into it) — from your machine | operator |
 | `bootstrap.sh` | Full EC2 setup (runs automatically via UserData) | root |
-| `startup.sh` | Start Minikube + deploy K8s manifests | root (sudo) |
+| `startup.sh` | Start Minikube + deploy K8s manifests + the ALB-target iptables bridge | root (sudo) |
 | `shutdown.sh` | Stop Minikube + remove iptables rules | root (sudo) |
-| `update-tls-secret.sh` | Certbot hook to update K8s TLS secret | root |
 
 ```bash
 # Start (after bootstrap or reboot)
@@ -241,48 +234,34 @@ sudo -u minikube kubectl get pods -n pipeline-builder
 
 ### Security
 
-- IMDSv2 required (token-based metadata)
-- Encrypted gp3 EBS volume
-- fail2ban for SSH brute-force protection
-- SSH password auth disabled
-- Automatic security updates (dnf-automatic)
-- Security group: SSH CIDR-locked, only 80/443 public
+- **Instance is always private** — no public IP; the internet-facing ALB is the only public surface
+- **Instance SG: only the ALB SG → `30080`** — no `0.0.0.0/0`, no public SSH (port 22 closed; access via **SSM Session Manager**)
+- **TLS terminated at the ALB with an ACM cert** (no private key on the box); HTTPS-only (TLS1.2+), `80`→`443` redirect at the ALB
+- IMDSv2 required (token-based metadata); encrypted gp3 EBS; automatic security updates (dnf-automatic)
 
 ### TLS
 
-- **With domain:** Let's Encrypt auto-renews daily (cron at 3am)
-- **Without domain:** Self-signed cert at `/etc/pipeline-builder/tls/`
+TLS is terminated at the **ALB** with an **ACM certificate** the template requests and DNS-validates against `HostedZoneId`. ACM auto-renews it; there is no certbot/Let's Encrypt and no cert on the instance. nginx serves plain HTTP behind the ALB.
 
 ### Deployment mode (`DEPLOY_MODE`)
 
-`DEPLOY_MODE` **defaults to `private`** (inside-AWS-only). Set it in `.env` **before** `bootstrap.sh`; export `DEPLOY_MODE=public` for the public-ingress posture. Both modes use a **publicly-trusted Let's Encrypt cert** (required so AWS CodeBuild can pull plugin images over the gateway).
+`DEPLOY_MODE` **defaults to `private`** and flips **only the ALB scheme** — the instance is always private and TLS is always ACM-at-the-ALB. Pass `--deploy-mode public` (or `DEPLOY_MODE=public`) for the internet-facing posture. Both modes require `--domain` + `--hosted-zone-id`.
 
 | | `private` (inside-AWS-only, **default**) | `public` |
 |---|---|---|
-| Ingress | No public ingress; VPC-only | Public IP, SG opens 80/443 |
-| Let's Encrypt | DNS-01 (`--dns-route53`; cert still public-trusted) | HTTP-01 (`--standalone`, needs public :80) |
-| DNS | Route53 **private** zone → gateway private IP | Public Route53 A → public IP |
-| CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS`/`SECURITY_GROUP_IDS`) | AWS-managed network, reaches gateway over internet |
+| ALB | internal scheme, private subnets | internet-facing, public subnets |
+| Instance | private subnet, no public IP | private subnet, no public IP |
+| DNS | Route53 **private** zone alias → internal ALB | Public Route53 alias → ALB |
+| CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS`/`SECURITY_GROUP_IDS`) | AWS-managed network, reaches the ALB over internet |
 | Plugin pull | `https://<domain>/v2/` (resolves private) | `https://<domain>/v2/` (public) |
 
-> Because `private` is the default, a vanilla `bootstrap.sh` run expects the prerequisites below up front (ACM/DNS-01 cert, Route53 **private** zone, VPC endpoints). Set `DEPLOY_MODE=public` for the zero-prereq path.
+Both share the registry `/v2/` route + `registry-auth.js` realm rewrite + `IMAGE_REGISTRY_PULL_HOST` — only the ALB scheme / DNS resolution differ.
 
-Both share the registry `/v2/` route + `registry-auth.js` realm rewrite + `IMAGE_REGISTRY_PULL_HOST` — only resolution/networking differ.
+**`private` mode prerequisites** — the VPC interface endpoints and the Route53 private zone (aliasing the domain to the internal ALB) are created by the **base template itself**, gated on `DeployMode=private`. There is **no separate `private-prereqs.yaml` stack** — the ALB's DNS is known in-stack, so everything deploys in one shot (whether via `bin/deploy.sh` or raw `aws cloudformation deploy`). The ALB SG already admits 443 from the VPC, so no extra ingress rule is needed.
 
-**`private` mode prerequisites** — the VPC endpoints, private hosted zone, and gateway-ingress rule are provisioned by **`deploy/aws/private-prereqs.yaml`** (shared with Fargate). **`bin/deploy.sh` deploys it automatically** (just like Fargate) — it reads the base stack's outputs and applies it with `GatewayType=ip`, so you don't run anything by hand. The instance role's scoped Route53 permissions for the DNS-01 cert are also attached automatically by `template.yaml` whenever `DeployMode=private`.
+After it's up, set `PIPELINE_VPC_ID`/`PIPELINE_SUBNET_IDS` in `.env` (from the stack's `VpcId`/`SubnetIds` outputs) so the synthesized CodeBuild attaches to the VPC, and `init-platform.sh` will pass its preflight. Still operator-supplied: build-dependency egress (NAT or internal mirrors) + a source path.
 
-If you deployed the base stack with raw CloudFormation instead of `deploy.sh`, apply the prereqs yourself with the stack's outputs:
-```bash
-aws cloudformation deploy --stack-name pipeline-builder-private \
-  --template-file deploy/aws/private-prereqs.yaml \
-  --capabilities CAPABILITY_IAM \
-  --parameter-overrides \
-    StackPrefix=pipeline-builder \
-    VpcId=<VpcId> VpcCidr=<VpcCidr> SubnetIds=<SubnetId> \
-    DomainName=<DOMAIN> GatewaySecurityGroupId=<SecurityGroupId> \
-    GatewayType=ip GatewayPrivateIp=<InstancePrivateIp>
-```
-(`VpcId`/`VpcCidr`/`SubnetId`/`SecurityGroupId`/`InstancePrivateIp` are EC2-stack outputs.) Either way, then set `PIPELINE_VPC_ID`/`PIPELINE_SUBNET_IDS` in `.env` so the synthesized CodeBuild attaches to the VPC, and `init-platform.sh` will pass its preflight. Still operator-supplied: build-dependency egress (NAT or internal mirrors) + a source path.
+> Fargate is the same: its private-mode VPC endpoints live in `01-foundation.yaml` (gated on `DeployMode=private`). It needs no private zone because it uses the internal ALB's own DNS name, which resolves natively in-VPC.
 
 ### Teardown
 
@@ -300,43 +279,39 @@ Serverless containers on ECS Fargate. 6 CloudFormation stacks deployed in depend
 ### Prerequisites
 
 - AWS CLI configured
-- Route 53 hosted zone (required — no IP-only mode)
-- certbot + certbot-dns-route53 installed locally
-  - macOS: `brew install certbot && pip3 install certbot-dns-route53`
-  - Linux: `pip3 install certbot certbot-dns-route53`
+- A registered domain + its **public Route 53 hosted zone** (required — the foundation requests a DNS-validated ACM cert against it; no IP-only mode)
 
 ### Deploy
+
+The foundation stack requests a **DNS-validated ACM cert** for `--domain` and terminates TLS at the ALB — no certbot, no self-signed cert. `--domain` + `--hosted-zone-id` are required in both modes.
 
 ```bash
 cd deploy/aws/fargate
 
+# private (default) — internal ALB, inside-AWS-only
 bash bin/deploy.sh \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
   --ghcr-token ghp_xxxxxxxxxxxx
+
+# public — internet-facing ALB
+bash bin/deploy.sh --deploy-mode public \
+  --domain pipeline.example.com --hosted-zone-id Z1234567890 --ghcr-token ghp_xxxxxxxxxxxx
 ```
 
-With an existing ACM certificate:
-
-```bash
-bash bin/deploy.sh \
-  --domain pipeline.example.com \
-  --hosted-zone-id Z1234567890 \
-  --ghcr-token ghp_xxxxxxxxxxxx \
-  --certificate-arn arn:aws:acm:us-east-1:123456789012:certificate/abc-123
-```
+The ACM cert DNS-validates during foundation-stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`.
 
 ### Parameters
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `--domain` | Yes | — | FQDN for Route 53 + Let's Encrypt |
-| `--hosted-zone-id` | Yes | — | Route 53 hosted zone ID |
+| `--domain` | **Yes** | — | FQDN — ACM cert + Route 53 alias to the ALB |
+| `--hosted-zone-id` | **Yes** | — | Public Route 53 zone ID (ACM DNS validation + alias) |
 | `--ghcr-token` | Yes | — | GHCR token for pulling images |
+| `--deploy-mode` | No | `private` | `public` (internet-facing ALB) or `private` (internal) |
 | `--ghcr-user` | No | `mwashburn160` | GitHub username |
 | `--region` | No | `us-east-1` | AWS region |
 | `--stack-prefix` | No | `pb` | CloudFormation stack name prefix |
-| `--certificate-arn` | No | *(auto-provisioned)* | Existing ACM certificate ARN |
 
 ### Deployment mode (`DEPLOY_MODE`)
 
@@ -349,7 +324,7 @@ bash bin/deploy.sh \
 | CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS` wired from the foundation VPC) | AWS-managed network, reaches ALB over internet |
 | Plugin pull | `https://<domain>/v2/` (private) | `https://<domain>/v2/` (public) |
 
-Both require a **publicly-trusted, ACM-*issued*** cert (`--certificate-arn`) — the default self-signed cert from `init-cert.sh` does **not** work for CodeBuild plugin pulls. Because `private` is the default, supply the ACM-issued cert and a Route53 **private** zone up front, or pass `DEPLOY_MODE=public` for the simpler internet-facing path. In `private` mode `deploy.sh` **automatically deploys `deploy/aws/private-prereqs.yaml`** after the foundation stack — provisioning the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR), the Route53 **private** hosted zone (alias → internal ALB), and the ALB 443-ingress-from-VPC rule. Still operator-supplied: egress (NAT/mirrors) for build deps. Mirrors the EC2 `DEPLOY_MODE` — both auto-deploy `private-prereqs.yaml` from their `bin/deploy.sh`; they differ only in cert source (EC2 uses Let's Encrypt DNS-01, Fargate uses an ACM-issued cert) and gateway type (`ip` for EC2's instance, `alb` for Fargate's load balancer).
+TLS is a **publicly-trusted, DNS-validated ACM cert** the `01-foundation.yaml` stack requests for `--domain` against `--hosted-zone-id` — publicly trusted, so CodeBuild's plugin-image pulls verify. In `private` mode the same stack also creates the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR) **and** a Route53 **private** zone aliasing the domain to the internal ALB (so VPC-attached CodeBuild resolves it), all gated on `DeployMode=private` — there's no separate prereqs stack. Still operator-supplied: egress (NAT/mirrors) for build deps. EC2 and Fargate are now **structurally identical**: both require a registered domain, both request a DNS-validated ACM cert in-stack, both alias the domain to the ALB (public alias / private zone), and both work for CodeBuild plugin pulls in either mode.
 
 ### Stacks
 
@@ -474,9 +449,8 @@ All in `deploy/aws/fargate/bin/`. Run from your local machine.
 
 | Script | Purpose |
 |--------|---------|
-| `deploy.sh` | Full deploy: secrets → cert → 6 stacks → config upload |
+| `deploy.sh` | Full deploy: secrets → 6 stacks (foundation requests the ACM cert) → config upload |
 | `teardown.sh` | Delete all stacks in reverse order |
-| `init-cert.sh` | Let's Encrypt cert via Route 53 DNS challenge → ACM |
 | `init-secrets.sh` | Generate random secrets → Secrets Manager |
 
 ### Monitoring
@@ -492,11 +466,7 @@ aws logs tail /pipeline-builder/nginx --follow --region us-east-1
 
 ### TLS Renewal
 
-Certificates expire every 90 days. Re-run to renew (same ACM ARN is reused):
-
-```bash
-bash bin/init-cert.sh --domain pipeline.example.com
-```
+The ACM cert is **DNS-validated and auto-renews** — nothing to do (ACM rotates it as long as the validation CNAME stays in the hosted zone).
 
 ### Teardown
 
@@ -762,10 +732,10 @@ deploy/aws/ec2/
 ├── template.yaml          # CloudFormation stack
 ├── .env.example           # Reference config
 ├── bin/
-│   ├── bootstrap.sh       # EC2 setup + hardening
-│   ├── startup.sh         # Minikube + K8s deploy
-│   ├── shutdown.sh        # Teardown
-│   └── update-tls-secret.sh
+│   ├── deploy.sh         # Deploy the stack (from your machine)
+│   ├── bootstrap.sh      # EC2 setup + hardening
+│   ├── startup.sh        # Minikube + K8s deploy + ALB-target iptables bridge
+│   └── shutdown.sh       # Teardown
 ├── k8s/                   # 26 Kubernetes manifests
 │   └── kustomization.yaml # Kustomize entry point
 ├── nginx/
@@ -785,7 +755,6 @@ deploy/aws/fargate/
 ├── bin/
 │   ├── deploy.sh          # Full deployment orchestrator
 │   ├── teardown.sh        # Delete all stacks
-│   ├── init-cert.sh       # Let's Encrypt → ACM
 │   └── init-secrets.sh    # Generate secrets
 ├── stacks/
 │   ├── 01-foundation.yaml # VPC, ALB, EFS, S3, Cloud Map
@@ -840,8 +809,8 @@ Check CloudWatch logs: `aws logs tail /pipeline-builder/<service> --follow`
 **ALB health checks failing (Fargate):**
 Verify nginx is running. Check target group health and port 8080 accessibility.
 
-**Certificate errors:**
-Ensure certbot has Route 53 permissions. Check ACM status: `aws acm describe-certificate --certificate-arn <arn>`
+**Certificate / stack hangs in CREATE_IN_PROGRESS:**
+The ACM cert DNS-validates during stack creation (a few minutes). If it never issues, the `--hosted-zone-id` is wrong or not authoritative for `--domain`. Check ACM status: `aws acm describe-certificate --certificate-arn <arn>` (look for `DomainValidationOptions[].ValidationStatus`).
 
 **No reporting data after deploy:**
 1. Verify `pipeline-manager store-token` was run
