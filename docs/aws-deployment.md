@@ -4,7 +4,7 @@ Two deployment options: **EC2** (single instance, Kubernetes) or **Fargate** (se
 
 Both deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced via the native `/dashboard/observability` page), and admin tools. Both front the workload with an **ALB that terminates TLS using an ACM cert** (DNS-validated); the compute is always in private subnets. A domain + public Route 53 zone is required.
 
-Observability is the native `/dashboard/observability` page across all deployments — there is no Grafana. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public `org_id='system'` rows, so they appear automatically for any logged-in org and open at `/dashboard/observability/<id>`. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
+Observability is the native `/dashboard/observability` page across all deployments. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public `org_id='system'` rows, so they appear automatically for any logged-in org and open at `/dashboard/observability/<id>`. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
 
 **Related docs:** [Environment Variables](environment-variables.md) | [API Reference](api-reference.md) | [Plugin Catalog](plugins/README.md)
 
@@ -336,7 +336,7 @@ Deployed in order. Each exports values consumed by downstream stacks.
 | **02-cluster** | ECS Cluster, IAM roles, security groups, log groups |
 | **03-databases** | PostgreSQL, MongoDB, Redis |
 | **04-services** | Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Reporting, Compliance, Frontend, plus the plugin image-registry service |
-| **05-observability** | Prometheus, Loki, Alertmanager (visualized via the native `/dashboard/observability` page — no Grafana) |
+| **05-observability** | Prometheus, Loki, Alertmanager (visualized via the native `/dashboard/observability` page) |
 | **06-admin** | Registry, PgAdmin, Mongo Express, Registry UI |
 
 ### Storage Requirements
