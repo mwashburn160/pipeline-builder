@@ -10,7 +10,9 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 ## Table of Contents
 
+- [Deployment modes](#deployment-modes-public-vs-private) -- Public vs private, and what each changes
 - [Public deployment (quickstart)](#public-deployment-quickstart) -- Internet-facing install, EC2 or Fargate
+- [Private deployment (quickstart)](#private-deployment-quickstart) -- Inside-AWS-only install, EC2 or Fargate
 - [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$30-80/mo)
 - [Fargate](#fargate) -- Serverless ECS containers (production, ~$100-300/mo)
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
@@ -33,9 +35,28 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 ---
 
+## Deployment modes (public vs private)
+
+Either target (EC2 or Fargate) deploys in one of two modes. **Both** put the compute in **private subnets** and terminate TLS at an ALB with a publicly-trusted, **DNS-validated ACM cert** — so both **require `--domain` + `--hosted-zone-id`** (the public Route 53 zone is where ACM validates the cert). The mode flips only the **ALB scheme** and the **DNS record**:
+
+| | `private` (inside-AWS-only, **default**) | `public` |
+|---|---|---|
+| ALB scheme | internal, private subnets | internet-facing, public subnets |
+| Compute (instance / tasks) | private subnet, no public IP | private subnet, no public IP |
+| DNS | Route 53 **private** zone alias → internal ALB | public Route 53 alias → ALB |
+| Reachable from | inside the VPC (peered / VPN / Direct Connect) | the public internet |
+| CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID` / `SUBNET_IDS` / `SECURITY_GROUP_IDS`) | AWS-managed network, reaches the ALB over the internet |
+| Plugin pull | `https://<domain>/v2/` (resolves in-VPC) | `https://<domain>/v2/` (public) |
+
+In **`private`** mode the deploy creates everything in one shot — the same stack (EC2: the single stack; Fargate: `01-foundation`) **also** provisions the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR) **and** the Route 53 private-zone alias to the internal ALB, gated on `DeployMode=private`. **There is no separate prereqs stack.** EC2 and Fargate are structurally identical here: both request a DNS-validated ACM cert in-stack and alias the domain to the ALB (public alias or private zone), so CodeBuild plugin pulls work in either mode. You still supply build-dependency egress (NAT / internal mirrors).
+
+Use the matching quickstart below: **[Public](#public-deployment-quickstart)** or **[Private](#private-deployment-quickstart)**.
+
+---
+
 ## Public deployment (quickstart)
 
-A **public** deployment puts an **internet-facing ALB** in front of the stack so the dashboard, API, and plugin registry are reachable from the internet over HTTPS. The compute (the EC2 instance / Fargate tasks) **stays in private subnets** either way — the ALB is the only public surface, and it terminates TLS with a publicly-trusted, DNS-validated **ACM cert**. The only difference from `private` mode is the ALB scheme (internet-facing vs internal) and the DNS record (public Route 53 alias vs private zone).
+A **public** deployment uses an **internet-facing ALB** so the dashboard, API, and plugin registry are reachable from the internet over HTTPS (the compute still stays private behind it). See [Deployment modes](#deployment-modes-public-vs-private) for the full comparison.
 
 ### Prerequisites (both targets)
 
@@ -67,7 +88,7 @@ bash bin/deploy.sh --deploy-mode public \
   --ghcr-token ghp_xxxxxxxxxxxx
 ```
 
-The ACM cert DNS-validates **during** stack creation, so expect a few minutes in `CREATE_IN_PROGRESS` while CloudFormation waits for the cert to reach `ISSUED`. (`deploy.sh` runs from your machine with your credentials — see the per-target [EC2](#deploy) / [Fargate](#deploy-1) Deploy sections for the manual raw-CloudFormation equivalent.)
+The ACM cert DNS-validates **during** stack creation, so expect a few minutes in `CREATE_IN_PROGRESS` while CloudFormation waits for the cert to reach `ISSUED`. (`deploy.sh` runs from your machine with your credentials. The EC2 [Deploy](#deploy) section also shows the raw-CloudFormation equivalent.)
 
 ### 2. Get the URL
 
@@ -91,6 +112,58 @@ Public install is otherwise identical to private — register the admin user and
 
 ---
 
+## Private deployment (quickstart)
+
+A **private** deployment uses an **internal-scheme ALB** — reachable only from inside your AWS network (the VPC, peered VPCs, or via VPN / Direct Connect), never the public internet. **This is the default mode.** See [Deployment modes](#deployment-modes-public-vs-private) for the full comparison.
+
+### Prerequisites (both targets)
+
+Identical to the [Public quickstart](#prerequisites-both-targets) above: AWS CLI, a registered **domain + public Route 53 hosted zone**, a GitHub **PAT** (`--ghcr-token` + `--ghcr-user`), and — EC2 only — an EC2 **key pair**.
+
+> The **public** Route 53 hosted zone is still required even in private mode: ACM validates the cert via a public DNS record. The *private* hosted zone (for in-VPC resolution of your domain) is created automatically by the stack — you don't supply it.
+
+### 1. Deploy in private mode
+
+`private` is the default, so `--deploy-mode private` is optional (shown for clarity). Same flags as public, minus the public exposure.
+
+```bash
+# EC2 — single Minikube instance behind an internal ALB
+cd deploy/aws/ec2
+bash bin/deploy.sh --deploy-mode private \
+  --key-pair my-keypair \
+  --domain pipeline.example.com \
+  --hosted-zone-id Z1234567890 \
+  --ghcr-user my-github-username \
+  --ghcr-token ghp_xxxxxxxxxxxx
+
+# Fargate — serverless tasks behind an internal ALB
+cd deploy/aws/fargate
+bash bin/deploy.sh --deploy-mode private \
+  --domain pipeline.example.com \
+  --hosted-zone-id Z1234567890 \
+  --ghcr-user my-github-username \
+  --ghcr-token ghp_xxxxxxxxxxxx
+```
+
+In private mode the same stack (EC2: the single stack; Fargate: `01-foundation`) **also** creates the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR) **and** the Route 53 private-zone alias to the internal ALB — gated on `DeployMode=private`, with **no separate prereqs stack**. The ACM cert still DNS-validates during stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`.
+
+### 2. Get the URL
+
+The URL is the same `https://<your-domain>`, but it **resolves only from inside the VPC** (via the private hosted zone) — it will not resolve from your laptop or the public internet. Read it back from the stack outputs exactly as in the [public step 2](#2-get-the-url) (`ApplicationURL` for EC2, `DomainName` for `pb-foundation` on Fargate).
+
+### 3. Initialize the platform
+
+Because the URL only resolves in-VPC, run the post-deploy init **from inside the network**:
+
+- **EC2** — SSM into the instance (`aws ssm start-session --target <instance-id>`) and run `init-platform.sh ec2` there; it's already in-VPC.
+- **Fargate** — run from a VPC-attached host (bastion, ECS Exec, or a VPC-connected runner) so `https://<your-domain>` resolves.
+
+Then load plugins per [Post-Deploy Steps](#post-deploy-steps).
+
+> **Note:** private mode also wires CodeBuild into the VPC (`PIPELINE_VPC_ID` / `SUBNET_IDS` from the foundation VPC) so it can reach the internal ALB and pull plugin images over `https://<domain>/v2/`. You still supply egress (NAT / package mirrors) for build dependencies. See [Deployment mode (`DEPLOY_MODE`)](#deployment-mode-deploy_mode) for the full comparison.
+
+---
+
 ## EC2
 
 Single hardened EC2 instance running Minikube with all services.
@@ -103,27 +176,7 @@ Single hardened EC2 instance running Minikube with all services.
 
 ### Deploy
 
-**Recommended — `bin/deploy.sh`** (mirrors Fargate: one command. In `private` mode the template itself also creates the VPC endpoints + private zone — no separate stack, no follow-up step):
-
-An **ALB fronts the always-private instance** and terminates TLS with an **ACM cert** the template requests + DNS-validates against your hosted zone — so `--domain` + `--hosted-zone-id` are **required in both modes**.
-
-```bash
-cd deploy/aws/ec2
-
-# private (default) — internal-scheme ALB, inside-AWS-only
-bash bin/deploy.sh \
-  --key-pair my-keypair \
-  --domain pipeline.example.com \
-  --hosted-zone-id Z1234567890 \
-  --ghcr-token ghp_xxxxxxxxxxxx
-
-# public — internet-facing ALB (instance still private behind it)
-bash bin/deploy.sh --deploy-mode public \
-  --key-pair my-keypair --domain pipeline.example.com \
-  --hosted-zone-id Z1234567890 --ghcr-token ghp_xxxxxxxxxxxx
-```
-
-`deploy.sh` runs from your machine with your credentials, so the instance role needs no CloudFormation permissions. In `private` mode the single stack also creates the VPC endpoints + the private-zone alias to the internal ALB (gated on `DeployMode=private`). It refuses to start without `--domain`/`--hosted-zone-id` (the ACM cert can't validate otherwise).
+For the one-command happy path, use the [Public](#public-deployment-quickstart) or [Private](#private-deployment-quickstart) quickstart — both run `bin/deploy.sh` from your machine with your credentials (so the instance role needs no CloudFormation permissions). An **ALB fronts the always-private instance** and terminates TLS with an **ACM cert** the template DNS-validates against your zone, so `--domain` + `--hosted-zone-id` are required; `deploy.sh` refuses to start without them.
 
 **Manual alternative (raw CloudFormation).** Deploys the same single stack — nothing to follow up with. The ACM cert DNS-validates during stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`:
 
@@ -309,23 +362,9 @@ TLS is terminated at the **ALB** with an **ACM certificate** the template reques
 
 ### Deployment mode (`DEPLOY_MODE`)
 
-`DEPLOY_MODE` **defaults to `private`** and flips **only the ALB scheme** — the instance is always private and TLS is always ACM-at-the-ALB. Pass `--deploy-mode public` (or `DEPLOY_MODE=public`) for the internet-facing posture. Both modes require `--domain` + `--hosted-zone-id`.
+See [Deployment modes](#deployment-modes-public-vs-private) for the public/private comparison and what each changes. `DEPLOY_MODE` defaults to `private`; pass `--deploy-mode public` (or `DEPLOY_MODE=public`) for the internet-facing posture. The instance is always private and TLS is always ACM-at-the-ALB regardless of mode; the private-mode VPC endpoints + private-zone alias are folded into the single stack (gated on `DeployMode=private`) — no separate prereqs stack.
 
-| | `private` (inside-AWS-only, **default**) | `public` |
-|---|---|---|
-| ALB | internal scheme, private subnets | internet-facing, public subnets |
-| Instance | private subnet, no public IP | private subnet, no public IP |
-| DNS | Route53 **private** zone alias → internal ALB | Public Route53 alias → ALB |
-| CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS`/`SECURITY_GROUP_IDS`) | AWS-managed network, reaches the ALB over internet |
-| Plugin pull | `https://<domain>/v2/` (resolves private) | `https://<domain>/v2/` (public) |
-
-Both share the registry `/v2/` route + `registry-auth.js` realm rewrite + `IMAGE_REGISTRY_PULL_HOST` — only the ALB scheme / DNS resolution differ.
-
-**`private` mode prerequisites** — the VPC interface endpoints and the Route53 private zone (aliasing the domain to the internal ALB) are created by the **base template itself**, gated on `DeployMode=private`. There is **no separate `private-prereqs.yaml` stack** — the ALB's DNS is known in-stack, so everything deploys in one shot (whether via `bin/deploy.sh` or raw `aws cloudformation deploy`). The ALB SG already admits 443 from the VPC, so no extra ingress rule is needed.
-
-After it's up, set `PIPELINE_VPC_ID`/`PIPELINE_SUBNET_IDS` in `.env` (from the stack's `VpcId`/`SubnetIds` outputs) so the synthesized CodeBuild attaches to the VPC, and `init-platform.sh` will pass its preflight. Still operator-supplied: build-dependency egress (NAT or internal mirrors) + a source path.
-
-> Fargate is the same: its private-mode VPC endpoints live in `01-foundation.yaml` (gated on `DeployMode=private`). It needs no private zone because it uses the internal ALB's own DNS name, which resolves natively in-VPC.
+In `private` mode, after the stack is up set `PIPELINE_VPC_ID` / `PIPELINE_SUBNET_IDS` in `.env` (from the stack's `VpcId` / `SubnetIds` outputs) so the synthesized CodeBuild attaches to the VPC and `init-platform.sh` passes its preflight.
 
 ### Teardown
 
@@ -347,23 +386,7 @@ Serverless containers on ECS Fargate. 6 CloudFormation stacks deployed in depend
 
 ### Deploy
 
-The foundation stack requests a **DNS-validated ACM cert** for `--domain` and terminates TLS at the ALB — no certbot, no self-signed cert. `--domain` + `--hosted-zone-id` are required in both modes.
-
-```bash
-cd deploy/aws/fargate
-
-# private (default) — internal ALB, inside-AWS-only
-bash bin/deploy.sh \
-  --domain pipeline.example.com \
-  --hosted-zone-id Z1234567890 \
-  --ghcr-token ghp_xxxxxxxxxxxx
-
-# public — internet-facing ALB
-bash bin/deploy.sh --deploy-mode public \
-  --domain pipeline.example.com --hosted-zone-id Z1234567890 --ghcr-token ghp_xxxxxxxxxxxx
-```
-
-The ACM cert DNS-validates during foundation-stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`.
+Use the [Public](#public-deployment-quickstart) or [Private](#private-deployment-quickstart) quickstart for the one-command path — `bin/deploy.sh` deploys all 6 stacks in order. The `01-foundation` stack requests a **DNS-validated ACM cert** for `--domain` and terminates TLS at the ALB (no certbot, no self-signed cert), so `--domain` + `--hosted-zone-id` are required in both modes. The cert DNS-validates during foundation-stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`.
 
 ### Parameters
 
@@ -379,16 +402,7 @@ The ACM cert DNS-validates during foundation-stack creation, so expect a few min
 
 ### Deployment mode (`DEPLOY_MODE`)
 
-`DEPLOY_MODE` **defaults to `private`** (inside-AWS-only); set it in the env before `deploy.sh` (passed to the foundation + services stacks). Export `DEPLOY_MODE=public` for the internet-facing posture.
-
-| | `private` (inside-AWS-only, **default**) | `public` |
-|---|---|---|
-| ALB | internal scheme, private subnets | internet-facing, public subnets |
-| DNS | Route53 **private** zone → internal ALB | public Route53 → ALB |
-| CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID`/`SUBNET_IDS` wired from the foundation VPC) | AWS-managed network, reaches ALB over internet |
-| Plugin pull | `https://<domain>/v2/` (private) | `https://<domain>/v2/` (public) |
-
-TLS is a **publicly-trusted, DNS-validated ACM cert** the `01-foundation.yaml` stack requests for `--domain` against `--hosted-zone-id` — publicly trusted, so CodeBuild's plugin-image pulls verify. In `private` mode the same stack also creates the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR) **and** a Route53 **private** zone aliasing the domain to the internal ALB (so VPC-attached CodeBuild resolves it), all gated on `DeployMode=private` — there's no separate prereqs stack. Still operator-supplied: egress (NAT/mirrors) for build deps. EC2 and Fargate are now **structurally identical**: both require a registered domain, both request a DNS-validated ACM cert in-stack, both alias the domain to the ALB (public alias / private zone), and both work for CodeBuild plugin pulls in either mode.
+See [Deployment modes](#deployment-modes-public-vs-private) for the public/private comparison. `DEPLOY_MODE` defaults to `private`; set it in the env before `deploy.sh` (it's passed to the foundation + services stacks) or use `--deploy-mode public`. In `private` mode `01-foundation` folds in the VPC interface endpoints + the Route 53 private-zone alias (gated on `DeployMode=private`); CodeBuild is wired to the foundation VPC automatically (`PIPELINE_VPC_ID` / `SUBNET_IDS`).
 
 ### Stacks
 
