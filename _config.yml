@@ -24,6 +24,8 @@ plugins:
   - jekyll-feed
   - jekyll-relative-links
 
+github: [metadata]
+
 relative_links:
   enabled: true
   collections: true
