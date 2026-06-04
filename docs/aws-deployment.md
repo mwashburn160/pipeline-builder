@@ -417,6 +417,27 @@ Deployed in order. Each exports values consumed by downstream stacks.
 | **05-observability** | Prometheus, Loki, Alertmanager (visualized via the native `/dashboard/observability` page) |
 | **06-admin** | Registry, PgAdmin, Mongo Express, Registry UI |
 
+### Post-Deploy
+
+`deploy.sh` returns once the stacks complete, but the ECS tasks need a minute or two to start and pass health checks. The ALB target group reports **unhealthy (503)** until the service tasks are up — expected; it self-heals.
+
+```bash
+# Wait for the core services to reach a steady state
+aws ecs wait services-stable --cluster pipeline-builder \
+  --services nginx platform pipeline plugin --region us-east-1
+
+# Spot-check task health / why a task is stopping
+aws ecs describe-services --cluster pipeline-builder \
+  --services nginx platform --region us-east-1 \
+  --query 'services[].{name:serviceName,running:runningCount,desired:desiredCount}'
+
+# Shell into a running task (Platform), if ECS Exec is enabled
+aws ecs execute-command --cluster pipeline-builder \
+  --task <task-id> --container platform --interactive --command "/bin/sh" --region us-east-1
+```
+
+Then initialize the platform and load plugins — see [Post-Deploy Steps](#post-deploy-steps) (`init-platform.sh fargate` resolves the URL from the `<prefix>-foundation` stack). In a **private** deployment the domain only resolves inside the VPC, so run the init from a VPC-attached host (bastion / ECS Exec / VPC-connected runner).
+
 ### Storage Requirements
 
 Fargate has no EBS volumes to manage — persistent state lives on EFS access points and managed AWS services. PostgreSQL, MongoDB, and Redis run as ECS Fargate containers (the `postgres`/`mongo`/`redis` images) backed by EFS, not as RDS/DocumentDB/ElastiCache. Plugin builds use `build_image` with kaniko (prebuilt is not supported on Fargate).
@@ -568,7 +589,8 @@ Register the admin user and load pre-built plugins and sample pipelines:
 cd deploy
 
 # Interactive — prompts for admin credentials, build strategy, and categories
-bash bin/init-platform.sh ec2         # EC2 (resolves URL from CloudFormation)
+bash bin/init-platform.sh ec2         # EC2 (resolves URL from the pipeline-builder stack)
+bash bin/init-platform.sh fargate     # Fargate (resolves URL from the <prefix>-foundation stack)
 bash bin/init-platform.sh local       # Docker Compose
 bash bin/init-platform.sh minikube    # Minikube
 

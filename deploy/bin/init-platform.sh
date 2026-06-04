@@ -8,6 +8,7 @@ set -euo pipefail
 #   ./init-platform.sh local                                   # Docker Compose (https://localhost:8443)
 #   ./init-platform.sh minikube                                # Minikube (tunnels via kubectl port-forward)
 #   ./init-platform.sh ec2                                     # EC2 (requires PLATFORM_BASE_URL or stack name)
+#   ./init-platform.sh fargate                                 # Fargate (resolves URL from the <prefix>-foundation stack)
 #   ./init-platform.sh --cleanup ec2                           # Clean up plugin.zip + image.tar after upload
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -91,8 +92,31 @@ case "$TARGET" in
       echo "  Resolved: $PLATFORM_BASE_URL"
     fi
     ;;
+  fargate)
+    if [ -n "${PLATFORM_BASE_URL:-}" ]; then
+      echo "Using PLATFORM_BASE_URL=$PLATFORM_BASE_URL"
+    else
+      # Resolve the domain from the foundation stack's DomainName output.
+      # Stack is "${STACK_PREFIX}-foundation" (deploy.sh default prefix: pb).
+      STACK_PREFIX="${STACK_PREFIX:-pb}"
+      STACK_NAME="${STACK_NAME:-${STACK_PREFIX}-foundation}"
+      echo "=== Resolving URL from CloudFormation stack: $STACK_NAME ==="
+      DOMAIN=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`DomainName`].OutputValue' \
+        --output text 2>/dev/null || true)
+      if [ -z "$DOMAIN" ] || [ "$DOMAIN" = "None" ]; then
+        echo "ERROR: Could not resolve DomainName from stack '$STACK_NAME'." >&2
+        echo "  Set PLATFORM_BASE_URL, or STACK_PREFIX/STACK_NAME, manually." >&2
+        echo "  (For a private deployment, run this from inside the VPC so the domain resolves.)" >&2
+        exit 1
+      fi
+      PLATFORM_BASE_URL="https://$DOMAIN"
+      echo "  Resolved: $PLATFORM_BASE_URL"
+    fi
+    ;;
   *)
-    echo "Usage: $0 [local|minikube|ec2]" >&2
+    echo "Usage: $0 [local|minikube|ec2|fargate]" >&2
     exit 1
     ;;
 esac
