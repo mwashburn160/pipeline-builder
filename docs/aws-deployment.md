@@ -440,7 +440,7 @@ Then initialize the platform and load plugins — see [Post-Deploy Steps](#post-
 
 ### Storage Requirements
 
-Fargate has no EBS volumes to manage — persistent state lives on EFS access points and managed AWS services. PostgreSQL, MongoDB, and Redis run as ECS Fargate containers (the `postgres`/`mongo`/`redis` images) backed by EFS, not as RDS/DocumentDB/ElastiCache. Plugin builds use `build_image` with kaniko (prebuilt is not supported on Fargate).
+Fargate has no EBS volumes to manage — persistent state lives on EFS access points and managed AWS services. PostgreSQL, MongoDB, and Redis run as ECS Fargate containers (the `postgres`/`mongo`/`redis` images) backed by EFS, not as RDS/DocumentDB/ElastiCache. Plugin builds use `build_image` via a **rootless BuildKit sidecar** (`buildkitd`) — prebuilt is not supported on Fargate.
 
 | Resource | Type | Size | Notes |
 |----------|------|------|-------|
@@ -460,7 +460,7 @@ Fargate has no EBS volumes to manage — persistent state lives on EFS access po
 | EFS | Elastic — grows automatically with database/config data; no pre-provisioning |
 | ECR lifecycle | Keep last 10 tags per repository |
 | CloudWatch retention | 30 days |
-| Plugin task ephemeral | 30 GB (kaniko builds need temp space) |
+| Plugin task ephemeral | 30 GB (BuildKit needs temp space for layer cache) |
 
 **Task sizing:**
 
@@ -537,7 +537,7 @@ bash bin/deploy.sh --stack-prefix pb --region us-east-1 --domain app.example.com
 | K8s Secrets | AWS Secrets Manager |
 | ConfigMaps | S3 bucket (downloaded at startup) |
 | NodePort + iptables | ALB + target groups |
-| Docker socket mount | Kaniko sidecar |
+| buildkitd sidecar (pod) | buildkitd sidecar (ECS task) |
 | Promtail DaemonSet | Fluent Bit sidecar (FireLens) |
 | NetworkPolicies | Security groups |
 | Init containers | ECS container dependency ordering |

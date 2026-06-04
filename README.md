@@ -64,6 +64,13 @@ Generate a complete pipeline — sources, stages, plugins, env vars — from a G
 
 Reusable build steps covering the full CI/CD lifecycle — language toolchains, security scanners, quality gates, test runners, artifact publishing, deployment, monitoring, and notifications. Every plugin runs as an isolated container step inside AWS CodePipeline, with secrets injected from AWS Secrets Manager at build time.
 
+Plugin images are built with **rootless BuildKit** (`buildkitd`) — the same daemonless path on every target (Fargate, EC2/k8s, minikube, local):
+
+- **Rootless & unprivileged** — `moby/buildkit:rootless` runs as a non-root user with no `privileged: true`, **no Docker daemon, and no docker-socket mount**, eliminating the classic dind/socket attack surface.
+- **Builds and pushes directly** — parses the Dockerfile, builds with native **layer caching**, and pushes the OCI image **straight to the registry** — no intermediate `docker save`/`docker push`.
+- **Trust built in** — carries the system CA bundle and negotiates registry bearer tokens with the host trust store — no per-container cert mounts.
+- **One code path everywhere** — the deploy target only changes where the sidecar is hosted (ECS task / k8s pod / compose service).
+
 | Category | Count | Examples |
 |----------|-------|---------|
 | Language | 11 | Java, Python, Node.js, Go, Rust, .NET, C++, PHP, Ruby |
@@ -199,7 +206,7 @@ flowchart TB
 |---------|---------|
 | **Platform** | Auth, organizations, teams, users, JWT, RBAC — central gateway |
 | **Pipeline** | Pipeline CRUD + AI generation + CDK synthesis |
-| **Plugin** | Plugin CRUD + Docker image builds + AI generation |
+| **Plugin** | Plugin CRUD + rootless BuildKit (`buildkitd`) image builds + AI generation |
 | **Image Registry** | Stores and serves containerized plugin images with token-based auth, per-org storage quotas, and garbage collection |
 | **Compliance** | Per-team rule enforcement (with org-level inheritance), policy management, audit trail |
 | **Reporting** | Execution reports + build analytics via EventBridge |

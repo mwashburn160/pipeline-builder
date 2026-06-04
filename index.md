@@ -64,6 +64,13 @@ Generate a complete pipeline — sources, stages, plugins, env vars — from a G
 
 Reusable build steps covering the full CI/CD lifecycle. Every plugin runs as an isolated container step inside AWS CodePipeline, with secrets injected from AWS Secrets Manager at build time.
 
+Plugin images are built with **rootless BuildKit** (`buildkitd`) — the same daemonless path on every target:
+
+- **Rootless & unprivileged** — runs as a non-root user with **no Docker daemon and no docker-socket mount**, removing the dind/socket attack surface.
+- **Builds and pushes directly** — Dockerfile build with native **layer caching**, pushing the OCI image straight to the registry.
+- **Trust built in** — uses the system CA bundle for registry auth; no per-container cert mounts.
+- **One code path everywhere** — Fargate, EC2/k8s, minikube, and local differ only in where the sidecar is hosted.
+
 | Category | Count | Examples |
 |----------|-------|----------|
 | Language | 11 | Java, Python, Node.js, Go, Rust, .NET, C++, PHP, Ruby |
@@ -107,7 +114,7 @@ A minimal `{{ ... }}` template language for pipeline configs and plugin specs �
 |---------|---------|
 | **Platform** | Auth, organizations, teams, users, JWT, RBAC — central gateway |
 | **Pipeline** | Pipeline CRUD + AI generation + CDK synthesis |
-| **Plugin** | Plugin CRUD + Docker image builds + AI generation |
+| **Plugin** | Plugin CRUD + rootless BuildKit (`buildkitd`) image builds + AI generation |
 | **Image Registry** | Stores and serves plugin images with token auth, per-org quotas, garbage collection |
 | **Compliance** | Per-team rule enforcement (with org-level inheritance), policy management, audit trail |
 | **Reporting** | Execution reports + build analytics via EventBridge |

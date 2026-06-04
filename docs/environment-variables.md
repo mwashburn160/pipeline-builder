@@ -167,9 +167,9 @@ AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTIO
 ## Plugin Builds
 
 Every deploy target (Fargate, EC2/k8s, minikube, local docker-compose) runs
-plugin builds against a **rootless `moby/buildkit` sidecar**. The plugin
-service's `buildctl` connects via the Unix socket exposed by the sidecar —
-there is no docker daemon, no kaniko binary, no podman, and no strategy switch.
+plugin builds against a **rootless `moby/buildkit` sidecar (`buildkitd`)**. The
+plugin service's `buildctl` connects via the Unix socket exposed by the sidecar —
+there is no docker daemon, no privileged build sidecar, and no strategy switch.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -179,17 +179,18 @@ there is no docker daemon, no kaniko binary, no podman, and no strategy switch.
 | `PLUGIN_UPLOAD_TIMEOUT_MS` | `300000` | Upload HTTP timeout (5 min) — overrides `HANDLER_TIMEOUT_MS` for the upload route |
 | `PLUGIN_MAX_UPLOAD_MB` | `4096` | Max plugin ZIP upload size in MB (supports prebuilt image.tar) |
 
-The plugin image is published with a single tag (`plugin:<version>`) — no
-target suffixes (`-docker`, `-kaniko`, `-podman` are gone).
+The plugin image is published with a single tag (`plugin:<version>`) — one
+builder, one path, no per-builder target suffixes.
 
 ### How the build runs
 
 - **Build from source** (`buildType: build_image`): `buildctl build --frontend dockerfile.v0 --local context=<dir> --local dockerfile=<dir> --output type=image,name=<image>,push=true[,registry.insecure=true]`. buildkitd handles the Dockerfile parse, layer cache, registry push, and bearer-token negotiation.
 - **Prebuilt tarball** (`buildType: prebuilt`): `crane push <tar> <image>`. buildctl can build but cannot push pre-existing `docker save` tarballs; the plugin image bundles `crane` for this path only.
 
-### Why no dind / kaniko / podman
+### Why rootless BuildKit
 
-- **No privileged containers**: `moby/buildkit:rootless` runs as uid 1000, no `SYS_ADMIN`, no `privileged: true`.
+- **Rootless, no privileged containers**: `moby/buildkit:rootless` runs as uid 1000 with no `SYS_ADMIN` and no `privileged: true` — it builds full OCI images from a Dockerfile **without a Docker daemon and without a docker socket mount**, removing the classic dind/socket attack surface.
+- **Builds and pushes directly**: buildkitd parses the Dockerfile, runs the build with native **layer caching**, and **pushes straight to the registry** (`--output type=image,push=true`) — no intermediate `docker save`/`docker push` round-trip.
 - **No CA-trust workarounds**: buildkitd carries the system CA bundle and follows realm-URL bearer challenges with the host's trust store — no per-container cert mounts, no `update-ca-certificates` shell wrappers.
 - **One code path everywhere**: the same `docker-build.ts` runs on Fargate, EC2, minikube, and local. Deploy target only changes the sidecar's hosting (ECS task / k8s pod / compose service).
 
