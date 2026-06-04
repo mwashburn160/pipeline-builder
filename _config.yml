@@ -1,20 +1,27 @@
 title: Pipeline Builder
-description: Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt. 124 reusable plugins, per-org compliance enforcement, multi-tenant isolation, and zero vendor lock-in.
+description: Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt. 124+ reusable plugins, per-org compliance enforcement, multi-tenant isolation, and zero vendor lock-in.
 tagline: Self-service CI/CD for AWS
-url: https://mwashburn160.github.io
-baseurl: /pipeline-builder
+
+url: "https://mwashburn160.github.io"
+baseurl: "/pipeline-builder"
+
 author:
   name: Mark Washburn
   email: mwashburn160@gmail.com
+
+# SEO & Social
 twitter:
+  username: mwashburn160   # Add your actual Twitter if you have one
   card: summary_large_image
+
 social:
   name: Pipeline Builder
   links:
     - https://github.com/mwashburn160/pipeline-builder
+    # Add more if available (LinkedIn, Twitter, etc.)
 
-# Keywords for search engines
-keywords: aws, codepipeline, codebuild, cicd, devops, cdk, cloudformation, ci/cd, pipeline, kubernetes, docker, plugins, typescript, self-service, multi-tenant, compliance, automation
+# SEO Enhancements
+keywords: aws codepipeline, aws cicd, codepipeline builder, ai pipeline generator, self-service cicd, aws codebuild plugins, policy as code, cdk pipelines, devops automation
 
 theme: jekyll-theme-minimal
 
@@ -30,10 +37,15 @@ relative_links:
   enabled: true
   collections: true
 
-# Exclude non-docs files from generated site.
-# README.md is excluded so it can use natural `{{ ... }}` in code samples
-# without polluting the GitHub repo view with `{% raw %}` Liquid tags. The
-# Jekyll landing page lives at index.md.
+# Make sure Jekyll SEO tag can generate proper Open Graph tags
+defaults:
+  -
+    scope:
+      path: ""
+    values:
+      image: /assets/og-image.png   # Create this image (1200x630 recommended)
+      author: Mark Washburn
+
 exclude:
   - README.md
   - node_modules/
