@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mwashburn160.github.io/pipeline-builder/sitemap.xml
