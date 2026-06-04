@@ -67,7 +67,7 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `COOKIE_SECURE` | `false` (auto-true in prod) | Set `true` to force the `secure` cookie flag; auto-enabled when `NODE_ENV=production` |
 | `BOOTSTRAP_SUPERADMIN_EMAILS` | — | Comma-separated user emails auto-promoted to `isSuperAdmin=true` at platform boot. **Required for fresh installs** — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. |
 
-### Multi-tenant secret encryption
+### Multi-team secret encryption
 
 AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTION_KEY` is **required at platform boot** — the read paths no longer fall back to clear text. Existing pre-encryption rows are re-encrypted automatically by the startup backfill.
 
@@ -78,13 +78,13 @@ AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTIO
 | `SECRET_ENCRYPTION_KMS_KEY_ID` | — | (Single-master KMS mode) KMS CMK alias / ARN used to wrap the shared master. |
 | `SECRET_ENCRYPTION_KMS_CIPHERTEXT` | — | (Single-master KMS mode) Base64 KMS-wrapped 32-byte master. |
 
-### Multi-tenant RLS context
+### Multi-team RLS context
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RLS_CONTEXT_MODE` | `warn` | Behavior when `withTenantTx` is called outside any tenant scope. `warn` logs a stack-traced warning, `strict` throws, `silent` is no-op (tests / migration only). Recommended production rollout: `warn` for ≥7 days, then flip to `strict` after the logs show zero spurious warnings. |
 
-### Multi-tenant alert webhook relay
+### Multi-team alert webhook relay
 
 | Variable | Default | Description |
 |----------|---------|-------------|

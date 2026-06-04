@@ -15,7 +15,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 
 - **Pipeline** — CI/CD definition composed of stages, each referencing plugins. Synthesized into AWS CDK stacks at deploy time.
 - **Plugin** — Reusable build step packaged as a Dockerfile + plugin-spec.yaml. Runs as an isolated CodeBuild action inside CodePipeline. Supports `build_image` (build at upload) or `prebuilt` (pre-built image.tar bundled in zip).
-- **Organization** — Multi-tenant isolation boundary. All resources are scoped to an org with RBAC access control.
+- **Organization** — Multi-team isolation boundary. All resources are scoped to an org with RBAC access control.
 - **Compliance Rule** — Configurable constraint that validates plugins and pipelines before creation. Supports 18 operators, computed fields, and cross-field checks.
 - **Metadata Keys** — Typed configuration keys controlling CodePipeline and CodeBuild behavior (IAM, networking, compute). See [Metadata Keys](metadata-keys.md).
 - **Secrets** — Plugin credentials stored in AWS Secrets Manager under `pipeline-builder/{orgId}/{secretName}`. Injected at build time, never stored in images.
@@ -203,7 +203,7 @@ Set `PLATFORM_IDENTIFIER` and `PLATFORM_PASSWORD` env vars (or `PLATFORM_TOKEN` 
 
 ## Organizations
 
-Organizations are the multi-tenant isolation boundary. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization. This section covers admin tasks; new evaluators can skip ahead to [Architecture](#architecture).
+Organizations are the multi-team isolation boundary. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization. This section covers admin tasks; new evaluators can skip ahead to [Architecture](#architecture).
 
 ### Creating an Organization
 

@@ -68,7 +68,7 @@ The compliance engine validates every pipeline and plugin before creation — no
 - Platform teams set policy once — every team follows it automatically
 - Audit trail captures every compliance decision
 
-### 4. Multi-Tenant Isolation
+### 4. Multi-Team Isolation
 
 Every resource is scoped to an organization with role-based access control:
 

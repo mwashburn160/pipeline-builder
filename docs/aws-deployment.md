@@ -10,6 +10,7 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 ## Table of Contents
 
+- [Public deployment (quickstart)](#public-deployment-quickstart) -- Internet-facing install, EC2 or Fargate
 - [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$30-80/mo)
 - [Fargate](#fargate) -- Serverless ECS containers (production, ~$100-300/mo)
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
@@ -32,6 +33,64 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 ---
 
+## Public deployment (quickstart)
+
+A **public** deployment puts an **internet-facing ALB** in front of the stack so the dashboard, API, and plugin registry are reachable from the internet over HTTPS. The compute (the EC2 instance / Fargate tasks) **stays in private subnets** either way — the ALB is the only public surface, and it terminates TLS with a publicly-trusted, DNS-validated **ACM cert**. The only difference from `private` mode is the ALB scheme (internet-facing vs internal) and the DNS record (public Route 53 alias vs private zone).
+
+### Prerequisites (both targets)
+
+- **AWS CLI** configured with credentials for the target account/region.
+- A **registered domain** and its **public Route 53 hosted zone** — required. The stack requests a DNS-validated ACM cert for the domain against this zone, so deploy.sh refuses to start without `--domain` + `--hosted-zone-id`.
+- A **GitHub account + personal access token (PAT)**. The service images live on GitHub Container Registry (`ghcr.io/mwashburn160/*`); they're public, but GitHub rate-limits *anonymous* pulls (60/hr) which trips mid-deploy when all 10 images pull at once. **Generate your own PAT under your GitHub account**: on GitHub go to **Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic)** (https://github.com/settings/tokens) and check only the `read:packages` scope. Then pass `--ghcr-token <your-pat>` **and** `--ghcr-user <your-github-username>` (the username must match the token's owner). Don't reuse a token from these docs or another deployment. See [GhcrToken rejected](#troubleshooting) for the fine-grained-PAT option and details.
+- **EC2 only:** an EC2 **key pair** in the target region (`--key-pair`) for break-glass serial-console access (routine access is via SSM).
+
+### 1. Deploy in public mode
+
+Pick the target. Both take `--deploy-mode public`; everything else matches the private flow.
+
+```bash
+# EC2 — single Minikube instance behind an internet-facing ALB
+cd deploy/aws/ec2
+bash bin/deploy.sh --deploy-mode public \
+  --key-pair my-keypair \
+  --domain pipeline.example.com \
+  --hosted-zone-id Z1234567890 \
+  --ghcr-user my-github-username \
+  --ghcr-token ghp_xxxxxxxxxxxx
+
+# Fargate — serverless tasks behind an internet-facing ALB
+cd deploy/aws/fargate
+bash bin/deploy.sh --deploy-mode public \
+  --domain pipeline.example.com \
+  --hosted-zone-id Z1234567890 \
+  --ghcr-user my-github-username \
+  --ghcr-token ghp_xxxxxxxxxxxx
+```
+
+The ACM cert DNS-validates **during** stack creation, so expect a few minutes in `CREATE_IN_PROGRESS` while CloudFormation waits for the cert to reach `ISSUED`. (`deploy.sh` runs from your machine with your credentials — see the per-target [EC2](#deploy) / [Fargate](#deploy-1) Deploy sections for the manual raw-CloudFormation equivalent.)
+
+### 2. Get the URL
+
+The URL is simply `https://<your-domain>` (the value you passed to `--domain`), reachable once the Route 53 alias resolves and the target(s) pass health checks — a few minutes after the stack completes, while the instance bootstraps / tasks start. To read it back from the stack outputs:
+
+```bash
+# EC2 — ApplicationURL output is the full https:// URL
+aws cloudformation describe-stacks --stack-name pipeline-builder \
+  --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text
+
+# Fargate (default stack prefix "pb") — DomainName output is the hostname; prefix https://
+aws cloudformation describe-stacks --stack-name pb-foundation \
+  --query 'Stacks[0].Outputs[?OutputKey==`DomainName`].OutputValue' --output text
+```
+
+### 3. Initialize the platform
+
+Public install is otherwise identical to private — register the admin user and load plugins via [Post-Deploy Steps](#post-deploy-steps).
+
+> **Note:** "public" exposes only the ALB. The instance/tasks have **no public IP and no inbound SSH**; admin access is still **SSM Session Manager** (EC2) or ECS Exec (Fargate). To make a deployment internal-only later, redeploy with `--deploy-mode private` (default). See [Deployment mode (`DEPLOY_MODE`)](#deployment-mode-deploy_mode) for the full mode comparison.
+
+---
+
 ## EC2
 
 Single hardened EC2 instance running Minikube with all services.
@@ -40,7 +99,7 @@ Single hardened EC2 instance running Minikube with all services.
 
 - AWS CLI configured
 - EC2 key pair in target region
-- (Optional) Route 53 hosted zone for custom domain
+- A registered domain + its **public Route 53 hosted zone** (required — the template requests a DNS-validated ACM cert against it; required in both `public` and `private` mode)
 
 ### Deploy
 
