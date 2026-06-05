@@ -133,6 +133,10 @@ export const createOrganizationSchema = z.object({
   name: z.string().min(2).max(100),
   description: z.string().max(500).optional(),
   tier: z.enum(['developer', 'pro', 'unlimited']).optional().default('developer'),
+  // Org → team hierarchy: when set, create this org as a team nested under
+  // `parentOrgId`. The caller must be an admin/owner of the parent (or an
+  // ancestor); the parent must itself be a root org (one level of nesting).
+  parentOrgId: z.string().min(1).optional(),
 });
 
 /** Organization update schema (name and/or description). */
@@ -145,6 +149,18 @@ export const updateOrganizationSchema = z.object({
 export const addMemberSchema = z.object({
   userId: z.string().optional(),
   email: emailSchema.optional(),
+  role: z.enum(['owner', 'admin', 'member']).optional().default('member'),
+}).refine(data => data.userId || data.email, {
+  message: 'Either userId or email is required',
+});
+
+/** Bulk-add schema: add one user (by id or email) to several teams at once.
+ *  `orgIds` are the target team ids; the controller/service constrain them to
+ *  the context org's subtree. Capped to keep the per-request transaction bounded. */
+export const bulkAddMemberSchema = z.object({
+  userId: z.string().optional(),
+  email: emailSchema.optional(),
+  orgIds: z.array(z.string().min(1)).min(1, 'At least one team is required').max(50),
   role: z.enum(['owner', 'admin', 'member']).optional().default('member'),
 }).refine(data => data.userId || data.email, {
   message: 'Either userId or email is required',

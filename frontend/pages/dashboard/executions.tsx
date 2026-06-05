@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Activity, Filter, RefreshCw, XCircle, CheckCircle2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFetch } from '@/hooks/useFetch';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
@@ -47,31 +48,40 @@ type StatusFilter = 'all' | 'failing' | 'succeeding';
 
 export default function ExecutionsPage() {
   const { isReady, user } = useAuthGuard();
-  const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Org → team rollup: only admins/owners can aggregate child-team data, and we
+  // only surface the toggle when the org actually parents teams (so flat orgs
+  // see no extra control). Backend independently gates the rollup to admins.
+  const [includeDescendants, setIncludeDescendants] = useState(false);
+  const [hasTeams, setHasTeams] = useState(false);
+  const canRollup = user?.role === 'admin' || user?.role === 'owner';
 
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.getExecutionCount();
-      if (res.success && res.data) setRows(res.data.pipelines);
-      else setError(res.message || 'Failed to load executions');
-    } catch (err) {
-      setError(formatError(err, 'Failed to load executions'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Read-only fetch via the shared useFetch hook (loading/error/cancel-on-unmount
+  // handled there). Refetches whenever the rollup toggle or auth-readiness changes.
+  const { data, loading, error: fetchError, refetch } = useFetch(
+    async (): Promise<Row[]> => {
+      if (!isReady || !user) return [];
+      const res = await api.getExecutionCount(includeDescendants ? { includeDescendants: true } : undefined);
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to load executions');
+      return res.data.pipelines;
+    },
+    [isReady, user?.id, includeDescendants],
+  );
+  const rows = useMemo(() => data ?? [], [data]);
+  const error = fetchError ? formatError(fetchError, 'Failed to load executions') : null;
 
+  // Detect whether the active org parents any teams (subtree larger than self).
   useEffect(() => {
-    if (isReady && user) void load();
+    if (!isReady || !user || !canRollup || !user.organizationId) return;
+    let cancelled = false;
+    void api.getOrganizationDescendants(user.organizationId)
+      .then((res) => { if (!cancelled) setHasTeams((res.data?.orgIds?.length ?? 0) > 1); })
+      .catch(() => { /* best-effort — no toggle if it fails */ });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReady, user]);
+  }, [isReady, user, canRollup]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -183,7 +193,7 @@ export default function ExecutionsPage() {
           >
             CSV
           </button>
-          <button onClick={() => void load()} className="btn btn-secondary inline-flex items-center gap-1" disabled={loading}>
+          <button onClick={() => refetch()} className="btn btn-secondary inline-flex items-center gap-1" disabled={loading}>
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </button>
         </div>
@@ -223,20 +233,33 @@ export default function ExecutionsPage() {
         searchPlaceholder="Search pipelines... (press /)"
         showAdvanced={showAdvanced}
         onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
-        advancedFilterCount={status !== 'all' ? 1 : 0}
-        onClearAll={() => { setSearch(''); setStatus('all'); }}
+        advancedFilterCount={(status !== 'all' ? 1 : 0) + (includeDescendants ? 1 : 0)}
+        onClearAll={() => { setSearch(''); setStatus('all'); setIncludeDescendants(false); }}
         advancedContent={
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-400" />
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as StatusFilter)}
-              className="filter-select"
-            >
-              <option value="all">All pipelines</option>
-              <option value="failing">Failing (≥1 fail)</option>
-              <option value="succeeding">All-clean</option>
-            </select>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-gray-400" />
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as StatusFilter)}
+                className="filter-select"
+              >
+                <option value="all">All pipelines</option>
+                <option value="failing">Failing (≥1 fail)</option>
+                <option value="succeeding">All-clean</option>
+              </select>
+            </div>
+            {canRollup && hasTeams && (
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate executions across this organization and its team sub-organizations">
+                <input
+                  type="checkbox"
+                  checked={includeDescendants}
+                  onChange={(e) => setIncludeDescendants(e.target.checked)}
+                  className="rounded border-gray-300"
+                />
+                Include child teams
+              </label>
+            )}
           </div>
         }
       />

@@ -5,7 +5,7 @@ import { createCacheService, createLogger, errorMessage, hashAccountInArn } from
 import { inArray, sql } from 'drizzle-orm';
 import { drizzleRows } from './crud-service';
 import { schema } from '../database/drizzle-schema';
-import { withTenantTx } from '../database/tenancy';
+import { withTenantTx, runWithTenantContext } from '../database/tenancy';
 
 const logger = createLogger('reporting-service');
 
@@ -259,10 +259,40 @@ export class ReportingService {
 
   // ── Category 1: Pipeline Execution & Performance ──
 
+  /**
+   * Build the org-scope predicate for a report query. With `orgIds` (the
+   * org → team rollup — a parent's `[self, ...descendants]`) it becomes an
+   * `IN (...)` over the subtree; otherwise the single-org `= $org`. Returns a
+   * `multi` flag so callers can run multi-org reads under sysadmin context
+   * (the subtree spans orgs outside the request's RLS scope) and salt the
+   * cache key.
+   */
+  private orgScope(orgId: string, orgIds?: string[]) {
+    const ids = orgIds && orgIds.length > 0 ? orgIds : [orgId];
+    const multi = ids.length > 1;
+    const pred = multi
+      ? sql`IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`
+      : sql`= ${ids[0]}`;
+    return { pred, multi };
+  }
+
+  /**
+   * Run a report read. Single-org reads use the per-org cache (invalidated on
+   * that org's event ingest). Rollup (multi-org) reads **bypass the cache** and
+   * run under sysadmin context: they're admin-only and lower-frequency, and a
+   * child org's event ingest can't invalidate a parent's rollup entry (reporting
+   * has no org tree), so caching them would serve stale aggregates. Always fresh.
+   */
+  private runReport<T>(cacheKey: string, multi: boolean, exec: () => Promise<T>): Promise<T> {
+    return multi
+      ? runWithTenantContext({ isSuperAdmin: true }, exec)
+      : timeseriesCache.getOrSet(cacheKey, exec);
+  }
+
   /** 1.1 Execution count per pipeline with status breakdown. */
-  async getExecutionCount(orgId: string): Promise<ExecutionCount[]> {
-    return timeseriesCache.getOrSet(`${orgId}:exec-count`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  async getExecutionCount(orgId: string, orgIds?: string[]): Promise<ExecutionCount[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           p.id, p.project, p.organization, p.pipeline_name,
           COUNT(*)::int AS total,
@@ -274,17 +304,17 @@ export class ReportingService {
         FROM ${schema.pipeline} p
         JOIN ${schema.pipelineEvent} e ON e.pipeline_id = p.id
           AND e.event_type = 'PIPELINE' AND e.status != 'STARTED'
-        WHERE p.org_id = ${orgId} AND p.is_active = true
+        WHERE p.org_id ${pred} AND p.is_active = true
         GROUP BY p.id
         ORDER BY total DESC
-      `).then(r => drizzleRows<ExecutionCount>(r.rows))),
-    );
+      `).then(r => drizzleRows<ExecutionCount>(r.rows)));
+    return this.runReport(`${orgId}:exec-count`, multi, exec);
   }
 
   /** 1.2 Success rate over time for an org. */
-  async getSuccessRate(orgId: string, interval: string, from: string, to: string): Promise<TimeSeriesEntry[]> {
-    return timeseriesCache.getOrSet(`${orgId}:success-rate:${interval}:${from}:${to}`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  async getSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[]): Promise<TimeSeriesEntry[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           DATE_TRUNC(${interval}, e.started_at)::text AS period,
           COUNT(*) FILTER (WHERE e.status = 'SUCCEEDED')::int AS succeeded,
@@ -294,18 +324,18 @@ export class ReportingService {
             / NULLIF(COUNT(*), 0) * 100, 1)::float AS success_pct
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE p.org_id = ${orgId} AND e.event_type = 'PIPELINE'
+        WHERE p.org_id ${pred} AND e.event_type = 'PIPELINE'
           AND e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY period ORDER BY period
-      `).then(r => drizzleRows<TimeSeriesEntry>(r.rows))),
-    );
+      `).then(r => drizzleRows<TimeSeriesEntry>(r.rows)));
+    return this.runReport(`${orgId}:success-rate:${interval}:${from}:${to}`, multi, exec);
   }
 
   /** 1.3 Average duration per pipeline. */
-  async getAverageDuration(orgId: string, from: string, to: string): Promise<DurationStats[]> {
-    return timeseriesCache.getOrSet(`${orgId}:avg-duration:${from}:${to}`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  async getAverageDuration(orgId: string, from: string, to: string, orgIds?: string[]): Promise<DurationStats[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           p.id, p.project, p.pipeline_name,
           AVG(e.duration_ms)::int AS avg_ms,
@@ -315,11 +345,11 @@ export class ReportingService {
           COUNT(*)::int AS executions
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE p.org_id = ${orgId} AND e.event_type = 'PIPELINE' AND e.duration_ms IS NOT NULL
+        WHERE p.org_id ${pred} AND e.event_type = 'PIPELINE' AND e.duration_ms IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY p.id ORDER BY avg_ms DESC
-      `).then(r => drizzleRows<DurationStats>(r.rows))),
-    );
+      `).then(r => drizzleRows<DurationStats>(r.rows)));
+    return this.runReport(`${orgId}:avg-duration:${from}:${to}`, multi, exec);
   }
 
   /** 1.5 Stage failure heatmap — which stages fail most. */

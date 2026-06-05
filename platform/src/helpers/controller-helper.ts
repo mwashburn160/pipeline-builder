@@ -192,6 +192,58 @@ export function requireAdminContext(req: Request, res: Response): AdminContext |
   return ctx;
 }
 
+// Effective org access (org → team hierarchy)
+
+/**
+ * Lazy bridge to the hierarchy walk. `controller-helper` is imported very
+ * widely (every controller pulls `withController`), so we avoid eagerly
+ * importing the Mongoose models + platform config it would otherwise drag in —
+ * the model chain only loads on the cross-org authorization path.
+ */
+async function targetIsDescendantOf(activeOrgId: string, targetOrgId: string): Promise<boolean> {
+  // Indirect specifier: the runtime import stays lazy (no model/config load at
+  // module init) while sidestepping the NodeNext literal-extension rule; the
+  // `typeof import(...)` annotation keeps it fully typed.
+  const modPath = './org-hierarchy';
+  const mod: typeof import('./org-hierarchy') = await import(modPath);
+  return mod.isAncestorOrg(activeOrgId, targetOrgId);
+}
+
+/**
+ * Effective ADMIN authorization over a target org, including the org → team
+ * hierarchy. A caller may administer `targetOrgId` when they are:
+ *   - a platform super admin, OR
+ *   - an admin/owner of that exact org (the active-org case), OR
+ *   - an admin/owner of one of its **ancestor** orgs (a parent-org admin
+ *     manages descendant teams).
+ * Members get no implied authority up or down. The same-org case short-circuits
+ * before any DB lookup, so flat-org deployments behave exactly as before.
+ */
+export async function canAdministerOrg(req: Request, targetOrgId: string): Promise<boolean> {
+  if (isSystemAdmin(req)) return true;
+  if (!isOrgAdmin(req)) return false;
+  const activeOrgId = req.user?.organizationId;
+  if (!activeOrgId) return false;
+  if (activeOrgId === targetOrgId) return true;
+  return targetIsDescendantOf(activeOrgId, targetOrgId);
+}
+
+/**
+ * Effective READ authorization over a target org: a platform super admin, any
+ * member of that exact org (a member can view their own org — current
+ * behavior), or an admin/owner of an ancestor org (a parent-org admin can view
+ * descendant teams). Same-org and sysadmin cases short-circuit before any DB
+ * lookup.
+ */
+export async function canAccessOrg(req: Request, targetOrgId: string): Promise<boolean> {
+  if (isSystemAdmin(req)) return true;
+  const activeOrgId = req.user?.organizationId;
+  if (!activeOrgId) return false;
+  if (activeOrgId === targetOrgId) return true;
+  if (!isOrgAdmin(req)) return false;
+  return targetIsDescendantOf(activeOrgId, targetOrgId);
+}
+
 // Error Handling
 
 export type ErrorMap = Record<string, { status: number; message: string }>;

@@ -20,7 +20,7 @@ Plugin/Pipeline Service                  Compliance Service
         │  403 COMPLIANCE_VIOLATION              │
 ```
 
-**Each organization owns its compliance.** The system org does not enforce rules on teams (also referred to as sub-organizations). Instead, the system org publishes recommended rules that teams can browse, subscribe to, and customize.
+**Each organization owns its compliance.** The system org does not enforce rules on other organizations. Instead, it publishes recommended rules that any organization can browse, subscribe to, and customize. Independent organizations relate as peers via this catalog. The one exception is the org → team hierarchy: a parent organization's rule marked **apply to child teams** (`propagateToChildren`) is inherited and enforced on its nested teams.
 
 When validating an entity, the engine merges two rule sets:
 1. **Org rules** — rules the org created for itself

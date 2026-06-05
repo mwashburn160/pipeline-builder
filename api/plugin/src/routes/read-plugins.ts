@@ -64,10 +64,16 @@ export function createReadPluginRoutes(
     const cursor = req.query.cursor as string | undefined;
     const fields = req.query.fields ? (req.query.fields as string).split(',') : undefined;
 
+    // Org → team hierarchy: a team org also sees its parent's public plugins.
+    // `parentOrganizationId` rides in the JWT (absent for root orgs), so this
+    // is a no-op for non-team callers.
+    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+
     const result = await pluginService.findPaginated(
       filter.value,
       orgId,
       { limit, offset, sortBy, sortOrder, includeTotal, cursor, fields },
+      parentOrgId,
     );
 
     ctx.log('COMPLETED', 'Listed plugins', { count: result.data.length, ...(result.total !== undefined && { total: result.total }) });

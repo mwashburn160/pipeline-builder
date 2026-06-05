@@ -47,6 +47,7 @@ interface FormState {
   priority: number;
   tags: string;
   suppressNotification: boolean;
+  propagateToChildren: boolean;
   effectiveFrom: string;
   effectiveUntil: string;
   useConditions: boolean;
@@ -61,7 +62,7 @@ function ruleToForm(rule?: ComplianceRule): FormState {
   if (!rule) {
     return {
       name: '', description: '', target: 'plugin', scope: 'org', severity: 'warning', priority: 0,
-      tags: '', suppressNotification: false, effectiveFrom: '', effectiveUntil: '',
+      tags: '', suppressNotification: false, propagateToChildren: false, effectiveFrom: '', effectiveUntil: '',
       useConditions: false, field: '', operator: 'eq', value: '',
       conditionMode: 'all', conditions: [],
     };
@@ -76,6 +77,7 @@ function ruleToForm(rule?: ComplianceRule): FormState {
     priority: rule.priority,
     tags: (rule.tags || []).join(', '),
     suppressNotification: rule.suppressNotification,
+    propagateToChildren: rule.propagateToChildren ?? false,
     effectiveFrom: rule.effectiveFrom?.slice(0, 10) || '',
     effectiveUntil: rule.effectiveUntil?.slice(0, 10) || '',
     useConditions: hasConditions,
@@ -138,6 +140,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           priority: form.priority,
           tags,
           suppressNotification: form.suppressNotification,
+          propagateToChildren: form.propagateToChildren,
           effectiveFrom: form.effectiveFrom || null,
           effectiveUntil: form.effectiveUntil || null,
           conditionMode: form.useConditions ? form.conditionMode : undefined,
@@ -161,6 +164,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           priority: form.priority,
           tags,
           suppressNotification: form.suppressNotification,
+          propagateToChildren: form.propagateToChildren,
           effectiveFrom: form.effectiveFrom || undefined,
           effectiveUntil: form.effectiveUntil || undefined,
           conditionMode: form.useConditions ? form.conditionMode : undefined,
@@ -196,7 +200,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <button onClick={onCancel} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+        <button onClick={onCancel} aria-label="Back to rules" className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -272,6 +276,12 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
               Suppress Notification
             </label>
           </div>
+          <div className="flex items-end pb-2">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Also enforce this rule on team organizations nested under this org">
+              <input type="checkbox" checked={form.propagateToChildren} onChange={e => set('propagateToChildren', e.target.checked)} className="rounded border-gray-300" />
+              Apply to child teams
+            </label>
+          </div>
         </div>
 
         {/* Rule mode toggle */}
@@ -327,12 +337,14 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                   <input
                     value={cond.field}
                     onChange={e => updateCondition(idx, { field: e.target.value })}
+                    aria-label={`Condition ${idx + 1} field`}
                     className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm flex-1"
                     placeholder="Field"
                   />
                   <select
                     value={cond.operator}
                     onChange={e => updateCondition(idx, { operator: e.target.value as RuleOperator })}
+                    aria-label={`Condition ${idx + 1} operator`}
                     className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm"
                   >
                     {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -341,11 +353,12 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                     <input
                       value={cond.value}
                       onChange={e => updateCondition(idx, { value: e.target.value })}
+                      aria-label={`Condition ${idx + 1} value`}
                       className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm flex-1"
                       placeholder="Value (JSON)"
                     />
                   )}
-                  <button onClick={() => removeCondition(idx)} className="p-1 text-gray-400 hover:text-red-600">
+                  <button onClick={() => removeCondition(idx)} aria-label={`Remove condition ${idx + 1}`} className="p-1 text-gray-400 hover:text-red-600">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>

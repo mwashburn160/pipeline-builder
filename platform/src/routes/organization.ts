@@ -8,12 +8,16 @@ import {
   getOrgAIConfig,
   updateOrgAIConfig,
   getOrganizationById,
+  getOrganizationDescendants,
   updateOrganization,
   updateOrganizationTier,
   getOrganizationQuotas,
   updateOrganizationQuotas,
   getOrganizationMembers,
+  getOrganizationTeams,
+  getMemberTeams,
   addMemberToOrganization,
+  bulkAddMemberToTeams,
   removeMemberFromOrganization,
   updateMemberRole,
   transferOrganizationOwnership,
@@ -57,6 +61,9 @@ router.put('/ai-config', requireAuth, requireRole('admin', 'owner'), updateOrgAI
 /** GET /organization/:id - Get organization by ID */
 router.get('/:id', requireAuth, getOrganizationById);
 
+/** GET /:id/descendants - org→team subtree ids (self + descendants) */
+router.get('/:id/descendants', requireAuth, getOrganizationDescendants);
+
 /** PUT /organization/:id - Update organization (sysadmin only).
  *  Controller enforces `requireSystemAdmin`, which is the stricter gate;
  *  the route-level `requireRole('admin','owner')` was redundant and
@@ -94,6 +101,17 @@ router.get('/:id/members', requireAuth, getOrganizationMembers);
 
 /** POST /organization/:id/members - Add member to organization (admin only) */
 router.post('/:id/members', requireAuth, requireRole('admin', 'owner'), addMemberToOrganization);
+
+/** POST /organization/:id/members/bulk-add - Add one user to several teams in
+ *  the org's subtree at once (admin/parent-admin only). */
+router.post('/:id/members/bulk-add', requireAuth, requireRole('admin', 'owner'), bulkAddMemberToTeams);
+
+/** GET /organization/:id/teams - Descendant team roster (no member context). */
+router.get('/:id/teams', requireAuth, getOrganizationTeams);
+
+/** GET /organization/:id/member/:memberId/teams - Descendant teams annotated
+ *  with the member's membership (manage-teams view). */
+router.get('/:id/member/:memberId/teams', requireAuth, getMemberTeams);
 
 /** DELETE /organization/:id/members/:userId - Remove member from organization (admin only) */
 router.delete('/:id/members/:userId', requireAuth, requireRole('admin', 'owner'), removeMemberFromOrganization);

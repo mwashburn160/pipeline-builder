@@ -90,7 +90,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Organization',
     items: [
-      { title: 'Members', href: '/dashboard/team', icon: UsersRound, adminOnly: true },
+      { title: 'Members', href: '/dashboard/members', icon: UsersRound, adminOnly: true },
       { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, adminOnly: true },
       { title: 'Quotas', href: '/dashboard/quotas', icon: BarChart3 },
       { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredFeature: 'billing' },

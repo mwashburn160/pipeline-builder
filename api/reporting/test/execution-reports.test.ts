@@ -12,6 +12,7 @@ const mockGetStageFailures = jest.fn();
 const mockGetStageBottlenecks = jest.fn();
 const mockGetActionFailures = jest.fn();
 const mockGetErrors = jest.fn();
+const mockResolveOrgRollup = jest.fn();
 
 jest.mock('@pipeline-builder/api-core', () => ({
   sendSuccess: jest.fn(),
@@ -40,6 +41,11 @@ jest.mock('@pipeline-builder/api-server', () => ({
     const ctx = { log: jest.fn(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
+}));
+
+jest.mock('../src/helpers', () => ({
+  ...jest.requireActual('../src/helpers'),
+  resolveOrgRollup: (...a: unknown[]) => mockResolveOrgRollup(...a),
 }));
 
 jest.mock('@pipeline-builder/pipeline-data', () => ({
@@ -78,7 +84,8 @@ describe('Execution Report Routes', () => {
 
       await handler(req, res);
 
-      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme');
+      // 2nd arg is the optional org→team rollup id-list (undefined without ?includeDescendants).
+      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', undefined);
       expect(sendSuccess).toHaveBeenCalled();
     });
   });
@@ -92,7 +99,7 @@ describe('Execution Report Routes', () => {
 
       await handler(req, res);
 
-      expect(mockGetSuccessRate).toHaveBeenCalledWith('acme', 'month', '2026-01-01', '2026-03-15');
+      expect(mockGetSuccessRate).toHaveBeenCalledWith('acme', 'month', '2026-01-01', '2026-03-15', undefined);
     });
 
     it('should reject invalid interval', async () => {
@@ -113,7 +120,28 @@ describe('Execution Report Routes', () => {
 
       await handler(req, res);
 
-      expect(mockGetSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String));
+      expect(mockGetSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined);
+    });
+  });
+
+  // SECURITY: ?includeDescendants rollup is admin-only — members get no
+  // inherited downward visibility into their teams.
+  describe('rollup auth gate (?includeDescendants)', () => {
+    it('resolves descendants for an org admin', async () => {
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
+      mockGetExecutionCount.mockResolvedValue([]);
+      const handler = getHandler('/count');
+      await handler({ query: { includeDescendants: 'true' }, user: { role: 'admin' } }, {});
+      expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
+      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', ['acme', 'team-child']);
+    });
+
+    it('ignores the flag for a member (single-org report, no rollup)', async () => {
+      mockGetExecutionCount.mockResolvedValue([]);
+      const handler = getHandler('/count');
+      await handler({ query: { includeDescendants: 'true' }, user: { role: 'member' } }, {});
+      expect(mockResolveOrgRollup).not.toHaveBeenCalled();
+      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', undefined);
     });
   });
 

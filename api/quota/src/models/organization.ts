@@ -52,13 +52,18 @@ export interface QuotaUsageTracking {
 
 export type { QuotaTier };
 
-export interface OrganizationDocument extends Document<string> {
-  _id: string;
+export interface OrganizationDocument extends Document {
   name: string;
   slug: string;
   tier: QuotaTier;
   quotas: QuotaLimits;
   usage: QuotaUsageTracking;
+  /**
+   * Org → team hierarchy parent (null = root). Written by the platform service
+   * into the shared `organizations` collection; declared here so the quota
+   * service can roll usage up to the root for the shared-cap check.
+   */
+  parentOrgId?: string | null;
 }
 
 // Schema
@@ -73,9 +78,15 @@ const quotaUsageSchema = new Schema<QuotaUsage>( {
 const defaultUsage = () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetDays) });
 
 const organizationSchema = new Schema<OrganizationDocument>( {
-  _id: { type: String },
+  // Mixed to match the shared `organizations` collection, whose docs are written
+  // by the platform service with ObjectId `_id`s (the well-known `'system'` org
+  // is a plain string). Declaring `String` here meant `findById('<24hex>')`
+  // cast to a string and never matched the ObjectId-keyed docs.
+  _id: { type: Schema.Types.Mixed },
   name: { type: String, required: true },
   slug: { type: String, required: true },
+  // Org → team hierarchy parent (null = root). Indexed for descendant lookups.
+  parentOrgId: { type: String, default: null, index: true },
   tier: { type: String, enum: ['developer', 'pro', 'unlimited'], default: 'developer' },
   quotas: {
     plugins: { type: Number, default: config.quota.defaults.plugins },

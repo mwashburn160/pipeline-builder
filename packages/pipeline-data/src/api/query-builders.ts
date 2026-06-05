@@ -86,9 +86,10 @@ export function buildPipelineConditions(
 export function buildPluginConditions(
   filter: Partial<PluginFilter>,
   orgId?: string,
+  parentOrgId?: string,
 ): SQL[] {
   // Use generic builder for common conditions (access control, ID, booleans, accessModifier)
-  const conditions = pluginBuilder.buildCommonConditions(filter, orgId);
+  const conditions = pluginBuilder.buildCommonConditions(filter, orgId, parentOrgId);
 
   // Add plugin-specific filters
   if (filter.orgId !== undefined) {

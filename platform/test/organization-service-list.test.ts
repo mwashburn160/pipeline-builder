@@ -325,3 +325,24 @@ describe('organizationService.setTier', () => {
     expect(org.save).toHaveBeenCalled();
   });
 });
+
+describe('organizationService.checkParentEligible — team nesting (org → team hierarchy)', () => {
+  // Chain: Organization.findById(toOrgId(id)).select('parentOrgId').lean()
+  const findByIdReturns = (doc: unknown) =>
+    mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(doc) }) });
+
+  it('returns "not-found" when the parent does not exist', async () => {
+    findByIdReturns(null);
+    expect(await organizationService.checkParentEligible('missing')).toBe('not-found');
+  });
+
+  it('returns "ok" when the parent is a root org (no parentOrgId)', async () => {
+    findByIdReturns({ parentOrgId: null });
+    expect(await organizationService.checkParentEligible('root-1')).toBe('ok');
+  });
+
+  it('returns "not-root" when the parent is itself a team (one nesting level max)', async () => {
+    findByIdReturns({ parentOrgId: 'root-1' });
+    expect(await organizationService.checkParentEligible('team-1')).toBe('not-root');
+  });
+});

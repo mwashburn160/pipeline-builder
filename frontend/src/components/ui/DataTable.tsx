@@ -185,6 +185,9 @@ export function DataTable<T>({
             <button
               type="button"
               onClick={() => setShowColumnMenu((prev) => !prev)}
+              aria-label="Toggle column visibility"
+              aria-haspopup="menu"
+              aria-expanded={showColumnMenu}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
               <Columns3 className="w-3.5 h-3.5" />

@@ -53,6 +53,15 @@ export interface OrganizationDocument extends Document {
   tier: QuotaTier;
   /** Denormalized reference to the owning user. Canonical ownership is in UserOrganization (role: 'owner'). */
   owner: Types.ObjectId;
+  /**
+   * Parent organization id for the org → team hierarchy (org-team-hierarchy
+   * proposal, phase 1). `null`/absent = a **root** organization; a non-null
+   * value makes this org a "team" nested under its parent. Stored as a string
+   * id (org `_id`s may be ObjectId or string, e.g. the well-known `'system'`
+   * org), so the descendant-expansion helper matches on string ids.
+   * No org sets this today — the column is the additive foundation.
+   */
+  parentOrgId?: string | null;
   quotas: QuotaLimits;
   usage: QuotaUsageTracking;
   aiProviderKeys?: {
@@ -194,6 +203,14 @@ const organizationSchema = new Schema<OrganizationDocument>(
       type: Schema.Types.ObjectId,
       ref: 'User',
       required: true,
+      index: true,
+    },
+    // Org → team hierarchy parent (null = root). Stored as a string id and
+    // indexed so descendant lookups (`{ parentOrgId: { $in: [...] } }`) are
+    // cheap. See helpers/org-hierarchy.ts.
+    parentOrgId: {
+      type: String,
+      default: null,
       index: true,
     },
     // Defaults sourced directly from `QUOTA_TIERS.developer.limits` so

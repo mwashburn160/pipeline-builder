@@ -190,7 +190,8 @@ describe('ComplianceRuleService', () => {
       const result = await svc.findAllEnforced('org-1', 'plugin');
 
       expect(svc.findActiveByOrgAndTarget).toHaveBeenCalledTimes(1);
-      expect(svc.findActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin');
+      // 3rd arg is the optional org→team parentOrgId (undefined when not nested).
+      expect(svc.findActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin', undefined);
       expect(result).toHaveLength(1);
     });
   });

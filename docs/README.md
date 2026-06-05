@@ -15,7 +15,8 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 
 - **Pipeline** — CI/CD definition composed of stages, each referencing plugins. Synthesized into AWS CDK stacks at deploy time.
 - **Plugin** — Reusable build step packaged as a Dockerfile + plugin-spec.yaml. Runs as an isolated CodeBuild action inside CodePipeline. Supports `build_image` (build at upload) or `prebuilt` (pre-built image.tar bundled in zip).
-- **Organization** — Multi-team isolation boundary. All resources are scoped to an org with RBAC access control.
+- **Organization** — the isolation boundary. All resources (pipelines, plugins, rules, quotas, secrets, billing) are scoped to an org with RBAC access control.
+- **Team** — an organization optionally nested one level under a parent org (the org → team hierarchy). Opt-in: every org is a flat root by default. A team has its own members, quotas, and secrets, but its parent-org admins can manage it and visibility/quotas/compliance/analytics roll across the parent ↔ team relationship.
 - **Compliance Rule** — Configurable constraint that validates plugins and pipelines before creation. Supports 18 operators, computed fields, and cross-field checks.
 - **Metadata Keys** — Typed configuration keys controlling CodePipeline and CodeBuild behavior (IAM, networking, compute). See [Metadata Keys](metadata-keys.md).
 - **Secrets** — Plugin credentials stored in AWS Secrets Manager under `pipeline-builder/{orgId}/{secretName}`. Injected at build time, never stored in images.
@@ -43,6 +44,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | [Metadata Keys](metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
 | [Plugin Catalog](plugins/README.md) | 125 pre-built plugins across 10 categories |
+| [Org → Team Hierarchy](#teams-org--team-hierarchy) | Sub-organizations (teams) nested one level under a parent org — RBAC, visibility, quota, and compliance inheritance |
 
 ---
 
@@ -203,7 +205,7 @@ Set `PLATFORM_IDENTIFIER` and `PLATFORM_PASSWORD` env vars (or `PLATFORM_TOKEN` 
 
 ## Organizations
 
-Organizations are the multi-team isolation boundary. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization. This section covers admin tasks; new evaluators can skip ahead to [Architecture](#architecture).
+Organizations are the isolation boundary — each one is a self-contained workspace. Every resource — pipelines, plugins, compliance rules, quotas, secrets, and billing — is scoped to an organization. Organizations can optionally nest **teams** (see [Teams](#teams-org--team-hierarchy) below). This section covers admin tasks; new evaluators can skip ahead to [Architecture](#architecture).
 
 ### Creating an Organization
 
@@ -228,6 +230,22 @@ curl -X POST https://localhost:8443/api/organization \
 | **Member** | Create and manage their own pipelines and plugins |
 
 Invite members via email from the dashboard or API. A user can belong to multiple organizations.
+
+### Teams (Org → Team Hierarchy)
+
+A **team** is an organization nested one level under a parent (root) organization. Nesting is **opt-in** — every organization is a flat root until you create a team under it, and teams can't have their own sub-teams (the hierarchy is one level deep). A team is a full organization: it has its own members, roles, quotas, secrets, and billing.
+
+What the parent ↔ team relationship adds on top of plain organizations:
+
+- **Effective RBAC** — a parent-org **admin/owner** can administer its teams (manage members, rules, quotas) without a separate membership; team-local roles still apply within the team.
+- **Inherited plugin visibility** — a team sees its parent's private plugins in addition to its own and the public catalog.
+- **Compliance propagation** — a parent rule marked *apply to child teams* is enforced on its teams.
+- **Shared quota cap** — a parent's limit can be shared across the subtree (the root cap is checked before each team's own atomic increment).
+- **Rolled-up analytics** — a parent admin can include child-team data in execution reports.
+
+A user can belong to several organizations and teams at once and acts within one at a time (switch with the org switcher).
+
+**Creating / managing teams** — on the dashboard **Members** page, an admin of a root org uses **Create Sub-Org / Team** to nest a new team and **Manage teams** (per member) to add or remove a member across the org's teams in one step. Via the API, `POST /api/organization` accepts a `parentOrgId`, and `POST /api/organization/:id/members/bulk-add` adds a user to several teams at once.
 
 ### Feature Tiers
 

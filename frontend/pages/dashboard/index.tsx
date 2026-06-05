@@ -66,7 +66,7 @@ const SERVICES: ServiceTile[] = [
   { name: 'Compliance', description: 'Rules, policies, and audit trail', href: '/dashboard/compliance', icon: Shield },
   { name: 'Reports', description: 'Execution analytics and metrics', href: '/dashboard/reports', icon: BarChart3 },
   { name: 'Activity', description: 'Pipeline events and audit log', href: '/dashboard/audit', icon: Activity },
-  { name: 'Team', description: 'Members, roles, and invitations', href: '/dashboard/team', icon: Users },
+  { name: 'Members', description: 'Members, roles, and invitations', href: '/dashboard/members', icon: Users },
   { name: 'Messages', description: 'Org announcements and conversations', href: '/dashboard/messages', icon: MessageSquare },
   { name: 'Billing', description: 'Plans, subscriptions, and usage', href: '/dashboard/billing', icon: CreditCard },
   { name: 'Settings', description: 'Account and organization settings', href: '/dashboard/settings', icon: Settings },

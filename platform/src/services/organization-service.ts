@@ -43,6 +43,11 @@ interface OrgSummary {
   kmsConfigured: boolean;
   /** True iff an OrgIdpConfig document exists for this org. */
   idpConfigured: boolean;
+  /** Parent org id when this org is a team (org-team-hierarchy); null = root. */
+  parentOrgId?: string | null;
+  /** Parent org's display name, when resolvable — for hierarchy display in the
+   *  admin list. Absent for root orgs or when the parent is missing. */
+  parentOrgName?: string;
 }
 
 interface ListParams {
@@ -76,6 +81,8 @@ interface CreateOrgInput {
   name: string;
   description?: string;
   tier?: QuotaTier;
+  /** When set, create as a team nested under this (root) org. */
+  parentOrgId?: string;
 }
 
 interface UpdateOrgInput {
@@ -130,20 +137,40 @@ class OrganizationService {
     ]);
     const idpSet = new Set(idpOrgIds.map((id) => String(id)));
 
+    // Resolve parent-org display names for any teams on this page (one batched
+    // lookup; no query at all while orgs are flat, i.e. no parentOrgId set).
+    const parentIds = [...new Set(
+      organizations
+        .map((org) => (org as { parentOrgId?: string | null }).parentOrgId)
+        .filter((p): p is string => !!p),
+    )];
+    const parentNames = parentIds.length
+      ? new Map(
+        (await Organization.find({ _id: { $in: parentIds.map(toOrgId) } }).select('name').lean())
+          .map((p) => [p._id.toString(), p.name as string]),
+      )
+      : new Map<string, string>();
+
     return {
-      organizations: organizations.map((org, idx) => ({
-        id: org._id.toString(),
-        name: org.name,
-        slug: org.slug,
-        description: org.description || '',
-        memberCount: memberCounts[idx],
-        ownerId: org.owner?.toString(),
-        createdAt: org.createdAt,
-        updatedAt: org.updatedAt,
-        tier: (org as { tier?: QuotaTier }).tier,
-        kmsConfigured: Boolean((org as { kmsConfig?: { keyId?: string } }).kmsConfig?.keyId),
-        idpConfigured: idpSet.has(org._id.toString()),
-      })),
+      organizations: organizations.map((org, idx) => {
+        const parentOrgId = (org as { parentOrgId?: string | null }).parentOrgId ?? null;
+        const parentOrgName = parentOrgId ? parentNames.get(parentOrgId) : undefined;
+        return {
+          id: org._id.toString(),
+          name: org.name,
+          slug: org.slug,
+          description: org.description || '',
+          memberCount: memberCounts[idx],
+          ownerId: org.owner?.toString(),
+          createdAt: org.createdAt,
+          updatedAt: org.updatedAt,
+          tier: (org as { tier?: QuotaTier }).tier,
+          kmsConfigured: Boolean((org as { kmsConfig?: { keyId?: string } }).kmsConfig?.keyId),
+          idpConfigured: idpSet.has(org._id.toString()),
+          parentOrgId,
+          ...(parentOrgName && { parentOrgName }),
+        };
+      }),
       total,
     };
   }
@@ -153,7 +180,7 @@ class OrganizationService {
    * transaction. Quota limits seeded from tier config so subsequent quota lookups
    * have a baseline even before the quota service is ever called.
    */
-  async create(userId: string, body: CreateOrgInput): Promise<{ id: string; name: string; slug: string; description: string; tier: QuotaTier }> {
+  async create(userId: string, body: CreateOrgInput): Promise<{ id: string; name: string; slug: string; description: string; tier: QuotaTier; parentOrgId?: string }> {
     const tier = body.tier || 'developer';
     const tierConfig = config.quota.tier[tier];
 
@@ -164,6 +191,10 @@ class OrganizationService {
         owner: userId,
         tier,
       };
+
+      // Org → team hierarchy: nest under the parent when requested. Stored as a
+      // string id so the descendant-expansion helpers match on string ids.
+      if (body.parentOrgId) orgData.parentOrgId = String(body.parentOrgId);
 
       if (tierConfig) {
         orgData.quotas = {
@@ -184,8 +215,19 @@ class OrganizationService {
         slug: org.slug,
         description: org.description || '',
         tier,
+        ...(body.parentOrgId && { parentOrgId: String(body.parentOrgId) }),
       };
     });
+  }
+
+  /**
+   * Validate a prospective team parent: it must exist and be a **root** org
+   * (one level of nesting). Returns `'ok'`, `'not-found'`, or `'not-root'`.
+   */
+  async checkParentEligible(parentOrgId: string): Promise<'ok' | 'not-found' | 'not-root'> {
+    const parent = await Organization.findById(toOrgId(parentOrgId)).select('parentOrgId').lean();
+    if (!parent) return 'not-found';
+    return parent.parentOrgId ? 'not-root' : 'ok';
   }
 
   /** Get a single org with its full member list. Returns null if not found. */

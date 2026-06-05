@@ -70,7 +70,7 @@ export function CommandPalette({
 
     if (isAdmin || isSuperAdmin) {
       items.push(
-        { id: 'team', label: 'Go to Team', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/team') },
+        { id: 'members', label: 'Go to Members', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/members') },
       );
     }
 

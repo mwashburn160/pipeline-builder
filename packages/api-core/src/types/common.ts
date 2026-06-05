@@ -175,6 +175,16 @@ export interface JwtPayload {
   /** Active organization name */
   organizationName?: string;
   /**
+   * Org → team hierarchy (org-team-hierarchy proposal, phase 1).
+   * `parentOrganizationId` is the active org's direct parent; `rootOrganizationId`
+   * is the top of its ancestry chain. Both are **omitted for flat (root) orgs** —
+   * consumers should treat the effective root as `rootOrganizationId ?? organizationId`.
+   * Currently every org is flat, so these are absent on all tokens today.
+   */
+  parentOrganizationId?: string;
+  /** Root organization ID of the active org's ancestry chain (see `parentOrganizationId`). */
+  rootOrganizationId?: string;
+  /**
    * Set on tokens issued by the sysadmin impersonation flow
    * (`POST /admin/impersonate/:userId`). Carries the original sysadmin's
    * user id so audit events still attribute actions correctly.

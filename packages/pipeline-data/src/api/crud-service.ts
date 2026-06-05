@@ -5,7 +5,7 @@ import { NotFoundError, createLogger } from '@pipeline-builder/api-core';
 import { SQL, eq, and, asc, desc, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
-import { withTenantTx } from '../database/tenancy';
+import { withTenantTx, runWithTenantContext } from '../database/tenancy';
 
 /** Pagination defaults — read from env to match CoreConstants in pipeline-core. */
 const DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10);
@@ -112,8 +112,12 @@ export abstract class CrudService<
   /** Drizzle schema table for this entity */
   protected abstract get schema(): PgTable;
 
-  /** Build SQL conditions for filtering entities */
-  protected abstract buildConditions(filter: Partial<TFilter>, orgId?: string): SQL[];
+  /**
+   * Build SQL conditions for filtering entities.
+   * `parentOrgId` (org → team hierarchy) is optional and only honored by
+   * services that opt into parent-inherited visibility (e.g. plugins).
+   */
+  protected abstract buildConditions(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): SQL[];
 
   /** Get the schema column for sorting by field name */
   protected abstract getSortColumn(sortBy: string): AnyColumn | null;
@@ -152,13 +156,24 @@ export abstract class CrudService<
    * @param filter - Filter criteria
    * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
    */
-  async find(filter: Partial<TFilter>, orgId?: string): Promise<TEntity[]> {
-    const conditions = this.buildConditions(filter, orgId);
+  /**
+   * Org → team hierarchy: when a read is widened to a parent org (`parentOrgId`
+   * set), the parent's rows are outside the caller's RLS scope, so the read must
+   * run under sysadmin context — the access-control WHERE clause (own + parent +
+   * system public, built server-side from a trusted JWT claim) is then the
+   * authoritative tenancy gate. Without `parentOrgId` it stays RLS-scoped.
+   */
+  private runRead<T>(parentOrgId: string | undefined, fn: () => Promise<T>): Promise<T> {
+    return parentOrgId ? runWithTenantContext({ isSuperAdmin: true }, fn) : fn();
+  }
 
-    return withTenantTx(async (tx) => tx
+  async find(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): Promise<TEntity[]> {
+    const conditions = this.buildConditions(filter, orgId, parentOrgId);
+
+    return this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
       .select()
       .from(this.schema)
-      .where(and(...conditions)).then(r => drizzleRows<TEntity>(r)));
+      .where(and(...conditions)).then(r => drizzleRows<TEntity>(r))));
   }
 
   /**
@@ -172,6 +187,7 @@ export abstract class CrudService<
     filter: Partial<TFilter>,
     orgId?: string,
     options: QueryOptions = {},
+    parentOrgId?: string,
   ): Promise<PaginatedResult<TEntity>> {
     const { limit: rawLimit = DEFAULT_PAGE_LIMIT, offset = 0, sortBy, sortOrder = 'asc', includeTotal = false, cursor, fields } = options;
     const limit = Math.min(Math.max(1, rawLimit), MAX_PAGE_LIMIT);
@@ -179,7 +195,7 @@ export abstract class CrudService<
     // Cursor and offset are mutually exclusive — cursor takes precedence
     const useCursor = !!(cursor && sortBy);
 
-    const conditions = this.buildConditions(filter, orgId);
+    const conditions = this.buildConditions(filter, orgId, parentOrgId);
 
     // Cursor-based pagination: add WHERE clause for keyset pagination
     if (useCursor) {
@@ -195,8 +211,9 @@ export abstract class CrudService<
     // Wrap the whole paginated read (SELECT + optional COUNT) in one
     // tenant tx. Both queries are visibility-scoped by the same RLS policy,
     // and pinning them to a single tx keeps the `app.org_id` GUC stable
-    // between them.
-    return withTenantTx(async (tx) => {
+    // between them. When widening to a parent org, the whole read runs under
+    // sysadmin context (see runRead) so the access-control WHERE is the gate.
+    return this.runRead(parentOrgId, () => withTenantTx(async (tx) => {
       // Build SELECT — sparse fieldset when fields are specified
       const selectSpec = fields ? this.buildFieldSelect(fields) : undefined;
       let query = selectSpec
@@ -230,9 +247,10 @@ export abstract class CrudService<
         }
       }
 
-      // Only run the COUNT(*) query when the caller explicitly needs the total
+      // Only run the COUNT(*) query when the caller explicitly needs the total.
+      // Must include parentOrgId so `total` matches the widened data set.
       if (includeTotal) {
-        const baseConditions = this.buildConditions(filter, orgId);
+        const baseConditions = this.buildConditions(filter, orgId, parentOrgId);
         const [countResult] = await tx
           .select({ count: sql<number>`count(*)::int` })
           .from(this.schema)
@@ -241,7 +259,7 @@ export abstract class CrudService<
       }
 
       return result;
-    });
+    }));
   }
 
   /**

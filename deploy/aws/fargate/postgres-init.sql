@@ -608,6 +608,9 @@ CREATE TABLE IF NOT EXISTS compliance_rules (    id UUID PRIMARY KEY DEFAULT gen
     forked_from_rule_id UUID,
     suppress_notification BOOLEAN NOT NULL DEFAULT false,
 
+    -- Org -> team hierarchy: enforce this parent rule on descendant team orgs.
+    propagate_to_children BOOLEAN NOT NULL DEFAULT false,
+
     field VARCHAR(100),
     operator VARCHAR(20),
     value JSONB,
@@ -791,6 +794,9 @@ CREATE TRIGGER update_compliance_policies_modtime
     BEFORE UPDATE ON compliance_policies
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
+
+-- Org -> team hierarchy column for existing databases.
+ALTER TABLE compliance_rules ADD COLUMN IF NOT EXISTS propagate_to_children BOOLEAN NOT NULL DEFAULT false;
 
 DROP TRIGGER IF EXISTS update_compliance_rules_modtime ON compliance_rules;
 CREATE TRIGGER update_compliance_rules_modtime

@@ -71,7 +71,8 @@ function defaultCoords(panel: LayoutPanelInput, prior: PanelCoords[]): PanelCoor
  * Hydrate the editor's view of layoutJson into a complete `Layout[]` the grid
  * library can consume, filling in defaults for any panel without a saved entry.
  */
-export function buildLayout(  panels: LayoutPanelInput[],
+export function buildLayout(
+  panels: LayoutPanelInput[],
   layoutJson: Record<string, PanelCoords>,
 ): Layout[] {
   const accumulated: PanelCoords[] = [];
@@ -128,7 +129,8 @@ export default function DashboardLayoutGrid(props: {
 
   const layout = useMemo(() => buildLayout(panels, layoutJson), [panels, layoutJson]);
 
-  return (    <GridLayout
+  return (
+    <GridLayout
       className="layout"
       layout={layout}
       cols={GRID_COLS}
@@ -138,14 +140,15 @@ export default function DashboardLayoutGrid(props: {
       compactType="vertical"
       isDraggable={!readOnly}
       isResizable={!readOnly}
-      draggableHandle={readOnly ? undefined: '.grid-drag-handle'}
+      draggableHandle={readOnly ? undefined : '.grid-drag-handle'}
       onLayoutChange={(next) => { if (!readOnly && onChange) onChange(layoutToJson(next)); }}
     >
-      {panels.map((panel, i) => (        <div
+      {panels.map((panel, i) => (
+        <div
           key={panel.id}
           className={readOnly
             ? 'overflow-hidden'
-: 'rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 overflow-hidden'}
+            : 'rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 overflow-hidden'}
         >
           {renderPanel(panel, i)}
         </div>

@@ -4,12 +4,14 @@
 import { createLogger, isValidTier, ValidationError } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config';
+import { expandOrgScope, resolveRootOrgId } from '../helpers/org-hierarchy';
 import {
   applyQuotaLimits,
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
   computeQuotaStatus,
   getNextResetDate,
+  toOrgId,
   VALID_QUOTA_TYPES,
   QUOTA_TIERS,
 } from '../helpers/quota-helpers';
@@ -102,7 +104,7 @@ export class QuotaService {
    * handled lazily by the increment flow, not by reads.
    */
   async findByOrgId(orgId: string): Promise<OrgQuotaResponse> {
-    const org = await Organization.findById(orgId)
+    const org = await Organization.findById(toOrgId(orgId))
       .select('tier quotas usage name slug')
       .lean();
 
@@ -115,7 +117,7 @@ export class QuotaService {
    * Computes limit, usage, remaining capacity, and reset date.
    */
   async getQuotaStatus(orgId: string, quotaType: QuotaType): Promise<QuotaStatus> {
-    const org = await Organization.findById(orgId)
+    const org = await Organization.findById(toOrgId(orgId))
       .select('tier quotas usage')
       .lean();
 
@@ -136,7 +138,7 @@ export class QuotaService {
    * @throws {ValidationError} when an invalid tier is supplied
    */
   async update(orgId: string, data: UpdateOrgData): Promise<OrgQuotaResponse> {
-    const org = await Organization.findById(orgId);
+    const org = await Organization.findById(toOrgId(orgId));
     if (!org) throw new OrgNotFoundError(orgId);
 
     if (data.name !== undefined) org.name = data.name;
@@ -163,7 +165,7 @@ export class QuotaService {
    * @throws {OrgNotFoundError} when the org document does not exist
    */
   async resetUsage(orgId: string, quotaType?: string): Promise<OrgQuotaResponse> {
-    const org = await Organization.findById(orgId);
+    const org = await Organization.findById(toOrgId(orgId));
     if (!org) throw new OrgNotFoundError(orgId);
 
     const resetDate = getNextResetDate(config.quota.resetDays);
@@ -191,7 +193,7 @@ export class QuotaService {
    * care whether the cleanup was a no-op).
    */
   async delete(orgId: string): Promise<boolean> {
-    const result = await Organization.deleteOne({ _id: orgId });
+    const result = await Organization.deleteOne({ _id: toOrgId(orgId) });
     if (result.deletedCount > 0) {
       logger.info('Quota org deleted', { orgId });
       return true;
@@ -200,11 +202,64 @@ export class QuotaService {
   }
 
   /**
+   * Org → team hierarchy shared-cap check. When `orgId` belongs to a hierarchy
+   * (its root has descendants), the root org's limit for `quotaType` is shared
+   * across the whole subtree. Returns an `exceeded` result when the rolled-up
+   * usage + `amount` would breach the root's limit; otherwise `null` (proceed
+   * with the normal per-org atomic increment). Returns `null` for flat orgs and
+   * for unlimited (`-1`) root limits.
+   */
+  private async checkSharedRootCap(
+    orgId: string,
+    quotaType: QuotaType,
+    amount: number,
+  ): Promise<QuotaReserveResult | null> {
+    const rootOrgId = await resolveRootOrgId(orgId);
+    const scope = await expandOrgScope(rootOrgId);
+    if (scope.length <= 1) return null; // flat org — no shared cap
+
+    type UsageRow = { quotas?: Record<string, number>; usage?: Record<string, { used?: number; resetAt?: Date }> };
+    const root = await Organization.findById(toOrgId(rootOrgId)).select(`quotas.${quotaType} usage.${quotaType}`).lean() as unknown as UsageRow | null;
+    const rootLimit = root?.quotas?.[quotaType];
+    if (rootLimit === undefined || rootLimit === -1) return null; // unlimited / missing
+
+    // Sum current usage across the subtree. A period whose `resetAt` has passed
+    // is treated as 0 — the atomic per-org increment resets expired periods, so
+    // counting their stale `used` would over-count and falsely report exceeded.
+    const now = Date.now();
+    const rows = await Organization.find({ _id: { $in: scope.map(toOrgId) } })
+      .select(`usage.${quotaType}`)
+      .lean() as unknown as UsageRow[];
+    const aggregateUsed = rows.reduce((sum, r) => {
+      const u = r.usage?.[quotaType];
+      if (!u) return sum;
+      const resetAtMs = u.resetAt ? new Date(u.resetAt).getTime() : 0;
+      return sum + (resetAtMs > now ? (u.used ?? 0) : 0);
+    }, 0);
+
+    if (aggregateUsed + amount <= rootLimit) return null; // within shared cap
+
+    const resetAt = root?.usage?.[quotaType]?.resetAt;
+    return {
+      exceeded: true,
+      quota: {
+        type: quotaType,
+        limit: rootLimit,
+        used: aggregateUsed,
+        remaining: Math.max(0, rootLimit - aggregateUsed),
+        resetAt: resetAt ? new Date(resetAt).toISOString() : undefined,
+      },
+    };
+  }
+
+  /**
    * Increment usage for a quota type.
    *
    * Handles three distinct flows   * 1. **Sysadmin bypass**  increment without limit check.
    * 2. **Auto-reset**  atomically resets expired periods before incrementing.
    * 3. **Atomic increment**  single query that only succeeds when quota allows.
+   * 4. **Shared root cap**  for hierarchy orgs, a pre-check rolls usage up to
+   *    the root and enforces the root's shared limit.
    *
    * @throws {OrgNotFoundError} when the org document does not exist
    */
@@ -220,7 +275,7 @@ export class QuotaService {
     if (bypassLimit) {
       logger.info('Quota bypass increment', { orgId, quotaType, amount });
       const org = await Organization.findOneAndUpdate(
-        { _id: orgId },
+        { _id: toOrgId(orgId) },
         { $inc: { [`${usagePath}.used`]: amount } },
         { returnDocument: 'after' },
       );
@@ -243,6 +298,23 @@ export class QuotaService {
       };
     }
 
+    // ----- Org → team hierarchy: shared root cap -----
+    // When the org is part of a hierarchy, the root org's limit is shared
+    // across the root + all descendant teams. Enforce it as a pre-check before
+    // the team's own atomic increment. Skipped entirely for flat orgs (the vast
+    // majority), so there's no overhead unless a hierarchy actually exists.
+    // Note: the cross-org sum is not part of the single-doc atomic update, so a
+    // tiny concurrent overshoot is possible — acceptable for rate-limit quotas.
+    // Fail-safe: a hierarchy-resolution error must never block quota
+    // enforcement — fall through to the per-org atomic check on any failure.
+    let rootCap: QuotaReserveResult | null = null;
+    try {
+      rootCap = await this.checkSharedRootCap(orgId, quotaType, amount);
+    } catch (err) {
+      logger.warn('Shared root-cap check failed; using per-org limit only', { orgId, quotaType, err: String(err) });
+    }
+    if (rootCap) return rootCap;
+
     // ----- Atomic reset-if-expired + increment with limit check -----
     // Single pipeline-update driven by `$$NOW` so the filter `$expr` and the
     // `$set` `$cond` see the exact same server-side timestamp. The next-reset
@@ -251,7 +323,7 @@ export class QuotaService {
     const resetDays = config.quota.resetDays;
     const org = await Organization.findOneAndUpdate(
       {
-        _id: orgId,
+        _id: toOrgId(orgId),
         $expr: {
           $or: [
             { $eq: [`$quotas.${quotaType}`, -1] },
@@ -299,7 +371,7 @@ export class QuotaService {
     // "quota exceeded" or "org missing". Disambiguate with a single read so
     // the caller (route) can choose between 429 and 404 cleanly.
     if (!org) {
-      const existing = await Organization.findById(orgId);
+      const existing = await Organization.findById(toOrgId(orgId));
       if (!existing) throw new OrgNotFoundError(orgId);
 
       const limit = existing.quotas[quotaType];
@@ -357,7 +429,7 @@ export class QuotaService {
   ): Promise<QuotaReserveResult | null> {
     const usagePath = `usage.${quotaType}`;
 
-    const filter: Record<string, unknown> = { _id: orgId };
+    const filter: Record<string, unknown> = { _id: toOrgId(orgId) };
     if (resetAtSnapshot) {
       const snap = new Date(resetAtSnapshot);
       filter.$expr = { $eq: [`$${usagePath}.resetAt`, snap] };
@@ -384,7 +456,7 @@ export class QuotaService {
       // snapshot mismatch fired (period rolled over). Disambiguate so the
       // caller sees the actually-current quota state.
       if (resetAtSnapshot) {
-        const existing = await Organization.findById(orgId);
+        const existing = await Organization.findById(toOrgId(orgId));
         if (!existing) return null;
 
         const limit = existing.quotas[quotaType];

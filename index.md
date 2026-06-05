@@ -7,7 +7,7 @@ permalink: /
 
 # Pipeline Builder
 
-**An organization-scoped CI/CD control plane.** Every pipeline, plugin, and policy lives inside an organization (with optional sub-organizations / teams) and compiles to native AWS CodePipeline + CodeBuild stacks deployed inside your own AWS account — with zero runtime lock-in. Developers get pipelines in minutes; platform teams get enforcement, isolation, and analytics out of the box.
+**An organization-scoped CI/CD control plane.** Every pipeline, plugin, and policy lives inside an organization (an isolated workspace) and compiles to native AWS CodePipeline + CodeBuild stacks deployed inside your own AWS account — with zero runtime lock-in. Developers get pipelines in minutes; platform teams get enforcement, isolation, and analytics out of the box.
 
 [**View on GitHub**](https://github.com/mwashburn160/pipeline-builder) · [**Documentation**]({{ '/docs/' | relative_url }}) · [**Plugin Catalog**]({{ '/docs/plugins/' | relative_url }}) · [**API Reference**]({{ '/docs/api-reference.html' | relative_url }})
 
@@ -28,7 +28,7 @@ permalink: /
 | CI/CD set-up demands deep AWS expertise | Self-service creation via dashboard, CLI, REST API, CDK, or AI prompt — no CDK or buildspec knowledge required |
 | Governance happens after the fact | Per-team compliance rules **block** non-compliant pipelines and plugins at creation time (HTTP 403), with a full audit trail |
 | Build steps get copy-pasted across teams | 125 versioned, containerized plugins shared from a central catalog — one source of truth, ten categories |
-| Teams share infrastructure without isolation | Every pipeline, plugin, secret, quota, and bill scoped to a sub-organization / team with RBAC and quota enforcement |
+| Teams share infrastructure without isolation | Every pipeline, plugin, secret, quota, and bill scoped to its organization with RBAC and quota enforcement |
 | Vendor lock-in with SaaS CI/CD platforms | Pipelines deploy as **native AWS CodePipeline + CodeBuild** in your account — they keep running even if Pipeline Builder is removed |
 | No visibility into CI/CD health or cost | EventBridge-fed analytics: success rates, duration percentiles, failure heatmaps, per-team cost attribution |
 
@@ -100,10 +100,12 @@ A minimal `{{ ... }}` template language for pipeline configs and plugin specs �
 
 ### Organizations, teams & analytics
 
-- **RBAC** — Owner / Admin / Member roles, enforced per team at the API layer
-- **Per-team quotas** — `plugins`, `pipelines`, `apiCalls`, `aiCalls`; **feature tiers** (Developer / Pro / Unlimited)
-- **Isolated secrets** — AWS Secrets Manager per team (`pipeline-builder/{orgId}/{secret}`), injected at build time, never stored in images
-- **Execution analytics** — EventBridge-fed success rates, duration percentiles (p50 / p90 / p99), stage-level failure heatmaps, per-team cost attribution
+An **organization** is the isolation boundary — every pipeline, plugin, secret, quota, and bill is scoped to it. A **team** is an organization optionally nested one level under a parent org (the org → team hierarchy); nesting is opt-in (orgs are flat roots by default), and a parent-org admin manages its teams while visibility, quotas, compliance, and analytics roll up across them.
+
+- **RBAC** — Owner / Admin / Member roles enforced per organization at the API layer; a parent-org admin inherits admin over its teams
+- **Per-organization quotas** — `plugins`, `pipelines`, `apiCalls`, `aiCalls`; **feature tiers** (Developer / Pro / Unlimited); a parent's cap can be shared across its teams
+- **Isolated secrets** — AWS Secrets Manager per organization (`pipeline-builder/{orgId}/{secret}`), injected at build time, never stored in images
+- **Execution analytics** — EventBridge-fed success rates, duration percentiles (p50 / p90 / p99), stage-level failure heatmaps, and per-organization cost attribution (rolled up across child teams for parent orgs)
 - **Built for production** — zero-trust internal JWT auth, Kubernetes `health` / `ready` / `warmup` / `metrics` endpoints, graceful degradation
 
 ---
@@ -116,7 +118,7 @@ A minimal `{{ ... }}` template language for pipeline configs and plugin specs �
 | **Pipeline** | Pipeline CRUD + AI generation + CDK synthesis |
 | **Plugin** | Plugin CRUD + rootless BuildKit (`buildkitd`) image builds + AI generation |
 | **Image Registry** | Stores and serves plugin images with token auth, per-org quotas, garbage collection |
-| **Compliance** | Per-team rule enforcement (with org-level inheritance), policy management, audit trail |
+| **Compliance** | Per-organization rule enforcement (subscribe to the shared catalog), policy management, audit trail |
 | **Reporting** | Execution reports + build analytics via EventBridge |
 | **Quota / Billing / Message** | Resource limits, subscriptions, organization announcements |
 

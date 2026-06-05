@@ -198,7 +198,8 @@ export default function DashboardEditPage() {
   if (!isReady || !isAuthenticated) return <LoadingPage />;
   if (loading) return <LoadingPage />;
   if (error || !original) {
-    return (      <DashboardLayout title="Edit dashboard" subtitle="">
+    return (
+      <DashboardLayout title="Edit dashboard" subtitle="">
         <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
           {error ?? 'Dashboard not found'}
         </div>
@@ -207,7 +208,8 @@ export default function DashboardEditPage() {
     );
   }
 
-  return (    <DashboardLayout
+  return (
+    <DashboardLayout
       title={`Editing: ${original.name}`}
       subtitle="Drag panels in grid mode to rearrange; resize from any corner. Toggle to list view for keyboard-friendly editing."
       actions={
@@ -223,7 +225,7 @@ export default function DashboardEditPage() {
             disabled={saving || !name.trim()}
             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
           >
-            <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…': 'Save'}
+            <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       }
@@ -272,14 +274,14 @@ export default function DashboardEditPage() {
               <div className="inline-flex border border-gray-300 dark:border-gray-600 rounded overflow-hidden text-xs">
                 <button
                   onClick={() => setEditorMode('grid')}
-                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'grid' ? 'bg-blue-600 text-white': 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'grid' ? 'bg-blue-600 text-white' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                   aria-pressed={editorMode === 'grid'}
                 >
                   <LayoutGrid className="w-3.5 h-3.5" /> Grid
                 </button>
                 <button
                   onClick={() => setEditorMode('list')}
-                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'list' ? 'bg-blue-600 text-white': 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'list' ? 'bg-blue-600 text-white' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                   aria-pressed={editorMode === 'list'}
                 >
                   <List className="w-3.5 h-3.5" /> List
@@ -293,16 +295,19 @@ export default function DashboardEditPage() {
               </button>
             </div>
           </div>
-          {panels.length === 0 ? (            <div className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">
+          {panels.length === 0 ? (
+            <div className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">
               No panels yet. Click <strong>Add panel</strong> to start.
             </div>
-          ): editorMode === 'grid' ? (            <div ref={gridContainerRef} className="p-2">
+          ) : editorMode === 'grid' ? (
+            <div ref={gridContainerRef} className="p-2">
               <DashboardLayoutGrid
                 panels={panels.map<LayoutPanelInput>((p, i) => ({ id: `p-${i}`, title: p.title, span: p.span }))}
                 layoutJson={layoutJson}
                 onChange={setLayoutJson}
                 width={gridWidth}
-                renderPanel={(_panel, i) => (                  <div className="h-full flex flex-col gap-1">
+                renderPanel={(_panel, i) => (
+                  <div className="h-full flex flex-col gap-1">
                     <div className="flex items-center gap-2 mb-1">
                       {/* `.grid-drag-handle` is the only zone where dragging the
                           panel is allowed — keeps inputs clickable inside. */}
@@ -312,7 +317,7 @@ export default function DashboardEditPage() {
                       <input
                         type="text"
                         value={panels[i].title}
-                        onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? {...q, title: e.target.value }: q))}
+                        onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? { ...q, title: e.target.value } : q))}
                         className="flex-1 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
                       />
                       <button
@@ -328,7 +333,7 @@ export default function DashboardEditPage() {
                     </div>
                     <select
                       value={panels[i].vizKind}
-                      onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? {...q, vizKind: e.target.value }: q))}
+                      onChange={(e) => setPanels(prev => prev.map((q, j) => j === i ? { ...q, vizKind: e.target.value } : q))}
                       className="px-2 py-0.5 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800"
                     >
                       <option value="stat">stat</option>
@@ -340,8 +345,10 @@ export default function DashboardEditPage() {
                 )}
               />
             </div>
-          ): (            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-              {panels.map((p, i) => (                <li key={i} className="px-4 py-3 flex items-center gap-3">
+          ) : (
+            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+              {panels.map((p, i) => (
+                <li key={i} className="px-4 py-3 flex items-center gap-3">
                   <div className="flex flex-col gap-0.5">
                     <button
                       onClick={() => movePanel(i, -1)}
@@ -402,7 +409,8 @@ export default function DashboardEditPage() {
         </div>
       </div>
 
-      {showAddPanel && (        <AddPanelModal
+      {showAddPanel && (
+        <AddPanelModal
           catalog={catalog}
           onClose={() => setShowAddPanel(false)}
           onAdd={addPanel}
@@ -427,7 +435,8 @@ function AddPanelModal(props: {
 
   const filtered = catalog.filter(c => c.key.toLowerCase().includes(filter.toLowerCase()));
 
-  return (    <Modal title="Add panel" onClose={onClose} maxWidth="max-w-lg" tall>
+  return (
+    <Modal title="Add panel" onClose={onClose} maxWidth="max-w-lg" tall>
       <div className="space-y-4">
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Filter</label>
@@ -442,20 +451,23 @@ function AddPanelModal(props: {
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Catalog query ({filtered.length})</label>
           <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded">
-            {filtered.map(entry => (              <button
+            {filtered.map(entry => (
+              <button
                 key={entry.key}
                 onClick={() => { setSelected(entry); if (!title) setTitle(entry.key.replace(/_/g, ' ')); }}
-                className={`block w-full text-left px-3 py-1.5 text-xs font-mono border-b border-gray-100 dark:border-gray-800 last:border-b-0 ${selected?.key === entry.key ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-200': 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                className={`block w-full text-left px-3 py-1.5 text-xs font-mono border-b border-gray-100 dark:border-gray-800 last:border-b-0 ${selected?.key === entry.key ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-200' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}
               >
                 <div>{entry.key}</div>
                 <div className="text-[10px] text-gray-500">{entry.source}</div>
               </button>
             ))}
-            {filtered.length === 0 && (              <div className="p-3 text-xs text-gray-500 dark:text-gray-400">No matches.</div>
+            {filtered.length === 0 && (
+              <div className="p-3 text-xs text-gray-500 dark:text-gray-400">No matches.</div>
             )}
           </div>
         </div>
-        {selected && (          <>
+        {selected && (
+          <>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Title</label>
               <input

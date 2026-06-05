@@ -51,6 +51,8 @@ export interface ComplianceRule {
   effectiveUntil?: string;
   scope: RuleScope;
   suppressNotification: boolean;
+  /** Org → team hierarchy: also enforced on descendant team orgs. */
+  propagateToChildren?: boolean;
   field?: string;
   operator?: RuleOperator;
   value?: unknown;
@@ -155,6 +157,7 @@ export interface ComplianceRuleCreate {
   effectiveUntil?: string;
   scope?: RuleScope;
   suppressNotification?: boolean;
+  propagateToChildren?: boolean;
   field?: string;
   operator?: RuleOperator;
   value?: unknown;
@@ -172,6 +175,7 @@ export interface ComplianceRuleUpdate {
   effectiveFrom?: string | null;
   effectiveUntil?: string | null;
   suppressNotification?: boolean;
+  propagateToChildren?: boolean;
   field?: string;
   operator?: RuleOperator;
   value?: unknown;

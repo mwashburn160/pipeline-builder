@@ -201,6 +201,9 @@ describe('GET /plugins (list)', () => {
       expect.not.objectContaining({ accessModifier: 'private' }),
       'org-1',
       expect.any(Object),
+      // 4th arg: parentOrgId from the JWT (org → team inherited plugin visibility);
+      // undefined here because the mock request is a flat (root) org.
+      undefined,
     );
   });
 
@@ -214,6 +217,9 @@ describe('GET /plugins (list)', () => {
       expect.not.objectContaining({ accessModifier: 'private' }),
       'org-1',
       expect.any(Object),
+      // 4th arg: parentOrgId from the JWT (org → team inherited plugin visibility);
+      // undefined here because the mock request is a flat (root) org.
+      undefined,
     );
   });
 

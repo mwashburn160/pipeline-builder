@@ -33,6 +33,10 @@ jest.mock('../src/helpers/controller-helper', () => ({
   requireAuth: () => true,
   isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
   getAdminContext: (req: unknown) => mockGetAdminContext(req),
+  // These tests stub the auth layer and assert audit emission; grant access so
+  // the handlers proceed to the audit call.
+  canAdministerOrg: async () => true,
+  canAccessOrg: async () => true,
   withController: (_label: string, fn: Function, _errMap?: unknown) =>
     async (req: any, res: any) => {
       try { await fn(req, res); } catch { /* swallowed for test - real withController maps to status */ }

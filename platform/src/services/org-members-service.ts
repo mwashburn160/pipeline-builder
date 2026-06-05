@@ -4,6 +4,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { toOrgId } from '../helpers/controller-helper';
+import { expandOrgScope } from '../helpers/org-hierarchy';
 import { Organization, User, UserOrganization } from '../models';
 import type { OrgMemberRole } from '../models/user-organization';
 import { withMongoTransaction } from '../utils/mongo-tx';
@@ -21,6 +22,36 @@ export const OM_NEW_OWNER_MUST_BE_MEMBER = 'OM_NEW_OWNER_MUST_BE_MEMBER';
 export const OM_MEMBERSHIP_NOT_FOUND = 'OM_MEMBERSHIP_NOT_FOUND';
 export const OM_ALREADY_INACTIVE = 'OM_ALREADY_INACTIVE';
 export const OM_ALREADY_ACTIVE = 'OM_ALREADY_ACTIVE';
+/** A bulk-add target org is outside the context org's subtree (a parent admin
+ *  may only place members on teams they administer, i.e. descendants). */
+export const OM_TARGETS_OUT_OF_SCOPE = 'OM_TARGETS_OUT_OF_SCOPE';
+
+/** One descendant team annotated with the target member's membership state. */
+export interface MemberTeam {
+  orgId: string;
+  orgName: string;
+  /** Present when the team is nested (always set for a descendant). */
+  parentOrgId?: string;
+  /** True when the member already belongs to this team. */
+  isMember: boolean;
+  /** The member's role on the team, when a member. */
+  role?: string;
+  /** The membership's active flag, when a member. */
+  isActive?: boolean;
+}
+
+/** Outcome of a single team in a bulk-add operation. */
+export interface BulkAddResult {
+  orgId: string;
+  status: 'added' | 'already_member';
+}
+
+/** A descendant team of a context org (roster, no per-member annotation). */
+export interface TeamSummary {
+  orgId: string;
+  orgName: string;
+  parentOrgId?: string;
+}
 
 interface MemberSummary {
   id: string;
@@ -113,6 +144,89 @@ class OrgMembersService {
         [{ userId: user._id, organizationId: toOrgId(orgId), role: body.role || 'member' }],
         { session },
       );
+    });
+  }
+
+  /**
+   * List every descendant team of `contextOrgId` (org → team hierarchy), sorted
+   * by name. The context org itself is excluded. Returns `[]` for a flat org
+   * with no teams. Roster used by the "add to teams" picker (no member context).
+   */
+  async listTeams(contextOrgId: string): Promise<{ teams: TeamSummary[] }> {
+    const subtree = await expandOrgScope(contextOrgId); // includes contextOrgId
+    const teamIds = subtree.filter((id) => id !== contextOrgId);
+    if (teamIds.length === 0) return { teams: [] };
+
+    const orgs = await Organization.find({ _id: { $in: teamIds.map(toOrgId) } })
+      .select('_id name parentOrgId').lean();
+    const teams: TeamSummary[] = orgs.map((o) => {
+      const parent = (o as { parentOrgId?: unknown }).parentOrgId;
+      return { orgId: String(o._id), orgName: o.name, ...(parent ? { parentOrgId: String(parent) } : {}) };
+    });
+    teams.sort((a, b) => a.orgName.localeCompare(b.orgName));
+    return { teams };
+  }
+
+  /**
+   * The {@link listTeams} roster, each entry annotated with whether `memberId`
+   * belongs to it (and their role/active state). Powers the admin "manage teams"
+   * view. Returns `[]` for a flat org with no teams.
+   */
+  async listMemberTeams(contextOrgId: string, memberId: string): Promise<{ teams: MemberTeam[] }> {
+    const { teams: roster } = await this.listTeams(contextOrgId);
+    if (roster.length === 0) return { teams: [] };
+
+    const memberships = await UserOrganization.find({
+      userId: memberId, organizationId: { $in: roster.map((t) => toOrgId(t.orgId)) },
+    }).select('organizationId role isActive').lean();
+    const byOrg = new Map(memberships.map((m) => [String(m.organizationId), m]));
+
+    const teams: MemberTeam[] = roster.map((t) => {
+      const m = byOrg.get(t.orgId);
+      return { ...t, isMember: !!m, ...(m ? { role: m.role, isActive: m.isActive } : {}) };
+    });
+    return { teams };
+  }
+
+  /**
+   * Add a single user (by id or email) to multiple teams in one transaction.
+   * Every target must lie within `contextOrgId`'s subtree — the controller has
+   * already verified the actor administers `contextOrgId`, and a parent admin
+   * inherits admin over descendants, so subtree membership is the authorization
+   * boundary. Idempotent per team: an existing membership is reported
+   * `already_member` rather than erroring, so re-saving the manage-teams modal
+   * is safe. Throws OM_USER_NOT_FOUND / OM_TARGETS_OUT_OF_SCOPE.
+   */
+  async bulkAddMemberToTeams(
+    contextOrgId: string,
+    body: { userId?: string; email?: string; orgIds: string[]; role?: OrgMemberRole },
+  ): Promise<{ results: BulkAddResult[] }> {
+    const subtree = new Set(await expandOrgScope(contextOrgId));
+    const outOfScope = body.orgIds.filter((id) => !subtree.has(id));
+    if (outOfScope.length > 0) throw new Error(OM_TARGETS_OUT_OF_SCOPE);
+
+    return withMongoTransaction(async (session) => {
+      const user = body.userId
+        ? await User.findById(body.userId).session(session)
+        : await User.findOne({ email: body.email!.toLowerCase() }).session(session);
+      if (!user) throw new Error(OM_USER_NOT_FOUND);
+
+      const results: BulkAddResult[] = [];
+      for (const orgId of body.orgIds) {
+        const existing = await UserOrganization.findOne({
+          userId: user._id, organizationId: toOrgId(orgId),
+        }).session(session);
+        if (existing) {
+          results.push({ orgId, status: 'already_member' });
+          continue;
+        }
+        await UserOrganization.create(
+          [{ userId: user._id, organizationId: toOrgId(orgId), role: body.role || 'member' }],
+          { session },
+        );
+        results.push({ orgId, status: 'added' });
+      }
+      return { results };
     });
   }
 

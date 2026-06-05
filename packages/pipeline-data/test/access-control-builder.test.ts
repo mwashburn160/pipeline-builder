@@ -120,6 +120,32 @@ describe('AccessControlQueryBuilder - isDefault filter', () => {
   });
 });
 
+// Org → team hierarchy: parent-inherited visibility
+describe('AccessControlQueryBuilder - parentOrgId (team → parent inheritance)', () => {
+  const PARENT_ID = 'org-parent-999';
+
+  it('folds parentOrgId into the single default-case OR (no extra condition)', () => {
+    // Default case: accessModifier='public' (1) + or(own, system[, parent]) (1) + isActive (1) = 3,
+    // whether or not a parent is supplied — the parent is an extra OR branch, not a new condition.
+    const withoutParent = builder.buildCommonConditions({}, ORG_ID);
+    const withParent = builder.buildCommonConditions({}, ORG_ID, PARENT_ID);
+    expect(withParent.length).toBe(withoutParent.length);
+    expect(withParent.length).toBe(3);
+  });
+
+  it('ignores parentOrgId when an explicit accessModifier filter is set (own-org scoped)', () => {
+    const withParent = builder.buildCommonConditions({ accessModifier: 'public' }, ORG_ID, PARENT_ID);
+    // explicit public → orgId=$org + accessModifier='public' (2) + isActive (1) = 3; parent not added.
+    expect(withParent.length).toBe(3);
+  });
+
+  it('ignores parentOrgId for anonymous (no orgId) access', () => {
+    const anon = builder.buildCommonConditions({}, undefined, PARENT_ID);
+    // system-public-only (2) + isActive (1) = 3
+    expect(anon.length).toBe(3);
+  });
+});
+
 // Combined filters
 describe('AccessControlQueryBuilder - combined common conditions', () => {
   it('should include access control + isActive default for empty filter', () => {

@@ -7,6 +7,7 @@ export type { QuotaTier } from '@pipeline-builder/api-core';
 export { QUOTA_TIERS, VALID_TIERS, VALID_QUOTA_TYPES, isValidQuotaType } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization';
+export { toOrgId } from './org-id';
 
 // Date helpers
 

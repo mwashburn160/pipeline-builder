@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/pipeline-data",
-  "description": "Database layer for Pipeline Builder: Drizzle ORM schemas, connection management, query builders, and the generic CrudService base class with multi-tenant access control.",
+  "description": "Database layer for Pipeline Builder: Drizzle ORM schemas, connection management, query builders, and the generic CrudService base class with per-organization (and team) access control.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -57,7 +57,7 @@
     "plugins",
     "typescript",
     "self-service",
-    "multi-tenant",
+    "multi-team",
     "compliance",
     "automation",
     "infrastructure-as-code",

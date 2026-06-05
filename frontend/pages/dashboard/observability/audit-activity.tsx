@@ -68,7 +68,8 @@ export default function AuditActivityRedirect() {
 
   if (!isReady || !isAuthenticated) return <LoadingPage />;
   if (error) {
-    return (      <DashboardLayout title="Audit Activity" subtitle="">
+    return (
+      <DashboardLayout title="Audit Activity" subtitle="">
         <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
           {error}
         </div>

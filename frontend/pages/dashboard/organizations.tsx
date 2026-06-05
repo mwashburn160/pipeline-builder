@@ -116,6 +116,11 @@ export default function OrganizationsPage() {
           <div className="text-sm font-medium text-gray-900 dark:text-gray-100 flex flex-wrap items-center gap-1.5">
             {org.name}
             {org.id === 'system' && <Badge color="purple">System</Badge>}
+            {org.parentOrgId && (
+              <Badge color="indigo">
+                {org.parentOrgName ? `Team of ${org.parentOrgName}` : 'Team'}
+              </Badge>
+            )}
             {org.tier && <Badge color={org.tier === 'unlimited' ? 'red' : org.tier === 'pro' ? 'purple' : 'gray'}>{org.tier}</Badge>}
             {org.kmsConfigured && <Badge color="blue">KMS</Badge>}
             {org.idpConfigured && <Badge color="green">SSO</Badge>}

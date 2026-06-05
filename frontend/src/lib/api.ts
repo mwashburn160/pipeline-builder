@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, OrgQuotaResponse, OrgAIConfig, OrgIdpConfigDto, OrgIdpConfigCreate, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, UsageRollup, Message, MessageType, MessagePriority, QueueStatus, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
+import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, MemberTeam, OrgQuotaResponse, OrgAIConfig, OrgIdpConfigDto, OrgIdpConfigCreate, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, UsageRollup, Message, MessageType, MessagePriority, QueueStatus, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
 import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate } from '@/types/compliance';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
@@ -611,12 +611,16 @@ class ApiClient {
 
   /** List all organizations the current user belongs to. */
   async getUserOrganizations() {
-    return this.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string }> }>>('/api/user/organizations');
+    return this.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string; parentOrgId?: string }> }>>('/api/user/organizations');
   }
 
-  /** Create a new organization. The authenticated user becomes the owner. */
-  async createOrganization(data: { name: string; description?: string; tier?: 'developer' | 'pro' | 'unlimited' }) {
-    return this.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string; tier: string } }>>('/api/organization', {
+  /**
+   * Create a new organization. The authenticated user becomes the owner.
+   * Pass `parentOrgId` to create it as a team nested under that org (the caller
+   * must be an admin/owner of the parent).
+   */
+  async createOrganization(data: { name: string; description?: string; tier?: 'developer' | 'pro' | 'unlimited'; parentOrgId?: string }) {
+    return this.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string; tier: string; parentOrgId?: string } }>>('/api/organization', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -711,12 +715,38 @@ class ApiClient {
     return this.request<ApiResponse<{ organization: Organization }>>(`/api/organization/${id}`);
   }
 
+  /** Org → team subtree: returns `[self, ...descendantOrgIds]` for an org the
+   * caller can access (own org, an ancestor admin, or sysadmin). */
+  async getOrganizationDescendants(id: string) {
+    return this.request<ApiResponse<{ orgIds: string[] }>>(`/api/organization/${id}/descendants`);
+  }
+
   async getOrganizationMembers(orgId: string) {
     return this.request<ApiResponse<{ members: OrganizationMember[] }>>(`/api/organization/${orgId}/members`);
   }
 
   async addMemberToOrganization(orgId: string, data: { userId?: string; email?: string }) {
     return this.request<ApiResponse<OrganizationMember>>(`/api/organization/${orgId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Descendant team roster for `orgId` (no member context) — for the
+   *  "also add to teams" picker when adding a member. */
+  async getOrganizationTeams(orgId: string) {
+    return this.request<ApiResponse<{ teams: Array<{ orgId: string; orgName: string; parentOrgId?: string }> }>>(`/api/organization/${orgId}/teams`);
+  }
+
+  /** Descendant teams of `orgId` annotated with whether `memberId` belongs to
+   *  each — powers the admin "manage teams" view (a member can be on many teams). */
+  async getMemberTeams(orgId: string, memberId: string) {
+    return this.request<ApiResponse<{ teams: MemberTeam[] }>>(`/api/organization/${orgId}/member/${memberId}/teams`);
+  }
+
+  /** Add one user (by id or email) to several teams in `orgId`'s subtree at once. */
+  async bulkAddMemberToTeams(orgId: string, data: { userId?: string; email?: string; orgIds: string[]; role?: 'owner' | 'admin' | 'member' }) {
+    return this.request<ApiResponse<{ results: Array<{ orgId: string; status: 'added' | 'already_member' }> }>>(`/api/organization/${orgId}/members/bulk-add`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -1668,17 +1698,17 @@ class ApiClient {
   // ============================================
 
   /** Pipeline execution count per pipeline with status breakdown. */
-  async getExecutionCount() {
-    return this.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; organization: string; pipeline_name: string | null; total: number; succeeded: number; failed: number; canceled: number; first_execution: string | null; last_execution: string | null }> }>>('/api/reports/execution/count');
+  async getExecutionCount(params?: { includeDescendants?: boolean }) {
+    return this.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; organization: string; pipeline_name: string | null; total: number; succeeded: number; failed: number; canceled: number; first_execution: string | null; last_execution: string | null }> }>>(`/api/reports/execution/count${buildQuery(params)}`);
   }
 
   /** Pipeline success rate over time. */
-  async getSuccessRate(params?: { interval?: string; from?: string; to?: string }) {
+  async getSuccessRate(params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean }) {
     return this.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; canceled: number; success_pct: number }> }>>(`/api/reports/execution/success-rate${buildQuery(params)}`);
   }
 
   /** Average pipeline duration stats. */
-  async getPipelineDuration(params?: { from?: string; to?: string }) {
+  async getPipelineDuration(params?: { from?: string; to?: string; includeDescendants?: boolean }) {
     return this.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; pipeline_name: string | null; avg_ms: number; min_ms: number; max_ms: number; p95_ms: number; executions: number }> }>>(`/api/reports/execution/duration${buildQuery(params)}`);
   }
 

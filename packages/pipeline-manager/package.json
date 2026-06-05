@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/pipeline-manager",
-  "description": "CLI for Pipeline Builder  self-service AWS CodePipeline platform with 124 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.",
+  "description": "CLI for Pipeline Builder  self-service AWS CodePipeline platform with 125 reusable containerized plugins, per-org compliance enforcement, and per-organization (and team) isolation.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
@@ -74,7 +74,7 @@
     "plugins",
     "typescript",
     "self-service",
-    "multi-tenant",
+    "multi-team",
     "compliance",
     "automation",
     "infrastructure-as-code",

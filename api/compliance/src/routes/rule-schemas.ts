@@ -31,6 +31,8 @@ export const ComplianceRuleCreateSchema = z.object({
   effectiveUntil: z.string().datetime().optional(),
   scope: z.enum(['org', 'published']).default('org'),
   suppressNotification: z.boolean().default(false),
+  // Org → team hierarchy: also enforce this org's rule on descendant teams.
+  propagateToChildren: z.boolean().default(false),
   field: z.string().max(100).optional(),
   operator: OperatorEnum.optional(),
   value: z.unknown().optional(),
@@ -48,6 +50,7 @@ export const ComplianceRuleUpdateSchema = z.object({
   effectiveFrom: z.string().datetime().nullable().optional(),
   effectiveUntil: z.string().datetime().nullable().optional(),
   suppressNotification: z.boolean().optional(),
+  propagateToChildren: z.boolean().optional(),
   field: z.string().max(100).optional(),
   operator: OperatorEnum.optional(),
   value: z.unknown().optional(),

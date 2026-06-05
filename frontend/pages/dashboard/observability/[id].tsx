@@ -27,7 +27,7 @@ const DashboardLayoutGrid = dynamic(() => import('@/components/observability/Das
 
 const FORMATTERS: Record<string, (v: number) => string> = {
   percent: (v) => `${(v * 100).toFixed(1)}%`,
-  seconds: (v) => v < 60 ? `${v.toFixed(1)}s`: `${(v / 60).toFixed(1)}m`,
+  seconds: (v) => (v < 60 ? `${v.toFixed(1)}s` : `${(v / 60).toFixed(1)}m`),
 };
 
 function parseRange(raw: unknown): RangeKey {
@@ -59,7 +59,7 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
   // backend's substituteVars consumes them server-side after sanitization.
   const vars = Object.keys(panel.vars).length > 0
     ? { plugin: panel.vars.plugin }
-: undefined;
+    : undefined;
 
   switch (panel.vizKind) {
     case 'stat':
@@ -70,19 +70,20 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
       // everything else is treated as a topk aggregate.
       {
         const isLogsMode = /recent_/i.test(panel.queryKey);
-        return (          <TablePanel
+        return (
+          <TablePanel
             title={panel.title}
             queryKey={panel.queryKey}
             range={range}
             span={span}
-            mode={isLogsMode ? 'logs': 'topk'}
+            mode={isLogsMode ? 'logs' : 'topk'}
             topkLabel={groupBy}
             // forward URL filters to log-mode panels only.
             // The audit-activity deep-link helper uses these to pre-filter
             // a recent-events log query to a single event / actor / digest.
             logOpts={isLogsMode && (urlFilters.event || urlFilters.actor || urlFilters.digest)
-              ? {...urlFilters, limit: 50 }
-: undefined}
+              ? { ...urlFilters, limit: 50 }
+              : undefined}
           />
         );
       }
@@ -110,15 +111,15 @@ export default function DashboardPage() {
   const { isReady, isAuthenticated, user } = useAuthGuard();
   const router = useRouter();
   const toast = useToast();
-  const id = typeof router.query.id === 'string' ? router.query.id: '';
+  const id = typeof router.query.id === 'string' ? router.query.id : '';
   const range = parseRange(router.query.range);
   // URL-param filters forwarded to log-mode panels. Set by deep-link
   // helpers (e.g. `buildAuditLogLink` in registry-audit-link.ts) so a
   // click on an audit-event row lands on the dashboard pre-filtered.
   const urlFilters: LogUrlFilters = {
-    event: typeof router.query.event === 'string' ? router.query.event: undefined,
-    actor: typeof router.query.actor === 'string' ? router.query.actor: undefined,
-    digest: typeof router.query.digest === 'string' ? router.query.digest: undefined,
+    event: typeof router.query.event === 'string' ? router.query.event : undefined,
+    actor: typeof router.query.actor === 'string' ? router.query.actor : undefined,
+    digest: typeof router.query.digest === 'string' ? router.query.digest : undefined,
   };
   const hasFilter = !!(urlFilters.event || urlFilters.actor || urlFilters.digest);
 
@@ -176,7 +177,8 @@ export default function DashboardPage() {
   if (!isReady || !isAuthenticated) return <LoadingPage />;
   if (loading) return <LoadingPage />;
   if (error) {
-    return (      <DashboardLayout title="Dashboard" subtitle="">
+    return (
+      <DashboardLayout title="Dashboard" subtitle="">
         <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-800 dark:text-red-200">
           {error.message}
         </div>
@@ -185,7 +187,8 @@ export default function DashboardPage() {
     );
   }
   if (!dashboard) {
-    return (      <DashboardLayout title="Dashboard not found" subtitle="">
+    return (
+      <DashboardLayout title="Dashboard not found" subtitle="">
         <Link href="/dashboard/observability" className="text-blue-600 hover:underline text-sm">← Back to all dashboards</Link>
       </DashboardLayout>
     );
@@ -198,13 +201,15 @@ export default function DashboardPage() {
     && (dashboard.visibility !== 'public' || user.organizationName === 'system')
     && (dashboard.createdBy === user.id || user.role === 'admin');
 
-  return (    <DashboardLayout
+  return (
+    <DashboardLayout
       title={dashboard.name}
       subtitle={dashboard.description ?? ''}
       actions={
         <div className="flex items-center gap-2">
           <RangePicker value={range} onChange={setRange} />
-          {mightEdit && (            <Link
+          {mightEdit && (
+            <Link
               href={`/dashboard/observability/${dashboard.id}/edit`}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
             >
@@ -217,7 +222,8 @@ export default function DashboardPage() {
           >
             <Copy className="w-3.5 h-3.5" /> Clone
           </button>
-          {mightEdit && (            <button
+          {mightEdit && (
+            <button
               onClick={() => void onDelete()}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
             >
@@ -231,7 +237,8 @@ export default function DashboardPage() {
           URL-param filters that arrived from registry-audit-link.ts (or any
           other deep-link helper) so they aren't confused by a partially-
           populated log panel. */}
-      {hasFilter && (        <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-xs">
+      {hasFilter && (
+        <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-xs">
           <span className="text-blue-700 dark:text-blue-300 font-medium">Filtered by:</span>
           {urlFilters.event && <span className="font-mono text-blue-700 dark:text-blue-300">event={urlFilters.event}</span>}
           {urlFilters.actor && <span className="font-mono text-blue-700 dark:text-blue-300">actor={urlFilters.actor}</span>}
@@ -244,7 +251,8 @@ export default function DashboardPage() {
           </button>
         </div>
       )}
-      {dashboard.panels.length === 0 ? (        <div className="rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
+      {dashboard.panels.length === 0 ? (
+        <div className="rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
           No panels in this dashboard yet. {mightEdit && <Link href={`/dashboard/observability/${dashboard.id}/edit`} className="text-blue-600 hover:underline">Add some.</Link>}
         </div>
       ) : (

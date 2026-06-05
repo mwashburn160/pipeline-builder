@@ -30,24 +30,29 @@ const SPAN_CLASS: Record<NonNullable<PanelProps['span']>, string> = {
  * placeholder  so the inner viz components only deal with the happy path.
  */
 export function Panel({ title, span = 6, loading, error, empty, children }: PanelProps) {
-  return (    // `h-full` lets the panel fill a parent with explicit height  needed in
-    // grid mode where react-grid-layout positions panels with fixed
-    // pixel heights. In span-grid mode `h-full` is a no-op (the parent
-    // doesn't constrain height) so existing layouts render unchanged.
+  return (
+    // `h-full` lets the panel fill a parent with explicit height — needed in
+    // grid mode where react-grid-layout positions panels with fixed pixel
+    // heights. In span-grid mode `h-full` is a no-op (the parent doesn't
+    // constrain height) so existing layouts render unchanged.
     <div className={`${SPAN_CLASS[span]} h-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex flex-col`}>
       <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">{title}</h3>
       <div className="flex-1 min-h-[8rem] flex items-center justify-center">
-        {error ? (          <div className="text-xs text-red-600 dark:text-red-400 text-center px-2">
+        {error ? (
+          <div className="text-xs text-red-600 dark:text-red-400 text-center px-2">
             <div className="font-medium mb-1">Failed to load</div>
             <div className="text-gray-500 dark:text-gray-400 break-words">{error.message}</div>
           </div>
-        ): loading ? (          <div className="w-full space-y-2">
+        ) : loading ? (
+          <div className="w-full space-y-2">
             <Skeleton className="h-3 w-3/4" />
             <Skeleton className="h-3 w-full" />
             <Skeleton className="h-3 w-5/6" />
           </div>
-        ): empty ? (          <div className="text-xs text-gray-400 dark:text-gray-500">No data in this range</div>
-        ): (          <div className="w-full">{children}</div>
+        ) : empty ? (
+          <div className="text-xs text-gray-400 dark:text-gray-500">No data in this range</div>
+        ) : (
+          <div className="w-full">{children}</div>
         )}
       </div>
     </div>

@@ -37,8 +37,8 @@ export class PluginService extends CrudService<
     return schema.plugin as PgTable;
   }
 
-  protected buildConditions(filter: Partial<PluginFilter>, orgId?: string): SQL[] {
-    return buildPluginConditions(filter, orgId);
+  protected buildConditions(filter: Partial<PluginFilter>, orgId?: string, parentOrgId?: string): SQL[] {
+    return buildPluginConditions(filter, orgId, parentOrgId);
   }
 
   protected getSortColumn(sortBy: string): AnyColumn | null {

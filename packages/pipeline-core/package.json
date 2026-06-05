@@ -64,7 +64,7 @@
     "plugins",
     "typescript",
     "self-service",
-    "multi-tenant",
+    "multi-team",
     "compliance",
     "automation",
     "infrastructure-as-code",

@@ -575,6 +575,10 @@ export const complianceRule = pgTable('compliance_rules', {
   // Notification override
   suppressNotification: boolean('suppress_notification').default(false).notNull(),
 
+  // Org → team hierarchy: when true, this (parent-org) rule is also enforced on
+  // descendant team orgs during their compliance evaluation.
+  propagateToChildren: boolean('propagate_to_children').default(false).notNull(),
+
   // Single-field condition
   field: varchar('field', { length: 100 }),
   operator: varchar('operator', { length: 20 }).$type<RuleOperator>(),

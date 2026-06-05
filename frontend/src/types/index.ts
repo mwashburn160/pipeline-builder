@@ -41,6 +41,8 @@ export interface UserOrgMembership {
   name: string;
   slug?: string;
   role: 'owner' | 'admin' | 'member';
+  /** Parent org id when this org is a team (org → team hierarchy); absent for top-level orgs. */
+  parentOrgId?: string;
 }
 
 /**
@@ -79,6 +81,20 @@ export interface OrganizationMember {
   isEmailVerified: boolean;
   createdAt: string;
   updatedAt?: string;
+}
+
+/**
+ * A descendant team in the org → team hierarchy, annotated with whether a given
+ * member belongs to it. Returned by `getMemberTeams` to power the admin
+ * "manage teams" view (a member can be on multiple teams).
+ */
+export interface MemberTeam {
+  orgId: string;
+  orgName: string;
+  parentOrgId?: string;
+  isMember: boolean;
+  role?: 'owner' | 'admin' | 'member';
+  isActive?: boolean;
 }
 
 /**
@@ -132,6 +148,11 @@ export interface Organization {
    *  rows returned by other endpoints (e.g. org-detail). */
   kmsConfigured?: boolean;
   idpConfigured?: boolean;
+  /** Org → team hierarchy: parent org id when this org is a team (null/absent =
+   *  root), and the parent's display name when resolvable. Set by the sysadmin
+   *  orgs list endpoint. */
+  parentOrgId?: string | null;
+  parentOrgName?: string;
   quotas?: Record<QuotaType, QuotaSummary>;
   createdAt: string;
   updatedAt: string;

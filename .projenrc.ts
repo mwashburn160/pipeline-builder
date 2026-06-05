@@ -130,7 +130,7 @@ const keywords = [
   'aws', 'codepipeline', 'codebuild', 'cicd', 'ci-cd', 'devops',
   'cdk', 'aws-cdk', 'cloudformation', 'pipeline', 'pipeline-as-code',
   'containerized', 'docker', 'kubernetes', 'plugins', 'typescript',
-  'self-service', 'multi-tenant', 'compliance', 'automation',
+  'self-service', 'multi-team', 'compliance', 'automation',
   'infrastructure-as-code', 'iac', 'cli',
 ];
 const homepage = 'https://mwashburn160.github.io/pipeline-builder/';
@@ -274,7 +274,7 @@ const pipelineData = new PackageProject({
 });
 pipelineData.eslint?.addRules(rules);
 pipelineData.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
-addPackageMetadata(pipelineData, 'Database layer for Pipeline Builder: Drizzle ORM schemas, connection management, query builders, and the generic CrudService base class with multi-tenant access control.');
+addPackageMetadata(pipelineData, 'Database layer for Pipeline Builder: Drizzle ORM schemas, connection management, query builders, and the generic CrudService base class with per-organization (and team) access control.');
 configureJest(pipelineData);
 
 // -- Pipeline Core --
@@ -385,7 +385,7 @@ const manager = new ManagerProject({
 });
 manager.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 manager.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
-addPackageMetadata(manager, 'CLI for Pipeline Builder  self-service AWS CodePipeline platform with 125 reusable containerized plugins, per-org compliance enforcement, and multi-tenant isolation.');
+addPackageMetadata(manager, 'CLI for Pipeline Builder  self-service AWS CodePipeline platform with 125 reusable containerized plugins, per-org compliance enforcement, and per-organization (and team) isolation.');
 manager.addPackageIgnore('/dist/js/');
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
@@ -489,6 +489,11 @@ if (frontend.jest) {
   frontend.jest.config.testPathIgnorePatterns = ['/node_modules/', '<rootDir>/.next/'];
 }
 frontend.addScripts(dockerScripts('frontend'));
+// Exclude the pack-destination from the package itself. `build » package` runs
+// `pnpm pack --pack-destination dist/js`, so without this each pack re-bundles
+// every prior tarball in dist/js — the frontend snowballed 360M → 1.1G → 2.1G
+// until `pnpm pack` hit Node's 2 GiB readFileSync limit. (Mirrors `manager`.)
+frontend.addPackageIgnore('/dist/js/');
 
 // =============================================================================
 // API Services (data-driven)

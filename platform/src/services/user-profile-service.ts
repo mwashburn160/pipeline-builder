@@ -28,6 +28,8 @@ interface MembershipInfo {
   role: string;
   isActive: boolean;
   joinedAt?: string;
+  /** Parent org id when this org is a team (org → team hierarchy); omitted for root orgs. */
+  parentOrgId?: string;
 }
 
 interface ProfileData {
@@ -82,12 +84,13 @@ class UserProfileService {
     const memberships = await UserOrganization.find({ userId }).sort({ joinedAt: 1 }).lean();
     const orgIds = memberships.map(m => m.organizationId);
     const orgs = orgIds.length > 0
-      ? await Organization.find({ _id: { $in: orgIds } }).select('_id name slug').lean()
+      ? await Organization.find({ _id: { $in: orgIds } }).select('_id name slug parentOrgId').lean()
       : [];
     const orgMap = new Map(orgs.map(o => [o._id.toString(), o]));
 
     return memberships.map(m => {
       const org = orgMap.get(m.organizationId.toString());
+      const parentOrgId = org?.parentOrgId ? String(org.parentOrgId) : undefined;
       return {
         organizationId: m.organizationId.toString(),
         organizationName: org?.name || 'Unknown',
@@ -95,6 +98,7 @@ class UserProfileService {
         role: m.role,
         isActive: m.isActive,
         joinedAt: m.joinedAt?.toISOString(),
+        ...(parentOrgId && { parentOrgId }),
       };
     });
   }

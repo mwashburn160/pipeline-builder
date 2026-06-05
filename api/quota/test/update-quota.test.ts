@@ -141,6 +141,14 @@ jest.mock('../src/models/organization', () => ({
   },
 }));
 
+// Org → team hierarchy: stub as flat so the shared-root-cap pre-check in
+// incrementUsage short-circuits (no DB walk). Hierarchy logic is covered by
+// its own helper tests; these route tests stay focused on per-org increment.
+jest.mock('../src/helpers/org-hierarchy', () => ({
+  resolveRootOrgId: async (id: string) => id,
+  expandOrgScope: async (id: string) => [id],
+}));
+
 jest.mock('../src/config', () => ({
   config: {
     quota: {

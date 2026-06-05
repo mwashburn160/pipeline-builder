@@ -5,7 +5,7 @@ interface BadgeProps {
   /** Badge label content */
   children: ReactNode;
   /** Color variant controlling background and text styling */
-  color: 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow';
+  color: 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
   /** Additional CSS classes */
   className?: string;
 }
@@ -17,6 +17,7 @@ const colorStyles = {
   blue: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
   purple: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
   yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300',
+  indigo: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300',
 };
 
 /** Small colored pill badge for displaying status labels or categories. */

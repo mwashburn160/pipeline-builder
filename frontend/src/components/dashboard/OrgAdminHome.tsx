@@ -165,7 +165,7 @@ export function OrgAdminHome({ organizationId }: Props) {
               <Mail className="w-4 h-4 text-gray-400" />
               Team
             </h3>
-            <Link href="/dashboard/team" className="action-link text-xs">Manage members →</Link>
+            <Link href="/dashboard/members" className="action-link text-xs">Manage members →</Link>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-md bg-gray-50 dark:bg-gray-800/50 px-3 py-2">
@@ -265,7 +265,7 @@ export function OrgAdminHome({ organizationId }: Props) {
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
           <Link href="/dashboard/invitations" className="action-link">Invite members</Link>
-          <Link href="/dashboard/team" className="action-link">Manage roles</Link>
+          <Link href="/dashboard/members" className="action-link">Manage roles</Link>
           <Link href="/dashboard/quotas" className="action-link">Quotas</Link>
           {billingEnabled && (
             <Link href="/dashboard/billing" className="action-link">Billing</Link>

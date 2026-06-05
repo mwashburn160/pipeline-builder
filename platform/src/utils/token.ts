@@ -6,6 +6,7 @@ import { createLogger, resolveUserFeatures } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
+import { resolveOrgLineage } from '../helpers/org-hierarchy';
 import { User, Organization, UserOrganization } from '../models';
 import { UserDocument } from '../models/user';
 import type { OrgMemberRole } from '../models/user-organization';
@@ -19,6 +20,10 @@ export interface MembershipContext {
   organizationName?: string;
   role: OrgMemberRole;
   tier?: QuotaTier;
+  /** Org → team hierarchy: direct parent of the active org (omitted for root orgs). */
+  parentOrganizationId?: string;
+  /** Org → team hierarchy: root of the active org's ancestry chain (omitted for root orgs). */
+  rootOrganizationId?: string;
 }
 
 /** Build an access token JWT payload from a user document and optional membership. */
@@ -34,6 +39,10 @@ function createAccessTokenPayload(user: UserDocument, membership?: MembershipCon
     sub: user._id.toString(),
     organizationId: membership?.organizationId,
     ...(membership?.organizationName && { organizationName: membership.organizationName }),
+    // Org → team hierarchy claims — only present when the active org actually
+    // has a parent, so flat-org tokens are byte-identical to before.
+    ...(membership?.parentOrganizationId && { parentOrganizationId: membership.parentOrganizationId }),
+    ...(membership?.rootOrganizationId && { rootOrganizationId: membership.rootOrganizationId }),
     username: user.username,
     email: user.email,
     role,
@@ -89,12 +98,13 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
   if (activeOrgId) {
     const membership = await UserOrganization.findOne({ userId, organizationId: activeOrgId, isActive: true }).lean();
     if (membership) {
-      const org = await Organization.findById(activeOrgId).select('name tier').lean();
+      const org = await Organization.findById(activeOrgId).select('name tier parentOrgId').lean();
       return {
         organizationId: activeOrgId,
         organizationName: org?.name,
         role: membership.role as OrgMemberRole,
         tier: org?.tier,
+        ...(await hierarchyContext(activeOrgId, org?.parentOrgId)),
       };
     }
   }
@@ -104,12 +114,31 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
   if (!first) return undefined;
 
   const orgId = first.organizationId.toString();
-  const org = await Organization.findById(orgId).select('name tier').lean();
+  const org = await Organization.findById(orgId).select('name tier parentOrgId').lean();
   return {
     organizationId: orgId,
     organizationName: org?.name,
     role: first.role as OrgMemberRole,
     tier: org?.tier,
+    ...(await hierarchyContext(orgId, org?.parentOrgId)),
+  };
+}
+
+/**
+ * Resolve the org → team hierarchy claims for a token. When the active org is
+ * flat (no `parentOrgId`, the case for every org today) this returns `{}` and
+ * costs nothing — the parent we already fetched is the only signal needed. Only
+ * a parented org pays the upward walk via {@link resolveOrgLineage}.
+ */
+async function hierarchyContext(
+  orgId: string,
+  parentOrgId: string | null | undefined,
+): Promise<{ parentOrganizationId?: string; rootOrganizationId?: string }> {
+  if (!parentOrgId) return {};
+  const lineage = await resolveOrgLineage(orgId);
+  return {
+    ...(lineage.parentOrgId && { parentOrganizationId: lineage.parentOrgId }),
+    ...(lineage.rootOrgId !== orgId && { rootOrganizationId: lineage.rootOrgId }),
   };
 }
 

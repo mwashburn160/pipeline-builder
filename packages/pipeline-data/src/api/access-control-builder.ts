@@ -90,13 +90,18 @@ export class AccessControlQueryBuilder<
    * With orgId:
    *   - accessModifier='private': orgId=$org AND accessModifier='private'
    *   - accessModifier='public':  orgId=$org AND accessModifier='public'
-   *   - no accessModifier:        accessModifier='public' AND (orgId=$org OR orgId='system')
+   *   - no accessModifier:        accessModifier='public' AND (orgId=$org OR orgId=$parent OR orgId='system')
+   *
+   * `parentOrgId` (org → team hierarchy) widens the default catalog view so a
+   * team org also sees its parent's public records. Absent for root orgs, so
+   * the condition is unchanged for non-team callers.
    *
    * @param filter - Filter criteria
    * @param orgId - User's organization ID (optional)
+   * @param parentOrgId - Parent org ID when the caller is a team (optional)
    * @returns Array of SQL conditions for access control
    */
-  protected buildAccessControl(filter: Partial<TFilter>, orgId?: string): SQL[] {
+  protected buildAccessControl(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): SQL[] {
     const conditions: SQL[] = [];
 
     if (!orgId) {
@@ -117,14 +122,15 @@ export class AccessControlQueryBuilder<
       conditions.push(eq(this.schema.orgId, normalizedOrgId));
       conditions.push(eq(this.schema.accessModifier, normalized));
     } else {
-      // Default: user's org public + system org public
+      // Default catalog view: own org public + parent org public (team →
+      // parent inheritance) + system org public.
       conditions.push(eq(this.schema.accessModifier, AccessModifier.PUBLIC));
-      conditions.push(
-        or(
-          eq(this.schema.orgId, normalizedOrgId),
-          eq(this.schema.orgId, SYSTEM_ORG_ID),
-        )!,
-      );
+      const orgScopes = [
+        eq(this.schema.orgId, normalizedOrgId),
+        eq(this.schema.orgId, SYSTEM_ORG_ID),
+      ];
+      if (parentOrgId) orgScopes.push(eq(this.schema.orgId, parentOrgId.toLowerCase()));
+      conditions.push(or(...orgScopes)!);
     }
 
     return conditions;
@@ -199,11 +205,11 @@ export class AccessControlQueryBuilder<
    * @param orgId - User's organization ID (optional — falls back to system-public-only)
    * @returns Array of SQL conditions
    */
-  public buildCommonConditions(filter: Partial<TFilter>, orgId?: string): SQL[] {
+  public buildCommonConditions(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): SQL[] {
     const conditions: SQL[] = [];
 
     // Access control (multi-tenant) — handles accessModifier internally
-    conditions.push(...this.buildAccessControl(filter, orgId));
+    conditions.push(...this.buildAccessControl(filter, orgId, parentOrgId));
 
     // ID filter with prefix matching
     const idCondition = this.buildIdFilter(filter.id);

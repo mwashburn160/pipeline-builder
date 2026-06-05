@@ -93,6 +93,12 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [loading, setLoading] = useState(true);
+  // Org → team rollup: only admins/owners can aggregate child-team analytics, and
+  // the toggle only appears when the org actually parents teams (flat orgs see no
+  // extra control). Backend independently gates the rollup to admins.
+  const [includeDescendants, setIncludeDescendants] = useState(false);
+  const [hasTeams, setHasTeams] = useState(false);
+  const canRollup = user?.role === 'admin' || user?.role === 'owner';
 
   // Pipeline data
   const [executions, setExecutions] = useState<ExecutionCount[]>([]);
@@ -117,19 +123,23 @@ export default function ReportsPage() {
     const dateParams: Record<string, string> = {};
     if (dateFrom) dateParams.from = dateFrom;
     if (dateTo) dateParams.to = dateTo;
+    // Only the pipeline execution/success-rate/duration reports support a
+    // hierarchy rollup; the others (bottlenecks, failures, plugin reports) are
+    // single-org. `rollup` is undefined when off so the param is omitted.
+    const rollup = includeDescendants ? { includeDescendants: true } : {};
 
     try {
       if (topTab === 'pipelines') {
         if (pipelineTab === 'overview') {
           const [execRes, timelineRes, successRateRes] = await Promise.allSettled([
-            api.getExecutionCount(), api.getSuccessRate({ interval: timeInterval, ...dateParams }), api.getSuccessRate({ interval: timeInterval, ...dateParams }),
+            api.getExecutionCount(rollup), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
           ]);
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (timelineRes.status === 'fulfilled') setTimeline(timelineRes.value.data?.timeline || []);
           if (successRateRes.status === 'fulfilled') setSuccessRateTrend(successRateRes.value.data?.timeline || []);
         } else if (pipelineTab === 'performance') {
           const [execRes, durationRes, bottleneckRes] = await Promise.allSettled([
-            api.getExecutionCount(), api.getPipelineDuration(dateParams), api.getStageBottlenecks(dateParams),
+            api.getExecutionCount(rollup), api.getPipelineDuration({ ...dateParams, ...rollup }), api.getStageBottlenecks(dateParams),
           ]);
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (durationRes.status === 'fulfilled') setDurations(durationRes.value.data?.pipelines || []);
@@ -162,11 +172,23 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [topTab, pipelineTab, pluginTab, timeInterval, dateFrom, dateTo]);
+  }, [topTab, pipelineTab, pluginTab, timeInterval, dateFrom, dateTo, includeDescendants]);
 
   useEffect(() => {
     if (isAuthenticated) fetchData();
   }, [isAuthenticated, fetchData]);
+
+  // Detect whether the active org parents any teams (subtree larger than self),
+  // so the rollup toggle only shows when there's something to roll up.
+  useEffect(() => {
+    if (!isReady || !user || !canRollup || !user.organizationId) return;
+    let cancelled = false;
+    void api.getOrganizationDescendants(user.organizationId)
+      .then((res) => { if (!cancelled) setHasTeams((res.data?.orgIds?.length ?? 0) > 1); })
+      .catch(() => { /* best-effort — no toggle if it fails */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReady, user, canRollup]);
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -195,6 +217,17 @@ export default function ReportsPage() {
       maxWidth="7xl"
       actions={
         <div className="flex items-center gap-3">
+          {canRollup && hasTeams && topTab === 'pipelines' && (
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate pipeline analytics across this organization and its team sub-organizations">
+              <input
+                type="checkbox"
+                checked={includeDescendants}
+                onChange={(e) => setIncludeDescendants(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              Include child teams
+            </label>
+          )}
           <DateRangePicker from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
           <select value={timeInterval} onChange={(e) => setTimeInterval(e.target.value as 'day' | 'week' | 'month')} className="filter-select">
             <option value="day">Daily</option>

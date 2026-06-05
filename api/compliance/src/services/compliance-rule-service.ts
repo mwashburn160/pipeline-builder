@@ -85,7 +85,7 @@ export class ComplianceRuleService extends CrudService<
    * Includes the org's own rules and any subscribed published rules.
    * Results are cached per org+target (configurable TTL).
    */
-  async findActiveByOrgAndTarget(orgId: string, target: RuleTarget): Promise<ComplianceRule[]> {
+  async findActiveByOrgAndTarget(orgId: string, target: RuleTarget, parentOrgId?: string): Promise<ComplianceRule[]> {
     // The 'system' org is inert for compliance enforcement: it's the operator
     // home for the template/published rule LIBRARY and the bootstrap
     // plugin/pipeline catalog, not a tenant. Its own rules are never active
@@ -95,7 +95,12 @@ export class ComplianceRuleService extends CrudService<
     // (upload), entity events, scheduled scans, and the /enforced view.
     if (orgId === 'system') return [];
 
-    const cacheKey = `${orgId}:${target}`;
+    // Parent org id determines visibility of parent-propagated rules, so it's
+    // the trailing key segment (`${child}:${target}:${parent}`). This lets
+    // `invalidateRulesCache(parentOrgId)` clear descendants via the `*:${parent}`
+    // pattern when a parent edits a `propagateToChildren` rule — so children
+    // pick up the change immediately, not at TTL.
+    const cacheKey = `${orgId}:${target}:${parentOrgId ?? ''}`;
     return rulesCache.getOrSet(cacheKey, async () => {
       // Single query: org's own rules UNION subscribed published rules (via LEFT JOIN)
       const orgRules = await this.find({ target, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
@@ -119,13 +124,32 @@ export class ComplianceRuleService extends CrudService<
           eq(schema.complianceRuleSubscription.isActive, true),
         )));
 
-      if (publishedRows.length === 0) return orgRules;
+      // Org → team hierarchy: a team also enforces its parent's rules flagged
+      // `propagateToChildren`. The parent's rows are outside this org's RLS
+      // scope, so read them under sysadmin context (same pattern as the
+      // cross-org reads elsewhere in this service).
+      const parentRules = parentOrgId
+        ? await runWithTenantContext({ isSuperAdmin: true }, () =>
+          withTenantTx(async (tx) => tx
+            .select()
+            .from(schema.complianceRule)
+            .where(and(
+              eq(schema.complianceRule.orgId, parentOrgId),
+              eq(schema.complianceRule.target, target),
+              eq(schema.complianceRule.isActive, true),
+              eq(schema.complianceRule.propagateToChildren, true),
+            )))) as ComplianceRule[]
+        : [];
 
-      // Merge, deduplicate by ID, and prefer the pinned snapshot when the
-      // subscription has one — the snapshot is the rule body the org last
-      // explicitly accepted, regardless of upstream edits.
+      // Merge, deduplicate by ID. Prefer the pinned snapshot for subscribed
+      // published rules — the body the org last explicitly accepted.
       const seenIds = new Set(orgRules.map(r => r.id));
       const merged = [...orgRules];
+      for (const rule of parentRules) {
+        if (seenIds.has(rule.id)) continue;
+        merged.push(rule);
+        seenIds.add(rule.id);
+      }
       for (const { rule, subscription } of publishedRows) {
         if (seenIds.has(rule.id)) continue;
         const pinned = (subscription as { pinnedVersion?: unknown }).pinnedVersion as Partial<ComplianceRule> | null | undefined;
@@ -137,9 +161,20 @@ export class ComplianceRuleService extends CrudService<
     });
   }
 
-  /** Invalidate cached rules for an org (called after rule mutations or subscription changes). */
+  /**
+   * Invalidate cached rules for an org (called after rule mutations or
+   * subscription changes). Clears two key shapes:
+   *  - `${orgId}:*`  — this org's own evaluation cache.
+   *  - `*:${orgId}`  — descendant teams that cached this org as their parent
+   *    (their key is `${child}:${target}:${orgId}`), so a parent's
+   *    `propagateToChildren` rule edit is reflected immediately rather than at
+   *    TTL. Depth is capped at one level, so only direct children carry the key.
+   */
   async invalidateRulesCache(orgId: string): Promise<void> {
-    await rulesCache.invalidatePattern(`${orgId}:*`);
+    await Promise.all([
+      rulesCache.invalidatePattern(`${orgId}:*`),
+      rulesCache.invalidatePattern(`*:${orgId}`),
+    ]);
   }
 
   /**
@@ -244,12 +279,12 @@ export class ComplianceRuleService extends CrudService<
   /**
    * Feature #6: Get all enforced rules for an org (org rules + active subscribed rules merged).
    */
-  async findAllEnforced(orgId: string, target?: RuleTarget): Promise<ComplianceRule[]> {
+  async findAllEnforced(orgId: string, target?: RuleTarget, parentOrgId?: string): Promise<ComplianceRule[]> {
     const targets: RuleTarget[] = target ? [target] : ['plugin', 'pipeline'];
     const allRules: ComplianceRule[] = [];
 
     for (const t of targets) {
-      const rules = await this.findActiveByOrgAndTarget(orgId, t);
+      const rules = await this.findActiveByOrgAndTarget(orgId, t, parentOrgId);
       allRules.push(...rules);
     }
 

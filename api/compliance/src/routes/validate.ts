@@ -80,6 +80,7 @@ async function validateEntity(
   attributes: Record<string, unknown>,
   isDryRun: boolean,
   isSuperAdmin: boolean,
+  parentOrgId?: string,
 ) {
   // Sysadmins are exempt from compliance rules — they manage the rules
   // and the operator-curated content the rules apply against; running
@@ -100,7 +101,7 @@ async function validateEntity(
   // Note: the 'system' org is inert for enforcement — findActiveByOrgAndTarget
   // returns no rules for it (it's the home of the template/published library
   // and the bootstrap catalog, not a tenant), so evaluation below is a no-op.
-  const rules = await complianceRuleService.findActiveByOrgAndTarget(orgId, target);
+  const rules = await complianceRuleService.findActiveByOrgAndTarget(orgId, target, parentOrgId);
   const exemptions = entityId
     ? await complianceExemptionService.getActiveExemptionsForEntity(orgId, entityId)
     : [];
@@ -132,9 +133,10 @@ export function createValidateRoutes(): Router {
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       const { attributes, entityId, entityName, action } = validation.value;
 
+      const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
       const result = await validateEntity(
         orgId, userId, target, action || defaultAction, entityId, entityName,
-        attributes, false, isSystemAdmin(req),
+        attributes, false, isSystemAdmin(req), parentOrgId,
       );
       ctx.log('COMPLETED', `${target} compliance check`, {
         blocked: result.blocked, violations: result.violations.length, warnings: result.warnings.length,
@@ -147,8 +149,9 @@ export function createValidateRoutes(): Router {
       const validation = validateBody(req, DryRunSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
+      const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
       const result = await validateEntity(
-        orgId, userId, target, 'dry-run', undefined, undefined, validation.value.attributes, true, isSystemAdmin(req),
+        orgId, userId, target, 'dry-run', undefined, undefined, validation.value.attributes, true, isSystemAdmin(req), parentOrgId,
       );
       ctx.log('COMPLETED', `${target} compliance dry-run`, { blocked: result.blocked, violations: result.violations.length });
       return sendSuccess(res, 200, result);

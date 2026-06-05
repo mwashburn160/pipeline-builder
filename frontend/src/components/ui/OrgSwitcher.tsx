@@ -4,6 +4,25 @@ import { ChevronDown, Building2, Check } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/components/ui/Toast';
 import { clearPluginCache } from '@/hooks/usePlugins';
+import type { UserOrgMembership } from '@/types';
+
+/**
+ * Order memberships so teams (orgs with a `parentOrgId` present in the list)
+ * render indented under their parent. Roots — and any team whose parent the
+ * user isn't a member of — render at the top level. Stable input order.
+ */
+function nestOrgs(orgs: UserOrgMembership[]): Array<{ org: UserOrgMembership; depth: number }> {
+  const byId = new Map(orgs.map(o => [o.id, o]));
+  const out: Array<{ org: UserOrgMembership; depth: number }> = [];
+  for (const o of orgs) {
+    if (o.parentOrgId && byId.has(o.parentOrgId)) continue; // rendered under its parent
+    out.push({ org: o, depth: 0 });
+    for (const child of orgs) {
+      if (child.parentOrgId === o.id) out.push({ org: child, depth: 1 });
+    }
+  }
+  return out;
+}
 
 interface OrgSwitcherProps {
   /** Extra classes appended to the root container. */
@@ -63,6 +82,9 @@ export function OrgSwitcher({ className = '' }: OrgSwitcherProps = {}) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-label="Switch organization"
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors w-full"
       >
         <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -73,7 +95,7 @@ export function OrgSwitcher({ className = '' }: OrgSwitcherProps = {}) {
       {open && (
         <div className="absolute left-0 right-0 bottom-full mb-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
           <div className="py-1 max-h-48 overflow-y-auto">
-            {organizations.map((org) => {
+            {nestOrgs(organizations).map(({ org, depth }) => {
               const isActive = org.id === user.organizationId;
               return (
                 <button
@@ -81,14 +103,16 @@ export function OrgSwitcher({ className = '' }: OrgSwitcherProps = {}) {
                   type="button"
                   onClick={() => handleSwitch(org.id)}
                   disabled={switching}
+                  style={depth ? { paddingLeft: '1.75rem' } : undefined}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
                     isActive
                       ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
                       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
                   }`}
                 >
+                  {depth > 0 && <span className="text-gray-300 dark:text-gray-600 shrink-0" aria-hidden>↳</span>}
                   <span className="truncate flex-1 text-left">{org.name}</span>
-                  <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{org.role}</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{depth > 0 ? 'team' : org.role}</span>
                   {isActive && <Check className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
                 </button>
               );

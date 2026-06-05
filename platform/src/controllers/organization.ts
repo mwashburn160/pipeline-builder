@@ -4,11 +4,13 @@
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit';
 import {
-  isSystemAdmin,
+  canAccessOrg,
+  canAdministerOrg,
   requireAuth,
   requireSystemAdmin,
   withController,
 } from '../helpers/controller-helper';
+import { expandOrgScope } from '../helpers/org-hierarchy';
 import {
   organizationService,
   ORG_NOT_FOUND,
@@ -61,10 +63,27 @@ export const createOrganization = withController('Create organization', async (r
   const body = validateBody(createOrganizationSchema, req.body, res);
   if (!body) return;
 
+  // Creating a team (nested org) requires admin/owner over the parent (or an
+  // ancestor), and the parent must itself be a root org (one nesting level).
+  if (body.parentOrgId) {
+    if (!(await canAdministerOrg(req, body.parentOrgId))) {
+      return sendError(res, 403, 'You must be an admin of the parent organization to create a team under it');
+    }
+    const eligibility = await organizationService.checkParentEligible(body.parentOrgId);
+    if (eligibility === 'not-found') return sendError(res, 404, 'Parent organization not found');
+    if (eligibility === 'not-root') {
+      return sendError(res, 400, 'Teams can only be nested one level deep (the parent must be a top-level organization)');
+    }
+  }
+
   const result = await organizationService.create(req.user!.sub, body);
 
-  audit(req, 'org.create', { targetType: 'organization', targetId: result.id });
-  logger.info(`Org created by ${req.user!.sub}`, { id: result.id });
+  audit(req, 'org.create', {
+    targetType: 'organization',
+    targetId: result.id,
+    ...(body.parentOrgId && { details: { parentOrgId: body.parentOrgId } }),
+  });
+  logger.info(`Org created by ${req.user!.sub}`, { id: result.id, parentOrgId: body.parentOrgId });
   sendSuccess(res, 201, { organization: result }, 'Organization created successfully');
 });
 
@@ -72,7 +91,8 @@ export const getOrganizationById = withController('Get organization', async (req
   if (!requireAuth(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
-  if (!isSystemAdmin(req) && req.user!.organizationId !== id) {
+  // Own org (any member), a team you manage (parent-org admin), or sysadmin.
+  if (!(await canAccessOrg(req, id))) {
     return sendError(res, 403, 'Forbidden');
   }
 
@@ -80,6 +100,24 @@ export const getOrganizationById = withController('Get organization', async (req
   if (!org) return sendError(res, 404, 'Organization not found');
 
   sendSuccess(res, 200, org);
+});
+
+/**
+ * GET /organization/:id/descendants — the org → team subtree as a flat id list
+ * (`[self, ...descendantOrgIds]`). Used by peer services (reporting rollup) and
+ * the dashboard to aggregate a parent over its teams. Readable by anyone who
+ * can access the org (own org, an ancestor admin, or sysadmin).
+ */
+export const getOrganizationDescendants = withController('Get org descendants', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const id = getParam(req.params, 'id')!;
+  if (!(await canAccessOrg(req, id))) {
+    return sendError(res, 403, 'Forbidden');
+  }
+
+  const orgIds = await expandOrgScope(id);
+  sendSuccess(res, 200, { orgIds });
 });
 
 export const updateOrganization = withController('Update organization', async (req, res) => {
@@ -165,14 +203,10 @@ export const exportOrganization = withController('Export organization', async (r
 
   const id = getParam(req.params, 'id')!;
   const actorOrgId = (req.user!.organizationId as string) ?? 'system';
-  const sysAdmin = isSystemAdmin(req);
-  const role = req.user!.role;
-  const isOwnOrgAdmin = (role === 'admin' || role === 'owner') && actorOrgId === id;
-
-  if (!sysAdmin && !isOwnOrgAdmin) {
-    return sendError( res, 403,
-      sysAdmin ? 'Forbidden': 'Org admins can only export their own org',
-    );
+  // Sysadmin, own-org admin/owner, or admin/owner of a parent org managing
+  // this team. Members and unrelated orgs are refused.
+  if (!(await canAdministerOrg(req, id))) {
+    return sendError(res, 403, 'Org admins can only export their own org or a team they manage');
   }
 
   const dump = await exportOrg(id, actorOrgId);
