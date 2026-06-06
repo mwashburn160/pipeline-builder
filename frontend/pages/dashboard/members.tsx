@@ -82,6 +82,28 @@ export default function MembersPage() {
     }
   };
 
+  // Add a user (by email) straight to one team, without switching context.
+  const [addToTeam, setAddToTeam] = useState<{ orgId: string; orgName: string } | null>(null);
+  const [teamMemberEmail, setTeamMemberEmail] = useState('');
+  const teamAddForm = useFormState();
+
+  const handleAddToTeam = async () => {
+    if (!orgId || !addToTeam) return;
+    const email = teamMemberEmail.trim().toLowerCase();
+    if (!email) return;
+    const result = await teamAddForm.run(
+      () => api.bulkAddMemberToTeams(orgId, { email, orgIds: [addToTeam.orgId], role: 'member' }),
+    );
+    if (result !== null) {
+      const status = result.data?.results?.[0]?.status;
+      toast.success(status === 'already_member'
+        ? `${email} is already a member of ${addToTeam.orgName}`
+        : `Added ${email} to ${addToTeam.orgName}`);
+      setAddToTeam(null);
+      setTeamMemberEmail('');
+    }
+  };
+
   const createOrgForm = useFormState();
 
   // Password reset
@@ -449,7 +471,15 @@ export default function MembersPage() {
             {teams.map((t) => (
               <li key={t.orgId} className="py-2 flex items-center justify-between gap-2 text-sm">
                 <span className="font-medium text-gray-900 dark:text-gray-100 truncate">{t.orgName}</span>
-                <button onClick={() => void switchTeam(t)} className="action-link text-xs shrink-0">Open →</button>
+                <div className="flex items-center gap-3 shrink-0">
+                  <button
+                    onClick={() => { setTeamMemberEmail(''); teamAddForm.reset(); setAddToTeam(t); }}
+                    className="action-link text-xs inline-flex items-center gap-1"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" /> Add member
+                  </button>
+                  <button onClick={() => void switchTeam(t)} className="action-link text-xs">Open →</button>
+                </div>
               </li>
             ))}
           </ul>
@@ -710,6 +740,36 @@ export default function MembersPage() {
               })}
             </div>
           )}
+        </Modal>
+      )}
+
+      {/* Add a member straight to one team (no context switch) */}
+      {addToTeam && (
+        <Modal
+          title={`Add member to ${addToTeam.orgName}`}
+          onClose={() => setAddToTeam(null)}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setAddToTeam(null)} className="btn btn-secondary" disabled={teamAddForm.loading}>Cancel</button>
+              <button onClick={handleAddToTeam} disabled={teamAddForm.loading || !teamMemberEmail.trim()} className="btn btn-primary">
+                {teamAddForm.loading ? 'Adding...' : 'Add Member'}
+              </button>
+            </div>
+          }
+        >
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Enter the email of an existing user to add to the <strong>{addToTeam.orgName}</strong> team.
+          </p>
+          <input
+            type="email"
+            placeholder="user@example.com"
+            value={teamMemberEmail}
+            onChange={(e) => setTeamMemberEmail(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddToTeam()}
+            className="input text-sm"
+            autoFocus
+          />
+          {teamAddForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{teamAddForm.error}</p>}
         </Modal>
       )}
 
