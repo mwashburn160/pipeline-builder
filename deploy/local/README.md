@@ -59,17 +59,20 @@ Observability: open `https://localhost:8443/dashboard/observability` (system-adm
 The service images on `ghcr.io/mwashburn160/...` are **public**, so `docker compose up` pulls them with no registry login.
 
 **Browser console shows `net::ERR_CERT_AUTHORITY_INVALID` for JS chunks (`turbopack-*.js`, `_buildManifest.js`, …) and the page renders blank/unstyled:**
-`startup.sh` generates a **self-signed** TLS cert (`certs/nginx-tls.crt`, CN `localhost` + SAN `127.0.0.1`). Clicking "Proceed anyway" only whitelists the top-level page, not the script/module sub-resources, so the app's JS fails to load. Trust the cert instead — pick one:
+The UI is served over HTTPS on `:8443`. Clicking "Proceed anyway" only whitelists the top-level page, not the script/module sub-resources, so the app's JS fails to load. Fix it one of these ways (easiest first):
 
-```bash
-# macOS — trust the cert system-wide, then fully quit + reopen the browser
-sudo security add-trusted-cert -d -r trustRoot \
-  -k /Library/Keychains/System.keychain \
-  deploy/local/certs/nginx-tls.crt
-```
+- **Install [mkcert](https://github.com/FiloSottile/mkcert) and regenerate** — `startup.sh` then issues a browser-trusted cert, so there are no warnings at all:
+  ```bash
+  brew install mkcert            # macOS (or your platform's package manager)
+  rm certs/nginx-tls.crt certs/nginx-tls.key   # drop the old untrusted cert
+  ./bin/startup.sh               # regenerates via mkcert + installs its local CA
+  ```
+- **Instant bypass (Chrome/Edge)** — on the "Your connection is not private" page, click anywhere and type `thisisunsafe` (there's no input box). This bypasses the cert for the whole origin, including the JS chunks.
+- **Trust the self-signed cert (macOS)** — then **fully quit and reopen** the browser:
+  ```bash
+  sudo security add-trusted-cert -d -r trustRoot \
+    -k /Library/Keychains/System.keychain certs/nginx-tls.crt
+  ```
 
-Or, for a quick dev workaround in Chrome/Edge, enable
-`chrome://flags/#allow-insecure-localhost` ("Allow invalid certificates for
-resources loaded from localhost") and relaunch. Always reach the UI at
-`https://localhost:8443` (the cert covers `localhost` and `127.0.0.1`).
+Always reach the UI at `https://localhost:8443` (the cert covers `localhost` and `127.0.0.1`; `:8080` just redirects to `:8443`).
 

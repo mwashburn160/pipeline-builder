@@ -210,10 +210,20 @@ fi
 log "Creating TLS certificates"
 mkdir -p "$CERT_DIR" "$AUTH_DIR"
 
-# Generate the SAN via a temp config so this works on both OpenSSL and the
-# LibreSSL shipped by older macOS (which lacks `req -addext`).
-_sancnf=$(mktemp)
-cat > "$_sancnf" <<'SANEOF'
+# Prefer mkcert: it issues a browser-trusted leaf via a local CA it installs
+# into the OS/browser trust stores, so https on localhost has no cert warnings
+# (no ERR_CERT_AUTHORITY_INVALID on the JS chunks). Falls back to a hardened
+# self-signed cert — `extendedKeyUsage=serverAuth` + `basicConstraints` let it
+# be trusted once imported. See deploy/local/README Troubleshooting.
+if command -v mkcert >/dev/null 2>&1; then
+  mkcert -install >/dev/null 2>&1 || true
+  mkcert -cert-file "$CERT_DIR/nginx-tls.crt" -key-file "$CERT_DIR/nginx-tls.key" \
+    localhost 127.0.0.1 ::1 2>&1
+else
+  # SAN/EKU via a temp config so this works on both OpenSSL and the LibreSSL
+  # shipped by older macOS (which lacks `req -addext`).
+  _sancnf=$(mktemp)
+  cat > "$_sancnf" <<'SANEOF'
 [req]
 distinguished_name = dn
 x509_extensions = v3ext
@@ -222,10 +232,14 @@ prompt = no
 CN = localhost
 [v3ext]
 subjectAltName = DNS:localhost,IP:127.0.0.1
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
 SANEOF
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx-tls.key" -out "$CERT_DIR/nginx-tls.crt" \
-  -config "$_sancnf" 2>&1
-rm -f "$_sancnf"
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx-tls.key" -out "$CERT_DIR/nginx-tls.crt" \
+    -config "$_sancnf" 2>&1
+  rm -f "$_sancnf"
+fi
 chmod 644 "$CERT_DIR/nginx-tls.key"
 kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NS"
 
