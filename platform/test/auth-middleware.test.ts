@@ -95,5 +95,29 @@ describe('auth middleware', () => {
       expect(next).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(403);
     });
+
+    it('should allow a system admin even when their org role is not in the list', () => {
+      // Platform superuser (isSuperAdmin) bypasses the org-role gate so admin/
+      // owner routes (e.g. POST /organization) work for sysadmins.
+      const middleware = requireRole('admin', 'owner');
+      const req = { user: { role: 'member', isSuperAdmin: true } } as any;
+      const res = mockRes();
+      const next = mockNext();
+
+      middleware(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('should still deny a non-sysadmin whose role is not in the list', () => {
+      const middleware = requireRole('admin', 'owner');
+      const req = { user: { role: 'member', isSuperAdmin: false } } as any;
+      const res = mockRes();
+      const next = mockNext();
+
+      middleware(req, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
   });
 });

@@ -2,34 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Per-user notification preferences + org alert-channel visibility.
+ * Per-user notification preferences (client-side).
  *
- * Two sections:
- *  1. **In-app preferences** — purely client-side (localStorage) toggles
- *     for mute states the UI honors at render time. These are
- *     intentionally local because the platform hasn't shipped a per-
- *     user pref schema; the UI can react to "mute quota warnings"
- *     without a backend round trip.
- *  2. **Org alert channels** — read-only view of the org's configured
- *     destinations (Slack/webhook/in-app). Members see where their
- *     org sends alerts; admins get a "Manage" CTA into the
- *     /dashboard/observability/alert-destinations editor.
+ * In-app mute toggles, stored in localStorage — the platform hasn't shipped a
+ * per-user pref schema yet, so these react at render time without a backend
+ * round trip. *Where* alerts are delivered (Slack / webhook / in-app) is
+ * org-level configuration and lives on the single Alert destinations page,
+ * linked below — this page no longer duplicates that list.
  *
- * Future: a backend `/api/user/notification-preferences` would let the
- * mute toggles persist + propagate to push notifications. For now,
- * client-side state is enough to make the UX measurably less noisy.
+ * Future: a backend `/api/user/notification-preferences` would let the mute
+ * toggles persist + propagate to push notifications.
  */
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Bell, Slack, Webhook, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useFetch } from '@/hooks/useFetch';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Badge } from '@/components/ui/Badge';
-import api from '@/lib/api';
-import type { AlertDestination } from '@/types/observability';
 
 /** localStorage keys for in-app preferences. Bumped if the shape changes. */
 const PREF_KEY = 'pb-notification-prefs:v1';
@@ -66,30 +56,12 @@ function savePrefs(prefs: Prefs): void {
   }
 }
 
-function channelIcon(channel: 'slack' | 'webhook' | 'in-app') {
-  if (channel === 'slack') return <Slack className="h-4 w-4 text-purple-500" />;
-  if (channel === 'webhook') return <Webhook className="h-4 w-4 text-blue-500" />;
-  return <Bell className="h-4 w-4 text-gray-500" />;
-}
-
 export default function NotificationsPage() {
-  const { isReady, user, isAdmin } = useAuthGuard();
+  const { isReady, user } = useAuthGuard();
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
 
   // Load prefs from localStorage on mount.
   useEffect(() => { setPrefs(loadPrefs()); }, []);
-
-  // Load the org's alert destinations (read-only, but informative).
-  const { data, loading, error } = useFetch(
-    async () => {
-      if (!isReady) return [] as AlertDestination[];
-      const res = await api.listAlertDestinations();
-      if (res.success && res.data) return res.data.destinations;
-      throw new Error(res.message || 'Failed to load alert destinations');
-    },
-    [isReady],
-  );
-  const destinations: AlertDestination[] = data ?? [];
 
   const update = (patch: Partial<Prefs>) => {
     setPrefs((prev) => {
@@ -106,12 +78,6 @@ export default function NotificationsPage() {
       title="Notifications"
       subtitle="What you get pinged about — and where"
     >
-      {error && (
-        <div className="alert-error mb-4">
-          <p>{error.message}</p>
-        </div>
-      )}
-
       {/* In-app preferences. Stored in localStorage; survives reloads but
           doesn't sync across devices. Mute is a UI-level filter — the
           underlying alerts still fire on the platform side. */}
@@ -144,58 +110,23 @@ export default function NotificationsPage() {
         </ul>
       </div>
 
-      {/* Org channels — read-only here. Admins jump to the editor via the
-          CTA at the bottom; members see what's wired up so they know
-          where alerts go and can ask an admin if their channel is missing. */}
+      {/* Where alerts go is org-level config — link out instead of duplicating
+          the destinations list (it lives only on the Alert destinations page). */}
       <div className="card">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Your org&apos;s alert channels</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Where {user.organizationName || 'your organization'} delivers production alerts.
-            </p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Bell className="h-5 w-5 text-gray-400 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Alert delivery</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Where {user.organizationName || 'your organization'} sends production alerts (Slack, webhooks, in-app).
+              </p>
+            </div>
           </div>
-          {isAdmin && (
-            <Link href="/dashboard/observability/alert-destinations" className="action-link text-sm">
-              Manage →
-            </Link>
-          )}
+          <Link href="/dashboard/observability/alert-destinations" className="action-link text-sm shrink-0">
+            Alert destinations →
+          </Link>
         </div>
-
-        {loading && <LoadingSpinner size="sm" />}
-
-        {!loading && destinations.length === 0 && (
-          <div className="text-center py-6 text-sm text-gray-500 dark:text-gray-400">
-            <AlertTriangle className="h-6 w-6 mx-auto mb-2 text-amber-500" />
-            No alert channels configured. {isAdmin
-              ? <Link href="/dashboard/observability/alert-destinations" className="action-link">Add one →</Link>
-              : 'Ask an org admin to set one up.'}
-          </div>
-        )}
-
-        {!loading && destinations.length > 0 && (
-          <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-            {destinations.map((d) => (
-              <li key={d.id} className="py-2.5 flex items-center justify-between gap-3 text-sm">
-                <div className="flex items-center gap-2 min-w-0">
-                  {channelIcon(d.channel)}
-                  <div className="min-w-0">
-                    <div className="text-gray-900 dark:text-gray-100 font-medium truncate">{d.label}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
-                      {d.channel === 'in-app' ? 'in-app' : (d.hasTarget ? d.target : 'not configured')}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>{d.minSeverity}</Badge>
-                  {d.enabled
-                    ? <Badge color="green"><CheckCircle2 className="w-3 h-3 inline -mt-px mr-0.5" /> enabled</Badge>
-                    : <Badge color="gray">disabled</Badge>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
     </DashboardLayout>
   );

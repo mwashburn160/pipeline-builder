@@ -1,12 +1,15 @@
 import { useMemo, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Building2, AlertTriangle, Search, KeyRound, FileDown, ShieldCheck, ExternalLink } from 'lucide-react';
+import { Building2, AlertTriangle, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
+import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
+import { useToast } from '@/components/ui/Toast';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
@@ -86,6 +89,27 @@ export default function OrganizationsPage() {
   const [kmsOrg, setKmsOrg] = useState<Organization | null>(null);
   const [idpOrg, setIdpOrg] = useState<Organization | null>(null);
   const [pendingYamlOrg, setPendingYamlOrg] = useState<Organization | null>(null);
+
+  // Create a new top-level organization (sysadmin). The creator becomes the
+  // initial owner; ownership can be transferred from the org's detail page.
+  const toast = useToast();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'unlimited'>('developer');
+  const createForm = useFormState();
+
+  const handleCreateOrg = async () => {
+    const name = newOrgName.trim();
+    if (!name) return;
+    const result = await createForm.run(() => api.createOrganization({ name, tier: newOrgTier }));
+    if (result !== null) {
+      setNewOrgName('');
+      setNewOrgTier('developer');
+      setCreateOpen(false);
+      list.refresh();
+      toast.success(`Organization "${name}" created`);
+    }
+  };
 
   const downloadNamespaceYaml = useCallback(async (org: Organization, stepUpToken: string) => {
     try {
@@ -197,6 +221,14 @@ export default function OrganizationsPage() {
       title="Organizations"
       subtitle="Manage organizations and access"
       titleExtra={<Badge color="red">System Admin</Badge>}
+      actions={
+        <button
+          onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); createForm.reset(); setCreateOpen(true); }}
+          className="btn btn-primary"
+        >
+          <Plus className="w-4 h-4 mr-1.5" /> New Organization
+        </button>
+      }
     >
       {list.error && (
         <div className="alert-error">
@@ -275,6 +307,55 @@ export default function OrganizationsPage() {
           </div>
         </div>
       </div>
+
+      {createOpen && (
+        <Modal
+          title="Create Organization"
+          onClose={() => setCreateOpen(false)}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setCreateOpen(false)} className="btn btn-secondary" disabled={createForm.loading}>Cancel</button>
+              <button onClick={handleCreateOrg} disabled={createForm.loading || !newOrgName.trim()} className="btn btn-primary">
+                {createForm.loading ? 'Creating...' : 'Create Organization'}
+              </button>
+            </div>
+          }
+        >
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Create a new top-level organization. You become its initial <strong>owner</strong> —
+            transfer ownership from the org&apos;s detail page afterward.
+          </p>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Organization name</label>
+              <input
+                type="text"
+                placeholder="e.g. acme-platform"
+                value={newOrgName}
+                onChange={(e) => setNewOrgName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateOrg()}
+                className="input text-sm"
+                autoFocus
+                disabled={createForm.loading}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Tier</label>
+              <select
+                value={newOrgTier}
+                onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'unlimited')}
+                className="input text-sm"
+                disabled={createForm.loading}
+              >
+                <option value="developer">Developer</option>
+                <option value="pro">Pro</option>
+                <option value="unlimited">Unlimited</option>
+              </select>
+            </div>
+          </div>
+          {createForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createForm.error}</p>}
+        </Modal>
+      )}
 
       {del.target && (
         <DeleteConfirmModal

@@ -5,6 +5,7 @@ import { Clock, Loader, CheckCircle2, XCircle, PauseCircle, RefreshCw, ChevronUp
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { BuildsTabs } from '@/components/ui/BuildsTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { Pagination } from '@/components/ui/Pagination';
@@ -316,7 +317,7 @@ export default function BuildQueuePage() {
 
   return (
     <DashboardLayout
-      title="Build Queue"
+      title="Builds"
       subtitle="Queued builds and execution status"
       actions={
         <button onClick={fetchStatus} className="btn btn-secondary">
@@ -325,6 +326,7 @@ export default function BuildQueuePage() {
         </button>
       }
     >
+      <BuildsTabs active="queue" />
       {error && (
         <div className="alert-error mb-6">
           {error}

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   LayoutDashboard,
@@ -24,8 +25,13 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  AlertTriangle,
   Boxes,
+  Gauge,
+  Activity,
+  History,
+  SlidersHorizontal,
+  Bell,
+  ChevronDown,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { User } from '@/types';
@@ -52,8 +58,10 @@ interface NavSection {
 }
 
 const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; color: string }[] = [
-  { href: '/dashboard/pipelines', label: 'Create Pipeline', icon: Plus, color: 'bg-blue-600' },
-  { href: '/dashboard/plugins', label: 'Add Plugin', icon: Plus, color: 'bg-amber-500' },
+  // `?create=1` makes the target page open its create modal on arrival, so these
+  // genuinely start a create flow rather than just navigating to the list.
+  { href: '/dashboard/pipelines?create=1', label: 'Create Pipeline', icon: Plus, color: 'bg-blue-600' },
+  { href: '/dashboard/plugins?create=1', label: 'Add Plugin', icon: Plus, color: 'bg-amber-500' },
   { href: '/dashboard/downloads', label: 'Get the CLI', icon: Download, color: 'bg-green-600' },
 ];
 
@@ -70,17 +78,18 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: 'Pipelines', href: '/dashboard/pipelines', icon: GitBranch },
       { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle },
-      { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
-      { title: 'Build Queue', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
-      { title: 'Build Triage', href: '/dashboard/triage', icon: AlertTriangle, adminOnly: true },
     ],
   },
   {
     label: 'Insights',
     items: [
       { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart },
-      { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
+      // Per-pipeline run health (was only reachable from the home card).
+      { title: 'Executions', href: '/dashboard/executions', icon: Activity },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
+      // Security audit trail (was only reachable from deep links).
+      { title: 'Audit Log', href: '/dashboard/audit', icon: History, adminOnly: true },
+      { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
       // Observability is visible to any authenticated user. Server-side
       // $ORG substitution scopes their view to their own org's metrics;
       // sysadmins see all orgs.
@@ -92,22 +101,36 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: 'Members', href: '/dashboard/members', icon: UsersRound, adminOnly: true },
       { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, adminOnly: true },
-      { title: 'Quotas', href: '/dashboard/quotas', icon: BarChart3 },
+      { title: 'Quotas', href: '/dashboard/quotas', icon: Gauge },
       { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredFeature: 'billing' },
-      { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
+    ],
+  },
+  {
+    // Platform-wide administration (system admins only). Kept separate from the
+    // org-scoped "Organization" section above so the two scopes aren't confused.
+    label: 'Platform',
+    items: [
       { title: 'All Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
+      { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
+      { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
+      { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
+      { title: 'Platform Settings', href: '/dashboard/admin/platform-settings', icon: SlidersHorizontal, systemAdminOnly: true },
     ],
   },
   {
     label: 'Settings',
     items: [
       { title: 'Profile', href: '/dashboard/settings', icon: Settings },
+      { title: 'Notifications', href: '/dashboard/notifications', icon: Bell },
       { title: 'API Tokens', href: '/dashboard/tokens', icon: KeyRound },
       { title: 'Downloads', href: '/dashboard/downloads', icon: Download },
       { title: 'Help', href: '/dashboard/help', icon: HelpCircle },
     ],
   },
 ];
+
+/** localStorage key for which nav sections the user has collapsed. */
+const NAV_SECTIONS_KEY = 'pb-nav-collapsed-sections:v1';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -139,6 +162,25 @@ export function Sidebar({
   onToggleCollapsed,
 }: SidebarProps) {
   const features = useFeatures();
+
+  // Collapsible nav sections (persisted to localStorage). With 6 sections the
+  // rail can get long for admins; users hide groups they don't use. Ignored in
+  // the icon-only (sidebar-collapsed) mode, where items render as icon rows.
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(NAV_SECTIONS_KEY);
+      if (raw) setCollapsedSections(new Set(JSON.parse(raw) as string[]));
+    } catch { /* ignore unavailable/corrupt storage */ }
+  }, []);
+  const toggleSection = (label: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label); else next.add(label);
+      try { localStorage.setItem(NAV_SECTIONS_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const isActive = (href: string) =>
     href === '/dashboard'
@@ -172,27 +214,21 @@ export function Sidebar({
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2">
+        {/* Quick actions — a compact icon row (was a chunky labelled card that
+            duplicated nav and pushed the rail down). Tooltips name each. */}
         {!collapsed && (
-          <div className="px-3">
-            <div className="mb-4 rounded-2xl border border-blue-200/60 dark:border-blue-800/50 bg-blue-50/70 dark:bg-blue-900/20 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-blue-600/80 dark:text-blue-300/80">
-                Quick Actions
-              </p>
-              <div className="mt-2 space-y-2">
-                {QUICK_ACTIONS.map(({ href, label, icon: Icon, color }) => (
-                  <Link
-                    key={href}
-                    href={href}
-                    className="flex items-center gap-2 rounded-xl bg-white/80 dark:bg-gray-900/70 px-3 py-2 text-sm font-medium text-gray-900 dark:text-gray-100 shadow-sm hover:shadow-md transition-shadow"
-                  >
-                    <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${color} text-white`}>
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    {label}
-                  </Link>
-                ))}
-              </div>
-            </div>
+          <div className="px-3 pt-1 pb-2 flex items-center gap-1.5">
+            {QUICK_ACTIONS.map(({ href, label, icon: Icon, color }) => (
+              <Tooltip key={href} content={label}>
+                <Link
+                  href={href}
+                  aria-label={label}
+                  className={`flex-1 inline-flex items-center justify-center h-8 rounded-lg ${color} text-white hover:opacity-90 transition-opacity`}
+                >
+                  <Icon className="h-4 w-4" />
+                </Link>
+              </Tooltip>
+            ))}
           </div>
         )}
         {NAV_SECTIONS.map((section) => {
@@ -201,9 +237,19 @@ export function Sidebar({
 
           return (
             <div key={section.label}>
-              {!collapsed && <p className="sidebar-section-label">{section.label}</p>}
+              {!collapsed && (
+                <button
+                  type="button"
+                  onClick={() => toggleSection(section.label)}
+                  aria-expanded={!collapsedSections.has(section.label)}
+                  className="w-full flex items-center justify-between sidebar-section-label hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                >
+                  <span>{section.label}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${collapsedSections.has(section.label) ? '-rotate-90' : ''}`} />
+                </button>
+              )}
               {collapsed && <div className="my-2 mx-3 border-t border-gray-200 dark:border-gray-700" />}
-              {visibleItems.map((item) => {
+              {(collapsed || !collapsedSections.has(section.label)) && visibleItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.href);
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import Link from 'next/link';
-import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes, Plus, Lock, Building2, Globe } from 'lucide-react';
+import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes, Plus, Lock, Building2, Globe, ScrollText } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
@@ -93,6 +93,21 @@ export default function ObservabilityIndexPage() {
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Slack, webhook, in-app — where this org's alerts get delivered.
+          </p>
+        </Link>
+
+        {/* Service / pipeline logs (Loki). Also in the top-nav, surfaced here so
+            the observability area cross-links the full log search. */}
+        <Link
+          href="/dashboard/logs"
+          className="block rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 hover:border-blue-500 hover:shadow-sm transition-colors"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <ScrollText className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Logs</h2>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Search service and pipeline logs (Loki) with structured filters.
           </p>
         </Link>
 

@@ -46,9 +46,8 @@ export default function MembersPage() {
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
   const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'unlimited'>('developer');
-  const [nestAsTeam, setNestAsTeam] = useState(true);
-  // The active org can only parent a team if it is itself a root (one nesting
-  // level). When the active org is already a team, force a top-level create.
+  // Teams nest one level: only a root org can parent a team, so the "Create
+  // Team" action only appears when the active org is itself a root.
   const activeOrg = organizations.find(o => o.id === user?.organizationId);
   const activeOrgIsRoot = !!activeOrg && !activeOrg.parentOrgId;
   // Count of team sub-orgs this org parents (org → team hierarchy), for the
@@ -265,7 +264,9 @@ export default function MembersPage() {
   const handleCreateOrg = async () => {
     const name = newOrgName.trim();
     if (!name) return;
-    const parentOrgId = nestAsTeam && activeOrgIsRoot ? user?.organizationId : undefined;
+    // Create Team only renders on a root org, so the new org always nests under
+    // the active (root) org as a team.
+    const parentOrgId = user?.organizationId;
     const result = await createOrgForm.run(
       () => api.createOrganization({ name, tier: newOrgTier, parentOrgId }),
     );
@@ -389,9 +390,14 @@ export default function MembersPage() {
       maxWidth="4xl"
       actions={
         <div className="flex gap-2">
-          <button onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); setNestAsTeam(true); createOrgForm.reset(); setCreateOrgOpen(true); }} className="btn btn-secondary">
-            <Building2 className="w-4 h-4 mr-1.5" /> Create Team
-          </button>
+          {/* Teams nest one level under a root org, so only show this on a root
+              org (a team can't parent sub-teams). Top-level orgs are created by
+              a system admin from the Organizations page. */}
+          {activeOrgIsRoot && (
+            <button onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); createOrgForm.reset(); setCreateOrgOpen(true); }} className="btn btn-secondary">
+              <Building2 className="w-4 h-4 mr-1.5" /> Create Team
+            </button>
+          )}
           <button onClick={openAddModal} className="btn btn-primary">
             <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
           </button>
@@ -559,9 +565,10 @@ export default function MembersPage() {
           }
         >
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Create a team nested under your current organization.
-            You will be the owner; members and quotas are scoped to the new
-            org separately.
+            Create a <strong>team</strong> nested under <strong>{activeOrg?.name}</strong>. It gets
+            its own members, quotas, and secrets, and you&apos;ll be its owner.
+            <br />
+            <span className="text-xs">Need a separate top-level organization instead? A system admin creates those from the Organizations page.</span>
           </p>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -597,27 +604,6 @@ export default function MembersPage() {
                 Tier determines build resources and quota. Can be changed later.
               </p>
             </div>
-            {activeOrgIsRoot ? (
-              <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300">
-                <input
-                  type="checkbox"
-                  checked={nestAsTeam}
-                  onChange={(e) => setNestAsTeam(e.target.checked)}
-                  disabled={createOrgForm.loading}
-                  className="mt-0.5"
-                />
-                <span>
-                  Nest as a <strong>team</strong> under <strong>{activeOrg?.name}</strong>.
-                  Uncheck to create an independent top-level organization instead.
-                </span>
-              </label>
-            ) : (
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                This will be created as an independent top-level organization
-                (the active organization is itself a team, and teams can only be
-                nested one level deep).
-              </p>
-            )}
           </div>
           {createOrgForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createOrgForm.error}</p>}
           {createOrgForm.success && <p className="text-sm text-green-600 dark:text-green-400 mt-3">{createOrgForm.success}</p>}

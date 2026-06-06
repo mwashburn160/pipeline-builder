@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Bell } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatures } from '@/hooks/useFeatures';
@@ -179,6 +180,21 @@ export function DashboardLayout({
                 >
                   <kbd className="font-medium">⌘K</kbd>
                 </button>
+                {/* Notification bell — global unread-messages indicator. Mirrors
+                    the Messages sidebar badge but stays visible on every page
+                    (and when the sidebar is collapsed). */}
+                <Link
+                  href="/dashboard/messages"
+                  aria-label={unreadCount > 0 ? `Messages — ${unreadCount} unread` : 'Messages'}
+                  className="relative p-1.5 rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+                </Link>
                 {actions}
               </div>
             </div>

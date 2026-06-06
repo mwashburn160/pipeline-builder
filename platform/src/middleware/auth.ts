@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, sendError } from '@pipeline-builder/api-core';
+import { ErrorCode, isSystemAdmin, sendError } from '@pipeline-builder/api-core';
 import { Request, Response, NextFunction } from 'express';
 import { toOrgId } from '../helpers/controller-helper';
 import { User, Organization, UserOrganization } from '../models';
@@ -248,9 +248,14 @@ export async function isValidRefreshToken(
  */
 export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return sendError(res, 403, 'Forbidden');
+    // System admins are platform superusers — they satisfy any org-role gate.
+    // Controllers still apply their own per-org checks (canAdministerOrg /
+    // canAccessOrg), and `requireStepUp` still applies on destructive routes,
+    // so this only removes the role-list inconsistency that otherwise 403s a
+    // sysadmin from admin/owner actions (e.g. creating an organization).
+    if (req.user && (isSystemAdmin(req) || roles.includes(req.user.role))) {
+      return next();
     }
-    next();
+    return sendError(res, 403, 'Forbidden');
   };
 }

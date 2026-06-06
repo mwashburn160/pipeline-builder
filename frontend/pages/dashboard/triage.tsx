@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { BuildsTabs } from '@/components/ui/BuildsTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -104,7 +105,7 @@ export default function TriagePage() {
 
   return (
     <DashboardLayout
-      title="Failed Build Triage"
+      title="Builds"
       subtitle={`${totalFailed} failed build${totalFailed === 1 ? '' : 's'} grouped by category`}
       actions={
         <div className="flex items-center gap-2">
@@ -144,6 +145,7 @@ export default function TriagePage() {
       }
     >
       <div className="max-w-6xl mx-auto px-4 py-6">
+        <BuildsTabs active="failed" />
         {error && (
           <div className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-red-800 text-sm">
             Failed to load triage data: {error}

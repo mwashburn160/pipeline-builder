@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { Plus, GitBranch, Search, Trash2, X } from 'lucide-react';
@@ -77,6 +78,18 @@ export default function PipelinesPage() {
   const createForm = useFormState();
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
   const [editPipeline, setEditPipeline] = useState<Pipeline | null>(null);
+
+  // Open the create modal when arrived via the sidebar "Create Pipeline"
+  // shortcut (`?create=1`), then strip the param so it doesn't re-open on back/
+  // refresh.
+  const router = useRouter();
+  useEffect(() => {
+    if (!router.isReady || !router.query.create) return;
+    setShowCreateModal(true);
+    const rest = { ...router.query };
+    delete rest.create;
+    void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+  }, [router.isReady, router.query.create]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreatePipeline = async (props: BuilderProps, accessModifier: 'public' | 'private', description?: string, keywords?: string[]) => {
     setCreateSuccess(null);
