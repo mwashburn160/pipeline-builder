@@ -24,6 +24,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
+import { SideDrawer } from '@/components/ui/SideDrawer';
 import { Pagination } from '@/components/ui/Pagination';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -50,6 +51,7 @@ const LIMIT = 50;
 export default function AuditPage() {
   const router = useRouter();
   const { isReady, user, isSuperAdmin } = useAuthGuard({ requireAdmin: true });
+  const [selected, setSelected] = useState<AuditEvent | null>(null);
 
   // Hydrate filters from URL on first render. `action`, `actorId`,
   // `affectedOrgId` are deep-linkable from other admin pages.
@@ -217,10 +219,18 @@ export default function AuditPage() {
         ) : (
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
             {events.map((event) => (
-              <div key={event._id} className="px-4 py-3 text-sm">
+              <div
+                key={event._id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelected(event)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(event); } }}
+                aria-label={`View audit event: ${event.action}`}
+                className="px-4 py-3 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 focus:bg-gray-50 dark:focus:bg-gray-800/50 focus:outline-none transition-colors"
+              >
                 <div className="flex items-baseline justify-between gap-2">
                   <code className="text-xs font-medium text-blue-700 dark:text-blue-300">{event.action}</code>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
                     <RelativeTime value={event.createdAt} />
                   </span>
                 </div>
@@ -239,9 +249,9 @@ export default function AuditPage() {
                   {event.ip && <span>IP: <code>{event.ip}</code></span>}
                 </div>
                 {event.details && Object.keys(event.details).length > 0 && (
-                  <pre className="mt-1 text-xs text-gray-500 dark:text-gray-500 overflow-x-auto">
-                    {JSON.stringify(event.details, null, 0)}
-                  </pre>
+                  <p className="mt-1 text-xs text-gray-400 dark:text-gray-500 font-mono truncate">
+                    {JSON.stringify(event.details)}
+                  </p>
                 )}
               </div>
             ))}
@@ -263,6 +273,38 @@ export default function AuditPage() {
         For richer query-builder views, use the{' '}
         <Link href="/dashboard/observability/audit-activity" className="action-link">Audit Activity dashboard</Link>.
       </div>
+
+      {selected && (
+        <SideDrawer
+          ariaLabel="Audit event details"
+          onClose={() => setSelected(null)}
+          title={selected.action}
+          subtitle={<span className="tabular-nums">{new Date(selected.createdAt).toLocaleString()}</span>}
+        >
+          <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-2 text-sm">
+            <dt className="text-gray-500 dark:text-gray-400">Actor</dt>
+            <dd className="text-gray-900 dark:text-gray-100 inline-flex items-center gap-1 min-w-0">
+              <span className="truncate">{selected.actorEmail || selected.actorId}</span>
+              <CopyableId value={selected.actorId} small />
+            </dd>
+            {selected.orgId && (<><dt className="text-gray-500 dark:text-gray-400">Org</dt><dd><CopyableId value={selected.orgId} small /></dd></>)}
+            {selected.affectedOrgId && (<><dt className="text-gray-500 dark:text-gray-400">Affected org</dt><dd><CopyableId value={selected.affectedOrgId} small /></dd></>)}
+            {selected.targetType && (
+              <>
+                <dt className="text-gray-500 dark:text-gray-400">Target</dt>
+                <dd className="inline-flex items-center gap-1"><code className="text-xs">{selected.targetType}</code>{selected.targetId && <><span>:</span><CopyableId value={selected.targetId} small /></>}</dd>
+              </>
+            )}
+            {selected.ip && (<><dt className="text-gray-500 dark:text-gray-400">IP</dt><dd><code className="text-xs">{selected.ip}</code></dd></>)}
+          </dl>
+          {selected.details && Object.keys(selected.details).length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Details</p>
+              <pre className="text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 whitespace-pre-wrap break-all max-h-96 overflow-y-auto">{JSON.stringify(selected.details, null, 2)}</pre>
+            </div>
+          )}
+        </SideDrawer>
+      )}
     </DashboardLayout>
   );
 }

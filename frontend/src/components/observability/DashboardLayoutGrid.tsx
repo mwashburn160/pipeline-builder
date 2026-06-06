@@ -44,7 +44,7 @@ export interface LayoutPanelInput {
 
 /** Width of the layout grid in columns. Matches the existing static
  * dashboard's 12-col Tailwind grid so `span` semantics carry over. */
-export const GRID_COLS = 12;
+const GRID_COLS = 12;
 /** Default row height in px. Two of these fit a typical stat panel. */
 const ROW_HEIGHT = 80;
 

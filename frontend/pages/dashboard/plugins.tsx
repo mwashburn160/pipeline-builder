@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
 import { useToast } from '@/components/ui/Toast';
+import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { formatError } from '@/lib/constants';
 import { Search, Puzzle, Plus, Trash2, X, Upload, Star, Boxes } from 'lucide-react';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/help';
@@ -203,15 +203,8 @@ export default function PluginsPage() {
   const [editPlugin, setEditPlugin] = useState<Plugin | null>(null);
 
   // Open the create modal (AI Builder tab) when arrived via the sidebar "Add
-  // Plugin" shortcut (`?create=1`), then strip the param so it doesn't re-open.
-  const router = useRouter();
-  useEffect(() => {
-    if (!router.isReady || !router.query.create) return;
-    setCreateInitialTab('ai');
-    const rest = { ...router.query };
-    delete rest.create;
-    void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
-  }, [router.isReady, router.query.create]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Plugin" shortcut (`?create=1`).
+  useOpenOnCreateQuery(() => setCreateInitialTab('ai'));
   const [viewPlugin, setViewPlugin] = useState<Plugin | null>(null);
 
   // ── Columns ──

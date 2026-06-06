@@ -106,6 +106,10 @@ export default function PipelineDetailPage() {
     <DashboardLayout
       title={pipeline?.pipelineName || pipeline?.project || 'Pipeline'}
       subtitle="Pipeline detail"
+      breadcrumbs={[
+        { label: 'Pipelines', href: '/dashboard/pipelines' },
+        { label: pipeline?.pipelineName || pipeline?.project || 'Pipeline' },
+      ]}
     >
       <div className="mb-4">
         <Link href="/dashboard/pipelines" className="action-link inline-flex items-center gap-1 text-sm">

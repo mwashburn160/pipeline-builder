@@ -5,6 +5,7 @@ import { type ReactNode, useCallback, useEffect, useRef } from 'react';
 import { X, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
+import { ModalPortal } from '@/components/ui/ModalPortal';
 import { LOG_LEVEL_COLORS } from '@/lib/constants';
 import type { LogEntry } from '@/types';
 
@@ -63,25 +64,27 @@ export function LogDetailsDrawer({ entry, onClose }: LogDetailsDrawerProps) {
   if (!entry) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-40"
-      role="presentation"
-      onClick={onClose}
-    >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/30" />
-      {/* Drawer panel */}
-      <aside
-        className="absolute top-0 right-0 h-full w-full max-w-2xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Log entry details"
-        onClick={(e) => e.stopPropagation()}
+    <ModalPortal>
+      <div
+        className="fixed inset-0 z-40"
+        role="presentation"
+        onClick={onClose}
       >
-        <DrawerHeader entry={entry} onClose={onClose} closeButtonRef={closeButtonRef} />
-        <DrawerBody entry={entry} />
-      </aside>
-    </div>
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/30" />
+        {/* Drawer panel */}
+        <aside
+          className="absolute top-0 right-0 h-full w-full max-w-2xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Log entry details"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DrawerHeader entry={entry} onClose={onClose} closeButtonRef={closeButtonRef} />
+          <DrawerBody entry={entry} />
+        </aside>
+      </div>
+    </ModalPortal>
   );
 }
 

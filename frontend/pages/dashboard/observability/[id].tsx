@@ -205,6 +205,10 @@ export default function DashboardPage() {
     <DashboardLayout
       title={dashboard.name}
       subtitle={dashboard.description ?? ''}
+      breadcrumbs={[
+        { label: 'Observability', href: '/dashboard/observability' },
+        { label: dashboard.name },
+      ]}
       actions={
         <div className="flex items-center gap-2">
           <RangePicker value={range} onChange={setRange} />

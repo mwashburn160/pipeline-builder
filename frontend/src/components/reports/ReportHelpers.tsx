@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { RefreshCw, Download, Timer } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
 

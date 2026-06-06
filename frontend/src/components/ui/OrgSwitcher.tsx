@@ -93,7 +93,7 @@ export function OrgSwitcher({ className = '' }: OrgSwitcherProps = {}) {
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 bottom-full mb-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
           <div className="py-1 max-h-48 overflow-y-auto">
             {nestOrgs(organizations).map(({ org, depth }) => {
               const isActive = org.id === user.organizationId;

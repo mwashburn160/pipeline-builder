@@ -17,7 +17,7 @@ export interface Shortcut {
  * key handler should import this list rather than hard-coding the bindings,
  * so the help modal and the actual handlers stay in lockstep.
  */
-export const REGISTRY_SHORTCUTS: Shortcut[] = [
+const REGISTRY_SHORTCUTS: Shortcut[] = [
   { keys: ['j'], description: 'Move repository selection down' },
   { keys: ['k'], description: 'Move repository selection up' },
   { keys: ['/'], description: 'Focus the repository filter' },

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
+import { ModalPortal } from '@/components/ui/ModalPortal';
 // Non-sysadmin sends always go to the system support inbox. The display
 // alias `support@pipeline-builder` is shown verbatim in the "To" field
 // for user familiarity; on the wire it's translated to recipientOrgId
@@ -127,6 +128,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientS
   };
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={isAnnouncement ? 'New Announcement' : 'New Message'}>
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
         {/* Header */}
@@ -243,5 +245,6 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientS
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

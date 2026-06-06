@@ -116,17 +116,20 @@ export function Modal({
     }
   }, [onClose]);
 
-  // Set up event listeners and focus management
+  // Focus management + scroll lock — runs ONCE when the modal mounts (keyed on
+  // `mounted`, not `handleKeyDown`). Keeping focus-on-open out of the keydown
+  // effect is critical: callers pass an inline `onClose`, so `handleKeyDown`'s
+  // identity changes every render; if focusing lived here it would re-fire on
+  // every keystroke and yank focus to the close button (input loses focus after
+  // one letter).
   useEffect(() => {
+    if (!mounted) return;
     previousActiveElement.current = document.activeElement;
-    document.addEventListener('keydown', handleKeyDown);
 
-    // Focus the close button (first focusable element) on mount
+    // Focus the first focusable element on open.
     if (panelRef.current) {
       const focusable = getFocusableElements(panelRef.current);
-      if (focusable.length > 0) {
-        focusable[0].focus();
-      }
+      if (focusable.length > 0) focusable[0].focus();
     }
 
     // Prevent background scrolling. Capture the prior value so we restore
@@ -136,18 +139,22 @@ export function Modal({
     document.body.style.overflow = 'hidden';
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = previousOverflow;
-      // Restore focus to the element that opened the modal — but only if
-      // it is still in the document. A parent component may have re-rendered
-      // and replaced the trigger; calling .focus() on a detached node is a
-      // no-op but can throw under some test runners.
+      // Restore focus to the element that opened the modal — but only if it's
+      // still in the document (a parent re-render may have replaced the trigger;
+      // .focus() on a detached node is a no-op but can throw under test runners).
       const prev = previousActiveElement.current;
-      if (prev instanceof HTMLElement && prev.isConnected) {
-        prev.focus();
-      }
+      if (prev instanceof HTMLElement && prev.isConnected) prev.focus();
     };
-  }, [handleKeyDown]);
+  }, [mounted]);
+
+  // Keydown listener (Escape + focus trap) — re-binds when `handleKeyDown`
+  // changes. No focus side effects here, so re-binding per render is harmless.
+  useEffect(() => {
+    if (!mounted) return;
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [mounted, handleKeyDown]);
 
   if (!mounted) return null;
 

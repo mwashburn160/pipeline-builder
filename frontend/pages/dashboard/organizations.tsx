@@ -96,18 +96,45 @@ export default function OrganizationsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
   const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'unlimited'>('developer');
+  // New orgs default to sub-organizations (teams nested under a parent); uncheck
+  // for a top-level organization. Parent candidates are the existing root orgs.
+  const [createAsSubOrg, setCreateAsSubOrg] = useState(true);
+  const [parentOrgId, setParentOrgId] = useState('');
+  const [parentOptions, setParentOptions] = useState<Organization[]>([]);
   const createForm = useFormState();
+
+  // Open the create modal, resetting state and loading the root orgs that can
+  // act as a parent for a sub-organization.
+  const openCreate = async () => {
+    setNewOrgName('');
+    setNewOrgTier('developer');
+    setCreateAsSubOrg(true);
+    setParentOrgId('');
+    setParentOptions([]);
+    createForm.reset();
+    setCreateOpen(true);
+    try {
+      const res = await api.listOrganizations({ limit: 200 });
+      setParentOptions((res.data?.organizations ?? []).filter((o) => !o.parentOrgId));
+    } catch { /* best-effort — sub-org option simply won't have parents to pick */ }
+  };
 
   const handleCreateOrg = async () => {
     const name = newOrgName.trim();
     if (!name) return;
-    const result = await createForm.run(() => api.createOrganization({ name, tier: newOrgTier }));
+    if (createAsSubOrg && !parentOrgId) {
+      createForm.setError('Choose a parent organization for the sub-organization (or uncheck to create a top-level org).');
+      return;
+    }
+    const result = await createForm.run(() => api.createOrganization({
+      name,
+      tier: newOrgTier,
+      ...(createAsSubOrg && parentOrgId ? { parentOrgId } : {}),
+    }));
     if (result !== null) {
-      setNewOrgName('');
-      setNewOrgTier('developer');
       setCreateOpen(false);
       list.refresh();
-      toast.success(`Organization "${name}" created`);
+      toast.success(`${createAsSubOrg ? 'Sub-organization' : 'Organization'} "${name}" created`);
     }
   };
 
@@ -223,7 +250,7 @@ export default function OrganizationsPage() {
       titleExtra={<Badge color="red">System Admin</Badge>}
       actions={
         <button
-          onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); createForm.reset(); setCreateOpen(true); }}
+          onClick={openCreate}
           className="btn btn-primary"
         >
           <Plus className="w-4 h-4 mr-1.5" /> New Organization
@@ -310,24 +337,31 @@ export default function OrganizationsPage() {
 
       {createOpen && (
         <Modal
-          title="Create Organization"
+          title={createAsSubOrg ? 'Create Sub-organization' : 'Create Organization'}
           onClose={() => setCreateOpen(false)}
           footer={
             <div className="flex justify-end gap-2">
               <button onClick={() => setCreateOpen(false)} className="btn btn-secondary" disabled={createForm.loading}>Cancel</button>
-              <button onClick={handleCreateOrg} disabled={createForm.loading || !newOrgName.trim()} className="btn btn-primary">
-                {createForm.loading ? 'Creating...' : 'Create Organization'}
+              <button
+                onClick={handleCreateOrg}
+                disabled={createForm.loading || !newOrgName.trim() || (createAsSubOrg && !parentOrgId)}
+                className="btn btn-primary"
+              >
+                {createForm.loading ? 'Creating...' : (createAsSubOrg ? 'Create Sub-org' : 'Create Organization')}
               </button>
             </div>
           }
         >
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Create a new top-level organization. You become its initial <strong>owner</strong> —
-            transfer ownership from the org&apos;s detail page afterward.
+            {createAsSubOrg
+              ? 'Create a sub-organization (team) nested under a parent org. You become its initial owner; transfer ownership from the org’s detail page afterward.'
+              : 'Create a top-level organization. You become its initial owner; transfer ownership from the org’s detail page afterward.'}
           </p>
           <div className="space-y-3">
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Organization name</label>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                {createAsSubOrg ? 'Sub-organization name' : 'Organization name'}
+              </label>
               <input
                 type="text"
                 placeholder="e.g. acme-platform"
@@ -352,6 +386,43 @@ export default function OrganizationsPage() {
                 <option value="unlimited">Unlimited</option>
               </select>
             </div>
+
+            {/* Sub-organization toggle — defaults on. When on, pick the parent. */}
+            <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 pt-1">
+              <input
+                type="checkbox"
+                checked={createAsSubOrg}
+                onChange={(e) => setCreateAsSubOrg(e.target.checked)}
+                disabled={createForm.loading}
+                className="mt-0.5 rounded border-gray-300"
+              />
+              <span>
+                <strong>Sub-organization</strong> — nest this org as a team under a parent.
+                Uncheck to create a standalone top-level organization.
+              </span>
+            </label>
+
+            {createAsSubOrg && (
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Parent organization</label>
+                <select
+                  value={parentOrgId}
+                  onChange={(e) => setParentOrgId(e.target.value)}
+                  className="input text-sm"
+                  disabled={createForm.loading}
+                >
+                  <option value="">Select a parent organization…</option>
+                  {parentOptions.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+                {parentOptions.length === 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    No top-level organizations available to nest under — uncheck above to create one.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           {createForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createForm.error}</p>}
         </Modal>

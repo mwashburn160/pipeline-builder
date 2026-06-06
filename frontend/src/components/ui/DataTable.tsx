@@ -42,6 +42,10 @@ export interface DataTableProps<T> {
   showColumnToggle?: boolean;
   /** Number of skeleton rows to show while loading */
   skeletonRows?: number;
+  /** When set, the whole row becomes a mouse click target (cursor + hover).
+   *  Keyboard users use the focusable cell controls; opt-in, so only use it on
+   *  tables whose rows have no conflicting per-cell actions. */
+  onRowClick?: (item: T, index: number) => void;
 }
 
 interface SortState {
@@ -91,6 +95,7 @@ export function DataTable<T>({
   defaultSortDirection = 'asc',
   showColumnToggle = false,
   skeletonRows = 5,
+  onRowClick,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState>({
     columnId: defaultSortColumn ?? null,
@@ -287,10 +292,14 @@ export function DataTable<T>({
 
               const key = getRowKey ? getRowKey(item, i) : String(i);
 
+              const rowClickProps = onRowClick
+                ? { onClick: () => onRowClick(item, i), className: 'data-table-row cursor-pointer' }
+                : { className: 'data-table-row' };
+
               return animated ? (
                 <motion.tr
                   key={key}
-                  className="data-table-row"
+                  {...rowClickProps}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay }}
@@ -302,7 +311,7 @@ export function DataTable<T>({
                   ))}
                 </motion.tr>
               ) : (
-                <tr key={key} className="data-table-row">
+                <tr key={key} {...rowClickProps}>
                   {visibleColumns.map((col) => (
                     <td key={col.id} className={col.cellClassName}>
                       {col.render(item, i)}

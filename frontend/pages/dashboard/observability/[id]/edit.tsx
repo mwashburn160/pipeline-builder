@@ -212,6 +212,11 @@ export default function DashboardEditPage() {
     <DashboardLayout
       title={`Editing: ${original.name}`}
       subtitle="Drag panels in grid mode to rearrange; resize from any corner. Toggle to list view for keyboard-friendly editing."
+      breadcrumbs={[
+        { label: 'Observability', href: '/dashboard/observability' },
+        { label: original.name, href: `/dashboard/observability/${original.id}` },
+        { label: 'Edit' },
+      ]}
       actions={
         <div className="flex items-center gap-2">
           <Link

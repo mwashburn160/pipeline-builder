@@ -101,7 +101,8 @@ export default function LogsPage() {
       render: (entry) => (
         <button
           onClick={() => setSelected(entry)}
-          className="text-left hover:underline focus:outline-none focus:underline"
+          title="View log details"
+          className="text-left text-blue-600 dark:text-blue-400 underline decoration-dotted underline-offset-2 hover:decoration-solid cursor-pointer focus:outline-none focus:decoration-solid tabular-nums"
         >
           {formatTimestamp(entry.timestamp)}
         </button>
@@ -227,6 +228,7 @@ export default function LogsPage() {
           description: debouncedSearch || serviceFilter || levelFilter ? 'Try adjusting your filters.' : 'No log entries in the selected time range.',
         }}
         getRowKey={(entry, i) => `${entry.timestamp}-${i}`}
+        onRowClick={(entry) => setSelected(entry)}
         animationDelay={0.02}
         maxAnimationDelay={0.5}
         defaultSortColumn="timestamp"

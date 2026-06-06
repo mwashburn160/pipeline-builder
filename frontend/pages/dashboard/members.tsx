@@ -339,6 +339,7 @@ export default function MembersPage() {
                 onClick={() => openManageTeams(m)}
                 className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:text-indigo-400 dark:hover:bg-indigo-900/20 transition-colors"
                 title="Manage team memberships"
+                aria-label={`Manage team memberships for ${m.username}`}
               >
                 <Network className="w-4 h-4" />
               </button>
@@ -347,6 +348,7 @@ export default function MembersPage() {
               onClick={() => setRoleChangeTarget(m)}
               className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-900/20 transition-colors"
               title={m.role === 'admin' ? 'Demote to user' : 'Promote to admin'}
+              aria-label={`${m.role === 'admin' ? 'Demote' : 'Promote'} ${m.username}`}
             >
               {m.role === 'admin' ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
             </button>
@@ -354,6 +356,7 @@ export default function MembersPage() {
               onClick={() => { setPasswordTarget(m); setNewPassword(''); passwordForm.reset(); }}
               className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:text-amber-400 dark:hover:bg-amber-900/20 transition-colors"
               title="Reset password"
+              aria-label={`Reset password for ${m.username}`}
             >
               <KeyRound className="w-4 h-4" />
             </button>
@@ -365,6 +368,7 @@ export default function MembersPage() {
                   : 'text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:text-green-400 dark:hover:bg-green-900/20'
               }`}
               title={m.isActive ? 'Deactivate member' : 'Reactivate member'}
+              aria-label={`${m.isActive ? 'Deactivate' : 'Reactivate'} ${m.username}`}
             >
               {m.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
             </button>
@@ -372,6 +376,7 @@ export default function MembersPage() {
               onClick={() => removeMember.open(m)}
               className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/20 transition-colors"
               title="Remove from organization"
+              aria-label={`Remove ${m.username} from the organization`}
             >
               <UserMinus className="w-4 h-4" />
             </button>
@@ -447,7 +452,16 @@ export default function MembersPage() {
         columns={columns}
         getRowKey={(m) => m.id}
         isLoading={isLoading}
-        emptyState={{ icon: Users, title: 'No team members found', description: searchQuery ? 'Try adjusting your search.' : 'Add members to your organization to get started.' }}
+        emptyState={{
+          icon: Users,
+          title: 'No team members found',
+          description: searchQuery ? 'Try adjusting your search.' : 'Add members to your organization to get started.',
+          action: searchQuery ? undefined : (
+            <button onClick={openAddModal} className="btn btn-primary">
+              <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
+            </button>
+          ),
+        }}
         defaultSortColumn="username"
       />
 

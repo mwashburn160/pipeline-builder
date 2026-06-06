@@ -151,6 +151,10 @@ export default function OrgDetailPage() {
     <DashboardLayout
       title={org ? org.name : 'Organization'}
       subtitle="System-admin org detail"
+      breadcrumbs={[
+        { label: 'All Organizations', href: '/dashboard/organizations' },
+        { label: org ? org.name : 'Organization' },
+      ]}
       titleExtra={<Badge color="red">System Admin</Badge>}
     >
       <div className="mb-4">

@@ -2,7 +2,7 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { GitBranch, Puzzle, AlertTriangle, FileBarChart } from 'lucide-react';
+import { GitBranch, Puzzle, AlertTriangle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';

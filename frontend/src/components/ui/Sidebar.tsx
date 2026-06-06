@@ -50,6 +50,9 @@ interface NavItem {
   adminOnly?: boolean;
   systemAdminOnly?: boolean;
   requiredFeature?: string;
+  /** Extra path prefixes that should also mark this item active (e.g. a sibling
+   *  route folded into the same nav entry, like /triage under "Builds"). */
+  extraActivePaths?: string[];
 }
 
 interface NavSection {
@@ -113,7 +116,7 @@ const NAV_SECTIONS: NavSection[] = [
       { title: 'All Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
       { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
       { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
-      { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true },
+      { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
       { title: 'Platform Settings', href: '/dashboard/admin/platform-settings', icon: SlidersHorizontal, systemAdminOnly: true },
     ],
   },
@@ -212,6 +215,11 @@ export function Sidebar({
         </Link>
       </div>
 
+      {/* Organization / team switcher — placed directly under the brand (was
+          buried at the bottom of the rail) so switching orgs/teams is easy to
+          find. Self-hides when the user belongs to a single org. */}
+      {!collapsed && <OrgSwitcher className="px-3 py-2.5 border-b border-gray-200 dark:border-gray-700" />}
+
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2">
         {/* Quick actions — a compact icon row (was a chunky labelled card that
@@ -251,7 +259,8 @@ export function Sidebar({
               {collapsed && <div className="my-2 mx-3 border-t border-gray-200 dark:border-gray-700" />}
               {(collapsed || !collapsedSections.has(section.label)) && visibleItems.map((item) => {
                 const Icon = item.icon;
-                const active = isActive(item.href);
+                const active = isActive(item.href)
+                  || (item.extraActivePaths?.some((p) => currentPath.startsWith(p)) ?? false);
 
                 const linkContent = (
                   <Link
@@ -302,10 +311,9 @@ export function Sidebar({
           </button>
         )}
 
-        {/* Org switcher + User info */}
+        {/* User info (the org/team switcher moved up under the brand). */}
         {!collapsed && (
           <div className="space-y-2">
-            <OrgSwitcher />
             <div className="px-1">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                 {user.username}

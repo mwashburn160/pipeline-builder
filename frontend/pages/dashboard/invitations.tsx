@@ -258,6 +258,11 @@ export default function InvitationsPage() {
           icon: Mail,
           title: 'No invitations found',
           description: list.hasActiveFilters ? 'Try adjusting your filter.' : 'Send an invitation to add team members.',
+          action: list.hasActiveFilters ? undefined : (
+            <button onClick={() => { setSendModalOpen(true); setSendError(null); }} className="btn btn-primary">
+              <Mail className="w-4 h-4 mr-1.5" /> Send invitation
+            </button>
+          ),
         }}
         getRowKey={(inv) => inv.id}
         defaultSortColumn="createdAt"
