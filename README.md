@@ -224,14 +224,22 @@ For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, 
 
 ```bash
 git clone <repo-url> pipeline-builder && cd pipeline-builder
-pnpm install && pnpm build
 
-cd deploy/local && chmod +x bin/startup.sh && ./bin/startup.sh
+cd deploy/local && chmod +x bin/startup.sh && ./bin/startup.sh   # 1. pull images + start the stack
+cd ../.. && ./deploy/bin/init-platform.sh local                  # 2. register admin + load plugins
 ```
 
-Open **https://localhost:8443** — register, create an org, and start building pipelines.
+Then open **https://localhost:8443** and log in with the default local admin
+`admin@internal` / `SecurePassword123!` — create teams, load more plugins, and
+build pipelines. (`init-platform.sh` registers the admin and loads the plugin
+catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initialize-platform).)
 
-> **Prerequisites:** Node.js >= 24.14, pnpm >= 10.33, Docker
+> **Prerequisites:** Docker. The stack runs prebuilt images — if `docker compose`
+> reports `unauthorized` on `ghcr.io/mwashburn160/...`, run
+> `docker login ghcr.io` with a `read:packages` token first (see [deploy/local](deploy/local/README.md)).
+> Node.js >= 24.14 + pnpm >= 10.33 are needed only to build from source or use the CLI.
+>
+> **Change the default password immediately** on any environment reachable beyond your laptop.
 
 ---
 
