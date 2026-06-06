@@ -54,6 +54,9 @@ export default function MembersPage() {
   // Count of team sub-orgs this org parents (org → team hierarchy), for the
   // team-context banner. Best-effort; admins only.
   const [childTeamCount, setChildTeamCount] = useState(0);
+  // Bumped after creating a team so the count (and the "Manage teams" button it
+  // gates) refresh without a full page reload.
+  const [teamCountTick, setTeamCountTick] = useState(0);
   useEffect(() => {
     // Only root orgs can parent teams — skip the lookup when the active org is
     // itself a team (the banner shows the "is a team" branch regardless).
@@ -63,7 +66,7 @@ export default function MembersPage() {
       .then((res) => { if (!cancelled) setChildTeamCount(Math.max(0, (res.data?.orgIds?.length ?? 1) - 1)); })
       .catch(() => { /* best-effort */ });
     return () => { cancelled = true; };
-  }, [user?.organizationId, isAdmin, activeOrgIsRoot]);
+  }, [user?.organizationId, isAdmin, activeOrgIsRoot, teamCountTick]);
   const createOrgForm = useFormState();
 
   // Password reset
@@ -260,16 +263,21 @@ export default function MembersPage() {
   };
 
   const handleCreateOrg = async () => {
-    if (!newOrgName.trim()) return;
+    const name = newOrgName.trim();
+    if (!name) return;
     const parentOrgId = nestAsTeam && activeOrgIsRoot ? user?.organizationId : undefined;
     const result = await createOrgForm.run(
-      () => api.createOrganization({ name: newOrgName.trim(), tier: newOrgTier, parentOrgId }),
+      () => api.createOrganization({ name, tier: newOrgTier, parentOrgId }),
     );
     if (result !== null) {
       setNewOrgName('');
       setNewOrgTier('developer');
       setCreateOrgOpen(false);
-      await refreshUser();
+      await refreshUser();          // pulls the new org into the org-switcher list
+      setTeamCountTick((t) => t + 1); // refresh the team-count banner + Manage-teams button
+      toast.success(parentOrgId
+        ? `Team "${name}" created — switch to it from the organization switcher (bottom-left)`
+        : `Organization "${name}" created`);
     }
   };
 
