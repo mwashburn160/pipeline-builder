@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { X, ShieldCheck } from 'lucide-react';
 import api, { ApiError } from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { ModalPortal } from '@/components/ui/ModalPortal';
 import type { Organization, OrgIdpConfigDto } from '@/types';
 
 interface Props {
@@ -125,6 +126,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   }, [org.id, org.name, onSaved, onClose]);
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="card w-full max-w-2xl">
         <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-5 py-3">
@@ -259,5 +261,6 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

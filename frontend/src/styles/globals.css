@@ -210,7 +210,10 @@
 
   /* ---- Modal backdrop ---- */
   .modal-backdrop {
-    background-color: color-mix(in srgb, var(--pb-bg) 30%, #000 70%);
+    /* Translucent (alpha) so the page shows through as a dimmed overlay — the
+       old color-mix produced an opaque fill. Modals portal to <body> so this
+       `fixed` layer is measured against the viewport (see Modal.tsx). */
+    background-color: rgb(0 0 0 / 0.5);
     @apply fixed inset-0 backdrop-blur-sm flex items-center justify-center p-4 z-50;
   }
 

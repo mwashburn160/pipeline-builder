@@ -1,4 +1,5 @@
-import { type ReactNode, type RefObject, useEffect, useId, useRef, useCallback } from 'react';
+import { type ReactNode, type RefObject, useEffect, useId, useRef, useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /** Props for the Modal component. */
 interface ModalProps {
@@ -45,6 +46,16 @@ export function Modal({
   // aria-labelledby — more meaningful to screen readers than the
   // duplicated aria-label that was here before.
   const titleId = useId();
+
+  // Render into a portal on document.body so the `position: fixed` backdrop is
+  // measured against the viewport, not a transformed/filtered ancestor. Inside
+  // the dashboard the content is wrapped in framer-motion (`transform`) and a
+  // `backdrop-blur` header, both of which create a containing block that would
+  // otherwise clamp the "fixed" overlay to the content column — rendering it as
+  // dark side-bands instead of a full-screen backdrop. `mounted` guards SSR
+  // (no `document` on the server).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const panelClasses = [
     'modal-panel', maxWidth,
@@ -138,7 +149,9 @@ export function Modal({
     };
   }, [handleKeyDown]);
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div
         ref={panelRef}
@@ -176,6 +189,7 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

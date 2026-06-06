@@ -7,6 +7,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { useToast } from '@/components/ui/Toast';
+import { ModalPortal } from '@/components/ui/ModalPortal';
 import { api, ApiError } from '@/lib/api';
 import type { Alert, Silence } from '@/types/observability';
 import { formatRelativeTime } from '@/lib/relative-time';
@@ -263,6 +264,7 @@ function SilenceModal(props: {
   };
 
   return (
+    <ModalPortal>
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -316,5 +318,6 @@ function SilenceModal(props: {
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

@@ -382,7 +382,7 @@ export default function MembersPage() {
       actions={
         <div className="flex gap-2">
           <button onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); setNestAsTeam(true); createOrgForm.reset(); setCreateOrgOpen(true); }} className="btn btn-secondary">
-            <Building2 className="w-4 h-4 mr-1.5" /> Create Sub-Org / Team
+            <Building2 className="w-4 h-4 mr-1.5" /> Create Team
           </button>
           <button onClick={openAddModal} className="btn btn-primary">
             <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
@@ -539,26 +539,26 @@ export default function MembersPage() {
       {/* Create organization modal */}
       {createOrgOpen && (
         <Modal
-          title="Create Sub-Organization / Team"
+          title="Create Team"
           onClose={() => setCreateOrgOpen(false)}
           footer={
             <div className="flex justify-end gap-2">
               <button onClick={() => setCreateOrgOpen(false)} className="btn btn-secondary" disabled={createOrgForm.loading}>Cancel</button>
               <button onClick={handleCreateOrg} disabled={createOrgForm.loading || !newOrgName.trim()} className="btn btn-primary">
-                {createOrgForm.loading ? 'Creating...' : 'Create Sub-Org'}
+                {createOrgForm.loading ? 'Creating...' : 'Create Team'}
               </button>
             </div>
           }
         >
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Create a sub-organization or team under your current organization.
+            Create a team nested under your current organization.
             You will be the owner; members and quotas are scoped to the new
             org separately.
           </p>
           <div className="space-y-3">
             <div className="space-y-1">
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                Sub-org / team name
+                Team name
               </label>
               <input
                 type="text"

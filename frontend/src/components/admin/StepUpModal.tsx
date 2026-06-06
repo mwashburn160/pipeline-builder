@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import { X, ShieldAlert } from 'lucide-react';
 import api from '@/lib/api';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { ModalPortal } from '@/components/ui/ModalPortal';
 
 interface Props {
   /** Short description of the action being gated, shown to the user. */
@@ -55,6 +56,7 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
   }, [password, onConfirmed, onClose]);
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="card w-full max-w-md">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
@@ -114,5 +116,6 @@ export function StepUpModal({ action, onConfirmed, onClose }: Props) {
         </form>
       </div>
     </div>
+    </ModalPortal>
   );
 }

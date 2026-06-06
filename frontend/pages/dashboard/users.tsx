@@ -9,6 +9,7 @@ import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { ModalPortal } from '@/components/ui/ModalPortal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { ActionBar } from '@/components/ui/ActionBar';
@@ -410,6 +411,7 @@ export default function UsersPage() {
       )}
 
       {editingUser && (
+        <ModalPortal>
         <div className="modal-backdrop">
           <div className="modal-panel max-w-md">
             <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Edit User: {editingUser.username}</h2>
@@ -483,6 +485,7 @@ export default function UsersPage() {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
     </DashboardLayout>
   );

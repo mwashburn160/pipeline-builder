@@ -8,6 +8,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { ModalPortal } from '@/components/ui/ModalPortal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -279,6 +280,7 @@ export default function InvitationsPage() {
 
       {/* Send Invitation Modal */}
       {sendModalOpen && (
+        <ModalPortal>
         <div className="modal-backdrop">
           <div className="modal-panel max-w-md">
             <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Send invitations</h2>
@@ -346,6 +348,7 @@ export default function InvitationsPage() {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
     </DashboardLayout>
   );

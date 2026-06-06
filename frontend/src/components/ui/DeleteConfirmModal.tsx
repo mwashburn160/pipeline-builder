@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { LoadingSpinner } from './Loading';
+import { ModalPortal } from './ModalPortal';
 
 /** Props for the DeleteConfirmModal component. */
 interface DeleteConfirmModalProps {
@@ -36,6 +37,7 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
   }, [loading, onCancel]);
 
   return (
+    <ModalPortal>
     <div className="modal-backdrop" onClick={() => !loading && onCancel()} role="presentation">
       <div className={`modal-panel max-w-md ${className}`} onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-label={title}>
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{title}</h3>
@@ -55,5 +57,6 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
