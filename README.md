@@ -234,10 +234,13 @@ Then open **https://localhost:8443** and log in with the default local admin
 build pipelines. (`init-platform.sh` registers the admin and loads the plugin
 catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initialize-platform).)
 
-> **Prerequisites:** Docker. The stack runs prebuilt images — if `docker compose`
-> reports `unauthorized` on `ghcr.io/mwashburn160/...`, run
-> `docker login ghcr.io` with a `read:packages` token first (see [deploy/local](deploy/local/README.md)).
-> Node.js >= 24.14 + pnpm >= 10.33 are needed only to build from source or use the CLI.
+> First load uses a **self-signed cert** — if the page is blank with
+> `ERR_CERT_AUTHORITY_INVALID` for JS chunks in the console, trust
+> `deploy/local/certs/nginx-tls.crt` (see [deploy/local — Troubleshooting](deploy/local/README.md#troubleshooting)).
+
+> **Prerequisites:** Docker only — the local stack pulls prebuilt **public** images,
+> so no registry login is needed. Node.js >= 24.14 + pnpm >= 10.33 are needed only
+> to build from source or use the CLI.
 >
 > **Change the default password immediately** on any environment reachable beyond your laptop.
 

@@ -56,12 +56,20 @@ Observability: open `https://localhost:8443/dashboard/observability` (system-adm
 
 ## Troubleshooting
 
-**`docker compose up` fails with `unauthorized: authentication required` on `ghcr.io/mwashburn160/...`:**
-Authenticate with the GitHub Container Registry first:
+The service images on `ghcr.io/mwashburn160/...` are **public**, so `docker compose up` pulls them with no registry login.
+
+**Browser console shows `net::ERR_CERT_AUTHORITY_INVALID` for JS chunks (`turbopack-*.js`, `_buildManifest.js`, …) and the page renders blank/unstyled:**
+`startup.sh` generates a **self-signed** TLS cert (`certs/nginx-tls.crt`, CN `localhost` + SAN `127.0.0.1`). Clicking "Proceed anyway" only whitelists the top-level page, not the script/module sub-resources, so the app's JS fails to load. Trust the cert instead — pick one:
 
 ```bash
-echo $YOUR_PAT | docker login ghcr.io -u USERNAME --password-stdin
+# macOS — trust the cert system-wide, then fully quit + reopen the browser
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain \
+  deploy/local/certs/nginx-tls.crt
 ```
 
-`YOUR_PAT` is a GitHub Personal Access Token with the `read:packages` scope. The login is cached in `~/.docker/config.json` and persists across `docker compose` runs.
+Or, for a quick dev workaround in Chrome/Edge, enable
+`chrome://flags/#allow-insecure-localhost` ("Allow invalid certificates for
+resources loaded from localhost") and relaunch. Always reach the UI at
+`https://localhost:8443` (the cert covers `localhost` and `127.0.0.1`).
 
