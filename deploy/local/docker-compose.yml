@@ -247,7 +247,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:3.4.80'
+    image: 'ghcr.io/mwashburn160/frontend:3.4.81'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -274,7 +274,7 @@ services:
           memory: 256M
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:3.4.76'
+    image: 'ghcr.io/mwashburn160/platform:3.4.77'
     container_name: platform
     restart: always
     stop_grace_period: 10s

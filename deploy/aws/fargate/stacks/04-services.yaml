@@ -47,7 +47,7 @@ Parameters:
 
   PlatformImage:
     Type: String
-    Default: ghcr.io/mwashburn160/platform:3.4.76
+    Default: ghcr.io/mwashburn160/platform:3.4.77
     Description: Docker image for the Platform service
 
   PipelineImage:
@@ -92,7 +92,7 @@ Parameters:
 
   FrontendImage:
     Type: String
-    Default: ghcr.io/mwashburn160/frontend:3.4.80
+    Default: ghcr.io/mwashburn160/frontend:3.4.81
     Description: Docker image for the Frontend service
 
   AppSecretsName:
