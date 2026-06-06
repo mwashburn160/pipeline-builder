@@ -226,10 +226,10 @@ export default function AuditPage() {
                 onClick={() => setSelected(event)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(event); } }}
                 aria-label={`View audit event: ${event.action}`}
-                className="px-4 py-3 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 focus:bg-gray-50 dark:focus:bg-gray-800/50 focus:outline-none transition-colors"
+                className="group px-4 py-3 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 focus:bg-gray-50 dark:focus:bg-gray-800/50 focus:outline-none transition-colors"
               >
                 <div className="flex items-baseline justify-between gap-2">
-                  <code className="text-xs font-medium text-blue-700 dark:text-blue-300">{event.action}</code>
+                  <code className="text-xs font-medium text-blue-600 dark:text-blue-400 underline decoration-dotted underline-offset-2 group-hover:decoration-solid">{event.action}</code>
                   <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
                     <RelativeTime value={event.createdAt} />
                   </span>

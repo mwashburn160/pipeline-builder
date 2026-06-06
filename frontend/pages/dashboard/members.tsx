@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { UserPlus, Users, Shield, ShieldOff, UserMinus, UserCheck, UserX, Crown, Search, KeyRound, Building2, Network } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
@@ -19,8 +20,9 @@ import type { OrganizationMember, MemberTeam } from '@/types';
 
 export default function MembersPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
-  const { refreshUser, organizations } = useAuth();
+  const { refreshUser, organizations, switchOrganization } = useAuth();
   const toast = useToast();
+  const router = useRouter();
   const orgId = user?.organizationId;
 
   const [members, setMembers] = useState<OrganizationMember[]>([]);
@@ -50,10 +52,11 @@ export default function MembersPage() {
   // Team" action only appears when the active org is itself a root.
   const activeOrg = organizations.find(o => o.id === user?.organizationId);
   const activeOrgIsRoot = !!activeOrg && !activeOrg.parentOrgId;
-  // Count of team sub-orgs this org parents (org → team hierarchy), for the
-  // team-context banner. Best-effort; admins only.
-  const [childTeamCount, setChildTeamCount] = useState(0);
-  // Bumped after creating a team so the count (and the "Manage teams" button it
+  // Descendant teams this org parents (org → team hierarchy) — drives the Teams
+  // list + the "Manage teams" gate. Best-effort; admins of a root org only.
+  const [teams, setTeams] = useState<{ orgId: string; orgName: string }[]>([]);
+  const childTeamCount = teams.length;
+  // Bumped after creating a team so the list (and the "Manage teams" button it
   // gates) refresh without a full page reload.
   const [teamCountTick, setTeamCountTick] = useState(0);
   useEffect(() => {
@@ -61,11 +64,24 @@ export default function MembersPage() {
     // itself a team (the banner shows the "is a team" branch regardless).
     if (!user?.organizationId || !isAdmin || !activeOrgIsRoot) return;
     let cancelled = false;
-    void api.getOrganizationDescendants(user.organizationId)
-      .then((res) => { if (!cancelled) setChildTeamCount(Math.max(0, (res.data?.orgIds?.length ?? 1) - 1)); })
+    void api.getOrganizationTeams(user.organizationId)
+      .then((res) => { if (!cancelled) setTeams(res.data?.teams ?? []); })
       .catch(() => { /* best-effort */ });
     return () => { cancelled = true; };
   }, [user?.organizationId, isAdmin, activeOrgIsRoot, teamCountTick]);
+
+  // Switch the active org context to a team so its members can be managed
+  // directly (mirrors the org switcher). The page re-renders in the new scope.
+  const switchTeam = async (team: { orgId: string; orgName: string }) => {
+    try {
+      await switchOrganization(team.orgId);
+      toast.success(`Switched to ${team.orgName}`);
+      router.replace(router.asPath);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to switch team');
+    }
+  };
+
   const createOrgForm = useFormState();
 
   // Password reset
@@ -411,14 +427,36 @@ export default function MembersPage() {
     >
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="team members" />
 
-      {(activeOrg?.parentOrgId || childTeamCount > 0) && (
+      {activeOrg?.parentOrgId && (
         <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-600 dark:text-gray-400">
           <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-          {activeOrg?.parentOrgId ? (
-            <span>This organization is a <strong>team</strong> nested under a parent organization. Its members, quotas, and billing are scoped here.</span>
-          ) : (
-            <span>This organization parents <strong>{childTeamCount}</strong> team{childTeamCount === 1 ? '' : 's'}. Admin actions and compliance rules marked “apply to child teams” cascade to them.</span>
-          )}
+          <span>This organization is a <strong>team</strong> nested under a parent organization. Its members, quotas, and billing are scoped here.</span>
+        </div>
+      )}
+
+      {/* Teams list — the org's sub-organizations. Open one to manage its
+          members directly; or add an existing member to teams via the
+          per-member "Manage teams" action below. */}
+      {activeOrgIsRoot && teams.length > 0 && (
+        <div className="card mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-gray-400" /> Teams <span className="text-gray-400 font-normal">({teams.length})</span>
+            </h2>
+            <span className="text-xs text-gray-500 dark:text-gray-400 truncate">Sub-organizations of {activeOrg?.name}</span>
+          </div>
+          <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+            {teams.map((t) => (
+              <li key={t.orgId} className="py-2 flex items-center justify-between gap-2 text-sm">
+                <span className="font-medium text-gray-900 dark:text-gray-100 truncate">{t.orgName}</span>
+                <button onClick={() => void switchTeam(t)} className="action-link text-xs shrink-0">Open →</button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <strong>Open</strong> a team to manage its members directly, or add an existing member to teams with the
+            <Network className="w-3 h-3 inline mx-0.5 -mt-0.5" /> action on each member row.
+          </p>
         </div>
       )}
 
