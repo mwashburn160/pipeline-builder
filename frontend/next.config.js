@@ -3,6 +3,12 @@ const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
 
+  // Do NOT ship browser source maps to clients (the default, made explicit):
+  // they'd expose original source. If client-side error monitoring needs
+  // symbolication, upload maps to the collector out-of-band rather than serving
+  // them publicly. Server-side maps stay for prod stack traces (never served).
+  productionBrowserSourceMaps: false,
+
   // Bundle optimization
   experimental: {
     optimizePackageImports: ['lucide-react', 'framer-motion'],

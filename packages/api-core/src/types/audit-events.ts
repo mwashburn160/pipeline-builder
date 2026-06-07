@@ -18,8 +18,22 @@
  *   3. Emit via `emitAudit(logger, 'event.name', { … })` from the route.
  */
 
+/**
+ * Correlation context shared by every cross-service audit event. Optional so
+ * existing emit sites compile unchanged; when populated, these let an operator
+ * pivot a Loki audit line to the originating HTTP request (`requestId`) or the
+ * end-to-end distributed trace (`traceId`) — and line them up with platform's
+ * MongoDB audit events, which carry the same two fields.
+ */
+export interface AuditCorrelation {
+  /** Originating request id (propagated `x-request-id`). */
+  requestId?: string;
+  /** OpenTelemetry trace id of the active span, when tracing is enabled. */
+  traceId?: string;
+}
+
 /** Tag-copy emitted from image-registry's POST /api/images/copy. */
-export interface RegistryTagCopyAudit {
+export interface RegistryTagCopyAudit extends AuditCorrelation {
   event: 'registry.tag.copy';
   actor: string;
   source: string;
@@ -32,7 +46,7 @@ export interface RegistryTagCopyAudit {
 }
 
 /** Tag-delete emitted from image-registry's DELETE /api/images/:name/manifests/:reference. */
-export interface RegistryTagDeleteAudit {
+export interface RegistryTagDeleteAudit extends AuditCorrelation {
   event: 'registry.tag.delete';
   actor: string;
   repo: string;

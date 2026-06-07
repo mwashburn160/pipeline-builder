@@ -268,6 +268,16 @@ Resources:
           ToPort: 3100
           SourceSecurityGroupId: !Ref AppSecurityGroup
           Description: Allow Loki traffic from app containers
+        - IpProtocol: tcp
+          FromPort: 4318
+          ToPort: 4318
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Allow Jaeger OTLP/HTTP traces from app containers
+        - IpProtocol: tcp
+          FromPort: 4317
+          ToPort: 4317
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: Allow Jaeger OTLP/gRPC traces from app containers
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0

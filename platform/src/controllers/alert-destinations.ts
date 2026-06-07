@@ -26,6 +26,7 @@ import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota';
 import { alertDestinationService, toApiDestination } from '../services/alert-destination-service';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay';
+import { isReasonableString } from '../utils/string-guards';
 
 const logger = createLogger('alert-destinations-controller');
 
@@ -36,9 +37,6 @@ const MAX_LABEL = parseInt(process.env.ALERT_DESTINATION_MAX_LABEL || '100', 10)
  *  HTTP-spec-safe. Override via `ALERT_DESTINATION_MAX_TARGET`. */
 const MAX_TARGET = parseInt(process.env.ALERT_DESTINATION_MAX_TARGET || '2048', 10);
 
-function isReasonableString(v: unknown, max: number): v is string {
-  return typeof v === 'string' && v.length > 0 && v.length <= max;
-}
 
 /** Validate channel/target combos. Slack URLs must start with the canonical
  *  hooks.slack.com host so a misconfigured destination doesn't silently POST

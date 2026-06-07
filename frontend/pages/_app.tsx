@@ -1,12 +1,13 @@
 import type { AppProps } from 'next/app';
 import type { NextPage } from 'next';
-import type { ReactElement, ReactNode } from 'react';
+import { useEffect, type ReactElement, type ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider } from '@/hooks/useAuth';
 import { FeaturesProvider } from '@/hooks/useFeatures';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ToastProvider } from '@/components/ui/Toast';
+import { initClientErrorReporting } from '@/lib/error-reporter';
 import '@/styles/globals.css';
 
 /** Next.js page type extended with an optional per-page layout function. */
@@ -23,6 +24,10 @@ type AppPropsWithLayout = AppProps & {
 export default function App({ Component, pageProps }: AppPropsWithLayout) {
   const router = useRouter();
   const getLayout = Component.getLayout ?? ((page) => page);
+
+  // Install global handlers for async/unhandled-rejection faults the React
+  // error boundary can't catch. Once, client-side only.
+  useEffect(() => { initClientErrorReporting(); }, []);
 
   return (
     <ErrorBoundary>

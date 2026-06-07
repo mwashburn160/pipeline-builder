@@ -56,10 +56,15 @@ export const impersonateUser = withController('Impersonate user', async (req, re
 
   const { accessToken, expiresIn } = await issueImpersonationToken(target, impersonatorId);
 
+  // The actor IS the impersonator here (the session is being started, not
+  // acted-under), so `actorId` already records who. Events performed LATER
+  // under the issued token carry the sysadmin in the first-class
+  // `impersonatorId` field (auto-captured by the audit helper from
+  // `req.user.impersonatorId`).
   audit(req, 'admin.impersonate.start', {
     targetType: 'user',
     targetId: targetUserId,
-    details: { impersonatorId, expiresIn },
+    details: { expiresIn },
   });
   logger.info('Sysadmin impersonation started', { impersonatorId, targetUserId, expiresIn });
 

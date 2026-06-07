@@ -17,21 +17,27 @@
 import { sendError } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 
-const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+export const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-// NOTE: This middleware is security-critical (it's the only gate keeping
-// impersonated sysadmins from writing under another user's identity) but
-// currently has no dedicated test coverage — needs an integration test that
-// exercises a read-only impersonation token against a write endpoint and
-// asserts 403 + the IMPERSONATION_READ_ONLY error code. Flagged for QA.
+/** Shared message + code for a blocked write under read-only impersonation. */
+export const IMPERSONATION_READ_ONLY_MESSAGE =
+  'Write requests are disabled during read-only impersonation. Stop impersonating to make changes.';
+export const IMPERSONATION_READ_ONLY_CODE = 'IMPERSONATION_READ_ONLY';
+
+/**
+ * Pure decision shared by BOTH read-only-impersonation gates: the shipped
+ * global guard in `index.ts` (which JWT-peeks pre-auth) and the per-route
+ * `requireWriteAccess` middleware (which reads `req.user` post-auth). Keeping
+ * one predicate means the two can't drift. A write (non read-method) is blocked
+ * iff the caller is under a read-only impersonation token.
+ */
+export function isWriteBlockedByImpersonation(method: string, impersonationReadOnly: boolean | undefined): boolean {
+  return impersonationReadOnly === true && !READ_METHODS.has(method);
+}
 
 export function requireWriteAccess(req: Request, res: Response, next: NextFunction): void {
-  if (req.user?.impersonationReadOnly === true && !READ_METHODS.has(req.method)) {
-    sendError(
-      res, 403,
-      'Write requests are disabled during read-only impersonation. Stop impersonating to make changes.',
-      'IMPERSONATION_READ_ONLY',
-    );
+  if (isWriteBlockedByImpersonation(req.method, req.user?.impersonationReadOnly)) {
+    sendError(res, 403, IMPERSONATION_READ_ONLY_MESSAGE, IMPERSONATION_READ_ONLY_CODE);
     return;
   }
   next();

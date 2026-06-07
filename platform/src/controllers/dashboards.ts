@@ -24,6 +24,7 @@ import { isOrgAdmin, isSystemAdmin, requireAuthContext, withController } from '.
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota';
 import { QUERIES } from '../observability/catalog';
 import { dashboardService, type PanelInput } from '../services/dashboard-service';
+import { isReasonableString } from '../utils/string-guards';
 
 const logger = createLogger('dashboards-controller');
 
@@ -36,9 +37,6 @@ const MAX_DESCRIPTION = parseInt(process.env.DASHBOARD_MAX_DESCRIPTION || '1000'
 const MAX_TITLE = parseInt(process.env.DASHBOARD_MAX_PANEL_TITLE || '200', 10);
 const MAX_PANELS = parseInt(process.env.DASHBOARD_MAX_PANELS || '50', 10);
 
-function isReasonableString(v: unknown, max: number): v is string {
-  return typeof v === 'string' && v.length > 0 && v.length <= max;
-}
 
 /** Validate + normalize a panel array from a JSON body. Returns null + sends
  *  a 400 response if anything is malformed; the catalog query-key check is

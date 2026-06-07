@@ -1,0 +1,133 @@
+---
+# =============================================================================
+# Jaeger (all-in-one) — OpenTelemetry trace collector + UI
+# =============================================================================
+# Single-container OTLP collector with an in-memory store and the query UI.
+# Server services export OTLP/HTTP to :4318 (set via OTEL_EXPORTER_OTLP_ENDPOINT
+# in the app-env ConfigMap, sourced from .env). Browse traces by port-forwarding
+# the UI:  kubectl -n pipeline-builder port-forward svc/jaeger 16686:16686
+# In-memory storage = traces are lost on pod restart (fine for dev).
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  labels:
+    app: jaeger
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4318
+      targetPort: 4318
+      protocol: TCP
+      name: otlp-http
+    - port: 4317
+      targetPort: 4317
+      protocol: TCP
+      name: otlp-grpc
+    - port: 16686
+      targetPort: 16686
+      protocol: TCP
+      name: ui
+  selector:
+    app: jaeger
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  labels:
+    app: jaeger
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+        app.kubernetes.io/component: observability
+    spec:
+      securityContext:
+        runAsUser: 10001
+        runAsNonRoot: true
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.62.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # OTLP receivers are opt-in on 1.x — enable gRPC (4317) + HTTP (4318).
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+            # Cap the in-memory trace ring so a busy cluster can't OOM the pod.
+            - name: MEMORY_MAX_TRACES
+              value: "50000"
+          ports:
+            - containerPort: 4318
+              name: otlp-http
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 16686
+              name: ui
+            - containerPort: 14269
+              name: admin
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+          # Probe the UI port — it serves a 200 at / without needing any
+          # in-container tooling (the image ships no shell). The admin port
+          # (14269) has no guaranteed 2xx path for an httpGet probe.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 16686
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 16686
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+
+---
+# =============================================================================
+# Jaeger — ingress on the OTLP ports from every trace-emitting service.
+# default-deny-ingress would otherwise drop the exporters silently.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-jaeger-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: jaeger
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin, quota, billing, message, reporting, compliance, image-registry]
+      ports:
+        - port: 4318
+        - port: 4317

@@ -9,3 +9,11 @@ disableTelemetry();
 // here so a fresh DB has it before the platform service first connects.
 // Idempotent — createIndex is a no-op if the index already exists.
 db.getSiblingDB('platform').organizations.createIndex({ parentOrgId: 1 });
+
+// First-class Groups RBAC (Administrators/Developers; + Superadmins for the
+// system org). Schema source of truth: platform/src/models/group.ts +
+// group-membership.ts; mirrored here so a fresh DB has these indexes before the
+// platform service first connects.
+db.getSiblingDB('platform').groups.createIndex({ organizationId: 1, name: 1 }, { unique: true });
+db.getSiblingDB('platform').group_memberships.createIndex({ userId: 1, groupId: 1 }, { unique: true });
+db.getSiblingDB('platform').group_memberships.createIndex({ organizationId: 1, userId: 1 });

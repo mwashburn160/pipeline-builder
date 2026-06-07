@@ -28,6 +28,10 @@ Parameters:
   AlertmanagerImage:
     Type: String
     Default: prom/alertmanager:v0.27.0
+  JaegerImage:
+    Type: String
+    Default: jaegertracing/all-in-one:1.62.0
+    Description: Docker image for the Jaeger all-in-one OTLP trace collector + UI
   AwsCliImage:
     Type: String
     Default: amazon/aws-cli:2.24.0
@@ -318,6 +322,106 @@ Resources:
     Type: AWS::ServiceDiscovery::Service
     Properties:
       Name: loki
+      NamespaceId:
+        Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===========================================================================
+  # Jaeger (all-in-one) — OpenTelemetry trace collector + UI
+  # ===========================================================================
+  #
+  # Single-container OTLP collector with an in-memory store. App services export
+  # OTLP/HTTP to jaeger.pipeline-builder.local:4318 (set via OTEL_* env in
+  # 04-services.yaml). No EFS/config-init needed — in-memory storage means
+  # traces are lost on task restart, acceptable for a trace stream. The query UI
+  # (16686) is reachable in-VPC only; front it via nginx or an SSM port-forward.
+  # ---------------------------------------------------------------------------
+
+  JaegerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${StackPrefix}-jaeger"
+      RetentionInDays: 7
+
+  JaegerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackPrefix}-jaeger"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: jaeger
+          Image: !Ref JaegerImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 4318
+              Protocol: tcp
+            - ContainerPort: 4317
+              Protocol: tcp
+            - ContainerPort: 16686
+              Protocol: tcp
+          Environment:
+            - Name: COLLECTOR_OTLP_ENABLED
+              Value: "true"
+            - Name: MEMORY_MAX_TRACES
+              Value: "50000"
+          # No container HealthCheck: the all-in-one image is minimal and ships
+          # no shell/wget, so a CMD-SHELL probe would fail and crashloop the
+          # task. ECS treats a task without a container healthcheck as healthy
+          # once running; nothing gates on it.
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref JaegerLogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: jaeger
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-jaeger-task"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  JaegerService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${StackPrefix}-jaeger"
+      Cluster:
+        Fn::ImportValue: !Sub "${StackPrefix}-ECSClusterArn"
+      TaskDefinition: !Ref JaegerTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DefaultDesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${StackPrefix}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${StackPrefix}-ObservabilitySecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt JaegerDiscovery.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${StackPrefix}-jaeger-service"
+        - Key: Domain
+          Value: !Ref DomainName
+
+  JaegerDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: jaeger
       NamespaceId:
         Fn::ImportValue: !Sub "${StackPrefix}-CloudMapNamespaceId"
       DnsConfig:

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, installCrashHandlers } from '@pipeline-builder/api-core';
 import { Config, getConnection, closeConnection } from '@pipeline-builder/pipeline-core';
 import { Express } from 'express';
 import { shutdownTracing } from './tracing';
@@ -201,6 +201,10 @@ export async function startServer(
  * ```
  */
 export function runServer(app: Express, options: StartServerOptions = {}): void {
+  // Last-resort fault handlers for the production entrypoint: an unhandled
+  // rejection / uncaught exception is logged (not silently fatal) then the
+  // process exits for the orchestrator to restart. No-op under NODE_ENV=test.
+  installCrashHandlers(logger);
   startServer(app, options).catch((error) => {
     logger.error('Failed to start server', { error });
     process.exit(1);

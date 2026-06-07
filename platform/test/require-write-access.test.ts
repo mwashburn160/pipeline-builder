@@ -17,7 +17,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   },
 }));
 
-import { requireWriteAccess } from '../src/middleware/require-write-access';
+import { requireWriteAccess, isWriteBlockedByImpersonation } from '../src/middleware/require-write-access';
 
 function mockReq(method: string, impersonationReadOnly?: boolean) {
   return {
@@ -75,5 +75,24 @@ describe('requireWriteAccess', () => {
     const next = jest.fn();
     requireWriteAccess(mockReq('POST'), mockRes(), next);
     expect(next).toHaveBeenCalled();
+  });
+});
+
+// The SHIPPED gate is the inline app.use in index.ts (a pre-auth JWT-peek). It
+// now shares this predicate, so covering the predicate covers both gates'
+// decision and guarantees they can't diverge.
+describe('isWriteBlockedByImpersonation (shared by the shipped + per-route gates)', () => {
+  it('blocks writes only when impersonationReadOnly is true', () => {
+    for (const m of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      expect(isWriteBlockedByImpersonation(m, true)).toBe(true);
+      expect(isWriteBlockedByImpersonation(m, false)).toBe(false);
+      expect(isWriteBlockedByImpersonation(m, undefined)).toBe(false);
+    }
+  });
+
+  it('never blocks read methods, even under read-only impersonation', () => {
+    for (const m of ['GET', 'HEAD', 'OPTIONS']) {
+      expect(isWriteBlockedByImpersonation(m, true)).toBe(false);
+    }
   });
 });

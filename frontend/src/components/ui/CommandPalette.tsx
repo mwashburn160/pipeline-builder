@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  Search, LayoutDashboard, GitBranch, Puzzle, MessageSquare, ScrollText,
-  FileBarChart, Users, Settings, KeyRound, HelpCircle, BarChart3, CreditCard,
-  Sun, Moon,
-} from 'lucide-react';
+import { Search, Sun, Moon } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useFeatures } from '@/hooks/useFeatures';
+import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible } from '@/lib/nav';
 
 interface CommandItem {
   id: string;
@@ -53,39 +51,47 @@ export function CommandPalette({
     runAndClose(() => router.push(path));
   }, [router, runAndClose]);
 
+  const features = useFeatures();
+
   const commands: CommandItem[] = useMemo(() => {
-    const items: CommandItem[] = [
-      { id: 'dashboard', label: 'Go to Dashboard', icon: LayoutDashboard, section: 'Navigation', action: () => navigate('/dashboard') },
-      { id: 'pipelines', label: 'Go to Pipelines', icon: GitBranch, section: 'Navigation', action: () => navigate('/dashboard/pipelines') },
-      { id: 'plugins', label: 'Go to Plugins', icon: Puzzle, section: 'Navigation', action: () => navigate('/dashboard/plugins') },
-      { id: 'messages', label: 'Go to Messages', icon: MessageSquare, section: 'Navigation', action: () => navigate('/dashboard/messages') },
-      { id: 'reports', label: 'Go to Reports', icon: FileBarChart, section: 'Navigation', action: () => navigate('/dashboard/reports') },
-      { id: 'logs', label: 'Go to Logs', icon: ScrollText, section: 'Navigation', action: () => navigate('/dashboard/logs') },
-      { id: 'quotas', label: 'Go to Quotas', icon: BarChart3, section: 'Navigation', action: () => navigate('/dashboard/quotas') },
-      { id: 'billing', label: 'Go to Billing', icon: CreditCard, section: 'Navigation', action: () => navigate('/dashboard/billing') },
-      { id: 'settings', label: 'Go to Settings', icon: Settings, section: 'Navigation', action: () => navigate('/dashboard/settings') },
-      { id: 'tokens', label: 'Go to API Tokens', icon: KeyRound, section: 'Navigation', action: () => navigate('/dashboard/tokens') },
-      { id: 'help', label: 'Go to Help', icon: HelpCircle, section: 'Navigation', action: () => navigate('/dashboard/help') },
-    ];
+    // Quick actions first — these are the primary "start something" flows
+    // (the `?create=1` query opens the target page's create modal on arrival),
+    // sourced from the same QUICK_ACTIONS the sidebar's action row uses. Putting
+    // them at the top means a user can fire "Create Pipeline" without leaving
+    // the keyboard, and they stay reachable when the sidebar is collapsed.
+    const actionItems: CommandItem[] = QUICK_ACTIONS.map((qa) => ({
+      id: qa.href,
+      label: qa.label,
+      icon: qa.icon,
+      section: 'Actions',
+      keywords: 'create new add',
+      action: () => navigate(qa.href),
+    }));
 
-    if (isAdmin || isSuperAdmin) {
-      items.push(
-        { id: 'members', label: 'Go to Members', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/members') },
-      );
-    }
-
-    if (isSuperAdmin) {
-      items.push(
-        { id: 'users', label: 'Go to All Users', icon: Users, section: 'Navigation', action: () => navigate('/dashboard/users') },
-      );
-    }
-
-    items.push(
-      { id: 'toggle-dark', label: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: isDark ? Sun : Moon, section: 'Settings', keywords: 'theme', action: () => runAndClose(onToggleDark) },
+    // Navigation commands are derived from the SAME NAV_SECTIONS the sidebar
+    // uses (with the same role/feature gating), so ⌘K always reaches exactly
+    // the pages the sidebar shows — no separate hand-maintained list to drift.
+    // The section label doubles as a search keyword (e.g. "platform" surfaces
+    // every admin page) so users can find a page by area, not just name.
+    const navItems: CommandItem[] = NAV_SECTIONS.flatMap((section) =>
+      section.items
+        .filter((item) => isNavItemVisible(item, { isAdmin, isSuperAdmin, isFeatureEnabled: (n) => features.isEnabled(n) }))
+        .map((item) => ({
+          id: item.href,
+          label: `Go to ${item.title}`,
+          icon: item.icon,
+          section: 'Navigation',
+          keywords: section.label.toLowerCase(),
+          action: () => navigate(item.href),
+        })),
     );
 
-    return items;
-  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose]);
+    return [
+      ...actionItems,
+      ...navItems,
+      { id: 'toggle-dark', label: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: isDark ? Sun : Moon, section: 'Settings', keywords: 'theme', action: () => runAndClose(onToggleDark) },
+    ];
+  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose, features]);
 
   const filtered = useMemo(() => {
     if (!query) return commands;

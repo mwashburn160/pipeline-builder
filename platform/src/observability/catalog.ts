@@ -23,10 +23,10 @@ export type RangeKey = '1h' | '6h' | '24h';
 
 export interface QueryEntry {
   source: QuerySource;
-  /** Raw PromQL or LogQL. May contain `$EVENT`, `$ACTOR`, `$PLUGIN`, `$ORG` placeholders. */
+  /** Raw PromQL or LogQL. May contain `$EVENT`, `$ACTOR`, `$PLUGIN`, `$REQUESTID`, `$ORG` placeholders. */
   query: string;
   /** Allow-list of template variables the frontend may pass for this query. */
-  allowedVars: ReadonlyArray<'event' | 'actor' | 'plugin'>;
+  allowedVars: ReadonlyArray<'event' | 'actor' | 'plugin' | 'requestId'>;
   /**
    * When true, the controller substitutes `$ORG` with the caller's org
    * (sysadmins get a regex wildcard, org admins get their literal org).
@@ -224,8 +224,12 @@ export const QUERIES: Record<string, QueryEntry> = {
   // not orgScoped: audit log stream has no org_id label; relies on platform-only RBAC
   audit_recent_events: {
     source: 'loki-range',
-    query: '{eventCategory="audit"$EVENT$ACTOR}',
-    allowedVars: ['event', 'actor'],
+    // `$REQUESTID` is a LogQL line filter (appended after the stream selector)
+    // rather than a label matcher: requestId/traceId are high-cardinality, so
+    // they live in the log line JSON, not in Loki labels. Lets an operator
+    // pull every audit line for one request/trace.
+    query: '{eventCategory="audit"$EVENT$ACTOR}$REQUESTID',
+    allowedVars: ['event', 'actor', 'requestId'],
     kind: 'stream',
   },
   // not orgScoped: audit log stream has no org_id label; relies on platform-only RBAC
@@ -250,8 +254,8 @@ export const QUERIES: Record<string, QueryEntry> = {
  */
 export function substituteVars(
   query: string,
-  vars: { event?: string; actor?: string; plugin?: string; org?: string; isSuperAdmin?: boolean },
-  allowed: ReadonlyArray<'event' | 'actor' | 'plugin'>,
+  vars: { event?: string; actor?: string; plugin?: string; requestId?: string; org?: string; isSuperAdmin?: boolean },
+  allowed: ReadonlyArray<'event' | 'actor' | 'plugin' | 'requestId'>,
 ): string {
   let result = query;
 
@@ -276,6 +280,14 @@ export function substituteVars(
     // become `plugin_name=""` — matches nothing, the right failure mode.
     result = result.replaceAll('$PLUGIN', '');
   }
+
+  // requestId: a correlation id (uuid or OTel trace id). Appended as a LogQL
+  // line filter — alphanumerics + - + _ only, so the value can't break out of
+  // the `|= "…"` string and inject extra query clauses. Dropped cleanly when
+  // absent/invalid (the placeholder becomes empty, leaving the bare selector).
+  const requestIdClause = allowed.includes('requestId') && vars.requestId && /^[a-zA-Z0-9_-]+$/.test(vars.requestId)
+    ? ` |= "${vars.requestId}"` : '';
+  result = result.replaceAll('$REQUESTID', requestIdClause);
 
   // org: substituted by the controller (not from the frontend). Sysadmins
   // get a regex wildcard so they see all orgs; org admins get a literal

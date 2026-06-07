@@ -7,5 +7,6 @@ export * from './user-profile';
 export * from './user-admin';
 export * from './organization';
 export * from './organization-members';
+export * from './organization-groups';
 export * from './invitation';
 export * from './log';

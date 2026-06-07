@@ -81,21 +81,13 @@ function RecentChangesStrip() {
 }
 
 export default function CompliancePage() {
-  const { isReady, isAdmin } = useAuthGuard();
+  // requireAdmin redirects non-admins to /dashboard (consistent with Members /
+  // Groups / Audit) rather than rendering an in-page "not allowed" message that
+  // still revealed the feature. Backend remains the real gate (compliance APIs
+  // 403 regardless); this is the cosmetic, defense-in-depth layer.
+  const { isReady } = useAuthGuard({ requireAdmin: true });
 
   if (!isReady) return <LoadingPage />;
-
-  if (!isAdmin) {
-    return (
-      <DashboardLayout title="Compliance" subtitle="Organization compliance rules and policies">
-        <div className="page-section">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            You must be an organization admin to access compliance settings.
-          </p>
-        </div>
-      </DashboardLayout>
-    );
-  }
 
   return (
     <DashboardLayout title="Compliance" subtitle="Organization compliance rules and policies">

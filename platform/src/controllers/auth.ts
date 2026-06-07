@@ -119,7 +119,7 @@ export const login = withController('Login', async (req, res) => {
     // attempts are visible to security teams + the Platform Overview
     // dashboard. Captures `identifier` (not the password) — same shape
     // as a typical SIEM auth-failure signal.
-    audit(req, 'user.login.failed', { targetType: 'user', details: { identifier: body.identifier } });
+    audit(req, 'user.login.failed', { targetType: 'user', outcome: 'failure', details: { identifier: body.identifier } });
     incCounter('platform_logins_failed_total');
     return sendError(res, 401, 'Invalid credentials');
   }

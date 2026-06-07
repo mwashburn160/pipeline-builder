@@ -37,6 +37,12 @@ x-common-env: &common-env
   JWT_SECRET: ${JWT_SECRET}
   REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
   PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-https://localhost:8443}
+  # OpenTelemetry. On by default — exports to the bundled `jaeger` all-in-one
+  # collector (OTLP/HTTP on 4318; UI on http://localhost:16686). Set
+  # OTEL_TRACING_ENABLED=false to opt out. Lives in common-env (not server-env)
+  # so EVERY service — including quota/billing/image-registry — emits traces.
+  OTEL_TRACING_ENABLED: ${OTEL_TRACING_ENABLED:-true}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
 
 # -- Env shared by Postgres-backed services (platform, plugin, pipeline) --
 x-postgres-env: &postgres-env
@@ -944,6 +950,39 @@ services:
         limits:
           cpus: '0.25'
           memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # OpenTelemetry trace collector + UI. all-in-one bundles the OTLP receiver,
+  # in-memory storage, and the query UI in a single container — no separate
+  # backend (Tempo/Cassandra) needed for dev. Services export OTLP/HTTP to
+  # :4318 (see OTEL_EXPORTER_OTLP_ENDPOINT in x-common-env); browse traces at
+  # http://localhost:16686. In-memory storage means traces are lost on restart,
+  # which is the right trade-off for a local stack.
+  jaeger:
+    image: 'jaegertracing/all-in-one:1.62.0'
+    container_name: jaeger
+    restart: always
+    environment:
+      # OTLP receivers are opt-in on 1.x; enable both gRPC (4317) and HTTP (4318).
+      COLLECTOR_OTLP_ENABLED: "true"
+      # Cap the in-memory trace ring so a busy dev session can't OOM the box.
+      MEMORY_MAX_TRACES: "50000"
+    ports:
+      # Query UI exposed to the host; OTLP ports stay on backend-network only
+      # (services reach them via the `jaeger` hostname).
+      - '16686:16686'
+    networks:
+      - backend-network
+    # No container healthcheck: the all-in-one image is minimal and ships no
+    # shell/wget, so a CMD healthcheck would false-fail. Nothing depends_on
+    # jaeger, so its health doesn't gate startup ordering.
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
         reservations:
           cpus: '0.1'
           memory: 128M

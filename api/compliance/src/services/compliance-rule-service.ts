@@ -233,7 +233,7 @@ export class ComplianceRuleService extends CrudService<
    * upstream changes, they should subscribe instead of clone.
    *
    * Previously named `forkRule`; "fork" carried git connotations (track upstream
-   * for merge) we never delivered. The old name is exposed as a deprecated alias.
+   * for merge) we never delivered. Renamed outright — there is no back-compat alias.
    */
   async cloneRule(ruleId: string, orgId: string, userId: string): Promise<ComplianceRule> {
     // Published rules live with scope='published' and don't share the caller's

@@ -21,3 +21,10 @@ export {
   OM_TARGETS_OUT_OF_SCOPE,
 } from './org-members-service';
 export type { MemberTeam, BulkAddResult, TeamSummary } from './org-members-service';
+export {
+  seedDefaultGroups, recomputeUserOrgRole,
+  listGroupsWithMembers, addUserToGroup, removeUserFromGroup,
+  GRP_GROUP_NOT_FOUND, GRP_USER_NOT_FOUND, GRP_NOT_ORG_MEMBER,
+  GRP_CANNOT_REMOVE_SELF, GRP_LAST_PRIVILEGED_MEMBER, GRP_REQUIRES_SUPERADMIN,
+} from './groups-service';
+export type { GroupWithMembers } from './groups-service';

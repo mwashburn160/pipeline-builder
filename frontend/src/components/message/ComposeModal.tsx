@@ -29,11 +29,6 @@ interface ComposeModalProps {
     priority?: MessagePriority;
     channel?: string;
   }) => Promise<boolean>;
-  // TODO(pages-agent): update the `onSend` handlers passed to
-  // `<ComposeModal>` in pages/dashboard/messages.tsx (and any other page
-  // call sites) to return `boolean` — they likely already do an implicit
-  // `Promise<unknown>` via `await api.sendMessage(...)`; just wrap with
-  // `return res.success`.
   /** Whether the current user is a sysadmin (enables free-form recipient
    *  entry and broadcast announcements). Non-sysadmins see the support-alias
    *  pre-fill with their own org's other teams as datalist suggestions. */

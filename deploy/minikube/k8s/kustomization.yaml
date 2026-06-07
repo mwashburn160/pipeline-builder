@@ -32,6 +32,7 @@ resources:
   - alertmanager.yaml
   - loki.yaml
   - promtail.yaml
+  - jaeger.yaml
 
 patches:
   # Resource (CPU) overrides for all deployments

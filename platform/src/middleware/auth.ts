@@ -259,3 +259,17 @@ export function requireRole(...roles: UserRole[]) {
     return sendError(res, 403, 'Forbidden');
   };
 }
+
+/**
+ * Route-level guard for **platform** (system) administrators only — `isSuperAdmin`,
+ * not org role. Use this on routes whose controller already calls the
+ * `requireSystemAdmin` *helper*, so the route reads accurately (org admins do
+ * NOT qualify) and is rejected one layer earlier (defense in depth). Distinct
+ * from `requireRole('admin','owner')`, which lets org admins/owners through.
+ */
+export function requireSystemAdmin(req: Request, res: Response, next: NextFunction): void {
+  if (req.user && isSystemAdmin(req)) {
+    return next();
+  }
+  return sendError(res, 403, 'Forbidden: system administrator access required');
+}

@@ -27,4 +27,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
 USER node
-CMD ["node", "index.js"]
+# `-r @pipeline-builder/api-server/lib/otel-bootstrap.js` starts OpenTelemetry
+# BEFORE index.js requires express/http, so auto-instrumentation can patch them
+# and inbound requests get a trace id (no-op unless OTEL_TRACING_ENABLED=true).
+# The shared bootstrap ships in the api-server dep under node_modules.
+CMD ["node", "-r", "@pipeline-builder/api-server/lib/otel-bootstrap.js", "index.js"]

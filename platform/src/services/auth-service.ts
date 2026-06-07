@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { config } from '../config';
 import { User, Organization, UserOrganization } from '../models';
+import { seedDefaultGroups } from './groups-service';
 import { withMongoTransaction } from '../utils/mongo-tx';
 import { hashRefreshToken } from '../utils/token';
 
@@ -93,6 +94,11 @@ class AuthService {
       // ObjectId here so the assignment matches the schema.
       user.lastActiveOrgId = String(org._id);
       await user.save({ session });
+
+      // Seed default permission groups. The system org also gets Superadmins,
+      // and its first user joins Superadmins + Administrators (→ isSuperAdmin),
+      // which bootstraps platform admin without the env-var list.
+      await seedDefaultGroups(org._id, user._id, { isSystemOrg }, session);
 
       return {
         sub: user._id.toString(),

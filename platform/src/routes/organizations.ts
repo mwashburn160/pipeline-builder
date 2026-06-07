@@ -3,11 +3,14 @@
 
 import { Router } from 'express';
 import { listAllOrganizations } from '../controllers';
-import { requireAuth, requireRole } from '../middleware';
+import { requireAuth, requireSystemAdmin } from '../middleware';
 
 const router = Router();
 
-/** GET /organizations - List all organizations (system admin only) */
-router.get('/', requireAuth, requireRole('admin', 'owner'), listAllOrganizations);
+/** GET /organizations - List all organizations (system admin only).
+ *  Cross-tenant enumeration, so `requireSystemAdmin` (not `requireRole`) is the
+ *  accurate route guard — an org admin must never list every tenant. Mirrors the
+ *  controller's `requireSystemAdmin` check. */
+router.get('/', requireAuth, requireSystemAdmin, listAllOrganizations);
 
 export default router;

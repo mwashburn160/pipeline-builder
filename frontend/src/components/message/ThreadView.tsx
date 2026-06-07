@@ -17,10 +17,6 @@ interface ThreadViewProps {
   /** Callback to delete the conversation (root message + replies). */
   onDelete?: (id: string) => void;
 }
-// TODO(pages-agent): drop the `onMarkAsRead={...}` prop from the
-// `<ThreadView>` call site in `pages/dashboard/messages.tsx:202` — it's no
-// longer in this component's interface (per-message read-marking is handled
-// implicitly via `onThreadRead`).
 
 /** Formats a date string as a locale-specific date/time string. */
 function formatDateTime(dateStr: string): string {

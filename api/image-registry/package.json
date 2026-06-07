@@ -12,7 +12,7 @@
     "test:watch": "pnpm dlx projen test:watch",
     "watch": "pnpm dlx projen watch",
     "projen": "pnpm dlx projen",
-    "start": "node lib/index.js",
+    "start": "node -r @pipeline-builder/api-server/lib/otel-bootstrap.js lib/index.js",
     "docker:build": "pnpm nx run-many -t build --projects=image-registry --with-deps; rm -rf .docker-build; pnpm deploy --filter image-registry --prod --legacy .docker-build; docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-image-registry}:$(jq -r .version package.json) .; status=$?; rm -rf .docker-build; exit $status",
     "docker:tag": "docker image tag ${PROJECT_NAME:-image-registry}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-image-registry}:$(jq -r .version package.json)",
     "docker:push": "docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-image-registry}:$(jq -r .version package.json)"

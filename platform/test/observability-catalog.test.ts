@@ -30,7 +30,8 @@ describe('observability catalog', () => {
 
     it('only declares template vars from the allow-list', () => {
       // `digest` was dropped from the catalog — it had no live callers.
-      const allowed = new Set(['event', 'actor', 'plugin']);
+      // `requestId` is a Loki line filter for audit-event correlation.
+      const allowed = new Set(['event', 'actor', 'plugin', 'requestId']);
       for (const [key, entry] of Object.entries(QUERIES)) {
         for (const v of entry.allowedVars) {
           expect(allowed.has(v)).toBe(true);
@@ -102,6 +103,25 @@ describe('observability catalog', () => {
         {},
         QUERIES.audit_recent_events.allowedVars,
       );
+      expect(out).toBe('{eventCategory="audit"}');
+    });
+
+    it('appends a requestId as a Loki line filter', () => {
+      const out = substituteVars(
+        QUERIES.audit_recent_events.query,
+        { requestId: 'abc-123-def' },
+        QUERIES.audit_recent_events.allowedVars,
+      );
+      expect(out).toBe('{eventCategory="audit"} |= "abc-123-def"');
+    });
+
+    it('drops a hostile requestId (line-filter injection)', () => {
+      const out = substituteVars(
+        QUERIES.audit_recent_events.query,
+        { requestId: 'x" |~ "secret' },
+        QUERIES.audit_recent_events.allowedVars,
+      );
+      // Invalid characters → placeholder dropped, bare selector returned.
       expect(out).toBe('{eventCategory="audit"}');
     });
   });

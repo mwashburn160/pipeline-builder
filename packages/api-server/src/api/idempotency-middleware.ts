@@ -54,8 +54,8 @@ export function createRedisIdempotencyStore(client: RedisLike, prefix = 'idemp:'
   };
 }
 
-/** Default in-memory store. Single-replica only. */
-function createMemoryStore(): IdempotencyStore {
+/** Default in-memory store. Single-replica only. Exported for testing. */
+export function createMemoryStore(): IdempotencyStore {
   const map = new Map<string, CachedEntry>();
   const cleanupTimer = setInterval(() => {
     const now = Date.now();
@@ -75,7 +75,14 @@ function createMemoryStore(): IdempotencyStore {
       return entry;
     },
     async set(key, entry) {
-      if (map.size >= CoreConstants.IDEMPOTENCY_MAX_STORE_SIZE) return;
+      // At capacity, evict the OLDEST entry (Map preserves insertion order)
+      // rather than silently dropping the NEW key — otherwise, once full, the
+      // store stops deduplicating fresh requests until the TTL sweep runs.
+      // Stays bounded; favors recent keys (most likely to be retried).
+      if (!map.has(key) && map.size >= CoreConstants.IDEMPOTENCY_MAX_STORE_SIZE) {
+        const oldest = map.keys().next().value;
+        if (oldest !== undefined) map.delete(oldest);
+      }
       map.set(key, entry);
     },
   };

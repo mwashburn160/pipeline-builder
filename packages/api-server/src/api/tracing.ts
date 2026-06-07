@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { trace } from '@opentelemetry/api';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { NodeSDK } from '@opentelemetry/sdk-node';
@@ -47,6 +49,15 @@ export function initTracing(serviceName: string): void {
       'deployment.environment': process.env.NODE_ENV ?? 'development',
     }),
     traceExporter: new OTLPTraceExporter({ url: tracing.endpoint }),
+    // Auto-instrument incoming/outgoing HTTP (and express) so every request
+    // gets a server span — that span's trace id is what `currentTraceId()`
+    // returns for enriching audit events + structured logs. `fs` is disabled
+    // because file-IO spans are pure noise for request-level correlation.
+    instrumentations: [
+      getNodeAutoInstrumentations({
+        '@opentelemetry/instrumentation-fs': { enabled: false },
+      }),
+    ],
   });
 
   sdk.start();
@@ -77,13 +88,10 @@ export async function shutdownTracing(): Promise<void> {
  * operator can correlate a request across services via its trace ID.
  */
 export function currentTraceId(): string | undefined {
-  if (!sdk) return undefined;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const api = require('@opentelemetry/api');
-    const ctx = api.trace.getActiveSpan()?.spanContext();
-    return ctx?.traceId;
-  } catch {
-    return undefined;
-  }
+  // Read the globally-registered tracer provider's active span — works whether
+  // the SDK was started by `initTracing()` (createApp services) or by a `-r`
+  // preload bootstrap (platform), since both register the same global provider
+  // via @opentelemetry/api. Returns undefined when tracing is disabled / there
+  // is no active span.
+  return trace.getActiveSpan()?.spanContext()?.traceId;
 }

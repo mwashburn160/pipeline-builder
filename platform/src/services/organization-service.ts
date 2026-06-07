@@ -10,6 +10,7 @@ import {
   QuotaType,
 } from '../middleware/quota';
 import { Organization, OrgIdpConfig, User, UserOrganization } from '../models';
+import { seedDefaultGroups } from './groups-service';
 import type { QuotaTier } from '../models/organization';
 import { withMongoTransaction } from '../utils/mongo-tx';
 import { escapeRegex } from '../utils/regex';
@@ -207,6 +208,9 @@ class OrganizationService {
 
       const [org] = await Organization.create([orgData], { session });
       await UserOrganization.create([{ userId, organizationId: org._id, role: 'owner' }], { session });
+      // Seed the default permission groups (Administrators/Developers) and add
+      // the creator to Administrators. The creator's role stays 'owner'.
+      await seedDefaultGroups(org._id, userId, {}, session);
       await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: String(org._id) } }, { session });
 
       return {

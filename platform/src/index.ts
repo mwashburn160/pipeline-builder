@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, isValidTier, mongoSanitize, sendError } from '@pipeline-builder/api-core';
+import { createLogger, installCrashHandlers, isValidTier, mongoSanitize, sendError } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
@@ -13,9 +13,20 @@ import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client
 
 import { config } from './config';
 import { notFoundHandler, errorHandler } from './middleware';
+import {
+  isWriteBlockedByImpersonation,
+  IMPERSONATION_READ_ONLY_MESSAGE,
+  IMPERSONATION_READ_ONLY_CODE,
+} from './middleware/require-write-access';
 import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes';
 
 const logger = createLogger('platform-api');
+
+// NOTE: OpenTelemetry is initialized by the `otel-bootstrap.js` preload
+// (`node -r ./otel-bootstrap.js index.js` — see Dockerfile / start script),
+// NOT here. It must run before express/http are required so auto-instrumentation
+// can patch them; once active, the request's trace id flows onto audit events
+// (helpers/audit.ts) via currentTraceId(). Gated by OTEL_TRACING_ENABLED.
 
 /** Express application instance */
 const app = express();
@@ -278,16 +289,12 @@ app.use(limiter);
  * is still verified by `requireAuth` later, but if the token is
  * malformed the peek returns {} and this middleware no-ops.
  */
-const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 app.use((req: Request, res: Response, next: NextFunction) => {
-  if (READ_METHODS.has(req.method)) return next();
-  if (peekJwtClaims(req).impersonationReadOnly === true) {
-    sendError(
-      res,
-      403,
-      'Write requests are disabled during read-only impersonation. Stop impersonating to make changes.',
-      'IMPERSONATION_READ_ONLY',
-    );
+  // Shipped gate runs pre-auth, so it JWT-peeks; the decision itself is the
+  // shared (and unit-tested) predicate, so this can't drift from the per-route
+  // `requireWriteAccess`.
+  if (isWriteBlockedByImpersonation(req.method, peekJwtClaims(req).impersonationReadOnly === true)) {
+    sendError(res, 403, IMPERSONATION_READ_ONLY_MESSAGE, IMPERSONATION_READ_ONLY_CODE);
     return;
   }
   next();
@@ -429,6 +436,11 @@ async function startServer(): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { seedDefaultDashboards } = require('./services/dashboard-seeder');
     void seedDefaultDashboards();
+
+    // Last-resort fault handlers: log + exit(1) on uncaught exception /
+    // unhandled rejection so a faulted process restarts cleanly instead of
+    // dying without a trace. Separate from the graceful SIGTERM path below.
+    installCrashHandlers(logger);
 
     // Start HTTP server
     const server = app.listen(config.app.port, () => {

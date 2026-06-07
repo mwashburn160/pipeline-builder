@@ -1,5 +1,6 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { reportClientError } from '@/lib/error-reporter';
 
 /** Props for the ErrorBoundary component. */
 interface Props {
@@ -32,10 +33,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('[ErrorBoundary] Uncaught error:', error);
-      console.error('[ErrorBoundary] Component stack:', errorInfo.componentStack);
-    }
+    // Route every caught render error through the single reporting sink (logs in
+    // dev, ships to NEXT_PUBLIC_ERROR_REPORT_URL in prod when configured).
+    reportClientError(error, { source: 'react', componentStack: errorInfo.componentStack ?? undefined });
     this.props.onError?.(error, errorInfo);
   }
 

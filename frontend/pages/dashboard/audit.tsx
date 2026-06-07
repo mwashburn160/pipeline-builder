@@ -37,12 +37,19 @@ interface AuditEvent {
   action: string;
   actorId: string;
   actorEmail?: string;
+  actorRole?: string;
   orgId?: string;
   affectedOrgId?: string;
   targetType?: string;
   targetId?: string;
+  groupId?: string;
+  impersonatorId?: string;
+  outcome?: 'success' | 'failure';
   details?: Record<string, unknown>;
   ip?: string;
+  userAgent?: string;
+  requestId?: string;
+  traceId?: string;
   createdAt: string;
 }
 
@@ -58,6 +65,8 @@ export default function AuditPage() {
   const [action, setAction] = useState<string>('');
   const [actorId, setActorId] = useState<string>('');
   const [affectedOrgId, setAffectedOrgId] = useState<string>('');
+  const [requestId, setRequestId] = useState<string>('');
+  const [outcome, setOutcome] = useState<'' | 'success' | 'failure'>('');
   const [offset, setOffset] = useState(0);
 
   useEffect(() => {
@@ -65,6 +74,10 @@ export default function AuditPage() {
     if (typeof router.query.action === 'string') setAction(router.query.action);
     if (typeof router.query.actorId === 'string') setActorId(router.query.actorId);
     if (typeof router.query.affectedOrgId === 'string') setAffectedOrgId(router.query.affectedOrgId);
+    // `requestId` deep-links from "view related events" affordances; `outcome`
+    // lets a dashboard panel link straight to failed logins.
+    if (typeof router.query.requestId === 'string') setRequestId(router.query.requestId);
+    if (router.query.outcome === 'success' || router.query.outcome === 'failure') setOutcome(router.query.outcome);
   }, [router.isReady, router.query]);
 
   const [events, setEvents] = useState<AuditEvent[]>([]);
@@ -75,12 +88,14 @@ export default function AuditPage() {
   const filters = useMemo(() => ({
     ...(action && { action }),
     ...(actorId && { actorId }),
+    ...(requestId && { requestId }),
+    ...(outcome && { outcome }),
     // Org admins are forced to their own org by the backend; this filter
     // is sysadmin-only. UI still sends it, server ignores for non-sysadmins.
     ...(isSuperAdmin && affectedOrgId && { affectedOrgId }),
     offset,
     limit: LIMIT,
-  }), [action, actorId, affectedOrgId, isSuperAdmin, offset]);
+  }), [action, actorId, requestId, outcome, affectedOrgId, isSuperAdmin, offset]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -144,6 +159,23 @@ export default function AuditPage() {
           onChange={(e) => { setActorId(e.target.value); setOffset(0); }}
           className="filter-input"
         />
+        <input
+          type="text"
+          placeholder="Request id (correlation)"
+          value={requestId}
+          onChange={(e) => { setRequestId(e.target.value); setOffset(0); }}
+          className="filter-input"
+        />
+        <select
+          aria-label="Filter by outcome"
+          value={outcome}
+          onChange={(e) => { setOutcome(e.target.value as '' | 'success' | 'failure'); setOffset(0); }}
+          className="filter-input"
+        >
+          <option value="">All outcomes</option>
+          <option value="success">Success</option>
+          <option value="failure">Failure</option>
+        </select>
         {isSuperAdmin && (
           <input
             type="text"
@@ -182,16 +214,23 @@ export default function AuditPage() {
               events.map((e) => ({
                 createdAt: e.createdAt,
                 action: e.action,
+                outcome: e.outcome ?? '',
                 actorId: e.actorId,
                 actorEmail: e.actorEmail ?? '',
+                actorRole: e.actorRole ?? '',
+                impersonatorId: e.impersonatorId ?? '',
                 orgId: e.orgId ?? '',
                 affectedOrgId: e.affectedOrgId ?? '',
                 targetType: e.targetType ?? '',
                 targetId: e.targetId ?? '',
+                groupId: e.groupId ?? '',
                 ip: e.ip ?? '',
+                userAgent: e.userAgent ?? '',
+                requestId: e.requestId ?? '',
+                traceId: e.traceId ?? '',
                 details: e.details ? JSON.stringify(e.details) : '',
               })),
-              ['createdAt', 'action', 'actorId', 'actorEmail', 'orgId', 'affectedOrgId', 'targetType', 'targetId', 'ip', 'details'],
+              ['createdAt', 'action', 'outcome', 'actorId', 'actorEmail', 'actorRole', 'impersonatorId', 'orgId', 'affectedOrgId', 'targetType', 'targetId', 'groupId', 'ip', 'userAgent', 'requestId', 'traceId', 'details'],
               `audit-page-${new Date().toISOString().slice(0, 10)}`,
             )}
             className="btn btn-secondary inline-flex items-center gap-1"
@@ -229,13 +268,22 @@ export default function AuditPage() {
                 className="group px-4 py-3 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 focus:bg-gray-50 dark:focus:bg-gray-800/50 focus:outline-none transition-colors"
               >
                 <div className="flex items-baseline justify-between gap-2">
-                  <code className="text-xs font-medium text-blue-600 dark:text-blue-400 underline decoration-dotted underline-offset-2 group-hover:decoration-solid">{event.action}</code>
+                  <span className="inline-flex items-center gap-1.5 min-w-0">
+                    <code className="text-xs font-medium text-blue-600 dark:text-blue-400 underline decoration-dotted underline-offset-2 group-hover:decoration-solid">{event.action}</code>
+                    {event.outcome === 'failure' && <Badge color="red">failed</Badge>}
+                  </span>
                   <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
                     <RelativeTime value={event.createdAt} />
                   </span>
                 </div>
                 <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 flex flex-wrap gap-x-3 gap-y-1 items-center">
-                  <span className="inline-flex items-center gap-1">Actor: <CopyableId value={event.actorId} display={event.actorEmail || event.actorId} small /></span>
+                  <span className="inline-flex items-center gap-1">
+                    Actor: <CopyableId value={event.actorId} display={event.actorEmail || event.actorId} small />
+                    {event.actorRole && <span className="text-gray-400 dark:text-gray-500">({event.actorRole})</span>}
+                  </span>
+                  {event.impersonatorId && (
+                    <span className="inline-flex items-center gap-1">via <CopyableId value={event.impersonatorId} small /></span>
+                  )}
                   {event.orgId && <span className="inline-flex items-center gap-1">Org: <CopyableId value={event.orgId} small /></span>}
                   {event.affectedOrgId && event.affectedOrgId !== event.orgId && (
                     <span className="inline-flex items-center gap-1">Affected: <CopyableId value={event.affectedOrgId} small /></span>
@@ -247,6 +295,16 @@ export default function AuditPage() {
                     </span>
                   )}
                   {event.ip && <span>IP: <code>{event.ip}</code></span>}
+                  {event.requestId && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setRequestId(event.requestId!); setOffset(0); }}
+                      className="inline-flex items-center gap-1 hover:underline"
+                      title="Filter to this request's correlation id"
+                    >
+                      Req: <code>{event.requestId.slice(0, 8)}</code>
+                    </button>
+                  )}
                 </div>
                 {event.details && Object.keys(event.details).length > 0 && (
                   <p className="mt-1 text-xs text-gray-400 dark:text-gray-500 font-mono truncate">
@@ -282,11 +340,19 @@ export default function AuditPage() {
           subtitle={<span className="tabular-nums">{new Date(selected.createdAt).toLocaleString()}</span>}
         >
           <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-2 text-sm">
+            <dt className="text-gray-500 dark:text-gray-400">Outcome</dt>
+            <dd>{selected.outcome === 'failure'
+              ? <Badge color="red">failure</Badge>
+              : selected.outcome === 'success'
+                ? <Badge color="green">success</Badge>
+                : <Badge color="gray">unknown</Badge>}</dd>
             <dt className="text-gray-500 dark:text-gray-400">Actor</dt>
             <dd className="text-gray-900 dark:text-gray-100 inline-flex items-center gap-1 min-w-0">
               <span className="truncate">{selected.actorEmail || selected.actorId}</span>
+              {selected.actorRole && <span className="text-gray-400 dark:text-gray-500">({selected.actorRole})</span>}
               <CopyableId value={selected.actorId} small />
             </dd>
+            {selected.impersonatorId && (<><dt className="text-gray-500 dark:text-gray-400">Impersonator</dt><dd><CopyableId value={selected.impersonatorId} small /></dd></>)}
             {selected.orgId && (<><dt className="text-gray-500 dark:text-gray-400">Org</dt><dd><CopyableId value={selected.orgId} small /></dd></>)}
             {selected.affectedOrgId && (<><dt className="text-gray-500 dark:text-gray-400">Affected org</dt><dd><CopyableId value={selected.affectedOrgId} small /></dd></>)}
             {selected.targetType && (
@@ -295,7 +361,11 @@ export default function AuditPage() {
                 <dd className="inline-flex items-center gap-1"><code className="text-xs">{selected.targetType}</code>{selected.targetId && <><span>:</span><CopyableId value={selected.targetId} small /></>}</dd>
               </>
             )}
+            {selected.groupId && (<><dt className="text-gray-500 dark:text-gray-400">Group</dt><dd><CopyableId value={selected.groupId} small /></dd></>)}
             {selected.ip && (<><dt className="text-gray-500 dark:text-gray-400">IP</dt><dd><code className="text-xs">{selected.ip}</code></dd></>)}
+            {selected.userAgent && (<><dt className="text-gray-500 dark:text-gray-400">User agent</dt><dd className="text-xs text-gray-700 dark:text-gray-300 break-all">{selected.userAgent}</dd></>)}
+            {selected.requestId && (<><dt className="text-gray-500 dark:text-gray-400">Request id</dt><dd><CopyableId value={selected.requestId} small /></dd></>)}
+            {selected.traceId && (<><dt className="text-gray-500 dark:text-gray-400">Trace id</dt><dd><CopyableId value={selected.traceId} small /></dd></>)}
           </dl>
           {selected.details && Object.keys(selected.details).length > 0 && (
             <div className="mt-4">

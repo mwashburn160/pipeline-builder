@@ -1361,6 +1361,9 @@ importers:
       '@pipeline-builder/api-core':
         specifier: workspace:*
         version: link:../packages/api-core
+      '@pipeline-builder/api-server':
+        specifier: workspace:*
+        version: link:../packages/api-server
       '@pipeline-builder/pipeline-core':
         specifier: workspace:*
         version: link:../packages/pipeline-core

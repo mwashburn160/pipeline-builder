@@ -25,8 +25,11 @@ import {
   activateMember,
   deleteOrganization,
   exportOrganization,
+  getOrganizationGroups,
+  addGroupMember,
+  removeGroupMember,
 } from '../controllers';
-import { requireAuth, requireRole, requireStepUp } from '../middleware';
+import { requireAuth, requireRole, requireSystemAdmin, requireStepUp } from '../middleware';
 
 const router = Router();
 
@@ -65,19 +68,20 @@ router.get('/:id', requireAuth, getOrganizationById);
 router.get('/:id/descendants', requireAuth, getOrganizationDescendants);
 
 /** PUT /organization/:id - Update organization (sysadmin only).
- *  Controller enforces `requireSystemAdmin`, which is the stricter gate;
- *  the route-level `requireRole('admin','owner')` was redundant and
- *  misleading (org admins/owners do NOT get to PUT this endpoint). */
-router.put('/:id', requireAuth, updateOrganization);
+ *  `requireSystemAdmin` mirrors the controller's own check at the route layer
+ *  so org admins/owners are rejected here, not deeper in. */
+router.put('/:id', requireAuth, requireSystemAdmin, updateOrganization);
 
 /** PATCH /organization/:id/tier - Change pricing tier (sysadmin only).
  *  Step-up gated because the change resizes quota limits and affects billing. */
-router.patch('/:id/tier', requireAuth, requireRole('admin', 'owner'), requireStepUp, updateOrganizationTier);
+router.patch('/:id/tier', requireAuth, requireSystemAdmin, requireStepUp, updateOrganizationTier);
 
-/** DELETE /organization/:id - Delete organization (admin only) */
-router.delete('/:id', requireAuth, requireRole('admin', 'owner'), requireStepUp, deleteOrganization);
+/** DELETE /organization/:id - Delete organization (sysadmin only). */
+router.delete('/:id', requireAuth, requireSystemAdmin, requireStepUp, deleteOrganization);
 
-/** GET /organization/:id/export - GDPR portability dump (, sysadmin only) */
+/** GET /organization/:id/export - GDPR portability dump (org admin or sysadmin).
+ *  Controller gates with `canAdministerOrg`, so an org's own admin can export it;
+ *  `requireRole('admin','owner')` is the matching route guard. */
 router.get('/:id/export', requireAuth, requireRole('admin', 'owner'), exportOrganization);
 
 /*
@@ -88,9 +92,10 @@ router.get('/:id/export', requireAuth, requireRole('admin', 'owner'), exportOrga
 router.get('/:id/quotas', requireAuth, getOrganizationQuotas);
 
 /** PUT /organization/:id/quotas - Update organization quota limits (sysadmin only).
- *  Controller enforces `requireSystemAdmin`; route-level role gate was
- *  redundant and would have implied (incorrectly) that org admins qualify. */
-router.put('/:id/quotas', requireAuth, updateOrganizationQuotas);
+ *  `requireSystemAdmin` mirrors the controller's gate at the route layer.
+ *  Step-up gated like the tier change: resizing quota limits has billing/capacity
+ *  impact, so a stale sysadmin session must re-confirm before it lands. */
+router.put('/:id/quotas', requireAuth, requireSystemAdmin, requireStepUp, updateOrganizationQuotas);
 
 /*
  * Organization Members (admin can manage any org)
@@ -124,6 +129,21 @@ router.patch('/:id/members/:userId/deactivate', requireAuth, requireRole('admin'
 
 /** PATCH /organization/:id/members/:userId/activate - Reactivate member (admin only) */
 router.patch('/:id/members/:userId/activate', requireAuth, requireRole('admin', 'owner'), activateMember);
+
+/*
+ * Permission Groups (first-class RBAC). Membership drives the cached
+ * UserOrganization.role; Administrators → org-admin, Superadmins (system org
+ * only) → platform admin.
+ */
+
+/** GET /organization/:id/groups - List groups + members */
+router.get('/:id/groups', requireAuth, getOrganizationGroups);
+
+/** POST /organization/:id/groups/:groupId/members - Add member to a group (admin only) */
+router.post('/:id/groups/:groupId/members', requireAuth, requireRole('admin', 'owner'), addGroupMember);
+
+/** DELETE /organization/:id/groups/:groupId/members/:userId - Remove member from a group (admin only) */
+router.delete('/:id/groups/:groupId/members/:userId', requireAuth, requireRole('admin', 'owner'), removeGroupMember);
 
 /*
  * Ownership Transfer

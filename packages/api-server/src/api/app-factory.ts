@@ -121,11 +121,12 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     throw new Error('JWT_SECRET environment variable is required. Set it before starting the server.');
   }
 
-  // Initialize OpenTelemetry tracing once per process if OTEL_TRACING_ENABLED=true.
-  // Safe to call multiple times — initTracing() is idempotent.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { initTracing } = require('./tracing');
-  initTracing(process.env.SERVICE_NAME || 'api');
+  // OpenTelemetry is NOT initialized here: by the time createApp runs, express
+  // and http have already been required, so the auto-instrumentation hooks
+  // would have nothing to patch (no inbound span → no trace id). Tracing is
+  // started by the `otel-bootstrap.js` preload instead (node -r … — see each
+  // service's Dockerfile CMD / start script), which runs before any
+  // instrumented module loads. `currentTraceId()` then reads the active span.
 
   const serverConfig = Config.get('server');
   const app = express();

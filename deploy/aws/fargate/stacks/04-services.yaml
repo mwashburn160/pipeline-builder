@@ -45,6 +45,16 @@ Parameters:
       (self-hosted), builds default to `unlimited`. Must agree with the
       billing service's own BILLING_ENABLED setting.
 
+  OtelTracingEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >
+      When true, services export OpenTelemetry traces to the in-cluster Jaeger
+      collector (jaeger.pipeline-builder.local:4318, defined in
+      05-observability.yaml) and audit events + logs carry a trace id. Set to
+      false to disable without redeploying the collector.
+
   PlatformImage:
     Type: String
     Default: ghcr.io/mwashburn160/platform:3.4.77
@@ -391,6 +401,12 @@ Resources:
               Value: "3000"
             - Name: LOKI_URL
               Value: http://loki.pipeline-builder.local:3100
+            # OpenTelemetry — export traces to the in-cluster Jaeger collector
+            # (05-observability.yaml). Stamps audit events + logs with a trace id.
+            - Name: OTEL_TRACING_ENABLED
+              Value: !Ref OtelTracingEnabled
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: http://jaeger.pipeline-builder.local:4318/v1/traces
             - Name: PLATFORM_BASE_URL
               Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
@@ -633,6 +649,10 @@ Resources:
                 - ""
             - Name: PIPELINE_SECURITY_GROUP_IDS
               Value: ""
+            - Name: OTEL_TRACING_ENABLED
+              Value: !Ref OtelTracingEnabled
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: http://jaeger.pipeline-builder.local:4318/v1/traces
             - Name: SERVICE_NAME
               Value: pipeline
             - Name: COMPLIANCE_SERVICE_HOST
@@ -875,6 +895,10 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
               Value: !Ref PlatformBaseUrl
+            - Name: OTEL_TRACING_ENABLED
+              Value: !Ref OtelTracingEnabled
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: http://jaeger.pipeline-builder.local:4318/v1/traces
             - Name: SERVICE_NAME
               Value: plugin
             - Name: IMAGE_REGISTRY_HOST
@@ -1175,6 +1199,10 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
               Value: !Ref PlatformBaseUrl
+            - Name: OTEL_TRACING_ENABLED
+              Value: !Ref OtelTracingEnabled
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: http://jaeger.pipeline-builder.local:4318/v1/traces
             - Name: SERVICE_NAME
               Value: quota
           Secrets:
@@ -1376,6 +1404,10 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
               Value: !Ref PlatformBaseUrl
+            - Name: OTEL_TRACING_ENABLED
+              Value: !Ref OtelTracingEnabled
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: http://jaeger.pipeline-builder.local:4318/v1/traces
             - Name: SERVICE_NAME
               Value: billing
             - Name: BILLING_ENABLED
@@ -1581,6 +1613,10 @@ Resources:
               Value: !Ref PlatformBaseUrl
             - Name: PLATFORM_FRONTEND_URL
               Value: !Ref PlatformBaseUrl
+            - Name: OTEL_TRACING_ENABLED
+              Value: !Ref OtelTracingEnabled
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: http://jaeger.pipeline-builder.local:4318/v1/traces
             - Name: SERVICE_NAME
               Value: message
           Secrets:
@@ -1764,6 +1800,10 @@ Resources:
               Value: pipeline_builder
             - Name: PLATFORM_BASE_URL
               Value: !Ref PlatformBaseUrl
+            - Name: OTEL_TRACING_ENABLED
+              Value: !Ref OtelTracingEnabled
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: http://jaeger.pipeline-builder.local:4318/v1/traces
             - Name: SERVICE_NAME
               Value: reporting
           Secrets:
@@ -1963,6 +2003,10 @@ Resources:
               Value: "3000"
             - Name: PLATFORM_BASE_URL
               Value: !Ref PlatformBaseUrl
+            - Name: OTEL_TRACING_ENABLED
+              Value: !Ref OtelTracingEnabled
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: http://jaeger.pipeline-builder.local:4318/v1/traces
             - Name: SERVICE_NAME
               Value: compliance
           Secrets:
@@ -2280,6 +2324,10 @@ Resources:
           Environment:
             - Name: PORT
               Value: "3000"
+            - Name: OTEL_TRACING_ENABLED
+              Value: !Ref OtelTracingEnabled
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: http://jaeger.pipeline-builder.local:4318/v1/traces
             - Name: SERVICE_NAME
               Value: image-registry
             - Name: LOG_LEVEL

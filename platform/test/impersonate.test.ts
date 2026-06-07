@@ -130,10 +130,14 @@ describe('impersonateUser', () => {
       expect.objectContaining({ _id: 'target' }),
       'sysadmin',
     );
+    // The impersonator at session start IS the actor (the sysadmin), already
+    // captured as the event's actorId — so it's no longer duplicated into
+    // `details`. Events performed LATER under the issued token carry the
+    // sysadmin in the first-class `impersonatorId` field instead.
     expect(mockAudit).toHaveBeenCalledWith(req, 'admin.impersonate.start', expect.objectContaining({
       targetType: 'user',
       targetId: 'target',
-      details: expect.objectContaining({ impersonatorId: 'sysadmin', expiresIn: 900 }),
+      details: expect.objectContaining({ expiresIn: 900 }),
     }));
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({

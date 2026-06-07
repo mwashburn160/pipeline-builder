@@ -12,6 +12,10 @@ import { parsePagination } from '../utils/pagination';
 const logger = createLogger('audit-routes');
 const router = Router();
 
+/** Actions whose name marks them a failure outcome (e.g. `plugin.build.failed`,
+ *  `plugin.build.timeout`). Hoisted so the ingest path doesn't recompile it. */
+const FAILURE_ACTION = /\.(failed|timeout)$/;
+
 /**
  * GET /audit - List audit events (admin only, org-scoped for org admins)
  * Query: action, targetType, targetId, page, limit
@@ -29,6 +33,10 @@ router.get('/', requireAuth, withController('List audit events', async (req, res
   const affectedOrgId = parseQueryString(req.query.affectedOrgId);
   const actorId = parseQueryString(req.query.actorId);
   const orgIdQuery = parseQueryString(req.query.orgId);
+  const groupId = parseQueryString(req.query.groupId);
+  const impersonatorId = parseQueryString(req.query.impersonatorId);
+  const requestId = parseQueryString(req.query.requestId);
+  const outcomeQuery = parseQueryString(req.query.outcome);
   const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
 
   const filter: AuditFilter = {};
@@ -48,6 +56,10 @@ router.get('/', requireAuth, withController('List audit events', async (req, res
   if (action) filter.action = action;
   if (targetType) filter.targetType = targetType;
   if (targetId) filter.targetId = targetId;
+  if (groupId) filter.groupId = groupId;
+  if (impersonatorId) filter.impersonatorId = impersonatorId;
+  if (requestId) filter.requestId = requestId;
+  if (outcomeQuery === 'success' || outcomeQuery === 'failure') filter.outcome = outcomeQuery;
 
   const result = await auditService.findEvents(filter, offset, limitNum);
 
@@ -77,6 +89,15 @@ router.post('/events', requireServiceAuth, async (req: Request, res: Response) =
     targetId?: string;
     details?: Record<string, unknown>;
     ip?: string;
+    // Transport/correlation context a service caller may forward. `actorRole`
+    // and `impersonatorId` are deliberately NOT read from the body — those are
+    // forensic identity claims that are only trustworthy when derived from a
+    // verified `req.user` (the platform `audit()` helper), never self-asserted
+    // by a service token.
+    userAgent?: string;
+    requestId?: string;
+    traceId?: string;
+    outcome?: 'success' | 'failure';
   };
 
   if (!body.action || typeof body.action !== 'string' || !isAuditAction(body.action)) {
@@ -110,6 +131,12 @@ router.post('/events', requireServiceAuth, async (req: Request, res: Response) =
     return sendError(res, 403, 'affectedOrgId not allowed for this service token');
   }
 
+  // Derive outcome: honour an explicit body value, else infer from the action
+  // vocabulary so `plugin.build.{failed,timeout}` land as failures without the
+  // worker having to set it.
+  const outcome: 'success' | 'failure' = body.outcome
+    ?? (FAILURE_ACTION.test(body.action) ? 'failure' : 'success');
+
   try {
     await auditService.createEvent({
       action: body.action,
@@ -122,8 +149,14 @@ router.post('/events', requireServiceAuth, async (req: Request, res: Response) =
       affectedOrgId: effectiveAffectedOrgId,
       targetType: body.targetType,
       targetId: body.targetId,
+      outcome,
       details: body.details,
       ip: body.ip,
+      // Transport context only (see body type comment) — forensic identity
+      // claims are never accepted from the service body.
+      userAgent: body.userAgent,
+      requestId: body.requestId,
+      traceId: body.traceId,
     });
     return sendSuccess(res, 200, {});
   } catch (error) {

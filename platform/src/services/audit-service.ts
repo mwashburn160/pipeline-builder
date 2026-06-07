@@ -24,20 +24,36 @@ export interface AuditFilter {
   action?: string;
   targetType?: string;
   targetId?: string;
+  /** Permission group involved (org.group.* actions). */
+  groupId?: string;
+  /** Sysadmin behind an impersonated action — "what was done under
+   *  impersonation by X". */
+  impersonatorId?: string;
+  /** Filter by outcome (success/failure) — e.g. surface only failed logins. */
+  outcome?: 'success' | 'failure';
+  /** Correlation id — pull every audited action from one HTTP request. */
+  requestId?: string;
 }
 
 export interface AuditCreateInput {
   action: AuditAction;
   actorId: string;
   actorEmail?: string;
+  actorRole?: string;
   orgId?: string;
   /** Org being operated on (cross-tenant sysadmin actions). Falls back to
    *  `orgId` when omitted, matching how the audit helper auto-populates it. */
   affectedOrgId?: string;
   targetType?: string;
   targetId?: string;
+  groupId?: string;
+  impersonatorId?: string;
+  outcome?: 'success' | 'failure';
   details?: Record<string, unknown>;
   ip?: string;
+  userAgent?: string;
+  requestId?: string;
+  traceId?: string;
 }
 
 export interface PaginatedAuditResult {
@@ -75,6 +91,10 @@ class AuditService {
     }
     if (filter.targetType) query.targetType = filter.targetType;
     if (filter.targetId) query.targetId = filter.targetId;
+    if (filter.groupId) query.groupId = filter.groupId;
+    if (filter.impersonatorId) query.impersonatorId = filter.impersonatorId;
+    if (filter.outcome) query.outcome = filter.outcome;
+    if (filter.requestId) query.requestId = filter.requestId;
 
     const [events, total] = await Promise.all([
       AuditEvent.find(query).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),

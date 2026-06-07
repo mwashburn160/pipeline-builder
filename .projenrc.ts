@@ -403,6 +403,12 @@ const platform = new FunctionProject({
   outdir: './platform',
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
+    // api-server is pulled in for `currentTraceId` (read the active span's trace
+    // id at audit-write time) AND for the shared `otel-bootstrap.js` preload
+    // (node -r @pipeline-builder/api-server/lib/otel-bootstrap.js — see
+    // Dockerfile/start). The preload's OpenTelemetry deps resolve from
+    // api-server, so platform needs no direct @opentelemetry/* deps.
+    `@pipeline-builder/api-server@${pkg.apiServer}`,
     // pipeline-core re-exports the drizzle schema + connection from pipeline-data.
     // Pulled in for the dashboards CRUD path (Postgres-backed); platform's
     // identity/auth/observability code remains Mongo-backed.

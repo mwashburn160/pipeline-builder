@@ -23,7 +23,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator';
-import { pipelineService, type PipelineInsert } from '../services/pipeline-service';
+import { pipelineService, type PipelineInsert, type PipelineUpdate } from '../services/pipeline-service';
 
 const complianceClient = createComplianceClient();
 
@@ -235,7 +235,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     // per-ID updates instead. CrudService.update handles its own per-row
     // transaction + lifecycle hook.
     const updates = await Promise.all(
-      ids.map(id => pipelineService.update(id, updateData as any, orgId, userId)),
+      ids.map(id => pipelineService.update(id, updateData as PipelineUpdate, orgId, userId)),
     );
     const updatedCount = updates.filter(u => u !== null).length;
 

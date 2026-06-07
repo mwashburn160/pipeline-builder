@@ -77,6 +77,24 @@ describe('auditService.findEvents', () => {
     expect(mockLimit).toHaveBeenCalledWith(10);
   });
 
+  it('should build query from the tracing + identity filter fields', async () => {
+    mockLean.mockResolvedValue([]);
+    mockCountDocuments.mockResolvedValue(0);
+
+    await auditService.findEvents(
+      { groupId: 'grp-1', impersonatorId: 'sa-1', outcome: 'failure', requestId: 'req-9' },
+      0,
+      10,
+    );
+
+    expect(mockFind).toHaveBeenCalledWith({
+      groupId: 'grp-1',
+      impersonatorId: 'sa-1',
+      outcome: 'failure',
+      requestId: 'req-9',
+    });
+  });
+
   it('should sort by createdAt descending', async () => {
     mockLean.mockResolvedValue([]);
     mockCountDocuments.mockResolvedValue(0);

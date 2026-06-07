@@ -30,6 +30,7 @@ import {
 import * as loki from './loki-client';
 import * as prom from './prometheus-client';
 import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper';
+import { isReasonableString } from '../utils/string-guards';
 
 /**
  * Parse the `range` query param.
@@ -63,13 +64,6 @@ function sendUpstreamError(res: Response, err: unknown): void {
   sendError(res, 502, 'Upstream observability backend unreachable');
 }
 
-/** Validate that a free-text field (silence comment, createdBy, matcher value)
- *  is bounded and not obviously bogus. Defense-in-depth on top of Alertmanager's
- *  own validation — keeps the matcher value from being used to encode an attack
- *  on Alertmanager's regex engine. */
-function isReasonableString(v: unknown, max = 256): v is string {
-  return typeof v === 'string' && v.length > 0 && v.length <= max;
-}
 
 /**
  * GET /api/observability/query — Prometheus instant or range query by key.
@@ -172,6 +166,7 @@ export const observabilityLogs = withController('Observability logs', async (req
     event: parseQueryString(req.query.event),
     actor: parseQueryString(req.query.actor),
     plugin: parseQueryString(req.query.plugin),
+    requestId: parseQueryString(req.query.requestId),
     org: req.user?.organizationId,
     isSuperAdmin: sysadmin,
   };

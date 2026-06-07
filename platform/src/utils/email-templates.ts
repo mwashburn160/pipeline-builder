@@ -250,11 +250,8 @@ The ${config.email.fromName} Team
 }
 
 /**
- * Build email-verification email content (subject, text, html).
- *
- * TODO([route] agent): wire this into `controllers/auth.ts` ~line 200 in place
- * of the inline HTML/text strings — the controller should call
- * `verifyEmailTemplate(verifyUrl)` and forward the result to `emailService.send`.
+ * Build email-verification email content (subject, text, html). Consumed by
+ * `controllers/auth.ts` (via dynamic import) when sending the verification email.
  */
 export function verifyEmailTemplate(verifyUrl: string): EmailContent {
   const subject = `Verify your email for ${config.email.fromName}`;

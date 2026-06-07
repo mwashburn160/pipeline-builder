@@ -171,6 +171,14 @@ export const updateMemberRoleSchema = z.object({
   role: z.enum(['owner', 'admin', 'member']),
 });
 
+/** Add an existing org member to a permission group (by id or email). */
+export const addGroupMemberSchema = z.object({
+  userId: z.string().optional(),
+  email: emailSchema.optional(),
+}).refine(data => data.userId || data.email, {
+  message: 'Either userId or email is required',
+});
+
 /** Organization ownership transfer schema. */
 export const transferOwnershipSchema = z.object({
   newOwnerId: z.string().min(1, 'New owner ID is required'),

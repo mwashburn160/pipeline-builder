@@ -36,6 +36,12 @@ export type AuditAction =
   | 'org.member.deactivate'
   | 'org.member.activate'
   | 'org.ownership.transfer'
+  // Permission-group membership mutations (controllers/organization-groups.ts).
+  // `affectedOrgId` is the org; `targetId` is the user added/removed; `details`
+  // carries the group name + the role it grants. Adding to Administrators or
+  // Superadmins is a privilege escalation, so these are surfaced distinctly.
+  | 'org.group.member.add'
+  | 'org.group.member.remove'
   // Admin actions (controllers/user-admin.ts)
   | 'admin.user.delete'
   | 'admin.org.delete'
@@ -123,6 +129,8 @@ export const ALL_AUDIT_ACTIONS = [
   'org.member.deactivate',
   'org.member.activate',
   'org.ownership.transfer',
+  'org.group.member.add',
+  'org.group.member.remove',
   'admin.user.delete',
   'admin.org.delete',
   'admin.org.export',
@@ -171,12 +179,32 @@ export interface AuditEventDocument extends Document {
   action: AuditAction;
   actorId: string;
   actorEmail?: string;
+  /** Actor's per-org role at action time ('owner' | 'admin' | 'member'). */
+  actorRole?: string;
   orgId?: string;
   affectedOrgId?: string;
   targetType?: string;
   targetId?: string;
+  /** Permission group involved (org.group.* actions). Promoted out of
+   *  `details` so reviewers can filter "who touched group X". */
+  groupId?: string;
+  /** Sysadmin who initiated an impersonation session, when the actor is
+   *  acting under an impersonation token. Lets reviewers unmask "viewed-as". */
+  impersonatorId?: string;
+  /** Did the action succeed or fail? Defaults to 'success'; failure-path
+   *  call sites (login.failed, plugin.build.failed/timeout) pass 'failure'. */
+  outcome?: 'success' | 'failure';
   details?: Record<string, unknown>;
   ip?: string;
+  /** Client User-Agent (truncated + control-chars stripped). Forensic signal
+   *  for correlating an action to a device/session. */
+  userAgent?: string;
+  /** Correlation id (nginx `x-request-id`, or generated). Ties the event to
+   *  its HTTP request and to structured log lines for the same request. */
+  requestId?: string;
+  /** Distributed trace id (OpenTelemetry active span) when tracing is on.
+   *  Correlates the action across services end-to-end. */
+  traceId?: string;
   createdAt: Date;
 }
 
@@ -184,12 +212,21 @@ const auditEventSchema = new Schema<AuditEventDocument>( {
   action: { type: String, required: true, index: true },
   actorId: { type: String, required: true, index: true },
   actorEmail: { type: String },
+  actorRole: { type: String },
   orgId: { type: String, index: true },
   affectedOrgId: { type: String, index: true },
   targetType: { type: String },
   targetId: { type: String, index: true },
+  // Sparse: only group/impersonation/correlation events set these, so the
+  // index skips the (vast majority of) documents that leave them unset.
+  groupId: { type: String, index: { sparse: true } },
+  impersonatorId: { type: String, index: { sparse: true } },
+  outcome: { type: String, enum: ['success', 'failure'] },
   details: { type: Schema.Types.Mixed },
   ip: { type: String },
+  userAgent: { type: String },
+  requestId: { type: String, index: { sparse: true } },
+  traceId: { type: String },
 },
 {
   timestamps: { createdAt: true, updatedAt: false },

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, MemberTeam, OrgQuotaResponse, OrgAIConfig, OrgIdpConfigDto, OrgIdpConfigCreate, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, UsageRollup, Message, MessageType, MessagePriority, QueueStatus, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
+import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, MemberTeam, OrganizationGroup, OrgQuotaResponse, OrgAIConfig, OrgIdpConfigDto, OrgIdpConfigCreate, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, UsageRollup, Message, MessageType, MessagePriority, QueueStatus, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
 import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate } from '@/types/compliance';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
@@ -765,6 +765,33 @@ class ApiClient {
     });
   }
 
+  // ============================================
+  // Permission groups (first-class RBAC). Group membership drives the cached
+  // org role: Administrators → org-admin, Superadmins (system org only) →
+  // platform admin.
+  // ============================================
+
+  /** List the org's permission groups, each with its current members. */
+  async getOrganizationGroups(orgId: string) {
+    return this.request<ApiResponse<{ groups: OrganizationGroup[] }>>(`/api/organization/${orgId}/groups`);
+  }
+
+  /** Add an existing org member (by id or email) to a group. */
+  async addGroupMember(orgId: string, groupId: string, data: { userId?: string; email?: string }) {
+    return this.request<ApiResponse<{ userId: string }>>(`/api/organization/${orgId}/groups/${groupId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /** Remove a user from a group. Recomputes their role; leaving Superadmins
+   *  (system org) also clears their platform-admin flag. */
+  async removeGroupMember(orgId: string, groupId: string, userId: string) {
+    return this.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/groups/${groupId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
   /** Deactivate a member (soft removal — keeps record, revokes access). */
   async deactivateMember(orgId: string, userId: string) {
     return this.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/members/${userId}/deactivate`, {
@@ -820,6 +847,10 @@ class ApiClient {
     action?: string;
     targetType?: string;
     targetId?: string;
+    groupId?: string;
+    impersonatorId?: string;
+    requestId?: string;
+    outcome?: 'success' | 'failure';
     offset?: number;
     limit?: number;
   }) {
@@ -829,12 +860,19 @@ class ApiClient {
         action: string;
         actorId: string;
         actorEmail?: string;
+        actorRole?: string;
         orgId?: string;
         affectedOrgId?: string;
         targetType?: string;
         targetId?: string;
+        groupId?: string;
+        impersonatorId?: string;
+        outcome?: 'success' | 'failure';
         details?: Record<string, unknown>;
         ip?: string;
+        userAgent?: string;
+        requestId?: string;
+        traceId?: string;
         createdAt: string;
       }>;
       pagination: { total: number; offset: number; limit: number; hasMore: boolean };

@@ -31,3 +31,4 @@ resources:
   - alertmanager.yaml
   - loki.yaml
   - promtail.yaml
+  - jaeger.yaml

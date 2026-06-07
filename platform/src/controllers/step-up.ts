@@ -60,6 +60,7 @@ export const stepUpVerify = withController('Step-up password verify', async (req
     audit(req, 'user.login.failed', {
       targetType: 'step-up',
       targetId: userId,
+      outcome: 'failure',
       details: { reason: 'invalid-password' },
     });
     logger.warn('Step-up password verify failed', { userId });

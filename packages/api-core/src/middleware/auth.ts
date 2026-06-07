@@ -265,19 +265,29 @@ export interface ServiceTokenOptions {
   orgName?: string;
   /** TTL in seconds (default 300). */
   ttlSeconds?: number;
+  /**
+   * Role the token carries. Defaults to `'owner'` for backward compatibility —
+   * many existing inter-service calls hit admin-gated endpoints. **Pass the
+   * LOWEST role the call actually needs** (`'member'` for read / data-plane
+   * calls) so a leaked service token can't perform admin actions in the target
+   * org. `isAdmin` is derived from this (admin|owner → true).
+   */
+  role?: 'owner' | 'admin' | 'member';
 }
 
 /**
  * Mint a JWT identifying the calling service. Used for inter-service HTTP calls.
  * The token satisfies `requireAuth` and (when orgId is present) `requireOrganization`.
+ * Scope it with `opts.role` — least privilege keeps a leaked token low-value.
  */
 export function signServiceToken(opts: ServiceTokenOptions): string {
+  const role = opts.role ?? 'owner';
   const payload: JwtPayload = {
     sub: `service:${opts.serviceName}`,
     username: `${opts.serviceName}-service`,
     email: `${opts.serviceName}@internal`,
-    role: 'owner',
-    isAdmin: true,
+    role,
+    isAdmin: role === 'owner' || role === 'admin',
     type: 'access',
     organizationId: opts.orgId,
     organizationName: opts.orgName ?? opts.orgId,

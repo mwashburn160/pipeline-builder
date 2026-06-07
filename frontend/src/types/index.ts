@@ -54,6 +54,11 @@ export interface UserOrgMembership {
  * a user to sysadmin now requires setting `User.isSuperAdmin=true`
  * (BOOTSTRAP_SUPERADMIN_EMAILS env or a future admin endpoint).
  */
+// SECURITY: `user.isSuperAdmin` comes from the client-decoded (UNVERIFIED) JWT.
+// Trust it ONLY for cosmetic UI gating (show/hide nav, redirect before render).
+// Never treat it as an authorization decision — every privileged action is
+// re-checked server-side against the token's verified claim, so a user who
+// forges this flag sees admin UI but every API call still 403s.
 export function isSystemAdmin(user: User | null): boolean {
   return user?.isSuperAdmin === true;
 }
@@ -95,6 +100,24 @@ export interface MemberTeam {
   isMember: boolean;
   role?: 'owner' | 'admin' | 'member';
   isActive?: boolean;
+}
+
+/** Role a permission group grants its members (mirrors backend GROUP_ROLES). */
+export type GroupRole = 'superadmin' | 'admin' | 'member';
+
+/**
+ * A permission group within an org, with its current members. Group membership
+ * drives the cached org role: Administrators → org-admin, Superadmins (system
+ * org only) → platform admin. Returned by `getOrganizationGroups`.
+ */
+export interface OrganizationGroup {
+  id: string;
+  name: string;
+  grantsRole: GroupRole;
+  /** Seeded default group (Administrators / Developers / Superadmins) — these
+   *  can't be deleted from the UI; only their membership is editable. */
+  system: boolean;
+  members: Array<{ id: string; username: string; email: string }>;
 }
 
 /**
