@@ -1,6 +1,6 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Pipeline Builder event ingestion — EventBridge rule, SQS queue, and Lambda that forwards CodePipeline/CodeBuild events to the reporting service API. Lambda code is deployed separately via pipeline-manager setup-events.",
+  "Description": "Pipeline Builder event ingestion — EventBridge rule, SQS queue, and Lambda that resolves each pipeline's PIPELINE_EVENT_ID tag and forwards CodePipeline events to the reporting service API. Lambda code is deployed separately via pipeline-manager setup-events.",
   "Parameters": {
     "PlatformBaseUrl": {
       "Type": "String",
@@ -49,15 +49,14 @@
       "Type": "AWS::Events::Rule",
       "Properties": {
         "Name": "pipeline-builder-codepipeline-events",
-        "Description": "Capture CodePipeline and CodeBuild state changes for reporting",
+        "Description": "Capture CodePipeline state changes for reporting",
         "State": "ENABLED",
         "EventPattern": {
-          "source": ["aws.codepipeline", "aws.codebuild"],
+          "source": ["aws.codepipeline"],
           "detail-type": [
             "CodePipeline Pipeline Execution State Change",
             "CodePipeline Stage Execution State Change",
-            "CodePipeline Action Execution State Change",
-            "CodeBuild Build State Change"
+            "CodePipeline Action Execution State Change"
           ]
         },
         "Targets": [{
@@ -94,6 +93,11 @@
                 "Effect": "Allow",
                 "Action": "secretsmanager:GetSecretValue",
                 "Resource": { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/platform-*" }
+              },
+              {
+                "Effect": "Allow",
+                "Action": "codepipeline:ListTagsForResource",
+                "Resource": { "Fn::Sub": "arn:aws:codepipeline:*:${AWS::AccountId}:*" }
               }
             ]
           }

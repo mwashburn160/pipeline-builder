@@ -187,12 +187,9 @@ export class OrgAwsCredentialsManager {
   }
 
   private async buildAssumeRoleProvider(orgId: string, cfg: OrgAwsConfig): Promise<AwsCredentialIdentityProvider> {
-    // Dynamic imports — STS + credential-providers are heavyweight and
-    // services that never have per-org roles configured shouldn't load them.
-    const [{ STSClient }, { fromTemporaryCredentials }] = await Promise.all([
-      import('@aws-sdk/client-sts'),
-      import('@aws-sdk/credential-providers'),
-    ]);
+    // Dynamic import — credential-providers is heavyweight and services that
+    // never have per-org roles configured shouldn't load it.
+    const { fromTemporaryCredentials } = await import('@aws-sdk/credential-providers');
 
     const masterCredentials = this.fallbackOverride ?? (await this.getFallback());
 
@@ -206,9 +203,12 @@ export class OrgAwsCredentialsManager {
       clientConfig: {
         region,
         ...(this.endpoint ? { endpoint: this.endpoint } : {}),
-        // Cast to satisfy fromTemporaryCredentials' typing; STSClient
-        // matches the structural client shape it expects.
-      } as unknown as ConstructorParameters<typeof STSClient>[0],
+        // Cast to the exact clientConfig type fromTemporaryCredentials expects.
+        // @aws-sdk ships STSClientConfig from both `client-sts` and the
+        // `nested-clients` STS submodule at independently-bumped versions, so a
+        // `typeof STSClient` cast can resolve to the wrong one; deriving it from
+        // the function's own Parameters keeps them in lockstep.
+      } as unknown as Parameters<typeof fromTemporaryCredentials>[0]['clientConfig'],
       params: {
         RoleArn: cfg.assumeRoleArn,
         RoleSessionName: sessionName,

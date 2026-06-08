@@ -14,6 +14,15 @@ jest.mock('@aws-sdk/client-secrets-manager', () => ({
   GetSecretValueCommand: jest.fn((params: unknown) => params),
 }));
 
+// Mock CodePipeline (loaded at runtime via require, not a workspace dep, so the
+// mock is virtual). `send` resolves the PIPELINE_EVENT_ID tag, keyed by the ARN
+// in the command so different pipelines can return different results.
+const mockTagsSend = jest.fn();
+jest.mock('@aws-sdk/client-codepipeline', () => ({
+  CodePipelineClient: jest.fn(() => ({ send: mockTagsSend })),
+  ListTagsForResourceCommand: jest.fn((input: unknown) => input),
+}), { virtual: true });
+
 // Mock fetch globally
 const mockFetch = jest.fn();
 global.fetch = mockFetch as any;
@@ -60,12 +69,23 @@ const MOCK_CODEPIPELINE_EVENT = {
   'account': '123456789012',
 };
 
+/** Resolve PIPELINE_EVENT_ID by the pipeline name embedded in the ARN. */
+function tagResolver(cmd: { resourceArn: string }) {
+  const arn = cmd.resourceArn;
+  if (arn.includes('untagged-pipeline')) return Promise.resolve({ tags: [] });
+  if (arn.includes('denied-pipeline')) {
+    return Promise.reject(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
+  }
+  return Promise.resolve({ tags: [{ key: 'PIPELINE_EVENT_ID', value: 'pipeline-uuid-1' }] });
+}
+
 describe('pipeline-events handler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSend.mockResolvedValue({
       SecretString: JSON.stringify({ accessToken: 'mock-jwt-token' }),
     });
+    mockTagsSend.mockImplementation(tagResolver);
 
     // Default: API calls succeed
     mockFetch.mockImplementation((url: string, _opts?: unknown) => {
@@ -79,149 +99,138 @@ describe('pipeline-events handler', () => {
     });
   });
 
+  function lastEventsBody() {
+    const call = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'));
+    return call ? JSON.parse(call[1].body) : null;
+  }
+
   it('should use stored JWT token and POST events to reporting API', async () => {
-    const event = createSQSEvent([MOCK_CODEPIPELINE_EVENT]);
+    await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
 
-    await handler(event);
-
-    // Should have fetched token from Secrets Manager
-    expect(mockSend).toHaveBeenCalled();
-
-    // Should have POSTed events with stored token
+    expect(mockSend).toHaveBeenCalled(); // token from Secrets Manager
     expect(mockFetch).toHaveBeenCalledWith(
       'https://api.example.com/api/reports/events',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer mock-jwt-token',
-        }),
+        headers: expect.objectContaining({ Authorization: 'Bearer mock-jwt-token' }),
       }),
     );
   });
 
-  it('should parse CodePipeline event correctly', async () => {
-    const event = createSQSEvent([MOCK_CODEPIPELINE_EVENT]);
+  it('should resolve the PIPELINE_EVENT_ID tag and report against it (no ARN/account)', async () => {
+    await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
 
-    await handler(event);
-
-    const eventsCall = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'));
-    const body = JSON.parse(eventsCall![1].body);
-
+    const body = lastEventsBody();
     expect(body.events).toHaveLength(1);
     expect(body.events[0]).toMatchObject({
-      pipelineArn: 'arn:aws:codepipeline:us-east-1:2a33349e7e60:acme-webapp-pipeline', // account hashed
+      pipelineId: 'pipeline-uuid-1',
       eventSource: 'codepipeline',
       eventType: 'PIPELINE',
       status: 'SUCCEEDED',
       executionId: 'exec-123',
     });
     expect(body.events[0].durationMs).toBe(300000); // 5 minutes
+    // The ARN/account never leave AWS — not in the payload.
+    expect(body.events[0].pipelineArn).toBeUndefined();
+    expect(body.events[0].detail.account).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('123456789012');
+    expect(JSON.stringify(body)).not.toContain('arn:aws:codepipeline');
   });
 
   it('should classify stage events correctly', async () => {
-    const stageEvent = {
+    await handler(createSQSEvent([{
       ...MOCK_CODEPIPELINE_EVENT,
       'detail-type': 'CodePipeline Stage Execution State Change',
       'detail': { ...MOCK_CODEPIPELINE_EVENT.detail, stage: 'Build' },
-    };
+    }]));
 
-    const event = createSQSEvent([stageEvent]);
-    await handler(event);
-
-    const eventsCall = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'));
-    const body = JSON.parse(eventsCall![1].body);
-
+    const body = lastEventsBody();
     expect(body.events[0].eventType).toBe('STAGE');
     expect(body.events[0].stageName).toBe('Build');
   });
 
-  it('should classify action events correctly', async () => {
-    const actionEvent = {
+  it('should classify action events and promote the failure summary to errorMessage', async () => {
+    await handler(createSQSEvent([{
       ...MOCK_CODEPIPELINE_EVENT,
       'detail-type': 'CodePipeline Action Execution State Change',
-      'detail': { ...MOCK_CODEPIPELINE_EVENT.detail, stage: 'Build', action: 'nodejs-build' },
-    };
+      'detail': {
+        ...MOCK_CODEPIPELINE_EVENT.detail,
+        state: 'FAILED',
+        stage: 'Build',
+        action: 'nodejs-build',
+        'execution-result': {
+          'external-execution-summary': 'Build failed: exit code 1',
+          'external-execution-url': 'https://console.aws/build/123',
+        },
+      },
+    }]));
 
-    const event = createSQSEvent([actionEvent]);
-    await handler(event);
-
-    const eventsCall = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'));
-    const body = JSON.parse(eventsCall![1].body);
-
+    const body = lastEventsBody();
     expect(body.events[0].eventType).toBe('ACTION');
     expect(body.events[0].actionName).toBe('nodejs-build');
+    expect(body.events[0].errorMessage).toBe('Build failed: exit code 1');
+    // The log URL stays in detail for drill-down.
+    expect(body.events[0].detail['execution-result']['external-execution-url'])
+      .toBe('https://console.aws/build/123');
   });
 
   it('should handle multiple events in batch', async () => {
-    const event = createSQSEvent([
+    await handler(createSQSEvent([
       MOCK_CODEPIPELINE_EVENT,
       { ...MOCK_CODEPIPELINE_EVENT, detail: { ...MOCK_CODEPIPELINE_EVENT.detail, state: 'FAILED' } },
-    ]);
+    ]));
+    expect(lastEventsBody().events).toHaveLength(2);
+  });
 
-    await handler(event);
+  it('should SKIP events for untagged pipelines (no POST)', async () => {
+    await handler(createSQSEvent([{
+      ...MOCK_CODEPIPELINE_EVENT,
+      detail: { ...MOCK_CODEPIPELINE_EVENT.detail, pipeline: 'untagged-pipeline' },
+    }]));
+    // No resolvable id → nothing posted to reporting.
+    expect(mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'))).toBeUndefined();
+  });
 
-    const eventsCall = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'));
-    const body = JSON.parse(eventsCall![1].body);
+  it('should SKIP CodeBuild (non-pipeline) events', async () => {
+    await handler(createSQSEvent([{
+      'detail-type': 'CodeBuild Build State Change',
+      'source': 'aws.codebuild',
+      'detail': { 'build-status': 'FAILED', 'project-name': 'some-project' },
+      'time': '2026-03-15T10:05:00Z',
+      'region': 'us-east-1',
+      'account': '123456789012',
+    }]));
+    expect(mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'))).toBeUndefined();
+  });
 
-    expect(body.events).toHaveLength(2);
+  it('should THROW on AccessDenied so a missing IAM grant surfaces', async () => {
+    await expect(handler(createSQSEvent([{
+      ...MOCK_CODEPIPELINE_EVENT,
+      detail: { ...MOCK_CODEPIPELINE_EVENT.detail, pipeline: 'denied-pipeline' },
+    }]))).rejects.toThrow();
   });
 
   it('should throw if PLATFORM_BASE_URL is not set', async () => {
     const origUrl = process.env.PLATFORM_BASE_URL;
     delete process.env.PLATFORM_BASE_URL;
-
-    const event = createSQSEvent([MOCK_CODEPIPELINE_EVENT]);
-
-    await expect(handler(event)).rejects.toThrow('PLATFORM_BASE_URL');
-
+    await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow('PLATFORM_BASE_URL');
     process.env.PLATFORM_BASE_URL = origUrl;
   });
 
   it('should throw if reporting API returns error', async () => {
-    mockFetch.mockImplementation(() => {
-      return Promise.resolve({
-        ok: false,
-        status: 500,
-        text: () => Promise.resolve('Internal Server Error'),
-      });
-    });
-
-    const event = createSQSEvent([MOCK_CODEPIPELINE_EVENT]);
-
-    await expect(handler(event)).rejects.toThrow('Reporting API failed: 500');
+    mockFetch.mockImplementation(() => Promise.resolve({
+      ok: false, status: 500, text: () => Promise.resolve('Internal Server Error'),
+    }));
+    await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow('Reporting API failed: 500');
   });
-
-  // Auth failure test skipped — token caching makes this order-dependent.
-  // In production, each Lambda cold start gets a fresh cache.
 
   it('should not compute duration for STARTED events', async () => {
-    const startedEvent = {
+    await handler(createSQSEvent([{
       ...MOCK_CODEPIPELINE_EVENT,
       detail: { ...MOCK_CODEPIPELINE_EVENT.detail, state: 'STARTED' },
-    };
-
-    const event = createSQSEvent([startedEvent]);
-    await handler(event);
-
-    const eventsCall = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'));
-    const body = JSON.parse(eventsCall![1].body);
-
+    }]));
+    const body = lastEventsBody();
     expect(body.events[0].durationMs).toBeUndefined();
     expect(body.events[0].completedAt).toBeUndefined();
-  });
-
-  it('should hash account number in both ARN and detail', async () => {
-    const event = createSQSEvent([MOCK_CODEPIPELINE_EVENT]);
-    await handler(event);
-
-    const eventsCall = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'));
-    const body = JSON.parse(eventsCall![1].body);
-
-    // Account in ARN should be hashed (not the raw 123456789012)
-    expect(body.events[0].pipelineArn).toBe('arn:aws:codepipeline:us-east-1:2a33349e7e60:acme-webapp-pipeline');
-    // Account in detail should also be hashed
-    expect(body.events[0].detail.account).toBe('2a33349e7e60');
-    // Real account number should not appear anywhere in the payload
-    expect(JSON.stringify(body)).not.toContain('123456789012');
   });
 });

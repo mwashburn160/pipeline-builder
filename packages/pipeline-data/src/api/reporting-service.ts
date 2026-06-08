@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createCacheService, createLogger, errorMessage, hashAccountInArn } from '@pipeline-builder/api-core';
+import { createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { inArray, sql } from 'drizzle-orm';
 import { drizzleRows } from './crud-service';
 import { schema } from '../database/drizzle-schema';
@@ -125,24 +125,28 @@ interface BuildFailure {
 
 /** Event payload accepted by `ReportingService.ingestEvents`. Mirrors the route's Zod shape. */
 export interface IngestEvent {
-  pipelineArn: string;
+  /** Stable pipeline id the events Lambda read from the `PIPELINE_EVENT_ID`
+   *  tag (= the platform pipelineId). The registry join key. */
+  pipelineId: string;
   eventSource: 'codepipeline' | 'codebuild' | 'plugin-build';
   eventType: 'PIPELINE' | 'STAGE' | 'ACTION' | 'BUILD';
   status: string;
   executionId?: string;
   stageName?: string;
   actionName?: string;
+  /** Human-readable failure reason (Action events). */
+  errorMessage?: string;
   startedAt?: string;
   completedAt?: string;
   durationMs?: number;
   detail?: Record<string, unknown>;
 }
 
-/** Counts + the (possibly truncated) list of unregistered ARNs the caller can log. */
+/** Counts + the (possibly truncated) list of unregistered pipeline ids the caller can log. */
 export interface IngestResult {
   inserted: number;
   skipped: number;
-  unregisteredArns: string[];
+  unregisteredPipelineIds: string[];
 }
 
 // ─── Service ────────────────────────────────────────────
@@ -188,43 +192,45 @@ export class ReportingService {
     // in-memory invalidations are unrelated to the tx but still serialized
     // its commit). Cache TTL is 2-5 min so fire-and-forget post-commit is
     // an acceptable trade for tighter lock windows.
-    const { inserted, skipped, unregisteredArns, affectedOrgs } = await withTenantTx(async (tx) => {
-      // Batch-resolve all unique ARNs in one query
-      const uniqueArns = [...new Set(events.map(e => e.pipelineArn))];
+    const { inserted, skipped, unregisteredPipelineIds, affectedOrgs } = await withTenantTx(async (tx) => {
+      // Batch-resolve all unique pipeline ids in one query
+      const uniqueIds = [...new Set(events.map(e => e.pipelineId))];
       const registryRows = await tx
         .select({
           pipelineId: schema.pipelineRegistry.pipelineId,
           orgId: schema.pipelineRegistry.orgId,
-          pipelineArn: schema.pipelineRegistry.pipelineArn,
         })
         .from(schema.pipelineRegistry)
-        .where(inArray(schema.pipelineRegistry.pipelineArn, uniqueArns));
+        .where(inArray(schema.pipelineRegistry.pipelineId, uniqueIds));
 
-      const arnMap = new Map(registryRows.map(r => [r.pipelineArn, r]));
+      const idMap = new Map(registryRows.map(r => [r.pipelineId, r]));
 
-      // Build insert batch (skip unregistered ARNs)
+      // Build insert batch (skip events whose pipeline isn't registered)
       const rows: Array<typeof schema.pipelineEvent.$inferInsert> = [];
       let skippedLocal = 0;
-      const unregisteredArnsLocal: string[] = [];
+      const unregisteredLocal: string[] = [];
 
       for (const event of events) {
-        const registry = arnMap.get(event.pipelineArn);
+        const registry = idMap.get(event.pipelineId);
         if (!registry) {
           skippedLocal++;
-          unregisteredArnsLocal.push(event.pipelineArn);
+          unregisteredLocal.push(event.pipelineId);
           continue;
         }
 
         rows.push({
+          // registry.pipelineId === event.pipelineId; use the registry's so the
+          // FK is always a row that exists, and pull orgId from the registry for
+          // tenancy (never trust the caller's claimed org).
           pipelineId: registry.pipelineId,
           orgId: registry.orgId,
           eventSource: event.eventSource,
           eventType: event.eventType,
           status: event.status,
-          pipelineArn: hashAccountInArn(event.pipelineArn),
           executionId: event.executionId,
           stageName: event.stageName,
           actionName: event.actionName,
+          errorMessage: event.errorMessage,
           startedAt: event.startedAt ? new Date(event.startedAt) : undefined,
           completedAt: event.completedAt ? new Date(event.completedAt) : undefined,
           durationMs: event.durationMs,
@@ -232,17 +238,35 @@ export class ReportingService {
         });
       }
 
-      if (rows.length > 0) {
-        await tx.insert(schema.pipelineEvent).values(rows);
-      }
+      // SQS is at-least-once, so EventBridge can deliver the same state-change
+      // twice. `onConflictDoNothing` + the partial unique index on
+      // (pipeline_id, execution_id, event_type, status, stage_name, action_name)
+      // makes re-delivery idempotent. `returning` gives the REAL inserted set so
+      // counts + cache invalidation ignore duplicates.
+      const insertedRows = rows.length > 0
+        ? await tx.insert(schema.pipelineEvent).values(rows)
+          .onConflictDoNothing()
+          .returning({ orgId: schema.pipelineEvent.orgId })
+        : [];
 
       return {
-        inserted: rows.length,
+        inserted: insertedRows.length,
         skipped: skippedLocal,
-        unregisteredArns: unregisteredArnsLocal,
-        affectedOrgs: [...new Set(rows.map(r => r.orgId))],
+        unregisteredPipelineIds: unregisteredLocal,
+        affectedOrgs: [...new Set(insertedRows.map(r => r.orgId))],
       };
     });
+
+    // Surface the silent skip: an unregistered pipeline id usually means the
+    // pipeline hasn't called POST /pipelines/registry yet (or its
+    // PIPELINE_EVENT_ID tag is missing/unreadable by the Lambda). Logging it
+    // makes a broken join visible instead of looking like "no activity".
+    if (unregisteredPipelineIds.length > 0) {
+      logger.warn('Pipeline events skipped: pipeline id not found in registry', {
+        count: unregisteredPipelineIds.length,
+        sample: unregisteredPipelineIds.slice(0, 3),
+      });
+    }
 
     // Post-commit cache invalidation. Fire-and-forget with logging — TTL is
     // short enough that a missed invalidation self-heals.
@@ -254,7 +278,7 @@ export class ReportingService {
       ));
     }
 
-    return { inserted, skipped, unregisteredArns };
+    return { inserted, skipped, unregisteredPipelineIds };
   }
 
   // ── Category 1: Pipeline Execution & Performance ──

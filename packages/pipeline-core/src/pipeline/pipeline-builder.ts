@@ -297,6 +297,13 @@ export class PipelineBuilder extends Construct {
     if (props.orgId) {
       Tags.of(this.pipeline).add('OrgId', props.orgId);
     }
+    // Stable event-reporting key. Applied at synth (the pipelineId is known
+    // here), so it's present from stack creation — the events Lambda reads this
+    // tag to attribute CodePipeline state-change events to the pipeline without
+    // ever handling the ARN/account. See packages/pipeline-events.
+    if (props.pipelineId) {
+      Tags.of(this.pipeline).add('PIPELINE_EVENT_ID', props.pipelineId);
+    }
     if (props.tags) {
       for (const [key, value] of Object.entries(props.tags)) {
         Tags.of(this.pipeline).add(key, value);

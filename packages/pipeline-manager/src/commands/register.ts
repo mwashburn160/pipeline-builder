@@ -129,7 +129,7 @@ export function register(program: Command): void {
           if (ok) {
             registeredCount++;
             printSuccess('Pipeline registered for event reporting', {
-              arn: payload.pipelineArn,
+              pipelineId: payload.pipelineId,
             });
           } else {
             anyFailed = true;
@@ -170,7 +170,7 @@ async function postRegistration(
 ): Promise<boolean> {
   try {
     await client.post(`${pipelineUrl}/registry`, payload);
-    printInfo('Registered', { pipelineId, arn: payload.pipelineArn });
+    printInfo('Registered', { pipelineId });
     return true;
   } catch (err) {
     printWarning('Registration failed', {

@@ -395,11 +395,15 @@ export const message = pgTable('messages', {
  */
 export const pipelineRegistry = pgTable('pipeline_registry', {
   id: uuid('id').primaryKey().defaultRandom(),
-  pipelineId: uuid('pipeline_id').notNull(),
+  // The platform's pipeline record id — a STABLE uuid created with the pipeline
+  // record, known at CDK synth, and applied to the live CodePipeline as the
+  // `PIPELINE_EVENT_ID` tag. The events Lambda reads that tag and reports
+  // against this id, so it IS the event join key (replacing the masked ARN —
+  // it carries no AWS account/region, so no masking is needed). Unique: one
+  // registry row per pipeline + the upsert key for (re)registration.
+  pipelineId: uuid('pipeline_id').notNull().unique(),
   orgId: varchar('org_id', { length: 255 }).notNull(),
-  pipelineArn: varchar('pipeline_arn', { length: 512 }).notNull().unique(),
   pipelineName: varchar('pipeline_name', { length: 255 }).notNull(),
-  accountId: varchar('account_id', { length: 12 }),
   region: varchar('region', { length: 30 }),
   project: varchar('project', { length: 255 }),
   organization: varchar('organization', { length: 255 }),
@@ -408,7 +412,6 @@ export const pipelineRegistry = pgTable('pipeline_registry', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
-  pipelineIdIdx: index('registry_pipeline_id_idx').on(table.pipelineId),
   orgIdIdx: index('registry_org_id_idx').on(table.orgId),
   orgRegionIdx: index('registry_org_region_idx').on(table.orgId, table.region),
 }));
@@ -438,7 +441,6 @@ export const pipelineEvent = pgTable('pipeline_events', {
   eventSource: varchar('event_source', { length: 50 }).$type<EventSource>().notNull(),
   eventType: varchar('event_type', { length: 50 }).$type<EventType>().notNull(),
   status: varchar('status', { length: 20 }).notNull(),
-  pipelineArn: varchar('pipeline_arn', { length: 512 }),
   executionId: varchar('execution_id', { length: 255 }),
   stageName: varchar('stage_name', { length: 255 }),
   actionName: varchar('action_name', { length: 255 }),
@@ -453,11 +455,20 @@ export const pipelineEvent = pgTable('pipeline_events', {
   orgIdIdx: index('event_org_id_idx').on(table.orgId),
   eventTypeIdx: index('event_type_idx').on(table.eventType),
   statusIdx: index('event_status_idx').on(table.status),
-  pipelineArnIdx: index('event_pipeline_arn_idx').on(table.pipelineArn),
   executionIdIdx: index('event_execution_id_idx').on(table.executionId),
   createdAtIdx: index('event_created_at_idx').on(table.createdAt),
   orgTypeCreatedIdx: index('event_org_type_created_idx').on(table.orgId, table.eventType, table.createdAt),
   orgSourceStatusIdx: index('event_org_source_status_idx').on(table.orgId, table.eventSource, table.status),
+  // Idempotency: EventBridge → SQS is at-least-once, so the same state-change
+  // can be delivered twice. This partial unique index dedups re-deliveries
+  // (paired with `onConflictDoNothing` in reporting-service.ingestEvents).
+  // Partial (execution_id IS NOT NULL) because that's the natural per-event
+  // key; events without an executionId (rare) aren't deduped, which is safe.
+  // Includes pipeline_id so a (theoretical) execution-id reuse across pipelines
+  // can't collide now that the ARN is no longer part of the row.
+  dedupIdx: uniqueIndex('event_dedup_idx')
+    .on(table.pipelineId, table.executionId, table.eventType, table.status, table.stageName, table.actionName)
+    .where(sql`execution_id IS NOT NULL`),
 }));
 
 // ========================================

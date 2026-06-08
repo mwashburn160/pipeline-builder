@@ -140,5 +140,30 @@ bash bin/deploy.sh --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-to
         },
       ],
     },
+    {
+      id: 'event-reporting',
+      title: 'Pipeline Event Reporting',
+      blocks: [
+        {
+          type: 'text',
+          content:
+            'Once deployed, each CodePipeline run shows up on the Reports dashboard automatically. At synth the pipeline is tagged `PIPELINE_EVENT_ID=<pipelineId>` — a stable, opaque id created with the pipeline. EventBridge forwards state-change events to a Lambda that resolves that tag and attributes the run to your pipeline, so the AWS account and ARN never leave AWS and there is no masking secret to manage.',
+        },
+        {
+          type: 'list',
+          items: [
+            'Run `pipeline-manager setup-events` once per AWS account to provision the EventBridge → SQS → Lambda path.',
+            'The Lambda execution role needs `codepipeline:ListTagsForResource` (an AccessDenied fails the batch loudly rather than silently dropping events).',
+            'Failed runs carry the failure reason and a link to the build logs.',
+            'Plugin Docker builds are reported automatically by the plugin service — no EventBridge needed.',
+          ],
+        },
+        {
+          type: 'note',
+          content:
+            'Events for pipelines that aren\'t registered (no `PIPELINE_EVENT_ID` tag yet) are skipped and logged — deploy/register the pipeline to start seeing its runs.',
+        },
+      ],
+    },
   ],
 };

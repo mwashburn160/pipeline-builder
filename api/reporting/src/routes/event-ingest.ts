@@ -20,11 +20,15 @@ const AWS_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELED', 'IN_PROGRESS', 'STARTED
 const PLUGIN_BUILD_STATUSES = ['completed', 'failed', 'started', 'timeout', 'cancelled'] as const;
 
 const baseIngestFields = {
-  pipelineArn: z.string().min(1),
+  // Stable pipeline id the events Lambda read from the pipeline's
+  // PIPELINE_EVENT_ID tag (= the platform pipelineId). The registry join key.
+  pipelineId: z.string().min(1),
   eventType: z.enum(['PIPELINE', 'STAGE', 'ACTION', 'BUILD']),
   executionId: z.string().optional(),
   stageName: z.string().optional(),
   actionName: z.string().optional(),
+  // Failure reason (Action events) — promoted from detail.execution-result.
+  errorMessage: z.string().max(8192).optional(),
   startedAt: z.string().datetime({ offset: true }).optional(),
   completedAt: z.string().datetime({ offset: true }).optional(),
   durationMs: z.number().int().min(0).optional(),
@@ -62,15 +66,15 @@ export function createEventIngestRoutes(): Router {
     }
 
     // see ReportingService.ingestEvents for the cross-tenant rationale
-    const { inserted, skipped, unregisteredArns } = await runWithTenantContext(
+    const { inserted, skipped, unregisteredPipelineIds } = await runWithTenantContext(
       { isSuperAdmin: true },
       () => reportingService.ingestEvents(events),
     );
 
     if (skipped > 0) {
-      ctx.log('WARN', 'Skipped events for unregistered ARNs', {
+      ctx.log('WARN', 'Skipped events for unregistered pipeline ids', {
         skipped,
-        sampleArns: unregisteredArns.slice(0, 5),
+        samplePipelineIds: unregisteredPipelineIds.slice(0, 5),
       });
     }
 

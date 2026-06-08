@@ -8,7 +8,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { HelpAccordionTopic } from '@/components/help/HelpAccordionTopic';
-import { HELP_TOPICS } from '@/lib/help';
+import { HELP_TOPICS, HELP_GROUPS } from '@/lib/help';
 import type { HelpTopic, ContentBlock } from '@/lib/help/types';
 
 /**
@@ -70,6 +70,17 @@ export default function HelpPage() {
     return HELP_TOPICS.filter((t) => topicSearchText(t).includes(q));
   }, [query]);
 
+  // Same filter, but keep the category grouping (drop empty groups).
+  const visibleGroups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return HELP_GROUPS
+      .map((g) => ({
+        category: g.category,
+        topics: q ? g.topics.filter((t) => topicSearchText(t).includes(q)) : g.topics,
+      }))
+      .filter((g) => g.topics.length > 0);
+  }, [query]);
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
@@ -129,11 +140,18 @@ export default function HelpPage() {
         </div>
       </div>
 
-      <div className="space-y-3 max-w-4xl">
-        {visibleTopics.map((topic, i) => (
-          <HelpAccordionTopic key={topic.id} topic={topic} defaultOpen={i === 0 && !query} />
+      <div className="space-y-6 max-w-4xl">
+        {visibleGroups.map((group, gi) => (
+          <section key={group.category} className="space-y-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {group.category}
+            </h2>
+            {group.topics.map((topic, ti) => (
+              <HelpAccordionTopic key={topic.id} topic={topic} defaultOpen={gi === 0 && ti === 0 && !query} />
+            ))}
+          </section>
         ))}
-        {visibleTopics.length === 0 && (
+        {visibleGroups.length === 0 && (
           <div className="card text-center py-10 text-sm text-gray-500 dark:text-gray-400">
             No topics match <code>&quot;{query}&quot;</code>. Clear the search or try a different term.
           </div>

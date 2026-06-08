@@ -43,7 +43,32 @@ export const apiReferenceTopic: HelpTopic = {
             ['DELETE', '/pipelines/:id', 'Delete a pipeline'],
             ['GET', '/pipelines/providers', 'List configured AI providers'],
             ['POST', '/pipelines/generate', 'AI-generate pipeline config from a prompt'],
+            ['GET', '/pipelines/registry', 'List the caller org\'s deployed-pipeline registry entries (event reporting / drift detection)'],
+            ['POST', '/pipelines/registry', 'Upsert a deployed pipeline\'s registry entry (keyed by pipelineId)'],
+            ['DELETE', '/pipelines/registry/:id', 'Remove a single registry entry (org-scoped)'],
           ],
+        },
+      ],
+    },
+    {
+      id: 'reporting-endpoints',
+      title: 'Reporting Endpoints',
+      blocks: [
+        {
+          type: 'table',
+          headers: ['Method', 'Endpoint', 'Description'],
+          rows: [
+            ['GET', '/reports/execution/count', 'Per-pipeline run counts (succeeded / failed / canceled)'],
+            ['GET', '/reports/execution/success-rate', 'CodePipeline success rate over a window'],
+            ['GET', '/reports/execution/action-failures', 'Most common action failures (with the failure reason)'],
+            ['GET', '/reports/plugins/build-success-rate', 'Plugin-build success rate over a window'],
+            ['POST', '/reports/events', 'Service-only batch ingest from the events Lambda (keyed by pipelineId)'],
+          ],
+        },
+        {
+          type: 'note',
+          content:
+            'Pipeline runs reach reporting automatically: the events Lambda resolves each pipeline\'s PIPELINE_EVENT_ID tag (= its pipelineId) and POSTs to /reports/events. No ARN or AWS account is ever stored.',
         },
       ],
     },

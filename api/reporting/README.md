@@ -17,7 +17,7 @@ Analytics and reporting for pipeline executions and plugin inventory. Ingests CI
 
 Authenticated via a Lambda service account; no `orgId` is required because the producer delivers events across all tenants.
 
-- `POST /reports/events` — Batch-ingest lifecycle events. Each event's `pipelineArn` is resolved against the pipeline registry; events for unregistered ARNs are dropped (and logged at WARN with sample ARNs). Returns `{ inserted, skipped, total }`.
+- `POST /reports/events` — Batch-ingest lifecycle events. Each event's `pipelineId` (resolved by the events Lambda from the pipeline's `PIPELINE_EVENT_ID` tag) is matched against the pipeline registry; events for unregistered pipeline ids are dropped (and logged at WARN with sample ids). Re-deliveries are deduped via a partial unique index. Returns `{ inserted, skipped, total }`.
 
 Events are validated with a Zod discriminated union on `eventSource`, so the `status` enum is enforced per-producer: `codepipeline`/`codebuild` use uppercase AWS statuses (`SUCCEEDED`, `FAILED`, ...), while `plugin-build` uses lowercase BullMQ states (`completed`, `failed`, ...). Pipelines must first register via `POST /pipelines/registry` for their events to be retained.
 

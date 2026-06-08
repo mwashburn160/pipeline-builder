@@ -36,8 +36,8 @@ pipeline-manager deploy
 | --- | --- |
 | `bootstrap` | Scaffold a new pipeline project with `cdk.json` and starter config |
 | `synth` | Run CDK synth to emit the CloudFormation template for the pipeline |
-| `deploy` | Deploy the synthesized pipeline stack to AWS (also registers the deployed ARN with the platform) |
-| `register` | Re-register a deployed pipeline ARN with the platform and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
+| `deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`) |
+| `register` | Re-register a deployed pipeline with the platform and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
 | `status` | Report the current deployment and execution status |
 
 ### Resource management

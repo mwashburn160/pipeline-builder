@@ -27,12 +27,12 @@ Bulk routes are gated by the `bulk_operations` feature flag. Non-private pipelin
 
 ### Registry
 
-The registry maps deployed pipeline ARNs to their owning org for event reporting and drift detection (the `pipeline-manager audit-stacks` CLI joins it against live CloudFormation stacks). Account IDs and ARNs are hashed before storage.
+The registry maps each deployed pipeline (by its stable `pipelineId`) to its owning org for event reporting and drift detection (the `pipeline-manager audit-stacks` CLI joins it against live CloudFormation stacks). The `pipelineId` is applied to the live CodePipeline as the `PIPELINE_EVENT_ID` tag at synth, and the events Lambda reports against it — so no ARN or AWS account is stored.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/pipelines/registry` | List registry entries owned by the caller's org (paginated) |
-| POST | `/pipelines/registry` | Upsert a pipeline ARN mapping |
+| POST | `/pipelines/registry` | Upsert a pipeline's registry entry (keyed by `pipelineId`) |
 | DELETE | `/pipelines/registry/:id` | Remove a single registry entry (hard delete, org-scoped) |
 
 ### AI Generation
@@ -77,7 +77,7 @@ AI provider keys are read from the environment (e.g. `ANTHROPIC_API_KEY`, `OPENA
 ## Services
 
 - **PipelineService** — CRUD + bulk operations via the `CrudService` base class
-- **PipelineRegistryService** — ARN-to-org mapping for deployed pipelines (event reporting, drift detection)
+- **PipelineRegistryService** — pipelineId-to-org mapping for deployed pipelines (event reporting, drift detection)
 - **AI Generation Service** — Vercel AI SDK integration for pipeline config generation, with provider fallback
 - **Git Analysis Service** — Multi-provider repository analysis (GitHub, GitLab, Bitbucket)
 - **Plugin Lookup Service** — batched existence checks against the plugin service for auto-creation

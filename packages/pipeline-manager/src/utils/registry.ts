@@ -1,11 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 
 /**
  * Helpers for registering a deployed pipeline ARN with the platform.
@@ -35,9 +33,7 @@ import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 export interface RegistryPayload {
   pipelineId: string;
   orgId: string;
-  pipelineArn: string;
   pipelineName: string;
-  accountId: string;
   region: string;
   project: string;
   organization: string;
@@ -57,11 +53,10 @@ export interface PipelineForRegistry {
 const PENDING_INTENTS_DIR = join(homedir(), '.pipeline-manager', 'pending-registrations');
 
 /**
- * Build a RegistryPayload from the platform's pipeline metadata. Reaches out
- * to STS to discover the AWS account, hashes it, and constructs the ARN.
- *
- * The hash is the same one applied server-side as defense in depth — raw AWS
- * account numbers must never reach the platform DB.
+ * Build a RegistryPayload from the platform's pipeline metadata. No AWS calls
+ * and no ARN/account: the events Lambda attributes events via the pipeline's
+ * `PIPELINE_EVENT_ID` tag (= pipelineId), so the registry only needs the stable
+ * pipelineId + display metadata.
  */
 export async function buildRegistryPayload(
   pipeline: PipelineForRegistry,
@@ -72,25 +67,14 @@ export async function buildRegistryPayload(
     || process.env.CDK_DEFAULT_REGION
     || 'us-east-1';
 
-  const stsClient = new STSClient({ region });
-  const identity = await stsClient.send(new GetCallerIdentityCommand({}));
-  const account = identity.Account ?? '';
-  if (!account) {
-    throw new Error('Could not determine AWS account from STS — check AWS credentials');
-  }
-
-  const hashedAccount = createHash('sha256').update(account).digest('hex').slice(0, 12);
   const pipelineName = pipeline.pipelineName
     || `${pipeline.organization}-${pipeline.project}-pipeline`.toLowerCase();
-  const pipelineArn = `arn:aws:codepipeline:${region}:${hashedAccount}:${pipelineName}`;
   const stackName = `${pipeline.project}-${pipeline.organization}`.toLowerCase();
 
   return {
     pipelineId: pipeline.id,
     orgId: pipeline.orgId,
-    pipelineArn,
     pipelineName,
-    accountId: hashedAccount,
     region,
     project: pipeline.project,
     organization: pipeline.organization,

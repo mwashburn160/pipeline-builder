@@ -5,14 +5,12 @@ import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { and, desc, eq, sql } from 'drizzle-orm';
 
 export const PR_PIPELINE_NOT_OWNED = 'PR_PIPELINE_NOT_OWNED';
-export const PR_ARN_OWNED_BY_OTHER_ORG = 'PR_ARN_OWNED_BY_OTHER_ORG';
+export const PR_REGISTRY_OWNED_BY_OTHER_ORG = 'PR_REGISTRY_OWNED_BY_OTHER_ORG';
 
 export interface RegistryUpsertInput {
   pipelineId: string;
   orgId: string;
-  pipelineArn: string;
   pipelineName: string;
-  accountId?: string;
   region?: string;
   project?: string;
   organization?: string;
@@ -42,19 +40,19 @@ class PipelineRegistryService {
   }
 
   /**
-   * Upsert a registry row by pipelineArn. Enforces two tenancy guards:
+   * Upsert a registry row by pipelineId (the stable key the events Lambda
+   * resolves from the `PIPELINE_EVENT_ID` tag). Enforces two tenancy guards:
    *   1. The caller's org must own `pipelineId` (prevents claiming other orgs'
    *      pipeline IDs).
-   *   2. The ARN must not already be bound to a different org (prevents an
-   *      attacker overwriting an existing org binding via ARN replay).
-   * Throws PR_PIPELINE_NOT_OWNED or PR_ARN_OWNED_BY_OTHER_ORG.
+   *   2. Any existing registry row for `pipelineId` must belong to the caller's
+   *      org (defense in depth against a re-bind under a withdrawn pipeline).
+   * Throws PR_PIPELINE_NOT_OWNED or PR_REGISTRY_OWNED_BY_OTHER_ORG.
    */
   async upsert(input: RegistryUpsertInput) {
-    const { pipelineId, orgId, pipelineArn, pipelineName, accountId, region, project, organization, stackName } = input;
+    const { pipelineId, orgId, pipelineName, region, project, organization, stackName } = input;
 
-    // All three operations (pipeline-ownership check, ARN-ownership check,
-    // upsert) run in one tx so an attacker can't race the gate checks against
-    // the insert under a withdrawn pipeline binding.
+    // All operations run in one tx so an attacker can't race the gate checks
+    // against the insert under a withdrawn pipeline binding.
     return withTenantTx(async (tx) => {
       const [pipeline] = await tx
         .select({ id: schema.pipeline.id })
@@ -68,8 +66,8 @@ class PipelineRegistryService {
       const [existing] = await tx
         .select({ orgId: schema.pipelineRegistry.orgId })
         .from(schema.pipelineRegistry)
-        .where(eq(schema.pipelineRegistry.pipelineArn, pipelineArn));
-      if (existing && existing.orgId !== orgId) throw new Error(PR_ARN_OWNED_BY_OTHER_ORG);
+        .where(eq(schema.pipelineRegistry.pipelineId, pipelineId));
+      if (existing && existing.orgId !== orgId) throw new Error(PR_REGISTRY_OWNED_BY_OTHER_ORG);
 
       const now = new Date();
       const [result] = await tx
@@ -77,9 +75,7 @@ class PipelineRegistryService {
         .values({
           pipelineId,
           orgId,
-          pipelineArn,
           pipelineName,
-          accountId,
           region,
           project,
           organization,
@@ -87,11 +83,9 @@ class PipelineRegistryService {
           lastDeployed: now,
         })
         .onConflictDoUpdate({
-          target: schema.pipelineRegistry.pipelineArn,
+          target: schema.pipelineRegistry.pipelineId,
           set: {
-            pipelineId,
             pipelineName,
-            accountId,
             region,
             project,
             organization,
@@ -115,7 +109,7 @@ class PipelineRegistryService {
       ))
       .returning({
         id: schema.pipelineRegistry.id,
-        pipelineArn: schema.pipelineRegistry.pipelineArn,
+        pipelineId: schema.pipelineRegistry.pipelineId,
       }));
     return deleted ?? null;
   }

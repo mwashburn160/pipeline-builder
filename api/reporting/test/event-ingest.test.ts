@@ -61,7 +61,6 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     pipelineRegistry: {
       pipelineId: 'pipeline_id',
       orgId: 'org_id',
-      pipelineArn: 'pipeline_arn',
     },
     pipelineEvent: 'pipeline_events',
   },
@@ -110,7 +109,7 @@ describe('POST /reports/events', () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
 
     const events = Array.from({ length: 101 }, (_, i) => ({
-      pipelineArn: `arn:aws:codepipeline:us-east-1:123:pipe-${i}`,
+      pipelineId: `pipeline-uuid-${i}`,
       eventSource: 'codepipeline',
       eventType: 'PIPELINE',
       status: 'SUCCEEDED',

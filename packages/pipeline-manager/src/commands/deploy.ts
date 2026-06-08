@@ -260,7 +260,7 @@ export function deploy(program: Command): void {
 
           try {
             await platformClient.post(`${platformConfig.api.pipelineUrl}/registry`, payload);
-            printSuccess('Pipeline registered for event reporting', { arn: payload.pipelineArn });
+            printSuccess('Pipeline registered for event reporting', { pipelineId: payload.pipelineId });
           } catch (regError) {
             // Persist for retry. The user can drain with `pipeline-manager
             // register` (or just re-run that command at any time — it's

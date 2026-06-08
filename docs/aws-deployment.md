@@ -692,14 +692,15 @@ aws lambda get-function --function-name pipeline-builder-event-ingestion \
 ### How Reporting Works
 
 ```
-Deploy → pipeline-manager registers hashed ARN in pipeline_registry
+Synth  → CDK tags the CodePipeline `PIPELINE_EVENT_ID=<pipelineId>` (stable, set at creation)
+Deploy → pipeline-manager registers the pipeline (by pipelineId) in pipeline_registry
 Execute → CodePipeline runs → EventBridge captures state changes
-Ingest  → SQS → Lambda → hashes account → POST /api/reports/events
-Store   → Reporting API resolves org via registry → inserts into pipeline_events
+Ingest  → SQS → Lambda resolves the PIPELINE_EVENT_ID tag → POST /api/reports/events (keyed by pipelineId)
+Store   → Reporting API matches the registry by pipelineId → inserts into pipeline_events
 View    → Dashboard Reports page or GET /api/reports/...
 ```
 
-> AWS account numbers are **never stored in plain text**. Both the deploy command and Lambda handler hash account numbers with SHA-256 before sending to the API. The reporting API applies the same hash as defense in depth.
+> The pipeline ARN and AWS account number **never leave AWS** — the Lambda attributes events via the pipeline's `PIPELINE_EVENT_ID` tag (= the opaque `pipelineId`), so nothing sensitive is stored and there is no masking key to manage. The Lambda's execution role needs `codepipeline:ListTagsForResource`.
 
 > Plugin Docker builds are captured automatically by the plugin service (no EventBridge needed).
 
@@ -758,7 +759,7 @@ A typical alerting setup runs the audit nightly and pages on non-zero exit:
 Drift is **not auto-fixed** — the command only reports. Reconciliation is manual and depends on the cause:
 
 - **Orphaned stack**: confirm the pipeline definition really was deleted, then `aws cloudformation delete-stack --stack-name <name>` to clean up the leftover. If the deletion was unintentional, recreate the pipeline definition and redeploy.
-- **Missing stack**: redeploy the pipeline (`pipeline-manager deploy --id <pipelineId>`) to recreate the stack and refresh the registry row. There is currently no API or dashboard surface to drop a stale registry row in isolation — if redeploy isn't desired, the row must be removed directly in Postgres (`DELETE FROM pipeline_registry WHERE pipeline_arn = '<arn>'`).
+- **Missing stack**: redeploy the pipeline (`pipeline-manager deploy --id <pipelineId>`) to recreate the stack and refresh the registry row. There is currently no API or dashboard surface to drop a stale registry row in isolation — if redeploy isn't desired, the row must be removed directly in Postgres (`DELETE FROM pipeline_registry WHERE pipeline_id = '<pipelineId>'`).
 
 #### What it doesn't catch
 

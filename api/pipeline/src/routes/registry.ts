@@ -9,8 +9,6 @@ import {
   ErrorCode,
   errorMessage,
   getParam,
-  hashAccountInArn,
-  hashId,
   parsePaginationParams,
   validateBody,
 } from '@pipeline-builder/api-core';
@@ -20,14 +18,12 @@ import { z } from 'zod';
 import {
   pipelineRegistryService,
   PR_PIPELINE_NOT_OWNED,
-  PR_ARN_OWNED_BY_OTHER_ORG,
+  PR_REGISTRY_OWNED_BY_OTHER_ORG,
 } from '../services/pipeline-registry-service';
 
 const PipelineRegistrySchema = z.object({
   pipelineId: z.string().min(1, 'pipelineId is required'),
-  pipelineArn: z.string().min(1, 'pipelineArn is required'),
   pipelineName: z.string().min(1, 'pipelineName is required'),
-  accountId: z.string().optional(),
   region: z.string().optional(),
   project: z.string().optional(),
   organization: z.string().optional(),
@@ -61,34 +57,31 @@ export function createRegistryRoutes(): Router {
     }
 
     const v = validation.value;
-    // Ensure account is hashed before storing (defense in depth)
-    const safeArn = hashAccountInArn(v.pipelineArn);
-    const safeAccountId = v.accountId ? hashId(v.accountId) : undefined;
-
-    ctx.log('INFO', 'Registering pipeline for event reporting', { pipelineArn: safeArn });
+    // No ARN/account is stored: the events Lambda resolves the pipeline's
+    // `PIPELINE_EVENT_ID` tag (= pipelineId) and reports against it, so the
+    // registry only needs the stable pipelineId + display metadata.
+    ctx.log('INFO', 'Registering pipeline for event reporting', { pipelineId: v.pipelineId });
 
     try {
       const result = await pipelineRegistryService.upsert({
         pipelineId: v.pipelineId,
         orgId,
-        pipelineArn: safeArn,
         pipelineName: v.pipelineName,
-        accountId: safeAccountId,
         region: v.region,
         project: v.project,
         organization: v.organization,
         stackName: v.stackName,
       });
-      ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, arn: safeArn });
+      ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, pipelineId: v.pipelineId });
       return sendSuccess(res, 200, { registry: result });
     } catch (err) {
       const code = errorMessage(err);
       if (code === PR_PIPELINE_NOT_OWNED) {
         return sendError(res, 404, 'Pipeline not found in your organization', ErrorCode.NOT_FOUND);
       }
-      if (code === PR_ARN_OWNED_BY_OTHER_ORG) {
-        ctx.log('WARN', 'Rejected registry claim for ARN owned by another org', { pipelineArn: safeArn });
-        return sendError(res, 409, 'Pipeline ARN is registered to a different organization', ErrorCode.CONFLICT);
+      if (code === PR_REGISTRY_OWNED_BY_OTHER_ORG) {
+        ctx.log('WARN', 'Rejected registry claim for a pipeline owned by another org', { pipelineId: v.pipelineId });
+        return sendError(res, 409, 'Pipeline is registered to a different organization', ErrorCode.CONFLICT);
       }
       throw err;
     }
@@ -117,7 +110,7 @@ export function createRegistryRoutes(): Router {
     const deleted = await pipelineRegistryService.delete(id, orgId);
     if (!deleted) return sendError(res, 404, 'Registry entry not found.', ErrorCode.NOT_FOUND);
 
-    ctx.log('COMPLETED', 'Pipeline registry row deleted', { id: deleted.id, arn: deleted.pipelineArn });
+    ctx.log('COMPLETED', 'Pipeline registry row deleted', { id: deleted.id, pipelineId: deleted.pipelineId });
     return sendSuccess(res, 200, { id: deleted.id });
   }));
 

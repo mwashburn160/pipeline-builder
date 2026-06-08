@@ -1,9 +1,21 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHash } from 'crypto';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
+
+// AWS Lambda's Node runtime bundles @aws-sdk v3, so the CodePipeline client is
+// loaded at runtime via require — taking a workspace dependency on
+// @aws-sdk/client-codepipeline would perturb the shared @aws-sdk version tree
+// and break other packages' typings. Minimal local types keep the call sites
+// type-checked.
+interface ListTagsOutput { tags?: Array<{ key?: string; value?: string }> }
+interface CodePipelineClientLike { send(command: unknown): Promise<ListTagsOutput> }
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const codepipeline = require('@aws-sdk/client-codepipeline') as {
+  CodePipelineClient: new (config: { region: string }) => CodePipelineClientLike;
+  ListTagsForResourceCommand: new (input: { resourceArn: string }) => unknown;
+};
 
 /**
  * Pipeline event ingestion Lambda handler.
@@ -22,28 +34,60 @@ import type { SQSEvent, SQSRecord } from 'aws-lambda';
  * - PLATFORM_SECRET_NAME — Secrets Manager secret containing { accessToken }
  */
 
-/**
- * One-way SHA-256 hash of a sensitive identifier.
- * Must match the same algorithm used in api-core/mask-helpers.ts so that
- * the hashed ARN from the Lambda matches the hashed ARN in pipeline_registry.
- */
-function hashId(value: string, length = 12): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, length);
-}
-
-/** Replace the account segment of an ARN with its SHA-256 hash. */
-function hashAccountInArn(arn: string): string {
-  const parts = arn.split(':');
-  if (parts.length < 5 || !parts[4]) return arn;
-  parts[4] = hashId(parts[4]);
-  return parts.join(':');
-}
-
 const log = {
   info: (msg: string, data?: unknown) => console.log(JSON.stringify({ level: 'INFO', message: msg, data, ts: new Date().toISOString() })),
   warn: (msg: string, data?: unknown) => console.log(JSON.stringify({ level: 'WARN', message: msg, data, ts: new Date().toISOString() })),
   error: (msg: string, data?: unknown) => console.error(JSON.stringify({ level: 'ERROR', message: msg, data, ts: new Date().toISOString() })),
 };
+
+// ── PIPELINE_EVENT_ID resolution ─────────────────────────
+// Pipelines are tagged `PIPELINE_EVENT_ID=<pipelineId>` at CDK synth. We resolve
+// that tag from the live CodePipeline (region-aware) and report against the id —
+// the ARN/account never leave AWS, so there's no masking. Cached per ARN
+// (warm-container) to avoid hammering the ListTags API.
+//
+// Requires the Lambda execution role to allow `codepipeline:ListTagsForResource`.
+// AccessDenied is a config error (alert loudly); a missing tag is treated as
+// "not yet registered" (skip).
+
+const PIPELINE_EVENT_ID_TAG = 'PIPELINE_EVENT_ID';
+const clientsByRegion = new Map<string, CodePipelineClientLike>();
+const eventIdByArn = new Map<string, string | null>(); // null = resolved-but-untagged (negative cache)
+
+function pipelineClient(region: string): CodePipelineClientLike {
+  let client = clientsByRegion.get(region);
+  if (!client) {
+    client = new codepipeline.CodePipelineClient({ region });
+    clientsByRegion.set(region, client);
+  }
+  return client;
+}
+
+/**
+ * Resolve a CodePipeline's PIPELINE_EVENT_ID tag → the platform pipelineId.
+ * Returns null when the pipeline has no such tag (unregistered). Throws on
+ * AccessDenied so a missing IAM grant surfaces loudly instead of silently
+ * dropping every event.
+ */
+async function resolvePipelineEventId(arn: string, region: string): Promise<string | null> {
+  if (eventIdByArn.has(arn)) return eventIdByArn.get(arn)!;
+  try {
+    const out = await pipelineClient(region).send(new codepipeline.ListTagsForResourceCommand({ resourceArn: arn }));
+    const tag = out.tags?.find(t => t.key === PIPELINE_EVENT_ID_TAG)?.value ?? null;
+    if (!tag) log.warn('Pipeline missing PIPELINE_EVENT_ID tag — skipping (register it?)', { arn });
+    eventIdByArn.set(arn, tag);
+    return tag;
+  } catch (err) {
+    const name = (err as { name?: string })?.name;
+    if (name === 'AccessDeniedException') {
+      // Don't cache — this is a fixable misconfig, not a property of the pipeline.
+      log.error('AccessDenied calling codepipeline:ListTagsForResource — grant it to the Lambda role', { arn, error: name });
+      throw err;
+    }
+    log.error('Failed to resolve PIPELINE_EVENT_ID tag', { arn, error: name ?? String(err) });
+    return null;
+  }
+}
 
 // ─── Auth ───────────────────────────────────────────────
 
@@ -84,18 +128,25 @@ async function getAuthToken(): Promise<string> {
 // ─── Event Parsing ──────────────────────────────────────
 
 interface ParsedEvent {
-  pipelineArn: string;
+  pipelineId: string;
   eventSource: string;
   eventType: string;
   status: string;
   executionId?: string;
   stageName?: string;
   actionName?: string;
+  /** Human-readable failure reason, from an Action event's
+   *  `execution-result.external-execution-summary`. The log URL + error-code
+   *  stay in `detail` for drill-down. */
+  errorMessage?: string;
   startedAt?: string;
   completedAt?: string;
   durationMs?: number;
   detail: Record<string, unknown>;
 }
+
+/** Cap on the stored failure summary — CodeBuild/Deploy summaries can be long. */
+const MAX_ERROR_MESSAGE = 4000;
 
 function classifyEvent(detailType: string): { eventType: string; eventSource: string } {
   if (detailType.includes('Pipeline Execution')) return { eventType: 'PIPELINE', eventSource: 'codepipeline' };
@@ -105,7 +156,8 @@ function classifyEvent(detailType: string): { eventType: string; eventSource: st
   return { eventType: 'PIPELINE', eventSource: 'codepipeline' };
 }
 
-function parseRecord(record: SQSRecord): ParsedEvent {
+/** Parse + resolve one record to a reportable event, or null to skip it. */
+async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null> {
   const event = JSON.parse(record.body) as {
     'detail-type': string;
     'source': string;
@@ -115,21 +167,32 @@ function parseRecord(record: SQSRecord): ParsedEvent {
     'account': string;
   };
 
+  const { eventType, eventSource } = classifyEvent(event['detail-type']);
   const detail = { ...event.detail };
-  const pipelineName = detail.pipeline as string;
+  // The raw account never needs to leave AWS now — drop it from the payload.
+  delete detail.account;
 
-  // Hash account in ARN so the real account never reaches the database.
-  // Must use the same hashId algorithm as api-core so registry lookups match.
-  const pipelineArn = hashAccountInArn(
-    `arn:aws:codepipeline:${event.region}:${event.account}:${pipelineName}`,
-  );
-
-  // Hash account in detail too
-  if (event.account) {
-    detail.account = hashId(event.account);
+  // CodeBuild "Build State" events identify a build *project*, not a pipeline,
+  // and a project can be shared across pipelines — there's no clean 1:1 mapping
+  // to a PIPELINE_EVENT_ID, so skip them (they were effectively dropped before
+  // too, since detail.pipeline was undefined and never matched the registry).
+  if (eventSource !== 'codepipeline') {
+    log.warn('Skipping non-CodePipeline event (no pipeline tag to resolve)', { detailType: event['detail-type'] });
+    return null;
   }
 
-  const { eventType, eventSource } = classifyEvent(event['detail-type']);
+  const pipelineName = detail.pipeline as string | undefined;
+  if (!pipelineName) {
+    log.warn('CodePipeline event missing pipeline name — skipping');
+    return null;
+  }
+
+  // Resolve the pipeline's PIPELINE_EVENT_ID tag (= platform pipelineId). The
+  // ARN is only a transient handle for the tag lookup; it is never stored.
+  const arn = `arn:aws:codepipeline:${event.region}:${event.account}:${pipelineName}`;
+  const pipelineId = await resolvePipelineEventId(arn, event.region);
+  if (!pipelineId) return null; // untagged / unregistered → skip
+
   const startedAt = (detail['start-time'] as string) || event.time;
   const state = detail.state as string;
 
@@ -144,14 +207,24 @@ function parseRecord(record: SQSRecord): ParsedEvent {
     }
   }
 
+  // Promote the failure reason to a typed field. On Action events AWS puts the
+  // human-readable summary (and a log URL + error-code, which stay in `detail`)
+  // under `execution-result`.
+  const result = detail['execution-result'] as { 'external-execution-summary'?: unknown } | undefined;
+  const summary = result?.['external-execution-summary'];
+  const errorMessage = typeof summary === 'string' && summary.length > 0
+    ? summary.slice(0, MAX_ERROR_MESSAGE)
+    : undefined;
+
   return {
-    pipelineArn,
+    pipelineId,
     eventSource,
     eventType,
     status: state,
     executionId: detail['execution-id'] as string | undefined,
     stageName: detail.stage as string | undefined,
     actionName: detail.action as string | undefined,
+    errorMessage,
     startedAt,
     completedAt,
     durationMs,
@@ -165,8 +238,13 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   const baseUrl = process.env.PLATFORM_BASE_URL;
   if (!baseUrl) throw new Error('PLATFORM_BASE_URL environment variable is required');
 
-  // Parse all events
-  const events = event.Records.map(parseRecord);
+  // Parse + resolve all records (tag lookups run concurrently); drop skips.
+  const events = (await Promise.all(event.Records.map(parseRecord)))
+    .filter((e): e is ParsedEvent => e !== null);
+  if (events.length === 0) {
+    log.info('No resolvable CodePipeline events in batch');
+    return;
+  }
 
   // Authenticate
   const token = await getAuthToken();
