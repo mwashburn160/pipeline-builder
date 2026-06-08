@@ -301,7 +301,12 @@ services:
       # JWT
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
-      JWT_SALT_ROUNDS: ${JWT_SALT_ROUNDS}
+      # bcrypt password-hash cost. Renamed from JWT_SALT_ROUNDS; the deprecated
+      # name is still passed through so the app honors it for one release. Both
+      # use empty :- defaults so compose doesn't warn when unset — the app owns
+      # the default (BCRYPT_SALT_ROUNDS || JWT_SALT_ROUNDS || 12).
+      BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-}
+      JWT_SALT_ROUNDS: ${JWT_SALT_ROUNDS:-}
       REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN}
       # Platform
       PLATFORM_FRONTEND_URL: ${PLATFORM_FRONTEND_URL:-https://localhost:8443}
