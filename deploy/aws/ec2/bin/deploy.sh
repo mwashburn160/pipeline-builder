@@ -206,7 +206,7 @@ echo "                New SES accounts are SANDBOXED: send only to verified reci
 echo "                (200/day) until you request production access:"
 echo "                https://${REGION}.console.aws.amazon.com/ses/home?region=${REGION}#/account"
 echo "                To smoke-test in sandbox, verify a REAL recipient — never admin@internal."
-echo "                Bounces/complaints publish to SNS topic pipeline-builder-email-events"
+echo "                Bounces/complaints publish to SNS topic ${STACK_NAME}-email-events"
 if [ -n "$ALERT_EMAIL" ]; then
 echo "                (alert: ${ALERT_EMAIL} — CONFIRM the SNS subscription email AWS sent)."
 else

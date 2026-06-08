@@ -22,9 +22,6 @@ import { createHash } from 'crypto';
  *   generate('plugin:lookup')   → 'plugin:{hash}:lookup:2'   (counter inc)
  *   generate('cdk:pipeline:1')  → 'cdk:pipeline:1'           (already counted)
  *
- * Format without org+project (backward compat):
- *   generate('plugin:lookup')   → 'plugin:lookup:1'
- *
  * @example
  * ```typescript
  * const id = new UniqueId({ organization: 'AcmeCorp', project: 'spring-boot' });
@@ -35,26 +32,22 @@ import { createHash } from 'crypto';
  */
 export interface UniqueIdOptions {
   /** Organization name — combined with project to form the stack-identity hash. */
-  readonly organization?: string;
+  readonly organization: string;
   /** Project name — combined with organization to form the stack-identity hash. */
-  readonly project?: string;
+  readonly project: string;
 }
 
 export class UniqueId {
   private readonly _counters = new Map<string, number>();
   private readonly _stackId: string;
 
-  constructor(opts: UniqueIdOptions = {}) {
-    if (opts.organization && opts.project) {
-      // 8 hex chars = 32 bits = 1 in 4 billion collision odds across pipelines.
-      // Lowercased for case-insensitive stability ("AcmeCorp" === "acmecorp").
-      this._stackId = createHash('sha256')
-        .update(`${opts.project}:${opts.organization}`.toLowerCase())
-        .digest('hex')
-        .slice(0, 8);
-    } else {
-      this._stackId = '';
-    }
+  constructor(opts: UniqueIdOptions) {
+    // 8 hex chars = 32 bits = 1 in 4 billion collision odds across pipelines.
+    // Lowercased for case-insensitive stability ("AcmeCorp" === "acmecorp").
+    this._stackId = createHash('sha256')
+      .update(`${opts.project}:${opts.organization}`.toLowerCase())
+      .digest('hex')
+      .slice(0, 8);
   }
 
   /**
@@ -79,10 +72,6 @@ export class UniqueId {
     const count = (this._counters.get(label) ?? 0) + 1;
     this._counters.set(label, count);
 
-    if (!this._stackId) {
-      return `${label}:${count}`;
-    }
-
     // Insert the stack hash after the first namespace segment so the leading
     // category (`plugin`, `log`, `resource`, etc.) stays human-readable.
     const idx = label.indexOf(':');
@@ -95,7 +84,7 @@ export class UniqueId {
     return `${head}:${this._stackId}:${tail}:${count}`;
   }
 
-  /** The stack-identity hash, or empty string when not configured. */
+  /** The stack-identity hash derived from organization + project. */
   get stackId(): string {
     return this._stackId;
   }

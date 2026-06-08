@@ -88,7 +88,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
       // Service-minted auth for downstream calls (compliance, quota). The
       // caller's bearer token may carry only end-user scopes that won't pass
       // service-to-service authorization checks; mint a service token instead.
-      const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId });
+      const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'owner' });
 
       let zipPath: string | undefined;
       let reserved = false;

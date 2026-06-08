@@ -14,8 +14,6 @@ interface Props {
   display?: string;
   /** Visual size, matching the rest of the primitive UI library. */
   size?: 'sm' | 'md' | 'lg';
-  /** @deprecated Use `size="sm"` instead. Retained as a back-compat alias. */
-  small?: boolean;
 }
 
 const CODE_CLASS: Record<NonNullable<Props['size']>, string> = {
@@ -30,10 +28,8 @@ const CODE_CLASS: Record<NonNullable<Props['size']>, string> = {
  * dominate the cell. The bigger `CopyButton` from this directory is
  * still the right choice for one-off "copy command" boxes.
  */
-export function CopyableId({ value, display, size, small }: Props) {
-  // Resolve the effective size: explicit `size` wins, the deprecated
-  // `small` flag maps to 'sm', otherwise default to 'md'.
-  const effectiveSize: NonNullable<Props['size']> = size ?? (small ? 'sm' : 'md');
+export function CopyableId({ value, display, size }: Props) {
+  const effectiveSize: NonNullable<Props['size']> = size ?? 'md';
   const { state, copy } = useCopyToClipboard(COPY_FEEDBACK_RESET_MS);
 
   const handleClick = (e: React.MouseEvent) => {

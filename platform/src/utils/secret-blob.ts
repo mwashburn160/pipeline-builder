@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Single source of truth for encrypted-secret-blob storage. The four
+ * Single source of truth for encrypted-secret-blob storage. The
  * secret-handling services (`organization-service`, `org-idp-service`,
- * `secret-backfill`, `secret-reencrypt`) previously each re-implemented
- * the same JSON-wrap-around-EncryptedBlob pattern, with subtly different
+ * `secret-reencrypt`) previously each re-implemented the same
+ * JSON-wrap-around-EncryptedBlob pattern, with subtly different
  * error message text — drift between them would have broken the
  * round-trip silently.
  *
@@ -18,8 +18,8 @@ import { EncryptedBlob, decryptSecret, encryptSecret, isEncryptedBlob } from '@p
 
 /**
  * Quick heuristic — does this raw string look like one of our stored
- * encrypted blobs (a JSON object) rather than legacy clear-text? Used by
- * the backfill / reencrypt jobs to skip rows that are already encrypted.
+ * encrypted blobs (a JSON object) rather than clear-text? Used by the
+ * reencrypt job to skip rows that are already encrypted.
  * Does NOT validate the blob structure; use {@link unwrapEncrypted} for that.
  */
 export function looksEncrypted(raw: string): boolean {

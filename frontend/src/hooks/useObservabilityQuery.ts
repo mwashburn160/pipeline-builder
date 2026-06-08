@@ -6,9 +6,6 @@ import { api } from '@/lib/api';
 import type { ObservabilityQueryResponse, RangeKey } from '@/types/observability';
 import { useObservabilityResource } from './useObservabilityResource';
 
-// Re-export for back-compat with consumers that imported RangeKey from this module.
-export type { RangeKey };
-
 /**
  * Fetches an observability metric query by catalog key. Re-polls every 30s
  * while the tab is visible; aborts the in-flight request on unmount or

@@ -36,7 +36,7 @@ export const envVariablesTopic: HelpTopic = {
             ['JWT_SECRET', '—', 'Required. Secret for signing/verifying JWTs'],
             ['JWT_EXPIRES_IN', '86400', 'Token expiration in seconds (24h)'],
             ['JWT_ALGORITHM', 'HS256', 'Signing algorithm: HS256, HS384, HS512, RS256'],
-            ['JWT_SALT_ROUNDS', '12', 'bcrypt salt rounds (10-12 recommended)'],
+            ['BCRYPT_SALT_ROUNDS', '12', 'bcrypt salt rounds (10-12 recommended)'],
             ['REFRESH_TOKEN_SECRET', '—', 'Required. Separate secret for refresh tokens'],
             ['REFRESH_TOKEN_EXPIRES_IN', '2592000', 'Refresh token expiration in seconds (30d)'],
           ],

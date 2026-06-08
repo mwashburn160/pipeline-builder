@@ -82,7 +82,7 @@ import { PluginLookup } from '../src/pipeline/plugin-lookup';
 const mockScope = {} as any;
 
 function createUniqueId(): UniqueId {
-  return new UniqueId();
+  return new UniqueId({ organization: 'test-org', project: 'test-project' });
 }
 
 describe('PluginLookup', () => {

@@ -204,11 +204,11 @@ export default function OrgDetailPage() {
             <dl className="text-sm space-y-2">
               <div>
                 <dt className="text-gray-500 dark:text-gray-400">Org id</dt>
-                <dd><CopyableId value={org.id} small /></dd>
+                <dd><CopyableId value={org.id} size="sm" /></dd>
               </div>
               <div>
                 <dt className="text-gray-500 dark:text-gray-400">Slug</dt>
-                <dd>{org.slug ? <CopyableId value={org.slug} small /> : <code className="text-xs">—</code>}</dd>
+                <dd>{org.slug ? <CopyableId value={org.slug} size="sm" /> : <code className="text-xs">—</code>}</dd>
               </div>
               {org.description && (
                 <div>
@@ -243,7 +243,7 @@ export default function OrgDetailPage() {
             {kms?.configured ? (
               <div className="text-sm">
                 <div className="text-gray-500 dark:text-gray-400 mb-1">Wrapping under operator CMK:</div>
-                <CopyableId value={kms.keyId ?? ''} small />
+                <CopyableId value={kms.keyId ?? ''} size="sm" />
               </div>
             ) : (
               <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -272,12 +272,12 @@ export default function OrgDetailPage() {
                 </div>
                 <div>
                   <dt className="text-gray-500 dark:text-gray-400">Client ID</dt>
-                  <dd><CopyableId value={idp.clientId} small /></dd>
+                  <dd><CopyableId value={idp.clientId} size="sm" /></dd>
                 </div>
                 {idp.discoveryUrl && (
                   <div>
                     <dt className="text-gray-500 dark:text-gray-400">Discovery URL</dt>
-                    <dd className="break-all"><CopyableId value={idp.discoveryUrl} small /></dd>
+                    <dd className="break-all"><CopyableId value={idp.discoveryUrl} size="sm" /></dd>
                   </div>
                 )}
                 {idp.allowedEmailDomains.length > 0 && (

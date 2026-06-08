@@ -414,21 +414,6 @@ async function startServer(): Promise<void> {
       throw err;
     }
 
-    // Re-encrypt any clear-text secrets left from pre-encryption writes.
-    // Runs AFTER the key provider is installed (so backfills land under
-    // the right CMK) and BEFORE HTTP listens (so the strict-only read
-    // path that lands next never sees a clear-text record). Idempotent —
-    // first boot does the work, subsequent boots are no-ops.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { backfillSecrets } = require('./services/secret-backfill');
-    try {
-      await backfillSecrets();
-    } catch (err) {
-      logger.error('Secret backfill failed (HTTP will still start, but expect decrypt errors on clear-text rows)', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
     // Seed default dashboards into Postgres. Fire-and-forget: the seeder is
     // idempotent (insert-if-missing per `(org_id='system', name)`) and logs
     // its own warnings on failure, so a transient Postgres outage at cold

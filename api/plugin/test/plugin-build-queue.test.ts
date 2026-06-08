@@ -230,7 +230,7 @@ function makeJob(data: PluginBuildJobData, overrides: Record<string, any> = {}) 
 }
 
 function getMainProcessor() {
-  return capturedProcessors['plugin-build'];
+  return capturedProcessors['plugin-build-developer'];
 }
 
 // Tests

@@ -266,13 +266,12 @@ export interface ServiceTokenOptions {
   /** TTL in seconds (default 300). */
   ttlSeconds?: number;
   /**
-   * Role the token carries. Defaults to `'owner'` for backward compatibility —
-   * many existing inter-service calls hit admin-gated endpoints. **Pass the
-   * LOWEST role the call actually needs** (`'member'` for read / data-plane
-   * calls) so a leaked service token can't perform admin actions in the target
-   * org. `isAdmin` is derived from this (admin|owner → true).
+   * Role the token carries (required — no implicit default). **Pass the LOWEST
+   * role the call actually needs** (`'member'` for read / data-plane calls) so a
+   * leaked service token can't perform admin actions in the target org.
+   * `isAdmin` is derived from this (admin|owner → true).
    */
-  role?: 'owner' | 'admin' | 'member';
+  role: 'owner' | 'admin' | 'member';
 }
 
 /**
@@ -281,7 +280,7 @@ export interface ServiceTokenOptions {
  * Scope it with `opts.role` — least privilege keeps a leaked token low-value.
  */
 export function signServiceToken(opts: ServiceTokenOptions): string {
-  const role = opts.role ?? 'owner';
+  const role = opts.role;
   const payload: JwtPayload = {
     sub: `service:${opts.serviceName}`,
     username: `${opts.serviceName}-service`,

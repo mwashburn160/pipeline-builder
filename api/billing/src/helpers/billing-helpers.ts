@@ -82,7 +82,7 @@ export async function syncTierToQuotaService(
     // Mint the service token for the target org so the quota service sees a
     // real tenant identity rather than 'system' — keeps RLS / audit logs
     // attributable to the org being mutated.
-    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId });
+    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
     const response = await client.put(`/quotas/${orgId}`, { tier }, {
       headers: {
         'Authorization': effectiveAuth,

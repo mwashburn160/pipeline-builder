@@ -125,10 +125,9 @@ class EmailService {
         // publish to the deploy's SNS topic. nodemailer's SESv2 transport
         // merges `ses` into the SendEmailCommand input. Omitted for SMTP / when
         // no config set is configured.
-        ...(config.email.provider === 'ses' &&
-          config.email.ses.configurationSet && {
-          ses: { ConfigurationSetName: config.email.ses.configurationSet },
-        }),
+        ...(config.email.provider === 'ses' && config.email.ses.configurationSet
+          ? { ses: { ConfigurationSetName: config.email.ses.configurationSet } }
+          : {}),
       });
 
       logger.info('Email sent successfully', {

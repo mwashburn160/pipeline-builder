@@ -154,6 +154,7 @@ Parameters:
 
 Conditions:
   IsPrivate: !Equals [!Ref DeployMode, private]
+  HasEmailFrom: !Not [!Equals [!Ref EmailFrom, ""]]
 
 Resources:
 
@@ -450,7 +451,8 @@ Resources:
             - Name: SES_REGION
               Value: !Ref "AWS::Region"
             - Name: EMAIL_FROM
-              Value: !Ref EmailFrom
+              # Default to noreply@<domain> when unset, matching the IAM grant in 02-cluster.
+              Value: !If [HasEmailFrom, !Ref EmailFrom, !Sub "noreply@${DomainName}"]
             - Name: EMAIL_FROM_NAME
               Value: !Ref EmailFromName
             # Route every send through the configuration set (01-foundation) so

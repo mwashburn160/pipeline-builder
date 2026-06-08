@@ -37,7 +37,7 @@ export async function notifyComplianceBlock(
       priority: 'high',
     }, {
       headers: {
-        'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: 'system' }),
+        'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: 'system', role: 'owner' }),
         'x-org-id': 'system',
         'x-internal-service': 'true',
       },

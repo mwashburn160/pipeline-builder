@@ -249,6 +249,7 @@ async function isStorageOverBudget(orgId: string): Promise<boolean> {
       serviceName: 'image-registry',
       orgId,
       orgName: orgId,
+      role: 'owner',
     });
     const status = await quotaService.check(orgId, 'storageBytes', authHeader);
     const limit = status.limit;

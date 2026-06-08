@@ -161,7 +161,7 @@ export default function AlertDestinationsPage() {
                   <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Org:</span>
-                      <CopyableId value={orgId} small />
+                      <CopyableId value={orgId} size="sm" />
                     </div>
                     <Link href={`/dashboard/admin/orgs/${orgId}`} className="action-link text-xs">Open org detail</Link>
                   </div>

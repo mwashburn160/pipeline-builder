@@ -42,6 +42,9 @@ GHCR_USER="${GHCR_USER:-mwashburn160}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
 EMAIL_FROM="${EMAIL_FROM:-}"
+# Config-set name comes from CloudFormation (stack-scoped); fall back to the
+# default stack name's value if UserData didn't export it.
+SES_CONFIGURATION_SET="${SES_CONFIGURATION_SET:-pipeline-builder-email}"
 EMAIL_FROM_NAME="${EMAIL_FROM_NAME:-pipeline-builder}"
 
 # Persistent-storage layout. PIPELINE_ROOT is the EBS mount (or a fallback
@@ -308,7 +311,7 @@ sed -i "s|^EMAIL_FROM_NAME=.*|EMAIL_FROM_NAME=${EMAIL_FROM_NAME}|" .env
 # --email implies the SES provider, and routes sends through the configuration
 # set (template.yaml) so bounces/complaints publish to the SNS topic.
 [ "$EMAIL_ENABLED" = "true" ] && sed -i "s|^EMAIL_PROVIDER=.*|EMAIL_PROVIDER=ses|" .env
-[ "$EMAIL_ENABLED" = "true" ] && sed -i "s|^SES_CONFIGURATION_SET=.*|SES_CONFIGURATION_SET=pipeline-builder-email|" .env
+[ "$EMAIL_ENABLED" = "true" ] && sed -i "s|^SES_CONFIGURATION_SET=.*|SES_CONFIGURATION_SET=${SES_CONFIGURATION_SET}|" .env
 # Blank the static SES key placeholders so the platform signs with the EC2
 # instance role (default credential chain). email.ts treats a non-empty
 # SES_ACCESS_KEY_ID as "use static creds" — the dummy placeholder would override

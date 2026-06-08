@@ -80,7 +80,7 @@ export interface AuthConfig {
     readonly expiresIn: number;
     /** Signing algorithm, e.g. `'HS256'` (env: `JWT_ALGORITHM`). */
     readonly algorithm: Algorithm;
-    /** bcrypt salt rounds for password hashing (env: `JWT_SALT_ROUNDS`). */
+    /** bcrypt salt rounds for password hashing (env: `BCRYPT_SALT_ROUNDS`). */
     readonly saltRounds: number;
   };
   readonly refreshToken: {

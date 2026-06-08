@@ -299,7 +299,7 @@ describe('resolveAccessModifier', () => {
 
 describe('signServiceToken', () => {
   it('mints a JWT verifiable with the shared JWT_SECRET', () => {
-    const token = signServiceToken({ serviceName: 'billing', orgId: 'system' });
+    const token = signServiceToken({ serviceName: 'billing', orgId: 'system', role: 'owner' });
     const decoded = jwt.verify(token, TEST_SECRET) as JwtPayload;
     expect(decoded.sub).toBe('service:billing');
     expect(decoded.username).toBe('billing-service');
@@ -310,20 +310,20 @@ describe('signServiceToken', () => {
   });
 
   it('accepts a custom orgName (defaults to orgId)', () => {
-    const token = signServiceToken({ serviceName: 'platform', orgId: 'org-1', orgName: 'Acme' });
+    const token = signServiceToken({ serviceName: 'platform', orgId: 'org-1', orgName: 'Acme', role: 'owner' });
     const decoded = jwt.verify(token, TEST_SECRET) as JwtPayload;
     expect(decoded.organizationId).toBe('org-1');
     expect(decoded.organizationName).toBe('Acme');
   });
 
   it('defaults orgName to orgId when omitted', () => {
-    const token = signServiceToken({ serviceName: 'compliance', orgId: 'system' });
+    const token = signServiceToken({ serviceName: 'compliance', orgId: 'system', role: 'owner' });
     const decoded = jwt.verify(token, TEST_SECRET) as JwtPayload;
     expect(decoded.organizationName).toBe('system');
   });
 
   it('expires within the configured TTL (default 5 min)', () => {
-    const token = signServiceToken({ serviceName: 'plugin' });
+    const token = signServiceToken({ serviceName: 'plugin', role: 'owner' });
     const decoded = jwt.verify(token, TEST_SECRET) as JwtPayload;
     expect(decoded.exp).toBeDefined();
     expect(decoded.iat).toBeDefined();
@@ -332,14 +332,14 @@ describe('signServiceToken', () => {
   });
 
   it('honors custom ttlSeconds', () => {
-    const token = signServiceToken({ serviceName: 'plugin', ttlSeconds: 60 });
+    const token = signServiceToken({ serviceName: 'plugin', ttlSeconds: 60, role: 'owner' });
     const decoded = jwt.verify(token, TEST_SECRET) as JwtPayload;
     const ttl = (decoded.exp as number) - (decoded.iat as number);
     expect(ttl).toBe(60);
   });
 
   it('produces tokens that satisfy requireAuth without modification', (done) => {
-    const token = signServiceToken({ serviceName: 'billing', orgId: 'system' });
+    const token = signServiceToken({ serviceName: 'billing', orgId: 'system', role: 'owner' });
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     const res = createMockRes();
     requireAuth(req, res, () => {
@@ -362,7 +362,7 @@ describe('signServiceToken', () => {
 
 describe('getServiceAuthHeader', () => {
   it('returns "Bearer <jwt>" format', () => {
-    const header = getServiceAuthHeader({ serviceName: 'billing', orgId: 'system' });
+    const header = getServiceAuthHeader({ serviceName: 'billing', orgId: 'system', role: 'owner' });
     expect(header).toMatch(/^Bearer [\w-]+\.[\w-]+\.[\w-]+$/);
     const token = header.slice(7);
     const decoded = jwt.verify(token, TEST_SECRET) as JwtPayload;

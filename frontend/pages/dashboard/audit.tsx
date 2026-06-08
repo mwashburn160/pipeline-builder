@@ -278,20 +278,20 @@ export default function AuditPage() {
                 </div>
                 <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 flex flex-wrap gap-x-3 gap-y-1 items-center">
                   <span className="inline-flex items-center gap-1">
-                    Actor: <CopyableId value={event.actorId} display={event.actorEmail || event.actorId} small />
+                    Actor: <CopyableId value={event.actorId} display={event.actorEmail || event.actorId} size="sm" />
                     {event.actorRole && <span className="text-gray-400 dark:text-gray-500">({event.actorRole})</span>}
                   </span>
                   {event.impersonatorId && (
-                    <span className="inline-flex items-center gap-1">via <CopyableId value={event.impersonatorId} small /></span>
+                    <span className="inline-flex items-center gap-1">via <CopyableId value={event.impersonatorId} size="sm" /></span>
                   )}
-                  {event.orgId && <span className="inline-flex items-center gap-1">Org: <CopyableId value={event.orgId} small /></span>}
+                  {event.orgId && <span className="inline-flex items-center gap-1">Org: <CopyableId value={event.orgId} size="sm" /></span>}
                   {event.affectedOrgId && event.affectedOrgId !== event.orgId && (
-                    <span className="inline-flex items-center gap-1">Affected: <CopyableId value={event.affectedOrgId} small /></span>
+                    <span className="inline-flex items-center gap-1">Affected: <CopyableId value={event.affectedOrgId} size="sm" /></span>
                   )}
                   {event.targetType && (
                     <span className="inline-flex items-center gap-1">
                       Target: <code>{event.targetType}</code>
-                      {event.targetId && <>: <CopyableId value={event.targetId} small /></>}
+                      {event.targetId && <>: <CopyableId value={event.targetId} size="sm" /></>}
                     </span>
                   )}
                   {event.ip && <span>IP: <code>{event.ip}</code></span>}
@@ -350,22 +350,22 @@ export default function AuditPage() {
             <dd className="text-gray-900 dark:text-gray-100 inline-flex items-center gap-1 min-w-0">
               <span className="truncate">{selected.actorEmail || selected.actorId}</span>
               {selected.actorRole && <span className="text-gray-400 dark:text-gray-500">({selected.actorRole})</span>}
-              <CopyableId value={selected.actorId} small />
+              <CopyableId value={selected.actorId} size="sm" />
             </dd>
-            {selected.impersonatorId && (<><dt className="text-gray-500 dark:text-gray-400">Impersonator</dt><dd><CopyableId value={selected.impersonatorId} small /></dd></>)}
-            {selected.orgId && (<><dt className="text-gray-500 dark:text-gray-400">Org</dt><dd><CopyableId value={selected.orgId} small /></dd></>)}
-            {selected.affectedOrgId && (<><dt className="text-gray-500 dark:text-gray-400">Affected org</dt><dd><CopyableId value={selected.affectedOrgId} small /></dd></>)}
+            {selected.impersonatorId && (<><dt className="text-gray-500 dark:text-gray-400">Impersonator</dt><dd><CopyableId value={selected.impersonatorId} size="sm" /></dd></>)}
+            {selected.orgId && (<><dt className="text-gray-500 dark:text-gray-400">Org</dt><dd><CopyableId value={selected.orgId} size="sm" /></dd></>)}
+            {selected.affectedOrgId && (<><dt className="text-gray-500 dark:text-gray-400">Affected org</dt><dd><CopyableId value={selected.affectedOrgId} size="sm" /></dd></>)}
             {selected.targetType && (
               <>
                 <dt className="text-gray-500 dark:text-gray-400">Target</dt>
-                <dd className="inline-flex items-center gap-1"><code className="text-xs">{selected.targetType}</code>{selected.targetId && <><span>:</span><CopyableId value={selected.targetId} small /></>}</dd>
+                <dd className="inline-flex items-center gap-1"><code className="text-xs">{selected.targetType}</code>{selected.targetId && <><span>:</span><CopyableId value={selected.targetId} size="sm" /></>}</dd>
               </>
             )}
-            {selected.groupId && (<><dt className="text-gray-500 dark:text-gray-400">Group</dt><dd><CopyableId value={selected.groupId} small /></dd></>)}
+            {selected.groupId && (<><dt className="text-gray-500 dark:text-gray-400">Group</dt><dd><CopyableId value={selected.groupId} size="sm" /></dd></>)}
             {selected.ip && (<><dt className="text-gray-500 dark:text-gray-400">IP</dt><dd><code className="text-xs">{selected.ip}</code></dd></>)}
             {selected.userAgent && (<><dt className="text-gray-500 dark:text-gray-400">User agent</dt><dd className="text-xs text-gray-700 dark:text-gray-300 break-all">{selected.userAgent}</dd></>)}
-            {selected.requestId && (<><dt className="text-gray-500 dark:text-gray-400">Request id</dt><dd><CopyableId value={selected.requestId} small /></dd></>)}
-            {selected.traceId && (<><dt className="text-gray-500 dark:text-gray-400">Trace id</dt><dd><CopyableId value={selected.traceId} small /></dd></>)}
+            {selected.requestId && (<><dt className="text-gray-500 dark:text-gray-400">Request id</dt><dd><CopyableId value={selected.requestId} size="sm" /></dd></>)}
+            {selected.traceId && (<><dt className="text-gray-500 dark:text-gray-400">Trace id</dt><dd><CopyableId value={selected.traceId} size="sm" /></dd></>)}
           </dl>
           {selected.details && Object.keys(selected.details).length > 0 && (
             <div className="mt-4">

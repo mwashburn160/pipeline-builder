@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useObservabilityQuery, type RangeKey } from '@/hooks/useObservabilityQuery';
+import { useObservabilityQuery } from '@/hooks/useObservabilityQuery';
+import type { RangeKey } from '@/types/observability';
 import { Panel } from './Panel';
 import { defaultFormat, prepareSeries } from './_chartUtils';
 

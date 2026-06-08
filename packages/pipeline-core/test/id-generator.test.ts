@@ -7,23 +7,23 @@ describe('UniqueId', () => {
   let uniqueId: UniqueId;
 
   beforeEach(() => {
-    uniqueId = new UniqueId();
+    uniqueId = new UniqueId({ organization: 'Org', project: 'Proj' });
   });
 
   it('should append counter to label', () => {
-    expect(uniqueId.generate('plugin:lookup')).toBe('plugin:lookup:1');
+    expect(uniqueId.generate('plugin:lookup')).toMatch(/^plugin:[0-9a-f]{8}:lookup:1$/);
   });
 
   it('should auto-increment counters per label', () => {
-    expect(uniqueId.generate('plugin:lookup')).toBe('plugin:lookup:1');
-    expect(uniqueId.generate('plugin:lookup')).toBe('plugin:lookup:2');
-    expect(uniqueId.generate('plugin:lookup')).toBe('plugin:lookup:3');
+    expect(uniqueId.generate('plugin:lookup')).toMatch(/:lookup:1$/);
+    expect(uniqueId.generate('plugin:lookup')).toMatch(/:lookup:2$/);
+    expect(uniqueId.generate('plugin:lookup')).toMatch(/:lookup:3$/);
   });
 
   it('should track separate counters for different labels', () => {
-    expect(uniqueId.generate('cdk:synth')).toBe('cdk:synth:1');
-    expect(uniqueId.generate('plugin:lookup')).toBe('plugin:lookup:1');
-    expect(uniqueId.generate('cdk:synth')).toBe('cdk:synth:2');
+    expect(uniqueId.generate('cdk:synth')).toMatch(/:synth:1$/);
+    expect(uniqueId.generate('plugin:lookup')).toMatch(/:lookup:1$/);
+    expect(uniqueId.generate('cdk:synth')).toMatch(/:synth:2$/);
   });
 
   it('should return label as-is if it already ends with a counter', () => {
@@ -41,12 +41,12 @@ describe('UniqueId', () => {
     expect(() => uniqueId.generate(123 as any)).toThrow('Label must be a non-empty string');
   });
 
-  it('should produce unique IDs across instances', () => {
-    const id1 = new UniqueId();
-    const id2 = new UniqueId();
+  it('should produce independent counters across instances', () => {
+    const id1 = new UniqueId({ organization: 'Org', project: 'Proj' });
+    const id2 = new UniqueId({ organization: 'Org', project: 'Proj' });
     // Both start at 1 since they're independent instances
-    expect(id1.generate('test')).toBe('test:1');
-    expect(id2.generate('test')).toBe('test:1');
+    expect(id1.generate('test')).toMatch(/:1$/);
+    expect(id2.generate('test')).toMatch(/:1$/);
   });
 
   // Stack-identity hash — inserted after the first label segment so resources
@@ -92,15 +92,6 @@ describe('UniqueId', () => {
     it('appends hash before counter for single-segment labels', () => {
       const id = new UniqueId({ organization: 'AcmeCorp', project: 'spring-boot' });
       expect(id.generate('singleton')).toMatch(/^singleton:[0-9a-f]{8}:1$/);
-    });
-
-    it('falls back to legacy format when only one of org/project is set', () => {
-      const orgOnly = new UniqueId({ organization: 'AcmeCorp' });
-      const projOnly = new UniqueId({ project: 'spring-boot' });
-      expect(orgOnly.generate('plugin:lookup')).toBe('plugin:lookup:1');
-      expect(projOnly.generate('plugin:lookup')).toBe('plugin:lookup:1');
-      expect(orgOnly.stackId).toBe('');
-      expect(projOnly.stackId).toBe('');
     });
 
     it('still passes already-counted labels through unchanged', () => {

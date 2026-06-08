@@ -16,7 +16,7 @@ import { StackedBarPanel } from '@/components/observability/StackedBarPanel';
 import { StatPanel } from '@/components/observability/StatPanel';
 import { TablePanel } from '@/components/observability/TablePanel';
 import { RangePicker } from '@/components/observability/RangePicker';
-import type { RangeKey } from '@/hooks/useObservabilityQuery';
+import type { RangeKey } from '@/types/observability';
 import type { DashboardWithPanels, DashboardPanel } from '@/types/observability';
 import { api, ApiError } from '@/lib/api';
 

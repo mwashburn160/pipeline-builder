@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { RangeKey } from '@/hooks/useObservabilityQuery';
+import type { RangeKey } from '@/types/observability';
 
 interface RangePickerProps {
   value: RangeKey;

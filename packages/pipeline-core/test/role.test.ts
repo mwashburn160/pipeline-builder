@@ -25,7 +25,7 @@ describe('resolveRole', () => {
 
   beforeEach(() => {
     stack = new Stack(new App(), 'TestStack');
-    id = new UniqueId();
+    id = new UniqueId({ organization: 'test-org', project: 'test-project' });
   });
 
   describe('roleArn', () => {

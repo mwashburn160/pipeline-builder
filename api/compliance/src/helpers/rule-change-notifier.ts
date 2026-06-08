@@ -40,7 +40,7 @@ export async function notifyPublishedRuleChange(
           headers: {
             'x-org-id': 'system',
             'x-internal-service': 'true',
-            'authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: 'system' }),
+            'authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: 'system', role: 'owner' }),
           },
         });
       } catch {

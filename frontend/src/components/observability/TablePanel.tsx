@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useObservabilityLogs, type RangeKey } from '@/hooks/useObservabilityLogs';
+import { useObservabilityLogs } from '@/hooks/useObservabilityLogs';
+import type { RangeKey } from '@/types/observability';
 import type { DataSeries, ObservabilityLogEntry } from '@/types/observability';
 import { Panel } from './Panel';
 

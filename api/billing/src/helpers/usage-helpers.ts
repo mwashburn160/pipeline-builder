@@ -76,7 +76,7 @@ async function fetchQuotaSnapshot(orgId: string, authHeader: string): Promise<Qu
     timeout: getBillingTimeout(),
   });
 
-  const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId });
+  const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
   const response = await client.get<{
     success: boolean;
     data?: { quota?: QuotaSnapshot };

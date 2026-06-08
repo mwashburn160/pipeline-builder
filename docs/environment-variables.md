@@ -59,8 +59,7 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `JWT_EXPIRES_IN_PRO` | (inherits `JWT_EXPIRES_IN`) | Pro-tier override — commonly shorter for compliance |
 | `JWT_EXPIRES_IN_UNLIMITED` | (inherits `JWT_EXPIRES_IN`) | Enterprise-tier override (e.g. `1800` = 30 min) |
 | `JWT_ALGORITHM` | `HS256` | `HS256`, `HS384`, `HS512`, `RS256` |
-| `BCRYPT_SALT_ROUNDS` | `12` | bcrypt cost factor for password hashing. **Preferred name.** |
-| `JWT_SALT_ROUNDS` | `12` | Deprecated alias for `BCRYPT_SALT_ROUNDS` (kept as a fallback; the name was misleading — it controls bcrypt password hashing, not JWT signing). |
+| `BCRYPT_SALT_ROUNDS` | `12` | bcrypt cost factor for password hashing (10-12 recommended). |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d) |
 | `PASSWORD_MIN_LENGTH` | `8` | Minimum password length |
 | `COOKIE_SAME_SITE` | `lax` | `lax`, `strict`, or `none` for refresh cookie |
@@ -69,7 +68,7 @@ Complete reference for all environment variables used across Pipeline Builder se
 
 ### Multi-team secret encryption
 
-AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTION_KEY` is **required at platform boot** — the read paths no longer fall back to clear text. Existing pre-encryption rows are re-encrypted automatically by the startup backfill.
+AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTION_KEY` is **required at platform boot** — the read paths do not fall back to clear text; a non-encrypted value throws on read. Rotating an org's KMS config re-encrypts that org's secrets under the new key (see the org KMS-config admin endpoint).
 
 | Variable | Default | Description |
 |----------|---------|-------------|

@@ -9,8 +9,7 @@
  * Reads return a sanitized shape that elides the secret entirely.
  *
  * SECRET_ENCRYPTION_KEY is a hard requirement at platform boot — there
- * is no clear-text fallback here. The startup backfill re-encrypts any
- * pre-encryption rows.
+ * is no clear-text fallback here; reads of a non-encrypted value throw.
  */
 
 import { createLogger } from '@pipeline-builder/api-core';

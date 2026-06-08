@@ -95,7 +95,7 @@ export function createAdminSubscriptionRoutes(): Router {
 
         // Sync tier via service-to-service auth (avoid forwarding the
         // admin's bearer to the quota service).
-        const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId });
+        const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
         await syncTierToQuotaService(orgId, plan.tier, serviceAuth, subscriptionId);
         await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId);
       }

@@ -424,7 +424,7 @@ export default function UsersPage() {
                 <label className="label">Email</label>
                 <input type="text" value={editingUser.email} disabled className="input bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
-                  User ID: <CopyableId value={editingUser.id} small />
+                  User ID: <CopyableId value={editingUser.id} size="sm" />
                 </p>
               </div>
               <div>

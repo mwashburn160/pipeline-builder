@@ -68,7 +68,7 @@ export function loadServerConfig(): ServerConfig {
  * - `REFRESH_TOKEN_SECRET` — **Required.** Secret key for signing refresh tokens
  * - `JWT_EXPIRES_IN` — JWT lifetime in seconds (default: `7200` = 2 hours)
  * - `JWT_ALGORITHM` — JWT signing algorithm (default: `'HS256'`)
- * - `JWT_SALT_ROUNDS` — bcrypt salt rounds for password hashing (default: `12`)
+ * - `BCRYPT_SALT_ROUNDS` — bcrypt salt rounds for password hashing (default: `12`)
  * - `REFRESH_TOKEN_EXPIRES_IN` — Refresh token lifetime in seconds (default: `2592000` = 30 days)
  *
  * @returns Authentication configuration with safe defaults (empty strings when env vars are unset).
@@ -80,7 +80,7 @@ export function loadAuthConfig(): AuthConfig {
       secret: process.env.JWT_SECRET ?? '',
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10),
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
-      saltRounds: parseInt(process.env.JWT_SALT_ROUNDS || '12', 10),
+      saltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),
     },
     refreshToken: {
       secret: process.env.REFRESH_TOKEN_SECRET || '',

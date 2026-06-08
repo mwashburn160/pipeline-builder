@@ -115,7 +115,7 @@ export function createSubscriptionRoutes(): Router {
     // than forwarding the user's bearer. The quota service trusts billing
     // as a peer service; forwarding the user token would mean a compromised
     // quota service receives the user's full session credential.
-    const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId });
+    const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
     await syncTierToQuotaService(orgId, plan.tier, serviceAuth, subscription._id.toString());
 
     // Log billing event
@@ -186,7 +186,7 @@ export function createSubscriptionRoutes(): Router {
     // Sync tier if plan changed. Use a service token rather than forwarding
     // the caller's bearer (see create-subscription comment for rationale).
     if (plan) {
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId });
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
       await syncTierToQuotaService(orgId, plan.tier, serviceAuth, subscriptionId);
     }
 

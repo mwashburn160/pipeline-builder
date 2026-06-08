@@ -6,9 +6,6 @@ import { api } from '@/lib/api';
 import type { ObservabilityLogsResponse, ObservabilityLogsParams, RangeKey } from '@/types/observability';
 import { useObservabilityResource } from './useObservabilityResource';
 
-// Re-export for back-compat with consumers that imported RangeKey from this module.
-export type { RangeKey };
-
 /**
  * Mirror of useObservabilityQuery for Loki-backed catalog queries.
  * Templated params (event/digest/actor) are passed through verbatim — the

@@ -164,14 +164,9 @@ export const config = {
     /**
      * bcrypt cost factor for password hashing. Lives under `auth`, not
      * `auth.jwt` — it has nothing to do with JWT signing; the previous
-     * placement was a copy-paste artifact. `JWT_SALT_ROUNDS` is honored
-     * as a deprecation fallback for one release so existing deploys keep
-     * working; prefer `BCRYPT_SALT_ROUNDS` going forward.
+     * placement was a copy-paste artifact.
      */
-    passwordSaltRounds: parseInt(
-      process.env.BCRYPT_SALT_ROUNDS || process.env.JWT_SALT_ROUNDS || '12',
-      10,
-    ),
+    passwordSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),
     jwt: {
       secret: requireSecret('JWT_SECRET', 'JWT secret'),
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10), // 2 hr

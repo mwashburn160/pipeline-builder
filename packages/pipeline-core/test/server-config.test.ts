@@ -99,7 +99,7 @@ describe('loadAuthConfig', () => {
     process.env.REFRESH_TOKEN_SECRET = 'my-refresh-secret';
     process.env.JWT_EXPIRES_IN = '3600';
     process.env.JWT_ALGORITHM = 'HS384';
-    process.env.JWT_SALT_ROUNDS = '14';
+    process.env.BCRYPT_SALT_ROUNDS = '14';
     process.env.REFRESH_TOKEN_EXPIRES_IN = '86400';
 
     const config = loadAuthConfig();
@@ -117,7 +117,7 @@ describe('loadAuthConfig', () => {
     process.env.REFRESH_TOKEN_SECRET = 'my-refresh-secret';
     delete process.env.JWT_EXPIRES_IN;
     delete process.env.JWT_ALGORITHM;
-    delete process.env.JWT_SALT_ROUNDS;
+    delete process.env.BCRYPT_SALT_ROUNDS;
     delete process.env.REFRESH_TOKEN_EXPIRES_IN;
 
     const config = loadAuthConfig();

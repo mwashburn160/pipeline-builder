@@ -3,9 +3,9 @@
 
 /**
  * Tests for the secret-blob wrap/unwrap helpers — the single source of
- * truth that replaced the four near-identical JSON-around-EncryptedBlob
+ * truth that replaced the near-identical JSON-around-EncryptedBlob
  * implementations across organization-service, org-idp-service,
- * secret-backfill, and secret-reencrypt.
+ * and secret-reencrypt.
  *
  * The actual crypto path is mocked here — we only validate the JSON
  * envelope / shape-check behaviour, not the cipher itself (the cipher

@@ -44,7 +44,7 @@ export function registerComplianceEventSubscriber(
         // `requireServicePrincipal` — the previous `x-internal-service`
         // header is no longer sufficient (and was spoofable).
         await client.post('/compliance/events/entity', event, {
-          headers: { Authorization: getServiceAuthHeader({ serviceName, orgId: event.orgId }) },
+          headers: { Authorization: getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'owner' }) },
         });
       } catch (err) {
         // Fire-and-forget: log and swallow. Compliance notification is non-fatal.

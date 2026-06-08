@@ -37,6 +37,7 @@ Parameters:
 
 Conditions:
   SesEnabled: !Equals [!Ref EmailEnabled, "true"]
+  HasEmailFrom: !Not [!Equals [!Ref EmailFrom, ""]]
 
 Resources:
   # ---------------------------------------------------------------------------
@@ -188,7 +189,9 @@ Resources:
             Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}"
             Condition:
               StringEquals:
-                "ses:FromAddress": !Ref EmailFrom
+                # Match the address the platform actually sends from: EmailFrom
+                # when set, else the noreply@<domain> default the app uses.
+                "ses:FromAddress": !If [HasEmailFrom, !Ref EmailFrom, !Sub "noreply@${DomainName}"]
 
   # ---------------------------------------------------------------------------
   # Security Groups

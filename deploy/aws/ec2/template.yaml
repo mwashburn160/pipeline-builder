@@ -142,6 +142,7 @@ Conditions:
   HasAlertEmail: !And
     - !Condition SesEnabled
     - !Not [!Equals [!Ref AlertEmail, ""]]
+  HasEmailFrom: !Not [!Equals [!Ref EmailFrom, ""]]
   CreateSesIdentityCond: !And
     - !Condition SesEnabled
     - !Equals [!Ref CreateSesIdentity, "true"]
@@ -651,7 +652,9 @@ Resources:
     Type: AWS::SES::ConfigurationSet
     Condition: SesEnabled
     Properties:
-      Name: pipeline-builder-email
+      # Stack-scoped so a second stack in the same account/region doesn't
+      # collide on the (globally-unique) config-set / topic names.
+      Name: !Sub "${AWS::StackName}-email"
       ReputationOptions:
         ReputationMetricsEnabled: true
 
@@ -659,7 +662,7 @@ Resources:
     Type: AWS::SNS::Topic
     Condition: SesEnabled
     Properties:
-      TopicName: pipeline-builder-email-events
+      TopicName: !Sub "${AWS::StackName}-email-events"
       DisplayName: Pipeline Builder SES bounces/complaints
 
   EmailEventsTopicPolicy:
@@ -745,7 +748,9 @@ Resources:
             Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}"
             Condition:
               StringEquals:
-                "ses:FromAddress": !Ref EmailFrom
+                # Match the address the platform actually sends from: EmailFrom
+                # when set, else the noreply@<domain> default the app uses.
+                "ses:FromAddress": !If [HasEmailFrom, !Ref EmailFrom, !Sub "noreply@${DomainName}"]
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -802,6 +807,8 @@ Resources:
             export EMAIL_ENABLED="${EmailEnabled}"
             export EMAIL_FROM="${EmailFrom}"
             export EMAIL_FROM_NAME="${EmailFromName}"
+            # Must match the EmailConfigSet resource name (stack-scoped).
+            export SES_CONFIGURATION_SET="${AWS::StackName}-email"
 
             # ---- Persistent storage ----
             # EBS mounts at /opt/pipeline (not /opt itself: AMIs may use /opt).

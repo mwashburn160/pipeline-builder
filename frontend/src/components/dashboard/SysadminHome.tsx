@@ -221,7 +221,7 @@ export function SysadminHome() {
                         <span>by <code>{e.actorEmail || e.actorId}</code></span>
                         {e.affectedOrgId && (
                           <span className="inline-flex items-center gap-1">
-                            affected: <CopyableId value={e.affectedOrgId} small />
+                            affected: <CopyableId value={e.affectedOrgId} size="sm" />
                           </span>
                         )}
                       </div>

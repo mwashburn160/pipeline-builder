@@ -149,7 +149,7 @@ export default function PipelineDetailPage() {
             <dl className="text-sm space-y-2">
               <div>
                 <dt className="text-gray-500 dark:text-gray-400">Pipeline id</dt>
-                <dd><CopyableId value={pipeline.id} small /></dd>
+                <dd><CopyableId value={pipeline.id} size="sm" /></dd>
               </div>
               <div>
                 <dt className="text-gray-500 dark:text-gray-400">Name</dt>

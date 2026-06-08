@@ -204,7 +204,7 @@ export async function cascadeDeleteOrg( orgId: string,
   // -- Quota service: HTTP DELETE /quotas/:orgId. Service-token auth  the
   // quota service trusts billing/platform as peer services.
   try {
-    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID });
+    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID, role: 'owner' });
     const resp = await quotaClient().delete(`/quotas/${encodeURIComponent(orgId)}`, {
       headers: { 'Authorization': auth, 'x-org-id': orgId },
     });
@@ -217,7 +217,7 @@ export async function cascadeDeleteOrg( orgId: string,
   // The endpoint cancels any active subscription + drops events + dedupe
   // keys; see billing service implementation.
   try {
-    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID });
+    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID, role: 'owner' });
     const resp = await billingClient().delete(`/billing/subscriptions/by-org/${encodeURIComponent(orgId)}`, {
       headers: { 'Authorization': auth, 'x-org-id': orgId },
     });

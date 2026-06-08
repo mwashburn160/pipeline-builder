@@ -189,7 +189,7 @@ function outputSpec(image: string, registry: RegistryInfo): string {
 function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: string): string {
   const dir = path.join(contextDir, '.docker');
   fs.mkdirSync(dir, { recursive: true });
-  const password = signServiceToken({ serviceName: 'platform', orgId });
+  const password = signServiceToken({ serviceName: 'platform', orgId, role: 'owner' });
   const auth = Buffer.from(`_token:${password}`).toString('base64');
 
   const auths: Record<string, { auth: string }> = {
