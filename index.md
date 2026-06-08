@@ -5,9 +5,11 @@ layout: default
 permalink: /
 ---
 
-# Pipeline Builder
+# Self-Service CI/CD for AWS
 
-**An organization-scoped CI/CD control plane.** Every pipeline, plugin, and policy lives inside an organization (an isolated workspace) and compiles to native AWS CodePipeline + CodeBuild stacks deployed inside your own AWS account — with zero runtime lock-in. Developers get pipelines in minutes; platform teams get enforcement, isolation, and analytics out of the box.
+Pipeline Builder is a platform that enables development teams to create, deploy, and manage compliant AWS CI/CD pipelines through a simple self-service interface. Platform and DevOps teams maintain control through governance policies, reusable templates, and centralized plugin management while developers gain the freedom to deploy applications quickly and consistently.
+
+Rather than manually configuring AWS CodePipeline, CodeBuild, IAM roles, and deployment stages, teams can generate production-ready pipelines in minutes.
 
 [**View on GitHub**](https://github.com/mwashburn160/pipeline-builder) · [**Documentation**]({{ '/docs/' | relative_url }}) · [**Plugin Catalog**]({{ '/docs/plugins/' | relative_url }}) · [**API Reference**]({{ '/docs/api-reference.html' | relative_url }})
 
