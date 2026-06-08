@@ -12,7 +12,7 @@
 </p>
 
 ---
-**Self-Service CI/CD for AWS
+** Self-Service CI/CD for AWS
 
 Pipeline Builder is a platform that enables development teams to create, deploy, and manage compliant AWS CI/CD pipelines through a simple self-service interface. Platform and DevOps teams maintain control through governance policies, reusable templates, and centralized plugin management while developers gain the freedom to deploy applications quickly and consistently.
 
