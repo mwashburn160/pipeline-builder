@@ -24,7 +24,7 @@ async function createBillingSubscription(orgId: string, planId: string): Promise
     await client.post('/billing/subscriptions', { planId, interval: 'monthly' }, {
       headers: {
         'x-org-id': orgId,
-        'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'owner' }),
+        'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' }),
       },
     });
 
@@ -47,7 +47,7 @@ async function autoSubscribeToPublishedRules(orgId: string): Promise<void> {
     await client.post('/compliance/subscriptions/auto-subscribe', {}, {
       headers: {
         'x-org-id': orgId,
-        'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'owner' }),
+        'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' }),
       },
     });
 

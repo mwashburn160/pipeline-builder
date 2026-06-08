@@ -195,7 +195,7 @@ async function sendRenewalReminders(): Promise<void> {
         headers: {
           'x-internal-service': 'true',
           'x-org-id': 'system',
-          'authorization': getServiceAuthHeader({ serviceName: 'billing', orgId: 'system', role: 'owner' }),
+          'authorization': getServiceAuthHeader({ serviceName: 'billing', orgId: 'system', role: 'member' }),
         },
       });
 

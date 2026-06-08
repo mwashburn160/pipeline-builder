@@ -93,7 +93,7 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
 
   return {
     record(event, serviceName) {
-      const authHeader = getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'owner' });
+      const authHeader = getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' });
       // Strip the `Bearer ` prefix for InternalHttpClient  it sets the
       // Authorization header itself; the value here is raw.
       const headers: Record<string, string> = { Authorization: authHeader };

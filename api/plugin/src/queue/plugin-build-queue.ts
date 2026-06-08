@@ -485,7 +485,7 @@ export async function replayDlqJob(jobId: string, quotaService: QuotaService): P
   delete (freshData as { failureCategory?: string }).failureCategory;
 
   const { orgId } = dlqJob.data;
-  const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'owner' }));
+  const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
   const replayed = await getTierQueue(tier).add(`replay-${dlqJob.name}`, freshData);
   await dlqJob.remove();
   return String(replayed.id);
@@ -530,7 +530,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         let fullImage = '';
 
         if (!isApprovalStep && buildRequest.buildType !== 'metadata_only') {
-          const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'owner' }));
+          const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
           const buildkitAddr = getBuildkitAddrForTier(tier);
           switch (buildRequest.buildType) {
             case 'prebuilt': {
@@ -689,7 +689,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     if (category === 'permanent' || totalAttempts >= budget) {
       cleanupContextDir(buildRequest.contextDir);
       decrementQuota(quotaService, orgId, 'plugins',
-        getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'owner' }),
+        getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
         logger.warn.bind(logger),
       );
       logger.warn('Permanent failure, cleaned up', {
@@ -792,7 +792,7 @@ function startDlqWorker(quotaService: QuotaService): void {
       if ((totalAttempts ?? 0) >= budget) {
         cleanupContextDir(buildRequest.contextDir);
         decrementQuota(quotaService, orgId, 'plugins',
-          getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'owner' }),
+          getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
           logger.warn.bind(logger),
         );
         logger.warn('DLQ: max total attempts reached, giving up', {
@@ -817,7 +817,7 @@ function startDlqWorker(quotaService: QuotaService): void {
       });
 
       const { failureCategory: _, lastError: __, ...cleanData } = job.data;
-      const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'owner' }));
+      const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
       await getTierQueue(tier).add(`retry-${pluginRecord.name}`, cleanData);
     },
     {
@@ -844,7 +844,7 @@ function startDlqWorker(quotaService: QuotaService): void {
       cleanupContextDir(job.data.buildRequest.contextDir);
       const { orgId } = job.data;
       decrementQuota(quotaService, orgId, 'plugins',
-        getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'owner' }),
+        getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
         logger.warn.bind(logger),
       );
       logger.warn('DLQ exhausted all retries, cleaned up', {

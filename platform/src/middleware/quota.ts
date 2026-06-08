@@ -25,7 +25,7 @@ export async function reserveFeatureQuota(
   orgId: string,
   quotaType: QuotaType,
 ): Promise<{ exceeded: boolean; quota: { type: QuotaType; limit: number; used: number; remaining: number; resetAt?: string } }> {
-  const auth = getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'owner' });
+  const auth = getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' });
   return reserveQuota(quotaService, orgId, quotaType, auth);
 }
 
@@ -35,7 +35,7 @@ export function releaseFeatureQuota(
   quotaType: QuotaType,
   logWarn: (msg: string, data?: unknown) => void,
 ): void {
-  const auth = getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'owner' });
+  const auth = getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' });
   decrementQuota(quotaService, orgId, quotaType, auth, logWarn);
 }
 

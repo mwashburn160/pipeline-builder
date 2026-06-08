@@ -40,7 +40,7 @@ export async function resolveOrgRollup(orgId: string): Promise<string[] | undefi
   try {
     const url = `${base.replace(/\/$/, '')}/api/organization/${encodeURIComponent(orgId)}/descendants`;
     const res = await fetch(url, {
-      headers: { 'Authorization': getServiceAuthHeader({ serviceName: 'reporting', orgId, role: 'owner' }), 'x-org-id': orgId },
+      headers: { 'Authorization': getServiceAuthHeader({ serviceName: 'reporting', orgId, role: 'member' }), 'x-org-id': orgId },
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return undefined;
