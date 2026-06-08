@@ -37,8 +37,19 @@ DOMAIN="${DOMAIN:-}"
 HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 KEY_PAIR_NAME="${KEY_PAIR_NAME:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
-GHCR_USER="${GHCR_USER:-mwashburn160}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-}"
+# Transactional email via SES. Off by default — a fresh SES account is sandboxed
+# (verified recipients only) until you request production access. --email turns
+# on the SES identity + DKIM + instance-role grant + app EMAIL_ENABLED together.
+# EMAIL_FROM defaults to noreply@DOMAIN. --no-create-ses-identity skips creating
+# the SES identity (use when DOMAIN is already verified in this account).
+EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
+EMAIL_FROM="${EMAIL_FROM:-}"
+EMAIL_FROM_NAME="${EMAIL_FROM_NAME:-pipeline-builder}"
+CREATE_SES_IDENTITY="${CREATE_SES_IDENTITY:-true}"
+# Optional: subscribe an address to the SES bounce/complaint SNS topic for early
+# warning before SES throttles the account (you must confirm the email AWS sends).
+ALERT_EMAIL="${ALERT_EMAIL:-}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -50,11 +61,20 @@ while [[ $# -gt 0 ]]; do
     --hosted-zone-id) HOSTED_ZONE_ID="$2"; shift 2 ;;
     --key-pair) KEY_PAIR_NAME="$2"; shift 2 ;;
     --ghcr-token) GHCR_TOKEN="$2"; shift 2 ;;
-    --ghcr-user) GHCR_USER="$2"; shift 2 ;;
     --instance-type) INSTANCE_TYPE="$2"; shift 2 ;;
+    --email) EMAIL_ENABLED="true"; shift ;;
+    --email-from) EMAIL_FROM="$2"; shift 2 ;;
+    --email-from-name) EMAIL_FROM_NAME="$2"; shift 2 ;;
+    --no-create-ses-identity) CREATE_SES_IDENTITY="false"; shift ;;
+    --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
+
+# Email defaults to sending from noreply@<domain> unless overridden.
+if [ "$EMAIL_ENABLED" = "true" ] && [ -z "$EMAIL_FROM" ]; then
+  EMAIL_FROM="noreply@${DOMAIN}"
+fi
 
 # -----------------------------------------------------------------------
 # Validate
@@ -91,6 +111,11 @@ echo "  Region:      $REGION"
 echo "  Stack:       $STACK_NAME"
 echo "  Deploy mode: $DEPLOY_MODE"
 echo "  Domain:      ${DOMAIN}"
+if [ "$EMAIL_ENABLED" = "true" ]; then
+echo "  Email (SES): enabled (from: $EMAIL_FROM, create-identity: $CREATE_SES_IDENTITY)"
+else
+echo "  Email (SES): disabled (pass --email to enable)"
+fi
 echo ""
 
 # -----------------------------------------------------------------------
@@ -134,7 +159,11 @@ BASE_PARAMS=(
   "DeployMode=${DEPLOY_MODE}"
   "KeyPairName=${KEY_PAIR_NAME}"
   "GhcrToken=${GHCR_TOKEN}"
-  "GhcrUser=${GHCR_USER}"
+  "EmailEnabled=${EMAIL_ENABLED}"
+  "CreateSesIdentity=${CREATE_SES_IDENTITY}"
+  "EmailFrom=${EMAIL_FROM}"
+  "EmailFromName=${EMAIL_FROM_NAME}"
+  "AlertEmail=${ALERT_EMAIL}"
 )
 [ -n "$DOMAIN" ]         && BASE_PARAMS+=("DomainName=${DOMAIN}")
 [ -n "$HOSTED_ZONE_ID" ] && BASE_PARAMS+=("HostedZoneId=${HOSTED_ZONE_ID}")
@@ -168,3 +197,20 @@ echo "  bootstrapping minikube + services asynchronously. Watch bootstrap:"
 echo "    aws cloudformation describe-stacks --stack-name ${STACK_NAME} --region ${REGION} \\"
 echo "      --query \"Stacks[0].Outputs[?OutputKey=='BootstrapLog'].OutputValue\" --output text"
 echo ""
+if [ "$EMAIL_ENABLED" = "true" ]; then
+echo "  Email (SES):  sending from ${EMAIL_FROM} (region ${REGION})"
+echo "                DKIM CNAMEs were added to your Route53 zone; verification is"
+echo "                ASYNCHRONOUS (minutes-hours). Check status:"
+echo "                https://${REGION}.console.aws.amazon.com/ses/home?region=${REGION}#/verified-identities"
+echo "                New SES accounts are SANDBOXED: send only to verified recipients"
+echo "                (200/day) until you request production access:"
+echo "                https://${REGION}.console.aws.amazon.com/ses/home?region=${REGION}#/account"
+echo "                To smoke-test in sandbox, verify a REAL recipient — never admin@internal."
+echo "                Bounces/complaints publish to SNS topic pipeline-builder-email-events"
+if [ -n "$ALERT_EMAIL" ]; then
+echo "                (alert: ${ALERT_EMAIL} — CONFIRM the SNS subscription email AWS sent)."
+else
+echo "                (no --alert-email given; subscribe to the topic to get warned)."
+fi
+echo ""
+fi

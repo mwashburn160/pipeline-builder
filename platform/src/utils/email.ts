@@ -121,6 +121,14 @@ class EmailService {
         subject: options.subject,
         text: options.text,
         html: options.html,
+        // Route SES sends through the configuration set so bounces/complaints
+        // publish to the deploy's SNS topic. nodemailer's SESv2 transport
+        // merges `ses` into the SendEmailCommand input. Omitted for SMTP / when
+        // no config set is configured.
+        ...(config.email.provider === 'ses' &&
+          config.email.ses.configurationSet && {
+          ses: { ConfigurationSetName: config.email.ses.configurationSet },
+        }),
       });
 
       logger.info('Email sent successfully', {

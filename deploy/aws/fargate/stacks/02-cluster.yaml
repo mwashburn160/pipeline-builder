@@ -21,6 +21,23 @@ Parameters:
     AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
     Description: CloudWatch log group retention in days
 
+  EmailEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: When true, grant the task role ses:SendEmail for the DomainName SES identity.
+
+  EmailFrom:
+    Type: String
+    Default: ""
+    Description: >
+      From address the platform sends as (e.g. noreply@example.com). Scopes the
+      ses:SendEmail grant via the ses:FromAddress condition; must match the
+      platform's EMAIL_FROM env (04-services).
+
+Conditions:
+  SesEnabled: !Equals [!Ref EmailEnabled, "true"]
+
 Resources:
   # ---------------------------------------------------------------------------
   # ECS Cluster
@@ -150,6 +167,28 @@ Resources:
       Tags:
         - Key: Project
           Value: pipeline-builder
+
+  # SES send permission for the platform (gated on EmailEnabled). Attached as a
+  # separate policy so it can be conditional. ses:SendEmail is the only action
+  # SESv2 SendEmailCommand needs (ses:SendRawEmail is the unused v1 action);
+  # scoped to the DomainName identity and the configured From address.
+  TaskRoleSesPolicy:
+    Type: AWS::IAM::Policy
+    Condition: SesEnabled
+    Properties:
+      PolicyName: !Sub "${StackPrefix}-task-ses"
+      Roles:
+        - !Ref TaskRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: SesSendEmail
+            Effect: Allow
+            Action: ses:SendEmail
+            Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}"
+            Condition:
+              StringEquals:
+                "ses:FromAddress": !Ref EmailFrom
 
   # ---------------------------------------------------------------------------
   # Security Groups

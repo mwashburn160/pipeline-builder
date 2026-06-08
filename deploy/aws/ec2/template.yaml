@@ -63,11 +63,6 @@ Parameters:
     NoEcho: true
     Description: GitHub Container Registry (ghcr.io) token for pulling private images
 
-  GhcrUser:
-    Type: String
-    Default: mwashburn160
-    Description: GitHub username for GHCR authentication
-
   EbsVolumeSize:
     Type: Number
     Default: 60
@@ -96,6 +91,46 @@ Parameters:
     Default: main
     Description: Git branch to checkout
 
+  EmailEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      When true, provision an SES sending identity for DomainName (Easy DKIM) and
+      grant the instance role ses:SendEmail, and set EMAIL_ENABLED in the app .env
+      so the platform sends transactional email via SES.
+
+  CreateSesIdentity:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >
+      When true (and EmailEnabled), create the SES EmailIdentity + DKIM CNAMEs for
+      DomainName. Set false if the domain is ALREADY a verified SES identity in
+      this account/region — a fresh create would fail. IAM + env are still wired.
+
+  EmailFrom:
+    Type: String
+    Default: ""
+    Description: >
+      From address the platform sends as (e.g. noreply@example.com). Scopes the
+      ses:SendEmail grant via ses:FromAddress. Empty => the app defaults to
+      noreply@DomainName.
+
+  EmailFromName:
+    Type: String
+    Default: "pipeline-builder"
+    Description: Display name on outbound platform email.
+
+  AlertEmail:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+    Description: >
+      Optional address subscribed to the SES bounce/complaint SNS topic for early
+      warning before SES throttles the account (you must confirm the subscription
+      email AWS sends). Empty => the topic is created but no subscription is added.
+
 # =============================================================================
 # Conditions
 # =============================================================================
@@ -103,6 +138,13 @@ Conditions:
   HasDomain: !Not [!Equals [!Ref DomainName, ""]]
   IsPrivate: !Equals [!Ref DeployMode, private]
   IsPublic: !Equals [!Ref DeployMode, public]
+  SesEnabled: !Equals [!Ref EmailEnabled, "true"]
+  HasAlertEmail: !And
+    - !Condition SesEnabled
+    - !Not [!Equals [!Ref AlertEmail, ""]]
+  CreateSesIdentityCond: !And
+    - !Condition SesEnabled
+    - !Equals [!Ref CreateSesIdentity, "true"]
 
 # =============================================================================
 # Resources
@@ -550,6 +592,122 @@ Resources:
         EvaluateTargetHealth: false
 
   # ---------------------------------------------------------------------------
+  # SES sending identity (Easy DKIM) for DomainName — gated on EmailEnabled.
+  # The 3 DKIM CNAMEs MUST go to the public HostedZoneId (SES verifies over
+  # public DNS) — never the private-mode in-stack zone. Verification is async:
+  # the stack reaches CREATE_COMPLETE before SES marks the identity verified.
+  # The platform (in minikube) signs with the instance role via IMDS — the
+  # instance metadata hop limit is 2 (see MetadataOptions), so pods can reach it.
+  # ---------------------------------------------------------------------------
+  SesEmailIdentity:
+    Type: AWS::SES::EmailIdentity
+    Condition: CreateSesIdentityCond
+    Properties:
+      EmailIdentity: !Ref DomainName
+      DkimAttributes:
+        SigningEnabled: true
+
+  SesDkimRecord1:
+    Type: AWS::Route53::RecordSet
+    Condition: CreateSesIdentityCond
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SesEmailIdentity.DkimDNSTokenName1
+      Type: CNAME
+      TTL: "1800"
+      ResourceRecords:
+        - !GetAtt SesEmailIdentity.DkimDNSTokenValue1
+
+  SesDkimRecord2:
+    Type: AWS::Route53::RecordSet
+    Condition: CreateSesIdentityCond
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SesEmailIdentity.DkimDNSTokenName2
+      Type: CNAME
+      TTL: "1800"
+      ResourceRecords:
+        - !GetAtt SesEmailIdentity.DkimDNSTokenValue2
+
+  SesDkimRecord3:
+    Type: AWS::Route53::RecordSet
+    Condition: CreateSesIdentityCond
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SesEmailIdentity.DkimDNSTokenName3
+      Type: CNAME
+      TTL: "1800"
+      ResourceRecords:
+        - !GetAtt SesEmailIdentity.DkimDNSTokenValue3
+
+  # ---------------------------------------------------------------------------
+  # Bounce/complaint tracking. SES enforces reputation at the ACCOUNT level
+  # regardless, so this exists for VISIBILITY: every send routes through this
+  # configuration set (platform's SES_CONFIGURATION_SET env, set by bootstrap.sh),
+  # whose event destination publishes bounces/complaints/rejects to an SNS topic.
+  # Subscribe an address (AlertEmail) to get warned before SES throttles you.
+  # ---------------------------------------------------------------------------
+  EmailConfigSet:
+    Type: AWS::SES::ConfigurationSet
+    Condition: SesEnabled
+    Properties:
+      Name: pipeline-builder-email
+      ReputationOptions:
+        ReputationMetricsEnabled: true
+
+  EmailEventsTopic:
+    Type: AWS::SNS::Topic
+    Condition: SesEnabled
+    Properties:
+      TopicName: pipeline-builder-email-events
+      DisplayName: Pipeline Builder SES bounces/complaints
+
+  EmailEventsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Condition: SesEnabled
+    Properties:
+      Topics:
+        - !Ref EmailEventsTopic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowSesPublish
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref EmailEventsTopic
+            Condition:
+              StringEquals:
+                "AWS:SourceAccount": !Ref "AWS::AccountId"
+
+  EmailEventDestination:
+    Type: AWS::SES::ConfigurationSetEventDestination
+    Condition: SesEnabled
+    # SES verifies it can publish to the topic when the destination is created,
+    # so the topic policy granting ses:Publish must exist first.
+    DependsOn: EmailEventsTopicPolicy
+    Properties:
+      ConfigurationSetName: !Ref EmailConfigSet
+      EventDestination:
+        Name: bounces-complaints
+        Enabled: true
+        MatchingEventTypes:
+          - bounce
+          - complaint
+          - reject
+        SnsDestination:
+          TopicARN: !Ref EmailEventsTopic
+
+  EmailAlertSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref EmailEventsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # ---------------------------------------------------------------------------
   # IAM Role (for SSM Session Manager access)
   # ---------------------------------------------------------------------------
   InstanceRole:
@@ -564,9 +722,30 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      # ses:SendEmail only (the action SESv2 SendEmailCommand uses), scoped to
+      # the DomainName identity + the configured From address. Gated on
+      # EmailEnabled via a separate policy resource below.
       Tags:
         - Key: Name
           Value: !Sub "pipeline-builder-role"
+
+  InstanceRoleSesPolicy:
+    Type: AWS::IAM::Policy
+    Condition: SesEnabled
+    Properties:
+      PolicyName: pipeline-builder-ses
+      Roles:
+        - !Ref InstanceRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: SesSendEmail
+            Effect: Allow
+            Action: ses:SendEmail
+            Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}"
+            Condition:
+              StringEquals:
+                "ses:FromAddress": !Ref EmailFrom
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -613,9 +792,16 @@ Resources:
             # Export variables for bootstrap.sh
             export DOMAIN="${DomainName}"
             export GHCR_TOKEN="${GhcrToken}"
-            export GHCR_USER="${GhcrUser}"
+            # ghcr.io ignores the username for PAT auth; fixed to the image owner.
+            export GHCR_USER="mwashburn160"
             export GIT_REPO="${GitRepo}"
             export GIT_BRANCH="${GitBranch}"
+            # AWS_REGION is the ACTUAL deploy region (the SES identity is regional;
+            # bootstrap.sh pins SES_REGION to it instead of the static .env default).
+            export AWS_REGION="${AWS::Region}"
+            export EMAIL_ENABLED="${EmailEnabled}"
+            export EMAIL_FROM="${EmailFrom}"
+            export EMAIL_FROM_NAME="${EmailFromName}"
 
             # ---- Persistent storage ----
             # EBS mounts at /opt/pipeline (not /opt itself: AMIs may use /opt).
@@ -778,3 +964,8 @@ Outputs:
   InstancePrivateIp:
     Description: Instance private IP
     Value: !GetAtt EC2Instance.PrivateIp
+
+  EmailEventsTopicArn:
+    Condition: SesEnabled
+    Description: SNS topic publishing SES bounces/complaints — subscribe to monitor reputation
+    Value: !Ref EmailEventsTopic

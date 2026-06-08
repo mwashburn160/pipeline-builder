@@ -15,6 +15,7 @@ Observability is the native `/dashboard/observability` page across all deploymen
 - [Private deployment (quickstart)](#private-deployment-quickstart) -- Inside-AWS-only install, EC2 or Fargate
 - [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$30-80/mo)
 - [Fargate](#fargate) -- Serverless ECS containers (production, ~$100-300/mo)
+- [Email (SES)](#email-ses) -- Enable transactional email with `--email`
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
 - [Drift Detection (`audit-stacks`)](#drift-detection-audit-stacks) -- Reconcile registry vs live CloudFormation
 - [Report API Endpoints](#report-api-endpoints) -- Execution and plugin analytics
@@ -62,7 +63,7 @@ A **public** deployment uses an **internet-facing ALB** so the dashboard, API, a
 
 - **AWS CLI** configured with credentials for the target account/region.
 - A **registered domain** and its **public Route 53 hosted zone** — required. The stack requests a DNS-validated ACM cert for the domain against this zone, so deploy.sh refuses to start without `--domain` + `--hosted-zone-id`.
-- A **GitHub account + personal access token (PAT)**. The service images live on GitHub Container Registry (`ghcr.io/mwashburn160/*`); they're public, but GitHub rate-limits *anonymous* pulls (60/hr) which trips mid-deploy when all 10 images pull at once. **Generate your own PAT under your GitHub account**: on GitHub go to **Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic)** (https://github.com/settings/tokens) and check only the `read:packages` scope. Then pass `--ghcr-token <your-pat>` **and** `--ghcr-user <your-github-username>` (the username must match the token's owner). Don't reuse a token from these docs or another deployment. See [GhcrToken rejected](#troubleshooting) for the fine-grained-PAT option and details.
+- A **GitHub account + personal access token (PAT)**. The service images live on GitHub Container Registry (`ghcr.io/mwashburn160/*`); they're public, but GitHub rate-limits *anonymous* pulls (60/hr) which trips mid-deploy when all 10 images pull at once. **Generate your own PAT under your GitHub account**: on GitHub go to **Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic)** (https://github.com/settings/tokens) and check only the `read:packages` scope. Then pass `--ghcr-token <your-pat>` (ghcr.io validates only the token for PAT auth — there is no username flag to set; the deploy uses a fixed internal value). Don't reuse a token from these docs or another deployment. See [GhcrToken rejected](#troubleshooting) for the fine-grained-PAT option and details.
 - **EC2 only:** an EC2 **key pair** in the target region (`--key-pair`) for break-glass serial-console access (routine access is via SSM).
 
 ### 1. Deploy in public mode
@@ -76,7 +77,6 @@ bash bin/deploy.sh --deploy-mode public \
   --key-pair my-keypair \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
-  --ghcr-user my-github-username \
   --ghcr-token ghp_xxxxxxxxxxxx
 
 # Fargate — serverless tasks behind an internet-facing ALB
@@ -84,7 +84,6 @@ cd deploy/aws/fargate
 bash bin/deploy.sh --deploy-mode public \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
-  --ghcr-user my-github-username \
   --ghcr-token ghp_xxxxxxxxxxxx
 ```
 
@@ -118,7 +117,7 @@ A **private** deployment uses an **internal-scheme ALB** — reachable only from
 
 ### Prerequisites (both targets)
 
-Identical to the [Public quickstart](#prerequisites-both-targets) above: AWS CLI, a registered **domain + public Route 53 hosted zone**, a GitHub **PAT** (`--ghcr-token` + `--ghcr-user`), and — EC2 only — an EC2 **key pair**.
+Identical to the [Public quickstart](#prerequisites-both-targets) above: AWS CLI, a registered **domain + public Route 53 hosted zone**, a GitHub **PAT** (`--ghcr-token`), and — EC2 only — an EC2 **key pair**.
 
 > The **public** Route 53 hosted zone is still required even in private mode: ACM validates the cert via a public DNS record. The *private* hosted zone (for in-VPC resolution of your domain) is created automatically by the stack — you don't supply it.
 
@@ -133,7 +132,6 @@ bash bin/deploy.sh --deploy-mode private \
   --key-pair my-keypair \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
-  --ghcr-user my-github-username \
   --ghcr-token ghp_xxxxxxxxxxxx
 
 # Fargate — serverless tasks behind an internal ALB
@@ -141,7 +139,6 @@ cd deploy/aws/fargate
 bash bin/deploy.sh --deploy-mode private \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
-  --ghcr-user my-github-username \
   --ghcr-token ghp_xxxxxxxxxxxx
 ```
 
@@ -212,7 +209,6 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 | `DomainName` | **Yes** | — | FQDN — ACM cert + Route 53 alias to the ALB |
 | `HostedZoneId` | **Yes** | — | Public Route 53 zone ID (ACM DNS validation + alias) |
 | `InstanceType` | No | `t3.2xlarge` | EC2 instance type (8 vCPU / 32 GiB; full stack fits with the default ResourceQuota) |
-| `GhcrUser` | No | `mwashburn160` | GitHub username for GHCR |
 | `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |
 | `DataVolumeSize` | No | `500` | Data volume size in GiB (`/opt/pipeline`, gp3 encrypted) — Docker, plugins, registry, databases. Lower to ~200 for slim/`build_image` deploys. |
 | `GitRepo` | No | *(this repo)* | Git repository URL |
@@ -396,7 +392,11 @@ Use the [Public](#public-deployment-quickstart) or [Private](#private-deployment
 | `--hosted-zone-id` | **Yes** | — | Public Route 53 zone ID (ACM DNS validation + alias) |
 | `--ghcr-token` | Yes | — | GHCR token for pulling images |
 | `--deploy-mode` | No | `private` | `public` (internet-facing ALB) or `private` (internal) |
-| `--ghcr-user` | No | `mwashburn160` | GitHub username |
+| `--email` | No | off | Enable SES transactional email (provisions the SES identity + DKIM + role grant) |
+| `--email-from` | No | `noreply@<domain>` | From address SES sends as |
+| `--email-from-name` | No | `pipeline-builder` | Display name on outbound email |
+| `--no-create-ses-identity` | No | — | Skip creating the SES identity (domain already verified in this account) |
+| `--alert-email` | No | — | Subscribe an address to the SES bounce/complaint SNS topic |
 | `--region` | No | `us-east-1` | AWS region |
 | `--stack-prefix` | No | `pb` | CloudFormation stack name prefix |
 
@@ -574,6 +574,82 @@ bash bin/teardown.sh --stack-prefix pb --region us-east-1
 ```
 
 > Secrets Manager entries are **not** auto-deleted. Remove manually if needed.
+
+---
+
+## Email (SES)
+
+The platform sends transactional email (invitations, email verification, password
+resets) via Amazon SES. It's **off by default** — pass `--email` to either
+deploy script to enable it:
+
+```bash
+# EC2
+bash bin/deploy.sh --key-pair my-keypair --domain pipeline.example.com \
+  --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
+
+# Fargate
+bash bin/deploy.sh --domain pipeline.example.com \
+  --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
+```
+
+`--email` wires up everything in one shot:
+
+- **Identity (Easy DKIM):** creates an SES domain identity for `--domain` and
+  publishes its 3 DKIM CNAMEs to your Route 53 zone, so the domain
+  **self-verifies** — no manual click. (EC2: in `template.yaml`; Fargate: in
+  `01-foundation`.) The CNAMEs always go to the **public** hosted zone, so this
+  works in private mode too.
+- **Permission:** grants the runtime role `ses:SendEmail`, scoped to the
+  identity and the From address — the EC2 **instance role** (the platform pod
+  reaches it over IMDS; metadata hop limit is already 2) or the Fargate **task
+  role**. No access keys are created or stored.
+- **App config:** sets `EMAIL_ENABLED=true`, `EMAIL_PROVIDER=ses`,
+  `SES_REGION=<deploy region>`, `EMAIL_FROM=noreply@<domain>`,
+  `EMAIL_FROM_NAME=pipeline-builder`. Override the sender with `--email-from` /
+  `--email-from-name`.
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--email` | off | Enable SES (identity + DKIM + role grant + app env) |
+| `--email-from` | `noreply@<domain>` | From address SES sends as |
+| `--email-from-name` | `pipeline-builder` | Display name on outbound email |
+| `--no-create-ses-identity` | — | Skip identity creation when `--domain` is **already** a verified SES identity in this account/region (avoids a "already exists" rollback); IAM + env are still wired |
+| `--alert-email` | — | Subscribe this address to the bounce/complaint SNS topic (you must confirm the email AWS sends) |
+
+> **Region** matters: the SES identity is regional and must match the deploy
+> region. The deploy pins `SES_REGION` to it automatically (EC2 derives it from
+> the stack region in `bootstrap.sh`, not the static `.env` default).
+
+### Verification & the SES sandbox
+
+Two things happen **after** the stack completes, and both need your attention:
+
+1. **DKIM verification is asynchronous** — Route 53 → SES propagation takes
+   minutes to hours. Sends before the domain verifies fail gracefully (the
+   platform logs it and continues). Check status at **SES console → Verified
+   identities**.
+2. **New SES accounts are sandboxed** — you can only send to **verified**
+   recipients, max 200/day. To send to arbitrary users, request **production
+   access** (SES console → Account dashboard). CloudFormation can't do this for
+   you. To smoke-test while sandboxed, verify a **real** recipient address —
+   never `admin@internal` (it bounces, and sandbox bounces hurt the reputation
+   AWS reviews for production approval).
+
+### Bounce & complaint tracking
+
+SES enforces sender reputation at the **account level** — above ~5% bounce or
+~0.1% complaint it puts the account *under review* and can **pause all sending**
+(including password resets). To make that visible instead of a silent outage,
+`--email` provisions a **configuration set** that every send routes through
+(`SES_CONFIGURATION_SET` on the platform), with an **SNS topic**
+(`<prefix>-email-events` on Fargate, `pipeline-builder-email-events` on EC2)
+receiving every bounce, complaint, and reject. The topic ARN is a stack output.
+
+Pass `--alert-email you@example.com` to subscribe an address at deploy time
+(confirm the subscription email AWS sends), or subscribe the topic later from the
+console. Without a subscription the topic still collects events — you just won't
+be alerted. Reputation rates are also on the SES console **Account dashboard**.
 
 ---
 
@@ -897,7 +973,7 @@ The pre-built images at `ghcr.io/mwashburn160/*` are **public** — anonymous pu
 - **Classic PAT** (simplest): https://github.com/settings/tokens → "Generate new token (classic)" → check only the `read:packages` scope.
 - **Fine-grained PAT** (recommended): https://github.com/settings/personal-access-tokens → "Generate new token" → resource owner = your account → permissions: `Packages: Read` (account permissions, not repo).
 
-Pass it as the `GhcrToken` CFN parameter or export it as `GHCR_TOKEN` for `bootstrap.sh`/`startup.sh`. Set `GhcrUser` (or `GHCR_USER`) to **your own GitHub username** to match the token's owner.
+Pass it as the `GhcrToken` CFN parameter or export it as `GHCR_TOKEN` for `bootstrap.sh`/`startup.sh`. There is no username to set — ghcr.io validates only the token for PAT auth, so the deploy uses a fixed internal value.
 
 If you intentionally want to skip auth for a small test deploy, leave `GhcrToken` empty and the bootstrap scripts will fall back to anonymous pulls — expect occasional 429s on retry-storms across all 10 services.
 

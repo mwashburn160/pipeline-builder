@@ -115,7 +115,7 @@ export const deploymentTopic: HelpTopic = {
       blocks: [
         {
           type: 'text',
-          content: 'Two production-ready AWS deployment options are available, both with Let\'s Encrypt TLS:',
+          content: 'Two production-ready AWS deployment options are available, both terminating TLS with an ACM certificate (DNS-validated) at the ALB:',
         },
         {
           type: 'table',
@@ -137,6 +137,39 @@ aws cloudformation deploy --stack-name pipeline-builder --template-file template
 # Fargate: 6 CloudFormation stacks
 cd deploy/aws/fargate
 bash bin/deploy.sh --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx`,
+        },
+      ],
+    },
+    {
+      id: 'aws-email',
+      title: 'Transactional Email (SES)',
+      blocks: [
+        {
+          type: 'text',
+          content:
+            'The platform sends invitations, email verification, and password resets via Amazon SES. It is off by default — add `--email` to either AWS deploy script to enable it in one shot.',
+        },
+        {
+          type: 'code',
+          language: 'bash',
+          content: `# EC2 or Fargate — append --email
+bash bin/deploy.sh --domain pipeline.example.com --hosted-zone-id Z123 \\
+  --ghcr-token ghp_xxx --email`,
+        },
+        {
+          type: 'list',
+          items: [
+            'Verifies the domain automatically via SES Easy DKIM — 3 CNAMEs are published to your Route 53 zone (works in private mode too; they go to the public zone).',
+            'Grants ses:SendEmail to the runtime role (EC2 instance role / Fargate task role) — no access keys are created or stored.',
+            'Sets EMAIL_ENABLED, EMAIL_PROVIDER=ses, SES_REGION (pinned to the deploy region), EMAIL_FROM=noreply@<domain>, EMAIL_FROM_NAME=pipeline-builder. Override with --email-from / --email-from-name.',
+            'Reuse an already-verified domain with --no-create-ses-identity (skips identity creation; IAM + env still wired).',
+            'Routes every send through an SES configuration set wired to an SNS topic that receives bounces and complaints. Pass --alert-email you@example.com to be notified (confirm the SNS subscription), or subscribe the topic later.',
+          ],
+        },
+        {
+          type: 'warning',
+          content:
+            'DKIM verification is asynchronous (minutes to hours). And new SES accounts are sandboxed — you can only send to verified recipients (200/day) until you request production access in the SES console. For a sandbox smoke test, verify a real recipient; never send to admin@internal (bounces hurt your SES reputation).',
         },
       ],
     },

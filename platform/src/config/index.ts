@@ -236,6 +236,13 @@ export const config = {
       region: process.env.SES_REGION || process.env.AWS_REGION || 'us-east-1',
       accessKeyId: process.env.SES_ACCESS_KEY_ID || '',
       secretAccessKey: process.env.SES_SECRET_ACCESS_KEY || '',
+      /**
+       * SES configuration set applied to every send. The AWS deploy provisions
+       * it (`--email`) wired to an SNS topic that tracks bounces/complaints —
+       * SES enforces reputation at the account level, so this is how operators
+       * see and alert on it. Empty => no config set (sends still work).
+       */
+      configurationSet: process.env.SES_CONFIGURATION_SET || '',
     },
   },
 

@@ -36,6 +36,13 @@ DOMAIN="${DOMAIN:-}"
 # read here.
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
+# Email (SES) — set by CloudFormation UserData. AWS_REGION is the ACTUAL deploy
+# region; SES_REGION is pinned to it (the SES identity is regional, so the static
+# .env default would break sends in any other region).
+AWS_REGION="${AWS_REGION:-us-east-1}"
+EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
+EMAIL_FROM="${EMAIL_FROM:-}"
+EMAIL_FROM_NAME="${EMAIL_FROM_NAME:-pipeline-builder}"
 
 # Persistent-storage layout. PIPELINE_ROOT is the EBS mount (or a fallback
 # root-volume dir when EBS is unavailable; see UserData in template.yaml).
@@ -288,8 +295,30 @@ sed -i "s|IMAGE_REGISTRY_TOKEN=CHANGE_ME|IMAGE_REGISTRY_TOKEN=${REGISTRY_TOKEN}|
 sed -i "s|GHCR_TOKEN=|GHCR_TOKEN=${GHCR_TOKEN}|" .env
 sed -i "s|GHCR_USER=mwashburn160|GHCR_USER=${GHCR_USER}|" .env
 
+# Pin AWS_REGION + SES_REGION to the ACTUAL deploy region (the SES identity is
+# regional; the static .env.example default would break sends elsewhere), and
+# apply the SES toggles from CloudFormation. EMAIL_FROM keeps its
+# noreply@<domain> default (YOUR_DOMAIN_HERE already substituted) unless the
+# CloudFormation EmailFrom param overrode it.
+sed -i "s|^AWS_REGION=.*|AWS_REGION=${AWS_REGION}|" .env
+sed -i "s|^SES_REGION=.*|SES_REGION=${AWS_REGION}|" .env
+sed -i "s|^EMAIL_ENABLED=.*|EMAIL_ENABLED=${EMAIL_ENABLED}|" .env
+[ -n "$EMAIL_FROM" ] && sed -i "s|^EMAIL_FROM=.*|EMAIL_FROM=${EMAIL_FROM}|" .env
+sed -i "s|^EMAIL_FROM_NAME=.*|EMAIL_FROM_NAME=${EMAIL_FROM_NAME}|" .env
+# --email implies the SES provider, and routes sends through the configuration
+# set (template.yaml) so bounces/complaints publish to the SNS topic.
+[ "$EMAIL_ENABLED" = "true" ] && sed -i "s|^EMAIL_PROVIDER=.*|EMAIL_PROVIDER=ses|" .env
+[ "$EMAIL_ENABLED" = "true" ] && sed -i "s|^SES_CONFIGURATION_SET=.*|SES_CONFIGURATION_SET=pipeline-builder-email|" .env
+# Blank the static SES key placeholders so the platform signs with the EC2
+# instance role (default credential chain). email.ts treats a non-empty
+# SES_ACCESS_KEY_ID as "use static creds" — the dummy placeholder would override
+# the role and break sending.
+sed -i "s|^SES_ACCESS_KEY_ID=.*|SES_ACCESS_KEY_ID=|" .env
+sed -i "s|^SES_SECRET_ACCESS_KEY=.*|SES_SECRET_ACCESS_KEY=|" .env
+
 echo "  .env generated with auto-generated secrets"
 echo "  Domain: ${DOMAIN}"
+echo "  Region: ${AWS_REGION}  (email: ${EMAIL_ENABLED})"
 
 # =============================================================================
 # Phase 8: Setup iptables port forwarding

@@ -21,7 +21,6 @@ STACKS_DIR="$DEPLOY_DIR/stacks"
 # Defaults
 STACK_PREFIX="pb"
 GHCR_TOKEN=""
-GHCR_USER="mwashburn160"
 REGION="${AWS_REGION:-us-east-1}"
 APP_SECRETS_NAME="${APP_SECRETS_NAME:-pipeline-builder/app-secrets}"
 GHCR_AUTH_SECRET_NAME="${GHCR_AUTH_SECRET_NAME:-pipeline-builder/ghcr-auth}"
@@ -32,20 +31,41 @@ GHCR_AUTH_SECRET_NAME="${GHCR_AUTH_SECRET_NAME:-pipeline-builder/ghcr-auth}"
 DOMAIN="${DOMAIN:-}"
 HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 DEPLOY_MODE="${DEPLOY_MODE:-private}"
+# Transactional email via SES. Off by default — a fresh SES account is sandboxed
+# (verified recipients only) so email is only partly usable until production
+# access is granted. --email turns on the SES identity + IAM grant + platform env
+# together. EMAIL_FROM defaults to noreply@DOMAIN. --no-create-ses-identity skips
+# creating the SES identity (use when DOMAIN is already verified in this account).
+EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
+EMAIL_FROM="${EMAIL_FROM:-}"
+EMAIL_FROM_NAME="${EMAIL_FROM_NAME:-pipeline-builder}"
+CREATE_SES_IDENTITY="${CREATE_SES_IDENTITY:-true}"
+# Optional: subscribe an address to the SES bounce/complaint SNS topic for early
+# warning before SES throttles the account (you must confirm the email AWS sends).
+ALERT_EMAIL="${ALERT_EMAIL:-}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
     --ghcr-token) GHCR_TOKEN="$2"; shift 2 ;;
-    --ghcr-user) GHCR_USER="$2"; shift 2 ;;
     --region) REGION="$2"; shift 2 ;;
     --stack-prefix) STACK_PREFIX="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --hosted-zone-id) HOSTED_ZONE_ID="$2"; shift 2 ;;
     --deploy-mode) DEPLOY_MODE="$2"; shift 2 ;;
+    --email) EMAIL_ENABLED="true"; shift ;;
+    --email-from) EMAIL_FROM="$2"; shift 2 ;;
+    --email-from-name) EMAIL_FROM_NAME="$2"; shift 2 ;;
+    --no-create-ses-identity) CREATE_SES_IDENTITY="false"; shift ;;
+    --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
+
+# Email defaults to sending from noreply@<domain> unless overridden.
+if [ "$EMAIL_ENABLED" = "true" ] && [ -z "$EMAIL_FROM" ]; then
+  EMAIL_FROM="noreply@${DOMAIN}"
+fi
 
 # Validate
 case "$DEPLOY_MODE" in
@@ -90,6 +110,11 @@ echo "  Region:         $REGION"
 echo "  Stack Prefix:   $STACK_PREFIX"
 echo "  Deploy mode:    $DEPLOY_MODE"
 echo "  Domain:         $DOMAIN"
+if [ "$EMAIL_ENABLED" = "true" ]; then
+echo "  Email (SES):    enabled (from: $EMAIL_FROM, create-identity: $CREATE_SES_IDENTITY)"
+else
+echo "  Email (SES):    disabled (pass --email to enable)"
+fi
 echo ""
 # TLS is an ACM cert the foundation stack requests + DNS-validates against
 # --hosted-zone-id (no init-cert.sh / self-signed step). The cert is publicly
@@ -103,7 +128,6 @@ if ! aws secretsmanager describe-secret --secret-id "$APP_SECRETS_NAME" --region
   echo "  Secrets not found. Running init-secrets.sh..."
   bash "$SCRIPT_DIR/init-secrets.sh" \
     --ghcr-token "$GHCR_TOKEN" \
-    --ghcr-user "$GHCR_USER" \
     --region "$REGION"
 else
   echo "  Secrets already exist in Secrets Manager"
@@ -151,6 +175,9 @@ FOUNDATION_PARAMS=(
   "${DEPLOY_MODE_PARAM[@]}"
   "DomainName=${DOMAIN}"
   "HostedZoneId=${HOSTED_ZONE_ID}"
+  "EmailEnabled=${EMAIL_ENABLED}"
+  "CreateSesIdentity=${CREATE_SES_IDENTITY}"
+  "AlertEmail=${ALERT_EMAIL}"
 )
 deploy_stack "foundation" "$STACKS_DIR/01-foundation.yaml" "${FOUNDATION_PARAMS[@]}"
 
@@ -200,10 +227,15 @@ PLATFORM_BASE_URL="https://${BASE_HOST}"
 COMMON_PARAMS=("StackPrefix=${STACK_PREFIX}" "DomainName=${BASE_HOST}")
 SECRETS_PARAMS=("AppSecretsName=${APP_SECRETS_NAME}" "GhcrAuthSecretName=${GHCR_AUTH_SECRET_NAME}")
 PLATFORM_URL_PARAM=("PlatformBaseUrl=${PLATFORM_BASE_URL}")
+# Email params flow to the cluster stack (task-role grant) and the services
+# stack (platform env). EmailFrom must match between them — the IAM grant is
+# scoped to it via ses:FromAddress.
+EMAIL_PARAMS=("EmailEnabled=${EMAIL_ENABLED}" "EmailFrom=${EMAIL_FROM}")
+EMAIL_SVC_PARAMS=("${EMAIL_PARAMS[@]}" "EmailFromName=${EMAIL_FROM_NAME}")
 
-deploy_stack "cluster" "$STACKS_DIR/02-cluster.yaml" "${COMMON_PARAMS[@]}"
+deploy_stack "cluster" "$STACKS_DIR/02-cluster.yaml" "${COMMON_PARAMS[@]}" "${EMAIL_PARAMS[@]}"
 deploy_stack "databases" "$STACKS_DIR/03-databases.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
-deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}" "${DEPLOY_MODE_PARAM[@]}"
+deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}" "${DEPLOY_MODE_PARAM[@]}" "${EMAIL_SVC_PARAMS[@]}"
 deploy_stack "observability" "$STACKS_DIR/05-observability.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
 deploy_stack "admin" "$STACKS_DIR/06-admin.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
 
@@ -227,3 +259,20 @@ echo "  Mongo Express: https://${BASE_HOST}/mongo-express/"
 echo "  Registry UI:   https://${BASE_HOST}/dashboard/registry (sysadmin only)"
 echo ""
 echo "  ECS Console:   https://${REGION}.console.aws.amazon.com/ecs/v2/clusters/pipeline-builder"
+if [ "$EMAIL_ENABLED" = "true" ]; then
+echo ""
+echo "  Email (SES):   sending from ${EMAIL_FROM}"
+echo "                 DKIM CNAMEs were added to your Route53 zone; verification is"
+echo "                 ASYNCHRONOUS (minutes-hours). Check status:"
+echo "                 https://${REGION}.console.aws.amazon.com/ses/home?region=${REGION}#/verified-identities"
+echo "                 New SES accounts are SANDBOXED: you can only send to verified"
+echo "                 recipients (200/day) until you request production access:"
+echo "                 https://${REGION}.console.aws.amazon.com/ses/home?region=${REGION}#/account"
+echo "                 To smoke-test in sandbox, verify a REAL recipient — never admin@internal."
+echo "                 Bounces/complaints publish to SNS topic ${STACK_PREFIX}-email-events"
+if [ -n "$ALERT_EMAIL" ]; then
+echo "                 (alert: ${ALERT_EMAIL} — CONFIRM the SNS subscription email AWS sent)."
+else
+echo "                 (no --alert-email given; subscribe to the topic to get warned)."
+fi
+fi

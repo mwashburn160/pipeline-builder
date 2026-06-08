@@ -55,6 +55,27 @@ Parameters:
       05-observability.yaml) and audit events + logs carry a trace id. Set to
       false to disable without redeploying the collector.
 
+  EmailEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      When true, the platform sends transactional email via SES (EMAIL_ENABLED).
+      Requires the SES identity (01-foundation) and task-role grant (02-cluster),
+      all driven by deploy.sh --email.
+
+  EmailFrom:
+    Type: String
+    Default: ""
+    Description: >
+      From address for platform email (e.g. noreply@example.com). Must be covered
+      by the SES identity and match the ses:FromAddress grant in 02-cluster.
+
+  EmailFromName:
+    Type: String
+    Default: "pipeline-builder"
+    Description: Display name on outbound platform email.
+
   PlatformImage:
     Type: String
     Default: ghcr.io/mwashburn160/platform:3.4.79
@@ -418,6 +439,25 @@ Resources:
             # be granted before the admin API (which needs sysadmin authority).
             - Name: BOOTSTRAP_SUPERADMIN_EMAILS
               Value: admin@internal
+            # Transactional email via SES. The SES identity (01-foundation) and
+            # ses:SendEmail task-role grant (02-cluster) are provisioned when
+            # --email is passed; credentials come from the task role (no keys).
+            # SES_REGION is pinned to the stack region — the identity is regional.
+            - Name: EMAIL_ENABLED
+              Value: !Ref EmailEnabled
+            - Name: EMAIL_PROVIDER
+              Value: ses
+            - Name: SES_REGION
+              Value: !Ref "AWS::Region"
+            - Name: EMAIL_FROM
+              Value: !Ref EmailFrom
+            - Name: EMAIL_FROM_NAME
+              Value: !Ref EmailFromName
+            # Route every send through the configuration set (01-foundation) so
+            # bounces/complaints publish to the SNS topic. Unused when email is
+            # disabled (EMAIL_ENABLED=false), so a static name is safe here.
+            - Name: SES_CONFIGURATION_SET
+              Value: !Sub "${StackPrefix}-email"
           Secrets:
             - Name: JWT_SECRET
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:JWT_SECRET::"
