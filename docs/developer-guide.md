@@ -1,3 +1,8 @@
+---
+layout: default
+title: Developer Guide
+---
+
 # Developer Guide
 
 Practical benefits and workflows for developers using Pipeline Builder.

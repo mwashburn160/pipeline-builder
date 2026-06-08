@@ -1,3 +1,8 @@
+---
+layout: default
+title: Metadata Keys
+---
+
 # Metadata Keys
 
 Strongly-typed configuration keys for customizing CodePipeline and CodeBuild resources at synth time. Import from `@mwashburn160/pipeline-core`.

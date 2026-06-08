@@ -1,3 +1,8 @@
+---
+layout: default
+title: Architecture Flow
+---
+
 # Pipeline Builder - Architecture Flow
 
 ## Overview

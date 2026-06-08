@@ -1,3 +1,8 @@
+---
+layout: default
+title: AWS Deployment
+---
+
 # AWS Deployment
 
 Two deployment options: **EC2** (single instance, Kubernetes) or **Fargate** (serverless containers).

@@ -1,3 +1,9 @@
+---
+layout: default
+title: Documentation
+permalink: /docs/
+---
+
 # Documentation
 
 Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting Started](#getting-started) below, then jump into [Creating Pipelines](#creating-pipelines).

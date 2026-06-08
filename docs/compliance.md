@@ -1,3 +1,8 @@
+---
+layout: default
+title: Compliance
+---
+
 # Compliance Service
 
 Per-organization rule enforcement for plugins and pipelines. Validates entity attributes against configurable rules, blocks operations that violate policies, and notifies org admins.

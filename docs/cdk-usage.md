@@ -1,3 +1,8 @@
+---
+layout: default
+title: CDK Usage
+---
+
 # CDK Usage Guide
 
 Use the `PipelineBuilder` CDK construct to define pipelines as infrastructure-as-code. Pipelines deploy as native AWS CodePipeline + CodeBuild in your AWS account, with build steps drawn from a catalog of 125 ready-to-use plugins.

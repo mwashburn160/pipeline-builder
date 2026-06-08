@@ -1,3 +1,8 @@
+---
+layout: default
+title: Organization Benefits
+---
+
 # Organization Benefits
 
 How Pipeline Builder transforms CI/CD for engineering organizations.

@@ -1,3 +1,9 @@
+---
+layout: default
+title: Plugin Catalog
+permalink: /docs/plugins/
+---
+
 # Plugin Catalog
 
 Pipeline Builder ships with **125 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.

@@ -1,5 +1,5 @@
-title: Pipeline Builder
-description: Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt. 124+ reusable plugins, per-org compliance enforcement, multi-tenant isolation, and zero vendor lock-in.
+title: Self-Service CI/CD for AWS
+description: Create compliant deployment pipelines in minutes while platform teams enforce security, governance, and organizational standards.
 tagline: Self-service CI/CD for AWS
 
 url: "https://mwashburn160.github.io"

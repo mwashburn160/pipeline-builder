@@ -1,3 +1,8 @@
+---
+layout: default
+title: Audit Events
+---
+
 # Audit Events
 
 Pipeline Builder emits audit events through two complementary paths.

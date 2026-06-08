@@ -1,3 +1,8 @@
+---
+layout: default
+title: Samples
+---
+
 # Samples
 
 Ready-to-use pipeline configurations and CDK examples that demonstrate Pipeline Builder's capabilities. Use these as starting points for your own pipelines or as reference implementations for advanced patterns.

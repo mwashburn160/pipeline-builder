@@ -1,3 +1,8 @@
+---
+layout: default
+title: Environment Variables
+---
+
 # Environment Variables
 
 Complete reference for all environment variables used across Pipeline Builder services. Each variable can be set in your `.env` file or passed directly via your deployment configuration (Docker Compose, Kubernetes ConfigMap, ECS task definition).

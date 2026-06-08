@@ -1,3 +1,8 @@
+---
+layout: default
+title: API Reference
+---
+
 # API Reference
 
 REST API for managing pipelines, plugins, and reporting. All services run behind an Nginx gateway that handles TLS termination and JWT validation.

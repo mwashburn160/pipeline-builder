@@ -1,14 +1,15 @@
 ---
+layout: default
 title: Self-Service CI/CD for AWS
 description: Create compliant deployment pipelines in minutes while platform teams enforce security, governance, and organizational standards.
 permalink: /
 ---
 
-# Self-Service CI/CD Platform
+# Self-Service CI/CD for AWS
 
 **Golden paths for developers, guardrails for platform teams.**
 
-Pipeline Builder is an **internal developer platform for AWS CI/CD**. Developers self-serve production-ready CodePipelines in minutes — from a dashboard, CLI, CDK, or a single AI prompt — while platform and DevOps teams keep control through **policy-as-code guardrails**, reusable **golden-path templates**, and a central plugin catalog. It takes DevOps off the critical path *without* giving up governance — and every pipeline ships as **native AWS CodePipeline in your own account**, so there's no vendor lock-in and nothing to rip out later.
+Pipeline Builder is a **self-service CI/CD platform for AWS**. Developers self-serve production-ready CodePipelines in minutes — from a dashboard, CLI, CDK, or a single AI prompt — while platform and DevOps teams keep control through **policy-as-code guardrails**, reusable **golden-path templates**, and a central plugin catalog. It takes DevOps off the critical path *without* giving up governance — and every pipeline ships as **native AWS CodePipeline in your own account**, so there's no vendor lock-in and nothing to rip out later.
 
 Rather than hand-wiring AWS CodePipeline, CodeBuild, IAM roles, and deployment stages for every project, teams compose pipelines from governed, reusable building blocks — consistent by default, audited end to end.
 
@@ -115,6 +116,41 @@ An **organization** is the isolation boundary — every pipeline, plugin, secret
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph Interfaces
+        CLI["CLI"] & DASH["Dashboard"] & API["REST API"] & CDK["CDK Constructs"]
+    end
+
+    subgraph Platform["Platform Service"]
+        AUTH["Auth + JWT + Orgs + RBAC"]
+    end
+
+    subgraph Backend["Backend Services"]
+        PLUGIN["Plugin"] & PIPELINE["Pipeline"]
+        COMPLIANCE["Compliance"]
+        REPORTING["Reporting"]
+        SUPPORT["Quota + Billing + Messages"]
+    end
+
+    CORE["pipeline-core<br/>CDK Synth"]
+    AWS["Client AWS Account"]
+
+    CLI & DASH & API -->|JWT| Platform
+    CDK --> CORE
+    Platform --> PLUGIN & PIPELINE & COMPLIANCE & REPORTING & SUPPORT
+    PLUGIN & PIPELINE -->|validate| COMPLIANCE
+    PLUGIN & PIPELINE --> CORE
+    CORE --> AWS
+    AWS -->|EventBridge| REPORTING
+
+    style Platform fill:#4A90D9,color:#fff
+    style CORE fill:#F5A623,color:#fff
+    style AWS fill:#2ECC71,color:#fff
+    style COMPLIANCE fill:#E74C3C,color:#fff
+    style REPORTING fill:#9B59B6,color:#fff
+```
+
 | Service | Purpose |
 |---------|---------|
 | **Platform** | Auth, organizations, teams, users, JWT, RBAC — central gateway |
@@ -130,6 +166,18 @@ See [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) for
 ---
 
 ## Get started
+
+Run the full stack locally with Docker — prebuilt public images, no registry login:
+
+```bash
+git clone https://github.com/mwashburn160/pipeline-builder.git && cd pipeline-builder
+cd deploy/local && ./bin/startup.sh          # 1. pull images + start the stack
+cd ../.. && ./deploy/bin/init-platform.sh local   # 2. register admin + load plugins
+```
+
+Then open **https://localhost:8443** (default admin `admin@internal` / `SecurePassword123!` — change it immediately on anything beyond your laptop).
+
+From there:
 
 1. **Deploy** the platform — choose Local, Minikube, [EC2]({{ '/docs/aws-deployment.html' | relative_url }}), or Fargate
 2. **Register** an admin user and organization
