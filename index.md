@@ -1,7 +1,6 @@
 ---
-title: Pipeline Builder - Self-Service CI/CD Platform for AWS
-description: Build production-ready AWS CodePipelines in minutes with AI, 125+ plugins, policy-as-code compliance, and zero vendor lock-in. Deploy native AWS infrastructure.
-layout: default
+title: Self-Service CI/CD for AWS
+description: Create compliant deployment pipelines in minutes while platform teams enforce security, governance, and organizational standards.
 permalink: /
 ---
 
