@@ -4,11 +4,11 @@
 <!-- Keywords for search indexing -->
 <meta name="keywords" content="AWS CodePipeline, CI/CD, DevOps, AWS CDK, CloudFormation, pipeline automation, self-service CI/CD, multi-tenant, compliance enforcement, reusable plugins, TypeScript, Kubernetes, Docker, platform engineering, infrastructure as code" />
 
-<!-- Open Graph, Twitter Card, og:url, and canonical are generated PER PAGE by
-     jekyll-seo-tag ({% seo %} in _layouts/default.html) from each page's title +
-     description (with site.* fallbacks from _config.yml). They are intentionally
-     NOT hardcoded here: a static canonical / og:url would point every doc page at
-     the homepage, and static og:title/description would drift from the real ones. -->
+<!-- Open Graph, Twitter Card, og:url, and canonical are generated PER PAGE by the
+     jekyll-seo-tag plugin (the seo tag in _layouts/default.html) from each page's
+     title + description, with site.* fallbacks from _config.yml. They are
+     intentionally NOT hardcoded here: a static canonical / og:url would point every
+     doc page at the homepage, and static og:title/description would drift. -->
 
 <!-- Robots -->
 <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
@@ -19,7 +19,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Pipeline Builder",
-  "description": "Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt. 125 reusable plugins, per-org compliance enforcement, multi-tenant isolation, and zero vendor lock-in.",
+  "description": "Create compliant deployment pipelines in minutes while platform teams enforce security, governance, and organizational standards.",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux, macOS, Windows",
   "offers": {
@@ -38,12 +38,14 @@
 }
 </script>
 
-<!-- Mermaid.js — render ```mermaid fenced blocks. kramdown/rouge wraps them as
-     <div class="language-mermaid">…<code>…</code>…</div> — the class is on the WRAPPER,
-     not the <code> — so target the wrapper (with a bare-<code> fallback), then init. -->
-<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-<script>
-  document.addEventListener('DOMContentLoaded', function () {
+<!-- Mermaid.js (ESM build — the only one reliably published for v10/11; the UMD
+     dist/mermaid.min.js no longer exists, which silently breaks diagram rendering).
+     kramdown/rouge wraps ```mermaid as <div class="language-mermaid">…<code>…</code>…</div>
+     — the class is on the WRAPPER, not the <code> — so target the wrapper, convert each
+     to <div class="mermaid">, then render. -->
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  function renderMermaid() {
     var blocks = document.querySelectorAll('div.language-mermaid, pre > code.language-mermaid');
     blocks.forEach(function (el) {
       var container = el.tagName === 'CODE' ? (el.closest('pre') || el) : el;
@@ -56,5 +58,7 @@
       mermaid.initialize({ startOnLoad: false, theme: 'default' });
       mermaid.run();
     }
-  });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', renderMermaid);
+  else renderMermaid();
 </script>
