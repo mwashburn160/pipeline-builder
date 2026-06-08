@@ -12,11 +12,12 @@
 </p>
 
 ---
-## Self-Service CI/CD for AWS
 
-Pipeline Builder is a platform that enables development teams to create, deploy, and manage compliant AWS CI/CD pipelines through a simple self-service interface. Platform and DevOps teams maintain control through governance policies, reusable templates, and centralized plugin management while developers gain the freedom to deploy applications quickly and consistently.
+## Self-Service CI/CD Platform — golden paths for developers, guardrails for platform teams
 
-Rather than manually configuring AWS CodePipeline, CodeBuild, IAM roles, and deployment stages, teams can generate production-ready pipelines in minutes.
+Pipeline Builder is an **internal developer platform for AWS CI/CD**. Developers self-serve production-ready CodePipelines in minutes — from a dashboard, CLI, CDK, or a single AI prompt — while platform and DevOps teams keep control through **policy-as-code guardrails**, reusable **golden-path templates**, and a central plugin catalog. It takes DevOps off the critical path *without* giving up governance — and every pipeline ships as **native AWS CodePipeline in your own account**, so there's no vendor lock-in and nothing to rip out later.
+
+Rather than hand-wiring AWS CodePipeline, CodeBuild, IAM roles, and deployment stages for every project, teams compose pipelines from governed, reusable building blocks — consistent by default, audited end to end.
 
 ## At a Glance
 
@@ -75,7 +76,7 @@ Plugin images are built with **rootless BuildKit** (`buildkitd`) — the same da
 - **One code path everywhere** — the deploy target only changes where the sidecar is hosted (ECS task / k8s pod / compose service).
 
 | Category | Count | Examples |
-|----------|-------|---------|
+|----------|-------|----------|
 | Language | 11 | Java, Python, Node.js, Go, Rust, .NET, C++, PHP, Ruby |
 | Security | 40 | Snyk, SonarCloud, Trivy, Veracode, Semgrep, Checkmarx, Fortify |
 | Quality | 17 | ESLint, Prettier, Checkstyle, Clippy, Ruff, ShellCheck |

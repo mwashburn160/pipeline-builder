@@ -1,15 +1,17 @@
 ---
-title: Pipeline Builder - Self-Service AWS CI/CD Pipeline Generator
+title: Pipeline Builder - Self-Service CI/CD Platform for AWS
 description: Build production-ready AWS CodePipelines in minutes with AI, 125+ plugins, policy-as-code compliance, and zero vendor lock-in. Deploy native AWS infrastructure.
 layout: default
 permalink: /
 ---
 
-# Self-Service CI/CD for AWS
+# Self-Service CI/CD Platform
 
-Pipeline Builder is a platform that enables development teams to create, deploy, and manage compliant AWS CI/CD pipelines through a simple self-service interface. Platform and DevOps teams maintain control through governance policies, reusable templates, and centralized plugin management while developers gain the freedom to deploy applications quickly and consistently.
+**Golden paths for developers, guardrails for platform teams.**
 
-Rather than manually configuring AWS CodePipeline, CodeBuild, IAM roles, and deployment stages, teams can generate production-ready pipelines in minutes.
+Pipeline Builder is an **internal developer platform for AWS CI/CD**. Developers self-serve production-ready CodePipelines in minutes — from a dashboard, CLI, CDK, or a single AI prompt — while platform and DevOps teams keep control through **policy-as-code guardrails**, reusable **golden-path templates**, and a central plugin catalog. It takes DevOps off the critical path *without* giving up governance — and every pipeline ships as **native AWS CodePipeline in your own account**, so there's no vendor lock-in and nothing to rip out later.
+
+Rather than hand-wiring AWS CodePipeline, CodeBuild, IAM roles, and deployment stages for every project, teams compose pipelines from governed, reusable building blocks — consistent by default, audited end to end.
 
 [**View on GitHub**](https://github.com/mwashburn160/pipeline-builder) · [**Documentation**]({{ '/docs/' | relative_url }}) · [**Plugin Catalog**]({{ '/docs/plugins/' | relative_url }}) · [**API Reference**]({{ '/docs/api-reference.html' | relative_url }})
 
