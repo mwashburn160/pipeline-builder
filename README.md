@@ -187,6 +187,7 @@ flowchart TB
         PLUGIN["Plugin"] & PIPELINE["Pipeline"]
         COMPLIANCE["Compliance"]
         REPORTING["Reporting"]
+        REGISTRY["Image Registry"]
         SUPPORT["Quota + Billing + Messages"]
     end
 
@@ -197,8 +198,10 @@ flowchart TB
     CDK --> CORE
     Platform --> PLUGIN & PIPELINE & COMPLIANCE & REPORTING & SUPPORT
     PLUGIN & PIPELINE -->|validate| COMPLIANCE
+    PLUGIN -->|push images| REGISTRY
     PLUGIN & PIPELINE --> CORE
     CORE --> AWS
+    AWS -->|pull plugin images| REGISTRY
     AWS -->|EventBridge| REPORTING
 
     style Platform fill:#4A90D9,color:#fff
