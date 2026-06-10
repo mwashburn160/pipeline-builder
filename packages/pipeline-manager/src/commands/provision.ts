@@ -11,6 +11,7 @@ import { entrypointExists, executionBlocked, runScript } from '../agent/executor
 import { deriveHealthUrl, waitHealthy } from '../agent/health.js';
 import { resolvePostSteps } from '../agent/post-steps.js';
 import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied } from '../agent/prereqs.js';
+import { TOOLS_DIR, fetchTool, isFetchable, withToolsOnPath } from '../agent/tools.js';
 import {
   assembleCommand,
   isTargetId,
@@ -268,7 +269,11 @@ export function provision(program: Command): void {
           return;
         }
 
-        const prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
+        // Make previously-fetched single-binary tools (e.g. yq) visible to the
+        // prereq checks + the deploy — they live in the tools cache, not on the
+        // system PATH. (Both `has()` and the deploy's `bash -lc` inherit this.)
+        withToolsOnPath();
+        let prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
         const { command, missing } = assembleCommand(spec, params);
         const url = deriveHealthUrl(target, params);
 
@@ -340,7 +345,22 @@ export function provision(program: Command): void {
           return;
         }
 
-        // 7. Gated execution. Check prereqs / required inputs first — this also
+        // 7. Any missing required prereq that's a single static binary (e.g. yq)
+        // can be fetched into the tools cache instead of a system install — no
+        // brew/apt. Offer it, then re-check (the cache dir is already on PATH).
+        const fetchable = prereqs.filter((c) => !c.ok && c.required && isFetchable(c.name));
+        if (fetchable.length > 0) {
+          const names = fetchable.map((c) => c.name).join(', ');
+          if (await confirm(`\n${names} not installed — fetch the official static binary into ${TOOLS_DIR} (no system install)?`, options.yes)) {
+            for (const c of fetchable) {
+              printInfo(`Fetching ${c.name}…`);
+              if (!fetchTool(c.name)) printWarning(`Couldn't fetch ${c.name} — install it manually and re-run.`);
+            }
+            prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
+          }
+        }
+
+        // 7b. Gated execution. Check prereqs / required inputs first — this also
         // catches a missing `git` when bootstrapping.
         const blocked = executionBlocked(prereqs, missing);
         if (blocked) {
