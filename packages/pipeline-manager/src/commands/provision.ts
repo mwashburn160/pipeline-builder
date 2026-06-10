@@ -449,6 +449,11 @@ export function provision(program: Command): void {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           const realCommand = assembleCommand(spec, runParams, { mask: false }).command;
           printSection(attempt === 1 ? 'Deploying' : `Deploying — retry ${attempt - 1}`);
+          if (attempt === 1) {
+            printInfo(`Deploying ${spec.label} → ${url}`);
+            printInfo(spec.deploys);
+            printInfo('Streaming the deploy below — first run is the slow one (image pulls + cert generation).');
+          }
           const { code, tail } = await runScript(realCommand, cwd, { capture: true });
           if (code === 0) { succeeded = true; break; }
 

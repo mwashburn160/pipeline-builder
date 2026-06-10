@@ -49,6 +49,8 @@ export interface TargetSpec {
   readonly cost: string;
   /** One-line "best for". */
   readonly bestFor: string;
+  /** What the deploy creates — shown when deploying so "Deploying" isn't opaque. */
+  readonly deploys: string;
   /** What a teardown of this target destroys — shown before a (gated) teardown. */
   readonly destroys: string;
 }
@@ -89,6 +91,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     postDeploy: './deploy/bin/init-platform.sh local',
     cost: 'Free',
     bestFor: 'Development',
+    deploys: 'the platform as a Docker Compose stack — an nginx TLS proxy, the API services (platform, plugin, pipeline, message, reporting, compliance, quota, billing, image-registry), the frontend, and postgres + mongo + redis. First run pulls the ghcr.io images and generates a local TLS cert (a few minutes).',
     destroys: 'stops all containers — data under deploy/local/data persists on disk (delete it manually for a clean slate)',
   },
   minikube: {
@@ -102,6 +105,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     postDeploy: './deploy/bin/init-platform.sh minikube',
     cost: 'Free',
     bestFor: 'Local Kubernetes',
+    deploys: 'the platform onto a local Minikube cluster — the same services as Kubernetes Deployments/Services behind an ingress, plus in-cluster postgres + mongo + redis. First run pulls images, builds the cluster, and generates a TLS cert (several minutes).',
     destroys: 'stops the minikube stack — persistent volumes (PVC data) remain until the cluster is deleted',
   },
   ec2: {
@@ -115,6 +119,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     postDeploy: './deploy/bin/init-platform.sh ec2  # from inside the VPC (SSM)',
     cost: '~$140-265/mo',
     bestFor: 'Dev / staging',
+    deploys: 'the platform on a single EC2 instance via CloudFormation — a VPC, the instance (running the Minikube stack), an ALB, a Route 53 record + ACM cert for the domain, and (by default) SES email. The instance pulls images on first boot.',
     destroys: 'DELETES the CloudFormation stack: the VPC, EC2 instance, and its EBS data volume (databases, registry, plugin builds). Irreversible.',
   },
   fargate: {
@@ -128,6 +133,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     postDeploy: './deploy/bin/init-platform.sh fargate  # from a VPC-attached host',
     cost: '~$100-300/mo',
     bestFor: 'Production',
+    deploys: 'the platform on serverless ECS Fargate via 6 CloudFormation stacks — a VPC, an ALB, the ECS services, EFS-backed databases + registry, Route 53 + ACM for the domain, and (by default) SES email. Secrets are generated into Secrets Manager first.',
     destroys: 'DELETES all pb-* CloudFormation stacks: EFS data, databases, and registry. Secrets Manager entries are NOT auto-deleted. Irreversible.',
   },
 };
