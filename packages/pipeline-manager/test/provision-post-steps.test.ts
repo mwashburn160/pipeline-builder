@@ -35,7 +35,7 @@ describe('resolvePostSteps', () => {
     expect(steps.map((s) => s.id)).toEqual(['smoke-test']);
   });
 
-  it('orders register → smoke → events → custom', () => {
+  it('orders register → smoke → events bundle (store-token → setup-events) → custom', () => {
     const { steps } = resolvePostSteps({
       ...base,
       target: 'ec2',
@@ -45,8 +45,14 @@ describe('resolvePostSteps', () => {
       events: true,
       steps: ['echo hi'],
     });
-    expect(steps.map((s) => s.id)).toEqual(['register', 'smoke-test', 'events', 'custom-1']);
-    expect(steps.find((s) => s.id === 'events')!.command).toContain('setup-events --region us-east-1');
+    expect(steps.map((s) => s.id)).toEqual(['register', 'smoke-test', 'store-token', 'events', 'custom-1']);
+    // store-token must precede setup-events (the Lambda reads the secret it writes).
+    const storeToken = steps.find((s) => s.id === 'store-token')!;
+    expect(storeToken.command).toContain('store-token --region us-east-1');
+    expect(storeToken.command).not.toContain('--secret-name'); // derives the pattern, never passed
+    const events = steps.find((s) => s.id === 'events')!;
+    expect(events.command).toContain('setup-events --region us-east-1');
+    expect(events.command).not.toContain('--secret-name');
   });
 
   it('events is skipped (not silently dropped) on non-AWS targets', () => {

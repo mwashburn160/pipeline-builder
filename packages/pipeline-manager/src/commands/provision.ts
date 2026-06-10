@@ -121,7 +121,7 @@ export function provision(program: Command): void {
     .option('--with-all', 'Post-install: plugins + compliance + samples', false)
     .option('--build-bootstrap', 'Build + publish the CodeBuild bootstrap image during register (adds deploy/codebuild)', false)
     .option('--with-smoke-test', 'Post-install: read-only API reachability check', false)
-    .option('--with-events', 'Post-install: EventBridge ingestion via setup-events (AWS targets)', false)
+    .option('--with-events', 'Post-install (AWS): event ingestion bundle — store-token (JWT → Secrets Manager) then setup-events (EventBridge/Lambda)', false)
     .option('--post-step <cmd>', 'Run an extra command after the loads (repeatable, in order)', collectStep, [])
     .option('--admin-email <addr>', 'Admin email for non-interactive register (sets PLATFORM_IDENTIFIER)')
     .option('--admin-password <pw>', 'Admin password for non-interactive register (sets PLATFORM_PASSWORD)')
@@ -481,7 +481,12 @@ export function provision(program: Command): void {
             for (const s of runnable) {
               printSection(`Post-step: ${s.label}`);
               printInfo(s.command);
-              const env = s.id === 'register' ? { ...s.env, ...adminEnv } : s.env;
+              // Steps that log into the platform (register + store-token) need the
+              // admin creds (PLATFORM_IDENTIFIER / PLATFORM_PASSWORD) on top of their
+              // own step env. setup-events does NOT log in — it reads PLATFORM_SECRET_NAME,
+              // AWS creds, and the region from the AWS environment — so it's excluded.
+              const needsCreds = s.id === 'register' || s.id === 'store-token';
+              const env = needsCreds ? { ...s.env, ...adminEnv } : s.env;
               const { code } = await runScript(s.command, cwd, { capture: false, env });
               if (code !== 0) {
                 printError(`\nPost-step '${s.id}' failed (exit ${code}). The platform is deployed; fix and re-run the step manually.`);

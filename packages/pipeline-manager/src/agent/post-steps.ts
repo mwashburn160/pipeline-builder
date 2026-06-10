@@ -49,6 +49,7 @@ export interface PostStepOptions {
   /** False when `--no-init` — skips the register step entirely. */
   readonly init: boolean;
   readonly smokeTest: boolean;
+  /** `--with-events`: the AWS event-ingestion bundle (store-token → setup-events). */
   readonly events: boolean;
   /** Raw operator `--post-step` commands, in order. */
   readonly steps: readonly string[];
@@ -97,12 +98,26 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
 
   if (opts.events) {
     if (opts.target === 'ec2' || opts.target === 'fargate') {
-      // Requires the pipeline-manager CLI on PATH; reads PLATFORM_BASE_URL /
-      // PLATFORM_SECRET_NAME from the environment (the command validates them).
+      // Event ingestion needs a platform JWT in Secrets Manager BEFORE the Lambda
+      // is wired up, so this is a two-step bundle: store-token writes the token,
+      // then setup-events deploys the EventBridge → SQS → Lambda that reads it.
+      // Neither takes a secret name — both derive pipeline-builder's own pattern
+      // (CoreConstants.secretPath → pipeline-builder/{orgId}/platform) from the
+      // org, so they agree automatically. They get PLATFORM_BASE_URL (step env) +
+      // admin creds (merged by the caller) to resolve the org.
+      const region = opts.region ? ` --region ${opts.region}` : '';
+      const env = opts.url ? { PLATFORM_BASE_URL: opts.url } : undefined;
+      steps.push({
+        id: 'store-token',
+        label: 'Store platform token in AWS Secrets Manager',
+        command: `pipeline-manager store-token${region}`,
+        env,
+      });
       steps.push({
         id: 'events',
         label: 'EventBridge ingestion (setup-events)',
-        command: `pipeline-manager setup-events${opts.region ? ` --region ${opts.region}` : ''}`,
+        command: `pipeline-manager setup-events${region}`,
+        env,
       });
     } else {
       skipped.push({ id: 'events', reason: `not applicable to target '${opts.target}' (ec2/fargate only)` });

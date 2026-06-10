@@ -21,11 +21,19 @@ export interface SecretsOptions {
 }
 
 function createClient(options: SecretsOptions): SecretsManagerClient {
+  // Leave `credentials` unset so the SDK's standard provider chain resolves them:
+  // environment variables (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
+  // AWS_SESSION_TOKEN) take precedence when set, otherwise the shared
+  // ~/.aws/config + ~/.aws/credentials files (honoring AWS_PROFILE). An explicit
+  // --profile selects which shared profile to read — but only when env-var creds
+  // and an inherited AWS_PROFILE aren't already present, so env vars always win
+  // and we never clobber the caller's environment. Region resolves the same way
+  // (flag → AWS_REGION / CDK_DEFAULT_REGION).
+  if (options.profile && !process.env.AWS_ACCESS_KEY_ID && !process.env.AWS_PROFILE) {
+    process.env.AWS_PROFILE = options.profile;
+  }
   return new SecretsManagerClient({
     region: options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION,
-    ...(options.profile && {
-      credentials: undefined, // profile is handled by AWS SDK credential chain
-    }),
   });
 }
 

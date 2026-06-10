@@ -69,8 +69,14 @@ export function storeToken(program: Command): void {
         const days = validateNumber(options.days, 'days', 1, 365);
         const expiresInSeconds = days * 24 * 60 * 60;
 
-        // Step 0: If --email/--password provided and no PLATFORM_TOKEN, login first
-        if (options.email && options.password && !process.env.PLATFORM_TOKEN) {
+        // Step 0: log in first when creds are available and no PLATFORM_TOKEN is set.
+        // Credentials may come from --email/--password OR from the
+        // PLATFORM_IDENTIFIER/PLATFORM_PASSWORD env vars — the env path lets callers
+        // like `provision --with-events` pass them without putting the password on
+        // the command line (where it would show in plans/logs).
+        const loginEmail = options.email || process.env.PLATFORM_IDENTIFIER;
+        const loginPassword = options.password || process.env.PLATFORM_PASSWORD;
+        if (loginEmail && loginPassword && !process.env.PLATFORM_TOKEN) {
           printSection('Login');
           printInfo('Authenticating with email/password...');
 
@@ -78,8 +84,8 @@ export function storeToken(program: Command): void {
           const loginUrl = `${config.api.baseUrl}/api/auth/login`;
 
           const loginResponse = await axios.post(loginUrl, {
-            email: options.email,
-            password: options.password,
+            email: loginEmail,
+            password: loginPassword,
           }, {
             httpsAgent: config.api.rejectUnauthorized === false
               ? new (await import('https')).Agent({ rejectUnauthorized: false })
