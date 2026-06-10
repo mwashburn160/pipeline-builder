@@ -11,9 +11,13 @@ set -euo pipefail
 #       --hosted-zone-id Z123 --execute --yes --admin-email a@x.com --admin-password "$PW"
 #   deploy/bin/provision-docker.sh --target local --repo --with-plugins --execute --yes
 #
-# Per-target install fingerprint (installed in the throwaway container, not the host):
-#   ec2 | fargate : git, curl, unzip, AWS CLI v2        (mounts ~/.aws ro)
-#   local         : git, yq, docker CLI                 (shares the host docker daemon)
+# Per-target install fingerprint (installed in the throwaway container, not the
+# host) — this MUST cover every prerequisite `provision` checks for the target,
+# or provision would block inside the container the same way it does on a bare host.
+#   ec2           : git, curl, unzip, AWS CLI v2                       (mounts ~/.aws ro)
+#   fargate       : ec2 set + openssl (init-secrets.sh generates secrets)
+#   local         : git, yq only — Docker + Docker Compose are EXTERNAL (Docker
+#                   Desktop provides both); reached via the mounted socket + host docker CLI.
 #   minikube      : host-side cluster — run on the host instead.
 
 CLI_PKG="@pipeline-builder/pipeline-manager@latest"
@@ -39,13 +43,25 @@ extra=""                         # non-apt installs (AWS CLI / yq), run via eval
 case "$TARGET" in
   ec2|fargate)
     apt="$apt unzip"
+    # fargate runs init-secrets.sh on the host, which generates the platform
+    # secrets (JWT/refresh, passwords, the registry RSA key) with openssl.
+    [ "$TARGET" = fargate ] && apt="$apt openssl"
     extra='curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/a.zip && unzip -q /tmp/a.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/a.zip /tmp/aws'
     [ -d "$HOME/.aws" ] && mounts+=( -v "$HOME/.aws:/root/.aws:ro" )
     ;;
   local)
-    apt="$apt docker.io"
+    # Docker + Docker Compose are EXTERNAL (host) requirements — NOT installed in
+    # the slim image (you already have Docker on the host; that's what runs this
+    # container). The container reaches the host's Docker via the mounted socket +
+    # the host's docker CLI and compose plugin. Only yq — a provision prereq the
+    # host may lack — is added here. (Linux host: the CLI mount works as-is. macOS:
+    # the Docker Desktop CLI is a mac binary that can't run in a Linux container —
+    # run local provisioning directly on the host there.)
     extra='curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_$(dpkg --print-architecture)" -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq'
     mounts+=( -v /var/run/docker.sock:/var/run/docker.sock --network host )
+    docker_bin="$(command -v docker || true)"
+    [ -n "$docker_bin" ] && mounts+=( -v "$docker_bin:/usr/bin/docker:ro" )
+    [ -d "$HOME/.docker/cli-plugins" ] && mounts+=( -v "$HOME/.docker/cli-plugins:/root/.docker/cli-plugins:ro" )
     ;;
   minikube)
     echo "minikube runs a host-side cluster; run provision directly on the host (with minikube + kubectl)." >&2
