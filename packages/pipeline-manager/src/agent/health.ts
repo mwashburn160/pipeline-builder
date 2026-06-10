@@ -54,17 +54,26 @@ export async function waitHealthy(
   const intervalMs = opts.intervalMs ?? 10_000;
   const deadline = Date.now() + timeoutMs;
 
+  // Wait for BOTH /health AND /ready. /health flips first (the process is up),
+  // but the platform only accepts API calls once /ready passes (DB connections,
+  // dependencies warmed up). Returning on /health alone let post-install steps
+  // (register) hit a not-yet-ready platform and get a 502.
+  let healthSeen = false;
   while (Date.now() < deadline) {
     if (await probe(`${url}/health`)) {
-      const ready = await probe(`${url}/ready`);
-      return {
-        url,
-        healthy: true,
-        detail: ready ? 'health + ready OK' : 'health OK (ready not yet — dependencies still warming up)',
-      };
+      healthSeen = true;
+      if (await probe(`${url}/ready`)) {
+        return { url, healthy: true, detail: 'health + ready OK' };
+      }
+      opts.onTick?.(`health OK — waiting for ${url}/ready (dependencies warming up) …`);
+    } else {
+      opts.onTick?.(`waiting for ${url}/health …`);
     }
-    opts.onTick?.(`waiting for ${url}/health …`);
     await delay(intervalMs);
   }
-  return { url, healthy: false, detail: `not reachable within ${Math.round(timeoutMs / 1000)}s — check the stack / DNS / health logs` };
+  // Timed out. If /health came up but /ready never did, the platform is up but
+  // not fully ready — proceed (non-fatal) but flag that post-steps may need a retry.
+  return healthSeen
+    ? { url, healthy: true, detail: `health OK but /ready not reached within ${Math.round(timeoutMs / 1000)}s — the platform is still warming up; post-install steps (register) may need a re-run` }
+    : { url, healthy: false, detail: `not reachable within ${Math.round(timeoutMs / 1000)}s — check the stack / DNS / health logs` };
 }

@@ -156,7 +156,25 @@ export function provision(program: Command): void {
         // Bootstrap (sparse clone) + post-install selections.
         const wantBootstrap = options.repo !== undefined && options.repo !== false;
         const withAll = options.withAll === true;
-        const enabledLoadIds = LOAD_STEPS.filter((s) => withAll || options[s.flag] === true).map((s) => s.id);
+        const anyLoadFlag = withAll || LOAD_STEPS.some((s) => options[s.flag] === true);
+        let enabledLoadIds = LOAD_STEPS.filter((s) => withAll || options[s.flag] === true).map((s) => s.id);
+        // Interactive: with no --with-* flags given, offer each opt-in load so a
+        // plain `provision --execute` can still load plugins/samples/compliance.
+        // Explicit flags, --yes, --json, or non-interactive shells skip the prompts
+        // (advisor mode never executes loads, so it doesn't ask either).
+        if (options.execute && !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag) {
+          const prompts: Record<string, string> = {
+            plugins: 'Load plugins? (builds the plugin images locally — the slow one)',
+            samples: 'Load sample pipelines?',
+            compliance: 'Load compliance rules?',
+          };
+          printSection('Optional post-install loads');
+          const chosen: typeof enabledLoadIds = [];
+          for (const s of LOAD_STEPS) {
+            if (await confirm(prompts[s.id] ?? `Load ${s.id}?`, false)) chosen.push(s.id);
+          }
+          enabledLoadIds = chosen;
+        }
         const postStepFlags = {
           init: options.init !== false,
           buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),

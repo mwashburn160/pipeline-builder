@@ -331,14 +331,19 @@ done
 
 MK_IP=$(minikube ip --profile="$PROFILE" 2>/dev/null || echo "unknown")
 
-log "Access URLs"
+log "Deployment Complete — Minikube"
 echo ""
-echo "  Port-forward (localhost):          NodePort (minikube):"
-echo "    https://localhost:8443             https://$MK_IP:30443"
-echo "    http://localhost:8080              http://$MK_IP:30080"
-echo "    http://localhost:8081  (Mongo Ex)  http://$MK_IP:30081"
-echo "    http://localhost:5480  (pgAdmin)   http://$MK_IP:30480"
-# Registry browser lives at https://localhost:8443/dashboard/registry (sysadmin).
+echo "  Platform UI / API : https://localhost:8443       (NodePort: https://$MK_IP:30443)"
+echo "  Default admin     : admin@internal  (set the password during init-platform)"
 echo ""
-echo "  Credentials: see $ENV_FILE"
-echo "  Stop port-forwards: pkill -f 'kubectl port-forward.*-n $NS'"
+echo "  Dev tools           port-forward (localhost)      NodePort (minikube):"
+echo "    HTTP gateway    : http://localhost:8080         http://$MK_IP:30080"
+echo "    Mongo Express   : http://localhost:8081         http://$MK_IP:30081"
+echo "    pgAdmin         : http://localhost:5480         http://$MK_IP:30480"
+echo "    Registry browser: https://localhost:8443/dashboard/registry  (sysadmin)"
+echo ""
+echo "  Databases (postgres / mongodb / redis) run in-cluster — reach them via the"
+echo "  dev tools above. Credentials live in $ENV_FILE."
+echo ""
+echo "  Next : ./deploy/bin/init-platform.sh minikube   # register admin + (opt-in) load plugins/samples/compliance"
+echo "  Stop port-forwards : pkill -f 'kubectl port-forward.*-n $NS'"
