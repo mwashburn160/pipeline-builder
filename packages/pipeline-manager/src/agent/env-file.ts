@@ -26,15 +26,26 @@ function secret(): string {
 
 /**
  * Copy `<dir>/.env.example` → `<dir>/.env`, replacing each `CHANGE_ME...`
- * placeholder with a freshly generated secret. Returns the number generated.
+ * placeholder with a generated secret. Returns the count of DISTINCT secrets.
+ *
+ * Crucially, the bare `CHANGE_ME` placeholder marks a service *password* that is
+ * referenced from several vars which MUST agree — e.g. POSTGRES_PASSWORD ==
+ * DB_PASSWORD, and the mongo password is repeated across MONGO_INITDB_ROOT_PASSWORD,
+ * the inline `mongodb://…:CHANGE_ME@…` URIs, and ME_CONFIG_*. So every bare
+ * `CHANGE_ME` gets the SAME value (a per-`.env` shared password) — otherwise the
+ * services can't authenticate and the stack fails to start. The suffixed form
+ * (`CHANGE_ME_generate_with_openssl_rand_base64_32` → JWT_SECRET, REFRESH_TOKEN_SECRET)
+ * marks an independent crypto secret, so each of those gets a unique value.
  */
 export function createEnvFile(cwd: string, dir: string): number {
   const example = readFileSync(path.join(cwd, dir, '.env.example'), 'utf8');
-  let generated = 0;
-  const filled = example.replace(/CHANGE_ME[A-Za-z0-9_]*/g, () => {
-    generated += 1;
-    return secret();
+  const sharedPassword = secret();
+  const values = new Set<string>();
+  const filled = example.replace(/CHANGE_ME[A-Za-z0-9_]*/g, (match) => {
+    const value = match === 'CHANGE_ME' ? sharedPassword : secret();
+    values.add(value);
+    return value;
   });
   writeFileSync(path.join(cwd, dir, '.env'), filled);
-  return generated;
+  return values.size;
 }

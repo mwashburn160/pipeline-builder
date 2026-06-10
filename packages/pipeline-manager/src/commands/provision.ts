@@ -424,10 +424,12 @@ export function provision(program: Command): void {
             return;
           }
         }
-        // The target's .env must exist (local/minikube) — setup.sh aborts without
-        // it. Create from .env.example with generated secrets so the deploy is
-        // non-interactive. (ec2/fargate use AWS Secrets Manager, not a .env.)
-        if (envFileMissing(cwd, spec.dir)) {
+        // local/minikube's setup.sh REQUIRES a `.env` and aborts without it — create
+        // it from .env.example with generated secrets so the deploy is non-interactive.
+        // ec2/fargate also ship a `.env.example`, but their setup.sh never reads a
+        // local `.env` (the instance handles its own; Fargate uses Secrets Manager via
+        // init-secrets.sh), so we must NOT generate one for them.
+        if ((target === 'local' || target === 'minikube') && envFileMissing(cwd, spec.dir)) {
           if (await confirm(`\n${spec.dir}/.env not found — create it from .env.example (generates secrets; edit later for optional integrations like OAuth)?`, options.yes)) {
             const n = createEnvFile(cwd, spec.dir);
             printSuccess(`Created ${spec.dir}/.env — ${n} secret(s) generated.`);
@@ -517,15 +519,23 @@ export function provision(program: Command): void {
           if (runnable.length > 0 && await confirm(`\nRun ${runnable.length} post-install step(s) now?`, options.yes)) {
             for (const s of runnable) {
               printSection(`Post-step: ${s.label}`);
-              printInfo(s.command);
               // Steps that log into the platform (register + store-token) need the
               // admin creds (PLATFORM_IDENTIFIER / PLATFORM_PASSWORD) on top of their
               // own step env. setup-events does NOT log in — it reads PLATFORM_SECRET_NAME,
               // AWS creds, and the region from the AWS environment — so it's excluded.
               const needsCreds = s.id === 'register' || s.id === 'store-token';
               const env = needsCreds ? { ...s.env, ...adminEnv } : s.env;
-              const { code } = await runScript(s.command, cwd, { capture: false, env });
+              // These steps (plugin/sample/compliance loads, smoke, events) are noisy
+              // and non-interactive, so run them QUIETLY — capture the output and only
+              // surface it on failure. The exception is a register with no admin creds:
+              // init-platform.sh prompts for them, so it must stream to the terminal.
+              const interactiveRegister = s.id === 'register' && !adminEnv.PLATFORM_IDENTIFIER;
+              const quiet = !interactiveRegister;
+              if (quiet) printInfo(`${s.command}\n  …running (output shown only if it fails)`);
+              else printInfo(s.command);
+              const { code, tail } = await runScript(s.command, cwd, { quiet, capture: false, env });
               if (code !== 0) {
+                if (quiet && tail) { printError('\n--- last output ---'); printInfo(tail); }
                 printError(`\nPost-step '${s.id}' failed (exit ${code}). The platform is deployed; fix and re-run the step manually.`);
                 process.exitCode = 1;
                 break;

@@ -41,20 +41,22 @@ export interface RunResult {
 }
 
 /**
- * Run a shell command from `cwd`, streaming to the terminal. With `capture`,
- * stdout/stderr are tee'd and the tail retained (for diagnosis); without it,
- * stdio is fully inherited so interactive prompts work (init-platform). `env` is
- * merged over `process.env` for the child (e.g. the register step's load flags
- * and admin creds — kept out of the displayed command so secrets never print).
+ * Run a shell command from `cwd`. Three output modes via `opts`:
+ *  - default (neither flag): stdio fully inherited — streams + interactive prompts work.
+ *  - `capture`: stdout/stderr tee'd to the terminal AND the tail retained (deploy).
+ *  - `quiet`: tail captured but NOT streamed — for noisy, non-interactive steps
+ *    (plugin/sample loads); the caller surfaces the tail only on failure.
+ * `env` is merged over `process.env` for the child (e.g. the register step's load
+ * flags and admin creds — kept out of the displayed command so secrets never print).
  */
 export function runScript(
   command: string,
   cwd: string,
-  opts: { capture?: boolean; env?: Record<string, string> } = {},
+  opts: { capture?: boolean; quiet?: boolean; env?: Record<string, string> } = {},
 ): Promise<RunResult> {
   const childEnv = opts.env ? { ...process.env, ...opts.env } : process.env;
   return new Promise((resolve) => {
-    if (!opts.capture) {
+    if (!opts.capture && !opts.quiet) {
       const child = spawn('bash', ['-lc', command], { cwd, stdio: 'inherit', env: childEnv });
       child.on('close', (code) => resolve({ code: code ?? 1, tail: '' }));
       child.on('error', () => resolve({ code: 1, tail: '' }));
@@ -63,7 +65,7 @@ export function runScript(
     const child = spawn('bash', ['-lc', command], { cwd, stdio: ['inherit', 'pipe', 'pipe'], env: childEnv });
     let tail = '';
     const cap = (chunk: Buffer): void => {
-      process.stdout.write(chunk);
+      if (!opts.quiet) process.stdout.write(chunk);
       tail = (tail + chunk.toString()).slice(-8000);
     };
     child.stdout?.on('data', cap);

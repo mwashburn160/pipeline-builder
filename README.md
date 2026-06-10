@@ -229,7 +229,7 @@ For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, 
 
 ## Quick Start
 
-**Recommended — install with the CLI.** `pipeline-manager provision` is the primary way to stand up the platform: it picks the target, checks prerequisites, and assembles the exact, validated command (and, with an AI key set, parses a natural-language goal and diagnoses failures).
+**Recommended — install with the CLI.** `pipeline-manager provision` is the primary way to stand up the platform: it picks the target, checks prerequisites — offering to **fetch** missing single-binary tools (`yq`, `kubectl`, `minikube`) and to generate the local `.env` with secrets, no system install — can sparse-clone a fresh machine, and assembles the exact, validated command (and, with an AI key set, parses a natural-language goal and diagnoses failures).
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
