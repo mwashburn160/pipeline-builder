@@ -166,7 +166,7 @@ All deployment targets run the same services with the same configuration — `.e
 ```bash
 git clone <repo-url> pipeline-builder && cd pipeline-builder
 pnpm install && pnpm build
-cd deploy/local && chmod +x bin/startup.sh && ./bin/startup.sh
+cd deploy/local && chmod +x bin/setup.sh && ./bin/setup.sh
 ```
 
 Open **https://localhost:8443** — register, create an org, and start building pipelines.

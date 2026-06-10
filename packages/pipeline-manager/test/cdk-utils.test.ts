@@ -1,19 +1,24 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('child_process');
-
-import { execSync } from 'child_process';
 import path from 'path';
-import {
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+
+const mockExecSync = jest.fn();
+
+jest.unstable_mockModule('child_process', () => ({
+  __esModule: true,
+  execSync: mockExecSync,
+  default: { execSync: mockExecSync },
+}));
+
+const {
   checkCdkAvailable,
   ensureCdkAvailable,
   executeCdkShellCommand,
   getCdkInfo,
   resolveBoilerplatePath,
-} from '../src/utils/cdk-utils';
-
-const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
+} = await import('../src/utils/cdk-utils.js');
 
 describe('getCdkInfo', () => {
   beforeEach(() => {

@@ -8,17 +8,19 @@
  * the service contract, access control, and error handling.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-// Must declare mocks before jest.mock() hoisting
+// Must declare mocks before unstable_mockModule registration
 const mockSelect = jest.fn();
 const mockInsert = jest.fn();
 const mockUpdate = jest.fn();
 const mockTransaction = jest.fn();
 
-jest.mock('../src/database/postgres-connection', () => ({
+jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
   db: {
     select: mockSelect,
     insert: mockInsert,
@@ -37,7 +39,7 @@ jest.mock('../src/database/postgres-connection', () => ({
 const mockExecute = jest.fn().mockResolvedValue(undefined);
 const mockDelete = jest.fn();
 
-jest.mock('../src/database/tenancy', () => ({
+jest.unstable_mockModule('../src/database/tenancy.js', () => ({
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     select: mockSelect,
     insert: mockInsert,
@@ -50,20 +52,13 @@ jest.mock('../src/database/tenancy', () => ({
   tenantContext: { run: <T>(_ctx: unknown, fn: () => T) => fn(), getStore: () => undefined },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => {
-  class NotFoundError extends Error {
-    statusCode = 404;
-    code = 'NOT_FOUND';
-    constructor(message: string) { super(message); this.name = 'NotFoundError'; }
-  }
-  return {
-    NotFoundError,
-    createLogger: () => ({ debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }),
-  };
-});
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 // Import after mocks are set up
-import { CrudService, BaseEntity } from '../src/api/crud-service';
+import type { CrudService as CrudServiceType, BaseEntity } from '../src/api/crud-service.js';
+const { CrudService } = await import('../src/api/crud-service.js') as {
+  CrudService: typeof CrudServiceType;
+};
 
 // Concrete test implementation
 

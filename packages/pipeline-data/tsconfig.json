@@ -27,11 +27,12 @@
     "stripInternal": true,
     "target": "ESNext",
     "types": [
-      "jest",
       "node",
       "pg"
     ],
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "moduleResolution": "nodenext"
   },
   "include": [

@@ -30,7 +30,6 @@
       "adm-zip",
       "cors",
       "express",
-      "jest",
       "jsonwebtoken",
       "multer",
       "node",
@@ -38,6 +37,8 @@
       "yauzl"
     ],
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "moduleResolution": "nodenext"
   },
   "include": [

@@ -4,7 +4,7 @@
 import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { pluginService } from '../services/plugin-service';
+import { pluginService } from '../services/plugin-service.js';
 
 /**
  * Register the DELETE route on a router.

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock config and models before importing
-jest.mock('../src/config', () => ({
+import { jest, describe, it, expect, test } from '@jest/globals';
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     auth: {
       passwordMinLength: 8,
@@ -20,27 +21,32 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {
     updateOne: jest.fn().mockResolvedValue({}),
   },
+  Organization: {},
+  UserOrganization: {},
 }));
 
-jest.mock('crypto', () => {
-  const actual = jest.requireActual('crypto');
-  return {
+jest.unstable_mockModule('crypto', () => {
+  const actual = jest.requireActual('crypto') as typeof import('crypto');
+  const mocked = {
     ...actual,
     randomBytes: jest.fn(actual.randomBytes),
   };
+  // token.js does `import crypto from 'crypto'` (default import), so the ESM
+  // mock must expose a `default` namespace alongside the named exports.
+  return { ...mocked, default: mocked };
 });
 
 import jwt from 'jsonwebtoken';
-import {
+const {
   hashRefreshToken,
   issueTokens,
   verifyAccessToken,
   verifyRefreshToken,
-} from '../src/utils/token';
+} = await import('../src/utils/token.js');
 
 // Helpers
 function mockUser(overrides: Partial<{
@@ -118,7 +124,7 @@ describe('token utilities', () => {
 
   describe('issueTokens', () => {
     it('should generate tokens and persist hash + token-history record to DB', async () => {
-      const { User } = jest.requireMock('../src/models');
+      const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
       const user = mockUser();
 
       const result = await issueTokens(user);
@@ -145,7 +151,7 @@ describe('token utilities', () => {
     });
 
     it('records the token version at time of issuance', async () => {
-      const { User } = jest.requireMock('../src/models');
+      const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
       const user = mockUser({ tokenVersion: 7 });
       await issueTokens(user);
       const call = User.updateOne.mock.calls.at(-1)?.[1];
@@ -153,7 +159,7 @@ describe('token utilities', () => {
     });
 
     it('records expiresAt aligned to the JWT exp claim', async () => {
-      const { User } = jest.requireMock('../src/models');
+      const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
       const before = Date.now();
       await issueTokens(mockUser(), undefined, 600);
       const call = User.updateOne.mock.calls.at(-1)?.[1];

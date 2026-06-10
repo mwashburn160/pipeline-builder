@@ -1,98 +1,132 @@
-# Platform Service
+# platform
 
-The platform service handles authentication, user management, organization management, and membership for the pipeline-builder system.
+The identity, authentication, and organization service at the center of the platform — the source of truth for users, organizations, RBAC, and JWT issuance that every other service authenticates against.
 
-## Data Model
+## Responsibilities
 
-### User
+- **Authentication & JWT issuance** — registration, login, refresh, logout, org switching, email verification, and step-up re-authentication; issues the access/refresh token pair every other service verifies.
+- **User management** — self-service profile, password changes, API-token issuance/revocation, plus system-admin user administration.
+- **Organizations** — multi-tenant containers for pipelines, plugins, and quotas; org-to-team hierarchy (descendants/subtree), tier and quota management, GDPR export, and cascading deletion.
+- **RBAC / roles & write-access enforcement** — per-org roles (`owner` | `admin` | `member`) resolved from the `UserOrganization` junction, platform `superadmin`, and a read-only impersonation gate that blocks state-changing requests.
+- **Groups & memberships** — first-class permission groups (e.g. Administrators, Developers, the system org's Superadmins) whose membership drives the cached `UserOrganization.role`.
+- **Audit events** — tamper-resistant, org-scoped audit log (TTL-retained in MongoDB) with an internal service-token ingest endpoint for non-platform emitters.
 
-Users represent individual accounts. A user can belong to **multiple organizations** via the `UserOrganization` junction collection.
+## Endpoints
 
-- `username` - Unique, lowercase identifier
-- `email` - Unique, lowercase email address
-- `password` - Bcrypt-hashed (optional for OAuth-only users); validated against configurable strength rules (min length, upper/lower/digit) before hashing
-- `lastActiveOrgId` - References the last organization the user interacted with (replaces the former `organizationId` field)
-- `isEmailVerified` - Whether the user has verified their email
-- `isSuperAdmin` - Global super-admin flag (hidden from default queries via `select: false`). When `true`, `isSystemAdmin()` returns true regardless of the user's active org. The canonical operator signal (replaces "membership in the `system` org", which still works during rollout).
-- `tokenVersion` - Incremented to invalidate all active sessions
-- `oauth` - Linked OAuth providers (Google, GitHub)
-- `featureOverrides` - Per-user feature flag overrides
+The API gateway strips the `/api` prefix before proxying; paths below are as mounted in this service.
 
-**Note:** There is no global `role` field on the User model. Roles are per-organization and stored in the `UserOrganization` junction collection.
+### Auth (`/auth/*`)
 
-### Organization
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/auth/register` | Create a user + paired organization (owner role) |
+| POST | `/auth/login` | Authenticate with email/username + password, return token pair |
+| POST | `/auth/refresh` | Exchange a refresh token for a new access token |
+| POST | `/auth/logout` | Invalidate the current session |
+| POST | `/auth/switch-org` | Switch active organization and re-issue tokens |
+| POST | `/auth/send-verification` | Send an email-verification link |
+| POST | `/auth/verify-email` | Verify email with a token (public) |
+| POST | `/auth/step-up` | Re-verify password before destructive admin actions |
+| `*` | `/auth/oauth/*` | OAuth (Google, GitHub) authorize/callback flow |
 
-Organizations are multi-tenant containers for pipelines, plugins, and quotas.
+### Users (`/user/*`, `/users/*`)
 
-- `name` / `slug` - Display name and URL-safe identifier
-- `owner` - References the User who owns this organization
-- `tier` - Quota tier: `'developer'` | `'pro'` | `'unlimited'`
-- `quotas` / `usage` - Per-type quota limits and usage tracking (plugins, pipelines, apiCalls, aiCalls, storageBytes, dashboards, alertRules, alertDestinations, idpConfigs); defaults are sourced from the tier preset, and `-1` means unlimited
-- `aiProviderKeys` - Encrypted AI provider API keys (Anthropic, OpenAI, Google, xAI, Amazon Bedrock)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/user/profile` | Get the current user's profile |
+| PATCH | `/user/profile` | Update the current user's profile |
+| DELETE | `/user/account` | Delete the current user's account (step-up) |
+| POST | `/user/change-password` | Change password (step-up) |
+| GET | `/user/organizations` | List organizations the user belongs to |
+| POST | `/user/generate-token` | Generate an API token |
+| GET | `/user/tokens` | List recent token-issuance history |
+| POST | `/user/tokens/revoke-all` | Revoke all sessions (step-up) |
+| GET | `/users` | List all users (system admin) |
+| GET | `/users/:id` | Get a user by ID (system admin) |
+| PUT | `/users/:id` | Update a user by ID (system admin) |
+| PUT | `/users/:id/features` | Update a user's feature overrides (system admin) |
+| DELETE | `/users/:id` | Delete a user by ID (system admin) |
+| POST | `/users/bulk-delete` | Bulk-delete users (system admin, step-up) |
 
-**Note:** The `members[]` array has been removed from the Organization model. Membership is now managed exclusively through the `UserOrganization` junction collection. Query `UserOrganization` to list members of an organization.
+### Organizations (`/organization/*`, `/organizations/*`)
 
-### UserOrganization (Junction Collection)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/organization` | Get the current user's organization |
+| POST | `/organization` | Create an organization (admin/owner) |
+| GET | `/organization/ai-config` | Get the org's AI-provider config |
+| PUT | `/organization/ai-config` | Update the org's AI-provider keys (admin/owner) |
+| GET | `/organization/:id` | Get an organization by ID |
+| GET | `/organization/:id/descendants` | Org→team subtree IDs (self + descendants) |
+| PUT | `/organization/:id` | Update an organization (system admin) |
+| PATCH | `/organization/:id/tier` | Change pricing tier (system admin, step-up) |
+| DELETE | `/organization/:id` | Delete an organization (system admin, step-up) |
+| GET | `/organization/:id/export` | GDPR portability export (admin/owner) |
+| GET | `/organization/:id/quotas` | Get quota limits and usage |
+| PUT | `/organization/:id/quotas` | Update quota limits (system admin, step-up) |
+| GET | `/organization/:id/members` | List members |
+| POST | `/organization/:id/members` | Add a member (admin/owner) |
+| POST | `/organization/:id/members/bulk-add` | Add a user to several subtree teams (admin/owner) |
+| GET | `/organization/:id/teams` | Descendant team roster |
+| GET | `/organization/:id/member/:memberId/teams` | Descendant teams annotated with the member's membership |
+| DELETE | `/organization/:id/members/:userId` | Remove a member (admin/owner) |
+| PATCH | `/organization/:id/members/:userId` | Update a member's role (admin/owner) |
+| PATCH | `/organization/:id/members/:userId/deactivate` | Deactivate a member (admin/owner) |
+| PATCH | `/organization/:id/members/:userId/activate` | Reactivate a member (admin/owner) |
+| PATCH | `/organization/:id/transfer-owner` | Transfer ownership (admin/owner, step-up) |
+| GET | `/organizations` | List all organizations (system admin) |
 
-Links users to organizations with per-org roles. A user may have different roles in different organizations.
+### Groups (`/organization/:id/groups/*`)
 
-- `userId` - References User
-- `organizationId` - References Organization
-- `role` - `'owner'` | `'admin'` | `'member'` (per-org, not global)
-- `isActive` - Soft deactivation flag (deactivated members cannot access the org)
-- `joinedAt` - Timestamp of when the user joined
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/organization/:id/groups` | List permission groups and their members |
+| POST | `/organization/:id/groups/:groupId/members` | Add a member to a group (admin/owner) |
+| DELETE | `/organization/:id/groups/:groupId/members/:userId` | Remove a member from a group (admin/owner) |
 
-## Authentication
+### Audit (`/audit/*`)
 
-### JWT Tokens
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/audit` | List audit events (admin only; org-scoped for org admins) |
+| POST | `/audit/events` | Internal ingest for non-platform services (service-token auth) |
 
-Access tokens contain:
-- `sub` - User ID
-- `organizationId` - Active organization ID
-- `organizationName` - Active organization name
-- `role` - User's role **in the active organization** (`'owner'` | `'admin'` | `'member'`)
-- `isAdmin` - Derived boolean: `true` when `role === 'admin' || role === 'owner'`
-- `isSuperAdmin` - Only present (and `true`) for global super-admins; omitted otherwise to keep the payload small
-- `tier` - The active org's quota tier (`'developer'` | `'pro'` | `'unlimited'`)
-- `features` - Resolved feature flags (tier defaults + per-user overrides; super-admins get all features)
-- `username`, `email`, `isEmailVerified`, `tokenVersion`
+> Additional operational routes are also mounted: `/invitation`, `/dashboards`, `/logs`, `/observability`, `/config`, and `/admin/*` (org IdP, KMS config, k8s namespace, user grants, summary, impersonate), plus `/health` and `/metrics`.
 
-Refresh tokens contain only `sub` and `tokenVersion`.
+## Configuration
 
-### Auth Endpoints
+All config is read from environment variables (see `src/config/index.ts`). `JWT_SECRET` and `REFRESH_TOKEN_SECRET` are required in production (a dev-only insecure fallback is used otherwise); `SECRET_ENCRYPTION_KEY` is required in production for at-rest encryption of provider keys.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/auth/register` | Register user, create org, create `UserOrganization` with role `'owner'` |
-| `POST` | `/auth/login` | Login with email/username + password, returns tokens scoped to last active org |
-| `POST` | `/auth/refresh` | Refresh token pair (preserves active org from current JWT) |
-| `POST` | `/auth/logout` | Invalidate sessions, clear cookies |
-| `POST` | `/auth/switch-org` | Switch active organization. Verifies membership via `UserOrganization`, updates `lastActiveOrgId`, re-issues tokens with new org context |
-| `POST` | `/auth/send-verification` | Send email verification link |
-| `POST` | `/auth/verify-email` | Verify email with token |
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `PORT` | HTTP listen port | `3000` |
+| `MONGODB_URI` | MongoDB connection string (required) | — |
+| `JWT_SECRET` | Access-token signing secret (required in prod) | dev fallback |
+| `REFRESH_TOKEN_SECRET` | Refresh-token signing secret (required in prod) | dev fallback |
+| `JWT_EXPIRES_IN` | Access-token TTL (seconds) | `7200` |
+| `JWT_ALGORITHM` | JWT signing algorithm | `HS256` |
+| `REFRESH_TOKEN_EXPIRES_IN` | Refresh-token TTL (seconds) | `2592000` |
+| `BCRYPT_SALT_ROUNDS` | bcrypt cost factor for password hashing | `12` |
+| `PASSWORD_MIN_LENGTH` | Minimum password length | `8` |
+| `AUTH_VERIFICATION_TOKEN_TTL_MS` | Email-verification token lifetime (ms) | `86400000` |
+| `SECRET_ENCRYPTION_KEY` | At-rest encryption key for provider/IdP secrets (required in prod) | dev fallback |
+| `AUDIT_RETENTION_DAYS` | Audit-event retention (TTL index) | `90` |
+| `BOOTSTRAP_SUPERADMIN_EMAILS` | Emails granted `isSuperAdmin` at startup | — |
+| `MONGO_MAX_POOL` / `MONGO_MIN_POOL` | Mongoose connection pool bounds | `20` / `2` |
+| `LIMITER_MAX` / `LIMITER_WINDOWMS` | General rate-limit budget and window (ms) | `100` / `900000` |
+| `AUTH_LIMITER_MAX` / `AUTH_LIMITER_WINDOWMS` | Auth-endpoint rate-limit budget and window (ms) | `20` / `900000` |
+| `CORS_ORIGIN` / `CORS_CREDENTIALS` | Allowed origins (comma-separated) and credentials | frontend URL / `true` |
+| `TRUST_PROXY` | Express `trust proxy` hop count | `1` |
 
-### User Endpoints
+> Many additional optional variables configure OAuth, email (SMTP/SES), invitations, observability (Loki/Prometheus), per-org KMS, and sibling-service connections (quota, billing, compliance). See `src/config/index.ts` for the full list.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/user/organizations` | List all organizations the authenticated user belongs to (via `UserOrganization`) |
+## Development
 
-## Organization Member Management
+```sh
+pnpm build   # compile and run the projen build
+pnpm test    # run the Jest test suite
+```
 
-All member operations use the `UserOrganization` junction collection.
+## License
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/organization/:id/members` | List members (queries `UserOrganization`, populates user data) |
-| `POST` | `/organization/:id/members` | Add member (creates `UserOrganization` record) |
-| `DELETE` | `/organization/:id/members/:userId` | Remove member (deletes `UserOrganization` record) |
-| `PATCH` | `/organization/:id/members/:userId` | Update member role |
-| `PATCH` | `/organization/:id/members/:userId/deactivate` | Soft-deactivate member (sets `isActive: false`, clears `lastActiveOrgId`) |
-| `PATCH` | `/organization/:id/members/:userId/activate` | Reactivate a deactivated member |
-| `PATCH` | `/organization/:id/transfer-owner` | Transfer ownership (demotes old owner to admin, promotes new owner) |
-
-## Authorization
-
-- **Org admin/owner** can manage members within their own organization
-- **System admin** (admin/owner role in the `system` organization) can manage any organization
-- `isAdmin` in the JWT is `true` when the user's per-org role is `'admin'` or `'owner'`
+Apache-2.0

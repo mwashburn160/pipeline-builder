@@ -1,13 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-const mockTestConnection = jest.fn();
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+const mockTestConnection = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   getConnection: () => ({ testConnection: mockTestConnection }),
 }));
 
-import { postgresHealthCheck, mongoHealthCheck } from '../src/api/health-checks';
+const { postgresHealthCheck, mongoHealthCheck } = await import('../src/api/health-checks.js');
 
 describe('postgresHealthCheck', () => {
   beforeEach(() => {

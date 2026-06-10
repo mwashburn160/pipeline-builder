@@ -1,19 +1,25 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { assertShellSafe } from '../config/cli.constants';
-import { Pipeline, PipelineResponse } from '../types';
-import { auditLog } from '../utils/audit-log';
-import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils';
-import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
-import { resolvePluginsForProps } from '../utils/plugin-resolver';
-import { buildRegistryPayload, writePendingIntent } from '../utils/registry';
+import { assertShellSafe } from '../config/cli.constants.js';
+import { type Pipeline, type PipelineResponse } from '../types/index.js';
+import { auditLog } from '../utils/audit-log.js';
+import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
+import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { resolvePluginsForProps } from '../utils/plugin-resolver.js';
+import { buildRegistryPayload, writePendingIntent } from '../utils/registry.js';
 
 const { bold, cyan, dim } = pico;
+
+// ESM has no __dirname; derive it from this module's URL.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Registers the `deploy` command with the CLI program.
@@ -84,16 +90,12 @@ export function deploy(program: Command): void {
           // --local-spec: read pipeline.json from disk; no platform contact.
           // Compliance / quota / plugin-lookup features all require the platform —
           // this mode is for air-gapped or simple standalone CDK deployments.
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const fsMod = require('fs');
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const pathMod = require('path');
-          const absPath = pathMod.resolve(options.localSpec);
+          const absPath = path.resolve(options.localSpec);
           printInfo('Loading local pipeline spec', { path: absPath });
-          if (!fsMod.existsSync(absPath)) {
+          if (!fs.existsSync(absPath)) {
             throw new Error(`Local spec file not found: ${absPath}`);
           }
-          const raw = fsMod.readFileSync(absPath, 'utf-8');
+          const raw = fs.readFileSync(absPath, 'utf-8');
           const parsed = JSON.parse(raw) as Partial<Pipeline> & { props?: Record<string, unknown> };
           if (!parsed.props) {
             throw new Error(`Local spec file is missing required 'props' field: ${absPath}`);
@@ -169,8 +171,7 @@ export function deploy(program: Command): void {
 
         // --show-resolved: print resolved config and exit (no CDK deploy)
         if ((options as { showResolved?: boolean }).showResolved) {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { resolveSelfReferencing } = require('@pipeline-builder/pipeline-core');
+          const { resolveSelfReferencing } = await import('@pipeline-builder/pipeline-core');
           const propsAny = propsWithIds as Record<string, unknown>;
           const scope = { metadata: propsAny.metadata ?? {}, vars: propsAny.vars ?? {} };
           const isTpl = (f: string) => f === 'projectName' || f.startsWith('metadata.') || f.startsWith('vars.');

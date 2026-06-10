@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Request } from 'express';
-import { ZodSchema, ZodError } from 'zod';
+import type { Request } from 'express';
+import { ZodError, type ZodSchema } from 'zod';
 
 /**
  * Result type for validation operations

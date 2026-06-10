@@ -6,11 +6,14 @@
  * Mocks the db module and verifies correct SQL template usage.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockExecute = jest.fn();
 const mockInsert = jest.fn();
 const mockSelect = jest.fn();
 
-jest.mock('../src/database/postgres-connection', () => ({
+jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
   db: {
     execute: mockExecute,
     insert: mockInsert,
@@ -22,7 +25,7 @@ jest.mock('../src/database/postgres-connection', () => ({
 // RLS GUCs. For unit tests we mock it to a pass-through invoking the
 // callback with the same fake `db` so existing `mockExecute` assertions
 // still match without per-test rewrites.
-jest.mock('../src/database/tenancy', () => ({
+jest.unstable_mockModule('../src/database/tenancy.js', () => ({
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     execute: mockExecute,
     insert: mockInsert,
@@ -33,16 +36,10 @@ jest.mock('../src/database/tenancy', () => ({
   tenantContext: { run: <T>(_ctx: unknown, fn: () => T) => fn(), getStore: () => undefined },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createCacheService: () => ({
-    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-    invalidatePattern: () => Promise.resolve(0),
-  }),
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-  errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-import { ReportingService } from '../src/api/reporting-service';
+const { ReportingService } = await import('../src/api/reporting-service.js');
+type ReportingService = InstanceType<typeof ReportingService>;
 
 describe('ReportingService', () => {
   let service: ReportingService;

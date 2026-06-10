@@ -3,7 +3,7 @@
 
 import { sendSuccess } from '@pipeline-builder/api-core';
 import { Router } from 'express';
-import { config } from '../config';
+import { config } from '../config/index.js';
 
 const router = Router();
 

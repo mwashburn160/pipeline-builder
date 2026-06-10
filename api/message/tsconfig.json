@@ -28,12 +28,13 @@
     "target": "ESNext",
     "types": [
       "express",
-      "jest",
       "node",
       "pg",
       "ws"
     ],
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "moduleResolution": "nodenext"
   },
   "include": [

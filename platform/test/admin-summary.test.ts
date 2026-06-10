@@ -8,19 +8,19 @@
  * forgetting to lowercase the env values.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgCount = jest.fn();
 const mockUserCount = jest.fn();
 const mockIdpCount = jest.fn();
 const mockRequireSystemAdmin = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
-  SYSTEM_ORG_ID: 'system',
 }));
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class Schema {
     constructor() { /* no-op */ }
     index() { /* no-op */ }
@@ -30,23 +30,24 @@ jest.mock('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.mock('../src/helpers/controller-helper', () => ({
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
   requireSystemAdmin: (req: any, res: any) => mockRequireSystemAdmin(req, res),
 }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: { countDocuments: (...a: unknown[]) => mockOrgCount(...a) },
   User: { countDocuments: (...a: unknown[]) => mockUserCount(...a) },
 }));
 
-jest.mock('../src/models/org-idp-config', () => ({
+jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   __esModule: true,
   default: { countDocuments: (...a: unknown[]) => mockIdpCount(...a) },
 }));
 
-import { getAdminSummary } from '../src/controllers/admin-summary';
+const { getAdminSummary } = await import('../src/controllers/admin-summary.js');
+
 
 function mockRes() {
   const res: any = {};

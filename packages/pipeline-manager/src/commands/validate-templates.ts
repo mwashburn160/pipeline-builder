@@ -5,9 +5,9 @@ import fs from 'fs';
 import path from 'path';
 import { Command } from 'commander';
 import YAML from 'yaml';
-import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printSuccess, printWarning } from '../utils/output-utils';
+import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printError, printInfo, printSuccess, printWarning } from '../utils/output-utils.js';
 
 interface ValidateOptions {
   pipeline?: string;
@@ -42,8 +42,7 @@ export function validateTemplatesCommand(program: Command): void {
           throw new Error('One of --pipeline, --plugin, or --file is required');
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const core = require('@pipeline-builder/pipeline-core');
+        const core = await import('@pipeline-builder/pipeline-core');
 
         const problems: Array<{ source: string; errors: { field?: string; message: string; code?: string }[] }> = [];
 

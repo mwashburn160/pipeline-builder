@@ -1,13 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: {
     getAny: () => ({ serviceName: 'test-service' }),
   },
 }));
 
-import { metricsMiddleware, metricsHandler } from '../src/api/metrics';
+const { metricsMiddleware, metricsHandler } = await import('../src/api/metrics.js');
 
 function mockReq(path = '/api/things', method = 'GET'): any {
   return { path, method, headers: {}, baseUrl: '', route: undefined };

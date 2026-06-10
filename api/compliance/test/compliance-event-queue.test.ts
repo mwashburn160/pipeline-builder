@@ -1,11 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-const queueAdd = jest.fn().mockResolvedValue(undefined);
-const queueClose = jest.fn().mockResolvedValue(undefined);
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+const queueAdd = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
+const queueClose = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 const queueOn = jest.fn();
 
-const workerClose = jest.fn().mockResolvedValue(undefined);
+const workerClose = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 const workerOn = jest.fn();
 let workerProcessor: ((job: { id: string; data: unknown }) => Promise<unknown>) | null = null;
 
@@ -26,21 +29,14 @@ class MockWorker {
   }
 }
 
-jest.mock('bullmq', () => ({
-  Queue: jest.fn().mockImplementation((name: string, opts: unknown) => new MockQueue(name, opts)),
-  Worker: jest.fn().mockImplementation((name: string, processor: (job: { id: string; data: unknown }) => Promise<unknown>, opts: unknown) => new MockWorker(name, processor, opts)),
+jest.unstable_mockModule('bullmq', () => ({
+  Queue: jest.fn().mockImplementation((...args: unknown[]) => new MockQueue(args[0] as string, args[1])),
+  Worker: jest.fn().mockImplementation((...args: unknown[]) => new MockWorker(args[0] as string, args[1] as (job: { id: string; data: unknown }) => Promise<unknown>, args[2])),
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-import { enqueue, startComplianceWorker, stopComplianceWorker } from '../src/queue/compliance-event-queue';
+const { enqueue, startComplianceWorker, stopComplianceWorker } = await import('../src/queue/compliance-event-queue.js');
 
 const sampleEvent = {
   entityId: 'e1',

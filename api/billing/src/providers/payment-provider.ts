@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { BillingInterval } from '../models/subscription';
+import type { BillingInterval } from '../models/subscription.js';
 
 /** Result of creating an external subscription. */
 export interface ExternalSubscriptionResult {

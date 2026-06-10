@@ -13,11 +13,11 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { type RuleTarget } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
-import { evaluateRules } from '../engine/rule-engine';
-import { logComplianceCheck } from '../helpers/audit-logger';
-import { notifyComplianceBlock } from '../helpers/compliance-notifier';
-import { complianceExemptionService } from '../services/compliance-exemption-service';
-import { complianceRuleService } from '../services/compliance-rule-service';
+import { evaluateRules } from '../engine/rule-engine.js';
+import { logComplianceCheck } from '../helpers/audit-logger.js';
+import { notifyComplianceBlock } from '../helpers/compliance-notifier.js';
+import { complianceExemptionService } from '../services/compliance-exemption-service.js';
+import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('compliance-validate');
 

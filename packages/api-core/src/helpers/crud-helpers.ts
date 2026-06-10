@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Response } from 'express';
-import { ErrorCode } from '../types/error-codes';
-import { sendError } from '../utils/response';
+import { ErrorCode } from '../types/error-codes.js';
+import { sendError } from '../utils/response.js';
 
 /**
  * Coerce listed fields on a DB-returned record to arrays. Drizzle/pg sometimes

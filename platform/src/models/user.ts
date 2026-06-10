@@ -3,7 +3,7 @@
 
 import bcrypt from 'bcryptjs';
 import mongoose, { Schema, Document, Types } from 'mongoose';
-import { config } from '../config';
+import { config } from '../config/index.js';
 
 /**
  * OAuth provider data structure. Internal to the user model — the user-

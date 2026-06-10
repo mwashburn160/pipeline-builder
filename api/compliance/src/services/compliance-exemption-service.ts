@@ -8,7 +8,7 @@ import {
   withTenantTx,
 } from '@pipeline-builder/pipeline-core';
 import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
-import type { ActiveExemption } from '../engine/rule-engine';
+import type { ActiveExemption } from '../engine/rule-engine.js';
 
 export const CE_NOT_FOUND = 'CE_NOT_FOUND';
 export const CE_SELF_APPROVE = 'CE_SELF_APPROVE';

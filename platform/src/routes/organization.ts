@@ -28,8 +28,8 @@ import {
   getOrganizationGroups,
   addGroupMember,
   removeGroupMember,
-} from '../controllers';
-import { requireAuth, requireRole, requireSystemAdmin, requireStepUp } from '../middleware';
+} from '../controllers/index.js';
+import { requireAuth, requireRole, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
 
 const router = Router();
 

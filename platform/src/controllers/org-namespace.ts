@@ -25,9 +25,9 @@
  */
 
 import { createLogger, sendError } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit';
-import { requireSystemAdmin, withController } from '../helpers/controller-helper';
-import { Organization } from '../models';
+import { audit } from '../helpers/audit.js';
+import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { Organization } from '../models/index.js';
 
 const logger = createLogger('org-namespace-controller');
 

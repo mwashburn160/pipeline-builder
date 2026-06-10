@@ -8,6 +8,9 @@
  * those are tested separately in authorize-org.test.ts.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mocks  must be defined before imports
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
@@ -40,7 +43,7 @@ class MockValidationError extends MockAppError {
   }
 }
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendQuotaExceeded: mockSendQuotaExceeded,
@@ -48,22 +51,8 @@ jest.mock('@pipeline-builder/api-core', () => ({
   AppError: MockAppError,
   NotFoundError: MockNotFoundError,
   ValidationError: MockValidationError,
-  ErrorCode: {
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    DATABASE_ERROR: 'DATABASE_ERROR',
-    ORG_NOT_FOUND: 'ORG_NOT_FOUND',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-    NOT_FOUND: 'NOT_FOUND',
-  },
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
   getParam: mockGetParam,
-  errorMessage: (e: unknown) => (e instanceof Error ? e.message: String(e)),
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
@@ -94,13 +83,9 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
     mockSendError(res, 400, msg, code);
   }),
-  createCacheService: () => ({
-    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-    invalidatePattern: () => Promise.resolve(0),
-  }),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const requireOrgId = opts?.requireOrgId !== false;
@@ -124,7 +109,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.mock('../src/middleware/authorize-org', () => ({
+jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
   authorizeOrg: () => (_req: any, _res: any, next: any) => next(),
   INTERNAL_AUTH_OPTS: { allowOrgHeaderOverride: true },
 }));
@@ -133,7 +118,7 @@ const mockFindById = jest.fn();
 const mockFindOneAndUpdate = jest.fn();
 const mockUpdateOne = jest.fn();
 
-jest.mock('../src/models/organization', () => ({
+jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: {
     findById: mockFindById,
     findOneAndUpdate: mockFindOneAndUpdate,
@@ -144,12 +129,12 @@ jest.mock('../src/models/organization', () => ({
 // Org → team hierarchy: stub as flat so the shared-root-cap pre-check in
 // incrementUsage short-circuits (no DB walk). Hierarchy logic is covered by
 // its own helper tests; these route tests stay focused on per-org increment.
-jest.mock('../src/helpers/org-hierarchy', () => ({
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   resolveRootOrgId: async (id: string) => id,
   expandOrgScope: async (id: string) => [id],
 }));
 
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     quota: {
       defaults: { plugins: 100, pipelines: 10, apiCalls: -1 },
@@ -158,7 +143,7 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-import { createUpdateQuotaRoutes } from '../src/routes/update-quota';
+const { createUpdateQuotaRoutes } = await import('../src/routes/update-quota.js');
 const updateQuotaRouter = createUpdateQuotaRoutes();
 
 // Helpers

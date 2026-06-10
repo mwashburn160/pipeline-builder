@@ -7,7 +7,7 @@
  * label-set injection / detection, cross-tenant rejection.
  */
 
-import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from '../src/services/promql-rewriter';
+import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from '../src/services/promql-rewriter.js';
 
 describe('injectOrgId  basic shapes', () => {
   it('wraps a bare metric name in {org_id="..."}', () => {

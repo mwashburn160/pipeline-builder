@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Router } from 'express';
-import { listAllOrganizations } from '../controllers';
-import { requireAuth, requireSystemAdmin } from '../middleware';
+import { listAllOrganizations } from '../controllers/index.js';
+import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 
 const router = Router();
 

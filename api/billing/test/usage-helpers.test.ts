@@ -10,10 +10,10 @@
  * path is covered indirectly by the snapshot mock here.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
-  }),
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({ get: jest.fn() }),
   getServiceAuthHeader: () => 'Bearer test-service',
   // api-server's app-factory wires this at module load.
@@ -22,11 +22,11 @@ jest.mock('@pipeline-builder/api-core', () => ({
 
 // Stub api-server so its idempotency-middleware + app-factory don't try to
 // initialize a real Prometheus registry at module load.
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incCounter: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: { getAny: () => ({ services: { billingTimeout: 5000 } }) },
   // usage-helpers transitively imports api-server (via billing-helpers),
   // whose idempotency-middleware reads these at module load.
@@ -37,13 +37,13 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     quotaService: { host: 'quota', port: 3000 },
   },
 }));
 
-import { buildUsageRollup } from '../src/helpers/usage-helpers';
+const { buildUsageRollup } = await import('../src/helpers/usage-helpers.js');
 
 describe('buildUsageRollup', () => {
   const now = new Date('2026-05-15T00:00:00Z');

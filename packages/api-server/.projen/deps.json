@@ -1,13 +1,18 @@
 {
   "dependencies": [
     {
+      "name": "@jest/globals",
+      "version": "30.2.0",
+      "type": "build"
+    },
+    {
       "name": "@stylistic/eslint-plugin",
       "version": "^2",
       "type": "build"
     },
     {
       "name": "@types/compression",
-      "version": "1.7.5",
+      "version": "1.8.1",
       "type": "build"
     },
     {
@@ -26,18 +31,13 @@
       "type": "build"
     },
     {
-      "name": "@types/jest",
-      "version": "30.0.0",
-      "type": "build"
-    },
-    {
       "name": "@types/jsonwebtoken",
       "version": "9.0.10",
       "type": "build"
     },
     {
       "name": "@types/node",
-      "version": "25.3.0",
+      "version": "25.9.2",
       "type": "build"
     },
     {
@@ -75,7 +75,7 @@
     },
     {
       "name": "jest",
-      "version": "30.0.0",
+      "version": "30.4.2",
       "type": "build"
     },
     {
@@ -85,32 +85,37 @@
     },
     {
       "name": "typescript",
-      "version": "5.9.3",
+      "version": "6.0.3",
       "type": "build"
     },
     {
       "name": "@opentelemetry/api",
-      "version": "1.9.0",
+      "version": "1.9.1",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/auto-instrumentations-node",
-      "version": "0.67.1",
+      "version": "0.76.0",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/exporter-trace-otlp-http",
-      "version": "0.213.0",
+      "version": "0.218.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@opentelemetry/instrumentation",
+      "version": "0.218.0",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/resources",
-      "version": "2.6.0",
+      "version": "2.7.1",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/sdk-node",
-      "version": "0.213.0",
+      "version": "0.218.0",
       "type": "runtime"
     },
     {
@@ -125,7 +130,7 @@
     },
     {
       "name": "compression",
-      "version": "1.8.0",
+      "version": "1.8.1",
       "type": "runtime"
     },
     {
@@ -135,7 +140,7 @@
     },
     {
       "name": "express-rate-limit",
-      "version": "8.2.1",
+      "version": "8.5.2",
       "type": "runtime"
     },
     {
@@ -145,12 +150,12 @@
     },
     {
       "name": "helmet",
-      "version": "8.1.0",
+      "version": "8.2.0",
       "type": "runtime"
     },
     {
       "name": "ioredis",
-      "version": "5.6.1",
+      "version": "5.11.1",
       "type": "runtime"
     },
     {
@@ -165,7 +170,7 @@
     },
     {
       "name": "rate-limit-redis",
-      "version": "4.2.0",
+      "version": "5.0.0",
       "type": "runtime"
     },
     {
@@ -175,7 +180,7 @@
     },
     {
       "name": "uuid",
-      "version": "13.0.0",
+      "version": "14.0.0",
       "type": "runtime"
     }
   ],

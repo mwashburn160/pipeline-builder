@@ -18,7 +18,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { and, asc, eq, isNull } from 'drizzle-orm';
-import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from './promql-rewriter';
+import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from './promql-rewriter.js';
 
 const logger = createLogger('alert-rule-service');
 

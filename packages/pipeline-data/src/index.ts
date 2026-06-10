@@ -27,13 +27,13 @@
  */
 
 // Database
-export * from './database';
+export * from './database/index.js';
 
 // Query builders and services
-export * from './api/query-builders';
-export * from './api/access-control-builder';
-export * from './api/crud-service';
-export * from './api/reporting-service';
+export * from './api/query-builders.js';
+export * from './api/access-control-builder.js';
+export * from './api/crud-service.js';
+export * from './api/reporting-service.js';
 
 // Filters
-export * from './core/query-filters';
+export * from './core/query-filters.js';

@@ -6,15 +6,15 @@ import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants, getConnection } from '@pipeline-builder/pipeline-core';
 import compression from 'compression';
 import cors from 'cors';
-import express, { Express, NextFunction, Request, Response } from 'express';
+import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { v7 as uuid } from 'uuid';
-import { etagMiddleware } from './etag-middleware';
-import { idempotencyMiddleware } from './idempotency-middleware';
-import { metricsMiddleware, metricsHandler, incCounter } from './metrics';
-import { SSEManager } from '../http/sse-connection-manager';
+import { etagMiddleware } from './etag-middleware.js';
+import { idempotencyMiddleware } from './idempotency-middleware.js';
+import { metricsMiddleware, metricsHandler, incCounter } from './metrics.js';
+import { SSEManager } from '../http/sse-connection-manager.js';
 
 // Wire api-core's counter shim to the real prom-client registry. This is
 // a no-op until incCounter is called for the first time (lazy registration

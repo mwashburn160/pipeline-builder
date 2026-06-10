@@ -1,11 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import {
   isValidQuotaType,
   validateQuotaType,
   VALID_QUOTA_TYPES,
-} from '../src/types/common';
+} from '../src/types/common.js';
 
 describe('VALID_QUOTA_TYPES', () => {
   it('should contain every supported quota type', () => {

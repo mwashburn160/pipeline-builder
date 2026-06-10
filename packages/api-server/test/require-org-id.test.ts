@@ -1,20 +1,22 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock api-core before imports
-jest.mock('@pipeline-builder/api-core', () => ({
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
 }));
 
 // Mock get-context to control behavior
-jest.mock('../src/api/get-context', () => ({
+jest.unstable_mockModule('../src/api/get-context.js', () => ({
   getContext: jest.fn(),
 }));
 
-import { sendError } from '@pipeline-builder/api-core';
-import { getContext } from '../src/api/get-context';
-import { requireOrgId } from '../src/api/require-org-id';
+const { sendError } = await import('@pipeline-builder/api-core');
+const { getContext } = await import('../src/api/get-context.js');
+const { requireOrgId } = await import('../src/api/require-org-id.js');
 
 function mockReq(): any {
   return { headers: {} };

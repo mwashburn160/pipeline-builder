@@ -3,11 +3,11 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { toOrgId } from '../helpers/controller-helper';
-import { expandOrgScope } from '../helpers/org-hierarchy';
-import { Organization, User, UserOrganization } from '../models';
-import type { OrgMemberRole } from '../models/user-organization';
-import { withMongoTransaction } from '../utils/mongo-tx';
+import { toOrgId } from '../helpers/controller-helper.js';
+import { expandOrgScope } from '../helpers/org-hierarchy.js';
+import { Organization, User, UserOrganization } from '../models/index.js';
+import type { OrgMemberRole } from '../models/user-organization.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('org-members-service');
 

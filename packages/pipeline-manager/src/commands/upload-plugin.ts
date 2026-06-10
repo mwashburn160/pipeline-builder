@@ -7,11 +7,11 @@ import { Command } from 'commander';
 import FormData from 'form-data';
 import ora from 'ora';
 import pico from 'picocolors';
-import { FILE_SIZE_LIMITS, formatFileSize } from '../config/cli.constants';
-import { Plugin, PluginResponse } from '../types';
-import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
-import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler';
-import { extractSingleResponse, fileExists, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { FILE_SIZE_LIMITS, formatFileSize } from '../config/cli.constants.js';
+import { type Plugin, type PluginResponse } from '../types/index.js';
+import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler.js';
+import { extractSingleResponse, fileExists, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 
 const { bold, green } = pico;
 

@@ -4,11 +4,11 @@
 import https from 'https';
 import axios from 'axios';
 import { Command } from 'commander';
-import { ENV_VARS, TIMEOUTS } from '../config/cli.constants';
-import { checkCdkAvailable } from '../utils/cdk-utils';
-import { printCommandHeader } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printKeyValue, printSection } from '../utils/output-utils';
+import { ENV_VARS, TIMEOUTS } from '../config/cli.constants.js';
+import { checkCdkAvailable } from '../utils/cdk-utils.js';
+import { printCommandHeader } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printKeyValue, printSection } from '../utils/output-utils.js';
 
 /**
  * Registers the `status` command with the CLI program.

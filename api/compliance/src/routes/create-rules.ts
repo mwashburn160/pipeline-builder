@@ -4,8 +4,8 @@
 import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemAdmin, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { ComplianceRuleCreateSchema } from './rule-schemas';
-import { complianceRuleService, InvalidRuleRegexError } from '../services/compliance-rule-service';
+import { ComplianceRuleCreateSchema } from './rule-schemas.js';
+import { complianceRuleService, InvalidRuleRegexError } from '../services/compliance-rule-service.js';
 
 export function createCreateRuleRoutes(): Router {
   const router = Router();

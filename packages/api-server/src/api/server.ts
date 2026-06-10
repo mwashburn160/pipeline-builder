@@ -4,9 +4,9 @@
 import { Server } from 'http';
 import { createLogger, installCrashHandlers } from '@pipeline-builder/api-core';
 import { Config, getConnection, closeConnection } from '@pipeline-builder/pipeline-core';
-import { Express } from 'express';
-import { shutdownTracing } from './tracing';
-import { SSEManager } from '../http/sse-connection-manager';
+import type { Express } from 'express';
+import { shutdownTracing } from './tracing.js';
+import { SSEManager } from '../http/sse-connection-manager.js';
 
 const logger = createLogger('server');
 

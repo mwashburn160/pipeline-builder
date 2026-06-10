@@ -26,11 +26,12 @@
     "target": "ESNext",
     "types": [
       "aws-lambda",
-      "jest",
       "node"
     ],
     "rootDir": "src",
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "outDir": "lib",
     "moduleResolution": "nodenext"
   },

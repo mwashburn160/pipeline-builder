@@ -7,18 +7,20 @@
  * dashboards and alerting crons.
  */
 
-const findAll = jest.fn();
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('../src/services/quota-service', () => ({
+const findAll = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+
+jest.unstable_mockModule('../src/services/quota-service.js', () => ({
   quotaService: { findAll, findByOrgId: jest.fn(), getQuotaStatus: jest.fn() },
 }));
 
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config.js', () => ({
   config: { quota: { atRiskCacheTtlMs: 60_000 } },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  ErrorCode: { INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS', VALIDATION_ERROR: 'VALIDATION_ERROR' },
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   isSystemAdmin: jest.fn(),
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
@@ -32,23 +34,23 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendError: jest.fn((res: any, status: number, message: string) => res.status(status).json({ success: false, statusCode: status, message })),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId ?? 'system' });
   },
 }));
 
-jest.mock('../src/middleware/authorize-org', () => ({
+jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
   authorizeOrg: () => (_req: any, _res: any, next: any) => next(),
   INTERNAL_AUTH_OPTS: {},
 }));
 
-jest.mock('../src/helpers/quota-helpers', () => ({
+jest.unstable_mockModule('../src/helpers/quota-helpers.js', () => ({
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
 }));
 
-import { isSystemAdmin } from '@pipeline-builder/api-core';
-import { createReadQuotaRoutes } from '../src/routes/read-quotas';
+const { isSystemAdmin } = await import('@pipeline-builder/api-core');
+const { createReadQuotaRoutes } = await import('../src/routes/read-quotas.js');
 
 // The router owns the at-risk memoization cache (I57). Rebuild per-test so
 // one test's mocked findAll() result doesn't leak through the cache to the

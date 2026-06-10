@@ -15,12 +15,13 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 ## Table of Contents
 
+- [AI-assisted install (`provision`)](#ai-assisted-install-provision) -- The recommended way to install the platform
 - [Deployment modes](#deployment-modes-public-vs-private) -- Public vs private, and what each changes
 - [Public deployment (quickstart)](#public-deployment-quickstart) -- Internet-facing install, EC2 or Fargate
 - [Private deployment (quickstart)](#private-deployment-quickstart) -- Inside-AWS-only install, EC2 or Fargate
-- [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$30-80/mo)
+- [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$140-265/mo)
 - [Fargate](#fargate) -- Serverless ECS containers (production, ~$100-300/mo)
-- [Email (SES)](#email-ses) -- Enable transactional email with `--email`
+- [Email (SES)](#email-ses) -- Transactional email (provisioned by default; `--no-email` to skip)
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
 - [Drift Detection (`audit-stacks`)](#drift-detection-audit-stacks) -- Reconcile registry vs live CloudFormation
 - [Report API Endpoints](#report-api-endpoints) -- Execution and plugin analytics
@@ -36,8 +37,49 @@ Observability is the native `/dashboard/observability` page across all deploymen
 | Public surface | ALB only (instance private) | ALB only (tasks private) |
 | Storage | hostPath PVCs on EBS | EFS access points |
 | Scaling | Vertical (instance resize) | Horizontal (task count) |
-| Cost | ~$30-80/mo | ~$100-300/mo |
+| Cost | ~$140-265/mo (t3.xlarge–t3.2xlarge, 24/7) | ~$100-300/mo |
 | Best for | Dev/staging | Production |
+
+---
+
+## AI-assisted install (`provision`)
+
+The **recommended** way to install the platform is the `pipeline-manager provision` advisor. It picks the target, runs read-only prerequisite checks (AWS credentials, the domain's public Route 53 zone, Docker, etc.), and assembles the **exact, validated `setup.sh` command** for you to run — secrets masked, missing inputs reported rather than guessed. With an AI key configured it also parses a natural-language goal and diagnoses CloudFormation failures.
+
+```bash
+npm install -g @pipeline-builder/pipeline-manager
+
+# Advisor (default): prints the exact command + prereq results, runs nothing.
+pipeline-manager provision --target fargate \
+  --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
+
+# Execute the deploy (gated — see below):
+pipeline-manager provision --target fargate \
+  --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email --execute
+
+# Or describe the goal (needs an AI key — see Environment Variables):
+pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email enabled"
+
+# Diagnose a failed deploy:
+pipeline-manager provision --target fargate --diagnose ./stack-events.txt
+```
+
+> **Two modes.** By default `provision` is an **advisor** — it checks and assembles, printing the exact command without running it. Add **`--execute`** to run the deploy: it **refuses** on failed prerequisites or missing inputs, asks for confirmation, streams the deploy to your terminal, then verifies `/health` + `/ready` on the application URL and offers to run `init-platform`.
+>
+> **On failure it troubleshoots.** It matches known CloudFormation signatures and prints the likely cause + fix — and for a few it can **auto-fix and retry** (e.g. an existing SES identity → re-run with `--skip-ses-identity`; an ACM/DNS-propagation timeout → resume). Retries are gated and bounded by **`--retries <n>`** (default 1; the scripts are idempotent so a re-run resumes). With an AI key it adds a free-form diagnosis on top. When SES is enabled, a successful deploy prints DKIM/sandbox next-steps.
+>
+> Flags: **`--yes`** auto-approves (CI), **`--retries <n>`** auto-fix/retry budget, **`--no-init`** skips the post-deploy init step, **`--skip-ses-identity`** for an already-verified SES domain. (EC2/Fargate `init-platform` must run from inside the VPC, so it's surfaced rather than auto-run.)
+>
+> **Teardown.** Add **`--teardown`** to remove a deployment. `local`/`minikube` stop the stack (on-disk / PVC data persists). **EC2/Fargate DELETE their CloudFormation stacks and are irreversible** — so the destructive path is gated harder than deploy: you must **type the target id** to confirm (a y/N is too easy to fat-finger), and **`--yes` alone does *not* bypass it** — only **`--force`** does (for CI). Override the stack name/prefix with **`--stack-name <name>`**; the region comes from **`--region`** / `AWS_REGION`. As always, `bin/shutdown.sh` (local/minikube/EC2) and `deploy/aws/fargate/bin/teardown.sh` can be run directly.
+>
+> ```bash
+> # Advisor — prints the exact destroy command, runs nothing:
+> pipeline-manager provision --target fargate --teardown
+> # Execute (prompts: type "fargate" to confirm):
+> pipeline-manager provision --target fargate --teardown --execute
+> ```
+
+The underlying `bin/setup.sh` scripts remain the source of truth and can always be run directly — the rest of this guide documents them.
 
 ---
 
@@ -67,7 +109,7 @@ A **public** deployment uses an **internet-facing ALB** so the dashboard, API, a
 ### Prerequisites (both targets)
 
 - **AWS CLI** configured with credentials for the target account/region.
-- A **registered domain** and its **public Route 53 hosted zone** — required. The stack requests a DNS-validated ACM cert for the domain against this zone, so deploy.sh refuses to start without `--domain` + `--hosted-zone-id`.
+- A **registered domain** and its **public Route 53 hosted zone** — required. The stack requests a DNS-validated ACM cert for the domain against this zone, so setup.sh refuses to start without `--domain` + `--hosted-zone-id`.
 - A **GitHub account + personal access token (PAT)**. The service images live on GitHub Container Registry (`ghcr.io/mwashburn160/*`); they're public, but GitHub rate-limits *anonymous* pulls (60/hr) which trips mid-deploy when all 10 images pull at once. **Generate your own PAT under your GitHub account**: on GitHub go to **Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic)** (https://github.com/settings/tokens) and check only the `read:packages` scope. Then pass `--ghcr-token <your-pat>` (ghcr.io validates only the token for PAT auth — there is no username flag to set; the deploy uses a fixed internal value). Don't reuse a token from these docs or another deployment. See [GhcrToken rejected](#troubleshooting) for the fine-grained-PAT option and details.
 - **EC2 only:** an EC2 **key pair** in the target region (`--key-pair`) for break-glass serial-console access (routine access is via SSM).
 
@@ -78,7 +120,7 @@ Pick the target. Both take `--deploy-mode public`; everything else matches the p
 ```bash
 # EC2 — single Minikube instance behind an internet-facing ALB
 cd deploy/aws/ec2
-bash bin/deploy.sh --deploy-mode public \
+bash bin/setup.sh --deploy-mode public \
   --key-pair my-keypair \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
@@ -86,13 +128,13 @@ bash bin/deploy.sh --deploy-mode public \
 
 # Fargate — serverless tasks behind an internet-facing ALB
 cd deploy/aws/fargate
-bash bin/deploy.sh --deploy-mode public \
+bash bin/setup.sh --deploy-mode public \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
   --ghcr-token ghp_xxxxxxxxxxxx
 ```
 
-The ACM cert DNS-validates **during** stack creation, so expect a few minutes in `CREATE_IN_PROGRESS` while CloudFormation waits for the cert to reach `ISSUED`. (`deploy.sh` runs from your machine with your credentials. The EC2 [Deploy](#deploy) section also shows the raw-CloudFormation equivalent.)
+The ACM cert DNS-validates **during** stack creation, so expect a few minutes in `CREATE_IN_PROGRESS` while CloudFormation waits for the cert to reach `ISSUED`. (`setup.sh` runs from your machine with your credentials. The EC2 [Deploy](#deploy) section also shows the raw-CloudFormation equivalent.)
 
 ### 2. Get the URL
 
@@ -133,7 +175,7 @@ Identical to the [Public quickstart](#prerequisites-both-targets) above: AWS CLI
 ```bash
 # EC2 — single Minikube instance behind an internal ALB
 cd deploy/aws/ec2
-bash bin/deploy.sh --deploy-mode private \
+bash bin/setup.sh --deploy-mode private \
   --key-pair my-keypair \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
@@ -141,7 +183,7 @@ bash bin/deploy.sh --deploy-mode private \
 
 # Fargate — serverless tasks behind an internal ALB
 cd deploy/aws/fargate
-bash bin/deploy.sh --deploy-mode private \
+bash bin/setup.sh --deploy-mode private \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
   --ghcr-token ghp_xxxxxxxxxxxx
@@ -178,7 +220,7 @@ Single hardened EC2 instance running Minikube with all services.
 
 ### Deploy
 
-For the one-command happy path, use the [Public](#public-deployment-quickstart) or [Private](#private-deployment-quickstart) quickstart — both run `bin/deploy.sh` from your machine with your credentials (so the instance role needs no CloudFormation permissions). An **ALB fronts the always-private instance** and terminates TLS with an **ACM cert** the template DNS-validates against your zone, so `--domain` + `--hosted-zone-id` are required; `deploy.sh` refuses to start without them.
+For the one-command happy path, use the [Public](#public-deployment-quickstart) or [Private](#private-deployment-quickstart) quickstart — both run `bin/setup.sh` from your machine with your credentials (so the instance role needs no CloudFormation permissions). An **ALB fronts the always-private instance** and terminates TLS with an **ACM cert** the template DNS-validates against your zone, so `--domain` + `--hosted-zone-id` are required; `setup.sh` refuses to start without them.
 
 **Manual alternative (raw CloudFormation).** Deploys the same single stack — nothing to follow up with. The ACM cert DNS-validates during stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`:
 
@@ -330,7 +372,7 @@ data volume, so the scripts live at `/opt/pipeline/pipeline-builder/deploy/aws/e
 
 | Script | Purpose | Run as |
 |--------|---------|--------|
-| `deploy.sh` | Deploy the stack (private mode folds endpoints + private zone into it) — from your machine | operator |
+| `setup.sh` | Deploy the stack (private mode folds endpoints + private zone into it) — from your machine | operator |
 | `bootstrap.sh` | Full EC2 setup (runs automatically via UserData) | root |
 | `startup.sh` | Start Minikube + deploy K8s manifests + the ALB-target iptables bridge | root (sudo) |
 | `shutdown.sh` | Stop Minikube + remove iptables rules | root (sudo) |
@@ -387,7 +429,7 @@ Serverless containers on ECS Fargate. 6 CloudFormation stacks deployed in depend
 
 ### Deploy
 
-Use the [Public](#public-deployment-quickstart) or [Private](#private-deployment-quickstart) quickstart for the one-command path — `bin/deploy.sh` deploys all 6 stacks in order. The `01-foundation` stack requests a **DNS-validated ACM cert** for `--domain` and terminates TLS at the ALB (no certbot, no self-signed cert), so `--domain` + `--hosted-zone-id` are required in both modes. The cert DNS-validates during foundation-stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`.
+Use the [Public](#public-deployment-quickstart) or [Private](#private-deployment-quickstart) quickstart for the one-command path — `bin/setup.sh` deploys all 6 stacks in order. The `01-foundation` stack requests a **DNS-validated ACM cert** for `--domain` and terminates TLS at the ALB (no certbot, no self-signed cert), so `--domain` + `--hosted-zone-id` are required in both modes. The cert DNS-validates during foundation-stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`.
 
 ### Parameters
 
@@ -397,7 +439,7 @@ Use the [Public](#public-deployment-quickstart) or [Private](#private-deployment
 | `--hosted-zone-id` | **Yes** | — | Public Route 53 zone ID (ACM DNS validation + alias) |
 | `--ghcr-token` | Yes | — | GHCR token for pulling images |
 | `--deploy-mode` | No | `private` | `public` (internet-facing ALB) or `private` (internal) |
-| `--email` | No | off | Enable SES transactional email (provisions the SES identity + DKIM + role grant) |
+| `--no-email` | No | — | Skip SES (transactional email is provisioned **by default**) |
 | `--email-from` | No | `noreply@<domain>` | From address SES sends as |
 | `--email-from-name` | No | `pipeline-builder` | Display name on outbound email |
 | `--no-create-ses-identity` | No | — | Skip creating the SES identity (domain already verified in this account) |
@@ -407,7 +449,7 @@ Use the [Public](#public-deployment-quickstart) or [Private](#private-deployment
 
 ### Deployment mode (`DEPLOY_MODE`)
 
-See [Deployment modes](#deployment-modes-public-vs-private) for the public/private comparison. `DEPLOY_MODE` defaults to `private`; set it in the env before `deploy.sh` (it's passed to the foundation + services stacks) or use `--deploy-mode public`. In `private` mode `01-foundation` folds in the VPC interface endpoints + the Route 53 private-zone alias (gated on `DeployMode=private`); CodeBuild is wired to the foundation VPC automatically (`PIPELINE_VPC_ID` / `SUBNET_IDS`).
+See [Deployment modes](#deployment-modes-public-vs-private) for the public/private comparison. `DEPLOY_MODE` defaults to `private`; set it in the env before `setup.sh` (it's passed to the foundation + services stacks) or use `--deploy-mode public`. In `private` mode `01-foundation` folds in the VPC interface endpoints + the Route 53 private-zone alias (gated on `DeployMode=private`); CodeBuild is wired to the foundation VPC automatically (`PIPELINE_VPC_ID` / `SUBNET_IDS`).
 
 ### Stacks
 
@@ -424,7 +466,7 @@ Deployed in order. Each exports values consumed by downstream stacks.
 
 ### Post-Deploy
 
-`deploy.sh` returns once the stacks complete, but the ECS tasks need a minute or two to start and pass health checks. The ALB target group reports **unhealthy (503)** until the service tasks are up — expected; it self-heals.
+`setup.sh` returns once the stacks complete, but the ECS tasks need a minute or two to start and pass health checks. The ALB target group reports **unhealthy (503)** until the service tasks are up — expected; it self-heals.
 
 ```bash
 # Wait for the core services to reach a steady state
@@ -530,7 +572,7 @@ done
 Update `EphemeralStorage` in `04-services.yaml` and redeploy:
 ```bash
 cd deploy/aws/fargate
-bash bin/deploy.sh --stack-prefix pb --region us-east-1 --domain app.example.com
+bash bin/setup.sh --stack-prefix pb --region us-east-1 --domain app.example.com
 ```
 
 ### K8s → Fargate Translation
@@ -553,7 +595,7 @@ All in `deploy/aws/fargate/bin/`. Run from your local machine.
 
 | Script | Purpose |
 |--------|---------|
-| `deploy.sh` | Full deploy: secrets → 6 stacks (foundation requests the ACM cert) → config upload |
+| `setup.sh` | Full deploy: secrets → 6 stacks (foundation requests the ACM cert) → config upload |
 | `teardown.sh` | Delete all stacks in reverse order |
 | `init-secrets.sh` | Generate random secrets → Secrets Manager |
 
@@ -585,20 +627,20 @@ bash bin/teardown.sh --stack-prefix pb --region us-east-1
 ## Email (SES)
 
 The platform sends transactional email (invitations, email verification, password
-resets) via Amazon SES. It's **off by default** — pass `--email` to either
-deploy script to enable it:
+resets) via Amazon SES. It's **enabled by default** — every AWS deploy provisions
+it; pass `--no-email` to skip it:
 
 ```bash
-# EC2
-bash bin/deploy.sh --key-pair my-keypair --domain pipeline.example.com \
-  --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
+# EC2 — SES is provisioned by default
+bash bin/setup.sh --key-pair my-keypair --domain pipeline.example.com \
+  --hosted-zone-id Z123 --ghcr-token ghp_xxx
 
-# Fargate
-bash bin/deploy.sh --domain pipeline.example.com \
-  --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
+# Fargate — pass --no-email to opt out
+bash bin/setup.sh --domain pipeline.example.com \
+  --hosted-zone-id Z123 --ghcr-token ghp_xxx --no-email
 ```
 
-`--email` wires up everything in one shot:
+By default the deploy wires up everything in one shot:
 
 - **Identity (Easy DKIM):** creates an SES domain identity for `--domain` and
   publishes its 3 DKIM CNAMEs to your Route 53 zone, so the domain
@@ -616,7 +658,7 @@ bash bin/deploy.sh --domain pipeline.example.com \
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `--email` | off | Enable SES (identity + DKIM + role grant + app env) |
+| `--no-email` | — | Skip SES (it is provisioned by default: identity + DKIM + role grant + app env) |
 | `--email-from` | `noreply@<domain>` | From address SES sends as |
 | `--email-from-name` | `pipeline-builder` | Display name on outbound email |
 | `--no-create-ses-identity` | — | Skip identity creation when `--domain` is **already** a verified SES identity in this account/region (avoids a "already exists" rollback); IAM + env are still wired |
@@ -646,7 +688,7 @@ Two things happen **after** the stack completes, and both need your attention:
 SES enforces sender reputation at the **account level** — above ~5% bounce or
 ~0.1% complaint it puts the account *under review* and can **pause all sending**
 (including password resets). To make that visible instead of a silent outage,
-`--email` provisions a **configuration set** that every send routes through
+The deploy provisions a **configuration set** that every send routes through
 (`SES_CONFIGURATION_SET` on the platform), with an **SNS topic**
 (`<prefix>-email-events` on Fargate, `pipeline-builder-email-events` on EC2)
 receiving every bounce, complaint, and reject. The topic ARN is a stack output.
@@ -914,7 +956,7 @@ deploy/aws/ec2/
 ├── template.yaml          # CloudFormation stack
 ├── .env.example           # Reference config
 ├── bin/
-│   ├── deploy.sh         # Deploy the stack (from your machine)
+│   ├── setup.sh         # Deploy the stack (from your machine)
 │   ├── bootstrap.sh      # EC2 setup + hardening
 │   ├── startup.sh        # Minikube + K8s deploy + ALB-target iptables bridge
 │   └── shutdown.sh       # Teardown
@@ -935,7 +977,7 @@ deploy/aws/ec2/
 ```
 deploy/aws/fargate/
 ├── bin/
-│   ├── deploy.sh          # Full deployment orchestrator
+│   ├── setup.sh          # Full deployment orchestrator
 │   ├── teardown.sh        # Delete all stacks
 │   └── init-secrets.sh    # Generate secrets
 ├── stacks/

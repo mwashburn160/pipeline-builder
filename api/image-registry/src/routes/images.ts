@@ -28,7 +28,7 @@ import {
   getBlobStream,
   mountBlob,
   isNotFound,
-} from '../services/registry-client';
+} from '../services/registry-client.js';
 
 const logger = createLogger('image-routes');
 

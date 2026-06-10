@@ -29,13 +29,14 @@
       "cors",
       "express-serve-static-core",
       "express",
-      "jest",
       "jsonwebtoken",
       "node",
       "swagger-ui-express"
     ],
     "rootDir": "src",
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "outDir": "lib",
     "moduleResolution": "nodenext"
   },

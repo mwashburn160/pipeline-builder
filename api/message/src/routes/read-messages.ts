@@ -16,7 +16,7 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx, createProtectedRoute } from '@pipeline-builder/api-server';
 import type { MessageFilter } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { messageService } from '../services/message-service';
+import { messageService } from '../services/message-service.js';
 
 /**
  * Create read routes for the message service.

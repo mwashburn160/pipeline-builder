@@ -6,12 +6,12 @@
  * the request shape (URL, query params) and the response transformation.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-  errorMessage: (err: unknown) => err instanceof Error ? err.message : String(err),
-}));
+import { jest, describe, it, expect, beforeEach, afterAll, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-import { query, queryRange } from '../src/observability/prometheus-client';
+const { query, queryRange } = await import('../src/observability/prometheus-client.js');
+
 
 const fetchMock = jest.fn();
 

@@ -149,7 +149,7 @@ See [Samples](samples.md) for more CDK patterns.
 ### Local (Docker Compose)
 
 ```bash
-cd deploy/local && ./bin/startup.sh        # Start
+cd deploy/local && ./bin/setup.sh        # Start
 cd deploy/local && docker compose down     # Stop
 cd deploy/local && docker compose down -v  # Stop + remove volumes
 ```
@@ -157,7 +157,7 @@ cd deploy/local && docker compose down -v  # Stop + remove volumes
 ### Minikube
 
 ```bash
-bash deploy/minikube/bin/startup.sh        # Start
+bash deploy/minikube/bin/setup.sh        # Start
 bash deploy/minikube/bin/shutdown.sh       # Stop
 kubectl get pods -n pipeline-builder       # Check
 ```
@@ -174,7 +174,7 @@ sudo -u minikube kubectl get pods -n pipeline-builder             # Check
 
 ```bash
 cd deploy/aws/fargate
-bash bin/deploy.sh --stack-prefix pb --region us-east-1 --domain app.example.com  # Deploy
+bash bin/setup.sh --stack-prefix pb --region us-east-1 --domain app.example.com  # Deploy
 bash bin/teardown.sh --stack-prefix pb --region us-east-1                          # Teardown
 ```
 

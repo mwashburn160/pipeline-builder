@@ -3,32 +3,32 @@
 
 import { z } from 'zod';
 
-import { registry } from './registry';
+import { registry } from './registry.js';
 import {
   AIGenerateBodySchema,
   PluginDeployGeneratedSchema,
-} from '../validation/ai-schemas';
+} from '../validation/ai-schemas.js';
 import {
   AccessModifierSchema,
   PaginationSchema,
   BaseFilterSchema,
-} from '../validation/common-schemas';
+} from '../validation/common-schemas.js';
 import {
   MessageFilterSchema,
   MessageCreateSchema,
   MessageReplySchema,
-} from '../validation/message-schemas';
+} from '../validation/message-schemas.js';
 import {
   PipelineFilterSchema,
   PipelineCreateSchema,
   PipelineUpdateSchema,
-} from '../validation/pipeline-schemas';
+} from '../validation/pipeline-schemas.js';
 import {
   PluginFilterSchema,
   PluginCreateSchema,
   PluginUpdateSchema,
   PluginUploadBodySchema,
-} from '../validation/plugin-schemas';
+} from '../validation/plugin-schemas.js';
 
 // Response schemas (exported for type usage)
 export const SuccessResponseSchema = z.object({

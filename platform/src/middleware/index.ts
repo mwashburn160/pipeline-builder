@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-export * from './auth';
-export * from './error';
-export * from './quota';
-export * from './step-up';
-export * from './require-write-access';
+export * from './auth.js';
+export * from './error.js';
+export * from './quota.js';
+export * from './step-up.js';
+export * from './require-write-access.js';

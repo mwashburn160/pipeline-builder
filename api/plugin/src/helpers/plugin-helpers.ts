@@ -4,7 +4,7 @@
 import { normalizeArrayFields, SYSTEM_ORG_ID, type AccessModifier } from '@pipeline-builder/api-core';
 import { type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
 
-import type { BuildRequest, BuildType } from './docker-build';
+import type { BuildRequest, BuildType } from './docker-build.js';
 
 /** Plugin config parsed from config.yaml in the ZIP root. */
 export interface PluginConfig {

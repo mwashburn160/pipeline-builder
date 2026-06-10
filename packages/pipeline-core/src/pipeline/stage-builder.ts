@@ -4,12 +4,12 @@
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodePipeline } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
-import { PluginLookup } from './plugin-lookup';
-import type { StageOptions } from './step-types';
-import type { ArtifactManager } from '../core/artifact-manager';
-import { UniqueId } from '../core/id-generator';
-import { createCodeBuildStep, merge } from '../core/pipeline-helpers';
-import type { MetaDataType } from '../core/pipeline-types';
+import { PluginLookup } from './plugin-lookup.js';
+import type { StageOptions } from './step-types.js';
+import type { ArtifactManager } from '../core/artifact-manager.js';
+import { UniqueId } from '../core/id-generator.js';
+import { createCodeBuildStep, merge } from '../core/pipeline-helpers.js';
+import type { MetaDataType } from '../core/pipeline-types.js';
 
 /**
  * Configuration properties for the StageBuilder

@@ -5,7 +5,7 @@ import { NotFoundError, createLogger } from '@pipeline-builder/api-core';
 import { SQL, eq, and, asc, desc, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
-import { withTenantTx, runWithTenantContext } from '../database/tenancy';
+import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
 
 /** Pagination defaults — read from env to match CoreConstants in pipeline-core. */
 const DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10);

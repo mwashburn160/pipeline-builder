@@ -10,8 +10,8 @@ import {
   listInvitations,
   revokeInvitation,
   resendInvitation,
-} from '../controllers';
-import { requireAuth, requireRole } from '../middleware';
+} from '../controllers/index.js';
+import { requireAuth, requireRole } from '../middleware/index.js';
 
 const router = Router();
 

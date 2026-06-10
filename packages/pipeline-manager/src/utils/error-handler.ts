@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import pico from 'picocolors';
-import { generateExecutionId } from '../config/cli.constants';
+import { generateExecutionId } from '../config/cli.constants.js';
 import {
   ERROR_CODES,
-  ErrorCode,
-  ErrorHandlerOptions,
-  AxiosErrorLike,
-} from '../types';
+  type ErrorCode,
+  type ErrorHandlerOptions,
+  type AxiosErrorLike,
+} from '../types/index.js';
 
 const { bold, dim, red, yellow, cyan } = pico;
 

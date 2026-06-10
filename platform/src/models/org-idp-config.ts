@@ -24,7 +24,7 @@
  */
 
 import { Schema, model, Document } from 'mongoose';
-import { OAuthProviderName, OAUTH_PROVIDER_NAMES } from '../types/oauth-provider';
+import { type OAuthProviderName, OAUTH_PROVIDER_NAMES } from '../types/oauth-provider.js';
 
 /** Supported IdP providers. `generic-oidc` is the broad case — any OIDC-compliant
  * IdP with discovery URL works (Okta, Auth0, Keycloak, AWS Cognito, Azure AD).

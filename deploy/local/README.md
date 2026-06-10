@@ -61,11 +61,11 @@ The service images on `ghcr.io/mwashburn160/...` are **public**, so `docker comp
 **Browser console shows `net::ERR_CERT_AUTHORITY_INVALID` for JS chunks (`turbopack-*.js`, `_buildManifest.js`, …) and the page renders blank/unstyled:**
 The UI is served over HTTPS on `:8443`. Clicking "Proceed anyway" only whitelists the top-level page, not the script/module sub-resources, so the app's JS fails to load. Fix it one of these ways (easiest first):
 
-- **Install [mkcert](https://github.com/FiloSottile/mkcert) and regenerate** — `startup.sh` then issues a browser-trusted cert, so there are no warnings at all:
+- **Install [mkcert](https://github.com/FiloSottile/mkcert) and regenerate** — `setup.sh` then issues a browser-trusted cert, so there are no warnings at all:
   ```bash
   brew install mkcert            # macOS (or your platform's package manager)
   rm certs/nginx-tls.crt certs/nginx-tls.key   # drop the old untrusted cert
-  ./bin/startup.sh               # regenerates via mkcert + installs its local CA
+  ./bin/setup.sh               # regenerates via mkcert + installs its local CA
   ```
 - **Instant bypass (Chrome/Edge)** — on the "Your connection is not private" page, click anywhere and type `thisisunsafe` (there's no input box). This bypasses the cert for the whole origin, including the JS chunks.
 - **Trust the self-signed cert (macOS)** — then **fully quit and reopen** the browser:

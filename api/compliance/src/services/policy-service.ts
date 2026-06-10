@@ -12,7 +12,7 @@ import {
 import { SQL, and, eq, isNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
-import { complianceRuleService } from './compliance-rule-service';
+import { complianceRuleService } from './compliance-rule-service.js';
 
 export type CompliancePolicy = typeof schema.compliancePolicy.$inferSelect;
 export type CompliancePolicyInsert = typeof schema.compliancePolicy.$inferInsert;

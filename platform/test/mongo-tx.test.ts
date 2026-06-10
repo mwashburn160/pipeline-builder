@@ -12,11 +12,13 @@
  * throw paths).
  */
 
-const mockEndSession = jest.fn().mockResolvedValue(undefined);
-const mockWithTransaction = jest.fn();
-const mockStartSession = jest.fn();
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
-jest.mock('mongoose', () => ({
+const mockEndSession = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
+const mockWithTransaction = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockStartSession = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+
+jest.unstable_mockModule('mongoose', () => ({
   __esModule: true,
   default: {
     startSession: (...args: unknown[]) => mockStartSession(...args),
@@ -24,7 +26,7 @@ jest.mock('mongoose', () => ({
   startSession: (...args: unknown[]) => mockStartSession(...args),
 }));
 
-import { withMongoTransaction } from '../src/utils/mongo-tx';
+const { withMongoTransaction } = await import('../src/utils/mongo-tx.js');
 
 function makeSession() {
   return {

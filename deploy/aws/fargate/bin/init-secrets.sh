@@ -150,7 +150,7 @@ echo "  App secrets:  $SECRET_NAME"
 echo "  GHCR auth:    $GHCR_SECRET_NAME"
 echo ""
 # Only print the actual passwords to an interactive terminal. When stdout is
-# piped/redirected (CI logs, `tee` transcripts, deploy.sh capture) the values
+# piped/redirected (CI logs, `tee` transcripts, setup.sh capture) the values
 # would otherwise be persisted in plaintext — so suppress them there and point
 # the operator at Secrets Manager instead.
 if [ -t 1 ]; then

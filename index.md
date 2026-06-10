@@ -170,11 +170,20 @@ See [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) for
 
 ## Get started
 
-Run the full stack locally with Docker — prebuilt public images, no registry login:
+**Recommended — install with the CLI.** `pipeline-manager provision` is the primary way to stand up the platform: it picks the target, checks prerequisites, and gives you the exact, validated command to run (and, with an AI key set, parses a natural-language goal and diagnoses failures).
+
+```bash
+npm install -g @pipeline-builder/pipeline-manager
+pipeline-manager provision --target local              # advisor: prints the command
+pipeline-manager provision --target local --execute    # run it (gated: confirm, then verify health + init)
+# or: pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email"
+```
+
+Prefer to run it directly? The full stack runs locally with Docker — prebuilt public images, no registry login:
 
 ```bash
 git clone https://github.com/mwashburn160/pipeline-builder.git && cd pipeline-builder
-cd deploy/local && ./bin/startup.sh          # 1. pull images + start the stack
+cd deploy/local && ./bin/setup.sh          # 1. pull images + start the stack
 cd ../.. && ./deploy/bin/init-platform.sh local   # 2. register admin + load plugins
 ```
 

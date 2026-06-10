@@ -41,12 +41,12 @@ Parameters:
 
   EmailEnabled:
     Type: String
-    Default: "false"
+    Default: "true"
     AllowedValues: ["true", "false"]
     Description: >
       When true, provision an SES sending identity for DomainName (Easy DKIM) so
       the platform can send transactional email. Pairs with the EMAIL_ENABLED env
-      on the platform service (both set by deploy.sh --email).
+      on the platform service (both set by setup.sh --email).
 
   CreateSesIdentity:
     Type: String

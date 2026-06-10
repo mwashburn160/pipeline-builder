@@ -3,8 +3,8 @@
 
 import { ErrorCode, createLogger, sendError } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
-import { Request, Response, NextFunction } from 'express';
-import { getContext } from './get-context';
+import type { Request, Response, NextFunction } from 'express';
+import { getContext } from './get-context.js';
 
 const logger = createLogger('check-quota');
 

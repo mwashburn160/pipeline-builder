@@ -18,7 +18,7 @@
  * - Subscribers run async: never block the original request
  */
 
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('entity-events');
 

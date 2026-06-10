@@ -12,7 +12,7 @@ export {
   type LiteralToken,
   type ExprToken,
   type SourcePosition,
-} from './tokenizer';
+} from './tokenizer.js';
 
 export {
   resolve,
@@ -20,24 +20,24 @@ export {
   dependencies,
   type Scope,
   type EvalError,
-} from './evaluator';
+} from './evaluator.js';
 
 export {
   walkAndBind,
   type WalkEntry,
   type FieldPredicate,
-} from './walker';
+} from './walker.js';
 
 export {
   topoSort,
   type TopoNode,
   type TopoResult,
-} from './topo-sort';
+} from './topo-sort.js';
 
 export {
   TokenCache,
   defaultTokenCache,
-} from './cache';
+} from './cache.js';
 
 export {
   validateTemplates,
@@ -45,22 +45,22 @@ export {
   allowedScopeRoots,
   type TemplateError,
   type ValidationResult,
-} from './validate';
+} from './validate.js';
 
 export {
   recordResolution,
   templateResolutionsTotal,
   templateResolutionDurationMs,
-} from './metrics';
+} from './metrics.js';
 
 // -- Convenience: high-level resolve() that walks + resolves + measures
 
 import { ErrorCode } from '@pipeline-builder/api-core';
-import { resolve as evaluatorResolve, type Scope } from './evaluator';
-import { recordResolution } from './metrics';
-import { hasTemplate, tokenize, Token } from './tokenizer';
-import { topoSort } from './topo-sort';
-import { walkAndBind, type FieldPredicate } from './walker';
+import { resolve as evaluatorResolve, type Scope } from './evaluator.js';
+import { recordResolution } from './metrics.js';
+import { hasTemplate, tokenize, type Token } from './tokenizer.js';
+import { topoSort } from './topo-sort.js';
+import { walkAndBind, type FieldPredicate } from './walker.js';
 
 export interface ResolveResult {
   errors: Array<{ code: ErrorCode; message: string; field?: string; path?: string }>;

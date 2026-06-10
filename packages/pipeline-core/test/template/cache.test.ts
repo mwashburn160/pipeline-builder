@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { TokenCache } from '../../src/template/cache';
+import { TokenCache } from '../../src/template/cache.js';
 
 describe('TokenCache', () => {
   it('parses and caches', () => {

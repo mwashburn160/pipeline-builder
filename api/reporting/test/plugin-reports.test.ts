@@ -5,6 +5,9 @@
  * Tests for plugin report routes.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockGetPluginSummary = jest.fn();
 const mockGetPluginDistribution = jest.fn();
 const mockGetPluginVersions = jest.fn();
@@ -12,12 +15,11 @@ const mockGetBuildSuccessRate = jest.fn();
 const mockGetBuildDuration = jest.fn();
 const mockGetBuildFailures = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn(),
   sendError: jest.fn(),
   sendBadRequest: jest.fn(),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS' },
-  createLogger: () => ({ info: jest.fn(), debug: jest.fn() }),
+  getServiceAuthHeader: jest.fn(() => ({})),
   parseDateRange: jest.fn(() => ({ from: '2026-01-01T00:00:00Z', to: '2026-01-31T00:00:00Z' })),
   REPORT_INTERVALS: ['day', 'week', 'month'] as const,
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
@@ -29,14 +31,14 @@ jest.mock('@pipeline-builder/api-core', () => ({
       : { error: 'invalid' }),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
     getPluginSummary: mockGetPluginSummary,
     getPluginDistribution: mockGetPluginDistribution,
@@ -47,8 +49,8 @@ jest.mock('@pipeline-builder/pipeline-data', () => ({
   },
 }));
 
-import { sendSuccess, sendBadRequest } from '@pipeline-builder/api-core';
-import { createPluginReportRoutes } from '../src/routes/plugin-reports';
+const { sendSuccess, sendBadRequest } = await import('@pipeline-builder/api-core');
+const { createPluginReportRoutes } = await import('../src/routes/plugin-reports.js');
 
 describe('Plugin Report Routes', () => {
   let router: any;

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import { AWSMarketplaceProvider } from './aws-marketplace-provider';
-import type { PaymentProvider } from './payment-provider';
-import { StripeProvider } from './stripe-provider';
-import { StubPaymentProvider } from './stub-provider';
+import { config } from '../config.js';
+import { AWSMarketplaceProvider } from './aws-marketplace-provider.js';
+import type { PaymentProvider } from './payment-provider.js';
+import { StripeProvider } from './stripe-provider.js';
+import { StubPaymentProvider } from './stub-provider.js';
 
 const logger = createLogger('provider-factory');
 

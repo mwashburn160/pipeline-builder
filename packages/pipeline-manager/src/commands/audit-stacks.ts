@@ -3,9 +3,9 @@
 
 import { CloudFormationClient, ListStacksCommand, DescribeStacksCommand, type StackStatus } from '@aws-sdk/client-cloudformation';
 import { Command } from 'commander';
-import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 
 interface RegistryEntry {
   pipelineId: string;

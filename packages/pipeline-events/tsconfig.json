@@ -28,10 +28,11 @@
     "target": "ESNext",
     "types": [
       "aws-lambda",
-      "jest",
       "node"
     ],
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "moduleResolution": "nodenext"
   },
   "include": [

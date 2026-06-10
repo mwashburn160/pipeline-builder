@@ -10,7 +10,7 @@
     "lib": [
       "ES2024"
     ],
-    "module": "CommonJS",
+    "module": "nodenext",
     "noEmitOnError": false,
     "noFallthroughCasesInSwitch": true,
     "noImplicitAny": true,
@@ -25,12 +25,14 @@
     "stripInternal": true,
     "target": "ES2024",
     "types": [
-      "node",
-      "jest"
+      "node"
     ],
     "rootDir": "src",
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "outDir": "dist",
+    "moduleResolution": "nodenext",
     "noUncheckedIndexedAccess": true,
     "declarationMap": true,
     "allowJs": true,

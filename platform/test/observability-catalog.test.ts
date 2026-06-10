@@ -6,7 +6,7 @@ import {
   substituteVars,
   stepForRange,
   rangeSeconds,
-} from '../src/observability/catalog';
+} from '../src/observability/catalog.js';
 
 describe('observability catalog', () => {
   describe('QUERIES', () => {

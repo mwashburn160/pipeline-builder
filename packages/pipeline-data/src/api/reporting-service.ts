@@ -3,9 +3,9 @@
 
 import { createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { inArray, sql } from 'drizzle-orm';
-import { drizzleRows } from './crud-service';
-import { schema } from '../database/drizzle-schema';
-import { withTenantTx, runWithTenantContext } from '../database/tenancy';
+import { drizzleRows } from './crud-service.js';
+import { schema } from '../database/drizzle-schema.js';
+import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
 
 const logger = createLogger('reporting-service');
 

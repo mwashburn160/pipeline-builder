@@ -5,12 +5,12 @@ import crypto from 'crypto';
 import { createLogger, resolveUserFeatures } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
-import { config } from '../config';
-import { resolveOrgLineage } from '../helpers/org-hierarchy';
-import { User, Organization, UserOrganization } from '../models';
-import { UserDocument } from '../models/user';
-import type { OrgMemberRole } from '../models/user-organization';
-import { AccessTokenPayload, RefreshTokenPayload } from '../types';
+import { config } from '../config/index.js';
+import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
+import { User, Organization, UserOrganization } from '../models/index.js';
+import type { OrgMemberRole } from '../models/user-organization.js';
+import type { UserDocument } from '../models/user.js';
+import type { AccessTokenPayload, RefreshTokenPayload } from '../types/index.js';
 
 const logger = createLogger('token');
 

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider';
-import type { BillingInterval } from '../models/subscription';
+import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider.js';
+import type { BillingInterval } from '../models/subscription.js';
 
 const logger = createLogger('stub-provider');
 

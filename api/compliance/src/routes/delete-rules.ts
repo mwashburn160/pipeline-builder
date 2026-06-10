@@ -4,7 +4,7 @@
 import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { complianceRuleService } from '../services/compliance-rule-service';
+import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 export function createDeleteRuleRoutes(): Router {
   const router = Router();

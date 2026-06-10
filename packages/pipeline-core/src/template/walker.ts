@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { hasTemplate, tokenize, Token } from './tokenizer';
+import { hasTemplate, tokenize, type Token } from './tokenizer.js';
 
 export interface WalkEntry {
   /** Dotted path to the field inside the document, e.g. 'commands[3]' or 'env.STAGE' */

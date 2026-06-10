@@ -14,7 +14,8 @@
  *    in catalog.substituteVars, separately tested)
  */
 
-jest.mock('@pipeline-builder/api-core', () => {
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => {
   const actual = jest.requireActual('@pipeline-builder/api-core');
   return {
     ...actual,
@@ -28,11 +29,11 @@ const mockPromQueryRange = jest.fn();
 const mockLokiStreams = jest.fn();
 const mockLokiMatrix = jest.fn();
 
-jest.mock('../src/observability/prometheus-client', () => ({
+jest.unstable_mockModule('../src/observability/prometheus-client.js', () => ({
   query: (...a: unknown[]) => mockPromQuery(...a),
   queryRange: (...a: unknown[]) => mockPromQueryRange(...a),
 }));
-jest.mock('../src/observability/loki-client', () => ({
+jest.unstable_mockModule('../src/observability/loki-client.js', () => ({
   queryStreams: (...a: unknown[]) => mockLokiStreams(...a),
   queryMatrix: (...a: unknown[]) => mockLokiMatrix(...a),
 }));
@@ -40,15 +41,16 @@ jest.mock('../src/observability/loki-client', () => ({
 // Mock the controller-helper functions we depend on. The controller uses
 // requireAuth (gate) + isSystemAdmin (predicate) — per-org $ORG substitution
 // scopes data; sysadmin sees all orgs via regex wildcard.
-jest.mock('../src/helpers/controller-helper', () => ({
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_desc: string, fn: any) => fn,
   requireAuth: jest.fn(),
   isSystemAdmin: jest.fn(),
 }));
 
+const { requireAuth, isSystemAdmin } = await import('../src/helpers/controller-helper.js');
+const { observabilityQuery, observabilityLogs } = await import('../src/observability/controller.js');
+
 import type { Request, Response } from 'express';
-import { requireAuth, isSystemAdmin } from '../src/helpers/controller-helper';
-import { observabilityQuery, observabilityLogs } from '../src/observability/controller';
 
 const mockRequireAuth = requireAuth as jest.MockedFunction<typeof requireAuth>;
 const mockIsSystemAdmin = isSystemAdmin as jest.MockedFunction<typeof isSystemAdmin>;

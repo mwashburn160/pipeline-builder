@@ -10,7 +10,7 @@
  * this file just smoke-tests that the shim forwards correctly.
  */
 
-import { parsePagination } from '../src/utils/pagination';
+import { parsePagination } from '../src/utils/pagination.js';
 
 describe('parsePagination (shim)', () => {
   it('returns defaults for undefined inputs (limit=10, offset=0)', () => {

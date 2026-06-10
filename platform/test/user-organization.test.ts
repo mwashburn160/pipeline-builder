@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import mongoose from 'mongoose';
-import UserOrganization from '../src/models/user-organization';
+import UserOrganization from '../src/models/user-organization.js';
 
 /**
  * Tests for the UserOrganization Mongoose model.

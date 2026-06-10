@@ -9,20 +9,22 @@
  * - the warn/strict/silent context-mode toggle for surfacing missing-context bugs
  */
 
+import { jest, describe, it, expect, beforeEach, afterEach, afterAll } from '@jest/globals';
+
 // Mock the drizzle db before importing tenancy so we capture transaction args.
-const mockExecute = jest.fn();
+const mockExecute = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockTx = { execute: mockExecute };
 const mockTransaction = jest.fn((fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx));
-jest.mock('../src/database/postgres-connection', () => ({
+jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
   db: { transaction: mockTransaction },
 }));
 
-import {
+const {
   getTenantContext,
   requireTenantContext,
   runWithTenantContext,
   withTenantTx,
-} from '../src/database/tenancy';
+} = await import('../src/database/tenancy.js');
 
 const ORIGINAL_MODE = process.env.RLS_CONTEXT_MODE;
 
@@ -103,7 +105,7 @@ describe('withTenantTx', () => {
   });
 
   describe('context-mode handling', () => {
-    let warnSpy: jest.SpyInstance;
+    let warnSpy: ReturnType<typeof jest.spyOn>;
     beforeEach(() => {
       warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     });

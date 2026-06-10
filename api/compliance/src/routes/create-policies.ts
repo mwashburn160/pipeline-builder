@@ -7,7 +7,7 @@ import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
-import { compliancePolicyService } from '../services/policy-service';
+import { compliancePolicyService } from '../services/policy-service.js';
 
 const CompliancePolicyCreateSchema = z.object({
   name: z.string().min(1).max(255),

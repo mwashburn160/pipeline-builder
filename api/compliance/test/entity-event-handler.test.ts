@@ -1,41 +1,35 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-const mockFindActiveByOrgAndTarget = jest.fn();
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+const mockFindActiveByOrgAndTarget = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockEvaluateRules = jest.fn();
-const mockLogComplianceCheck = jest.fn().mockResolvedValue(undefined);
+const mockLogComplianceCheck = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  SYSTEM_ORG_ID: 'system',
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: {},
   db: {},
 }));
 
-jest.mock('../src/services/compliance-rule-service', () => ({
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
     findActiveByOrgAndTarget: (...args: unknown[]) => mockFindActiveByOrgAndTarget(...args),
   },
 }));
 
-jest.mock('../src/engine/rule-engine', () => ({
+jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({
   evaluateRules: (...args: unknown[]) => mockEvaluateRules(...args),
 }));
 
-jest.mock('../src/helpers/audit-logger', () => ({
+jest.unstable_mockModule('../src/helpers/audit-logger.js', () => ({
   logComplianceCheck: (...args: unknown[]) => mockLogComplianceCheck(...args),
 }));
 
-import { evaluateEntityEvent } from '../src/helpers/entity-event-handler';
+const { evaluateEntityEvent } = await import('../src/helpers/entity-event-handler.js');
 
 describe('evaluateEntityEvent', () => {
   beforeEach(() => {

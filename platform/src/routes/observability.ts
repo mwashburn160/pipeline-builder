@@ -9,15 +9,15 @@ import {
   updateAlertDestination,
   deleteAlertDestination,
   alertWebhook,
-} from '../controllers/alert-destinations';
+} from '../controllers/alert-destinations.js';
 import {
   listAlertRules,
   createAlertRule,
   updateAlertRule,
   deleteAlertRule,
   materializeAlertRules,
-} from '../controllers/alert-rules';
-import { requireAuth } from '../middleware';
+} from '../controllers/alert-rules.js';
+import { requireAuth } from '../middleware/index.js';
 import {
   observabilityQuery,
   observabilityLogs,
@@ -26,7 +26,7 @@ import {
   observabilitySilencesList,
   observabilitySilenceCreate,
   observabilitySilenceDelete,
-} from '../observability/controller';
+} from '../observability/controller.js';
 
 const router = Router();
 

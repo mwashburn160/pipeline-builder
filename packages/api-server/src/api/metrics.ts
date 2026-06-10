@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Config } from '@pipeline-builder/pipeline-core';
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { Registry, collectDefaultMetrics, Counter, Histogram, Gauge } from 'prom-client';
 
 const SERVICE_NAME = (Config.getAny('observability') as { serviceName: string }).serviceName;

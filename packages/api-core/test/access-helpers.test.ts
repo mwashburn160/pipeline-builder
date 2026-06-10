@@ -1,8 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Request, Response } from 'express';
-import { requirePublicAccess } from '../src/helpers/access-helpers';
+import { describe, it, expect } from '@jest/globals';
+
+import type { Request, Response } from 'express';
+import { requirePublicAccess } from '../src/helpers/access-helpers.js';
 
 function createMockReq(user?: Partial<Request['user']>): Request {
   return { user: user as Request['user'] } as unknown as Request;

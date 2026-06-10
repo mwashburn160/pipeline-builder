@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode, isSystemAdmin, sendError } from '@pipeline-builder/api-core';
-import { Request, Response, NextFunction } from 'express';
-import { toOrgId } from '../helpers/controller-helper';
-import { User, Organization, UserOrganization } from '../models';
-import type { OrgMemberRole } from '../models/user-organization';
-import { AccessTokenPayload, UserRole } from '../types';
+import type { Request, Response, NextFunction } from 'express';
+import { toOrgId } from '../helpers/controller-helper.js';
+import { User, Organization, UserOrganization } from '../models/index.js';
+import type { OrgMemberRole } from '../models/user-organization.js';
+import type { AccessTokenPayload, UserRole } from '../types/index.js';
 import {
   verifyAccessToken,
   verifyRefreshToken,
   hashRefreshToken,
-} from '../utils';
+} from '../utils/index.js';
 
 /** Minimal user shape needed by populateRequestUser (works with lean objects and documents). */
 interface UserLike {

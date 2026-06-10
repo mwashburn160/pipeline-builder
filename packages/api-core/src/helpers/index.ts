@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-export * from './crud-helpers';
-export * from './access-helpers';
-export * from './sse-helpers';
-export * from './org-hierarchy';
+export * from './crud-helpers.js';
+export * from './access-helpers.js';
+export * from './sse-helpers.js';
+export * from './org-hierarchy.js';

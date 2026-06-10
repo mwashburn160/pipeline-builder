@@ -1,6 +1,11 @@
 {
   "dependencies": [
     {
+      "name": "@jest/globals",
+      "version": "30.2.0",
+      "type": "build"
+    },
+    {
       "name": "@stylistic/eslint-plugin",
       "version": "^2",
       "type": "build"
@@ -8,11 +13,6 @@
     {
       "name": "@types/figlet",
       "version": "1.7.0",
-      "type": "build"
-    },
-    {
-      "name": "@types/jest",
-      "version": "30.0.0",
       "type": "build"
     },
     {
@@ -60,7 +60,7 @@
     },
     {
       "name": "jest",
-      "version": "30.0.0",
+      "version": "30.4.2",
       "type": "build"
     },
     {
@@ -70,27 +70,32 @@
     },
     {
       "name": "typescript",
-      "version": "5.9.3",
+      "version": "6.0.3",
       "type": "build"
     },
     {
       "name": "@aws-sdk/client-cloudformation",
-      "version": "3.821.0",
+      "version": "3.1064.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-lambda",
-      "version": "3.821.0",
+      "version": "3.1064.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-secrets-manager",
-      "version": "3.821.0",
+      "version": "3.1064.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sts",
-      "version": "3.821.0",
+      "version": "3.1064.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@pipeline-builder/ai-core",
+      "version": "workspace:*",
       "type": "runtime"
     },
     {
@@ -100,22 +105,22 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "2.257.0",
+      "version": "2.258.1",
       "type": "runtime"
     },
     {
       "name": "axios",
-      "version": "1.13.5",
+      "version": "1.17.0",
       "type": "runtime"
     },
     {
       "name": "commander",
-      "version": "14.0.3",
+      "version": "15.0.0",
       "type": "runtime"
     },
     {
       "name": "figlet",
-      "version": "1.10.0",
+      "version": "1.11.0",
       "type": "runtime"
     },
     {
@@ -125,7 +130,7 @@
     },
     {
       "name": "ora",
-      "version": "9.3.0",
+      "version": "9.4.0",
       "type": "runtime"
     },
     {
@@ -140,12 +145,17 @@
     },
     {
       "name": "typescript",
-      "version": "5.9.3",
+      "version": "6.0.3",
       "type": "runtime"
     },
     {
       "name": "yaml",
-      "version": "2.8.2",
+      "version": "2.9.0",
+      "type": "runtime"
+    },
+    {
+      "name": "zod",
+      "version": "4.4.3",
       "type": "runtime"
     }
   ],

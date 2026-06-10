@@ -8,24 +8,20 @@
  * and inserts them into MongoDB when no plans exist.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockCountDocuments = jest.fn();
 const mockInsertMany = jest.fn();
 
-jest.mock('../src/models/plan', () => ({
+jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: {
     countDocuments: mockCountDocuments,
     insertMany: mockInsertMany,
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const mockPlans = [
   {
@@ -52,7 +48,7 @@ const mockPlans = [
   },
 ];
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: {
     get: (section: string) => {
       if (section === 'billing') return { plans: mockPlans };
@@ -61,7 +57,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-import { seedPlans } from '../src/helpers/seed-plans';
+const { seedPlans } = await import('../src/helpers/seed-plans.js');
 
 describe('seedPlans', () => {
   beforeEach(() => jest.clearAllMocks());

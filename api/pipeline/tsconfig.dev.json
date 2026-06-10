@@ -27,13 +27,14 @@
     "types": [
       "cors",
       "express",
-      "jest",
       "jsonwebtoken",
       "node",
       "pg"
     ],
     "rootDir": "src",
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "outDir": "lib",
     "moduleResolution": "nodenext"
   },

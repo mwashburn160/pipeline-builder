@@ -4,14 +4,14 @@
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import axios from 'axios';
 import { Command } from 'commander';
-import { validateNumber } from '../config/cli.constants';
-import { auditLog } from '../utils/audit-log';
-import { decodeTokenPayload } from '../utils/auth-guard';
-import { upsertSecret, getSecretArn } from '../utils/aws-secrets';
-import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
-import { getConfigWithOptions } from '../utils/config-loader';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
+import { validateNumber } from '../config/cli.constants.js';
+import { auditLog } from '../utils/audit-log.js';
+import { decodeTokenPayload } from '../utils/auth-guard.js';
+import { upsertSecret, getSecretArn } from '../utils/aws-secrets.js';
+import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
+import { getConfigWithOptions } from '../utils/config-loader.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
 
 /**
  * Build the secret name from the JWT token's organizationId.

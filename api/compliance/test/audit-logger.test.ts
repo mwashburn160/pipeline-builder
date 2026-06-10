@@ -1,19 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockInsert = jest.fn();
-const mockValues = jest.fn().mockResolvedValue(undefined);
+const mockValues = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: {
     complianceAuditLog: { __table: 'complianceAuditLog' },
   },
@@ -26,10 +22,11 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
       return { values: mockValues };
     },
   }),
+  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
 }));
 
-import type { ValidationResult } from '../src/engine/rule-engine';
-import { logComplianceCheck } from '../src/helpers/audit-logger';
+import type { ValidationResult } from '../src/engine/rule-engine.js';
+const { logComplianceCheck } = await import('../src/helpers/audit-logger.js');
 
 function makeResult(overrides: Partial<ValidationResult> = {}): ValidationResult {
   return {

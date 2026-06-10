@@ -3,7 +3,7 @@
 
 import { createQuotaService, getServiceAuthHeader, reserveQuota, decrementQuota } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaCheckResult } from '@pipeline-builder/api-core';
-import { config } from '../config';
+import { config } from '../config/index.js';
 
 export type { QuotaType };
 

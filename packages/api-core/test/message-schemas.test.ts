@@ -1,13 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import {
   MessageTypeSchema,
   MessagePrioritySchema,
   MessageFilterSchema,
   MessageCreateSchema,
   MessageReplySchema,
-} from '../src/validation/message-schemas';
+} from '../src/validation/message-schemas.js';
 
 describe('MessageTypeSchema', () => {
   it('should accept "announcement"', () => {

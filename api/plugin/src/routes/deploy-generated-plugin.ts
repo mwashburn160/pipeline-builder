@@ -22,10 +22,10 @@ import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
-import { BUILD_TEMP_ROOT } from '../helpers/docker-build';
-import { createBuildJobData } from '../helpers/plugin-helpers';
-import { validateBuildArgs } from '../helpers/plugin-spec';
-import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue';
+import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
+import { createBuildJobData } from '../helpers/plugin-helpers.js';
+import { validateBuildArgs } from '../helpers/plugin-spec.js';
+import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
 
 /**
  * Create and register the deploy-generated plugin route.

@@ -2,19 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import { toOrgId } from '../helpers/controller-helper';
+import { seedDefaultGroups } from './groups-service.js';
+import { config } from '../config/index.js';
+import { toOrgId } from '../helpers/controller-helper.js';
 import {
   getOrganizationQuotaStatus,
   updateQuotaLimits,
-  QuotaType,
-} from '../middleware/quota';
-import { Organization, OrgIdpConfig, User, UserOrganization } from '../models';
-import { seedDefaultGroups } from './groups-service';
-import type { QuotaTier } from '../models/organization';
-import { withMongoTransaction } from '../utils/mongo-tx';
-import { escapeRegex } from '../utils/regex';
-import { wrapEncrypted } from '../utils/secret-blob';
+  type QuotaType,
+} from '../middleware/quota.js';
+import { Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
+import type { QuotaTier } from '../models/organization.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
+import { escapeRegex } from '../utils/regex.js';
+import { wrapEncrypted } from '../utils/secret-blob.js';
 
 const logger = createLogger('organization-service');
 

@@ -1,23 +1,23 @@
 {
   "dependencies": [
     {
+      "name": "@jest/globals",
+      "version": "30.2.0",
+      "type": "build"
+    },
+    {
       "name": "@stylistic/eslint-plugin",
       "version": "^2",
       "type": "build"
     },
     {
-      "name": "@types/jest",
-      "version": "30.0.0",
-      "type": "build"
-    },
-    {
       "name": "@types/node",
-      "version": "25.3.0",
+      "version": "25.9.2",
       "type": "build"
     },
     {
       "name": "@types/pg",
-      "version": "8.16.0",
+      "version": "8.20.0",
       "type": "build"
     },
     {
@@ -32,7 +32,7 @@
     },
     {
       "name": "drizzle-kit",
-      "version": "0.31.9",
+      "version": "0.31.10",
       "type": "build"
     },
     {
@@ -55,7 +55,7 @@
     },
     {
       "name": "jest",
-      "version": "30.0.0",
+      "version": "30.4.2",
       "type": "build"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "name": "typescript",
-      "version": "5.9.3",
+      "version": "6.0.3",
       "type": "build"
     },
     {
@@ -75,12 +75,12 @@
     },
     {
       "name": "drizzle-orm",
-      "version": "0.45.1",
+      "version": "0.45.2",
       "type": "runtime"
     },
     {
       "name": "pg",
-      "version": "8.18.0",
+      "version": "8.21.0",
       "type": "runtime"
     }
   ],

@@ -7,14 +7,16 @@
  * ALERT_WEBHOOK_INSTANCES; it should fall back to legacy single-token mode.
  */
 
-import type { AlertWebhookInstance } from '../src/config';
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import type { AlertWebhookInstance } from '../src/config/index.js';
 
 const ORIGINAL_INSTANCES = process.env.ALERT_WEBHOOK_INSTANCES;
 
-function loadConfig(): { instances: AlertWebhookInstance[] } {
+async function loadConfig(): Promise<{ instances: AlertWebhookInstance[] }> {
+  // Clear the ESM module registry so the freshly-imported config module
+  // re-runs its top-level env read with whatever we set in this test.
   jest.resetModules();
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mod = require('../src/config');
+  const mod = await import('../src/config/index.js');
   return mod.config.alertWebhook;
 }
 
@@ -36,22 +38,22 @@ afterAll(() => {
 });
 
 describe('parseAlertWebhookInstances', () => {
-  it('returns [] when env is unset (legacy single-token mode)', () => {
-    expect(loadConfig().instances).toEqual([]);
+  it('returns [] when env is unset (legacy single-token mode)', async () => {
+    expect((await loadConfig()).instances).toEqual([]);
   });
 
-  it('parses a well-formed JSON array of instances', () => {
+  it('parses a well-formed JSON array of instances', async () => {
     process.env.ALERT_WEBHOOK_INSTANCES = JSON.stringify([
       { id: 'prod-am-0', token: 'tok-prod' },
       { id: 'staging-am-0', token: 'tok-staging', allowedOrgIds: ['org-a', 'org-b'] },
     ]);
-    expect(loadConfig().instances).toEqual([
+    expect((await loadConfig()).instances).toEqual([
       { id: 'prod-am-0', token: 'tok-prod' },
       { id: 'staging-am-0', token: 'tok-staging', allowedOrgIds: ['org-a', 'org-b'] },
     ]);
   });
 
-  it('drops entries missing id or token rather than throwing', () => {
+  it('drops entries missing id or token rather than throwing', async () => {
     process.env.ALERT_WEBHOOK_INSTANCES = JSON.stringify([
       { id: 'good', token: 'good-tok' },
       { id: '', token: 'no-id' },
@@ -61,15 +63,15 @@ describe('parseAlertWebhookInstances', () => {
       'not-an-object',
       null,
     ]);
-    expect(loadConfig().instances).toEqual([{ id: 'good', token: 'good-tok' }]);
+    expect((await loadConfig()).instances).toEqual([{ id: 'good', token: 'good-tok' }]);
   });
 
-  it('ignores allowedOrgIds when it is not an array of strings', () => {
+  it('ignores allowedOrgIds when it is not an array of strings', async () => {
     process.env.ALERT_WEBHOOK_INSTANCES = JSON.stringify([
       { id: 'mixed', token: 't', allowedOrgIds: ['org-a', 42, 'org-c'] },
       { id: 'object', token: 't', allowedOrgIds: { not: 'an array' } },
     ]);
-    const out = loadConfig().instances;
+    const out = (await loadConfig()).instances;
     // Both entries pass the id+token check; allowedOrgIds is silently
     // dropped when not a clean string[].
     expect(out).toHaveLength(2);
@@ -77,13 +79,13 @@ describe('parseAlertWebhookInstances', () => {
     expect(out[1].allowedOrgIds).toBeUndefined();
   });
 
-  it('returns [] when env contains malformed JSON (falls back to legacy)', () => {
+  it('returns [] when env contains malformed JSON (falls back to legacy)', async () => {
     process.env.ALERT_WEBHOOK_INSTANCES = 'this-is-not-json';
-    expect(loadConfig().instances).toEqual([]);
+    expect((await loadConfig()).instances).toEqual([]);
   });
 
-  it('returns [] when env contains a JSON non-array (e.g. an object)', () => {
+  it('returns [] when env contains a JSON non-array (e.g. an object)', async () => {
     process.env.ALERT_WEBHOOK_INSTANCES = JSON.stringify({ id: 'a', token: 'b' });
-    expect(loadConfig().instances).toEqual([]);
+    expect((await loadConfig()).instances).toEqual([]);
   });
 });

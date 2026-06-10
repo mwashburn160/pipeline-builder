@@ -4,7 +4,7 @@
 import { sendPaginatedNested, parsePaginationParams } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { complianceAuditService } from '../services/compliance-audit-service';
+import { complianceAuditService } from '../services/compliance-audit-service.js';
 
 /** Audit log read endpoint. */
 export function createAuditRoutes(): Router {

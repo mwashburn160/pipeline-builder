@@ -1,14 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { App, Stack } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
-import { UniqueId } from '../src/core/id-generator';
-import { resolveRole } from '../src/core/role';
-import type { RoleConfig } from '../src/core/role-types';
+import type { RoleConfig } from '../src/core/role-types.js';
 
 // Mock Config.get('aws') used by createCodeBuildDefaultRole
-jest.mock('../src/config/app-config', () => ({
+jest.unstable_mockModule('../src/config/app-config.js', () => ({
   Config: {
     get: (key: string) => {
       if (key === 'aws') {
@@ -18,6 +17,10 @@ jest.mock('../src/config/app-config', () => ({
     },
   },
 }));
+
+const { UniqueId } = await import('../src/core/id-generator.js');
+const { resolveRole } = await import('../src/core/role.js');
+type UniqueId = InstanceType<typeof UniqueId>;
 
 describe('resolveRole', () => {
   let stack: Stack;

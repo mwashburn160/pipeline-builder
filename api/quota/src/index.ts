@@ -5,9 +5,9 @@ import { mongoSanitize } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import mongoose from 'mongoose';
 
-import { config } from './config';
-import { createReadQuotaRoutes } from './routes/read-quotas';
-import { createUpdateQuotaRoutes } from './routes/update-quota';
+import { config } from './config.js';
+import { createReadQuotaRoutes } from './routes/read-quotas.js';
+import { createUpdateQuotaRoutes } from './routes/update-quota.js';
 
 // -- Express app ---------------------------------------------------------------
 

@@ -16,9 +16,9 @@ import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { authorizeOrg, INTERNAL_AUTH_OPTS } from '../middleware/authorize-org';
-import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service';
-import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas';
+import { authorizeOrg, INTERNAL_AUTH_OPTS } from '../middleware/authorize-org.js';
+import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service.js';
+import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas.js';
 
 export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();

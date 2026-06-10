@@ -4,9 +4,9 @@
 import { Agent } from 'https';
 import type { Readable } from 'stream';
 import { createLogger } from '@pipeline-builder/api-core';
-import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import { config } from '../config';
-import { authorizeAndIssue } from './token-service';
+import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
+import { authorizeAndIssue } from './token-service.js';
+import { config } from '../config/index.js';
 
 const logger = createLogger('registry-client');
 

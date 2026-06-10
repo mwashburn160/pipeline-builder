@@ -4,7 +4,7 @@
 import { QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS } from '@pipeline-builder/api-core';
 import { Schema, model, Document, Types, Model } from 'mongoose';
 import slugify from 'slugify';
-import { config } from '../config';
+import { config } from '../config/index.js';
 
 /**
  * Quota usage tracking interface

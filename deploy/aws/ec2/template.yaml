@@ -93,7 +93,7 @@ Parameters:
 
   EmailEnabled:
     Type: String
-    Default: "false"
+    Default: "true"
     AllowedValues: ["true", "false"]
     Description: >
       When true, provision an SES sending identity for DomainName (Easy DKIM) and

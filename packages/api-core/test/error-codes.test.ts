@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, ErrorCodeStatus, getStatusForErrorCode } from '../src/types/error-codes';
+import { describe, it, expect } from '@jest/globals';
+
+import { ErrorCode, ErrorCodeStatus, getStatusForErrorCode } from '../src/types/error-codes.js';
 
 describe('ErrorCode enum', () => {
   it('should have authentication error codes', () => {

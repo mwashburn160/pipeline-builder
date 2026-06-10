@@ -7,12 +7,12 @@
  * and the streams-vs-matrix branching.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-  errorMessage: (err: unknown) => err instanceof Error ? err.message : String(err),
-}));
+import { jest, describe, it, expect, beforeEach, afterAll, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-import { queryStreams, queryMatrix } from '../src/observability/loki-client';
+const { queryStreams, queryMatrix } = await import('../src/observability/loki-client.js');
+
 
 const fetchMock = jest.fn();
 

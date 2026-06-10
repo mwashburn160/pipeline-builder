@@ -9,7 +9,7 @@ import {
   APP_VERSION,
   BANNER_OPTIONS,
   generateExecutionId,
-} from '../config/cli.constants';
+} from '../config/cli.constants.js';
 
 const { bold, green, cyan, dim } = pico;
 

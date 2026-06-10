@@ -13,14 +13,14 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { CodePipeline, type CodeBuildOptions } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
-import { PipelineConfiguration } from './pipeline-configuration';
-import { PluginLookup } from './plugin-lookup';
-import { SourceBuilder } from './source-builder';
-import { StageBuilder } from './stage-builder';
-import type { StageOptions, SynthOptions } from './step-types';
-import { Config, CoreConstants } from '../config/app-config';
-import { ArtifactManager } from '../core/artifact-manager';
-import { UniqueId } from '../core/id-generator';
+import { PipelineConfiguration } from './pipeline-configuration.js';
+import { PluginLookup } from './plugin-lookup.js';
+import { SourceBuilder } from './source-builder.js';
+import { StageBuilder } from './stage-builder.js';
+import type { StageOptions, SynthOptions } from './step-types.js';
+import { Config, CoreConstants } from '../config/app-config.js';
+import { ArtifactManager } from '../core/artifact-manager.js';
+import { UniqueId } from '../core/id-generator.js';
 import {
   asInt,
   metadataForCodePipeline,
@@ -28,15 +28,15 @@ import {
   parsePipelineVariables,
   roleConfigFromMetadata,
   securityGroupConfigFromMetadata,
-} from '../core/metadata-builder';
-import { resolveNetwork, networkConfigFromEnv } from '../core/network';
-import type { CodeBuildDefaults } from '../core/network-types';
-import { createCodeBuildStep, resolveDefaultBuildImage } from '../core/pipeline-helpers';
-import { MetadataKeys, TriggerType } from '../core/pipeline-types';
-import type { MetaDataType } from '../core/pipeline-types';
-import { resolveRole } from '../core/role';
-import type { RoleConfig } from '../core/role-types';
-import { resolveSecurityGroup } from '../core/security-group';
+} from '../core/metadata-builder.js';
+import type { CodeBuildDefaults } from '../core/network-types.js';
+import { resolveNetwork, networkConfigFromEnv } from '../core/network.js';
+import { createCodeBuildStep, resolveDefaultBuildImage } from '../core/pipeline-helpers.js';
+import { MetadataKeys, TriggerType } from '../core/pipeline-types.js';
+import type { MetaDataType } from '../core/pipeline-types.js';
+import type { RoleConfig } from '../core/role-types.js';
+import { resolveRole } from '../core/role.js';
+import { resolveSecurityGroup } from '../core/security-group.js';
 
 const PIPELINE_EVENT_MAP: Record<string, PipelineNotificationEvents> = {
   FAILED: PipelineNotificationEvents.PIPELINE_EXECUTION_FAILED,
@@ -465,7 +465,7 @@ export class PipelineBuilder extends Construct {
       ...(securityGroups.length > 0 && { securityGroups }),
       // buildImage at this level reaches CDK Pipelines' internally-wrapped
       // ShellStep CodeBuild action, which otherwise hardcodes
-      // `LinuxBuildImage.STANDARD_7_0`. Setting it here closes the gap
+      // CDK's default curated standard image. Setting it here closes the gap
       // exposed in the same env var (`CODEBUILD_DEFAULT_IMAGE`) that the
       // CodeBuildStep path already honors via resolvePluginImage()'s
       // fallback. Per-step `buildImage` on a CodeBuildStep still wins.

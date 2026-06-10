@@ -8,35 +8,37 @@
  * every plugin in their org with one call.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockUpdateMany = jest.fn();
 const mockBulkDelete = jest.fn();
 
-jest.mock('../src/services/plugin-service', () => ({
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     updateMany: mockUpdateMany,
     bulkDelete: mockBulkDelete,
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), requestId: 'r-1' };
     await handler({ req, res, ctx, orgId: 'org-1', userId: 'u-1' });
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: { MAX_BULK_ITEMS: 100 },
 }));
 
-import { createBulkPluginRoutes } from '../src/routes/bulk-plugin';
+const { createBulkPluginRoutes } = await import('../src/routes/bulk-plugin.js');
 
 function getUpdateHandler() {
   const router = createBulkPluginRoutes();

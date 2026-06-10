@@ -10,8 +10,8 @@ import type { PluginFilter } from '@pipeline-builder/pipeline-core';
 import { sql } from 'drizzle-orm';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
-import { shapePlugin } from '../helpers/plugin-helpers';
-import { pluginService } from '../services/plugin-service';
+import { shapePlugin } from '../helpers/plugin-helpers.js';
+import { pluginService } from '../services/plugin-service.js';
 
 export function createReadPluginRoutes(
   quotaService: QuotaService,

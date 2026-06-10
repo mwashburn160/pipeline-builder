@@ -5,11 +5,12 @@
  * Tests for zod validation schemas used by billing routes.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import {
   SubscriptionCreateSchema,
   SubscriptionUpdateSchema,
   AdminSubscriptionUpdateSchema,
-} from '../src/validation/schemas';
+} from '../src/validation/schemas.js';
 
 // SubscriptionCreateSchema
 

@@ -1,11 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+
 // Mock uuid (ESM-only module) and createLogger (Winston open handles) before imports
-jest.mock('uuid', () => ({
+jest.unstable_mockModule('uuid', () => ({
   v7: () => 'mock-uuid-v7',
 }));
-jest.mock('@pipeline-builder/api-core', () => ({
+const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record<string, unknown>;
+jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+  ...actualApiCore,
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -18,7 +22,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
 }));
 
-import { SSEManager } from '../src/http/sse-connection-manager';
+const { SSEManager } = await import('../src/http/sse-connection-manager.js');
 
 // Mock Response
 function mockSseRes() {
@@ -41,7 +45,7 @@ function mockSseRes() {
 // Tests
 
 describe('SSEManager', () => {
-  let manager: SSEManager;
+  let manager: InstanceType<typeof SSEManager>;
 
   beforeEach(() => {
     manager = new SSEManager({
@@ -200,7 +204,7 @@ describe('SSEManager', () => {
   });
 
   describe('per-org client cap', () => {
-    let capManager: SSEManager;
+    let capManager: InstanceType<typeof SSEManager>;
     beforeEach(() => {
       capManager = new SSEManager({
         maxClientsPerRequest: 100,

@@ -229,10 +229,21 @@ For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, 
 
 ## Quick Start
 
+**Recommended — install with the CLI.** `pipeline-manager provision` is the primary way to stand up the platform: it picks the target, checks prerequisites, and assembles the exact, validated command (and, with an AI key set, parses a natural-language goal and diagnoses failures).
+
+```bash
+npm install -g @pipeline-builder/pipeline-manager
+pipeline-manager provision --target local              # advisor: prints the command
+pipeline-manager provision --target local --execute    # run it (gated: confirm, then verify health + init)
+# or describe the goal: pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email"
+```
+
+Prefer to run it directly? Every target ships a `bin/setup.sh`:
+
 ```bash
 git clone <repo-url> pipeline-builder && cd pipeline-builder
 
-cd deploy/local && chmod +x bin/startup.sh && ./bin/startup.sh   # 1. pull images + start the stack
+cd deploy/local && chmod +x bin/setup.sh && ./bin/setup.sh   # 1. pull images + start the stack
 cd ../.. && ./deploy/bin/init-platform.sh local                  # 2. register admin + load plugins
 ```
 
@@ -259,7 +270,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 |--------|----------|------|
 | **[Local](deploy/local/)** | Development | Free |
 | **[Minikube](deploy/minikube/)** | Local Kubernetes | Free |
-| **[EC2](docs/aws-deployment.md#ec2)** | Dev/staging | ~$30-80/mo |
+| **[EC2](docs/aws-deployment.md#ec2)** | Dev/staging | ~$140-265/mo |
 | **[Fargate](docs/aws-deployment.md#fargate)** | Production | ~$100-300/mo |
 
 ---

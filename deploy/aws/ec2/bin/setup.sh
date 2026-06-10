@@ -7,7 +7,7 @@
 # Route53 private zone aliasing the domain to the internal ALB), gated on
 # DeployMode=private — there is no separate prereqs stack.
 #
-# Runs from YOUR machine with YOUR credentials (like Fargate's deploy.sh), so
+# Runs from YOUR machine with YOUR credentials (like Fargate's setup.sh), so
 # the EC2 instance role needs NO CloudFormation permissions.
 #
 # TLS is terminated at the ALB with an ACM cert that the template REQUESTS and
@@ -16,7 +16,7 @@
 # (public = internet-facing, private = internal).
 #
 # Usage:
-#   bash bin/deploy.sh --key-pair my-key --domain pipeline.example.com \
+#   bash bin/setup.sh --key-pair my-key --domain pipeline.example.com \
 #     --hosted-zone-id Z123 --ghcr-token ghp_xxxx [--region us-east-1]
 #
 # --domain + --hosted-zone-id are REQUIRED in BOTH modes (a PUBLIC Route53 zone
@@ -38,12 +38,13 @@ HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 KEY_PAIR_NAME="${KEY_PAIR_NAME:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-}"
-# Transactional email via SES. Off by default — a fresh SES account is sandboxed
-# (verified recipients only) until you request production access. --email turns
-# on the SES identity + DKIM + instance-role grant + app EMAIL_ENABLED together.
+# Transactional email via SES. ENABLED BY DEFAULT — the SES identity + DKIM +
+# instance-role grant + app EMAIL_ENABLED are provisioned together. Pass --no-email
+# to skip it. NOTE: a fresh SES account is sandboxed (verified recipients only)
+# until you request production access, so sending is only partly usable until then.
 # EMAIL_FROM defaults to noreply@DOMAIN. --no-create-ses-identity skips creating
 # the SES identity (use when DOMAIN is already verified in this account).
-EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
+EMAIL_ENABLED="${EMAIL_ENABLED:-true}"
 EMAIL_FROM="${EMAIL_FROM:-}"
 EMAIL_FROM_NAME="${EMAIL_FROM_NAME:-pipeline-builder}"
 CREATE_SES_IDENTITY="${CREATE_SES_IDENTITY:-true}"
@@ -63,6 +64,7 @@ while [[ $# -gt 0 ]]; do
     --ghcr-token) GHCR_TOKEN="$2"; shift 2 ;;
     --instance-type) INSTANCE_TYPE="$2"; shift 2 ;;
     --email) EMAIL_ENABLED="true"; shift ;;
+    --no-email) EMAIL_ENABLED="false"; shift ;;
     --email-from) EMAIL_FROM="$2"; shift 2 ;;
     --email-from-name) EMAIL_FROM_NAME="$2"; shift 2 ;;
     --no-create-ses-identity) CREATE_SES_IDENTITY="false"; shift ;;
@@ -114,7 +116,7 @@ echo "  Domain:      ${DOMAIN}"
 if [ "$EMAIL_ENABLED" = "true" ]; then
 echo "  Email (SES): enabled (from: $EMAIL_FROM, create-identity: $CREATE_SES_IDENTITY)"
 else
-echo "  Email (SES): disabled (pass --email to enable)"
+echo "  Email (SES): disabled (--no-email)"
 fi
 echo ""
 

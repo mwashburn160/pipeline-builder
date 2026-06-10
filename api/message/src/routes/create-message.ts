@@ -21,7 +21,7 @@ import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/ap
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { schema } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { messageService } from '../services/message-service';
+import { messageService } from '../services/message-service.js';
 
 type MessageInsert = typeof schema.message.$inferInsert;
 

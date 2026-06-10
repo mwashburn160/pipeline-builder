@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { listRepositories } from './registry-client';
-import { runRegistryGc } from './registry-gc';
-import { invalidateStorageCache } from './storage-usage';
+import { listRepositories } from './registry-client.js';
+import { runRegistryGc } from './registry-gc.js';
+import { invalidateStorageCache } from './storage-usage.js';
 
 const logger = createLogger('gc-scheduler');
 

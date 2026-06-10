@@ -15,12 +15,12 @@ import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { config } from '../config';
+import { config } from '../config.js';
 import {
   isValidQuotaType,
-} from '../helpers/quota-helpers';
-import { authorizeOrg } from '../middleware/authorize-org';
-import { QuotaService, quotaService as defaultQuotaService } from '../services/quota-service';
+} from '../helpers/quota-helpers.js';
+import { authorizeOrg } from '../middleware/authorize-org.js';
+import { type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
 
 interface AtRiskEntry {
   orgId: string;

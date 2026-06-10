@@ -13,7 +13,7 @@
  */
 
 import mongoose from 'mongoose';
-import { Organization, UserOrganization } from '../models';
+import { Organization, UserOrganization } from '../models/index.js';
 
 export interface ActiveOrgInfo {
   organizationName: string | null;

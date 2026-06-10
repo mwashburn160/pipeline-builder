@@ -3,8 +3,8 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import type { Algorithm } from 'jsonwebtoken';
-import { CoreConstants } from './app-config';
-import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types';
+import { CoreConstants } from './app-config.js';
+import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types.js';
 
 const log = createLogger('server-config');
 

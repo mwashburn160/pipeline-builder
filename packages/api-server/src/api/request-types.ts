@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getIdentity, RequestIdentity, createLogger, HttpRequest } from '@pipeline-builder/api-core';
-import { Request } from 'express';
+import { getIdentity, createLogger, type RequestIdentity, type HttpRequest } from '@pipeline-builder/api-core';
+import type { Request } from 'express';
 import { v7 as uuid } from 'uuid';
-import { SSEEventType, SSEManager } from '../http/sse-connection-manager';
+import { SSEManager, type SSEEventType } from '../http/sse-connection-manager.js';
 
 // Consolidated Express Request augmentations
 declare global {

@@ -4,7 +4,7 @@
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config, schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { eq, and, lte, sql } from 'drizzle-orm';
-import { executeScan } from './scan-executor';
+import { executeScan } from './scan-executor.js';
 
 const logger = createLogger('scan-scheduler');
 

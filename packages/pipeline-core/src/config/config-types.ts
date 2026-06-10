@@ -223,7 +223,7 @@ export interface AWSConfig {
      *   auth wired (operator owns making it pullable).
      * - When the registry isn't configured or per-org auth isn't
      *   available at the call site, falls back to
-     *   `aws/codebuild/standard:7.0` with a warning — cold-start synth
+     *   `aws/codebuild/standard:8.0` with a warning — cold-start synth
      *   will then fail on `pipeline-manager: not found`, surfacing the
      *   misconfiguration loudly instead of silently swapping images.
      */

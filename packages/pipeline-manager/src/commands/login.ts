@@ -5,10 +5,10 @@ import https from 'https';
 import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { generateExecutionId, TIMEOUTS } from '../config/cli.constants';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printDebug, printError, printInfo, printSection, printSuccess } from '../utils/output-utils';
-import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter';
+import { generateExecutionId, TIMEOUTS } from '../config/cli.constants.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printDebug, printError, printInfo, printSection, printSuccess } from '../utils/output-utils.js';
+import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter.js';
 
 const { bold, cyan, green, magenta } = pico;
 

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import pico from 'picocolors';
-import { ApiClient } from './api-client';
-import { getSecretValue } from './aws-secrets';
-import { Config, getConfigWithOptions } from './config-loader';
-import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils';
-import { formatDuration, generateExecutionId } from '../config/cli.constants';
+import { ApiClient } from './api-client.js';
+import { getSecretValue } from './aws-secrets.js';
+import { type Config, getConfigWithOptions } from './config-loader.js';
+import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
+import { formatDuration, generateExecutionId } from '../config/cli.constants.js';
 
 const { bold, cyan, green, magenta } = pico;
 

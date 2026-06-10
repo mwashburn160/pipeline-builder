@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { RULE_TEMPLATES, type RuleTemplate } from '../src/data/rule-templates';
+import { describe, it, expect } from '@jest/globals';
+import { RULE_TEMPLATES, type RuleTemplate } from '../src/data/rule-templates.js';
 
 describe('RULE_TEMPLATES', () => {
   it('exports a non-empty array', () => {

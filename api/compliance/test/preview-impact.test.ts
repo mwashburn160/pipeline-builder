@@ -15,6 +15,9 @@
  * - Org isolation: only the caller's own org's entities are evaluated
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const evaluateRulesMock = jest.fn();
 
 // Chainable Drizzle .select().from(...).where(...).limit(...).then(...) mock.
@@ -33,10 +36,7 @@ let nextRuleResult: unknown[] = [];
 let nextEntityResult: unknown[] = [];
 let dbSelectCallNumber = 0;
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
-  errorMessage: (e: unknown) => e instanceof Error ? e.message : String(e),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   validateBody: (req: any, schema: any) => {
@@ -53,13 +53,13 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendPaginatedNested: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: {
     complianceRule: {
       id: 'col_id', deletedAt: 'col_deleted', target: 'col_target', name: 'col_name',
@@ -81,7 +81,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   drizzleCount: jest.fn(),
 }));
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   and: (...a: unknown[]) => ({ __op: 'and', a }),
   desc: (c: unknown) => ({ __op: 'desc', c }),
   eq: (c: unknown, v: unknown) => ({ __op: 'eq', c, v }),
@@ -90,11 +90,11 @@ jest.mock('drizzle-orm', () => ({
   isNull: (c: unknown) => ({ __op: 'isNull', c }),
 }));
 
-jest.mock('../src/engine/rule-engine', () => ({
+jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({
   evaluateRules: (...args: unknown[]) => evaluateRulesMock(...args),
 }));
 
-jest.mock('../src/services/compliance-rule-service', () => ({
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
     findActiveByOrgAndTarget: jest.fn(),
     findPublishedById: async () => {
@@ -112,11 +112,11 @@ jest.mock('../src/services/compliance-rule-service', () => ({
   },
 }));
 
-jest.mock('../src/services/subscription-service', () => ({
+jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
   subscriptionService: {},
 }));
 
-import { createSubscriptionRoutes } from '../src/routes/subscriptions';
+const { createSubscriptionRoutes } = await import('../src/routes/subscriptions.js');
 
 function getHandler(path: string, method: 'get' | 'post' = 'post') {
   const router = createSubscriptionRoutes();

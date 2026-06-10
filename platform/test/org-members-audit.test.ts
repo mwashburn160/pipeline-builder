@@ -8,6 +8,8 @@
  * inside org X, by whom".
  */
 
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockAudit = jest.fn();
 const mockAddMember = jest.fn();
 const mockRemoveMember = jest.fn();
@@ -20,16 +22,14 @@ const mockValidateBody = jest.fn((_schema: unknown, body: unknown) => body);
 const mockGetAdminContext: jest.Mock = jest.fn(() => ({ isSuperAdmin: true, isOrgAdmin: false, adminType: 'sysadmin' }));
 const mockIsSystemAdmin: jest.Mock = jest.fn(() => true);
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown, message?: string) => res.status(status).json({ success: true, statusCode: status, data, message }),
-  SYSTEM_ORG_ID: 'system',
 }));
 
-jest.mock('../src/helpers/audit', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.mock('../src/helpers/controller-helper', () => ({
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireAuth: () => true,
   isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
   getAdminContext: (req: unknown) => mockGetAdminContext(req),
@@ -43,7 +43,7 @@ jest.mock('../src/helpers/controller-helper', () => ({
     },
 }));
 
-jest.mock('../src/services', () => ({
+jest.unstable_mockModule('../src/services/index.js', () => ({
   orgMembersService: {
     addMember: (...a: unknown[]) => mockAddMember(...a),
     removeMember: (...a: unknown[]) => mockRemoveMember(...a),
@@ -64,23 +64,25 @@ jest.mock('../src/services', () => ({
   OM_MEMBERSHIP_NOT_FOUND: 'OM_MEMBERSHIP_NOT_FOUND',
   OM_ALREADY_INACTIVE: 'OM_ALREADY_INACTIVE',
   OM_ALREADY_ACTIVE: 'OM_ALREADY_ACTIVE',
+  OM_TARGETS_OUT_OF_SCOPE: 'OM_TARGETS_OUT_OF_SCOPE',
 }));
 
-jest.mock('../src/utils/validation', () => ({
+jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (schema: unknown, body: unknown, _res: unknown) => mockValidateBody(schema, body),
   addMemberSchema: {},
+  bulkAddMemberSchema: {},
   updateMemberRoleSchema: {},
   transferOwnershipSchema: {},
 }));
 
-import {
+const {
   addMemberToOrganization,
   removeMemberFromOrganization,
   updateMemberRole,
   transferOrganizationOwnership,
   deactivateMember,
   activateMember,
-} from '../src/controllers/organization-members';
+} = await import('../src/controllers/organization-members.js');
 
 function mockRes() {
   const res: any = {};

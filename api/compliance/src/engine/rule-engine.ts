@@ -15,7 +15,7 @@
  */
 
 import type { RuleOperator, RuleSeverity, RuleCondition } from '@pipeline-builder/pipeline-core';
-import { evaluateOperator, getFieldValue } from './rule-operators';
+import { evaluateOperator, getFieldValue } from './rule-operators.js';
 
 /**
  * A compliance rule as stored in the database.

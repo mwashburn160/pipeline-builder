@@ -3,8 +3,8 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
-import { loadActiveOrgInfo } from '../helpers/active-org-info';
-import { User, Organization, UserOrganization } from '../models';
+import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
+import { User, Organization, UserOrganization } from '../models/index.js';
 
 const logger = createLogger('user-profile-service');
 

@@ -5,6 +5,9 @@
  * Tests for execution report routes.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockGetExecutionCount = jest.fn();
 const mockGetSuccessRate = jest.fn();
 const mockGetAverageDuration = jest.fn();
@@ -14,12 +17,11 @@ const mockGetActionFailures = jest.fn();
 const mockGetErrors = jest.fn();
 const mockResolveOrgRollup = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn(),
   sendError: jest.fn(),
   sendBadRequest: jest.fn(),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS' },
-  createLogger: () => ({ info: jest.fn(), debug: jest.fn() }),
+  getServiceAuthHeader: jest.fn(() => ({})),
   // Pass query.from/to through verbatim so tests can assert on the values
   // they sent, with a sensible fallback when the test omits them.
   parseDateRange: jest.fn((query: any) => ({
@@ -36,19 +38,22 @@ jest.mock('@pipeline-builder/api-core', () => ({
       : { error: 'invalid' }),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
 }));
 
-jest.mock('../src/helpers', () => ({
-  ...jest.requireActual('../src/helpers'),
-  resolveOrgRollup: (...a: unknown[]) => mockResolveOrgRollup(...a),
-}));
+jest.unstable_mockModule('../src/helpers.js', () => {
+  const actual = jest.requireActual('../src/helpers.js') as Record<string, unknown>;
+  return {
+    ...actual,
+    resolveOrgRollup: (...a: unknown[]) => mockResolveOrgRollup(...a),
+  };
+});
 
-jest.mock('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
     getExecutionCount: mockGetExecutionCount,
     getSuccessRate: mockGetSuccessRate,
@@ -60,8 +65,8 @@ jest.mock('@pipeline-builder/pipeline-data', () => ({
   },
 }));
 
-import { sendSuccess, sendBadRequest } from '@pipeline-builder/api-core';
-import { createExecutionReportRoutes } from '../src/routes/execution-reports';
+const { sendSuccess, sendBadRequest } = await import('@pipeline-builder/api-core');
+const { createExecutionReportRoutes } = await import('../src/routes/execution-reports.js');
 
 describe('Execution Report Routes', () => {
   let router: any;

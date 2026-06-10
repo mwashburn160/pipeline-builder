@@ -3,8 +3,8 @@
 
 import { createLogger, createSafeClient, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import { getBillingTimeout } from './billing-helpers';
+import { config } from '../config.js';
+import { getBillingTimeout } from './billing-helpers.js';
 
 const logger = createLogger('usage-helpers');
 

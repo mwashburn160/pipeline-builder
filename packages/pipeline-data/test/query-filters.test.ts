@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { validateMessageFilter } from '../src/core/query-filters';
+import { describe, it, expect } from '@jest/globals';
+import { validateMessageFilter } from '../src/core/query-filters.js';
 
 describe('validateMessageFilter', () => {
   it('should pass for valid filter', () => {

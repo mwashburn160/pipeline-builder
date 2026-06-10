@@ -2,12 +2,40 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies before imports
-jest.mock('fs');
-jest.mock('yaml');
+import { readFileSync as realReadFileSync } from 'node:fs';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
-import * as fs from 'fs';
-import * as yaml from 'yaml';
-import { getConfig } from '../src/utils/config-loader';
+const mockExistsSync = jest.fn();
+const mockReadFileSync = jest.fn();
+const mockYamlParse = jest.fn();
+
+// A transitively-imported module (cli.constants) reads package.json from `fs`
+// at load time. Pass those reads through to the real fs so module init works;
+// individual tests override the mock with mockReturnValue/mockImplementation.
+const passthroughPackageJson = (...args: unknown[]): unknown => {
+  const first = args[0];
+  const asStr = first instanceof URL ? first.href : String(first);
+  if (asStr.includes('package.json')) {
+    return realReadFileSync(args[0] as never, args[1] as never);
+  }
+  return undefined;
+};
+mockReadFileSync.mockImplementation(passthroughPackageJson as never);
+
+jest.unstable_mockModule('fs', () => ({
+  __esModule: true,
+  existsSync: mockExistsSync,
+  readFileSync: mockReadFileSync,
+  default: { existsSync: mockExistsSync, readFileSync: mockReadFileSync },
+}));
+
+jest.unstable_mockModule('yaml', () => ({
+  __esModule: true,
+  parse: mockYamlParse,
+  default: { parse: mockYamlParse },
+}));
+
+const { getConfig } = await import('../src/utils/config-loader.js');
 
 // Environment helpers
 const ENV_KEYS = [
@@ -43,7 +71,7 @@ describe('config.loader', () => {
   describe('getConfig', () => {
     it('should return config with token from env', () => {
       process.env.PLATFORM_TOKEN = 'my-token';
-      (fs.existsSync as jest.Mock).mockReturnValue(false);
+      mockExistsSync.mockReturnValue(false);
 
       const config = getConfig();
 
@@ -53,14 +81,14 @@ describe('config.loader', () => {
 
     it('should throw when PLATFORM_TOKEN is not set', () => {
       delete process.env.PLATFORM_TOKEN;
-      (fs.existsSync as jest.Mock).mockReturnValue(false);
+      mockExistsSync.mockReturnValue(false);
 
       expect(() => getConfig()).toThrow('PLATFORM_TOKEN environment variable is required');
     });
 
     it('should throw when PLATFORM_TOKEN is empty', () => {
       process.env.PLATFORM_TOKEN = '   ';
-      (fs.existsSync as jest.Mock).mockReturnValue(false);
+      mockExistsSync.mockReturnValue(false);
 
       expect(() => getConfig()).toThrow('PLATFORM_TOKEN must be a non-empty string');
     });
@@ -70,9 +98,9 @@ describe('config.loader', () => {
       process.env.PLATFORM_BASE_URL = 'https://api.example.com';
       // Use a config file so getConfig() creates a fresh api object
       // (avoids mutating the module-level defaultConfig via shallow copy)
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.readFileSync as jest.Mock).mockReturnValue('');
-      (yaml.parse as jest.Mock).mockReturnValue({ api: {} });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {} });
 
       const config = getConfig();
       expect(config.api.baseUrl).toBe('https://api.example.com');
@@ -81,9 +109,9 @@ describe('config.loader', () => {
     it('should merge config from YAML file', () => {
       process.env.PLATFORM_TOKEN = 'tok';
       process.env.CLI_CONFIG_PATH = '/custom/config.yml';
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.readFileSync as jest.Mock).mockReturnValue('api:\n  baseUrl: https://custom.api');
-      (yaml.parse as jest.Mock).mockReturnValue({ api: { baseUrl: 'https://custom.api' } });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('api:\n  baseUrl: https://custom.api');
+      mockYamlParse.mockReturnValue({ api: { baseUrl: 'https://custom.api' } });
 
       const config = getConfig();
       expect(config.api.baseUrl).toBe('https://custom.api');
@@ -91,9 +119,9 @@ describe('config.loader', () => {
 
     it('should ignore auth section in config file', () => {
       process.env.PLATFORM_TOKEN = 'tok';
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.readFileSync as jest.Mock).mockReturnValue('');
-      (yaml.parse as jest.Mock).mockReturnValue({ api: {}, auth: { token: 'file-token' } });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {}, auth: { token: 'file-token' } });
 
       const config = getConfig();
       expect(config.auth.token).toBe('tok');
@@ -102,9 +130,9 @@ describe('config.loader', () => {
     it('should handle TLS_REJECT_UNAUTHORIZED=0', () => {
       process.env.PLATFORM_TOKEN = 'tok';
       process.env.TLS_REJECT_UNAUTHORIZED = '0';
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.readFileSync as jest.Mock).mockReturnValue('');
-      (yaml.parse as jest.Mock).mockReturnValue({ api: {} });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {} });
 
       const config = getConfig();
       expect(config.api.rejectUnauthorized).toBe(false);
@@ -113,9 +141,9 @@ describe('config.loader', () => {
     it('should handle valid UPLOAD_TIMEOUT', () => {
       process.env.PLATFORM_TOKEN = 'tok';
       process.env.UPLOAD_TIMEOUT = '60000';
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.readFileSync as jest.Mock).mockReturnValue('');
-      (yaml.parse as jest.Mock).mockReturnValue({ api: {} });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {} });
 
       const config = getConfig();
       expect(config.api.uploadTimeout).toBe(60000);
@@ -124,9 +152,9 @@ describe('config.loader', () => {
     it('should ignore invalid UPLOAD_TIMEOUT', () => {
       process.env.PLATFORM_TOKEN = 'tok';
       process.env.UPLOAD_TIMEOUT = 'not-a-number';
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.readFileSync as jest.Mock).mockReturnValue('');
-      (yaml.parse as jest.Mock).mockReturnValue({ api: {} });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {} });
 
       const config = getConfig();
       expect(config.api.uploadTimeout).toBeUndefined();
@@ -135,9 +163,9 @@ describe('config.loader', () => {
     it('should fall back to defaults when config file fails to parse', () => {
       process.env.PLATFORM_TOKEN = 'tok';
       delete process.env.PLATFORM_BASE_URL;
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fs.readFileSync as jest.Mock).mockReturnValue('');
-      (yaml.parse as jest.Mock).mockImplementation(() => { throw new Error('parse error'); });
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockImplementation(() => { throw new Error('parse error'); });
 
       const config = getConfig();
       expect(config.api.baseUrl).toBe('https://localhost:8443');

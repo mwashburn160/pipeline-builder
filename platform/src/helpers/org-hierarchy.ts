@@ -25,7 +25,7 @@ import {
   toOrgIdString,
 } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { Organization } from '../models';
+import { Organization } from '../models/index.js';
 
 export type { OrgLineage };
 

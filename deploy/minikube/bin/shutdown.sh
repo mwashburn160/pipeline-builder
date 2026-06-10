@@ -38,4 +38,4 @@ docker network rm "$PROFILE" 2>/dev/null || true
 
 echo ""
 echo "=== Shutdown complete ==="
-echo "  Restart: bash deploy/minikube/bin/startup.sh"
+echo "  Restart: bash deploy/minikube/bin/setup.sh"

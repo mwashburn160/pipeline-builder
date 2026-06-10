@@ -17,6 +17,9 @@
  */
 
 import { useMemo } from 'react';
+// react-grid-layout v2 composable API: grid sizing lives in `gridConfig`, and
+// drag/resize behaviour in `dragConfig`/`resizeConfig` (the old flat props are
+// gone). `Layout` is `readonly LayoutItem[]`; vertical compaction is the default.
 import GridLayout from 'react-grid-layout';
 import type { Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
@@ -74,7 +77,7 @@ function defaultCoords(panel: LayoutPanelInput, prior: PanelCoords[]): PanelCoor
 export function buildLayout(
   panels: LayoutPanelInput[],
   layoutJson: Record<string, PanelCoords>,
-): Layout[] {
+): Layout {
   const accumulated: PanelCoords[] = [];
   return panels.map((panel) => {
     const saved = layoutJson[panel.id];
@@ -92,10 +95,10 @@ export function buildLayout(
   });
 }
 
-/** Convert react-grid-layout's `Layout[]` back into the `layoutJson` map shape
- * the API expects. Drops any incoming `minW/minH` so we don't pin defaults
- * the user didn't explicitly set. */
-export function layoutToJson(layout: Layout[]): Record<string, PanelCoords> {
+/** Convert react-grid-layout's `Layout` (array of items) back into the
+ * `layoutJson` map shape the API expects. Drops any incoming `minW/minH` so we
+ * don't pin defaults the user didn't explicitly set. */
+export function layoutToJson(layout: Layout): Record<string, PanelCoords> {
   const out: Record<string, PanelCoords> = {};
   for (const l of layout) {
     out[l.i] = { x: l.x, y: l.y, w: l.w, h: l.h };
@@ -133,14 +136,10 @@ export default function DashboardLayoutGrid(props: {
     <GridLayout
       className="layout"
       layout={layout}
-      cols={GRID_COLS}
-      rowHeight={ROW_HEIGHT}
       width={width}
-      margin={[8, 8]}
-      compactType="vertical"
-      isDraggable={!readOnly}
-      isResizable={!readOnly}
-      draggableHandle={readOnly ? undefined : '.grid-drag-handle'}
+      gridConfig={{ cols: GRID_COLS, rowHeight: ROW_HEIGHT, margin: [8, 8] }}
+      dragConfig={{ enabled: !readOnly, handle: readOnly ? undefined : '.grid-drag-handle' }}
+      resizeConfig={{ enabled: !readOnly }}
       onLayoutChange={(next) => { if (!readOnly && onChange) onChange(layoutToJson(next)); }}
     >
       {panels.map((panel, i) => (

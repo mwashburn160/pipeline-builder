@@ -4,9 +4,9 @@
 import { requireAuth } from '@pipeline-builder/api-core';
 import { createApp, runServer, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 
-import { createEventIngestRoutes } from './routes/event-ingest';
-import { createExecutionReportRoutes } from './routes/execution-reports';
-import { createPluginReportRoutes } from './routes/plugin-reports';
+import { createEventIngestRoutes } from './routes/event-ingest.js';
+import { createExecutionReportRoutes } from './routes/execution-reports.js';
+import { createPluginReportRoutes } from './routes/plugin-reports.js';
 
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck, jsonLimit: '5mb' });
 

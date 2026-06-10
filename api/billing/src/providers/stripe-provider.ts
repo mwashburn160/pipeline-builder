@@ -3,9 +3,9 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import Stripe from 'stripe';
-import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider';
-import type { StripeConfig } from '../config';
-import type { BillingInterval } from '../models/subscription';
+import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider.js';
+import type { StripeConfig } from '../config.js';
+import type { BillingInterval } from '../models/subscription.js';
 
 const logger = createLogger('stripe-provider');
 

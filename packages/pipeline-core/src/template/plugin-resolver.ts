@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Plugin } from '@pipeline-builder/pipeline-data';
-import { resolveTemplates } from './index';
+import { resolveTemplates } from './index.js';
 
 /**
  * Fields inside a Plugin record that accept `{{ ... }}` templates.

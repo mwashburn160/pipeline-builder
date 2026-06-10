@@ -10,22 +10,22 @@
  * weakens the auth check or stops legitimate flows.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUserFindById = jest.fn();
 const mockAudit = jest.fn();
 const mockIssueStepUpToken = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => {
     res.status(status).json({ success: false, message: msg });
   },
   sendSuccess: (res: any, status: number, data: unknown) => {
     res.status(status).json({ success: true, statusCode: status, data });
   },
-  SYSTEM_ORG_ID: 'system',
 }));
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class Schema {
     constructor() { /* no-op */ }
     index() { /* no-op */ }
@@ -35,24 +35,25 @@ jest.mock('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.mock('../src/helpers/audit', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.mock('../src/helpers/controller-helper', () => ({
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
 }));
 
-jest.mock('../src/utils/token', () => ({
+jest.unstable_mockModule('../src/utils/token.js', () => ({
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUpToken(...a),
 }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {
     findById: (...a: unknown[]) => mockUserFindById(...a),
   },
 }));
 
-import { stepUpVerify } from '../src/controllers/step-up';
+const { stepUpVerify } = await import('../src/controllers/step-up.js');
+
 
 function mockRes() {
   const res: any = {};

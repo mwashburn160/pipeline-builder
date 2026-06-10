@@ -307,7 +307,7 @@ spec:
   # "Insufficient cpu", and the unschedulable scale-up churn kills
   # in-flight builds (BullMQ marks them "stalled more than allowable
   # limit"). Raise this only after growing the node's CPU
-  # (deploy/minikube/bin/startup.sh MK_CPUS).
+  # (deploy/minikube/bin/setup.sh MK_CPUS).
   maxReplicaCount: 2
   pollingInterval: 15
   cooldownPeriod: 120

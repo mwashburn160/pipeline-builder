@@ -13,6 +13,8 @@
  *     lockout guards (G2 self-removal, G3 last privileged member).
  */
 
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockGroupCreate = jest.fn();
 const mockGroupFind = jest.fn();
 const mockGroupFindOne = jest.fn();
@@ -28,26 +30,24 @@ const mockUserUpdateOne = jest.fn();
 const mockUserFindById = jest.fn();
 const mockUserFindOne = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('mongoose', () => ({
+jest.unstable_mockModule('mongoose', () => ({
   default: { Types: { ObjectId: class {} } },
   Types: { ObjectId: class {} },
 }));
 
 // toOrgId is identity in tests — we assert on the raw orgId strings.
-jest.mock('../src/helpers/controller-helper', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
 
 // Run the transaction body inline with a fake session — unit tests have no
 // live Mongo connection, so we bypass startSession/withTransaction and just
 // invoke the callback. The session is threaded into the write + recompute.
-jest.mock('../src/utils/mongo-tx', () => ({
+jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
 }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   Group: {
     create: (...a: unknown[]) => mockGroupCreate(...a),
     find: (...a: unknown[]) => mockGroupFind(...a),
@@ -70,11 +70,11 @@ jest.mock('../src/models', () => ({
   UserOrganization: { findOne: (...a: unknown[]) => mockUoFindOne(...a) },
 }));
 
-import {
+const {
   seedDefaultGroups, recomputeUserOrgRole, addUserToGroup, removeUserFromGroup,
   GRP_GROUP_NOT_FOUND, GRP_USER_NOT_FOUND, GRP_NOT_ORG_MEMBER,
   GRP_CANNOT_REMOVE_SELF, GRP_LAST_PRIVILEGED_MEMBER, GRP_REQUIRES_SUPERADMIN,
-} from '../src/services/groups-service';
+} = await import('../src/services/groups-service.js');
 
 // Group.create echoes back the docs with a name-derived _id.
 const echoCreate = () => mockGroupCreate.mockImplementation((docs: Array<{ name: string; grantsRole: string }>) =>

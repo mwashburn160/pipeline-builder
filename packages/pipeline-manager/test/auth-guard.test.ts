@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { decodeTokenPayload } from '../src/utils/auth-guard';
+import { describe, it, expect } from '@jest/globals';
+
+import { decodeTokenPayload } from '../src/utils/auth-guard.js';
 
 function fakeJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');

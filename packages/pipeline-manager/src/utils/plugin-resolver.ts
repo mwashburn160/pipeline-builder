@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ApiClient } from './api-client';
-import { printWarning } from './output-utils';
+import { ApiClient } from './api-client.js';
+import { printWarning } from './output-utils.js';
 
 /** Minimal plugin reference shape — matches PluginOptions from pipeline-core. */
 interface PluginRef {

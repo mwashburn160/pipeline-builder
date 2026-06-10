@@ -12,12 +12,15 @@
  * - Successful replay returns the new job id and removes the DLQ entry.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const dlqGetJob = jest.fn();
 const dlqAdd = jest.fn();
 const queueAdd = jest.fn();
 const replayHelper = jest.fn();
 
-jest.mock('../src/queue/plugin-build-queue', () => ({
+jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   // route uses getAllTierQueues; expose one entry for the single-tier
   // assertions to remain valid.
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: jest.fn(), getJobCounts: jest.fn() } }],
@@ -30,8 +33,7 @@ jest.mock('../src/queue/plugin-build-queue', () => ({
 // Quota service stub  required by createQueueStatusRoutes since.
 const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
   isSystemAdmin: jest.fn(),
   parseQueryInt: (val: unknown, def: number) => {
@@ -40,21 +42,16 @@ jest.mock('@pipeline-builder/api-core', () => ({
   },
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
   sendError: jest.fn((res: any, status: number, message: string) => res.status(status).json({ success: false, statusCode: status, message })),
-  ErrorCode: {
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    NOT_FOUND: 'NOT_FOUND',
-  },
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
   },
 }));
 
-import { isSystemAdmin } from '@pipeline-builder/api-core';
-import { createQueueStatusRoutes } from '../src/routes/queue-status';
+const { isSystemAdmin } = await import('@pipeline-builder/api-core');
+const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 function getReplayHandler() {
   const router = createQueueStatusRoutes(mockQuotaService);

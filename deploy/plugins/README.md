@@ -268,7 +268,7 @@ Many tool versions are 1+ year stale. From the May 2026 audit:
 - **Go 1.24 (default)** — series 1.23 is upstream-EOL; bump default to 1.25 or 1.26
 - **kubectl 1.31.4** — past upstream support window; bump to 1.33+
 - **Helm 3.16.4** → 3.20.x or v4.x
-- **AWS CDK 2.1125.0** — verify against `npm view aws-cdk version` and bump to current stable
+- **AWS CDK 2.1126.0** — verify against `npm view aws-cdk version` and bump to current stable
 - **Terraform 1.10.3** → 1.15.x
 - **Kotlin 2.1.0** → 2.3.x
 - **Checkstyle 10.x** → 13.x
@@ -281,7 +281,7 @@ Many tool versions are 1+ year stale. From the May 2026 audit:
 
 - **`compute_image_tag` already hashes full plugin dir** (fixed) but the
   `parse_build_arg_flags` and `verify_versions` parsers now require yq —
-  bootstrap scripts (`deploy/aws/ec2/bin/bootstrap.sh`, `deploy/local/bin/startup.sh`)
+  bootstrap scripts (`deploy/aws/ec2/bin/bootstrap.sh`, `deploy/local/bin/setup.sh`)
   may need a `yq` install step added.
 - **Replace four nginx configs** that have drifted (local/ec2/fargate) with
   a single shared `nginx-common.conf` + per-env overrides. Out of plugin scope

@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import {
   ALL_FEATURE_FLAGS,
   TIER_FEATURES,
@@ -8,7 +10,7 @@ import {
   isValidFeatureFlag,
   resolveUserFeatures,
   hasFeature,
-} from '../src/types/feature-flags';
+} from '../src/types/feature-flags.js';
 
 // ALL_FEATURE_FLAGS
 

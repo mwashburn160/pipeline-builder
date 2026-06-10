@@ -51,31 +51,31 @@
  */
 
 // Types
-export * from './types';
+export * from './types/index.js';
 
 // Constants
-export * from './constants';
+export * from './constants/index.js';
 
 // Utils
-export * from './utils';
+export * from './utils/index.js';
 
 // Helpers
-export * from './helpers';
+export * from './helpers/index.js';
 
 // Services
-export * from './services';
+export * from './services/index.js';
 
 // Middleware
-export * from './middleware';
+export * from './middleware/index.js';
 
 // Routes
-export * from './routes';
+export * from './routes/index.js';
 
 // Errors
-export * from './errors';
+export * from './errors/index.js';
 
 // Validation
-export * from './validation';
+export * from './validation/index.js';
 
 // OpenAPI
-export * from './openapi';
+export * from './openapi/index.js';

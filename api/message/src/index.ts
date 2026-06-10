@@ -5,12 +5,12 @@ import crypto from 'crypto';
 
 import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 
-import { createCreateMessageRoutes } from './routes/create-message';
-import { createDeleteMessageRoutes } from './routes/delete-message';
-import { createReadMessageRoutes } from './routes/read-messages';
-import { createUpdateMessageRoutes } from './routes/update-message';
+import { createCreateMessageRoutes } from './routes/create-message.js';
+import { createDeleteMessageRoutes } from './routes/delete-message.js';
+import { createReadMessageRoutes } from './routes/read-messages.js';
+import { createUpdateMessageRoutes } from './routes/update-message.js';
 
 const logger = createLogger('message');
 const quotaService = createQuotaService();

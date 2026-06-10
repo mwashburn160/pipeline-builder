@@ -4,8 +4,8 @@
 import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBadRequest, sendSuccess, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { shapePlugin } from '../helpers/plugin-helpers';
-import { pluginService } from '../services/plugin-service';
+import { shapePlugin } from '../helpers/plugin-helpers.js';
+import { pluginService } from '../services/plugin-service.js';
 
 /**
  * Register the UPDATE route on a router.

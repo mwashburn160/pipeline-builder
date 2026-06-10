@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
-import { RequestHandler } from 'express';
-import { checkQuota } from './check-quota';
-import { requireAuth } from './middleware';
-import { requireOrgId } from './require-org-id';
+import type { RequestHandler } from 'express';
+import { checkQuota } from './check-quota.js';
+import { requireAuth } from './middleware.js';
+import { requireOrgId } from './require-org-id.js';
 
 /**
  * Creates a middleware chain for protected routes requiring authentication, org ID, and quota check.

@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { etagMiddleware } from '../src/api/etag-middleware';
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+
+const { etagMiddleware } = await import('../src/api/etag-middleware.js');
 
 function mockReq(method = 'GET', headers: Record<string, unknown> = {}): any {
   return { method, headers };

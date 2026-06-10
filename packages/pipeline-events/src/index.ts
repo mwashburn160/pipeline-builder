@@ -5,17 +5,22 @@ import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-sec
 import type { SQSEvent, SQSRecord } from 'aws-lambda';
 
 // AWS Lambda's Node runtime bundles @aws-sdk v3, so the CodePipeline client is
-// loaded at runtime via require — taking a workspace dependency on
+// loaded lazily via dynamic import() — a static workspace dependency on
 // @aws-sdk/client-codepipeline would perturb the shared @aws-sdk version tree
-// and break other packages' typings. Minimal local types keep the call sites
-// type-checked.
+// and break other packages' typings. The dynamic import keeps it out of the
+// static graph while staying ESM-correct (no `require` in a type:module package)
+// and mockable. Minimal local types keep the call sites type-checked.
 interface ListTagsOutput { tags?: Array<{ key?: string; value?: string }> }
 interface CodePipelineClientLike { send(command: unknown): Promise<ListTagsOutput> }
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const codepipeline = require('@aws-sdk/client-codepipeline') as {
+interface CodePipelineModule {
   CodePipelineClient: new (config: { region: string }) => CodePipelineClientLike;
   ListTagsForResourceCommand: new (input: { resourceArn: string }) => unknown;
-};
+}
+let codepipelineMod: CodePipelineModule | undefined;
+async function loadCodePipeline(): Promise<CodePipelineModule> {
+  if (!codepipelineMod) codepipelineMod = (await import('@aws-sdk/client-codepipeline')) as unknown as CodePipelineModule;
+  return codepipelineMod;
+}
 
 /**
  * Pipeline event ingestion Lambda handler.
@@ -54,10 +59,11 @@ const PIPELINE_EVENT_ID_TAG = 'PIPELINE_EVENT_ID';
 const clientsByRegion = new Map<string, CodePipelineClientLike>();
 const eventIdByArn = new Map<string, string | null>(); // null = resolved-but-untagged (negative cache)
 
-function pipelineClient(region: string): CodePipelineClientLike {
+async function pipelineClient(region: string): Promise<CodePipelineClientLike> {
   let client = clientsByRegion.get(region);
   if (!client) {
-    client = new codepipeline.CodePipelineClient({ region });
+    const { CodePipelineClient } = await loadCodePipeline();
+    client = new CodePipelineClient({ region });
     clientsByRegion.set(region, client);
   }
   return client;
@@ -72,7 +78,9 @@ function pipelineClient(region: string): CodePipelineClientLike {
 async function resolvePipelineEventId(arn: string, region: string): Promise<string | null> {
   if (eventIdByArn.has(arn)) return eventIdByArn.get(arn)!;
   try {
-    const out = await pipelineClient(region).send(new codepipeline.ListTagsForResourceCommand({ resourceArn: arn }));
+    const client = await pipelineClient(region);
+    const { ListTagsForResourceCommand } = await loadCodePipeline();
+    const out = await client.send(new ListTagsForResourceCommand({ resourceArn: arn }));
     const tag = out.tags?.find(t => t.key === PIPELINE_EVENT_ID_TAG)?.value ?? null;
     if (!tag) log.warn('Pipeline missing PIPELINE_EVENT_ID tag — skipping (register it?)', { arn });
     eventIdByArn.set(arn, tag);

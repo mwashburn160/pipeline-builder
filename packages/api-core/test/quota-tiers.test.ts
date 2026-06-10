@@ -1,13 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import {
   QUOTA_TIERS,
   VALID_TIERS,
   DEFAULT_TIER,
   isValidTier,
   getTierLimits,
-} from '../src/types/quota-tiers';
+} from '../src/types/quota-tiers.js';
 
 // storageBytes added. 5 GiB developer / 100 GiB pro / unlimited.
 const GB = 1024 * 1024 * 1024;

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { walkAndBind } from '../../src/template/walker';
+import { walkAndBind } from '../../src/template/walker.js';
 
 describe('walkAndBind', () => {
   const isTemplatable = (f: string) =>

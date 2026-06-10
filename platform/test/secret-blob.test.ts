@@ -12,30 +12,31 @@
  * has its own tests in api-core/test/secret-encryption.test.ts).
  */
 
-jest.mock('@pipeline-builder/api-core', () => {
-  return {
-    encryptSecret: jest.fn((plaintext: string, orgId: string) => ({
-      v: 1,
-      keyId: 'env',
-      orgId,
-      ciphertext: Buffer.from(plaintext).toString('base64'),
-      iv: 'iv-bytes',
-      tag: 'tag-bytes',
-      alg: 'aes-256-gcm',
-    })),
-    decryptSecret: jest.fn((blob: { ciphertext: string }) =>
-      Buffer.from(blob.ciphertext, 'base64').toString('utf8'),
-    ),
-    isEncryptedBlob: jest.fn(
-      (value: unknown): boolean =>
-        typeof value === 'object' &&
-        value !== null &&
-        typeof (value as { ciphertext?: unknown }).ciphertext === 'string',
-    ),
-  };
-});
+import { jest, describe, it, expect, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  encryptSecret: jest.fn((plaintext: string, orgId: string) => ({
+    v: 1,
+    keyId: 'env',
+    orgId,
+    ciphertext: Buffer.from(plaintext).toString('base64'),
+    iv: 'iv-bytes',
+    tag: 'tag-bytes',
+    alg: 'aes-256-gcm',
+  })),
+  decryptSecret: jest.fn((blob: { ciphertext: string }) =>
+    Buffer.from(blob.ciphertext, 'base64').toString('utf8'),
+  ),
+  isEncryptedBlob: jest.fn(
+    (value: unknown): boolean =>
+      typeof value === 'object' &&
+      value !== null &&
+      typeof (value as { ciphertext?: unknown }).ciphertext === 'string',
+  ),
+}));
 
-import { looksEncrypted, unwrapEncrypted, wrapEncrypted } from '../src/utils/secret-blob';
+const { looksEncrypted, unwrapEncrypted, wrapEncrypted } = await import('../src/utils/secret-blob.js');
+
 
 describe('secret-blob', () => {
   describe('looksEncrypted', () => {

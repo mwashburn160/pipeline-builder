@@ -3,10 +3,10 @@
 
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { Pipeline, PipelineResponse } from '../types';
-import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { extractSingleResponse, outputData, printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
+import { type Pipeline, type PipelineResponse } from '../types/index.js';
+import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { extractSingleResponse, outputData, printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
 
 const { bold, dim, green } = pico;
 

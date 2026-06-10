@@ -1,12 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import { z } from 'zod';
 import {
   validateQuery,
   validateBody,
   validateParams,
-} from '../src/validation/middleware';
+} from '../src/validation/middleware.js';
 
 // Mock Request / Response / Next
 function mockReq(overrides: Record<string, unknown> = {}) {

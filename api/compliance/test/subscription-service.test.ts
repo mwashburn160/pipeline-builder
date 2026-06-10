@@ -1,6 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Result the next select(...).where(...) chain should resolve to.
 let nextSelectResult: unknown[] = [];
 // Track the result returned from update(...).returning() and insert(...).returning()
@@ -27,24 +30,17 @@ const dbInsert = jest.fn(() => makeChain(() => Promise.resolve(nextReturningResu
 const dbUpdate = jest.fn(() => makeChain(() => Promise.resolve(nextReturningResult)));
 const dbTransaction = jest.fn((cb: (t: typeof tx) => Promise<unknown>) => cb(tx));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  SYSTEM_ORG_ID: 'system',
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemOrgId: (orgId?: string, orgName?: string) =>
     orgId?.toLowerCase() === 'system' || orgName?.toLowerCase() === 'system',
 }));
 
-const mockInvalidate = jest.fn().mockResolvedValue(undefined);
-jest.mock('../src/services/compliance-rule-service', () => ({
+const mockInvalidate = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: { invalidateRulesCache: mockInvalidate },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: {
     complianceRule: {
       id: 'col_id', scope: 'col_scope', deletedAt: 'col_del', isActive: 'col_active',
@@ -68,10 +64,10 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   withTenantTx: (cb: (t: typeof tx) => Promise<unknown>) => dbTransaction(cb),
 }));
 
-import { ComplianceRuleSubscriptionService } from '../src/services/subscription-service';
+const { ComplianceRuleSubscriptionService } = await import('../src/services/subscription-service.js');
 
 describe('ComplianceRuleSubscriptionService', () => {
-  let svc: ComplianceRuleSubscriptionService;
+  let svc: InstanceType<typeof ComplianceRuleSubscriptionService>;
 
   beforeEach(() => {
     nextSelectResult = [];

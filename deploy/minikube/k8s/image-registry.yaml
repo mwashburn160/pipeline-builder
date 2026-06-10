@@ -137,7 +137,7 @@ spec:
               value: "300"
             # IMAGE_REGISTRY_USERNAME / IMAGE_REGISTRY_PASSWORD come from
             # the image-registry-build-svc-secret envFrom above. Same creds
-            # as the registry container's htpasswd; startup.sh keeps them
+            # as the registry container's htpasswd; setup.sh keeps them
             # in sync.
           volumeMounts:
             - name: registry-token

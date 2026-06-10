@@ -9,8 +9,8 @@ import {
   deleteUserById,
   bulkDeleteUsers,
   updateUserFeatures,
-} from '../controllers';
-import { requireAuth, requireRole, requireStepUp } from '../middleware';
+} from '../controllers/index.js';
+import { requireAuth, requireRole, requireStepUp } from '../middleware/index.js';
 
 const router = Router();
 

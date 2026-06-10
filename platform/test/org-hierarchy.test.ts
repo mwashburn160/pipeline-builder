@@ -4,7 +4,8 @@
 // In-memory Organization model: a Map of id -> { _id, parentOrgId } with the
 // minimal `findById(...).select(...).lean()` and `find(...).select(...).lean()`
 // chains the resolver uses.
-jest.mock('../src/models', () => {
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+jest.unstable_mockModule('../src/models/index.js', () => {
   const orgs = new Map<string, { _id: string; parentOrgId: string | null }>();
   const Organization = {
     __set(list: Array<{ _id: string; parentOrgId: string | null }>) {
@@ -26,9 +27,11 @@ jest.mock('../src/models', () => {
   return { Organization };
 });
 
-import { resolveOrgLineage, expandOrgScope, isAncestorOrg } from '../src/helpers/org-hierarchy';
+const { resolveOrgLineage, expandOrgScope, isAncestorOrg } = await import('../src/helpers/org-hierarchy.js');
 
-const { Organization } = jest.requireMock('../src/models');
+const { Organization } = (await import('../src/models/index.js')) as unknown as {
+  Organization: { __set(list: Array<{ _id: string; parentOrgId: string | null }>): void };
+};
 
 // root ──┬── teamA ── subA
 //        └── teamB

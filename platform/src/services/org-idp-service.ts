@@ -13,8 +13,8 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
-import OrgIdpConfig, { type IdpProvider, type OrgIdpConfigDocument } from '../models/org-idp-config';
-import { wrapEncrypted } from '../utils/secret-blob';
+import OrgIdpConfig, { type IdpProvider, type OrgIdpConfigDocument } from '../models/org-idp-config.js';
+import { wrapEncrypted } from '../utils/secret-blob.js';
 
 const logger = createLogger('org-idp-service');
 

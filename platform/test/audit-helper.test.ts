@@ -1,29 +1,25 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  })),
-}));
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-const mockCurrentTraceId = jest.fn<string | undefined, []>();
-jest.mock('@pipeline-builder/api-server', () => ({
+const mockCurrentTraceId = jest.fn<() => string | undefined>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   currentTraceId: () => mockCurrentTraceId(),
 }));
 
 const mockCreate = jest.fn();
-jest.mock('../src/models/audit-event', () => ({
+jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
   default: {
     create: (...args: unknown[]) => mockCreate(...args),
   },
 }));
 
-import { audit } from '../src/helpers/audit';
+const { audit } = await import('../src/helpers/audit.js');
+
 
 function mockReq(overrides: {
   user?: Partial<{ sub: string; email: string; organizationId: string; role: string; impersonatorId: string }>;

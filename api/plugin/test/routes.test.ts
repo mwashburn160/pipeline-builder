@@ -8,13 +8,16 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mocks — must be defined before imports
 
 const mockFindPaginated = jest.fn();
 const mockFind = jest.fn();
 const mockFindById = jest.fn();
 
-jest.mock('../src/services/plugin-service', () => ({
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     findPaginated: mockFindPaginated,
     find: mockFind,
@@ -22,16 +25,11 @@ jest.mock('../src/services/plugin-service', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => {
+jest.unstable_mockModule('@pipeline-builder/api-core', () => {
   const mockIsSystemAdmin = jest.fn((_req?: any) => false);
-  return {
+  return apiCoreMock({
     getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-    ErrorCode: {
-      MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-      INTERNAL_ERROR: 'INTERNAL_ERROR',
-    },
     isSystemAdmin: mockIsSystemAdmin,
-    errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
     sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
       const response: any = { success: true, statusCode };
       if (data !== undefined) response.data = data;
@@ -63,7 +61,7 @@ jest.mock('@pipeline-builder/api-core', () => {
     validateQuery: jest.fn(() => ({ ok: true, value: {} })),
     PluginFilterSchema: {},
     normalizeArrayFields: jest.fn((p: any) => p),
-  };
+  });
 });
 
 const mockGetContext = (req: any) => req.context;
@@ -74,7 +72,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);
@@ -94,27 +92,30 @@ jest.mock('@pipeline-builder/api-server', () => ({
   incrementQuotaFromCtx: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: { plugin: {} },
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
     CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',
   },
+  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
 }));
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   SQL: class {},
+  sql: Object.assign((..._a: any[]) => ({}), { raw: (..._a: any[]) => ({}) }),
   or: jest.fn(),
   ilike: jest.fn(),
   eq: jest.fn(),
+  and: jest.fn(),
 }));
 
-jest.mock('drizzle-orm/column', () => ({}));
-jest.mock('drizzle-orm/pg-core', () => ({}));
+jest.unstable_mockModule('drizzle-orm/column', () => ({}));
+jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
-import { isSystemAdmin, sendBadRequest, validateQuery } from '@pipeline-builder/api-core';
-import { incrementQuotaFromCtx } from '@pipeline-builder/api-server';
-import { createReadPluginRoutes } from '../src/routes/read-plugins';
+const { isSystemAdmin, sendBadRequest, validateQuery } = await import('@pipeline-builder/api-core');
+const { incrementQuotaFromCtx } = await import('@pipeline-builder/api-server');
+const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 
 // Helpers
 

@@ -16,10 +16,10 @@
  */
 
 import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit';
-import { requireSystemAdmin, withController } from '../helpers/controller-helper';
-import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota';
-import { orgIdpService, type OrgIdpConfigCreate, type OrgIdpConfigUpdate } from '../services/org-idp-service';
+import { audit } from '../helpers/audit.js';
+import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
+import { orgIdpService, type OrgIdpConfigCreate, type OrgIdpConfigUpdate } from '../services/org-idp-service.js';
 
 const logger = createLogger('org-idp-controller');
 

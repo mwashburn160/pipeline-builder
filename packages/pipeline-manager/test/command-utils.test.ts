@@ -1,24 +1,45 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { validateEntityId, printCommandHeader, printSslWarning, printExecutionSummary } from '../src/utils/command-utils';
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
 // Mock output-utils to capture console output
-jest.mock('../src/utils/output-utils', () => ({
-  printSection: jest.fn(),
-  printKeyValue: jest.fn(),
-  printInfo: jest.fn(),
-  printSuccess: jest.fn(),
-  printError: jest.fn(),
-  printWarning: jest.fn(),
+const printSection = jest.fn();
+const printKeyValue = jest.fn();
+const printInfo = jest.fn();
+const printSuccess = jest.fn();
+const printError = jest.fn();
+const printWarning = jest.fn();
+
+jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
+  __esModule: true,
+  printSection,
+  printKeyValue,
+  printInfo,
+  printSuccess,
+  printError,
+  printWarning,
+  printDebug: jest.fn(),
+  printDivider: jest.fn(),
+  outputData: jest.fn(),
+  formatTable: jest.fn(),
+  ensureOutputDirectory: jest.fn(),
+  fileExists: jest.fn(),
+  unwrapEnvelope: jest.fn(),
+  extractSingleResponse: jest.fn(),
+  extractListResponse: jest.fn(),
 }));
 
-jest.mock('../src/config/cli.constants', () => ({
+jest.unstable_mockModule('../src/config/cli.constants.js', () => ({
+  __esModule: true,
   generateExecutionId: jest.fn(() => 'ABCD1234'),
   formatDuration: jest.fn((ms: number) => `${ms}ms`),
+  // Real value needed by the api-client transitively imported via command-utils.
+  TIMEOUTS: { HTTP_REQUEST: 30000, CDK_COMMAND: 0, HEALTH_CHECK: 5000, UPLOAD: 300000 },
 }));
 
-const { printSection, printWarning, printKeyValue } = jest.requireMock('../src/utils/output-utils');
+const { validateEntityId, printCommandHeader, printSslWarning, printExecutionSummary } =
+  await import('../src/utils/command-utils.js');
 
 describe('printCommandHeader', () => {
   beforeEach(() => jest.clearAllMocks());

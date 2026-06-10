@@ -3,7 +3,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
-import { alertDestinationService } from './alert-destination-service';
+import { alertDestinationService } from './alert-destination-service.js';
 
 type OrgAlertDestination = typeof schema.orgAlertDestination.$inferSelect;
 

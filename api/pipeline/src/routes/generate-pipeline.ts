@@ -22,9 +22,9 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { getAvailableProviders, getFilteredPlugins, generatePipelineConfig, streamPipelineConfig } from '../services/ai-generation-service';
-import { parseGitUrl, analyzeRepository, buildEnhancedPrompt } from '../services/git-analysis-service';
-import { findExistingPluginNames } from '../services/plugin-lookup-service';
+import { getAvailableProviders, getFilteredPlugins, generatePipelineConfig, streamPipelineConfig } from '../services/ai-generation-service.js';
+import { parseGitUrl, analyzeRepository, buildEnhancedPrompt } from '../services/git-analysis-service.js';
+import { findExistingPluginNames } from '../services/plugin-lookup-service.js';
 
 const logger = createLogger('generate-pipeline');
 

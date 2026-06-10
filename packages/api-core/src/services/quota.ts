@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createSafeClient, RequestOptions } from './http-client';
-import { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common';
-import { DEFAULT_TIER, isValidTier, QuotaTier } from '../types/quota-tiers';
-import { createLogger } from '../utils/logger';
-import { emitCounter } from '../utils/metric-emitter';
+import { createSafeClient, type RequestOptions } from './http-client.js';
+import type { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
+import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
+import { createLogger } from '../utils/logger.js';
+import { emitCounter } from '../utils/metric-emitter.js';
 
 /** Retry options for quota calls  fail fast since quota is fail-open. */
 const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRetries'> = {

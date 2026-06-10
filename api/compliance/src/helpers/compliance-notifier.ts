@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
-import { messageClient } from './message-client';
-import type { Violation } from '../engine/rule-engine';
+import { messageClient } from './message-client.js';
+import type { Violation } from '../engine/rule-engine.js';
 
 const logger = createLogger('compliance-notifier');
 

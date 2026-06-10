@@ -9,7 +9,7 @@
 # --hosted-zone-id are required in both modes.
 #
 # Usage:
-#   bash bin/deploy.sh --domain pipeline.example.com --hosted-zone-id Z123 \
+#   bash bin/setup.sh --domain pipeline.example.com --hosted-zone-id Z123 \
 #     --ghcr-token ghp_xxxx [--deploy-mode public] [--region us-east-1]
 # =============================================================================
 set -euo pipefail
@@ -31,12 +31,13 @@ GHCR_AUTH_SECRET_NAME="${GHCR_AUTH_SECRET_NAME:-pipeline-builder/ghcr-auth}"
 DOMAIN="${DOMAIN:-}"
 HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 DEPLOY_MODE="${DEPLOY_MODE:-private}"
-# Transactional email via SES. Off by default — a fresh SES account is sandboxed
-# (verified recipients only) so email is only partly usable until production
-# access is granted. --email turns on the SES identity + IAM grant + platform env
-# together. EMAIL_FROM defaults to noreply@DOMAIN. --no-create-ses-identity skips
-# creating the SES identity (use when DOMAIN is already verified in this account).
-EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
+# Transactional email via SES. ENABLED BY DEFAULT — the SES identity + IAM grant +
+# platform env are provisioned together. Pass --no-email to skip it. NOTE: a fresh
+# SES account is sandboxed (verified recipients only) so sending is only partly
+# usable until production access is granted. EMAIL_FROM defaults to noreply@DOMAIN.
+# --no-create-ses-identity skips creating the SES identity (use when DOMAIN is
+# already verified in this account).
+EMAIL_ENABLED="${EMAIL_ENABLED:-true}"
 EMAIL_FROM="${EMAIL_FROM:-}"
 EMAIL_FROM_NAME="${EMAIL_FROM_NAME:-pipeline-builder}"
 CREATE_SES_IDENTITY="${CREATE_SES_IDENTITY:-true}"
@@ -54,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --hosted-zone-id) HOSTED_ZONE_ID="$2"; shift 2 ;;
     --deploy-mode) DEPLOY_MODE="$2"; shift 2 ;;
     --email) EMAIL_ENABLED="true"; shift ;;
+    --no-email) EMAIL_ENABLED="false"; shift ;;
     --email-from) EMAIL_FROM="$2"; shift 2 ;;
     --email-from-name) EMAIL_FROM_NAME="$2"; shift 2 ;;
     --no-create-ses-identity) CREATE_SES_IDENTITY="false"; shift ;;
@@ -113,7 +115,7 @@ echo "  Domain:         $DOMAIN"
 if [ "$EMAIL_ENABLED" = "true" ]; then
 echo "  Email (SES):    enabled (from: $EMAIL_FROM, create-identity: $CREATE_SES_IDENTITY)"
 else
-echo "  Email (SES):    disabled (pass --email to enable)"
+echo "  Email (SES):    disabled (--no-email)"
 fi
 echo ""
 # TLS is an ACM cert the foundation stack requests + DNS-validates against

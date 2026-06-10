@@ -11,18 +11,18 @@
  * failures must surface item-by-item.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockDeleteUserById = jest.fn();
 const mockLookupPrimaryOrgId = jest.fn();
 const mockAudit = jest.fn();
 const mockRequireAdminContext = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   resolveUserFeatures: jest.fn(),
   isValidFeatureFlag: () => true,
-  SYSTEM_ORG_ID: 'system',
   // `validateBulkArray` is the shared guard used by all bulk endpoints.
   // Mirror api-core's behaviour: empty/non-array → error; over cap → error;
   // otherwise return { value }.
@@ -37,7 +37,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
 }));
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class Schema {
     constructor() { /* no-op */ }
     index() { /* no-op */ }
@@ -51,39 +51,50 @@ jest.mock('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.mock('../src/helpers/audit', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
-jest.mock('../src/utils/token', () => ({ issueTokens: jest.fn() }));
-jest.mock('../src/utils/validation', () => ({
+jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},
   changePasswordSchema: {},
+  adminUpdateUserSchema: {},
 }));
-jest.mock('../src/utils/pagination', () => ({ parsePagination: () => ({ offset: 0, limit: 25 }) }));
+jest.unstable_mockModule('../src/utils/pagination.js', () => ({ parsePagination: () => ({ offset: 0, limit: 25 }) }));
 
-jest.mock('../src/helpers/controller-helper', () => ({
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireAdminContext: (req: any, res: any) => mockRequireAdminContext(req, res),
+  // Consumed transitively via user-admin.js -> user-profile.js.
+  requireAuthUserId: jest.fn(),
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
 }));
 
-jest.mock('../src/services', () => ({
+jest.unstable_mockModule('../src/services/index.js', () => ({
   userAdminService: {
     deleteUserById: (...a: unknown[]) => mockDeleteUserById(...a),
     lookupPrimaryOrgId: (...a: unknown[]) => mockLookupPrimaryOrgId(...a),
   },
+  // Consumed transitively via user-admin.js -> user-profile.js.
+  userProfileService: {},
   UA_USER_NOT_FOUND: 'UA_USER_NOT_FOUND',
   UA_USERNAME_TAKEN: 'UA_USERNAME_TAKEN',
   UA_EMAIL_TAKEN: 'UA_EMAIL_TAKEN',
   UA_OWNER_HAS_ORGS: 'UA_OWNER_HAS_ORGS',
   UA_ORG_NOT_FOUND: 'UA_ORG_NOT_FOUND',
+  // Consumed transitively via user-admin.js -> user-profile.js.
+  PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
+  PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
+  PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
+  PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
 }));
 
-jest.mock('../src/config', () => ({ config: {} }));
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
 
-import { bulkDeleteUsers } from '../src/controllers/user-admin';
+const { bulkDeleteUsers } = await import('../src/controllers/user-admin.js');
+
 
 function mockRes() {
   const res: any = {};

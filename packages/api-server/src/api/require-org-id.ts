@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode, sendError } from '@pipeline-builder/api-core';
-import { Request, Response, NextFunction } from 'express';
-import { getContext } from './get-context';
+import type { Request, Response, NextFunction } from 'express';
+import { getContext } from './get-context.js';
 
 /**
  * Create middleware that validates the request has an orgId in the identity headers.

@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { sendError } from '@pipeline-builder/api-core';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { z } from 'zod';
-import { config } from '../config';
-import { PASSWORD_RULES } from '../models/user';
+import { config } from '../config/index.js';
+import { PASSWORD_RULES } from '../models/user.js';
 
 /**
  * Validate data against a Zod schema.

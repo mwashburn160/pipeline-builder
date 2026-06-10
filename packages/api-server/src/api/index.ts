@@ -2,37 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Middleware
-export * from './middleware';
-export * from './middleware-factory';
-export * from './context-middleware';
-export * from './check-quota';
-export * from './require-org-id';
-export * from './get-context';
+export * from './middleware.js';
+export * from './middleware-factory.js';
+export * from './context-middleware.js';
+export * from './check-quota.js';
+export * from './require-org-id.js';
+export * from './get-context.js';
 
 // App factory
-export * from './app-factory';
+export * from './app-factory.js';
 
 // Health-check helpers
-export * from './health-checks';
+export * from './health-checks.js';
 
 // MongoDB connection helper (dependency-injected mongoose)
-export * from './mongo-connect';
+export * from './mongo-connect.js';
 
 // Quota helpers
-export * from './quota-helpers';
+export * from './quota-helpers.js';
 
 // Idempotency
-export * from './idempotency-middleware';
+export * from './idempotency-middleware.js';
 
 // Observability
-export * from './tracing';
-export * from './metrics';
+export * from './tracing.js';
+export * from './metrics.js';
 
 // Server utilities
-export * from './server';
+export * from './server.js';
 
 // Route wrapper
-export * from './route-wrapper';
+export * from './route-wrapper.js';
 
 // Request/Response types
-export * from './request-types';
+export * from './request-types.js';

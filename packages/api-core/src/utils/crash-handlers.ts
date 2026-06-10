@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Logger } from 'winston';
-import { createLogger } from './logger';
+import { createLogger } from './logger.js';
 
 let installed = false;
 

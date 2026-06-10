@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { createRequestContext } from './request-types';
-import type { SSEManager } from '../http/sse-connection-manager';
+import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import { createRequestContext } from './request-types.js';
+import type { SSEManager } from '../http/sse-connection-manager.js';
 
 /**
  * Creates middleware that attaches RequestContext to req.context

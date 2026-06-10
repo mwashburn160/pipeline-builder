@@ -1,17 +1,22 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUpdateLimits = jest.fn();
 const mockCheck = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createQuotaService: jest.fn(() => ({
     updateLimits: mockUpdateLimits,
     check: mockCheck,
   })),
+  getServiceAuthHeader: jest.fn(() => 'Bearer test'),
+  reserveQuota: jest.fn(),
+  decrementQuota: jest.fn(),
 }));
 
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     quota: {
       serviceHost: 'quota.test',
@@ -21,7 +26,8 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-import { updateQuotaLimits, getOrganizationQuotaStatus } from '../src/middleware/quota';
+const { updateQuotaLimits, getOrganizationQuotaStatus } = await import('../src/middleware/quota.js');
+
 
 describe('updateQuotaLimits', () => {
   beforeEach(() => {

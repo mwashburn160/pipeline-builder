@@ -32,12 +32,12 @@
     },
     {
       "name": "constructs",
-      "version": "10.5.1",
+      "version": "10.6.0",
       "type": "build"
     },
     {
       "name": "npm-check-updates",
-      "version": "19.3.2",
+      "version": "22.2.3",
       "type": "build"
     },
     {
@@ -47,7 +47,7 @@
     },
     {
       "name": "projen",
-      "version": "0.99.63",
+      "version": "0.99.71",
       "type": "build"
     },
     {
@@ -56,7 +56,7 @@
     },
     {
       "name": "typescript",
-      "version": "5.9.3",
+      "version": "6.0.3",
       "type": "build"
     }
   ],

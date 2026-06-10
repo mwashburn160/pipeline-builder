@@ -3,10 +3,10 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { toOrgId } from '../helpers/controller-helper';
-import { Group, GroupMembership, User, UserOrganization } from '../models';
-import type { GroupRole } from '../models';
-import { withMongoTransaction } from '../utils/mongo-tx';
+import { toOrgId } from '../helpers/controller-helper.js';
+import { Group, GroupMembership, User, UserOrganization } from '../models/index.js';
+import type { GroupRole } from '../models/index.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('groups-service');
 

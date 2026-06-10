@@ -6,7 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
-import { pluginService } from '../services/plugin-service';
+import { pluginService } from '../services/plugin-service.js';
 
 /**
  * Whitelist of plugin fields that may be set via bulk update.

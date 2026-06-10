@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+
 /**
  * Tests for OrgAwsCredentialsManager. Covers per-org provider selection,
  * fallback for orgs without config, in-flight coalescing, evict semantics,
@@ -8,7 +10,7 @@
  * duration) are wired through correctly to the underlying SDK.
  */
 
-import type { OrgAwsConfig } from '../src/utils/org-aws-credentials';
+import type { OrgAwsConfig } from '../src/utils/org-aws-credentials.js';
 
 // Capture the exact call args fromTemporaryCredentials sees so we can
 // assert the AssumeRole parameters are wired correctly. The provider
@@ -59,7 +61,7 @@ afterEach(() => {
 
 describe('OrgAwsCredentialsManager', () => {
   it('falls back to the default chain for orgs with no per-org config', async () => {
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver: async () => null });
 
     const provider = await manager.getCredentials('org-x');
@@ -76,7 +78,7 @@ describe('OrgAwsCredentialsManager', () => {
       sessionDurationSeconds: 1800,
       roleSessionName: 'pb-acme-session',
     };
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver: async () => cfg });
 
     const provider = await manager.getCredentials('org-acme');
@@ -95,7 +97,7 @@ describe('OrgAwsCredentialsManager', () => {
 
   it('omits ExternalId when the config does not set one', async () => {
     const cfg: OrgAwsConfig = { assumeRoleArn: 'arn:aws:iam::222222222222:role/no-eid' };
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver: async () => cfg });
 
     await manager.getCredentials('org-noeid');
@@ -105,7 +107,7 @@ describe('OrgAwsCredentialsManager', () => {
 
   it('defaults session name to pipeline-builder-<orgId> when not specified', async () => {
     const cfg: OrgAwsConfig = { assumeRoleArn: 'arn:aws:iam::333333333333:role/default-name' };
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver: async () => cfg });
 
     await manager.getCredentials('org-dn');
@@ -116,7 +118,7 @@ describe('OrgAwsCredentialsManager', () => {
   it('caches the provider per-org so a second call does not re-resolve', async () => {
     const cfg: OrgAwsConfig = { assumeRoleArn: 'arn:aws:iam::444444444444:role/cached' };
     const resolver = jest.fn().mockResolvedValue(cfg);
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver });
 
     await manager.getCredentials('org-c');
@@ -130,7 +132,7 @@ describe('OrgAwsCredentialsManager', () => {
     const cfg: OrgAwsConfig = { assumeRoleArn: 'arn:aws:iam::555555555555:role/coalesce' };
     // Slow resolver — all three callers should await the same in-flight promise.
     const resolver = jest.fn().mockImplementation(() => new Promise((r) => setTimeout(() => r(cfg), 20)));
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver });
 
     await Promise.all([manager.getCredentials('org-q'), manager.getCredentials('org-q'), manager.getCredentials('org-q')]);
@@ -139,7 +141,7 @@ describe('OrgAwsCredentialsManager', () => {
   });
 
   it('different orgs get independent providers (no cache cross-contamination)', async () => {
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({
       resolver: async (orgId) => ({ assumeRoleArn: `arn:aws:iam::000000000000:role/${orgId}` }),
     });
@@ -156,7 +158,7 @@ describe('OrgAwsCredentialsManager', () => {
   it('evict() drops the cached provider so the next call re-resolves', async () => {
     const cfg: OrgAwsConfig = { assumeRoleArn: 'arn:aws:iam::666666666666:role/evictable' };
     const resolver = jest.fn().mockResolvedValue(cfg);
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver });
 
     await manager.getCredentials('org-e');
@@ -169,7 +171,7 @@ describe('OrgAwsCredentialsManager', () => {
 
   it('evictAll() drops every cached provider', async () => {
     const resolver = jest.fn().mockImplementation(async (orgId: string) => ({ assumeRoleArn: `arn:aws:iam::000:role/${orgId}` }));
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver });
 
     await manager.getCredentials('org-a');
@@ -183,14 +185,14 @@ describe('OrgAwsCredentialsManager', () => {
   });
 
   it('rejects empty orgId rather than building an unscoped provider', async () => {
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver: async () => null });
     await expect(manager.getCredentials('')).rejects.toThrow(/non-empty orgId/);
   });
 
   it('honors a caller-supplied fallback over the default chain', async () => {
     const customFallback = jest.fn().mockResolvedValue({ accessKeyId: 'AKIA-CUSTOM', secretAccessKey: 's' });
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver: async () => null, fallback: customFallback });
 
     const provider = await manager.getCredentials('org-cf');
@@ -201,7 +203,7 @@ describe('OrgAwsCredentialsManager', () => {
   });
 
   it('treats a config with empty assumeRoleArn as no-config (falls back)', async () => {
-    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({
       resolver: async () => ({ assumeRoleArn: '' } as unknown as OrgAwsConfig),
     });
@@ -216,7 +218,7 @@ describe('OrgAwsCredentialsManager', () => {
 describe('resolveOrgCredentialsOnce', () => {
   it('returns resolved credentials from a one-shot manager', async () => {
     const cfg: OrgAwsConfig = { assumeRoleArn: 'arn:aws:iam::777777777777:role/oneshot', externalId: 'one' };
-    const { resolveOrgCredentialsOnce: r } = await import('../src/utils/org-aws-credentials');
+    const { resolveOrgCredentialsOnce: r } = await import('../src/utils/org-aws-credentials.js');
     const creds = await r('org-once', async () => cfg);
     expect(creds.accessKeyId).toBe(`AKIA-${cfg.assumeRoleArn}`);
   });
@@ -225,7 +227,7 @@ describe('resolveOrgCredentialsOnce', () => {
 describe('withOrgAwsCredentials', () => {
   it('passes the per-org credential provider to the factory', async () => {
     const cfg: OrgAwsConfig = { assumeRoleArn: 'arn:aws:iam::888888888888:role/wrapper' };
-    const { OrgAwsCredentialsManager: M, withOrgAwsCredentials: w } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M, withOrgAwsCredentials: w } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver: async () => cfg });
 
     // Factory receives the AwsCredentialIdentityProvider — exactly what an
@@ -239,7 +241,7 @@ describe('withOrgAwsCredentials', () => {
 
   it('invokes the factory exactly once per call (no caching at this layer)', async () => {
     const cfg: OrgAwsConfig = { assumeRoleArn: 'arn:aws:iam::999999999999:role/once' };
-    const { OrgAwsCredentialsManager: M, withOrgAwsCredentials: w } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M, withOrgAwsCredentials: w } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver: async () => cfg });
     const factory = jest.fn((credentials) => ({ credentials }));
 
@@ -249,7 +251,7 @@ describe('withOrgAwsCredentials', () => {
   });
 
   it('threads the no-config fallback provider through to the factory', async () => {
-    const { OrgAwsCredentialsManager: M, withOrgAwsCredentials: w } = await import('../src/utils/org-aws-credentials');
+    const { OrgAwsCredentialsManager: M, withOrgAwsCredentials: w } = await import('../src/utils/org-aws-credentials.js');
     const manager = new M({ resolver: async () => null });
     const client = await w(manager, 'org-no-cfg', (credentials) => ({ credentials }));
     const creds = await client.credentials();

@@ -18,9 +18,9 @@
  */
 
 import { sendSuccess } from '@pipeline-builder/api-core';
-import { requireSystemAdmin, withController } from '../helpers/controller-helper';
-import { Organization, User } from '../models';
-import OrgIdpConfig from '../models/org-idp-config';
+import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { Organization, User } from '../models/index.js';
+import OrgIdpConfig from '../models/org-idp-config.js';
 
 /** GET /api/admin/summary — fleet stats for the sysadmin dashboard. */
 export const getAdminSummary = withController('Get admin summary', async (req, res) => {

@@ -1,18 +1,18 @@
 {
   "dependencies": [
     {
+      "name": "@jest/globals",
+      "version": "30.2.0",
+      "type": "build"
+    },
+    {
       "name": "@stylistic/eslint-plugin",
       "version": "^2",
       "type": "build"
     },
     {
-      "name": "@types/jest",
-      "version": "30.0.0",
-      "type": "build"
-    },
-    {
       "name": "@types/node",
-      "version": "25.3.0",
+      "version": "25.9.2",
       "type": "build"
     },
     {
@@ -45,7 +45,7 @@
     },
     {
       "name": "jest",
-      "version": "30.0.0",
+      "version": "30.4.2",
       "type": "build"
     },
     {
@@ -55,37 +55,37 @@
     },
     {
       "name": "typescript",
-      "version": "5.9.3",
+      "version": "6.0.3",
       "type": "build"
     },
     {
       "name": "@ai-sdk/amazon-bedrock",
-      "version": "4.0.64",
+      "version": "4.0.113",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/anthropic",
-      "version": "3.0.47",
+      "version": "3.0.81",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/google",
-      "version": "3.0.31",
+      "version": "3.0.80",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai-compatible",
-      "version": "2.0.31",
+      "version": "2.0.48",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai",
-      "version": "3.0.31",
+      "version": "3.0.68",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/xai",
-      "version": "3.0.59",
+      "version": "3.0.93",
       "type": "runtime"
     },
     {
@@ -95,7 +95,7 @@
     },
     {
       "name": "ai",
-      "version": "6.0.99",
+      "version": "6.0.198",
       "type": "runtime"
     }
   ],

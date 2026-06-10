@@ -18,11 +18,11 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { buildSubscriptionResponse, createBillingEvent, syncTierToQuotaService } from '../helpers/billing-helpers';
-import { BillingEvent } from '../models/billing-event';
-import { Plan } from '../models/plan';
-import { Subscription } from '../models/subscription';
-import { AdminSubscriptionUpdateSchema } from '../validation/schemas';
+import { buildSubscriptionResponse, createBillingEvent, syncTierToQuotaService } from '../helpers/billing-helpers.js';
+import { BillingEvent } from '../models/billing-event.js';
+import { Plan } from '../models/plan.js';
+import { Subscription } from '../models/subscription.js';
+import { AdminSubscriptionUpdateSchema } from '../validation/schemas.js';
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 

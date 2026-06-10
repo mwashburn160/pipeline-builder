@@ -4,17 +4,17 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { Duration, SecretValue, Stack } from 'aws-cdk-lib';
-import { BuildEnvironmentVariableType, ComputeType as CDKComputeType, LinuxBuildImage, IBuildImage } from 'aws-cdk-lib/aws-codebuild';
+import { BuildEnvironmentVariableType, ComputeType as CDKComputeType, LinuxBuildImage, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { CodeBuildStep, ManualApprovalStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import type { Construct } from 'constructs';
-import type { ArtifactKey } from './artifact-manager';
-import { metadataForShellStep, metadataForCodeBuildStep, metadataForBuildEnvironment, networkConfigFromMetadata } from './metadata-builder';
-import { resolveNetwork } from './network';
-import { PluginType, ComputeType, MetaDataType, CDK_METADATA_PREFIX } from './pipeline-types';
-import { Config, CoreConstants } from '../config/app-config';
-import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types';
-import { resolvePluginTemplates } from '../template/plugin-resolver';
+import type { ArtifactKey } from './artifact-manager.js';
+import { metadataForShellStep, metadataForCodeBuildStep, metadataForBuildEnvironment, networkConfigFromMetadata } from './metadata-builder.js';
+import { resolveNetwork } from './network.js';
+import { PluginType, ComputeType, type MetaDataType, CDK_METADATA_PREFIX } from './pipeline-types.js';
+import { Config, CoreConstants } from '../config/app-config.js';
+import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types.js';
+import { resolvePluginTemplates } from '../template/plugin-resolver.js';
 
 const log = createLogger('pipeline-helpers');
 
@@ -196,7 +196,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   if (!plugin.name || !plugin.version) {
     log.warn(
       `Plugin "${plugin.name}" has buildType=${plugin.buildType} but missing name/version — ` +
-      'CodeBuild will run on aws/codebuild/standard:7.0 and won\'t have the plugin\'s baked tools.',
+      'CodeBuild will run on aws/codebuild/standard:8.0 and won\'t have the plugin\'s baked tools.',
     );
     return undefined;
   }
@@ -208,7 +208,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
     // Config namespace not loaded (e.g., unit tests without full config).
     log.warn(
       `Plugin "${plugin.name}:${plugin.version}" needs the registry config but it's not loaded — ` +
-      'CodeBuild will fall back to aws/codebuild/standard:7.0. ' +
+      'CodeBuild will fall back to aws/codebuild/standard:8.0. ' +
       'Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT in pipeline-manager\'s environment.',
     );
     return undefined;
@@ -217,7 +217,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   if (!registry?.host) {
     log.warn(
       `Plugin "${plugin.name}:${plugin.version}" needs IMAGE_REGISTRY_HOST but it's empty — ` +
-      'CodeBuild will fall back to aws/codebuild/standard:7.0. ' +
+      'CodeBuild will fall back to aws/codebuild/standard:8.0. ' +
       'Set IMAGE_REGISTRY_HOST in pipeline-manager\'s environment to use the plugin image.',
     );
     return undefined;
@@ -299,10 +299,16 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
  *   `resolvePluginImage()` uses for plugin images. Needs `scope` + `orgId`.
  * - Fully-qualified registry URI (contains `/`): used as-is, no auth wired.
  * - Missing registry config or scope/orgId → falls back to
- *   `aws/codebuild/standard:7.0` (as a CURATED image, see above), with a
+ *   `aws/codebuild/standard:8.0` (as a CURATED image, see above), with a
  *   warning so synth degrades gracefully on partially configured envs.
  */
-const STANDARD_7_0 = 'aws/codebuild/standard:7.0';
+const STANDARD_8_0 = 'aws/codebuild/standard:8.0';
+
+/**
+ * aws-cdk-lib 2.258 has no `LinuxBuildImage.STANDARD_8_0` static yet, so the
+ * curated 8.0 fallback resolves via `fromCodeBuildImageId` (still CODEBUILD creds).
+ */
+const fallbackBuildImage = (): IBuildImage => LinuxBuildImage.fromCodeBuildImageId(STANDARD_8_0);
 
 /**
  * Map AWS curated `aws/codebuild/*` image strings to the matching
@@ -313,7 +319,6 @@ const STANDARD_7_0 = 'aws/codebuild/standard:7.0';
 function curatedLinuxBuildImage(imageId: string): IBuildImage | undefined {
   if (!imageId.startsWith('aws/codebuild/')) return undefined;
   switch (imageId) {
-    case 'aws/codebuild/standard:7.0': return LinuxBuildImage.STANDARD_7_0;
     case 'aws/codebuild/standard:6.0': return LinuxBuildImage.STANDARD_6_0;
     case 'aws/codebuild/standard:5.0': return LinuxBuildImage.STANDARD_5_0;
     // Newer codenamed images route through fromCodeBuildImageId, which
@@ -327,7 +332,7 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
   try {
     configured = Config.get('aws').codeBuild.defaultImage;
   } catch {
-    configured = STANDARD_7_0;
+    configured = STANDARD_8_0;
   }
 
   // AWS curated image → CODEBUILD credentials. MUST go through the
@@ -341,7 +346,7 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
   }
 
   // Bare tag → auto-prefix with the platform registry, mirroring
-  // resolvePluginImage(). Bail to STANDARD_7_0 as a curated fallback
+  // resolvePluginImage(). Bail to the curated standard:8.0 fallback
   // (with a warning) at each missing prerequisite so synth degrades
   // gracefully on partially configured environments instead of failing.
   let registry;
@@ -350,23 +355,23 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
   } catch {
     log.warn(
       `CODEBUILD_DEFAULT_IMAGE='${configured}' is a bare tag but registry config not loaded — ` +
-      `falling back to ${STANDARD_7_0}. Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT.`,
+      `falling back to ${STANDARD_8_0}. Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT.`,
     );
-    return LinuxBuildImage.STANDARD_7_0;
+    return fallbackBuildImage();
   }
   if (!registry?.host) {
     log.warn(
       `CODEBUILD_DEFAULT_IMAGE='${configured}' is a bare tag but IMAGE_REGISTRY_HOST is empty — ` +
-      `falling back to ${STANDARD_7_0}.`,
+      `falling back to ${STANDARD_8_0}.`,
     );
-    return LinuxBuildImage.STANDARD_7_0;
+    return fallbackBuildImage();
   }
   if (!scope || !orgId) {
     log.warn(
       `CODEBUILD_DEFAULT_IMAGE='${configured}' needs scope+orgId for Secret auth — ` +
-      `falling back to ${STANDARD_7_0}. (Caller did not supply them.)`,
+      `falling back to ${STANDARD_8_0}. (Caller did not supply them.)`,
     );
-    return LinuxBuildImage.STANDARD_7_0;
+    return fallbackBuildImage();
   }
 
   const portPart = registry.port && registry.port !== 80 && registry.port !== 443

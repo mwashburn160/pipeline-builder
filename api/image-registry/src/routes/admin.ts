@@ -12,8 +12,8 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
-import { runRegistryGc } from '../services/registry-gc';
-import { computeStorageUsage } from '../services/storage-usage';
+import { runRegistryGc } from '../services/registry-gc.js';
+import { computeStorageUsage } from '../services/storage-usage.js';
 
 const logger = createLogger('admin-routes');
 

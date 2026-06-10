@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import { requireOrgMembership, withController } from '../helpers/controller-helper';
-import type { InvitationOAuthProvider } from '../models/invitation';
+import { config } from '../config/index.js';
+import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
+import type { InvitationOAuthProvider } from '../models/invitation.js';
 import {
   invitationService,
   INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED,
   INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED,
   INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING,
-} from '../services';
-import { parsePagination } from '../utils/pagination';
-import { validateBody, sendInvitationSchema } from '../utils/validation';
+} from '../services/index.js';
+import { parsePagination } from '../utils/pagination.js';
+import { validateBody, sendInvitationSchema } from '../utils/validation.js';
 
 const logger = createLogger('invitation-controller');
 

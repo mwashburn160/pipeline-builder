@@ -18,8 +18,8 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { resolvePipeline, type PipelineLike } from '../helpers/pipeline-template-validator';
-import { pipelineService } from '../services/pipeline-service';
+import { resolvePipeline, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { pipelineService } from '../services/pipeline-service.js';
 
 export function createReadPipelineRoutes(
   quotaService: QuotaService,

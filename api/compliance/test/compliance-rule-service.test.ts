@@ -1,8 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const cacheGetOrSet = jest.fn((_key: string, factory: () => Promise<unknown>) => factory());
-const cacheInvalidatePattern = jest.fn().mockResolvedValue(0);
+const cacheInvalidatePattern = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(0);
 
 class StubCrudService {
   find = jest.fn();
@@ -30,24 +33,18 @@ function makeSelectChain(): Record<string, unknown> {
 }
 const dbSelect = jest.fn(() => makeSelectChain());
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message: String(err)),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createCacheService: () => ({
     getOrSet: (...args: unknown[]) => cacheGetOrSet(...args as [string, () => Promise<unknown>]),
     invalidatePattern: cacheInvalidatePattern,
   }),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CrudService: StubCrudService,
   CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 },
   buildComplianceRuleConditions: jest.fn(() => []),
+  buildPublishedRuleCatalogConditions: jest.fn(() => []),
   drizzleCount: (r: unknown) => r,
   schema: {
     complianceRule: {
@@ -80,14 +77,14 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   }),
 }));
 
-jest.mock('../src/helpers/rule-change-notifier', () => ({
-  notifyPublishedRuleChange: jest.fn().mockResolvedValue(undefined),
+jest.unstable_mockModule('../src/helpers/rule-change-notifier.js', () => ({
+  notifyPublishedRuleChange: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
 }));
 
-import { ComplianceRuleService } from '../src/services/compliance-rule-service';
+const { ComplianceRuleService } = await import('../src/services/compliance-rule-service.js');
 
 describe('ComplianceRuleService', () => {
-  let svc: ComplianceRuleService;
+  let svc: InstanceType<typeof ComplianceRuleService>;
 
   beforeEach(() => {
     selectResult = [];

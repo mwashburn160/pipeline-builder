@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('../src/config', () => ({
+import { jest, describe, it, expect, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     auth: {
       jwt: { secret: 'test-secret', expiresIn: 3600 },
@@ -11,26 +13,31 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  })),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
+  // Consumed transitively via token.js -> org-hierarchy.js.
+  resolveUserFeatures: jest.fn(() => ({})),
+  resolveOrgLineageWith: jest.fn(),
+  isAncestorOrgWith: jest.fn(),
+  expandOrgScopeWith: jest.fn(),
+  toOrgIdString: (id: unknown) => String(id),
 }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     findById: jest.fn().mockReturnValue({
       select: jest.fn().mockResolvedValue(null),
     }),
   },
+  User: {},
+  UserOrganization: {},
 }));
 
-import { hashRefreshToken } from '../src/utils/token';
-import { validateBody, registerSchema, loginSchema, refreshSchema } from '../src/utils/validation';
+const { hashRefreshToken } = await import('../src/utils/token.js');
+const { validateBody, registerSchema, loginSchema, refreshSchema } = await import('../src/utils/validation.js');
+const { sendError: mockSendErrorFn } = await import('@pipeline-builder/api-core');
+const mockSendError = mockSendErrorFn as jest.MockedFunction<typeof mockSendErrorFn>;
+
 
 describe('auth-utils schemas', () => {
   describe('registerSchema', () => {
@@ -104,7 +111,6 @@ describe('validateBody (auth-utils version)', () => {
   });
 
   it('should return null and send error for invalid input', () => {
-    const mockSendError = jest.requireMock('@pipeline-builder/api-core').sendError;
     mockSendError.mockClear();
     const res = {} as any;
 
@@ -114,7 +120,6 @@ describe('validateBody (auth-utils version)', () => {
   });
 
   it('should include field path in error message', () => {
-    const mockSendError = jest.requireMock('@pipeline-builder/api-core').sendError;
     mockSendError.mockClear();
     const res = {} as any;
 

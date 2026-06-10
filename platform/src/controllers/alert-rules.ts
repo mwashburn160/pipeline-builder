@@ -16,11 +16,11 @@
  */
 
 import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit';
-import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper';
-import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota';
-import { alertRuleService, prepareRuleExpr, renderRulesYaml, validateRule, type RuleCreate, type RuleUpdate } from '../services/alert-rule-service';
-import { PromQLRewriteError } from '../services/promql-rewriter';
+import { audit } from '../helpers/audit.js';
+import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
+import { alertRuleService, prepareRuleExpr, renderRulesYaml, validateRule, type RuleCreate, type RuleUpdate } from '../services/alert-rule-service.js';
+import { PromQLRewriteError } from '../services/promql-rewriter.js';
 
 const logger = createLogger('alert-rules-controller');
 

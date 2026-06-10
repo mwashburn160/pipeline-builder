@@ -3,10 +3,10 @@
 
 import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
-import { config } from '../config';
-import { createBillingEvent, syncTierToQuotaService } from './billing-helpers';
-import { Plan } from '../models/plan';
-import { Subscription } from '../models/subscription';
+import { config } from '../config.js';
+import { createBillingEvent, syncTierToQuotaService } from './billing-helpers.js';
+import { Plan } from '../models/plan.js';
+import { Subscription } from '../models/subscription.js';
 
 const logger = createLogger('subscription-lifecycle');
 

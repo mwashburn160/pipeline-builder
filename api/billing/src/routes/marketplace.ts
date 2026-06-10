@@ -10,26 +10,25 @@ import {
   errorMessage,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, Request, Response } from 'express';
-import type { RequestHandler } from 'express';
-import { config } from '../config';
+import { Router, type Request, type Response, type RequestHandler } from 'express';
+import { config } from '../config.js';
 import {
   calculatePeriodEnd,
   createBillingEvent,
   syncTierToQuotaService,
-} from '../helpers/billing-helpers';
+} from '../helpers/billing-helpers.js';
 import {
   verifySNSSignature,
   confirmSNSSubscription,
   mapActionToStatus,
   type SNSMessage,
   type MarketplaceNotification,
-} from '../helpers/marketplace-helpers';
-import { Plan } from '../models/plan';
-import { Subscription } from '../models/subscription';
-import { claimWebhookEvent } from '../models/webhook-dedupe';
-import { AWSMarketplaceProvider } from '../providers/aws-marketplace-provider';
-import { getPaymentProvider } from '../providers/provider-factory';
+} from '../helpers/marketplace-helpers.js';
+import { Plan } from '../models/plan.js';
+import { Subscription } from '../models/subscription.js';
+import { claimWebhookEvent } from '../models/webhook-dedupe.js';
+import { AWSMarketplaceProvider } from '../providers/aws-marketplace-provider.js';
+import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('billing-marketplace');
 

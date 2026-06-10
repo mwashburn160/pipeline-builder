@@ -19,7 +19,7 @@ import {
   complianceExemptionService,
   CE_NOT_FOUND,
   CE_SELF_APPROVE,
-} from '../services/compliance-exemption-service';
+} from '../services/compliance-exemption-service.js';
 
 /** Exemption CRUD routes. */
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Must run before any z.* schema creation — Zod 4 requires eager extension
-import '../openapi/extend-zod';
+import '../openapi/extend-zod.js';
 import { z } from 'zod';
 
 /**

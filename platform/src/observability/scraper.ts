@@ -11,8 +11,8 @@
  */
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { User, Organization, UserOrganization } from '../models';
-import { setGauge } from './metrics';
+import { setGauge } from './metrics.js';
+import { User, Organization, UserOrganization } from '../models/index.js';
 
 const logger = createLogger('platform-scraper');
 /** How often to scrape org/user counts for the Prom gauges. Sized for the Prom

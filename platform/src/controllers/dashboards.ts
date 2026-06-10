@@ -19,12 +19,12 @@
  */
 
 import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit';
-import { isOrgAdmin, isSystemAdmin, requireAuthContext, withController } from '../helpers/controller-helper';
-import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota';
-import { QUERIES } from '../observability/catalog';
-import { dashboardService, type PanelInput } from '../services/dashboard-service';
-import { isReasonableString } from '../utils/string-guards';
+import { audit } from '../helpers/audit.js';
+import { isOrgAdmin, isSystemAdmin, requireAuthContext, withController } from '../helpers/controller-helper.js';
+import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
+import { QUERIES } from '../observability/catalog.js';
+import { dashboardService, type PanelInput } from '../services/dashboard-service.js';
+import { isReasonableString } from '../utils/string-guards.js';
 
 const logger = createLogger('dashboards-controller');
 

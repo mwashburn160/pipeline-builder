@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { HttpStatus } from '../src/constants/http-status';
+import { describe, it, expect } from '@jest/globals';
+
+import { HttpStatus } from '../src/constants/http-status.js';
 
 describe('HttpStatus', () => {
   it('should have correct 2xx success codes', () => {

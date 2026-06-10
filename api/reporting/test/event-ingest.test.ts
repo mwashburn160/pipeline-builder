@@ -5,10 +5,13 @@
  * Tests for POST /reports/events ingest endpoint.
  */
 
-const mockSelect = jest.fn();
-const mockInsert = jest.fn();
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('@pipeline-builder/api-server', () => ({
+const mockSelect = jest.fn<(...args: unknown[]) => unknown>();
+const mockInsert = jest.fn<(...args: unknown[]) => unknown>();
+
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'test-org', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: opts?.requireOrgId === false ? '' : 'test-org', userId: 'user-1' });
@@ -19,19 +22,12 @@ jest.mock('@pipeline-builder/api-server', () => ({
   attachRequestContext: () => jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((_res: any, _code: number, data: any) => data),
   sendBadRequest: jest.fn((_res: any, msg: string) => msg),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR' },
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   requireAuth: jest.fn((_req: any, _res: any, next: any) => next()),
   hashAccountInArn: (arn: string) => arn,
   hashId: (value: string) => value,
-  createCacheService: () => ({
-    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-    invalidatePattern: () => Promise.resolve(0),
-  }),
   parseDateRange: jest.fn(() => ({ from: '2026-01-01T00:00:00Z', to: '2026-01-31T00:00:00Z' })),
   REPORT_INTERVALS: ['day', 'week', 'month'] as const,
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
@@ -43,16 +39,17 @@ jest.mock('@pipeline-builder/api-core', () => ({
       : { error: 'invalid' }),
 }));
 
-jest.mock('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
-    invalidateOrg: jest.fn().mockResolvedValue(undefined),
+    invalidateOrg: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     MAX_EVENTS_PER_BATCH: 100,
   },
+  runWithTenantContext: (_ctx: any, fn: () => unknown) => fn(),
   db: {
     select: mockSelect,
     insert: mockInsert,
@@ -66,12 +63,12 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   eq: jest.fn((col: any, val: any) => ({ col, val })),
   inArray: jest.fn((col: any, vals: any) => ({ col, vals })),
 }));
 
-import { createEventIngestRoutes } from '../src/routes/event-ingest';
+const { createEventIngestRoutes } = await import('../src/routes/event-ingest.js');
 
 describe('POST /reports/events', () => {
   let router: any;
@@ -83,14 +80,14 @@ describe('POST /reports/events', () => {
     // Default: registry lookup returns a match
     const mockFrom = jest.fn().mockReturnValue({
       where: jest.fn().mockReturnValue({
-        limit: jest.fn().mockResolvedValue([{ pipelineId: 'p-1', orgId: 'acme' }]),
+        limit: jest.fn<() => Promise<unknown>>().mockResolvedValue([{ pipelineId: 'p-1', orgId: 'acme' }]),
       }),
     });
     mockSelect.mockReturnValue({ from: mockFrom });
 
     // Default: insert succeeds
     mockInsert.mockReturnValue({
-      values: jest.fn().mockResolvedValue({}),
+      values: jest.fn<() => Promise<unknown>>().mockResolvedValue({}),
     });
   });
 

@@ -9,19 +9,18 @@
  * a 400 with TEMPLATE_VALIDATION_FAILED on cycles / unknown paths.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockFindById = jest.fn();
 
-jest.mock('../src/services/pipeline-service', () => ({
+jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: { findById: mockFindById },
 }));
 
 // api-core mock — only the symbols the route imports
-jest.mock('@pipeline-builder/api-core', () => ({
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    TEMPLATE_VALIDATION_FAILED: 'TEMPLATE_VALIDATION_FAILED',
-  },
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  ValidationError: class ValidationError extends Error {},
   getParam: (p: any, k: string) => p[k],
   requirePublicAccess: () => true,
   sendBadRequest: jest.fn((res: any, msg: string, code?: string) => {
@@ -41,14 +40,14 @@ jest.mock('@pipeline-builder/api-core', () => ({
   incrementQuota: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (h: Function) => async (req: any, res: any) => {
     try { await h({ req, res, ctx: { log: jest.fn() }, orgId: 'org-1', userId: 'u-1' }); } catch (err: any) { res.status(500).json({ message: err.message }); }
   },
   incrementQuotaFromCtx: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30',
     CACHE_CONTROL_DETAIL: 'private, max-age=60',
@@ -74,7 +73,8 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   tokenize: jest.fn(),
 }));
 
-import { createReadPipelineRoutes } from '../src/routes/read-pipelines';
+const pipelineCore = await import('@pipeline-builder/pipeline-core');
+const { createReadPipelineRoutes } = await import('../src/routes/read-pipelines.js');
 
 const mockQuotaService = {
   increment: jest.fn().mockResolvedValue(undefined),
@@ -153,9 +153,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
 
   it('returns 400 TEMPLATE_VALIDATION_FAILED when resolution hits an error', async () => {
     // Swap the resolver mock to return an error once
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const core = require('@pipeline-builder/pipeline-core');
-    (core.resolveSelfReferencing as jest.Mock).mockImplementationOnce(() => ({
+    (pipelineCore.resolveSelfReferencing as jest.Mock).mockImplementationOnce(() => ({
       errors: [{ field: 'metadata.env', message: 'cycle detected', code: 'TEMPLATE_CYCLE' }],
     }));
     mockFindById.mockResolvedValue({

@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger } from '@pipeline-builder/api-core';
-import { Router, Request, Response } from 'express';
-import { requireAdminContext, withController } from '../helpers/controller-helper';
-import { requireAuth, requireServiceAuth } from '../middleware';
-import { isAuditAction } from '../models/audit-event';
-import { auditService, type AuditFilter } from '../services/audit-service';
-import { parsePagination } from '../utils/pagination';
+import { Router, type Request, type Response } from 'express';
+import { requireAdminContext, withController } from '../helpers/controller-helper.js';
+import { requireAuth, requireServiceAuth } from '../middleware/index.js';
+import { isAuditAction } from '../models/audit-event.js';
+import { auditService, type AuditFilter } from '../services/audit-service.js';
+import { parsePagination } from '../utils/pagination.js';
 
 const logger = createLogger('audit-routes');
 const router = Router();

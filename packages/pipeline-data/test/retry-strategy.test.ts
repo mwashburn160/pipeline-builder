@@ -1,17 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Mock createLogger to avoid Winston open handles in tests
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-import { ConnectionRetryStrategy } from '../src/database/retry-strategy';
+// Mock createLogger to avoid Winston open handles in tests
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+const { ConnectionRetryStrategy } = await import('../src/database/retry-strategy.js');
+type ConnectionRetryStrategy = InstanceType<typeof ConnectionRetryStrategy>;
 
 describe('ConnectionRetryStrategy', () => {
   let strategy: ConnectionRetryStrategy;

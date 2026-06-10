@@ -1,14 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { HttpStatus } from '../constants/http-status';
-import { JwtPayload } from '../types/common';
-import { ErrorCode } from '../types/error-codes';
-import { getHeaderString } from '../utils/headers';
-import { createLogger } from '../utils/logger';
-import { sendError } from '../utils/response';
+import { HttpStatus } from '../constants/http-status.js';
+import type { JwtPayload } from '../types/common.js';
+import { ErrorCode } from '../types/error-codes.js';
+import { getHeaderString } from '../utils/headers.js';
+import { createLogger } from '../utils/logger.js';
+import { sendError } from '../utils/response.js';
 
 const logger = createLogger('auth-middleware');
 

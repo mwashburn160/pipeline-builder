@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { config } from '../config';
+import { config } from '../config/index.js';
 
 const logger = createLogger('log-service');
 
@@ -197,7 +197,7 @@ function nanoToISO(nanoTs: string): string {
  * Loki query service. Wrapped in a class to match the sibling service-class
  * pattern (auditService, organizationService, …). The named function
  * exports below are back-compat shims for the existing controller import
- * (`import * as logService from '../services/log-service'`).
+ * (`import * as logService from '../services/log-service.js'`).
  */
 class LogService {
   /** Query logs from Loki with org-scoped filtering. */

@@ -5,29 +5,25 @@
  * Tests for payment providers and provider factory.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 // Mock Mongoose Subscription model
 const mockFindOne = jest.fn();
-jest.mock('../src/models/subscription', () => ({
+jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { findOne: (...args: unknown[]) => mockFindOne(...args) },
 }));
 
 // Mock AWS SDK clients
 const mockMeteringSend = jest.fn();
 const mockEntitlementSend = jest.fn();
-jest.mock('@aws-sdk/client-marketplace-metering', () => ({
+jest.unstable_mockModule('@aws-sdk/client-marketplace-metering', () => ({
   MarketplaceMeteringClient: jest.fn().mockImplementation(() => ({ send: mockMeteringSend })),
   ResolveCustomerCommand: jest.fn(),
 }));
-jest.mock('@aws-sdk/client-marketplace-entitlement-service', () => ({
+jest.unstable_mockModule('@aws-sdk/client-marketplace-entitlement-service', () => ({
   MarketplaceEntitlementServiceClient: jest.fn().mockImplementation(() => ({ send: mockEntitlementSend })),
   GetEntitlementsCommand: jest.fn(),
 }));
@@ -37,8 +33,8 @@ const mockStripeCustomersCreate = jest.fn();
 const mockStripeSubscriptionsCreate = jest.fn();
 const mockStripeSubscriptionsUpdate = jest.fn();
 const mockStripeSubscriptionsRetrieve = jest.fn();
-jest.mock('stripe', () => {
-  return jest.fn().mockImplementation(() => ({
+jest.unstable_mockModule('stripe', () => {
+  const StripeMock = jest.fn().mockImplementation(() => ({
     customers: { create: mockStripeCustomersCreate },
     subscriptions: {
       create: mockStripeSubscriptionsCreate,
@@ -46,11 +42,15 @@ jest.mock('stripe', () => {
       retrieve: mockStripeSubscriptionsRetrieve,
     },
   }));
+  return { default: StripeMock };
 });
 
-import { AWSMarketplaceProvider } from '../src/providers/aws-marketplace-provider';
-import { StripeProvider } from '../src/providers/stripe-provider';
-import { StubPaymentProvider } from '../src/providers/stub-provider';
+const { AWSMarketplaceProvider } = await import('../src/providers/aws-marketplace-provider.js');
+const { StripeProvider } = await import('../src/providers/stripe-provider.js');
+const { StubPaymentProvider } = await import('../src/providers/stub-provider.js');
+
+type AWSMarketplaceProvider = InstanceType<typeof AWSMarketplaceProvider>;
+type StripeProvider = InstanceType<typeof StripeProvider>;
 
 // StubPaymentProvider
 

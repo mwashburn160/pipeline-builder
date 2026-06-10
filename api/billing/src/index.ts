@@ -6,15 +6,15 @@ import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMo
 import express from 'express';
 import mongoose from 'mongoose';
 
-import { config } from './config';
-import { seedPlans } from './helpers/seed-plans';
-import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle';
-import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions';
-import { createMarketplaceRoutes } from './routes/marketplace';
-import { createReadPlanRoutes } from './routes/read-plans';
-import { createStripeWebhookRoutes } from './routes/stripe-webhook';
-import { createSubscriptionRoutes } from './routes/subscriptions';
-import { createUsageRoutes } from './routes/usage';
+import { config } from './config.js';
+import { seedPlans } from './helpers/seed-plans.js';
+import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
+import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
+import { createMarketplaceRoutes } from './routes/marketplace.js';
+import { createReadPlanRoutes } from './routes/read-plans.js';
+import { createStripeWebhookRoutes } from './routes/stripe-webhook.js';
+import { createSubscriptionRoutes } from './routes/subscriptions.js';
+import { createUsageRoutes } from './routes/usage.js';
 
 const logger = createLogger('billing');
 

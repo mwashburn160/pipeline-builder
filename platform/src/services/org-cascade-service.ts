@@ -21,10 +21,10 @@
 import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { db, runWithTenantContext, schema } from '@pipeline-builder/pipeline-core';
 import { eq, sql } from 'drizzle-orm';
-import { config } from '../config';
-import AuditEvent from '../models/audit-event';
-import Invitation from '../models/invitation';
-import OrgIdpConfig from '../models/org-idp-config';
+import { config } from '../config/index.js';
+import AuditEvent from '../models/audit-event.js';
+import Invitation from '../models/invitation.js';
+import OrgIdpConfig from '../models/org-idp-config.js';
 
 const logger = createLogger('org-cascade');
 

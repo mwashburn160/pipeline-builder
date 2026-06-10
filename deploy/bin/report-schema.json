@@ -147,7 +147,7 @@
       "properties": {
         "computeType": {
           "type": "string",
-          "enum": ["SMALL", "MEDIUM", "LARGE"]
+          "enum": ["SMALL", "MEDIUM", "LARGE", "X2_LARGE"]
         },
         "region": { "type": "string" },
         "buildId": { "type": "string" },

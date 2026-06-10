@@ -31,10 +31,10 @@ import {
   sendError,
   sendSuccess,
 } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit';
-import { requireSystemAdmin, withController } from '../helpers/controller-helper';
-import { Organization } from '../models';
-import { captureOrgSecrets, reencryptOrgSecrets } from '../services/secret-reencrypt';
+import { audit } from '../helpers/audit.js';
+import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { Organization } from '../models/index.js';
+import { captureOrgSecrets, reencryptOrgSecrets } from '../services/secret-reencrypt.js';
 
 const logger = createLogger('org-kms-config-controller');
 

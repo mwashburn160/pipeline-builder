@@ -4,11 +4,11 @@
 import { execSync } from 'child_process';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { APP_NAME, APP_VERSION, generateExecutionId } from '../config/cli.constants';
-import { getCdkInfo } from '../utils/cdk-utils';
-import { getConfig } from '../utils/config-loader';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printDivider, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { APP_NAME, APP_VERSION, generateExecutionId } from '../config/cli.constants.js';
+import { getCdkInfo } from '../utils/cdk-utils.js';
+import { getConfig } from '../utils/config-loader.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printDivider, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 
 const { bold, cyan, dim, green, magenta, red, yellow } = pico;
 

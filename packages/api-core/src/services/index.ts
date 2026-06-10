@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-export * from './cache-service';
-export * from './compliance-client';
-export * from './compliance-event-subscriber';
-export * from './entity-events';
-export * from './http-client';
+export * from './cache-service.js';
+export * from './compliance-client.js';
+export * from './compliance-event-subscriber.js';
+export * from './entity-events.js';
+export * from './http-client.js';
 export {
   DEFAULT_MAX_RETRIES,
   DEFAULT_RETRY_DELAY_MS,
@@ -15,8 +15,8 @@ export {
   isRateLimited,
   getRetryDecision,
   getErrorRetryDecision,
-} from './retry-strategy';
-export type { RetryConfig, RetryDecision } from './retry-strategy';
-export * from './quota';
-export * from './remote-audit-client';
-export { enqueueComplianceEvent, registerComplianceQueueBackend, type ComplianceEvent } from './compliance-queue';
+} from './retry-strategy.js';
+export type { RetryConfig, RetryDecision } from './retry-strategy.js';
+export * from './quota.js';
+export * from './remote-audit-client.js';
+export { enqueueComplianceEvent, registerComplianceQueueBackend, type ComplianceEvent } from './compliance-queue.js';

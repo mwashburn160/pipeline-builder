@@ -12,9 +12,12 @@
 
 import { readdirSync, readFileSync, existsSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { describe, it, expect } from '@jest/globals';
 import YAML from 'yaml';
-import { validatePluginTemplates } from '../src/helpers/plugin-spec';
+import { validatePluginTemplates } from '../src/helpers/plugin-spec.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PLUGINS_ROOT = path.resolve(__dirname, '../../../deploy/plugins');
 
 function findAllPlugins(): string[] {

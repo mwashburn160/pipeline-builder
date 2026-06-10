@@ -97,7 +97,7 @@ case "$TARGET" in
       echo "Using PLATFORM_BASE_URL=$PLATFORM_BASE_URL"
     else
       # Resolve the domain from the foundation stack's DomainName output.
-      # Stack is "${STACK_PREFIX}-foundation" (deploy.sh default prefix: pb).
+      # Stack is "${STACK_PREFIX}-foundation" (setup.sh default prefix: pb).
       STACK_PREFIX="${STACK_PREFIX:-pb}"
       STACK_NAME="${STACK_NAME:-${STACK_PREFIX}-foundation}"
       echo "=== Resolving URL from CloudFormation stack: $STACK_NAME ==="
@@ -207,17 +207,17 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   if [ -z "$BUILD_STRATEGY" ] && [ -t 0 ]; then
     echo ""
     echo "  Plugin build strategy:"
-    echo "    1) prebuilt     — Use pre-built images bundled as image.tar (default)"
-    echo "    2) build_image  — Build from Dockerfile at upload time (slow)"
+    echo "    1) prebuilt     — Use pre-built images bundled as image.tar"
+    echo "    2) build_image  — Build from Dockerfile at upload time (default)"
     echo ""
-    printf "  Select [1/2] (default: 1): "
+    printf "  Select [1/2] (default: 2): "
     read -r _strategy_choice
     case "$_strategy_choice" in
-      2|build_image) BUILD_STRATEGY="build_image" ;;
-      *)             BUILD_STRATEGY="prebuilt" ;;
+      1|prebuilt) BUILD_STRATEGY="prebuilt" ;;
+      *)          BUILD_STRATEGY="build_image" ;;
     esac
   fi
-  BUILD_STRATEGY="${BUILD_STRATEGY:-prebuilt}"
+  BUILD_STRATEGY="${BUILD_STRATEGY:-build_image}"
 
   # ---- Category selection ----
   SELECTED_CATEGORIES=""
@@ -270,7 +270,12 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
     # images, since the per-plugin build step is skipped on this path
     # but plugin Dockerfiles still reference the bases.
     echo ""
-    DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" --bases-only
+    BASES_ARGS="--bases-only"
+    # FORCE_REBUILD must still force a rebuild of the base images on this
+    # (now-default) path, mirroring the prebuilt branch above.
+    [ "${FORCE_REBUILD:-}" != "true" ] || BASES_ARGS="$BASES_ARGS --force"
+    # shellcheck disable=SC2086
+    DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" $BASES_ARGS
     echo ""
   fi
 

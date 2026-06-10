@@ -10,8 +10,8 @@ import {
   createLogger,
 } from '@pipeline-builder/api-core';
 import type { Request, Response, RequestHandler } from 'express';
-import { getContext } from './get-context';
-import type { RequestContext } from './request-types';
+import { getContext } from './get-context.js';
+import type { RequestContext } from './request-types.js';
 
 const logger = createLogger('route-wrapper');
 

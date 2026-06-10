@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies
-jest.mock('../src/config', () => ({
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     auth: {
       passwordMinLength: 8,
@@ -23,16 +24,18 @@ jest.mock('../src/config', () => ({
 const mockFindById = jest.fn();
 const mockOrgFindById = jest.fn();
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {
     findById: (...args: any[]) => mockFindById(...args),
   },
   Organization: {
     findById: (...args: any[]) => mockOrgFindById(...args),
   },
+  UserOrganization: {},
 }));
 
-import { requireRole } from '../src/middleware/auth';
+const { requireRole } = await import('../src/middleware/auth.js');
+
 
 // Helpers
 

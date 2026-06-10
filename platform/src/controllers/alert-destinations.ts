@@ -20,13 +20,13 @@
 
 import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
-import { config } from '../config';
-import { audit } from '../helpers/audit';
-import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper';
-import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota';
-import { alertDestinationService, toApiDestination } from '../services/alert-destination-service';
-import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay';
-import { isReasonableString } from '../utils/string-guards';
+import { config } from '../config/index.js';
+import { audit } from '../helpers/audit.js';
+import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
+import { alertDestinationService, toApiDestination } from '../services/alert-destination-service.js';
+import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
+import { isReasonableString } from '../utils/string-guards.js';
 
 const logger = createLogger('alert-destinations-controller');
 

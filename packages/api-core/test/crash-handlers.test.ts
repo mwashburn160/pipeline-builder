@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { installCrashHandlers } from '../src/utils/crash-handlers';
+import { jest, describe, it, expect, afterEach } from '@jest/globals';
+
+import { installCrashHandlers } from '../src/utils/crash-handlers.js';
 
 const mockLogger = { error: jest.fn() } as unknown as import('winston').Logger;
 

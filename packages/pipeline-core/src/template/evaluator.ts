@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode } from '@pipeline-builder/api-core';
-import { CoerceKind, SourcePosition, Token } from './tokenizer';
+import type { CoerceKind, SourcePosition, Token } from './tokenizer.js';
 
 export type Scope = Record<string, unknown>;
 

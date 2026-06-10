@@ -22,8 +22,8 @@
 
 import { sendError } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
-import { consumeJti } from './consumed-jti';
-import { verifyStepUpToken } from '../utils/token';
+import { consumeJti } from './consumed-jti.js';
+import { verifyStepUpToken } from '../utils/token.js';
 
 const HEADER = 'x-step-up-token';
 

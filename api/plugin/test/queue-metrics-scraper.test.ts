@@ -11,22 +11,22 @@
  *   - clears the interval on `stopQueueMetricsScraper` and on SIGTERM
  */
 
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockSetGauge = jest.fn();
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   setGauge: mockSetGauge,
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-  errorMessage: (err: unknown) => err instanceof Error ? err.message : String(err),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 import type { Queue } from 'bullmq';
-import {
+const {
   startQueueMetricsScraper,
   stopQueueMetricsScraper,
-} from '../src/queue/queue-metrics-scraper';
+} = await import('../src/queue/queue-metrics-scraper.js');
 
 function makeQueue(counts: Record<string, number>): Queue {
   return {

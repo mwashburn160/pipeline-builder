@@ -7,9 +7,47 @@ import type { HelpTopic } from './types';
 export const deploymentTopic: HelpTopic = {
   id: 'deployment',
   title: 'Deployment',
-  description: 'Local, Minikube, and AWS deployment guides',
+  description: 'Install with the pipeline-manager CLI, plus Local, Minikube, and AWS guides',
   icon: Server,
   sections: [
+    {
+      id: 'provision',
+      title: 'Install with the CLI (recommended)',
+      blocks: [
+        {
+          type: 'text',
+          content:
+            'The recommended way to stand up the platform is the `pipeline-manager provision` installer. It picks the target, runs read-only prerequisite checks, and assembles the exact, validated `bin/setup.sh` command — secrets masked, missing inputs reported (never guessed). Add `--execute` to run it (gated by approval; it then verifies `/health` + `/ready` and offers to run `init-platform`). With an AI key set it also parses a natural-language goal and diagnoses CloudFormation failures.',
+        },
+        {
+          type: 'code',
+          language: 'bash',
+          content: `npm install -g @pipeline-builder/pipeline-manager
+
+# Advisor (default) — prints the exact command + prereq results, runs nothing:
+pipeline-manager provision --target local
+
+# Run it (gated: confirm → deploy → verify health → init-platform):
+pipeline-manager provision --target local --execute
+
+# Fargate, executed (SES email is provisioned by default):
+pipeline-manager provision --target fargate \\
+  --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --execute
+
+# Describe the goal (needs an AI key); or diagnose a failure:
+pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email"
+pipeline-manager provision --target fargate --diagnose ./stack-events.txt
+
+# Tear it down (AWS targets prompt you to TYPE the target id to confirm):
+pipeline-manager provision --target fargate --teardown --execute`,
+        },
+        {
+          type: 'note',
+          content:
+            'On failure it matches known CloudFormation issues (cause + fix) and can auto-fix + retry a few (e.g. an existing SES identity → re-run with --skip-ses-identity); retries are gated and bounded by --retries (default 1, scripts are idempotent). Flags: --execute runs the deploy (refuses on failed prerequisites or missing inputs), --yes auto-approves for CI, --retries <n> sets the retry budget, --no-init skips the post-deploy init step, --skip-ses-identity for an already-verified SES domain. Set ANTHROPIC_API_KEY (or AI_PROVIDER + its key) to add free-form diagnosis; without a key it falls back to the deterministic advisor + issue matcher. To remove a deployment, add --teardown: local/minikube stop the stack (on-disk data persists), while EC2/Fargate DELETE their CloudFormation stacks (irreversible) and require you to TYPE the target id to confirm (--force skips it for CI). The underlying bin/setup.sh / bin/shutdown.sh / bin/teardown.sh scripts can always be run directly.',
+        },
+      ],
+    },
     {
       id: 'local',
       title: 'Local Development (Docker Compose)',
@@ -17,7 +55,7 @@ export const deploymentTopic: HelpTopic = {
         {
           type: 'code',
           language: 'bash',
-          content: `cd deploy/local && chmod +x bin/startup.sh && ./bin/startup.sh`,
+          content: `cd deploy/local && chmod +x bin/setup.sh && ./bin/setup.sh`,
         },
         {
           type: 'text',
@@ -114,6 +152,10 @@ export const deploymentTopic: HelpTopic = {
       title: 'AWS Deployment',
       blocks: [
         {
+          type: 'note',
+          content: 'Recommended: install with the CLI. `pipeline-manager provision --target fargate --domain … --hosted-zone-id …` checks prerequisites and prints the exact, validated bin/setup.sh command (SES email is provisioned by default; pass `--no-email` to skip); add `--execute` to run it (gated by approval, then verifies /health + /ready and offers init-platform). With an AI key it also parses a natural-language goal and diagnoses failures.',
+        },
+        {
           type: 'text',
           content: 'Two production-ready AWS deployment options are available, both terminating TLS with an ACM certificate (DNS-validated) at the ALB:',
         },
@@ -136,7 +178,7 @@ aws cloudformation deploy --stack-name pipeline-builder --template-file template
 
 # Fargate: 6 CloudFormation stacks
 cd deploy/aws/fargate
-bash bin/deploy.sh --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx`,
+bash bin/setup.sh --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx`,
         },
       ],
     },
@@ -147,14 +189,18 @@ bash bin/deploy.sh --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-to
         {
           type: 'text',
           content:
-            'The platform sends invitations, email verification, and password resets via Amazon SES. It is off by default — add `--email` to either AWS deploy script to enable it in one shot.',
+            'The platform sends invitations, email verification, and password resets via Amazon SES. It is enabled by default — every AWS deploy provisions it in one shot; pass `--no-email` to skip it.',
         },
         {
           type: 'code',
           language: 'bash',
-          content: `# EC2 or Fargate — append --email
-bash bin/deploy.sh --domain pipeline.example.com --hosted-zone-id Z123 \\
-  --ghcr-token ghp_xxx --email`,
+          content: `# EC2 or Fargate — SES is provisioned by default
+bash bin/setup.sh --domain pipeline.example.com --hosted-zone-id Z123 \\
+  --ghcr-token ghp_xxx
+
+# Opt out with --no-email
+bash bin/setup.sh --domain pipeline.example.com --hosted-zone-id Z123 \\
+  --ghcr-token ghp_xxx --no-email`,
         },
         {
           type: 'list',

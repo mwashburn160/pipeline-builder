@@ -4,17 +4,17 @@
 import { createLogger, sendError, sendSuccess, resolveUserFeatures } from '@pipeline-builder/api-core';
 import type { FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
-import { audit } from '../helpers/audit';
-import { requireAuthUserId, withController } from '../helpers/controller-helper';
+import { audit } from '../helpers/audit.js';
+import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
 import {
   userProfileService,
   PROFILE_USER_NOT_FOUND,
   PROFILE_EMAIL_TAKEN,
   PROFILE_INVALID_CREDENTIALS,
   PROFILE_OWNER_HAS_ORGS,
-} from '../services';
-import { issueTokens } from '../utils/token';
-import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation';
+} from '../services/index.js';
+import { issueTokens } from '../utils/token.js';
+import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation.js';
 
 const logger = createLogger('user-profile-controller');
 

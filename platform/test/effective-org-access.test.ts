@@ -3,7 +3,8 @@
 
 // In-memory Organization model (parent chain) for the hierarchy walk used by
 // canAdministerOrg / canAccessOrg via isAncestorOrg.
-jest.mock('../src/models', () => {
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+jest.unstable_mockModule('../src/models/index.js', () => {
   const orgs = new Map<string, { _id: string; parentOrgId: string | null }>();
   const Organization = {
     __set(list: Array<{ _id: string; parentOrgId: string | null }>) {
@@ -17,10 +18,13 @@ jest.mock('../src/models', () => {
   return { Organization };
 });
 
-import type { Request } from 'express';
-import { canAdministerOrg, canAccessOrg } from '../src/helpers/controller-helper';
+const { canAdministerOrg, canAccessOrg } = await import('../src/helpers/controller-helper.js');
 
-const { Organization } = jest.requireMock('../src/models');
+import type { Request } from 'express';
+
+const { Organization } = (await import('../src/models/index.js')) as unknown as {
+  Organization: { __set(list: Array<{ _id: string; parentOrgId: string | null }>): void };
+};
 
 type U = { role?: string; organizationId?: string; organizationName?: string; isSuperAdmin?: boolean };
 const reqWith = (user: U): Request => ({ user } as unknown as Request);

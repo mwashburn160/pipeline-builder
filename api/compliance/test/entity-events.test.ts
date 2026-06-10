@@ -7,14 +7,10 @@
  * rule evaluation, and audit logging.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((_res: unknown, status: number, data: unknown) => ({ status, data })),
   sendError: jest.fn((_res: unknown, status: number, msg: string) => ({ status, msg })),
   sendBadRequest: jest.fn((_res: unknown, msg: string) => ({ status: 400, msg })),
@@ -25,14 +21,6 @@ jest.mock('@pipeline-builder/api-core', () => ({
       return { ok: false, error: err instanceof Error ? err.message : 'Validation failed' };
     }
   }),
-  ErrorCode: {
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-  },
-  createCacheService: () => ({
-    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-    invalidatePattern: () => Promise.resolve(0),
-  }),
   // Route uses `requireAuth` and `isServicePrincipal` as middleware. Pass
   // through to next() in the auth gate; isServicePrincipal returns true unless
   // the test sets `req.__notServicePrincipal`.
@@ -40,8 +28,8 @@ jest.mock('@pipeline-builder/api-core', () => ({
   isServicePrincipal: (req: { __notServicePrincipal?: boolean }) => !req?.__notServicePrincipal,
 }));
 
-const mockFindActiveByOrgAndTarget = jest.fn().mockResolvedValue([]);
-jest.mock('../src/services/compliance-rule-service', () => ({
+const mockFindActiveByOrgAndTarget = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue([]);
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
     findActiveByOrgAndTarget: (...args: unknown[]) => mockFindActiveByOrgAndTarget(...args),
   },
@@ -53,15 +41,15 @@ const mockEvaluateRules = jest.fn().mockReturnValue({
   warnings: [],
   rulesEvaluated: 0,
 });
-jest.mock('../src/engine/rule-engine', () => ({
+jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({
   evaluateRules: (...args: unknown[]) => mockEvaluateRules(...args),
 }));
 
-jest.mock('../src/helpers/audit-logger', () => ({
-  logComplianceCheck: jest.fn().mockResolvedValue(undefined),
+jest.unstable_mockModule('../src/helpers/audit-logger.js', () => ({
+  logComplianceCheck: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: {},
   db: { select: jest.fn() },
   // Route now wraps its handler in `runWithTenantContext` (so internal
@@ -71,8 +59,8 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
-import { sendSuccess, sendBadRequest } from '@pipeline-builder/api-core';
-import { createEntityEventRoutes } from '../src/routes/entity-events';
+const { sendSuccess, sendBadRequest } = await import('@pipeline-builder/api-core');
+const { createEntityEventRoutes } = await import('../src/routes/entity-events.js');
 
 // The route now has three middlewares: requireAuth, requireServicePrincipal,
 // final handler. Run them sequentially so the service-principal gate fires

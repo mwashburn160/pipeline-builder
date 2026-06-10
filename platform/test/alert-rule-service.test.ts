@@ -7,17 +7,18 @@
  * file focuses on the load-bearing pure logic (tenancy gate + YAML render).
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-}));
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: { orgAlertRule: {} },
   withTenantTx: jest.fn(),
   runWithTenantContext: jest.fn(),
 }));
 
-import { renderRulesYaml, validateRule } from '../src/services/alert-rule-service';
+const { renderRulesYaml, validateRule } = await import('../src/services/alert-rule-service.js');
+
 
 describe('validateRule  tenancy gate', () => {
   it('rejects an expression missing the org_id matcher', () => {

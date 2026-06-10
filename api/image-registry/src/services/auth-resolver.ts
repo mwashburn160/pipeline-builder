@@ -5,7 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
-import { config } from '../config';
+import { config } from '../config/index.js';
 
 const logger = createLogger('auth-resolver');
 

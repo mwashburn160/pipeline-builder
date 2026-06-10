@@ -11,25 +11,23 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const migrateFn = jest.fn();
 
-jest.mock('drizzle-orm/node-postgres/migrator', () => ({
+jest.unstable_mockModule('drizzle-orm/node-postgres/migrator', () => ({
   migrate: (...args: unknown[]) => migrateFn(...args),
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
-  }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-const getConnection = jest.fn().mockReturnValue({ db: { __mock: true } });
-jest.mock('../src/database/postgres-connection', () => ({
+const getConnection = jest.fn<() => { db: { __mock: boolean } }>().mockReturnValue({ db: { __mock: true } });
+jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
   getConnection: () => getConnection(),
 }));
 
-import { runMigrations } from '../src/database/migrator';
+const { runMigrations } = await import('../src/database/migrator.js');
 
 describe('runMigrations', () => {
   beforeEach(() => {

@@ -10,19 +10,25 @@
  * and the duplicate-key short-circuit explicitly.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+
 const mockCreate = jest.fn();
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
+  const Schema = class {
+    index(): void { /* no-op */ }
+  };
+  const models = {} as Record<string, unknown>;
+  const model = () => ({ create: (...args: unknown[]) => mockCreate(...args) });
   return {
-    Schema: class {
-      index(): void { /* no-op */ }
-    },
-    models: {} as Record<string, unknown>,
-    model: () => ({ create: (...args: unknown[]) => mockCreate(...args) }),
+    Schema,
+    models,
+    model,
+    default: { Schema, models, model },
   };
 });
 
-import { claimWebhookEvent } from '../src/models/webhook-dedupe';
+const { claimWebhookEvent } = await import('../src/models/webhook-dedupe.js');
 
 describe('claimWebhookEvent', () => {
   beforeEach(() => mockCreate.mockReset());

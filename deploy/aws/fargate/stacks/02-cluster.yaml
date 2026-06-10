@@ -23,7 +23,7 @@ Parameters:
 
   EmailEnabled:
     Type: String
-    Default: "false"
+    Default: "true"
     AllowedValues: ["true", "false"]
     Description: When true, grant the task role ses:SendEmail for the DomainName SES identity.
 

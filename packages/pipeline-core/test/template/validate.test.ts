@@ -6,7 +6,7 @@ import {
   validateTemplates,
   detectCycles,
   allowedScopeRoots,
-} from '../../src/template/validate';
+} from '../../src/template/validate.js';
 
 const isTemplatable = (f: string) =>
   f.startsWith('commands') || f.startsWith('env.') || f === 'description';

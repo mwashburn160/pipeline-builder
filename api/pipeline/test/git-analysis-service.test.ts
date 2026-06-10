@@ -1,30 +1,26 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-    warn: jest.fn(),
-  })),
-}));
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     GITHUB_API_BASE_URL: 'https://api.github.com',
     BITBUCKET_API_BASE_URL: 'https://api.bitbucket.org/2.0',
   },
 }));
 
-import {
+const {
   parseGitUrl,
   inferProjectType,
   inferPackageManager,
   inferFrameworks,
   buildEnhancedPrompt,
-  type RepoAnalysis,
-} from '../src/services/git-analysis-service';
+} = await import('../src/services/git-analysis-service.js');
+type RepoAnalysis = import('../src/services/git-analysis-service.js').RepoAnalysis;
 
 // parseGitUrl
 

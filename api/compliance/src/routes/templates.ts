@@ -5,8 +5,8 @@ import { sendSuccess, sendBadRequest, ErrorCode, createLogger, errorMessage, val
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { RULE_TEMPLATES } from '../data/rule-templates';
-import { complianceRuleService } from '../services/compliance-rule-service';
+import { RULE_TEMPLATES } from '../data/rule-templates.js';
+import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('compliance-templates');
 

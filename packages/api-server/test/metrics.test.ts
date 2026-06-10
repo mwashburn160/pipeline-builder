@@ -6,6 +6,8 @@
  * normalizeRoute is not exported directly, so we test the regex logic used by it.
  */
 
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+
 describe('normalizeRoute regex patterns', () => {
   // Replicate the normalizeRoute logic since the function is module-private
   function normalizeRoute(path: string): string {

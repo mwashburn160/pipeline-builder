@@ -1,8 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock dependencies required by schemas module
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     quota: {
       defaults: { plugins: 100, pipelines: 10, apiCalls: -1 },
@@ -11,9 +14,8 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
-  ErrorCode: {},
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'] as const,
   QUOTA_TIERS: {},
@@ -23,7 +25,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   isValidQuotaType: jest.fn(),
 }));
 
-import { UpdateQuotaSchema, IncrementQuotaSchema, ResetQuotaSchema } from '../src/validation/schemas';
+const { UpdateQuotaSchema, IncrementQuotaSchema, ResetQuotaSchema } = await import('../src/validation/schemas.js');
 
 // Tests
 

@@ -10,16 +10,13 @@
  * environment, not by these unit tests.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({
     delete: mockHttpDelete,
   }),
   getServiceAuthHeader: () => 'Bearer test-service-token',
-  SYSTEM_ORG_ID: 'system',
-  // org-cascade-service uses errorMessage(...) to safely stringify caught
-  // errors into report fields (avoid leaking Error.toString quirks).
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
 const mockHttpDelete = jest.fn();
@@ -31,7 +28,7 @@ const mockUpdateChain = { set: jest.fn(), where: jest.fn() };
 const mockDeleteChain = { where: jest.fn() };
 const mockSelectChain = { from: jest.fn(), where: jest.fn() };
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   db: {
     update: jest.fn(() => mockUpdateChain),
     delete: jest.fn(() => mockDeleteChain),
@@ -68,27 +65,28 @@ const mockAuditDeleteMany = jest.fn();
 const mockAuditFind = jest.fn();
 const mockIdpDeleteMany = jest.fn();
 
-jest.mock('../src/models/audit-event', () => ({
+jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
   default: { deleteMany: mockAuditDeleteMany, find: mockAuditFind },
 }));
-jest.mock('../src/models/invitation', () => ({
+jest.unstable_mockModule('../src/models/invitation.js', () => ({
   __esModule: true,
   default: { deleteMany: mockInvitationDeleteMany, find: mockInvitationFind },
 }));
-jest.mock('../src/models/org-idp-config', () => ({
+jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   __esModule: true,
   default: { deleteMany: mockIdpDeleteMany },
 }));
 
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     quota: { serviceHost: 'quota', servicePort: 3000 },
     billing: { serviceHost: 'billing', servicePort: 3000 },
   },
 }));
 
-import { cascadeDeleteOrg, exportOrg, SYSTEM_ORG_DELETE_FORBIDDEN } from '../src/services/org-cascade-service';
+const { cascadeDeleteOrg, exportOrg, SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-cascade-service.js');
+
 
 beforeEach(() => {
   jest.clearAllMocks();

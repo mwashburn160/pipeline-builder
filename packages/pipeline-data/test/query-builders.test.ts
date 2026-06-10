@@ -1,24 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  SYSTEM_ORG_ID: 'system',
-  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
-}));
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-import {
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+const {
   buildPipelineConditions,
   buildPluginConditions,
   buildMessageConditions,
   buildComplianceRuleConditions,
   buildCompliancePolicyConditions,
-} from '../src/api/query-builders';
+} = await import('../src/api/query-builders.js');
 
 describe('buildPipelineConditions', () => {
   it('returns conditions for empty filter', () => {

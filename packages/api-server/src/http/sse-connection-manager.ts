@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
 
 const logger = createLogger('sse-manager');

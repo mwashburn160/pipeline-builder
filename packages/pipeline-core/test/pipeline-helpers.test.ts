@@ -1,33 +1,35 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock heavy dependencies to avoid open handles from CDK/Winston in test workers
 const mockCodeBuildStep = jest.fn();
 const mockShellStep = jest.fn();
 const mockManualApprovalStep = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
-jest.mock('aws-cdk-lib', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('aws-cdk-lib', () => ({
   Duration: { minutes: jest.fn(), seconds: jest.fn() },
   SecretValue: { plainText: jest.fn((v: string) => v) },
+  CustomResource: jest.fn(),
+  RemovalPolicy: { DESTROY: 'DESTROY', RETAIN: 'RETAIN' },
+  Stack: jest.fn(),
+  Tags: { of: jest.fn(() => ({ add: jest.fn() })) },
+  Token: { isUnresolved: jest.fn(() => false) },
 }));
-jest.mock('aws-cdk-lib/aws-codebuild', () => ({
+jest.unstable_mockModule('aws-cdk-lib/aws-codebuild', () => ({
   ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE' },
   BuildEnvironmentVariableType: { PLAINTEXT: 'PLAINTEXT', SECRETS_MANAGER: 'SECRETS_MANAGER' },
+  LinuxBuildImage: { STANDARD_7_0: 'aws/codebuild/standard:7.0' },
 }));
-jest.mock('aws-cdk-lib/pipelines', () => ({
+jest.unstable_mockModule('aws-cdk-lib/pipelines', () => ({
   CodeBuildStep: mockCodeBuildStep,
   ShellStep: mockShellStep,
   ManualApprovalStep: mockManualApprovalStep,
 }));
-jest.mock('aws-cdk-lib/aws-ec2', () => ({
+jest.unstable_mockModule('aws-cdk-lib/aws-ec2', () => ({
   SubnetType: {
     PRIVATE_WITH_EGRESS: 'PRIVATE_WITH_EGRESS',
     PRIVATE_WITH_NAT: 'PRIVATE_WITH_NAT',
@@ -38,17 +40,18 @@ jest.mock('aws-cdk-lib/aws-ec2', () => ({
   SecurityGroup: { fromSecurityGroupId: jest.fn() },
   Subnet: { fromSubnetId: jest.fn() },
 }));
-jest.mock('constructs', () => ({ Construct: jest.fn() }));
-jest.mock('../src/core/metadata-builder', () => ({
+jest.unstable_mockModule('constructs', () => ({ Construct: jest.fn() }));
+jest.unstable_mockModule('../src/core/metadata-builder.js', () => ({
   metadataForCodeBuildStep: jest.fn(() => ({})),
   metadataForShellStep: jest.fn(() => ({})),
   metadataForBuildEnvironment: jest.fn(() => ({})),
+  networkConfigFromMetadata: jest.fn(() => undefined),
 }));
-jest.mock('../src/core/network', () => ({
+jest.unstable_mockModule('../src/core/network.js', () => ({
   resolveNetwork: jest.fn(() => ({})),
 }));
 
-import { merge, replaceNonAlphanumeric, extractMetadataEnv } from '../src/core/pipeline-helpers';
+const { merge, replaceNonAlphanumeric, extractMetadataEnv } = await import('../src/core/pipeline-helpers.js');
 
 describe('merge', () => {
   it('should merge multiple metadata objects', () => {

@@ -5,32 +5,28 @@
  * Tests for BOOTSTRAP_SUPERADMIN_EMAILS auto-promote at platform startup.
  */
 
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUpdateMany = jest.fn();
 const mockFind = jest.fn();
 const mockAuditCreate = jest.fn().mockResolvedValue(undefined);
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {
     updateMany: (...args: unknown[]) => mockUpdateMany(...args),
     find: (...args: unknown[]) => mockFind(...args),
   },
 }));
 
-jest.mock('../src/models/audit-event', () => ({
+jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
   default: { create: (...args: unknown[]) => mockAuditCreate(...args) },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-import { bootstrapSuperAdmins } from '../src/services/superadmin-bootstrap';
+const { bootstrapSuperAdmins } = await import('../src/services/superadmin-bootstrap.js');
+
 
 const ORIGINAL = process.env.BOOTSTRAP_SUPERADMIN_EMAILS;
 

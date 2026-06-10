@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode } from '../src/types/error-codes';
+import { describe, it, expect } from '@jest/globals';
+
+import { ErrorCode } from '../src/types/error-codes.js';
 import {
   sendSuccess,
   sendError,
@@ -13,7 +15,7 @@ import {
   sendBadRequest,
   sendInternalError,
   parsePaginationParams,
-} from '../src/utils/response';
+} from '../src/utils/response.js';
 
 // Mock Express Response
 function mockRes() {

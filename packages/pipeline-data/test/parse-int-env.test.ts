@@ -8,6 +8,8 @@
  * (same approach as metrics.test.ts for normalizeRoute).
  */
 
+import { describe, it, expect } from '@jest/globals';
+
 function parseIntEnv(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = parseInt(value, 10);

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import mongoose, { ClientSession } from 'mongoose';
+import mongoose, { type ClientSession } from 'mongoose';
 
 /**
  * Wrap a MongoDB transaction body. Centralises the 7-copy

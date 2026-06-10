@@ -1,5 +1,5 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-export * from './auth';
-export * from './mongo-sanitize';
+export * from './auth.js';
+export * from './mongo-sanitize.js';

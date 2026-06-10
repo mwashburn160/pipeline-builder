@@ -3,14 +3,18 @@
 
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
+import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import path from 'path';
 import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
 import { Command } from 'commander';
-import { printCommandHeader } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
+import { printCommandHeader } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
+
+// ESM has no __dirname; derive it from this module's URL.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const STACK_NAME = 'pipeline-builder-events';
 // Existing CFN-managed Lambda function name — do NOT rename without a migration plan

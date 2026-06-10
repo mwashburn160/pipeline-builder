@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Router } from 'express';
-import { impersonateUser } from '../controllers/impersonate';
-import { requireAuth, requireStepUp } from '../middleware';
+import { impersonateUser } from '../controllers/impersonate.js';
+import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router = Router({ mergeParams: true });
 

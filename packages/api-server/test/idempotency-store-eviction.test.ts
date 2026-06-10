@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Small cap so eviction is exercisable without driving thousands of entries.
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-}));
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60000,
     IDEMPOTENCY_TTL_MS: 60000,
@@ -13,7 +14,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-import { createMemoryStore } from '../src/api/idempotency-middleware';
+const { createMemoryStore } = await import('../src/api/idempotency-middleware.js');
 
 const entry = (n: number) => ({ statusCode: 200, body: { n }, expiresAt: Date.now() + 60000 });
 

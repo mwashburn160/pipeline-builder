@@ -12,8 +12,8 @@ import {
   parsePositiveInt,
   CACHE_TTL_BILLING_PLANS_SECS,
 } from '@pipeline-builder/api-core';
-import { Router, Request, Response } from 'express';
-import { Plan } from '../models/plan';
+import { Router, type Request, type Response } from 'express';
+import { Plan } from '../models/plan.js';
 
 const logger = createLogger('billing-plans');
 

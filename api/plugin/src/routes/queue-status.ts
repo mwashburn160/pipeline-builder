@@ -6,7 +6,7 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 
-import { getAllTierQueues, getDeadLetterQueue, purgeDlq, replayDlqJob } from '../queue/plugin-build-queue';
+import { getAllTierQueues, getDeadLetterQueue, purgeDlq, replayDlqJob } from '../queue/plugin-build-queue.js';
 
 /**
  * Register queue status routes.

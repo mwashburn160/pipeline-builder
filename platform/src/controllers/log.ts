@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { sendError, sendSuccess } from '@pipeline-builder/api-core';
-import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper';
-import * as logService from '../services/log-service';
+import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper.js';
+import * as logService from '../services/log-service.js';
 
 /**
  * Query logs with automatic org-scoped filtering.

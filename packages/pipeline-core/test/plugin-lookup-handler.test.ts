@@ -1,14 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { CloudFormationCustomResourceEvent } from 'aws-lambda';
+
 // Set PLATFORM_SECRET_NAME before import — module-level check throws if missing
 process.env.PLATFORM_SECRET_NAME = 'pipeline-builder/test-org/platform';
 
-import { CloudFormationCustomResourceEvent } from 'aws-lambda';
-
 // Mock CoreConstants BEFORE importing handler — these are module-level constants
 // that freeze at import time, so process.env overrides in beforeEach have no effect.
-jest.mock('../src/config/app-config', () => ({
+jest.unstable_mockModule('../src/config/app-config.js', () => ({
   CoreConstants: {
     HANDLER_TIMEOUT_MS: 25000,
     HANDLER_DEFAULT_BASE_URL: 'https://default.example.com',
@@ -24,7 +25,7 @@ jest.mock('../src/config/app-config', () => ({
 const mockSend = jest.fn().mockResolvedValue({
   SecretString: JSON.stringify({ username: 'test-org', password: 'stored-jwt-token' }),
 });
-jest.mock('@aws-sdk/client-secrets-manager', () => ({
+jest.unstable_mockModule('@aws-sdk/client-secrets-manager', () => ({
   SecretsManagerClient: jest.fn(() => ({ send: mockSend })),
   GetSecretValueCommand: jest.fn((params: unknown) => params),
 }));
@@ -32,25 +33,25 @@ jest.mock('@aws-sdk/client-secrets-manager', () => ({
 // Mock axios before importing handler
 const mockPost = jest.fn();
 const mockAxiosCreate = jest.fn(() => ({ post: mockPost }));
-jest.mock('axios', () => ({
+
+class AxiosError extends Error {
+  code?: string;
+  response?: { status: number; statusText: string; data?: unknown };
+  constructor(message: string, code?: string, _config?: unknown, _request?: unknown, response?: { status: number; statusText: string; data?: unknown }) {
+    super(message);
+    this.name = 'AxiosError';
+    this.code = code;
+    this.response = response;
+  }
+}
+
+jest.unstable_mockModule('axios', () => ({
   __esModule: true,
   default: { create: mockAxiosCreate },
-  AxiosError: class AxiosError extends Error {
-    code?: string;
-    response?: { status: number; statusText: string; data?: unknown };
-    constructor(message: string, code?: string, _config?: unknown, _request?: unknown, response?: { status: number; statusText: string; data?: unknown }) {
-      super(message);
-      this.name = 'AxiosError';
-      this.code = code;
-      this.response = response;
-    }
-  },
+  AxiosError,
 }));
 
-import { handler, _resetCredentialsCache } from '../src/handlers/plugin-lookup-handler';
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { AxiosError } = require('axios');
+const { handler, _resetCredentialsCache } = await import('../src/handlers/plugin-lookup-handler.js');
 
 
 const MOCK_PLUGIN = {

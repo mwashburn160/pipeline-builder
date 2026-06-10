@@ -1,13 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomBytes } from 'crypto';
+import { jest, describe, it, expect, beforeEach, afterEach, afterAll } from '@jest/globals';
+
 /**
  *  Tests for the secret-encryption primitive. Cover the round-trip,
  * the per-org key binding, the auth-tag tamper check, and the env validation.
  */
 
-import { randomBytes } from 'crypto';
-import { decryptSecret, encryptSecret, EnvKeyProvider, isEncryptedBlob, resetDefaultKeyProvider } from '../src/utils/secret-encryption';
+import { decryptSecret, encryptSecret, EnvKeyProvider, isEncryptedBlob, resetDefaultKeyProvider } from '../src/utils/secret-encryption.js';
 
 // Each test gets a fresh, valid env so we don't leak state across cases.
 const ORIGINAL_ENV = process.env.SECRET_ENCRYPTION_KEY;
@@ -111,7 +113,7 @@ describe('KmsKeyProvider', () => {
   it('refuses to construct without the required env vars', async () => {
     delete process.env.SECRET_ENCRYPTION_KMS_KEY_ID;
     delete process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT;
-    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption');
+    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption.js');
     expect(() => new K()).toThrow(/SECRET_ENCRYPTION_KMS_KEY_ID/);
 
     process.env.SECRET_ENCRYPTION_KMS_KEY_ID = 'alias/test';
@@ -121,7 +123,7 @@ describe('KmsKeyProvider', () => {
   it('throws on deriveKey before warmup (fail-fast on misconfig)', async () => {
     process.env.SECRET_ENCRYPTION_KMS_KEY_ID = 'alias/test';
     process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT = Buffer.from('opaque-blob').toString('base64');
-    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption');
+    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption.js');
     const p = new K();
     expect(() => p.deriveKey('acme')).toThrow(/not warmed up/);
   });
@@ -132,7 +134,7 @@ describe('KmsKeyProvider', () => {
     const master = randomBytes(32);
     mockSend.mockResolvedValueOnce({ Plaintext: master });
 
-    const { KmsKeyProvider: K, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption');
+    const { KmsKeyProvider: K, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption.js');
     const p = new K();
     await p.warmup();
     // After warmup, deriveKey is sync.
@@ -149,7 +151,7 @@ describe('KmsKeyProvider', () => {
     process.env.SECRET_ENCRYPTION_KMS_KEY_ID = 'alias/test';
     process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT = Buffer.from('opaque').toString('base64');
     mockSend.mockResolvedValueOnce({ Plaintext: Buffer.from('too-short') });
-    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption');
+    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption.js');
     const p = new K();
     await expect(p.warmup()).rejects.toThrow(/expected 32/);
   });
@@ -158,7 +160,7 @@ describe('KmsKeyProvider', () => {
     process.env.SECRET_ENCRYPTION_KMS_KEY_ID = 'alias/test';
     process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT = Buffer.from('opaque').toString('base64');
     mockSend.mockResolvedValueOnce({});
-    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption');
+    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption.js');
     const p = new K();
     await expect(p.warmup()).rejects.toThrow(/empty Plaintext/);
   });
@@ -169,7 +171,7 @@ describe('KmsKeyProvider', () => {
     const master = randomBytes(32);
     mockSend.mockResolvedValueOnce({ Plaintext: master });
 
-    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption');
+    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption.js');
     const p = new K();
     await Promise.all([p.warmup(), p.warmup(), p.warmup()]);
     // Even with three concurrent callers, KMS Decrypt fires exactly once
@@ -183,7 +185,7 @@ describe('KmsKeyProvider', () => {
     const master = randomBytes(32);
     mockSend.mockResolvedValueOnce({ Plaintext: master });
 
-    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption');
+    const { KmsKeyProvider: K } = await import('../src/utils/secret-encryption.js');
     const p = new K();
     await p.warmup();
     await p.warmup(); // second call should not re-hit KMS
@@ -209,7 +211,7 @@ describe('PerOrgKmsKeyProvider', () => {
   });
 
   it('falls back to the fallback provider for orgs without per-org config', async () => {
-    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption');
+    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption.js');
     const fallback = new E(randomBytes(32).toString('hex'));
     const provider = new P({ resolver: async () => null, fallback });
 
@@ -224,7 +226,7 @@ describe('PerOrgKmsKeyProvider', () => {
   });
 
   it('uses per-org HKDF-derived key after warmup; embeds kid in blob', async () => {
-    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption');
+    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption.js');
     const master = randomBytes(32);
     mockSend.mockResolvedValueOnce({ Plaintext: master });
 
@@ -242,7 +244,7 @@ describe('PerOrgKmsKeyProvider', () => {
   });
 
   it('rejects a blob whose kid does not match the current provider config', async () => {
-    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption');
+    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption.js');
     const master = randomBytes(32);
     mockSend.mockResolvedValue({ Plaintext: master });
 
@@ -267,7 +269,7 @@ describe('PerOrgKmsKeyProvider', () => {
   });
 
   it('coalesces concurrent warmup calls for the same org into one KMS Decrypt', async () => {
-    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption');
+    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption.js');
     const master = randomBytes(32);
     // Delay the resolver so all three callers queue on the in-flight promise.
     mockSend.mockImplementationOnce(() => new Promise((r) => setTimeout(() => r({ Plaintext: master }), 10)));
@@ -286,7 +288,7 @@ describe('PerOrgKmsKeyProvider', () => {
   });
 
   it('uses independent per-org keys (two orgs cannot decrypt each other)', async () => {
-    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption');
+    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, encryptSecret: enc, decryptSecret: dec } = await import('../src/utils/secret-encryption.js');
     const masterA = randomBytes(32);
     const masterB = randomBytes(32);
     mockSend.mockResolvedValueOnce({ Plaintext: masterA });
@@ -309,7 +311,7 @@ describe('PerOrgKmsKeyProvider', () => {
   });
 
   it('evict() drops the cached master so the next touch re-fetches from KMS', async () => {
-    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption');
+    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption.js');
     const master1 = randomBytes(32);
     const master2 = randomBytes(32);
     mockSend.mockResolvedValueOnce({ Plaintext: master1 });

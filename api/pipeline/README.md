@@ -1,83 +1,59 @@
-# Pipeline Service
+# pipeline
 
-Pipeline management API service. Provides CRUD operations for CI/CD pipeline configurations, bulk operations, a deployed-pipeline registry for event reporting and drift detection, and AI-powered pipeline generation from natural language or Git repositories.
+Pipeline management microservice — CRUD for CI/CD pipeline configurations, bulk operations, a deployed-pipeline registry, and AI-powered pipeline generation from natural language or a Git repository.
+
+## Responsibilities
+
+- Org-scoped, multi-tenant CRUD over pipeline definitions, backed by Drizzle ORM and the `PipelineService` (extends the shared `CrudService`).
+- Bulk create / update / delete (`bulk_operations` feature gate).
+- A pipeline registry mapping each deployed pipeline (by stable `pipelineId`) to its owning org, used by dashboards and the `audit-stacks` CLI for event reporting and drift detection.
+- AI generation of pipeline config from a prompt or a Git repo URL (`ai_generation` feature gate), with SSE-streaming variants and auto-creation of missing referenced plugins.
+- Emits entity lifecycle events to the compliance service (as the `pipeline` service principal) for asynchronous re-validation.
+
+Built on the shared core packages: `@pipeline-builder/api-core` (auth, quota, response helpers), `@pipeline-builder/api-server` (app factory, SSE, request context), `@pipeline-builder/pipeline-data` (Drizzle + `CrudService`), and `@pipeline-builder/pipeline-core` (config, migrations).
 
 ## Endpoints
 
-### Pipeline CRUD
+The service listens on port `3000`. The API gateway (nginx) routes `/api/pipeline*` and `/api/pipelines*` here, rewriting to the internal `/pipelines/*` paths below.
 
-| Method | Path | Description |
-|--------|------|-------------|
+| Method | Path | Purpose |
+|--------|------|---------|
 | GET | `/pipelines` | List pipelines (paginated, filtered) |
-| GET | `/pipelines/find` | Get a single pipeline matching a filter |
-| GET | `/pipelines/:id` | Get pipeline by ID (`?resolve=true` expands `{{ ... }}` templates) |
-| POST | `/pipelines` | Create a new pipeline |
+| GET | `/pipelines/find` | Find a single pipeline by query filter |
+| GET | `/pipelines/:id` | Get pipeline by ID |
+| POST | `/pipelines` | Create a pipeline (consumes `pipelines` quota) |
 | PUT | `/pipelines/:id` | Update a pipeline |
 | DELETE | `/pipelines/:id` | Soft-delete a pipeline (admin-only) |
+| POST | `/pipelines/bulk/create` | Bulk create (`bulk_operations` gate) |
+| POST | `/pipelines/bulk/delete` | Bulk delete (`bulk_operations` gate) |
+| PUT | `/pipelines/bulk/update` | Bulk update (`bulk_operations` gate) |
+| GET | `/pipelines/registry` | List deployed-pipeline registry entries |
+| POST | `/pipelines/registry` | Upsert a registry entry (keyed by `pipelineId`) |
+| DELETE | `/pipelines/registry/:id` | Remove a registry entry |
+| GET | `/pipelines/providers` | List available AI generation providers |
+| POST | `/pipelines/generate` | Generate a pipeline from a prompt (`ai_generation` gate) |
+| POST | `/pipelines/generate/stream` | Generate a pipeline (SSE stream) |
+| POST | `/pipelines/generate/from-url/stream` | Analyze a Git repo URL and stream generation |
 
-### Bulk Operations
+## Configuration
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/pipelines/bulk/create` | Create multiple pipelines in one request |
-| POST | `/pipelines/bulk/delete` | Soft-delete multiple pipelines by ID |
-| PUT | `/pipelines/bulk/update` | Update multiple pipelines with shared data |
+Shared server/auth/DB settings (`PORT`, `JWT_SECRET`, `DB_*`, `PLATFORM_BASE_URL`, CORS) are read via `@pipeline-builder/pipeline-core`, and AI provider keys via `@pipeline-builder/ai-core`. The only env var read directly by this service:
 
-Bulk routes are gated by the `bulk_operations` feature flag. Non-private pipelines require system admin to bulk delete/update.
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS` | Timeout for lookups against the plugin service during generation (ms) | `30000` |
 
-### Registry
+## Development
 
-The registry maps each deployed pipeline (by its stable `pipelineId`) to its owning org for event reporting and drift detection (the `pipeline-manager audit-stacks` CLI joins it against live CloudFormation stacks). The `pipelineId` is applied to the live CodePipeline as the `PIPELINE_EVENT_ID` tag at synth, and the events Lambda reports against it — so no ARN or AWS account is stored.
+```bash
+pnpm build   # projen build (compile + test + package)
+pnpm compile # tsc only
+pnpm test    # jest
+pnpm watch   # incremental compile
+```
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/pipelines/registry` | List registry entries owned by the caller's org (paginated) |
-| POST | `/pipelines/registry` | Upsert a pipeline's registry entry (keyed by `pipelineId`) |
-| DELETE | `/pipelines/registry/:id` | Remove a single registry entry (hard delete, org-scoped) |
+On startup the service runs any pending Drizzle migrations (`runMigrations()`) before opening the listening socket. CRUD and access control are centralized in `PipelineService`, which extends the shared `CrudService` for consistent multi-tenant queries and pagination.
 
-### AI Generation
+## License
 
-AI generation endpoints are gated by the `ai_generation` feature flag and consume the org's `aiCalls` quota (reserved atomically before the LLM call and rolled back on failure or stream abort).
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/pipelines/providers` | List available AI providers |
-| POST | `/pipelines/generate` | Generate pipeline config from prompt |
-| POST | `/pipelines/generate/stream` | Stream pipeline generation as SSE |
-| POST | `/pipelines/generate/from-url/stream` | Analyze Git URL + stream pipeline generation |
-
-### Git URL Generation Flow
-
-`POST /pipelines/generate/from-url/stream` accepts a Git repository URL and streams SSE events:
-
-1. `analyzing` — fetching repository metadata from GitHub/GitLab/Bitbucket API
-2. `analyzed` — repository summary (languages, frameworks, project type, package manager, Dockerfile/CDK detection)
-3. `partial` — streaming AI-generated pipeline config chunks
-4. `done` — final complete pipeline configuration
-5. `checking-plugins` — verifying referenced plugins exist
-6. `creating-plugins` — auto-creating missing plugins via the plugin service (with build request IDs)
-
-An `error` event is emitted if repository analysis fails, and the stream terminates with a `[DONE]` sentinel. Missing-plugin auto-creation is capped at 5 concurrent requests and uses an idempotency key per (request, plugin) so retries don't enqueue duplicate builds.
-
-Supports GitHub, GitLab, Bitbucket, and self-hosted Git URLs (HTTPS, SSH, git@ formats).
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SSE_STREAM_TIMEOUT_MS` | `300000` | SSE stream timeout (ms) |
-| `GITHUB_API_BASE_URL` | `https://api.github.com` | GitHub API base URL (for Enterprise) |
-| `BITBUCKET_API_BASE_URL` | `https://api.bitbucket.org/2.0` | Bitbucket API base URL |
-| `PLUGIN_SERVICE_HOST` | `plugin` | Plugin service hostname |
-| `PLUGIN_SERVICE_PORT` | `3000` | Plugin service port |
-| `PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS` | `30000` | Timeout for calls into the plugin service (ms) |
-
-AI provider keys are read from the environment (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`); `GET /pipelines/providers` returns the providers with a key configured.
-
-## Services
-
-- **PipelineService** — CRUD + bulk operations via the `CrudService` base class
-- **PipelineRegistryService** — pipelineId-to-org mapping for deployed pipelines (event reporting, drift detection)
-- **AI Generation Service** — Vercel AI SDK integration for pipeline config generation, with provider fallback
-- **Git Analysis Service** — Multi-provider repository analysis (GitHub, GitLab, Bitbucket)
-- **Plugin Lookup Service** — batched existence checks against the plugin service for auto-creation
+Apache-2.0

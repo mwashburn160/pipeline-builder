@@ -1,22 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+import { jest, describe, it, expect, afterEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-import {
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+const {
   loadServerConfig,
   loadAuthConfig,
   loadRateLimitConfig,
   validateServerConfig,
   validateAuthConfig,
-} from '../src/config/server-config';
+} = await import('../src/config/server-config.js');
 
 describe('loadServerConfig', () => {
   const savedEnv = { ...process.env };

@@ -8,21 +8,24 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mocks — must be defined before imports
 
-const mockFindPaginated = jest.fn();
-const mockFindAnnouncements = jest.fn();
-const mockFindConversations = jest.fn();
-const mockGetUnreadCount = jest.fn();
-const mockFindById = jest.fn();
-const mockFindThreadMessages = jest.fn();
-const mockCreate = jest.fn();
-const mockMarkAsRead = jest.fn();
-const mockMarkThreadAsRead = jest.fn();
-const mockDelete = jest.fn();
-const mockDeleteThread = jest.fn();
+const mockFindPaginated = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindAnnouncements = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindConversations = jest.fn<(...args: unknown[]) => unknown>();
+const mockGetUnreadCount = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindById = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindThreadMessages = jest.fn<(...args: unknown[]) => unknown>();
+const mockCreate = jest.fn<(...args: unknown[]) => unknown>();
+const mockMarkAsRead = jest.fn<(...args: unknown[]) => unknown>();
+const mockMarkThreadAsRead = jest.fn<(...args: unknown[]) => unknown>();
+const mockDelete = jest.fn<(...args: unknown[]) => unknown>();
+const mockDeleteThread = jest.fn<(...args: unknown[]) => unknown>();
 
-jest.mock('../src/services/message-service', () => ({
+jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
     findPaginated: mockFindPaginated,
     findAnnouncements: mockFindAnnouncements,
@@ -38,19 +41,9 @@ jest.mock('../src/services/message-service', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  SYSTEM_ORG_ID: 'system',
-  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-  },
   isSystemAdmin: jest.fn(() => false),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
-  createLogger: jest.fn(() => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() })),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
     const response: any = { success: true, statusCode };
     if (data !== undefined) response.data = data;
@@ -110,7 +103,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);
@@ -136,20 +129,20 @@ jest.mock('@pipeline-builder/api-server', () => ({
   createAuthenticatedWithOrgRoute: jest.fn(() => []),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: { message: { $inferInsert: {} } },
 }));
 
-import { sendBadRequest, sendError, isSystemAdmin, sendEntityNotFound } from '@pipeline-builder/api-core';
-import { createCreateMessageRoutes } from '../src/routes/create-message';
-import { createDeleteMessageRoutes } from '../src/routes/delete-message';
-import { createReadMessageRoutes } from '../src/routes/read-messages';
-import { createUpdateMessageRoutes } from '../src/routes/update-message';
+const { sendBadRequest, sendError, isSystemAdmin, sendEntityNotFound } = await import('@pipeline-builder/api-core');
+const { createCreateMessageRoutes } = await import('../src/routes/create-message.js');
+const { createDeleteMessageRoutes } = await import('../src/routes/delete-message.js');
+const { createReadMessageRoutes } = await import('../src/routes/read-messages.js');
+const { createUpdateMessageRoutes } = await import('../src/routes/update-message.js');
 
 // Helpers
 
 const mockQuotaService = {
-  increment: jest.fn().mockResolvedValue(undefined),
+  increment: jest.fn<(...args: unknown[]) => unknown>().mockResolvedValue(undefined),
   check: jest.fn(),
   getUsage: jest.fn(),
 } as any;

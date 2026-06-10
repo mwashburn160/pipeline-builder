@@ -15,7 +15,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import type { Request } from 'express';
-import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubErrorMessage, resolveOrgRollup } from '../helpers';
+import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubErrorMessage, resolveOrgRollup } from '../helpers.js';
 
 export function createExecutionReportRoutes(): Router {
   const router = Router();

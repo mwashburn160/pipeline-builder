@@ -10,34 +10,29 @@
 
 // Mocks  must be defined before imports
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockCreateAsDefault = jest.fn();
 const mockIncrement = jest.fn().mockResolvedValue(undefined);
-const mockReserveQuota = jest.fn().mockResolvedValue({ exceeded: false, quota: { type: 'pipelines', limit: 100, used: 1, remaining: 99 } });
+const mockReserveQuota = jest.fn<(...args: any[]) => any>().mockResolvedValue({ exceeded: false, quota: { type: 'pipelines', limit: 100, used: 1, remaining: 99 } });
 const mockDecrementQuota = jest.fn();
 const mockSendQuotaExceeded = jest.fn((res: any, _t: string, q: any) => {
   res.status(429).json({ success: false, statusCode: 429, quota: q });
 });
 
-jest.mock('../src/services/pipeline-service', () => ({
+jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     createAsDefault: mockCreateAsDefault,
   },
 }));
 
-const mockValidatePipeline = jest.fn().mockResolvedValue({ blocked: false, violations: [] });
+const mockValidatePipeline = jest.fn<(...args: any[]) => any>().mockResolvedValue({ blocked: false, violations: [] });
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  ValidationError: class ValidationError extends Error {},
   extractDbError: jest.fn(() => ({})),
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-    COMPLIANCE_VIOLATION: 'COMPLIANCE_VIOLATION',
-    COMPLIANCE_SERVICE_UNAVAILABLE: 'COMPLIANCE_SERVICE_UNAVAILABLE',
-  },
-  createLogger: jest.fn(() => ({ error: jest.fn(), warn: jest.fn(), info: jest.fn() })),
   resolveAccessModifier: jest.fn((_req: any, am?: string) => am || 'private'),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message: String(e))),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
     const response: any = { success: true, statusCode };
     if (data !== undefined) response.data = data;
@@ -79,7 +74,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   createAuthenticatedWithOrgRoute: () => [],
@@ -101,7 +96,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
   incrementQuotaFromCtx: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   AccessModifier: {},
   replaceNonAlphanumeric: jest.fn((str: string, replacement: string) =>
     str.replace(/[^a-zA-Z0-9]/g, replacement),
@@ -114,8 +109,8 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   tokenize: () => [],
 }));
 
-import { sendBadRequest, validateBody } from '@pipeline-builder/api-core';
-import { createCreatePipelineRoutes } from '../src/routes/create-pipeline';
+const { sendBadRequest, validateBody } = await import('@pipeline-builder/api-core');
+const { createCreatePipelineRoutes } = await import('../src/routes/create-pipeline.js');
 
 // Helpers
 

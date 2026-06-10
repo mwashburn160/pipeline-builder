@@ -8,6 +8,7 @@
  */
 
 import { randomBytes } from 'crypto';
+import { jest, describe, it, expect, beforeEach, afterAll, test } from '@jest/globals';
 import { resetDefaultKeyProvider } from '@pipeline-builder/api-core';
 
 const mockSave = jest.fn();
@@ -16,7 +17,7 @@ const mockFindOne = jest.fn();
 const mockFind = jest.fn();
 const mockDeleteOne = jest.fn();
 
-jest.mock('../src/models/org-idp-config', () => ({
+jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   __esModule: true,
   default: {
     findOne: mockFindOne,
@@ -25,6 +26,8 @@ jest.mock('../src/models/org-idp-config', () => ({
     deleteOne: mockDeleteOne,
   },
 }));
+
+const { orgIdpService } = await import('../src/services/org-idp-service.js');
 
 // We exercise the REAL secret-encryption helper here; SECRET_ENCRYPTION_KEY
 // is set per-test so encryptIfConfigured produces real ciphertext rather
@@ -41,7 +44,6 @@ afterAll(() => {
   else process.env.SECRET_ENCRYPTION_KEY = ORIGINAL_KEY;
 });
 
-import { orgIdpService } from '../src/services/org-idp-service';
 
 describe('OrgIdpService.upsert', () => {
   it('creates a fresh config when none exists, encrypting the secret', async () => {

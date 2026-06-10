@@ -172,7 +172,13 @@ export const envVariablesTopic: HelpTopic = {
             ['OPENAI_API_KEY', 'OpenAI API key'],
             ['GOOGLE_GENERATIVE_AI_API_KEY', 'Google AI API key'],
             ['XAI_API_KEY', 'xAI (Grok) API key'],
+            ['AI_PROVIDER', 'CLI `provision`: provider to use (anthropic | openai | google | xai | bedrock; default anthropic)'],
+            ['AI_MODEL', 'CLI `provision`: model id override (defaults to the provider\'s first model)'],
           ],
+        },
+        {
+          type: 'note',
+          content: 'These keys power AI pipeline/plugin generation and the `pipeline-manager provision` installer (natural-language goal parsing + failure diagnosis). Without a key, `provision` falls back to its deterministic prereq-check + command-assembly path.',
         },
       ],
     },

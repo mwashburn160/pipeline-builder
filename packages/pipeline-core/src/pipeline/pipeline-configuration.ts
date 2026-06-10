@@ -1,14 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { BuilderProps } from './pipeline-builder';
-import type { CodeCommitOptions, CodeStarOptions, GitHubOptions, S3Options } from './source-types';
-import type { PluginOptions, StageOptions, StepCustomization } from './step-types';
-import { CoreConstants } from '../config/app-config';
-import type { CodeBuildDefaults, NetworkConfig } from '../core/network-types';
-import { merge, replaceNonAlphanumeric } from '../core/pipeline-helpers';
-import type { MetaDataType, SourceType } from '../core/pipeline-types';
-import { TriggerType } from '../core/pipeline-types';
+import type { BuilderProps } from './pipeline-builder.js';
+import type { CodeCommitOptions, CodeStarOptions, GitHubOptions, S3Options } from './source-types.js';
+import type { PluginOptions, StageOptions, StepCustomization } from './step-types.js';
+import { CoreConstants } from '../config/app-config.js';
+import type { CodeBuildDefaults, NetworkConfig } from '../core/network-types.js';
+import { merge, replaceNonAlphanumeric } from '../core/pipeline-helpers.js';
+import type { MetaDataType, SourceType } from '../core/pipeline-types.js';
+import { TriggerType } from '../core/pipeline-types.js';
 
 /**
  * Validated and processed pipeline configuration (business logic layer).

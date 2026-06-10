@@ -22,8 +22,8 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator';
-import { pipelineService, type PipelineInsert, type PipelineUpdate } from '../services/pipeline-service';
+import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { pipelineService, type PipelineInsert, type PipelineUpdate } from '../services/pipeline-service.js';
 
 const complianceClient = createComplianceClient();
 

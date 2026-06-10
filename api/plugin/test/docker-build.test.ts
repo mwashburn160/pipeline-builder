@@ -11,6 +11,8 @@
 
 import { EventEmitter } from 'events';
 import { Readable } from 'stream';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 function createMockChild(exitCode = 0): any {
   const child = new EventEmitter();
@@ -20,36 +22,32 @@ function createMockChild(exitCode = 0): any {
   return child;
 }
 
-const mockSpawn = jest.fn<any, [string, string[], any?]>(() => createMockChild(0));
+const mockSpawn = jest.fn<(cmd: string, args: string[], opts?: any) => any>(() => createMockChild(0));
 
-jest.mock('child_process', () => ({ spawn: mockSpawn }));
+jest.unstable_mockModule('child_process', () => ({ spawn: mockSpawn }));
 
 const mockMkdirSync = jest.fn();
 const mockWriteFileSync = jest.fn();
-const mockReadFileSync = jest.fn().mockReturnValue('FROM node:24-slim\nRUN echo hello');
-const mockExistsSync = jest.fn().mockReturnValue(true);
+const mockReadFileSync = jest.fn<(...args: any[]) => any>().mockReturnValue('FROM node:24-slim\nRUN echo hello');
+const mockExistsSync = jest.fn<(...args: any[]) => any>().mockReturnValue(true);
 
-jest.mock('fs', () => ({
+jest.unstable_mockModule('fs', () => ({
   mkdirSync: mockMkdirSync,
   writeFileSync: mockWriteFileSync,
   readFileSync: mockReadFileSync,
   existsSync: mockExistsSync,
 }));
 
-jest.mock('@pipeline-builder/api-core', () => {
-  class ValidationError extends Error {
-    statusCode = 400;
-    code = 'VALIDATION_ERROR';
-    constructor(message: string) { super(message); this.name = 'ValidationError'; }
-  }
-  return {
-    ValidationError,
-    createLogger: () => ({
-      info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
-    }),
-    signServiceToken: jest.fn(() => 'test-jwt-token'),
-  };
-});
+class ValidationError extends Error {
+  statusCode = 400;
+  code = 'VALIDATION_ERROR';
+  constructor(message: string) { super(message); this.name = 'ValidationError'; }
+}
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  ValidationError,
+  signServiceToken: jest.fn(() => 'test-jwt-token'),
+}));
 
 const mockConfigGet = (section: string) => {
   if (section === 'dockerConfig') {
@@ -63,16 +61,16 @@ const mockConfigGet = (section: string) => {
   return {};
 };
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: { get: mockConfigGet, getAny: mockConfigGet },
 }));
 
-import {
+const {
   buildAndPush,
   loadAndPush,
-  type BuildRequest,
-  type RegistryInfo,
-} from '../src/helpers/docker-build';
+} = await import('../src/helpers/docker-build.js');
+type BuildRequest = import('../src/helpers/docker-build.js').BuildRequest;
+type RegistryInfo = import('../src/helpers/docker-build.js').RegistryInfo;
 
 function makeRegistry(overrides: Partial<RegistryInfo> = {}): RegistryInfo {
   return { host: 'registry', port: 5000, network: '', http: true, ...overrides };

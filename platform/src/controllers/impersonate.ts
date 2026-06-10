@@ -18,10 +18,10 @@
  */
 
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit';
-import { requireSystemAdmin, withController } from '../helpers/controller-helper';
-import { User } from '../models';
-import { issueImpersonationToken } from '../utils/token';
+import { audit } from '../helpers/audit.js';
+import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { User } from '../models/index.js';
+import { issueImpersonationToken } from '../utils/token.js';
 
 const logger = createLogger('impersonate');
 

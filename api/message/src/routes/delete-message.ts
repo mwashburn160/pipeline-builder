@@ -14,7 +14,7 @@ import {
 import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { messageService } from '../services/message-service';
+import { messageService } from '../services/message-service.js';
 
 /**
  * Create delete routes for the message service.

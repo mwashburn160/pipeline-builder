@@ -12,7 +12,7 @@ set -euo pipefail
 STACK_PREFIX="pb"
 REGION="${AWS_REGION:-us-east-1}"
 ASSUME_YES=0
-# Match the names init-secrets.sh / deploy.sh actually use (NOT ${STACK_PREFIX}/*).
+# Match the names init-secrets.sh / setup.sh actually use (NOT ${STACK_PREFIX}/*).
 APP_SECRETS_NAME="${APP_SECRETS_NAME:-pipeline-builder/app-secrets}"
 GHCR_AUTH_SECRET_NAME="${GHCR_AUTH_SECRET_NAME:-pipeline-builder/ghcr-auth}"
 

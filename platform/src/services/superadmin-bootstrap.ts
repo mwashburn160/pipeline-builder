@@ -29,8 +29,8 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { User } from '../models';
-import { auditService } from './audit-service';
+import { auditService } from './audit-service.js';
+import { User } from '../models/index.js';
 
 const logger = createLogger('superadmin-bootstrap');
 

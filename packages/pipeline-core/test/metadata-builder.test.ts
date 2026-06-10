@@ -11,8 +11,8 @@ import {
   parsePipelineVariables,
   roleConfigFromMetadata,
   securityGroupConfigFromMetadata,
-} from '../src/core/metadata-builder';
-import { MetadataKeys } from '../src/core/pipeline-types';
+} from '../src/core/metadata-builder.js';
+import { MetadataKeys } from '../src/core/pipeline-types.js';
 
 describe('metadataForCodePipeline', () => {
   it('should extract boolean keys from metadata', () => {

@@ -5,13 +5,13 @@ import { createLogger, createQuotaService, registerComplianceEventSubscriber, re
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { runMigrations } from '@pipeline-builder/pipeline-core';
 
-import { createBulkPipelineRoutes } from './routes/bulk-pipeline';
-import { createCreatePipelineRoutes } from './routes/create-pipeline';
-import { createDeletePipelineRoutes } from './routes/delete-pipeline';
-import { createGeneratePipelineRoutes } from './routes/generate-pipeline';
-import { createReadPipelineRoutes } from './routes/read-pipelines';
-import { createRegistryRoutes } from './routes/registry';
-import { createUpdatePipelineRoutes } from './routes/update-pipeline';
+import { createBulkPipelineRoutes } from './routes/bulk-pipeline.js';
+import { createCreatePipelineRoutes } from './routes/create-pipeline.js';
+import { createDeletePipelineRoutes } from './routes/delete-pipeline.js';
+import { createGeneratePipelineRoutes } from './routes/generate-pipeline.js';
+import { createReadPipelineRoutes } from './routes/read-pipelines.js';
+import { createRegistryRoutes } from './routes/registry.js';
+import { createUpdatePipelineRoutes } from './routes/update-pipeline.js';
 
 const logger = createLogger('pipeline');
 const quotaService = createQuotaService();

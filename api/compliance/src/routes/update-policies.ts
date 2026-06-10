@@ -5,7 +5,7 @@ import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, v
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { compliancePolicyService } from '../services/policy-service';
+import { compliancePolicyService } from '../services/policy-service.js';
 
 const CompliancePolicyUpdateSchema = z.object({
   name: z.string().min(1).max(255).optional(),

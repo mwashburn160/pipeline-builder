@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createSafeClient, RequestOptions } from './http-client';
-import { getServiceAuthHeader } from '../middleware/auth';
-import { ServiceConfig } from '../types/common';
-import { createLogger } from '../utils/logger';
+import { createSafeClient, type RequestOptions } from './http-client.js';
+import { getServiceAuthHeader } from '../middleware/auth.js';
+import type { ServiceConfig } from '../types/common.js';
+import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('remote-audit');
 

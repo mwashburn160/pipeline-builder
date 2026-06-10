@@ -8,11 +8,11 @@ import {
   DEFAULT_MAX_RATE_LIMIT_RETRIES,
   getRetryDecision,
   getErrorRetryDecision,
-  RetryConfig,
-} from './retry-strategy';
-import { HttpStatus } from '../constants/http-status';
-import { ServiceConfig } from '../types/common';
-import { createLogger } from '../utils/logger';
+  type RetryConfig,
+} from './retry-strategy.js';
+import { HttpStatus } from '../constants/http-status.js';
+import type { ServiceConfig } from '../types/common.js';
+import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('http-client');
 

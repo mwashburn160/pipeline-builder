@@ -8,6 +8,9 @@
  * returns queue metrics for admin users and rejects non-admins.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockGetJobCounts = jest.fn();
 const mockDlqGetJobCounts = jest.fn();
 
@@ -16,7 +19,7 @@ const mockDlqGetJobs = jest.fn();
 // route reads per-tier queues via getAllTierQueues; we expose a
 // single-tier handle so the existing single-mock assertions still hold.
 const mockTierQueue = { name: 'plugin-build', getJobCounts: mockGetJobCounts, getJobs: mockGetJobs };
-jest.mock('../src/queue/plugin-build-queue', () => ({
+jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   getAllTierQueues: () => [{ tier: 'developer', queue: mockTierQueue }],
   getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: mockDlqGetJobs }),
   purgeDlq: jest.fn(),
@@ -27,10 +30,7 @@ jest.mock('../src/queue/plugin-build-queue', () => ({
 // (replay path needs it to look up the org's tier).
 const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn(),
-  }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn(),
   sendSuccess: jest.fn((res: any, status: number, data: any) => {
     res.status(status).json({ success: true, statusCode: status, data });
@@ -38,7 +38,6 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendError: jest.fn((res: any, status: number, message: string) => {
     res.status(status).json({ success: false, statusCode: status, message });
   }),
-  ErrorCode: { INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS', NOT_FOUND: 'NOT_FOUND', MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD' },
   parseQueryInt: (val: unknown, defaultVal: number) => {
     const n = parseInt(String(val), 10);
     return Number.isFinite(n) ? n: defaultVal;
@@ -46,7 +45,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   getParam: (params: Record<string, unknown>, key: string) => params[key],
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: Function) => async (req: any, res: any, _next: any) => {
     const ctx = {
       requestId: 'test-req', log: jest.fn(),
@@ -56,8 +55,8 @@ jest.mock('@pipeline-builder/api-server', () => ({
   },
 }));
 
-import { isSystemAdmin } from '@pipeline-builder/api-core';
-import { createQueueStatusRoutes } from '../src/routes/queue-status';
+const { isSystemAdmin } = await import('@pipeline-builder/api-core');
+const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 // Minimal Express-like mocks
 function createMockReqRes() {

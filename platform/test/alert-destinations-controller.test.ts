@@ -12,19 +12,19 @@
  * them to read tenant secrets back in plaintext.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockListAll = jest.fn();
 const mockIsSystemAdmin = jest.fn();
 const mockRunWithTenantContext = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   sendQuotaExceeded: jest.fn(),
-  SYSTEM_ORG_ID: 'system',
 }));
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class Schema {
     constructor() { /* no-op */ }
     index() { /* no-op */ }
@@ -38,23 +38,23 @@ jest.mock('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   runWithTenantContext: (ctx: unknown, fn: () => unknown) => {
     mockRunWithTenantContext(ctx);
     return fn();
   },
 }));
 
-jest.mock('../src/helpers/audit', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 
-jest.mock('../src/helpers/controller-helper', () => ({
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   isSystemAdmin: (req: any) => mockIsSystemAdmin(req),
   isOrgAdmin: jest.fn(),
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
 }));
 
-jest.mock('../src/services/alert-destination-service', () => ({
+jest.unstable_mockModule('../src/services/alert-destination-service.js', () => ({
   alertDestinationService: {
     listAllAcrossOrgs: (...a: unknown[]) => mockListAll(...a),
     listForOrg: jest.fn(),
@@ -69,14 +69,15 @@ jest.mock('../src/services/alert-destination-service', () => ({
   toApiDestination: (d: { target: string }) => ({ ...d, target: '••••' + d.target.slice(-12), hasTarget: !!d.target }),
 }));
 
-jest.mock('../src/services/alert-relay', () => ({ relayWebhook: jest.fn() }));
-jest.mock('../src/middleware/quota', () => ({
+jest.unstable_mockModule('../src/services/alert-relay.js', () => ({ relayWebhook: jest.fn() }));
+jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   reserveFeatureQuota: jest.fn(),
   releaseFeatureQuota: jest.fn(),
 }));
-jest.mock('../src/config', () => ({ config: {} }));
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
 
-import { listAllAlertDestinations } from '../src/controllers/alert-destinations';
+const { listAllAlertDestinations } = await import('../src/controllers/alert-destinations.js');
+
 
 function mockRes() {
   const res: any = {};

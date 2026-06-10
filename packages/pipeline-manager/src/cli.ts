@@ -3,25 +3,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { program } from 'commander';
-import { auditStacks } from './commands/audit-stacks';
-import { auditTokens } from './commands/audit-tokens';
-import { bootstrap } from './commands/bootstrap';
-import { createPipeline } from './commands/create-pipeline';
-import { deploy } from './commands/deploy';
-import { getPipeline } from './commands/get-pipeline';
-import { getPlugin } from './commands/get-plugin';
-import { listPipelines } from './commands/list-pipelines';
-import { listPlugins } from './commands/list-plugins';
-import { login } from './commands/login';
-import { orgExport } from './commands/org-export';
-import { register } from './commands/register';
-import { setupEvents } from './commands/setup-events';
-import { status } from './commands/status';
-import { storeToken } from './commands/store-token';
-import { synth } from './commands/synth';
-import { uploadPlugin } from './commands/upload-plugin';
-import { validateTemplatesCommand } from './commands/validate-templates';
-import { version } from './commands/version';
+import { auditStacks } from './commands/audit-stacks.js';
+import { auditTokens } from './commands/audit-tokens.js';
+import { bootstrap } from './commands/bootstrap.js';
+import { createPipeline } from './commands/create-pipeline.js';
+import { deploy } from './commands/deploy.js';
+import { getPipeline } from './commands/get-pipeline.js';
+import { getPlugin } from './commands/get-plugin.js';
+import { listPipelines } from './commands/list-pipelines.js';
+import { listPlugins } from './commands/list-plugins.js';
+import { login } from './commands/login.js';
+import { orgExport } from './commands/org-export.js';
+import { provision } from './commands/provision.js';
+import { register } from './commands/register.js';
+import { setupEvents } from './commands/setup-events.js';
+import { status } from './commands/status.js';
+import { storeToken } from './commands/store-token.js';
+import { synth } from './commands/synth.js';
+import { uploadPlugin } from './commands/upload-plugin.js';
+import { validateTemplatesCommand } from './commands/validate-templates.js';
+import { version } from './commands/version.js';
 import {
   APP_NAME,
   APP_DESCRIPTION,
@@ -29,10 +30,10 @@ import {
   ENV_VARS,
   isDebugMode,
   generateExecutionId,
-} from './config/cli.constants';
-import { banner, miniBanner } from './utils/banner';
-import { ERROR_CODES, handleError } from './utils/error-handler';
-import { printInfo, printError, printWarning, printDebug, printSection } from './utils/output-utils';
+} from './config/cli.constants.js';
+import { banner, miniBanner } from './utils/banner.js';
+import { ERROR_CODES, handleError } from './utils/error-handler.js';
+import { printInfo, printError, printWarning, printDebug, printSection } from './utils/output-utils.js';
 
 /**
  * CLI initialization options
@@ -200,6 +201,7 @@ Examples  $ ${APP_NAME} version
   bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)
   register(program); // Re-register a deployed pipeline ARN + drain pending intents from prior failed deploys
+  provision(program); // AI-assisted advisor to deploy the PLATFORM (local/minikube/EC2/Fargate) — read-only
 
   // Operator audit commands (cron-friendly: exit 1 on findings)
   printDebug('Registering audit commands');

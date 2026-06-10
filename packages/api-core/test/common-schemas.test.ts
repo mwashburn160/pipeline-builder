@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import {
   AccessModifierSchema,
   SortOrderSchema,
@@ -9,7 +11,7 @@ import {
   UUIDSchema,
   UUIDPrefixSchema,
   BaseFilterSchema,
-} from '../src/validation/common-schemas';
+} from '../src/validation/common-schemas.js';
 
 describe('AccessModifierSchema', () => {
   it('should accept "public"', () => {

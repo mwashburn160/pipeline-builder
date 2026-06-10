@@ -19,23 +19,16 @@ import { PackageProject } from './projenrc/package';
 
 const branch = 'main';
 const pnpmVersion = '10.33.0';
-const constructsVersion = '10.5.1';
-const typescriptVersion = '5.9.3';
-const cdkVersion = '2.257.0';
+const constructsVersion = '10.6.0';
+const typescriptVersion = '6.0.3';
+const cdkVersion = '2.258.1';
 const expressVersion = '5.2.1';
 
-// Pin jest to 30.0.0 across every subproject. Service Dockerfiles copy only
-// `package.json` (no workspace lockfile) and run `pnpm install`, so a
-// caret-range like `^30.2.0` resolves to whatever's latest at build time.
-// jest-runtime 30.4.x calls `_moduleMocker.clearMocksOnScope` (added in
-// jest-mock 30.4.x), but pnpm's peer-dep resolution in that no-lockfile
-// install pulls a mismatched jest-mock, and every jsdom test crashes with
-// "clearMocksOnScope is not a function". Exact pinning forces a coherent set
-// across all jest sub-packages. We use 30.0.0 (not the absolute latest
-// pre-30.4 like 30.3.0) because projen's Jest plugin pins `@types/jest` to
-// the same exact value, and `@types/jest` lags jest itself  30.0.0 is the
-// latest @types/jest, so this is the highest mutual-existence pin.
-const jestVersion = '30.0.0';
+// jest version. Every package is ESM and imports test globals from
+// `@jest/globals` (self-typed), so none depend on `@types/jest` — the historical
+// ceiling (projen pins `@types/jest` to jestVersion, and `@types/jest` has no
+// 30.4.x) no longer applies. See `configureEsmJest` in projenrc/shared-config.ts.
+const jestVersion = '30.4.2';
 
 // Internal package versions  `workspace:*` so pnpm always resolves from
 // the local workspace. Using a pinned npm version causes pnpm to install
@@ -60,7 +53,7 @@ const pkg = {
 const root = new TypeScriptProject({
   name: 'root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.99.63',
+  projenVersion: '0.99.71',
   minNodeVersion: '24.14.0',
   minMajorVersion: 3,
   packageManager: NodePackageManager.PNPM,
@@ -81,7 +74,7 @@ const root = new TypeScriptProject({
     '@swc-node/core@1.14.1',
     '@swc-node/register@1.11.1',
     `constructs@${constructsVersion}`,
-    'npm-check-updates@19.3.2',
+    'npm-check-updates@22.2.3',
   ],
 });
 root.addScripts({ 'npm-check': 'npx npm-check-updates' });
@@ -157,29 +150,11 @@ function addPackageMetadata(  p: { package: { addField: (k: string, v: unknown) 
   if (opts.private) p.package.addField('private', true);
 }
 
-/**
- * Configure jest for ESM compatibility.
- * uuid v13+ ships ESM-only; we map it to a CJS stub so jest can import it.
- *
- * Also rewrites the ts-jest transform to silence diagnostic TS151002 (the
- * "isolatedModules"/hybrid-mode advisory) — without this, every test run
- * floods stderr with a warning we can't act on while still using ts-jest.
- */
-function configureJest(project: { jest?: { config: Record<string, unknown> } }, opts?: { maxWorkers?: number }) {
-  if (!project.jest) return;
-  // Stub uuid with a simple CJS module that returns random strings
-  project.jest.config.moduleNameMapper = {
-    '^uuid$': '<rootDir>/../../jest-uuid-stub.js',
-  };
-  project.jest.config.transform = {
-    '^.+\\.[t]sx?$': ['ts-jest', { tsconfig: 'tsconfig.dev.json', diagnostics: { ignoreCodes: [151002] } }],
-  };
-  if (opts?.maxWorkers) project.jest.config.maxWorkers = opts.maxWorkers;
-}
-
 function dockerScripts(name: string) {
   return {
-    'start': 'node lib/index.js',
+    // --import preloads the otel bootstrap for dev parity with the Dockerfile CMD
+    // (a no-op unless OTEL_TRACING_ENABLED=true). Frontend's start is vestigial (Next).
+    'start': 'node --import @pipeline-builder/api-server/lib/otel-bootstrap.js lib/index.js',
     // docker:build pre-stages a self-contained pnpm deploy tree at
     //./.docker-build/ before invoking buildx. The Dockerfile copies that
     // tree as-is  no in-Docker `npm install` to drift on caret ranges,
@@ -226,8 +201,7 @@ const commonServiceDeps = [
 ];
 const commonServiceDevDeps = [
   '@types/express@5.0.6',
-  '@types/node@25.3.0',
-  '@jest/globals@30.2.0',
+  '@types/node@25.9.2',
 ];
 
 // =============================================================================
@@ -241,41 +215,39 @@ const apiCore = new PackageProject({
   outdir: './packages/api-core',
   deps: [
     `express@${expressVersion}`,
-    'jsonwebtoken@9.0.3', 'winston@3.19.0', 'zod@4.3.6',
-    '@asteasolutions/zod-to-openapi@8.4.0',
+    'jsonwebtoken@9.0.3', 'winston@3.19.0', 'zod@4.4.3',
+    '@asteasolutions/zod-to-openapi@8.5.0',
     // AWS-KMS KeyProvider  bundled as a regular dep so the
     // KmsKeyProvider class can be imported without operator-side install
     // steps. Lazy-loaded at first use; envs that stick with the
     // EnvKeyProvider don't construct a KMS client.
-    '@aws-sdk/client-kms@3.997.0',
+    '@aws-sdk/client-kms@3.1064.0',
     // STS + credential-providers for the per-org IAM role assumption
     // helper. Same posture as the KMS client: lazy-imported, only loads
     // when an operator configures a per-org assumeRoleArn.
-    '@aws-sdk/client-sts@3.997.0',
-    '@aws-sdk/credential-providers@3.997.0',
+    '@aws-sdk/client-sts@3.1064.0',
+    '@aws-sdk/credential-providers@3.1064.0',
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/jsonwebtoken@9.0.10',
-    '@types/node@25.3.0', `typescript@${typescriptVersion}`,
+    '@types/node@25.9.2', `typescript@${typescriptVersion}`,
   ],
 });
 apiCore.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 apiCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
 addPackageMetadata(apiCore, 'Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.');
-configureJest(apiCore);
 
 // -- Pipeline Data --
 const pipelineData = new PackageProject({
 ...pkgDefaults, parent: root,
   name: '@pipeline-builder/pipeline-data',
   outdir: './packages/pipeline-data',
-  deps: [`@pipeline-builder/api-core@${pkg.apiCore}`, 'pg@8.18.0', 'drizzle-orm@0.45.1'],
-  devDeps: ['@types/node@25.3.0', '@types/pg@8.16.0', 'drizzle-kit@0.31.9', `typescript@${typescriptVersion}`],
+  deps: [`@pipeline-builder/api-core@${pkg.apiCore}`, 'pg@8.21.0', 'drizzle-orm@0.45.2'],
+  devDeps: ['@types/node@25.9.2', '@types/pg@8.20.0', 'drizzle-kit@0.31.10', `typescript@${typescriptVersion}`],
 });
 pipelineData.eslint?.addRules(rules);
 pipelineData.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
 addPackageMetadata(pipelineData, 'Database layer for Pipeline Builder: Drizzle ORM schemas, connection management, query builders, and the generic CrudService base class with per-organization (and team) access control.');
-configureJest(pipelineData);
 
 // -- Pipeline Core --
 const pipelineCore = new PackageProject({
@@ -286,17 +258,17 @@ const pipelineCore = new PackageProject({
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
     `constructs@${constructsVersion}`, `aws-cdk-lib@${cdkVersion}`,
-    'jsonwebtoken@9.0.3', 'axios@1.13.5', 'uuid@13.0.0',
+    'jsonwebtoken@9.0.3', 'axios@1.17.0', 'uuid@14.0.0',
   ],
   devDeps: [
-    '@types/node@25.3.0', '@types/aws-lambda@8.10.160', '@types/jsonwebtoken@9.0.10',
-    '@aws-sdk/client-secrets-manager@3.997.0', '@jest/globals@30.2.0', 'copyfiles@2.4.1',
+    '@types/node@25.9.2', '@types/aws-lambda@8.10.162', '@types/jsonwebtoken@9.0.10',
+    '@aws-sdk/client-secrets-manager@3.1064.0', 'copyfiles@2.4.1',
   ],
 });
 pipelineCore.eslint?.addRules(rules);
 pipelineCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
 addPackageMetadata(pipelineCore, 'AWS CDK construct library for Pipeline Builder: the Builder construct that assembles plugin specs into a CodePipeline stack, PluginLookup custom resource, pipeline/plugin domain types, and shared configuration.');
-configureJest(pipelineCore, { maxWorkers: 1 });
+if (pipelineCore.jest) pipelineCore.jest.config.maxWorkers = 1;
 pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/handlers/ --verbose --error');
 
 // -- API Server --
@@ -308,23 +280,27 @@ const apiServer = new PackageProject({
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`,
-    'express-rate-limit@8.2.1', 'helmet@8.1.0', 'cors@2.8.6', 'compression@1.8.0',
-    'jsonwebtoken@9.0.3', 'uuid@13.0.0', 'prom-client@15.1.3',
-    'swagger-ui-express@5.0.1', 'ioredis@5.6.1', 'rate-limit-redis@4.2.0',
-    '@opentelemetry/sdk-node@0.213.0', '@opentelemetry/exporter-trace-otlp-http@0.213.0',
-    '@opentelemetry/resources@2.6.0', '@opentelemetry/auto-instrumentations-node@0.67.1',
-    '@opentelemetry/api@1.9.0',
+    'express-rate-limit@8.5.2', 'helmet@8.2.0', 'cors@2.8.6', 'compression@1.8.1',
+    'jsonwebtoken@9.0.3', 'uuid@14.0.0', 'prom-client@15.1.3',
+    'swagger-ui-express@5.0.1', 'ioredis@5.11.1', 'rate-limit-redis@5.0.0',
+    '@opentelemetry/sdk-node@0.218.0', '@opentelemetry/exporter-trace-otlp-http@0.218.0',
+    '@opentelemetry/resources@2.7.1', '@opentelemetry/auto-instrumentations-node@0.76.0',
+    // Direct dep so the ESM loader hook (hook.mjs) is resolvable from the
+    // otel-bootstrap preload (it patches `import`ed modules; the CJS
+    // require-in-the-middle path doesn't cover ESM services).
+    '@opentelemetry/instrumentation@0.218.0',
+    '@opentelemetry/api@1.9.1',
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.1',
-    '@types/compression@1.7.5', '@types/cors@2.8.19', '@types/jsonwebtoken@9.0.10',
-    '@types/swagger-ui-express@4.1.8', '@types/node@25.3.0', `typescript@${typescriptVersion}`,
+    '@types/compression@1.8.1', '@types/cors@2.8.19', '@types/jsonwebtoken@9.0.10',
+    '@types/swagger-ui-express@4.1.8', '@types/node@25.9.2', `typescript@${typescriptVersion}`,
   ],
 });
 apiServer.eslint?.addRules({...rules, 'import/no-unresolved': 'off' });
 apiServer.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
 addPackageMetadata(apiServer, 'Express server infrastructure for Pipeline Builder: app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context, route wrappers, health-check helpers, and SSE support.');
-configureJest(apiServer, { maxWorkers: 1 });
+if (apiServer.jest) apiServer.jest.config.maxWorkers = 1;
 
 // -- AI Core --
 const aiCore = new PackageProject({
@@ -333,18 +309,17 @@ const aiCore = new PackageProject({
   outdir: './packages/ai-core',
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
-    'ai@6.0.99',
-    '@ai-sdk/anthropic@3.0.47', '@ai-sdk/openai@3.0.31', '@ai-sdk/google@3.0.31',
-    '@ai-sdk/xai@3.0.59', '@ai-sdk/amazon-bedrock@4.0.64', '@ai-sdk/openai-compatible@2.0.31',
+    'ai@6.0.198',
+    '@ai-sdk/anthropic@3.0.81', '@ai-sdk/openai@3.0.68', '@ai-sdk/google@3.0.80',
+    '@ai-sdk/xai@3.0.93', '@ai-sdk/amazon-bedrock@4.0.113', '@ai-sdk/openai-compatible@2.0.48',
   ],
-  devDeps: ['@types/node@25.3.0', `typescript@${typescriptVersion}`],
+  devDeps: ['@types/node@25.9.2', `typescript@${typescriptVersion}`],
 });
 aiCore.eslint?.addRules(rules);
 // Marked private  workspace-only dependency for downstream services.
 // Never published to npm (its version stays at 0.0.0 and any publish run
 // otherwise fails with "Cannot publish over previously published version").
 addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.', { private: true });
-configureJest(aiCore);
 
 // -- Pipeline Events (CodePipeline → Reporting Lambda) --
 const pipelineEvents = new PackageProject({
@@ -353,8 +328,14 @@ const pipelineEvents = new PackageProject({
   outdir: './packages/pipeline-events',
   deps: [],
   devDeps: [
-    '@types/node@25.3.0', '@types/aws-lambda@8.10.160',
-    '@aws-sdk/client-secrets-manager@3.997.0', `typescript@${typescriptVersion}`,
+    '@types/node@25.9.2', '@types/aws-lambda@8.10.162',
+    '@aws-sdk/client-secrets-manager@3.1064.0',
+    // devDep only: the handler dynamic-imports the CodePipeline client at runtime
+    // (AWS Lambda provides @aws-sdk v3); pinned to the same version as the other
+    // @aws-sdk clients so it doesn't perturb the shared tree, and externalized
+    // from the Lambda bundle.
+    '@aws-sdk/client-codepipeline@3.1064.0',
+    `typescript@${typescriptVersion}`,
   ],
 });
 pipelineEvents.eslint?.addRules(rules);
@@ -362,7 +343,6 @@ pipelineEvents.eslint?.addRules(rules);
 // never consumed as an `@pipeline-builder/pipeline-events` npm import. Same
 // 0.0.0-version publish-skip pattern as `ai-core`.
 addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.', { private: true });
-configureJest(pipelineEvents);
 
 // =============================================================================
 // Pipeline Manager CLI
@@ -375,11 +355,13 @@ const manager = new ManagerProject({
   bin: { 'pipeline-manager': './dist/cli.js' },
   deps: [
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
+    `@pipeline-builder/ai-core@${pkg.aiCore}`,
     `typescript@${typescriptVersion}`, `aws-cdk-lib@${cdkVersion}`,
-    '@aws-sdk/client-cloudformation@3.821.0', '@aws-sdk/client-lambda@3.821.0',
-    '@aws-sdk/client-secrets-manager@3.821.0', '@aws-sdk/client-sts@3.821.0',
-    'form-data@4.0.5', 'commander@14.0.3', 'figlet@1.10.0',
-    'axios@1.13.5', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.8.2', 'ora@9.3.0',
+    '@aws-sdk/client-cloudformation@3.1064.0', '@aws-sdk/client-lambda@3.1064.0',
+    '@aws-sdk/client-secrets-manager@3.1064.0', '@aws-sdk/client-sts@3.1064.0',
+    'form-data@4.0.5', 'commander@15.0.0', 'figlet@1.11.0',
+    'axios@1.17.0', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.9.0', 'ora@9.4.0',
+    'zod@4.4.3',
   ],
   devDeps: ['@types/figlet@1.7.0', '@types/progress@2.0.7', 'copyfiles@2.4.1'],
 });
@@ -391,7 +373,6 @@ manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./src/templates/*.json dist/templates/ --verbose --error');
 manager.addTask('audit', { exec: 'pnpm audit --audit-level=high', description: 'Check for known vulnerabilities in dependencies' });
-configureJest(manager);
 
 // =============================================================================
 // Platform Service
@@ -413,24 +394,23 @@ const platform = new FunctionProject({
     // Pulled in for the dashboards CRUD path (Postgres-backed); platform's
     // identity/auth/observability code remains Mongo-backed.
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
-    `express@${expressVersion}`, 'express-rate-limit@8.2.1',
-    'nodemailer@8.0.1', 'zod@4.3.6', '@aws-sdk/client-sesv2@3.997.0',
-    'jsonwebtoken@9.0.3', 'slugify@1.6.6', 'winston@3.19.0', 'bcryptjs@3.0.3',
-    'mongoose@9.2.2', 'helmet@8.1.0', 'cors@2.8.6',
-    'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'yaml@2.8.2',
-    'adm-zip@0.5.16', 'multer@2.0.2', 'prom-client@15.1.3',
+    `express@${expressVersion}`, 'express-rate-limit@8.5.2',
+    'nodemailer@8.0.10', 'zod@4.4.3', '@aws-sdk/client-sesv2@3.1064.0',
+    'jsonwebtoken@9.0.3', 'slugify@1.6.9', 'winston@3.19.0', 'bcryptjs@3.0.3',
+    'mongoose@9.6.3', 'helmet@8.2.0', 'cors@2.8.6',
+    'pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'yaml@2.9.0',
+    'adm-zip@0.5.17', 'multer@2.1.1', 'prom-client@15.1.3',
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.1',
-    '@types/nodemailer@7.0.11', '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
-    '@types/node@25.3.0', '@types/pg@8.16.0', '@types/adm-zip@0.5.7',
-    '@types/multer@2.0.0', '@jest/globals@30.2.0', 'copyfiles@2.4.1',
+    '@types/nodemailer@8.0.0', '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
+    '@types/node@25.9.2', '@types/pg@8.20.0', '@types/adm-zip@0.5.8',
+    '@types/multer@2.1.0', 'copyfiles@2.4.1',
   ],
 });
 platform.postCompileTask.exec('copyfiles -f ./src/utils/email-templates/*.html lib/utils/email-templates/ --verbose --error');
 platform.addScripts(dockerScripts('platform'));
 platform.eslint?.addRules(rules);
-configureJest(platform);
 
 // =============================================================================
 // Frontend
@@ -460,31 +440,35 @@ const frontend = new FrontEndProject({
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/api-server@${pkg.apiServer}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
-    'next@16.1.6', 'react@19.2.4', 'react-dom@19.2.4',
-    'lucide-react@0.575.0', 'tailwindcss@4.2.1', 'framer-motion@12.34.3', 'swr@2.3.3',
+    'next@16.2.7', 'react@19.2.7', 'react-dom@19.2.7',
+    'lucide-react@1.17.0', 'tailwindcss@4.3.0', 'framer-motion@12.40.0', 'swr@2.4.1',
     // drag-resize on the dashboard editor. Loaded only on the editor
     // page (next/dynamic) so non-editor traffic doesn't pay the ~120 KB cost.
     // `react-resizable` is a transitive dep of react-grid-layout but must be
     // declared directly so pnpm strict mode lets the editor import its CSS.
-    'react-grid-layout@1.5.2', 'react-resizable@3.0.5',
+    'react-grid-layout@2.2.3', 'react-resizable@4.0.1',
   ],
   devDeps: [
-    '@types/node@25.3.0', '@types/react@19.2.14', '@types/react-dom@19.2.3',
-    '@tailwindcss/postcss@4.2.1', 'autoprefixer@10.4.24',
-    'postcss@8.5.6', 'ts-jest@^29.4.6', `typescript@${typescriptVersion}`,
-    '@types/react-grid-layout@1.3.5',
+    '@types/node@25.9.2', '@types/react@19.2.17', '@types/react-dom@19.2.3',
+    '@tailwindcss/postcss@4.3.0', 'autoprefixer@10.5.0',
+    'postcss@8.5.15', 'ts-jest@^29.4.11', `typescript@${typescriptVersion}`,
+    // No @types/react-grid-layout: v2 ships its own types (Layout = readonly LayoutItem[]).
     // RTL stack for component / page render tests.
-    '@testing-library/react@16.3.0',
-    '@testing-library/jest-dom@6.6.3',
-    '@testing-library/user-event@14.5.2',
-    'jest-environment-jsdom@30.2.0',
+    '@testing-library/react@16.3.2',
+    '@testing-library/jest-dom@6.9.1',
+    '@testing-library/user-event@14.6.1',
+    // Must track jestVersion's 30.4.x line: jest-runtime 30.4.x calls the jsdom
+    // env's moduleMocker.clearMocksOnScope (added in jest-mock 30.4.x). An older
+    // jsdom env builds its moduleMocker from an older jest-mock without it,
+    // crashing every jsdom test. (jest-environment-jsdom's latest 30.4.x is
+    // 30.4.1, one patch behind jest core's 30.4.2 — they release together.)
+    'jest-environment-jsdom@30.4.1',
   ],
 });
-configureJest(frontend);
 if (frontend.jest) {
   frontend.jest.config.transform = { '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.test.json', diagnostics: { ignoreCodes: [151002] } }] };
   frontend.jest.config.moduleNameMapper = {
-...frontend.jest.config.moduleNameMapper as Record<string, string>,
+'^uuid$': '<rootDir>/../jest-uuid-stub.js',
     '^@/(.*)$': '<rootDir>/src/$1',
   };
   // Next.js's standalone build copies frontend/package.json into
@@ -508,50 +492,54 @@ frontend.addPackageIgnore('/dist/js/');
 const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   {
     name: 'quota',
-    deps: ['cors@2.8.6', 'express-rate-limit@8.2.1', 'helmet@8.1.0', 'jsonwebtoken@9.0.3', 'mongoose@9.2.2', 'winston@3.19.0', 'zod@4.3.6'],
+    deps: ['cors@2.8.6', 'express-rate-limit@8.5.2', 'helmet@8.2.0', 'jsonwebtoken@9.0.3', 'mongoose@9.6.3', 'winston@3.19.0', 'zod@4.4.3'],
     devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19'],
   },
   {
     name: 'billing',
     deps: [
-      'cors@2.8.6', 'express-rate-limit@8.2.1', 'helmet@8.1.0', 'jsonwebtoken@9.0.3', 'mongoose@9.2.2', 'winston@3.19.0', 'zod@4.3.6',
-      '@aws-sdk/client-marketplace-metering@3.997.0', '@aws-sdk/client-marketplace-entitlement-service@3.997.0', 'stripe@17.7.0',
+      'cors@2.8.6', 'express-rate-limit@8.5.2', 'helmet@8.2.0', 'jsonwebtoken@9.0.3', 'mongoose@9.6.3', 'winston@3.19.0', 'zod@4.4.3',
+      '@aws-sdk/client-marketplace-metering@3.1064.0', '@aws-sdk/client-marketplace-entitlement-service@3.1064.0',
+      // stripe v22's CJS type entry (`export = StripeConstructor`) doesn't expose
+      // the `Stripe.Subscription` namespace to NodeNext+CJS — but billing is ESM,
+      // so it resolves stripe's ESM types and uses `Stripe.Subscription` natively.
+      'stripe@22.2.0',
     ],
     devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19'],
   },
   {
     name: 'plugin',
     deps: [
-      'express-rate-limit@8.2.1', 'jsonwebtoken@9.0.3', 'helmet@8.1.0', 'cors@2.8.6',
-      'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'yaml@2.8.2',
-      'adm-zip@0.5.16', 'yauzl@3.3.0', 'multer@2.0.2', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
-      'bullmq@5.34.8', 'ioredis@5.6.1',
+      'express-rate-limit@8.5.2', 'jsonwebtoken@9.0.3', 'helmet@8.2.0', 'cors@2.8.6',
+      'pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'yaml@2.9.0',
+      'adm-zip@0.5.17', 'yauzl@3.4.0', 'multer@2.1.1', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
+      'bullmq@5.78.0', 'ioredis@5.11.1',
     ],
-    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.16.0', '@types/adm-zip@0.5.7', '@types/yauzl@2.10.3', '@types/multer@2.0.0'],
+    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.20.0', '@types/adm-zip@0.5.8', '@types/yauzl@2.10.3', '@types/multer@2.1.0'],
   },
   {
     name: 'pipeline',
     deps: [
-      'express-rate-limit@8.2.1', 'jsonwebtoken@9.0.3', 'helmet@8.1.0', 'cors@2.8.6',
-      'pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'yaml@2.8.2',
-      `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.3.6',
+      'express-rate-limit@8.5.2', 'jsonwebtoken@9.0.3', 'helmet@8.2.0', 'cors@2.8.6',
+      'pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'yaml@2.9.0',
+      `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
     ],
-    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.16.0'],
+    devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.20.0'],
   },
   {
     name: 'message',
-    deps: ['pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'ws@8.18.2', 'zod@4.3.6'],
-    devDeps: ['@types/pg@8.16.0', '@types/ws@8.18.1'],
+    deps: ['pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'ws@8.21.0', 'zod@4.4.3'],
+    devDeps: ['@types/pg@8.20.0', '@types/ws@8.18.1'],
   },
   {
     name: 'reporting',
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.18.0', 'drizzle-orm@0.45.1', 'zod@4.3.6'],
-    devDeps: ['@types/pg@8.16.0'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.21.0', 'drizzle-orm@0.45.2', 'zod@4.4.3'],
+    devDeps: ['@types/pg@8.20.0'],
   },
   {
     name: 'compliance',
-    deps: ['pg@8.18.0', 'drizzle-orm@0.45.1', 'uuid@13.0.0', 'zod@4.3.6', 'bullmq@5.34.8'],
-    devDeps: ['@types/pg@8.16.0'],
+    deps: ['pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'zod@4.4.3', 'bullmq@5.78.0'],
+    devDeps: ['@types/pg@8.20.0'],
   },
   {
     // Docker Registry token-auth issuer + image management API.
@@ -561,8 +549,8 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // creds; signs outgoing registry tokens with RS256.
     name: 'image-registry',
     deps: [
-      'cors@2.8.6', 'express-rate-limit@8.2.1', 'helmet@8.1.0',
-      'jsonwebtoken@9.0.3', 'winston@3.19.0', 'zod@4.3.6', 'axios@1.13.5',
+      'cors@2.8.6', 'express-rate-limit@8.5.2', 'helmet@8.2.0',
+      'jsonwebtoken@9.0.3', 'winston@3.19.0', 'zod@4.4.3', 'axios@1.17.0',
     ],
     devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19'],
   },
@@ -577,7 +565,6 @@ for (const svc of services) {
   });
   project.addScripts(dockerScripts(svc.name));
   project.eslint?.addRules(rules);
-  configureJest(project);
 }
 
 // =============================================================================

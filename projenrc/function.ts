@@ -4,7 +4,7 @@
 import { execSync } from 'node:child_process';
 import { TypeScriptModuleResolution } from 'projen/lib/javascript';
 import { TypeScriptAppProject, TypeScriptProjectOptions } from 'projen/lib/typescript';
-import { BASE_STRICT_COMPILER_OPTIONS } from './shared-config';
+import { BASE_STRICT_COMPILER_OPTIONS, ESM_COMPILER_OPTIONS, configureEsmJest } from './shared-config';
 
 /**
  * API service / application project.
@@ -21,6 +21,7 @@ export class FunctionProject extends TypeScriptAppProject {
             tsconfig: {
                 compilerOptions: {
                     ...BASE_STRICT_COMPILER_OPTIONS,
+                    ...ESM_COMPILER_OPTIONS,
                     outDir: 'lib',
 
                     module: 'NodeNext',
@@ -33,6 +34,7 @@ export class FunctionProject extends TypeScriptAppProject {
                 }
             }
         })
+        configureEsmJest(this);
     }
 
     preSynthesize(): void {

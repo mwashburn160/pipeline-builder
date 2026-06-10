@@ -11,13 +11,16 @@
  * rejected when `impersonationReadOnly` is set.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) => {
     res.status(status).json({ success: false, statusCode: status, message: msg, code });
   },
 }));
 
-import { requireWriteAccess, isWriteBlockedByImpersonation } from '../src/middleware/require-write-access';
+const { requireWriteAccess, isWriteBlockedByImpersonation } = await import('../src/middleware/require-write-access.js');
+
 
 function mockReq(method: string, impersonationReadOnly?: boolean) {
   return {

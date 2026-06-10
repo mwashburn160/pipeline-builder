@@ -22,7 +22,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createLogger } from '@pipeline-builder/api-core';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { getConnection } from './postgres-connection';
+import { getConnection } from './postgres-connection.js';
 
 const logger = createLogger('migrator');
 

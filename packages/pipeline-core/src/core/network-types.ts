@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { SecretValue } from 'aws-cdk-lib';
-import type { MetaDataType } from './pipeline-types';
-import type { SecurityGroupConfig } from './security-group-types';
+import type { MetaDataType } from './pipeline-types.js';
+import type { SecurityGroupConfig } from './security-group-types.js';
 
 /**
  * Network configuration using explicit subnet IDs

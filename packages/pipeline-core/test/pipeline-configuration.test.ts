@@ -1,17 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+import { jest, describe, it, expect } from '@jest/globals';
 
-import type { BuilderProps } from '../src/pipeline/pipeline-builder';
-import { PipelineConfiguration } from '../src/pipeline/pipeline-configuration';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+import type { BuilderProps } from '../src/pipeline/pipeline-builder.js';
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+const { PipelineConfiguration } = await import('../src/pipeline/pipeline-configuration.js');
 
 function validProps(overrides: Partial<BuilderProps> = {}): BuilderProps {
   return {

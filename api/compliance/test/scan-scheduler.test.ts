@@ -1,19 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  SYSTEM_ORG_ID: 'system',
-}));
+import { jest, describe, it, expect, afterEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 // Provide minimal Config + db + schema so the module loads.
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: {
     getAny: () => ({ scanSchedulerIntervalMs: 60000 }),
   },
@@ -25,16 +19,27 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     select: jest.fn(() => ({
       from: jest.fn(() => ({ where: jest.fn(() => ({ limit: jest.fn(() => Promise.resolve([])) })) })),
     })),
-    insert: jest.fn(() => ({ values: jest.fn().mockResolvedValue(undefined) })),
-    update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn().mockResolvedValue(undefined) })) })),
+    insert: jest.fn(() => ({ values: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })),
+    update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })) })),
   },
+  // scan-scheduler funnels every DB op through withTenantTx /
+  // runWithTenantContext after the RLS migration — pass through to a tx with
+  // the same chain shape the module expects.
+  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
+    select: jest.fn(() => ({
+      from: jest.fn(() => ({ where: jest.fn(() => ({ limit: jest.fn(() => Promise.resolve([])) })) })),
+    })),
+    insert: jest.fn(() => ({ values: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })),
+    update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })) })),
+  }),
 }));
 
-jest.mock('../src/helpers/scan-executor', () => ({
-  executeScan: jest.fn().mockResolvedValue(undefined),
+jest.unstable_mockModule('../src/helpers/scan-executor.js', () => ({
+  executeScan: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
 }));
 
-import { calculateNextRun, isValidCronExpression, startScanScheduler, stopScanScheduler } from '../src/helpers/scan-scheduler';
+const { calculateNextRun, isValidCronExpression, startScanScheduler, stopScanScheduler } = await import('../src/helpers/scan-scheduler.js');
 
 describe('calculateNextRun', () => {
   it('falls back to ~1 hour for invalid cron', () => {

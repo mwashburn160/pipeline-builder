@@ -13,7 +13,7 @@
  *
  * All defaults match the original hardcoded seed data for backward compatibility.
  */
-import type { BillingConfig, BillingPlanConfig } from './config-types';
+import type { BillingConfig, BillingPlanConfig } from './config-types.js';
 
 // -- Default features (match original seed-plans.ts) -------------------------
 

@@ -9,10 +9,13 @@
  * - Non-admin users (role=member) get 403.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const queueGetJobs = jest.fn();
 const dlqGetJobs = jest.fn();
 
-jest.mock('../src/queue/plugin-build-queue', () => ({
+jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   // route uses getAllTierQueues; one entry is enough for the existing assertions.
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', getJobs: queueGetJobs, getJobCounts: jest.fn() } }],
   getDeadLetterQueue: () => ({ getJobs: dlqGetJobs, getJobCounts: jest.fn() }),
@@ -23,11 +26,9 @@ jest.mock('../src/queue/plugin-build-queue', () => ({
 // Quota service stub  required by createQueueStatusRoutes since.
 const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn(),
-  }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn(),
+  getParam: (p: any, k: string) => p[k],
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
     return isNaN(n) ? def: n;
@@ -38,18 +39,17 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendError: jest.fn((res: any, status: number, message: string) => {
     res.status(status).json({ success: false, statusCode: status, message });
   }),
-  ErrorCode: { INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS' },
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = { requestId: 'test-req', log: jest.fn() };
     await handler({ req, res, ctx, orgId: req.__orgId, userId: 'user-1' });
   },
 }));
 
-import { isSystemAdmin } from '@pipeline-builder/api-core';
-import { createQueueStatusRoutes } from '../src/routes/queue-status';
+const { isSystemAdmin } = await import('@pipeline-builder/api-core');
+const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 function getTriageHandler() {
   const router = createQueueStatusRoutes(mockQuotaService);

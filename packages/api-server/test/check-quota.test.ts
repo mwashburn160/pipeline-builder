@@ -1,24 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock api-core before imports
-jest.mock('@pipeline-builder/api-core', () => ({
-  ErrorCode: {
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
-  },
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getIdentity: jest.fn(() => ({ orgId: 'fallback-org' })),
   sendError: jest.fn(),
 }));
 
-import { sendError, getIdentity } from '@pipeline-builder/api-core';
-import { checkQuota } from '../src/api/check-quota';
+const { sendError, getIdentity } = await import('@pipeline-builder/api-core');
+const { checkQuota } = await import('../src/api/check-quota.js');
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
   return {

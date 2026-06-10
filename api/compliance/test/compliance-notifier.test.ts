@@ -1,27 +1,23 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-const mockPost = jest.fn();
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+const mockPost = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
-jest.mock('../src/helpers/message-client', () => ({
+jest.unstable_mockModule('../src/helpers/message-client.js', () => ({
   messageClient: {
     post: (...args: unknown[]) => mockPost(...args),
   },
 }));
 
-import type { Violation } from '../src/engine/rule-engine';
-import { notifyComplianceBlock } from '../src/helpers/compliance-notifier';
+import type { Violation } from '../src/engine/rule-engine.js';
+const { notifyComplianceBlock } = await import('../src/helpers/compliance-notifier.js');
 
 function makeViolation(overrides: Partial<Violation> = {}): Violation {
   return {

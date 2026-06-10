@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-/* eslint-disable @typescript-eslint/no-require-imports */
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 
 // Mock all AI SDK providers BEFORE importing the module under test
 
@@ -17,21 +17,17 @@ const mockGoogleFactory = jest.fn((id: string) => ({ ...mockGoogleModel, modelId
 const mockXaiFactory = jest.fn((id: string) => ({ ...mockXaiModel, modelId: id }));
 const mockBedrockFactory = jest.fn((id: string) => ({ ...mockBedrockModel, modelId: id }));
 
-jest.mock('@ai-sdk/anthropic', () => ({
-  createAnthropic: jest.fn(() => mockAnthropicFactory),
-}));
-jest.mock('@ai-sdk/openai', () => ({
-  createOpenAI: jest.fn(() => mockOpenAIFactory),
-}));
-jest.mock('@ai-sdk/google', () => ({
-  createGoogleGenerativeAI: jest.fn(() => mockGoogleFactory),
-}));
-jest.mock('@ai-sdk/xai', () => ({
-  createXai: jest.fn(() => mockXaiFactory),
-}));
-jest.mock('@ai-sdk/amazon-bedrock', () => ({
-  createAmazonBedrock: jest.fn(() => mockBedrockFactory),
-}));
+const createAnthropic = jest.fn(() => mockAnthropicFactory);
+const createOpenAI = jest.fn(() => mockOpenAIFactory);
+const createGoogleGenerativeAI = jest.fn(() => mockGoogleFactory);
+const createXai = jest.fn(() => mockXaiFactory);
+const createAmazonBedrock = jest.fn(() => mockBedrockFactory);
+
+jest.unstable_mockModule('@ai-sdk/anthropic', () => ({ createAnthropic }));
+jest.unstable_mockModule('@ai-sdk/openai', () => ({ createOpenAI }));
+jest.unstable_mockModule('@ai-sdk/google', () => ({ createGoogleGenerativeAI }));
+jest.unstable_mockModule('@ai-sdk/xai', () => ({ createXai }));
+jest.unstable_mockModule('@ai-sdk/amazon-bedrock', () => ({ createAmazonBedrock }));
 
 // Helpers
 
@@ -40,10 +36,10 @@ jest.mock('@ai-sdk/amazon-bedrock', () => ({
  * re-import the module so the registry starts fresh. This helper clears the
  * module cache and returns a fresh import.
  */
-function freshImport() {
+async function freshImport() {
   // Clear cached module so the registry Map resets
   jest.resetModules();
-  return require('../src/provider-registry') as typeof import('../src/provider-registry');
+  return import('../src/provider-registry.js');
 }
 
 // Tests
@@ -63,7 +59,7 @@ describe('ai-core provider-registry', () => {
 
   // getAvailableProviders
   describe('getAvailableProviders', () => {
-    it('should return an empty array when no API keys are set', () => {
+    it('should return an empty array when no API keys are set', async () => {
       // Ensure all provider env vars are unset
       delete process.env.ANTHROPIC_API_KEY;
       delete process.env.OPENAI_API_KEY;
@@ -71,20 +67,20 @@ describe('ai-core provider-registry', () => {
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { getAvailableProviders } = freshImport();
+      const { getAvailableProviders } = await freshImport();
       const providers = getAvailableProviders();
 
       expect(providers).toEqual([]);
     });
 
-    it('should return only providers with API keys configured', () => {
+    it('should return only providers with API keys configured', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       delete process.env.OPENAI_API_KEY;
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { getAvailableProviders } = freshImport();
+      const { getAvailableProviders } = await freshImport();
       const providers = getAvailableProviders();
 
       expect(providers).toHaveLength(1);
@@ -92,14 +88,14 @@ describe('ai-core provider-registry', () => {
       expect(providers[0].name).toBe('Anthropic');
     });
 
-    it('should return multiple providers when multiple keys are set', () => {
+    it('should return multiple providers when multiple keys are set', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key-1';
       process.env.OPENAI_API_KEY = 'test-key-2';
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'test-key-3';
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { getAvailableProviders } = freshImport();
+      const { getAvailableProviders } = await freshImport();
       const providers = getAvailableProviders();
 
       expect(providers).toHaveLength(3);
@@ -109,27 +105,27 @@ describe('ai-core provider-registry', () => {
       expect(ids).toContain('google');
     });
 
-    it('should return all five providers when all keys are set', () => {
+    it('should return all five providers when all keys are set', async () => {
       process.env.ANTHROPIC_API_KEY = 'key-1';
       process.env.OPENAI_API_KEY = 'key-2';
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'key-3';
       process.env.XAI_API_KEY = 'key-4';
       process.env.AWS_ACCESS_KEY_ID = 'key-5';
 
-      const { getAvailableProviders } = freshImport();
+      const { getAvailableProviders } = await freshImport();
       const providers = getAvailableProviders();
 
       expect(providers).toHaveLength(5);
     });
 
-    it('should include models in each provider entry', () => {
+    it('should include models in each provider entry', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       delete process.env.OPENAI_API_KEY;
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { getAvailableProviders } = freshImport();
+      const { getAvailableProviders } = await freshImport();
       const providers = getAvailableProviders();
 
       expect(providers[0].models).toBeDefined();
@@ -141,8 +137,8 @@ describe('ai-core provider-registry', () => {
 
   // getProviderModels
   describe('getProviderModels', () => {
-    it('should return models for a known provider', () => {
-      const { getProviderModels } = freshImport();
+    it('should return models for a known provider', async () => {
+      const { getProviderModels } = await freshImport();
       const models = getProviderModels('anthropic');
 
       expect(models.length).toBeGreaterThan(0);
@@ -150,25 +146,25 @@ describe('ai-core provider-registry', () => {
       expect(models[0]).toHaveProperty('name');
     });
 
-    it('should return an empty array for an unknown provider', () => {
-      const { getProviderModels } = freshImport();
+    it('should return an empty array for an unknown provider', async () => {
+      const { getProviderModels } = await freshImport();
       const models = getProviderModels('unknown-provider');
 
       expect(models).toEqual([]);
     });
 
-    it('should return models without requiring env vars (static catalog lookup)', () => {
+    it('should return models without requiring env vars (static catalog lookup)', async () => {
       // No env vars set — getProviderModels reads from the static catalog
       delete process.env.ANTHROPIC_API_KEY;
 
-      const { getProviderModels } = freshImport();
+      const { getProviderModels } = await freshImport();
       const models = getProviderModels('anthropic');
 
       expect(models.length).toBeGreaterThan(0);
     });
 
-    it('should return correct models for each provider', () => {
-      const { getProviderModels } = freshImport();
+    it('should return correct models for each provider', async () => {
+      const { getProviderModels } = await freshImport();
 
       expect(getProviderModels('anthropic').map((m) => m.id)).toContain('claude-sonnet-4-20250514');
       expect(getProviderModels('openai').map((m) => m.id)).toContain('gpt-4o');
@@ -180,15 +176,14 @@ describe('ai-core provider-registry', () => {
 
   // Lazy initialization
   describe('lazy initialization', () => {
-    it('should only initialize the registry once (idempotent)', () => {
+    it('should only initialize the registry once (idempotent)', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       delete process.env.OPENAI_API_KEY;
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { getAvailableProviders } = freshImport();
-      const { createAnthropic } = require('@ai-sdk/anthropic');
+      const { getAvailableProviders } = await freshImport();
 
       // First call initializes registry
       getAvailableProviders();
@@ -199,15 +194,14 @@ describe('ai-core provider-registry', () => {
       expect(createAnthropic.mock.calls.length).toBe(firstCallCount);
     });
 
-    it('should initialize on first resolveModel call if not already done', () => {
+    it('should initialize on first resolveModel call if not already done', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       delete process.env.OPENAI_API_KEY;
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { resolveModel } = freshImport();
-      const { createAnthropic } = require('@ai-sdk/anthropic');
+      const { resolveModel } = await freshImport();
 
       // resolveModel should trigger init
       resolveModel('anthropic', 'claude-sonnet-4-20250514');
@@ -217,68 +211,68 @@ describe('ai-core provider-registry', () => {
 
   // resolveModel
   describe('resolveModel', () => {
-    it('should throw when provider is not configured', () => {
+    it('should throw when provider is not configured', async () => {
       delete process.env.ANTHROPIC_API_KEY;
       delete process.env.OPENAI_API_KEY;
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { resolveModel } = freshImport();
+      const { resolveModel } = await freshImport();
 
       expect(() => resolveModel('anthropic', 'claude-sonnet-4-20250514')).toThrow(
         'AI provider "anthropic" is not configured',
       );
     });
 
-    it('should throw when model is not valid for the provider', () => {
+    it('should throw when model is not valid for the provider', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       delete process.env.OPENAI_API_KEY;
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { resolveModel } = freshImport();
+      const { resolveModel } = await freshImport();
 
       expect(() => resolveModel('anthropic', 'nonexistent-model')).toThrow(
         'Model "nonexistent-model" is not available for provider "anthropic"',
       );
     });
 
-    it('should include available models in the error message', () => {
+    it('should include available models in the error message', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       delete process.env.OPENAI_API_KEY;
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { resolveModel } = freshImport();
+      const { resolveModel } = await freshImport();
 
       expect(() => resolveModel('anthropic', 'bad-model')).toThrow('Available models:');
     });
 
-    it('should return a LanguageModel for a valid provider + model', () => {
+    it('should return a LanguageModel for a valid provider + model', async () => {
       process.env.ANTHROPIC_API_KEY = 'test-key';
       delete process.env.OPENAI_API_KEY;
       delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { resolveModel } = freshImport();
+      const { resolveModel } = await freshImport();
       const model = resolveModel('anthropic', 'claude-sonnet-4-20250514');
 
       expect(model).toBeDefined();
       expect(mockAnthropicFactory).toHaveBeenCalledWith('claude-sonnet-4-20250514');
     });
 
-    it('should resolve models for each configured provider', () => {
+    it('should resolve models for each configured provider', async () => {
       process.env.ANTHROPIC_API_KEY = 'key-1';
       process.env.OPENAI_API_KEY = 'key-2';
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'key-3';
       process.env.XAI_API_KEY = 'key-4';
       process.env.AWS_ACCESS_KEY_ID = 'key-5';
 
-      const { resolveModel } = freshImport();
+      const { resolveModel } = await freshImport();
 
       expect(resolveModel('anthropic', 'claude-sonnet-4-20250514')).toBeDefined();
       expect(resolveModel('openai', 'gpt-4o')).toBeDefined();
@@ -290,31 +284,30 @@ describe('ai-core provider-registry', () => {
 
   // createModelWithKey
   describe('createModelWithKey', () => {
-    it('should throw for an unknown provider', () => {
-      const { createModelWithKey } = freshImport();
+    it('should throw for an unknown provider', async () => {
+      const { createModelWithKey } = await freshImport();
 
       expect(() => createModelWithKey('fake-provider', 'model-1', 'key')).toThrow(
         'Unknown AI provider "fake-provider"',
       );
     });
 
-    it('should include supported providers in the error message', () => {
-      const { createModelWithKey } = freshImport();
+    it('should include supported providers in the error message', async () => {
+      const { createModelWithKey } = await freshImport();
 
       expect(() => createModelWithKey('fake-provider', 'model-1', 'key')).toThrow('Supported:');
     });
 
-    it('should throw for an invalid model on a valid provider', () => {
-      const { createModelWithKey } = freshImport();
+    it('should throw for an invalid model on a valid provider', async () => {
+      const { createModelWithKey } = await freshImport();
 
       expect(() => createModelWithKey('anthropic', 'nonexistent-model', 'key')).toThrow(
         'Model "nonexistent-model" is not available for provider "anthropic"',
       );
     });
 
-    it('should create a model with a custom key for Anthropic', () => {
-      const { createModelWithKey } = freshImport();
-      const { createAnthropic } = require('@ai-sdk/anthropic');
+    it('should create a model with a custom key for Anthropic', async () => {
+      const { createModelWithKey } = await freshImport();
 
       const model = createModelWithKey('anthropic', 'claude-sonnet-4-20250514', 'custom-key');
 
@@ -322,9 +315,8 @@ describe('ai-core provider-registry', () => {
       expect(createAnthropic).toHaveBeenCalledWith({ apiKey: 'custom-key' });
     });
 
-    it('should create a model with a custom key for OpenAI', () => {
-      const { createModelWithKey } = freshImport();
-      const { createOpenAI } = require('@ai-sdk/openai');
+    it('should create a model with a custom key for OpenAI', async () => {
+      const { createModelWithKey } = await freshImport();
 
       const model = createModelWithKey('openai', 'gpt-4o', 'custom-key');
 
@@ -332,9 +324,8 @@ describe('ai-core provider-registry', () => {
       expect(createOpenAI).toHaveBeenCalledWith({ apiKey: 'custom-key' });
     });
 
-    it('should create a model with a custom key for Google', () => {
-      const { createModelWithKey } = freshImport();
-      const { createGoogleGenerativeAI } = require('@ai-sdk/google');
+    it('should create a model with a custom key for Google', async () => {
+      const { createModelWithKey } = await freshImport();
 
       const model = createModelWithKey('google', 'gemini-2.0-flash', 'custom-key');
 
@@ -342,9 +333,8 @@ describe('ai-core provider-registry', () => {
       expect(createGoogleGenerativeAI).toHaveBeenCalledWith({ apiKey: 'custom-key' });
     });
 
-    it('should create a model with a custom key for xAI', () => {
-      const { createModelWithKey } = freshImport();
-      const { createXai } = require('@ai-sdk/xai');
+    it('should create a model with a custom key for xAI', async () => {
+      const { createModelWithKey } = await freshImport();
 
       const model = createModelWithKey('xai', 'grok-3', 'custom-key');
 
@@ -352,9 +342,8 @@ describe('ai-core provider-registry', () => {
       expect(createXai).toHaveBeenCalledWith({ apiKey: 'custom-key' });
     });
 
-    it('should create a model for Amazon Bedrock (no custom key needed)', () => {
-      const { createModelWithKey } = freshImport();
-      const { createAmazonBedrock } = require('@ai-sdk/amazon-bedrock');
+    it('should create a model for Amazon Bedrock (no custom key needed)', async () => {
+      const { createModelWithKey } = await freshImport();
 
       const model = createModelWithKey('amazon-bedrock', 'anthropic.claude-3-5-sonnet-20241022-v2:0', 'key');
 
@@ -362,7 +351,7 @@ describe('ai-core provider-registry', () => {
       expect(createAmazonBedrock).toHaveBeenCalled();
     });
 
-    it('should not affect the registry (uses ephemeral provider instances)', () => {
+    it('should not affect the registry (uses ephemeral provider instances)', async () => {
       // No env vars — registry is empty
       delete process.env.ANTHROPIC_API_KEY;
       delete process.env.OPENAI_API_KEY;
@@ -370,7 +359,7 @@ describe('ai-core provider-registry', () => {
       delete process.env.XAI_API_KEY;
       delete process.env.AWS_ACCESS_KEY_ID;
 
-      const { createModelWithKey, getAvailableProviders } = freshImport();
+      const { createModelWithKey, getAvailableProviders } = await freshImport();
 
       // createModelWithKey works without env vars
       const model = createModelWithKey('anthropic', 'claude-sonnet-4-20250514', 'custom-key');
@@ -384,8 +373,8 @@ describe('ai-core provider-registry', () => {
 
   // Module exports
   describe('module exports', () => {
-    it('should export all expected functions', () => {
-      const mod = freshImport();
+    it('should export all expected functions', async () => {
+      const mod = await freshImport();
 
       expect(typeof mod.getAvailableProviders).toBe('function');
       expect(typeof mod.getProviderModels).toBe('function');

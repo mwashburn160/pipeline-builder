@@ -7,7 +7,7 @@ import {
   schema,
 } from '@pipeline-builder/pipeline-core';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { calculateNextRun } from '../helpers/scan-scheduler';
+import { calculateNextRun } from '../helpers/scan-scheduler.js';
 
 export type ScanTarget = 'plugin' | 'pipeline' | 'all';
 

@@ -2,32 +2,59 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-Database layer for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): Drizzle ORM schemas, connection management, query builders, and the generic `CrudService` base class with built-in multi-tenant access control used by every backend service.
+Database layer for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): Drizzle ORM schemas, connection management, query builders, and the generic `CrudService` base class with per-organization (and team) access control.
 
-## Key Exports
+> Internal workspace package — consumed by other packages via `workspace:*`.
 
-### Connection
-- `getConnection`, `db`, `closeConnection` — Shared PostgreSQL pool, Drizzle client, and lifecycle management
-- `dbReplica` — Optional read-replica client for read-heavy queries (reporting, listings)
-- `ConnectionRetryStrategy` — Retry logic for transient connection failures
-- `runMigrations` — Drizzle migration runner
+## Responsibilities
 
-### Schemas
-- `schema` — All Drizzle table definitions: core pipeline/plugin/message tables, the pipeline deployment registry and execution-event log, observability dashboards and per-org alerting, plus the full compliance suite (policies, rules, exemptions, audit log, scans, reports)
-- Entity types: `Pipeline`, `Plugin`, `Message`, `PipelineEvent`, `ComplianceRule`, and a matching `*Insert` / `*Update` type for each table
+- Defines the Drizzle ORM schema for every backend table (pipelines, plugins, messages, pipeline events, and the compliance suite).
+- Manages the PostgreSQL connection lifecycle with retry logic.
+- Provides the generic `CrudService` base class with built-in multi-tenant (org/team) access control and pagination.
+- Supplies filter-to-SQL query/condition builders and `AsyncLocalStorage`-backed tenant-context primitives for transactions.
+- Hosts the `ReportingService` used to ingest pipeline events and serve org-scoped reporting.
 
-### CrudService
-- `CrudService<TEntity, TFilter, TInsert, TUpdate>` — Abstract base providing `find`, `findById`, `findPaginated`, `count`, `create`, `update`, `delete` (soft delete), `setDefault`, and `updateMany`
-- Built-in multi-tenant access control and pagination; subclasses implement `buildConditions` and a few column accessors and inherit the rest
-- Optional per-entity lifecycle hooks fire after mutations (e.g. cache invalidation)
+## Key exports
 
-### Query Builders & Access Control
-- `AccessControlQueryBuilder` — Row-level, org-scoped condition builder enforcing tenant isolation and `accessModifier` visibility
-- `buildPipelineConditions`, `buildPluginConditions`, `buildMessageConditions`, and the compliance condition builders — filter-to-SQL translators used by the services
-- Tenancy helpers: `tenantContext`, `runWithTenantContext`, `withTenantTx` — `AsyncLocalStorage`-backed tenant scoping for transactions
+### Database
+| Export | Purpose |
+|---|---|
+| `db` | Shared Drizzle database instance |
+| `getConnection`, `closeConnection` | PostgreSQL connection lifecycle (with retry strategy) |
+| `schema` | All Drizzle table definitions and their `*Insert` / `*Update` types |
+| `runMigrations` (`MigrateOptions`) | Drizzle migration runner |
+| `tenantContext`, `runWithTenantContext`, `getTenantContext`, `withTenantTx` | Tenant-context primitives for scoped/RLS transactions |
 
-### Reporting
-- `ReportingService` / `reportingService` — Aggregate-query base for pipeline event ingestion and org-scoped reporting
+### Services
+| Export | Purpose |
+|---|---|
+| `CrudService<TEntity, TFilter, TInsert, TUpdate>` | Abstract base providing `find`, `findById`, `findPaginated`, `count`, `create`, `update`, `delete` (soft), `setDefault`, `updateMany` with multi-tenant access control |
+| `ReportingService` / `reportingService` | Aggregate-query base for pipeline-event ingestion and org-scoped reporting |
+
+### Query builders & filters
+| Export | Purpose |
+|---|---|
+| `AccessControlQueryBuilder` | Row-level, org-scoped condition builder enforcing tenant isolation and `accessModifier` visibility |
+| `buildPipelineConditions`, `buildPluginConditions`, `buildMessageConditions`, and the compliance condition builders | Filter-to-SQL translators used by the services |
+| `PipelineFilter`, `PluginFilter`, `MessageFilter`, the compliance filter types | Typed filter interfaces |
+| `drizzleRows`, `drizzleCount` | Drizzle result type helpers |
+
+## Usage
+
+```typescript
+import { CrudService, db, schema } from '@pipeline-builder/pipeline-data';
+
+class PipelineService extends CrudService<Pipeline, PipelineFilter, PipelineInsert, PipelineUpdate> {
+  // implement buildConditions + a few column accessors; inherit the rest
+}
+```
+
+## Development
+
+```bash
+pnpm build   # projen build (compile + lint + test + package)
+pnpm test    # run the Jest test suite
+```
 
 ## License
 

@@ -38,7 +38,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createLogger } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { db } from './postgres-connection';
+import { db } from './postgres-connection.js';
 
 const logger = createLogger('tenant-context');
 

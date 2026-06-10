@@ -10,10 +10,13 @@
 
 // Mocks — must be defined before imports
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockFindById = jest.fn();
 const mockDelete = jest.fn();
 
-jest.mock('../src/services/pipeline-service', () => ({
+jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     findById: mockFindById,
     delete: mockDelete,
@@ -27,19 +30,11 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   extractDbError: jest.fn(() => ({})),
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-  },
-  createLogger: jest.fn(() => ({ error: jest.fn(), warn: jest.fn(), info: jest.fn() })),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   resolveAccessModifier: jest.fn((_req: any, am?: string) => am || 'private'),
   requirePublicAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   pickDefined: jest.fn((obj: any) => {
     const result: any = {};
     for (const [k, v] of Object.entries(obj)) {
@@ -71,7 +66,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -91,12 +86,12 @@ jest.mock('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   AccessModifier: {},
 }));
 
-import { sendBadRequest, requirePublicAccess, sendEntityNotFound } from '@pipeline-builder/api-core';
-import { createDeletePipelineRoutes } from '../src/routes/delete-pipeline';
+const { sendBadRequest, requirePublicAccess, sendEntityNotFound } = await import('@pipeline-builder/api-core');
+const { createDeletePipelineRoutes } = await import('../src/routes/delete-pipeline.js');
 
 // Helpers
 

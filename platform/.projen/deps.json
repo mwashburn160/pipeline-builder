@@ -12,7 +12,7 @@
     },
     {
       "name": "@types/adm-zip",
-      "version": "0.5.7",
+      "version": "0.5.8",
       "type": "build"
     },
     {
@@ -31,33 +31,28 @@
       "type": "build"
     },
     {
-      "name": "@types/jest",
-      "version": "30.0.0",
-      "type": "build"
-    },
-    {
       "name": "@types/jsonwebtoken",
       "version": "9.0.10",
       "type": "build"
     },
     {
       "name": "@types/multer",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "type": "build"
     },
     {
       "name": "@types/node",
-      "version": "25.3.0",
+      "version": "25.9.2",
       "type": "build"
     },
     {
       "name": "@types/nodemailer",
-      "version": "7.0.11",
+      "version": "8.0.0",
       "type": "build"
     },
     {
       "name": "@types/pg",
-      "version": "8.16.0",
+      "version": "8.20.0",
       "type": "build"
     },
     {
@@ -95,7 +90,7 @@
     },
     {
       "name": "jest",
-      "version": "30.0.0",
+      "version": "30.4.2",
       "type": "build"
     },
     {
@@ -105,16 +100,21 @@
     },
     {
       "name": "typescript",
-      "version": "5.9.3",
+      "version": "6.0.3",
       "type": "build"
     },
     {
       "name": "@aws-sdk/client-sesv2",
-      "version": "3.997.0",
+      "version": "3.1064.0",
       "type": "runtime"
     },
     {
       "name": "@pipeline-builder/api-core",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
+      "name": "@pipeline-builder/api-server",
       "version": "workspace:*",
       "type": "runtime"
     },
@@ -125,7 +125,7 @@
     },
     {
       "name": "adm-zip",
-      "version": "0.5.16",
+      "version": "0.5.17",
       "type": "runtime"
     },
     {
@@ -140,12 +140,12 @@
     },
     {
       "name": "drizzle-orm",
-      "version": "0.45.1",
+      "version": "0.45.2",
       "type": "runtime"
     },
     {
       "name": "express-rate-limit",
-      "version": "8.2.1",
+      "version": "8.5.2",
       "type": "runtime"
     },
     {
@@ -155,7 +155,7 @@
     },
     {
       "name": "helmet",
-      "version": "8.1.0",
+      "version": "8.2.0",
       "type": "runtime"
     },
     {
@@ -165,22 +165,22 @@
     },
     {
       "name": "mongoose",
-      "version": "9.2.2",
+      "version": "9.6.3",
       "type": "runtime"
     },
     {
       "name": "multer",
-      "version": "2.0.2",
+      "version": "2.1.1",
       "type": "runtime"
     },
     {
       "name": "nodemailer",
-      "version": "8.0.1",
+      "version": "8.0.10",
       "type": "runtime"
     },
     {
       "name": "pg",
-      "version": "8.18.0",
+      "version": "8.21.0",
       "type": "runtime"
     },
     {
@@ -190,12 +190,12 @@
     },
     {
       "name": "slugify",
-      "version": "1.6.6",
+      "version": "1.6.9",
       "type": "runtime"
     },
     {
       "name": "uuid",
-      "version": "13.0.0",
+      "version": "14.0.0",
       "type": "runtime"
     },
     {
@@ -205,12 +205,12 @@
     },
     {
       "name": "yaml",
-      "version": "2.8.2",
+      "version": "2.9.0",
       "type": "runtime"
     },
     {
       "name": "zod",
-      "version": "4.3.6",
+      "version": "4.4.3",
       "type": "runtime"
     }
   ],

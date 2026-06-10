@@ -2,33 +2,77 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-Express server infrastructure for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): the app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context with structured logging, route wrappers, health-check helpers, and SSE support used by every backend service.
+Express server infrastructure for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context, route wrappers, health-check helpers, and SSE support.
 
-## Key Exports
+> Internal workspace package — consumed by other packages via `workspace:*`. Not published or used standalone.
 
-### App Factory
-- `createApp({ checkDependencies?, warmupHooks?, redisUrl?, ... })` — Creates a configured Express app with CORS, Helmet (strict CSP), gzip/deflate compression, rate limiting, `/health` (liveness), `/ready` (readiness), `/warmup`, `/metrics`, and OpenAPI spec + Swagger UI at `/docs`. Fails fast if `JWT_SECRET` is unset. Rate limiting keys per org (falling back to a normalized IPv6 prefix) and uses a shared Redis store when `redisUrl` is provided, so limits hold across multiple instances. Pass `warmupHooks: [() => mongoose.connection.db?.admin().ping()]` for services that need to pre-warm Mongo/Redis on cold start.
-- `runServer`, `startServer` — Server lifecycle with graceful shutdown
+## Responsibilities
 
-### Middleware
-- `attachRequestContext` / `createRequestContext` — Identity + logging attached to every request
-- `requireOrgId` — Validates `x-org-id` header
-- `checkQuota` — Quota enforcement middleware
-- `etagMiddleware` — Conditional GET (304 Not Modified) support
-- `idempotencyMiddleware` — Idempotency key handling
+Assembles the standardized HTTP runtime shared by every backend service: a configured Express app factory, request-context middleware (identity + structured logging), org-scoped rate limiting, idempotency and ETag handling, quota enforcement, async route wrappers with consistent error mapping, health/readiness checks, metrics and OpenTelemetry tracing, and a Server-Sent Events connection manager. Builds on `@pipeline-builder/api-core` for auth, responses, and logging.
 
-### Route Helpers
-- `withRoute` — Wraps async handlers with context extraction, orgId validation, and error mapping
-- `getContext` — Retrieves `RequestContext` from an Express request
-- `createProtectedRoute`, `createAuthenticatedWithOrgRoute` — Composable middleware chains
+## Key exports
 
-### Health & Quota Helpers
-- `postgresHealthCheck` — Returns `{ postgres: 'connected' | 'disconnected' }` (the `'unknown'` fallback was removed — a real probe failure now correctly fails `/ready`)
-- `mongoHealthCheck(connection)` — Returns `{ mongodb: 'connected' | 'unknown' | 'disconnected' }` based on mongoose's `readyState` (1 = connected, 2 = connecting/unknown, anything else = disconnected)
-- `incrementQuotaFromCtx(service, { req, ctx, orgId }, type)` — Increments a quota counter using values pulled from the route context. `type` is `'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls' | 'storageBytes'`.
+### App factory & lifecycle (`./api`)
+| Export | Purpose |
+| --- | --- |
+| `createApp` | Configured Express app: CORS, Helmet (strict CSP), gzip/deflate compression, org-keyed rate limiting (shared Redis store when `redisUrl` is set), `/health`, `/ready`, `/warmup`, `/metrics`, and Swagger UI + OpenAPI at `/docs`. Fails fast if `JWT_SECRET` is unset. |
+| `startServer`, `runServer` | Server lifecycle with graceful shutdown |
 
-### Server-Sent Events
-- `SSEManager` — Connection manager for streaming logs to clients
+### Middleware (`./api`)
+| Export | Purpose |
+| --- | --- |
+| `attachRequestContext`, `createRequestContext` | Attach identity + logging (`RequestContext`) to each request |
+| `requireOrgId` | Validate the `x-org-id` header is present |
+| `checkQuota` | Quota enforcement middleware |
+| `etagMiddleware` | Conditional GET (304 Not Modified) support |
+| `idempotencyMiddleware`, `createMemoryStore`, `createRedisIdempotencyStore` | Idempotency-key handling with pluggable stores |
+
+### Route helpers (`./api`)
+| Export | Purpose |
+| --- | --- |
+| `withRoute` | Wrap async handlers with context extraction, orgId validation, and error mapping |
+| `getContext` | Retrieve `RequestContext` from an Express request |
+| `createProtectedRoute`, `createAuthenticatedWithOrgRoute` | Composable auth/org middleware chains |
+
+### Health, quota & observability (`./api`)
+| Export | Purpose |
+| --- | --- |
+| `postgresHealthCheck` | Returns `{ postgres: 'connected' \| 'disconnected' }` |
+| `mongoHealthCheck` | Returns `{ mongodb: 'connected' \| 'unknown' \| 'disconnected' }` from mongoose `readyState` |
+| `incrementQuotaFromCtx` | Increment a quota counter from the route context |
+| `metricsMiddleware`, `metricsHandler`, `incCounter`, `observe`, `setGauge` | Prometheus metrics collection and `/metrics` handler |
+| `initTracing`, `currentTraceId` | OpenTelemetry tracing init and current trace ID |
+
+### Server-Sent Events (`./http`)
+| Export | Purpose |
+| --- | --- |
+| `SSEManager` | Connection manager for streaming logs/events to clients |
+
+## Usage
+
+```ts
+import { createApp, withRoute, getContext } from '@pipeline-builder/api-server';
+import { requireAuth, sendSuccess } from '@pipeline-builder/api-core';
+
+const { app } = createApp({ serviceName: 'plugin-service' });
+
+app.get(
+  '/plugins',
+  requireAuth(),
+  withRoute(async (req, res) => {
+    const { orgId, logger } = getContext(req);
+    logger.info('listing plugins', { orgId });
+    return sendSuccess(res, await plugins.findByOrg(orgId));
+  }),
+);
+```
+
+## Development
+
+```bash
+pnpm build   # projen build (compile + lint + test)
+pnpm test    # run the Jest test suite
+```
 
 ## License
 

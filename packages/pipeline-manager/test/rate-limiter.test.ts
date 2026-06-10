@@ -1,10 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../src/utils/rate-limiter';
+import { describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../src/utils/rate-limiter.js';
 
 const STATE_FILE = path.join(os.tmpdir(), '.pipeline-manager-auth-state.json');
 

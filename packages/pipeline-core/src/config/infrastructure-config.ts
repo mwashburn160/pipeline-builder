@@ -5,8 +5,8 @@ import path from 'path';
 import { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import type { AWSConfig, BuildConfig, ComplianceConfig, DatabaseConfig, ObservabilityConfig, PluginBuildConfig, RedisConfig, RegistryConfig } from './config-types';
-import { getComputeType } from '../core/pipeline-helpers';
+import type { AWSConfig, BuildConfig, ComplianceConfig, DatabaseConfig, ObservabilityConfig, PluginBuildConfig, RedisConfig, RegistryConfig } from './config-types.js';
+import { getComputeType } from '../core/pipeline-helpers.js';
 
 /**
  * Load Docker registry configuration from environment variables.

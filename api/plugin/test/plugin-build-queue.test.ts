@@ -8,9 +8,12 @@
  * services (SSEManager, QuotaService, db, buildAndPush).
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock state  must be hoisted before imports
 
-const mockQueueAdd = jest.fn();
+const mockQueueAdd = jest.fn<(...args: any[]) => any>();
 const mockQueueClose = jest.fn().mockResolvedValue(undefined);
 const mockQueueGetJobs = jest.fn().mockResolvedValue([]);
 const mockQueueGetJobCounts = jest.fn().mockResolvedValue({});
@@ -26,78 +29,14 @@ const mockWorkerCtor = jest.fn();
 // Track which worker processor is for which queue name
 const capturedProcessors: Record<string, (job: any) => Promise<any>> = {};
 
-jest.mock('bullmq', () => {
-  class MockQueue {
-    add = mockQueueAdd;
-    close = mockQueueClose;
-    getJobs = mockQueueGetJobs;
-    getJobCounts = mockQueueGetJobCounts;
-    obliterate = mockQueueObliterate;
-    name: string;
-    constructor(name: string, _opts: any) {
-      this.name = name;
-    }
-  }
-
-  class MockWorker {
-    on = mockWorkerOn;
-    close = mockWorkerClose;
-
-    constructor(name: string, processor: (job: any) => Promise<any>, _opts: any) {
-      mockWorkerCtor(name);
-      capturedProcessors[name] = processor;
-    }
-  }
-
-  return { Queue: MockQueue, Worker: MockWorker };
-});
-
-jest.mock('ioredis', () => {
-  class MockRedis {
-    status = 'ready';
-    disconnect = jest.fn();
-    on = jest.fn();
-    // Per-org concurrency semaphore uses a Lua EVAL on `pb:org-build:<orgId>`
-    // keys plus an `hset/hdel/hgetall` owners hash. Mock EVAL to return 1
-    // ("slot acquired") so the worker proceeds to its main logic.
-    eval = jest.fn().mockResolvedValue(1);
-    incr = jest.fn().mockResolvedValue(1);
-    decr = jest.fn().mockResolvedValue(0);
-    expire = jest.fn().mockResolvedValue(1);
-    set = jest.fn().mockResolvedValue('OK');
-    hset = jest.fn().mockResolvedValue(1);
-    hdel = jest.fn().mockResolvedValue(1);
-    hgetall = jest.fn().mockResolvedValue({});
-  }
-  return { __esModule: true, default: MockRedis };
-});
-
 const mockIncrementQuota = jest.fn();
-const mockExistsSync = jest.fn().mockReturnValue(false);
+const mockExistsSync = jest.fn<(...args: any[]) => any>().mockReturnValue(false);
 const mockRmSync = jest.fn();
 const mockUtimesSync = jest.fn();
 
-jest.mock('fs', () => ({
-  existsSync: mockExistsSync,
-  rmSync: mockRmSync,
-  utimesSync: mockUtimesSync,
-  readdirSync: jest.fn().mockReturnValue([]),
-}));
+const mockBuildAndPush = jest.fn<(...args: any[]) => any>();
 
-const mockBuildAndPush = jest.fn();
-jest.mock('../src/helpers/docker-build', () => ({
-  buildAndPush: mockBuildAndPush,
-  BUILD_TEMP_ROOT: '/tmp',
-  // per-tier buildkitd address resolver. Stub returns a noop tcp
-  // address so the worker proceeds; the actual buildAndPush mock above
-  // is what asserts behavior.
-  getBuildkitAddrForTier: jest.fn(() => 'tcp://buildkitd:1234'),
-}));
-
-const mockDeployVersion = jest.fn();
-jest.mock('../src/services/plugin-service', () => ({
-  pluginService: { deployVersion: mockDeployVersion },
-}));
+const mockDeployVersion = jest.fn<(...args: any[]) => any>();
 
 const mockPipelineCoreConfig: Record<string, any> = {
   pluginBuild: {
@@ -113,54 +52,109 @@ const mockPipelineCoreConfig: Record<string, any> = {
   redis: { host: 'localhost', port: 6379 },
 };
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
-  CoreConstants: {
-    PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
-    PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
-    PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
-  },
-  Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
-  // RLS tenant-context primitives. Pass-throughs in unit tests  // runWithTenantContext just invokes its callback; withTenantTx invokes
-  // its callback with a stub tx whose insert/select/update return promises
-  // resolving to the inputs (existing test assertions don't inspect the
-  // tx layer, just the side effects).
-  runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
-  withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
-    insert: () => ({ values: () => Promise.resolve() }),
-    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
-    update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
-  }),
-}));
+// Registers every ESM module mock the SUT graph consumes. Called once at
+// load time and re-invoked after each `jest.resetModules()` (resetModules
+// clears unstable_mockModule registrations along with the module registry).
+function registerMocks() {
+  jest.unstable_mockModule('bullmq', () => {
+    class MockQueue {
+      add = mockQueueAdd;
+      close = mockQueueClose;
+      getJobs = mockQueueGetJobs;
+      getJobCounts = mockQueueGetJobCounts;
+      obliterate = mockQueueObliterate;
+      name: string;
+      constructor(name: string, _opts: any) {
+        this.name = name;
+      }
+    }
+    class MockWorker {
+      on = mockWorkerOn;
+      close = mockWorkerClose;
+      constructor(name: string, processor: (job: any) => Promise<any>, _opts: any) {
+        mockWorkerCtor(name);
+        capturedProcessors[name] = processor;
+      }
+    }
+    return { Queue: MockQueue, Worker: MockWorker };
+  });
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (e: unknown) => (e instanceof Error ? e.message: String(e)),
-  extractDbError: jest.fn(() => ({})),
-  incrementQuota: mockIncrementQuota,
-  decrementQuota: mockIncrementQuota,
-  getServiceAuthHeader: () => 'Bearer test-service-token',
-  // remote-audit client  worker calls record() on success +
-  // permanent failure. Mocked as a no-op since the worker fire-and-forgets;
-  // tests only need the symbol to exist so getAuditClient() doesn't throw.
-  createRemoteAuditClient: () => ({ record: jest.fn() }),
-}));
+  jest.unstable_mockModule('ioredis', () => {
+    class MockRedis {
+      status = 'ready';
+      disconnect = jest.fn();
+      on = jest.fn();
+      eval = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
+      incr = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
+      decr = jest.fn<(...args: any[]) => any>().mockResolvedValue(0);
+      expire = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
+      set = jest.fn<(...args: any[]) => any>().mockResolvedValue('OK');
+      hset = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
+      hdel = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
+      hgetall = jest.fn<(...args: any[]) => any>().mockResolvedValue({});
+    }
+    // Source imports the named `{ Redis }`; expose it alongside default.
+    return { __esModule: true, default: MockRedis, Redis: MockRedis };
+  });
 
-jest.mock('@pipeline-builder/api-server', () => ({
-  // Metrics helpers used by worker handlers + queue-metrics-scraper.
-  // No-ops in tests  we only assert behavior, not Prometheus state.
-  incCounter: jest.fn(),
-  observe: jest.fn(),
-  setGauge: jest.fn(),
-}));
+  jest.unstable_mockModule('fs', () => ({
+    existsSync: mockExistsSync,
+    rmSync: mockRmSync,
+    utimesSync: mockUtimesSync,
+    readdirSync: jest.fn().mockReturnValue([]),
+  }));
+
+  jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({
+    buildAndPush: mockBuildAndPush,
+    loadAndPush: jest.fn(),
+    BUILD_TEMP_ROOT: '/tmp',
+    getBuildkitAddrForTier: jest.fn(() => 'tcp://buildkitd:1234'),
+  }));
+
+  jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
+    pluginService: { deployVersion: mockDeployVersion },
+  }));
+
+  jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+    CoreConstants: {
+      PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
+      PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
+      PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
+    },
+    Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
+    db: { execute: jest.fn(), insert: jest.fn(), select: jest.fn(), update: jest.fn() },
+    schema: { plugin: {} },
+    reportingService: { record: jest.fn(), invalidateOrg: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined) },
+    runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
+    withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
+      insert: () => ({ values: () => Promise.resolve() }),
+      select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+      update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+    }),
+  }));
+
+  jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+    extractDbError: jest.fn(() => ({})),
+    incrementQuota: mockIncrementQuota,
+    decrementQuota: mockIncrementQuota,
+    getServiceAuthHeader: () => 'Bearer test-service-token',
+    createRemoteAuditClient: () => ({ record: jest.fn() }),
+    VALID_TIERS: ['developer', 'pro', 'unlimited'],
+    DEFAULT_TIER: 'developer',
+  }));
+
+  jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+    incCounter: jest.fn(),
+    observe: jest.fn(),
+    setGauge: jest.fn(),
+  }));
+}
+
+registerMocks();
 
 // Import after mocks
 
-import type { PluginBuildJobData } from '../src/helpers/plugin-helpers';
+import type { PluginBuildJobData } from '../src/helpers/plugin-helpers.js';
 
 // Helpers
 
@@ -236,7 +230,7 @@ function getMainProcessor() {
 // Tests
 
 describe('plugin-build-queue', () => {
-  let queueModule: typeof import('../src/queue/plugin-build-queue');
+  let queueModule: typeof import('../src/queue/plugin-build-queue.js');
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -245,108 +239,10 @@ describe('plugin-build-queue', () => {
 
     jest.resetModules();
 
-    // Re-apply mocks after resetModules
-    jest.mock('bullmq', () => {
-      class MockQueue {
-        add = mockQueueAdd;
-        close = mockQueueClose;
-        getJobs = mockQueueGetJobs;
-        getJobCounts = mockQueueGetJobCounts;
-        obliterate = mockQueueObliterate;
-        name: string;
-        constructor(name: string, _opts: any) {
-          this.name = name;
-        }
-      }
-      class MockWorker {
-        on = mockWorkerOn;
-        close = mockWorkerClose;
-        constructor(name: string, processor: (job: any) => Promise<any>, _opts: any) {
-          mockWorkerCtor(name);
-          capturedProcessors[name] = processor;
-        }
-      }
-      return { Queue: MockQueue, Worker: MockWorker };
-    });
+    // Re-apply mocks after resetModules (it clears the registry + mocks).
+    registerMocks();
 
-    jest.mock('ioredis', () => {
-      class MockRedis {
-        status = 'ready';
-        disconnect = jest.fn();
-        on = jest.fn();
-        eval = jest.fn().mockResolvedValue(1);
-        incr = jest.fn().mockResolvedValue(1);
-        decr = jest.fn().mockResolvedValue(0);
-        expire = jest.fn().mockResolvedValue(1);
-        set = jest.fn().mockResolvedValue('OK');
-        hset = jest.fn().mockResolvedValue(1);
-        hdel = jest.fn().mockResolvedValue(1);
-        hgetall = jest.fn().mockResolvedValue({});
-      }
-      return { __esModule: true, default: MockRedis };
-    });
-
-    jest.mock('fs', () => ({
-      existsSync: mockExistsSync,
-      rmSync: mockRmSync,
-      utimesSync: mockUtimesSync,
-      readdirSync: jest.fn().mockReturnValue([]),
-    }));
-
-    jest.mock('../src/helpers/docker-build', () => ({
-      buildAndPush: mockBuildAndPush,
-      BUILD_TEMP_ROOT: '/tmp',
-      getBuildkitAddrForTier: jest.fn(() => 'tcp://buildkitd:1234'),
-    }));
-
-    jest.mock('../src/services/plugin-service', () => ({
-      pluginService: { deployVersion: mockDeployVersion },
-    }));
-
-
-    jest.mock('@pipeline-builder/pipeline-core', () => ({
-      CoreConstants: {
-        PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
-        PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
-        PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
-      },
-      Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
-      runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
-      withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
-        insert: () => ({ values: () => Promise.resolve() }),
-        select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
-        update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
-      }),
-    }));
-
-    jest.mock('@pipeline-builder/api-core', () => ({
-      createLogger: () => ({
-        info: jest.fn(),
-        warn: jest.fn(),
-        error: jest.fn(),
-        debug: jest.fn(),
-      }),
-      errorMessage: (e: unknown) => (e instanceof Error ? e.message: String(e)),
-      extractDbError: jest.fn(() => ({})),
-      incrementQuota: mockIncrementQuota,
-      decrementQuota: mockIncrementQuota,
-      getServiceAuthHeader: () => 'Bearer test-service-token',
-      // remote-audit client  worker fire-and-forgets.
-      createRemoteAuditClient: () => ({ record: jest.fn() }),
-      // per-tier queues  startWorker iterates VALID_TIERS.
-      VALID_TIERS: ['developer', 'pro', 'unlimited'],
-      DEFAULT_TIER: 'developer',
-    }));
-
-    jest.mock('@pipeline-builder/api-server', () => ({
-      // Metrics helpers used by worker handlers + queue-metrics-scraper.
-      // No-ops in tests  we only assert behavior, not Prometheus state.
-      incCounter: jest.fn(),
-      observe: jest.fn(),
-      setGauge: jest.fn(),
-    }));
-
-    queueModule = await import('../src/queue/plugin-build-queue');
+    queueModule = await import('../src/queue/plugin-build-queue.js');
   });
 
   describe('getTierQueue()', () => {

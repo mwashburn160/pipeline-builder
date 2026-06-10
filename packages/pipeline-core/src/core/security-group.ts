@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ISecurityGroup, SecurityGroup, Vpc } from 'aws-cdk-lib/aws-ec2';
+import { type ISecurityGroup, SecurityGroup, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
-import { UniqueId } from './id-generator';
-import type { SecurityGroupConfig } from './security-group-types';
+import { UniqueId } from './id-generator.js';
+import type { SecurityGroupConfig } from './security-group-types.js';
 
 /**
  * Resolve a SecurityGroupConfig into CDK ISecurityGroup[].

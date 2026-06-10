@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+
 // Stub the base CrudService so we can test only the subclass-specific methods.
 class StubCrudService {
   // Subclasses provide getters/protected methods we don't need at runtime here.
@@ -11,7 +13,7 @@ class StubCrudService {
   delete = jest.fn();
 }
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CrudService: StubCrudService,
   buildCompliancePolicyConditions: jest.fn(() => []),
   buildComplianceRuleConditions: jest.fn(() => []),
@@ -56,10 +58,10 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-import { CompliancePolicyService } from '../src/services/policy-service';
+const { CompliancePolicyService } = await import('../src/services/policy-service.js');
 
 describe('CompliancePolicyService', () => {
-  let svc: CompliancePolicyService;
+  let svc: InstanceType<typeof CompliancePolicyService>;
 
   beforeEach(() => {
     svc = new CompliancePolicyService();

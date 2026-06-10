@@ -6,10 +6,10 @@ import path from 'node:path';
 import pico from 'picocolors';
 import YAML from 'yaml';
 import {
-  OutputFormat,
+  type OutputFormat,
   formatFileSize,
   TABLE_OPTIONS,
-} from '../config/cli.constants';
+} from '../config/cli.constants.js';
 
 const { bold, cyan, green, yellow, red, dim, magenta, white } = pico;
 

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { tokenize, Token } from './tokenizer';
+import { tokenize, type Token } from './tokenizer.js';
 
 /**
  * Small LRU cache for parsed token streams. Keys are caller-chosen

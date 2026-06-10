@@ -419,5 +419,7 @@ These variables configure infrastructure admin tools, not application code.
 | `OPENAI_API_KEY` | OpenAI API key |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google AI API key |
 | `XAI_API_KEY` | xAI API key |
+| `AI_PROVIDER` | (CLI `provision`) Provider to use: `anthropic` (default), `openai`, `google`, `xai`, `bedrock` |
+| `AI_MODEL` | (CLI `provision`) Model id override (defaults to the provider's first model) |
 
-At least one provider key is required for AI-powered pipeline and plugin generation. See the [AI plugins documentation](plugins/ai.md) for details on supported providers and models.
+At least one provider key is required for AI-powered pipeline and plugin generation. The same keys (plus the optional `AI_PROVIDER` / `AI_MODEL`) enable the `pipeline-manager provision` advisor's natural-language goal parsing and failure diagnosis; without a key, `provision` falls back to its deterministic prereq-check + command-assembly path. See the [AI plugins documentation](plugins/ai.md) for supported providers and models.

@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import https from 'https';
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { type AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
-import { TIMEOUTS } from '../config/cli.constants';
-import { ApiError } from '../types';
-import { Config } from './config-loader';
-import { NetworkError } from './error-handler';
-import { printDebug, printError, printWarning } from './output-utils';
+import { type Config } from './config-loader.js';
+import { NetworkError } from './error-handler.js';
+import { printDebug, printError, printWarning } from './output-utils.js';
+import { TIMEOUTS } from '../config/cli.constants.js';
+import { ApiError } from '../types/index.js';
 
 /**
  * API Client for making HTTP requests to the platform API

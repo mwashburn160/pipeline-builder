@@ -3,9 +3,9 @@
 
 import { sendSuccess, sendBadRequest, ErrorCode, createLogger, requireAuth, isServicePrincipal, validateBody } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { evaluateEntityEvent } from '../helpers/entity-event-handler';
+import { evaluateEntityEvent } from '../helpers/entity-event-handler.js';
 
 const logger = createLogger('compliance-entity-events');
 

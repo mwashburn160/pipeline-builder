@@ -10,8 +10,8 @@
  */
 
 import { Router } from 'express';
-import { renderOrgNamespace } from '../controllers/org-namespace';
-import { requireAuth, requireStepUp } from '../middleware';
+import { renderOrgNamespace } from '../controllers/org-namespace.js';
+import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router = Router({ mergeParams: true });
 

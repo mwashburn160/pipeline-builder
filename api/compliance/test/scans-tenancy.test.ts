@@ -10,11 +10,13 @@
  * overwrite `filter.orgId` with the caller's actual orgId before insert.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const insertedRowRef: { value: { id: string; filter: Record<string, unknown> | null } | null } = { value: null };
 const insertCalls: Array<Record<string, unknown>> = [];
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD' },
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   validateBody: (req: any, schema: any) => {
@@ -31,13 +33,13 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendEntityNotFound: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => {
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   const insertChain: Record<string, Function> = {
     values: (row: Record<string, unknown>) => {
       insertCalls.push(row);
@@ -59,14 +61,14 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
   };
 });
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   and: (...a: unknown[]) => ({ __op: 'and', a }),
   eq: (c: unknown, v: unknown) => ({ __op: 'eq', c, v }),
   desc: (c: unknown) => ({ __op: 'desc', c }),
   sql: jest.fn(),
 }));
 
-import { createScanRoutes } from '../src/routes/scans';
+const { createScanRoutes } = await import('../src/routes/scans.js');
 
 function getPostHandler() {
   const router = createScanRoutes();

@@ -8,12 +8,13 @@
  * the corresponding admin-side check existed but the self-delete didn't.
  */
 
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUserOrgCount = jest.fn();
 const mockUserOrgDeleteMany = jest.fn();
 const mockUserFindByIdAndDelete = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => {
     res.status(status).json({ message: msg });
   },
@@ -21,10 +22,9 @@ jest.mock('@pipeline-builder/api-core', () => ({
     res.status(status).json({ success: true, statusCode: status, data });
   },
   resolveUserFeatures: jest.fn(),
-  SYSTEM_ORG_ID: 'system',
 }));
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class ObjectId { constructor(public id?: string) {} }
   // The mongoose `Schema` constructor and its `Types.Mixed` are touched at
   // module-init time by every Mongoose model loaded transitively (now via
@@ -50,9 +50,9 @@ jest.mock('mongoose', () => {
   };
 });
 
-jest.mock('../src/helpers/audit', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 
-jest.mock('../src/helpers/controller-helper', () => ({
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireAuthUserId: (req: any) => req.user?.sub,
   // Wrap as Express handler so callers can pass `next`. Optional error map
   // applies the same status/message mapping the real `withController` does
@@ -74,7 +74,7 @@ jest.mock('../src/helpers/controller-helper', () => ({
     },
 }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findByIdAndDelete: (...args: unknown[]) => mockUserFindByIdAndDelete(...args) },
   Organization: {},
   UserOrganization: {
@@ -86,7 +86,7 @@ jest.mock('../src/models', () => ({
 // Mock the services barrel so the controller's `import from '../services'`
 // doesn't pull in auth-service / audit-service / etc. (which would
 // transitively load real config + JWT_SECRET enforcement).
-jest.mock('../src/services', () => ({
+jest.unstable_mockModule('../src/services/index.js', () => ({
   PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
   PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
   PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
@@ -102,14 +102,15 @@ jest.mock('../src/services', () => ({
   },
 }));
 
-jest.mock('../src/utils/token', () => ({ issueTokens: jest.fn() }));
-jest.mock('../src/utils/validation', () => ({
+jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: jest.fn() }));
+jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(),
   updateProfileSchema: {},
   changePasswordSchema: {},
 }));
 
-import { deleteUser } from '../src/controllers/user-profile';
+const { deleteUser } = await import('../src/controllers/user-profile.js');
+
 
 function makeReq() {
   return { user: { sub: 'user-1' } };

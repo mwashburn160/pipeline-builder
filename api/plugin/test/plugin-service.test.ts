@@ -1,11 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Mock external dependencies — must be set up before importing the service
-jest.mock('@pipeline-builder/pipeline-core', () => {
-  const mockFind = jest.fn();
-  const mockSetDefault = jest.fn();
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
+// Mock external dependencies — must be set up before importing the service
+const mockFind = jest.fn();
+const mockSetDefault = jest.fn();
+
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   class MockCrudService {
     find = mockFind;
     setDefault = mockSetDefault;
@@ -17,6 +19,10 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_ENTITY: 60 },
     buildPluginConditions: jest.fn(() => []),
+    withTenantTx: jest.fn(),
+    AccessModifier: {},
+    ComputeType: {},
+    PluginType: {},
     schema: {
       plugin: {
         id: 'id',
@@ -34,25 +40,24 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
   };
 });
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   SQL: class {},
+  sql: Object.assign((..._a: any[]) => ({}), { raw: (..._a: any[]) => ({}) }),
+  and: jest.fn((...args: any[]) => args),
   or: jest.fn((...args: any[]) => args),
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),
   eq: jest.fn((col: any, val: any) => ({ col, val, op: 'eq' })),
 }));
 
-jest.mock('drizzle-orm/column', () => ({}));
-jest.mock('drizzle-orm/pg-core', () => ({}));
+jest.unstable_mockModule('drizzle-orm/column', () => ({}));
+jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
-import { PluginService } from '../src/services/plugin-service';
-
-// Retrieve mock functions from the hoisted mock
-jest.requireMock('@pipeline-builder/pipeline-core');
+const { PluginService } = await import('../src/services/plugin-service.js');
 
 // Tests
 
 describe('PluginService', () => {
-  let service: PluginService;
+  let service: InstanceType<typeof PluginService>;
 
   beforeEach(() => {
     jest.clearAllMocks();

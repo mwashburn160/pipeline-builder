@@ -14,15 +14,22 @@
  * mock the verify call.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) => {
     res.status(status).json({ success: false, statusCode: status, message: msg, code });
   },
+  // Consumed transitively via token.js -> org-hierarchy.js.
+  resolveUserFeatures: jest.fn(() => ({})),
+  resolveOrgLineageWith: jest.fn(),
+  isAncestorOrgWith: jest.fn(),
+  expandOrgScopeWith: jest.fn(),
+  toOrgIdString: (id: unknown) => String(id),
 }));
 
 // Pin the JWT secret so verify works without env wiring.
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     auth: {
       jwt: { secret: 'test-step-up-secret', algorithm: 'HS256' },
@@ -33,7 +40,7 @@ jest.mock('../src/config', () => ({
 
 // Token util imports `User` model transitively via the access-token issuer
 // path — stub it out so we don't need mongoose.
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class Schema {
     constructor() { /* no-op */ }
     index() { /* no-op */ }
@@ -44,17 +51,19 @@ jest.mock('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  const Types = { ObjectId: class {} };
+  return { default: { Types, Schema, models: {}, model: jest.fn() }, Types, Schema, models: {}, model: jest.fn() };
 });
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {}, Organization: {}, UserOrganization: {},
 }));
 
+const { _resetConsumedJtiForTests, consumeJti } = await import('../src/middleware/consumed-jti.js');
+const { requireStepUp } = await import('../src/middleware/step-up.js');
+const { issueStepUpToken, verifyStepUpToken } = await import('../src/utils/token.js');
+
 import jwt from 'jsonwebtoken';
-import { _resetConsumedJtiForTests, consumeJti } from '../src/middleware/consumed-jti';
-import { requireStepUp } from '../src/middleware/step-up';
-import { issueStepUpToken, verifyStepUpToken } from '../src/utils/token';
 
 function mockReq(opts: { userId?: string; token?: string } = {}) {
   const headers: Record<string, string> = {};

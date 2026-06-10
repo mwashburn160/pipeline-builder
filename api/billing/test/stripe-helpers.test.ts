@@ -5,22 +5,20 @@
  * Tests for Stripe helper functions.
  */
 
-const mockFindOne = jest.fn();
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+const mockFindOne = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
-jest.mock('../src/models/subscription', () => ({
+// ESM module mocks must be registered with jest.unstable_mockModule BEFORE the
+// module under test is (dynamically) imported.
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { findOne: (...args: unknown[]) => mockFindOne(...args) },
 }));
 
-import { mapStripeStatus, findSubscriptionByStripeId } from '../src/helpers/stripe-helpers';
+const { mapStripeStatus, findSubscriptionByStripeId } = await import('../src/helpers/stripe-helpers.js');
 
 // mapStripeStatus
 

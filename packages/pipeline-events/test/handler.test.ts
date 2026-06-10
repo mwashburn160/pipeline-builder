@@ -5,27 +5,29 @@
  * Tests for pipeline-events Lambda handler.
  */
 
+import { jest, describe, it, expect, beforeEach, beforeAll } from '@jest/globals';
+
 // Mock Secrets Manager — returns stored JWT token
-const mockSend = jest.fn().mockResolvedValue({
+const mockSend = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({
   SecretString: JSON.stringify({ accessToken: 'mock-jwt-token' }),
 });
-jest.mock('@aws-sdk/client-secrets-manager', () => ({
+jest.unstable_mockModule('@aws-sdk/client-secrets-manager', () => ({
   SecretsManagerClient: jest.fn(() => ({ send: mockSend })),
   GetSecretValueCommand: jest.fn((params: unknown) => params),
 }));
 
-// Mock CodePipeline (loaded at runtime via require, not a workspace dep, so the
-// mock is virtual). `send` resolves the PIPELINE_EVENT_ID tag, keyed by the ARN
-// in the command so different pipelines can return different results.
-const mockTagsSend = jest.fn();
-jest.mock('@aws-sdk/client-codepipeline', () => ({
+// CodePipeline is loaded by the SUT lazily via dynamic import() (see
+// src/index.ts) — mock the module here. `send` resolves the PIPELINE_EVENT_ID
+// tag, keyed by the ARN so different pipelines differ.
+const mockTagsSend = jest.fn<(cmd: { resourceArn: string }) => Promise<unknown>>();
+jest.unstable_mockModule('@aws-sdk/client-codepipeline', () => ({
   CodePipelineClient: jest.fn(() => ({ send: mockTagsSend })),
   ListTagsForResourceCommand: jest.fn((input: unknown) => input),
-}), { virtual: true });
+}));
 
 // Mock fetch globally
-const mockFetch = jest.fn();
-global.fetch = mockFetch as any;
+const mockFetch = jest.fn<(url: string, opts?: unknown) => Promise<unknown>>();
+global.fetch = mockFetch as unknown as typeof fetch;
 
 import type { SQSEvent } from 'aws-lambda';
 
@@ -35,7 +37,7 @@ let handler: (event: SQSEvent) => Promise<void>;
 beforeAll(async () => {
   process.env.PLATFORM_BASE_URL = 'https://api.example.com';
   process.env.PLATFORM_SECRET_NAME = 'pipeline-builder/test-org/platform';
-  const mod = await import('../src/index');
+  const mod = await import('../src/index.js');
   handler = mod.handler;
 });
 
@@ -155,9 +157,9 @@ describe('pipeline-events handler', () => {
       'detail-type': 'CodePipeline Action Execution State Change',
       'detail': {
         ...MOCK_CODEPIPELINE_EVENT.detail,
-        state: 'FAILED',
-        stage: 'Build',
-        action: 'nodejs-build',
+        'state': 'FAILED',
+        'stage': 'Build',
+        'action': 'nodejs-build',
         'execution-result': {
           'external-execution-summary': 'Build failed: exit code 1',
           'external-execution-url': 'https://console.aws/build/123',

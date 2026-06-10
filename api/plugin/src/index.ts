@@ -4,15 +4,15 @@
 import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 
-import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue';
-import { createBulkPluginRoutes } from './routes/bulk-plugin';
-import { createDeletePluginRoutes } from './routes/delete-plugin';
-import { createDeployGeneratedPluginRoutes } from './routes/deploy-generated-plugin';
-import { createGeneratePluginRoutes } from './routes/generate-plugin';
-import { createQueueStatusRoutes } from './routes/queue-status';
-import { createReadPluginRoutes } from './routes/read-plugins';
-import { createUpdatePluginRoutes } from './routes/update-plugin';
-import { createUploadPluginRoutes } from './routes/upload-plugin';
+import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue.js';
+import { createBulkPluginRoutes } from './routes/bulk-plugin.js';
+import { createDeletePluginRoutes } from './routes/delete-plugin.js';
+import { createDeployGeneratedPluginRoutes } from './routes/deploy-generated-plugin.js';
+import { createGeneratePluginRoutes } from './routes/generate-plugin.js';
+import { createQueueStatusRoutes } from './routes/queue-status.js';
+import { createReadPluginRoutes } from './routes/read-plugins.js';
+import { createUpdatePluginRoutes } from './routes/update-plugin.js';
+import { createUploadPluginRoutes } from './routes/upload-plugin.js';
 
 const logger = createLogger('plugin');
 const quotaService = createQuotaService();

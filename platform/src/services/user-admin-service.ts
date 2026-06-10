@@ -3,10 +3,10 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
-import { loadActiveOrgInfo } from '../helpers/active-org-info';
-import { toOrgId } from '../helpers/controller-helper';
-import { User, Organization, UserOrganization } from '../models';
-import { escapeRegex } from '../utils/regex';
+import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
+import { toOrgId } from '../helpers/controller-helper.js';
+import { User, Organization, UserOrganization, type OrgMemberRole } from '../models/index.js';
+import { escapeRegex } from '../utils/regex.js';
 
 const logger = createLogger('user-admin-service');
 
@@ -47,7 +47,9 @@ class UserAdminService {
 
   /** User IDs that hold a specific role within an org — for the role filter. */
   async getUserIdsByRoleInOrg(orgId: string, role: string): Promise<Types.ObjectId[]> {
-    const ids = await UserOrganization.find({ organizationId: toOrgId(orgId), role, isActive: true }).distinct('userId');
+    // role is validated against MEMBER_ROLES by the caller; cast to satisfy
+    // mongoose's strict filter typing for the enum-backed role field.
+    const ids = await UserOrganization.find({ organizationId: toOrgId(orgId), role: role as OrgMemberRole, isActive: true }).distinct('userId');
     return ids as Types.ObjectId[];
   }
 

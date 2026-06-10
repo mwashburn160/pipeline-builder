@@ -3,9 +3,9 @@
 
 import crypto from 'crypto';
 import { Schema, model, Document, Types } from 'mongoose';
-import { config } from '../config';
-import { MEMBER_ROLES, OrgMemberRole } from './user-organization';
-import { OAuthProviderName, OAUTH_PROVIDER_NAMES } from '../types/oauth-provider';
+import { MEMBER_ROLES, type OrgMemberRole } from './user-organization.js';
+import { config } from '../config/index.js';
+import { type OAuthProviderName, OAUTH_PROVIDER_NAMES } from '../types/oauth-provider.js';
 
 /**
  * Invitation status

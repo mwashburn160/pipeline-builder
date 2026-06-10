@@ -3,8 +3,8 @@
 
 import { createLogger, isValidTier, ValidationError } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaReserveResult } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import { expandOrgScope, resolveRootOrgId } from '../helpers/org-hierarchy';
+import { config } from '../config.js';
+import { expandOrgScope, resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import {
   applyQuotaLimits,
   buildOrgQuotaResponse,
@@ -14,9 +14,9 @@ import {
   toOrgId,
   VALID_QUOTA_TYPES,
   QUOTA_TIERS,
-} from '../helpers/quota-helpers';
-import type { QuotaTier, OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers';
-import { Organization } from '../models/organization';
+} from '../helpers/quota-helpers.js';
+import type { QuotaTier, OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
+import { Organization } from '../models/organization.js';
 
 const logger = createLogger('quota-service');
 
@@ -504,7 +504,7 @@ export class QuotaService {
  *
  * @example
  * ```typescript
- * import { quotaService } from '../services/quota-service';
+ * import { quotaService } from '../services/quota-service.js';
  *
  * const quota = await quotaService.findByOrgId(orgId);
  * ```

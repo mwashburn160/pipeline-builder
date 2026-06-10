@@ -3,7 +3,7 @@
 
 import { VALID_TIERS } from '@pipeline-builder/api-core';
 import { z } from 'zod';
-import { VALID_QUOTA_TYPES } from '../helpers/quota-helpers';
+import { VALID_QUOTA_TYPES } from '../helpers/quota-helpers.js';
 
 const quotaLimit = z.number().int().min(-1);
 

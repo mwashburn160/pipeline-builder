@@ -5,9 +5,9 @@ import { createHash } from 'crypto';
 import { sendError, ErrorCode, createLogger } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { config } from '../config';
-import { resolveIdentity } from '../services/auth-resolver';
-import { authorizeAndIssue, parseScope, type RequestedScope } from '../services/token-service';
+import { config } from '../config/index.js';
+import { resolveIdentity } from '../services/auth-resolver.js';
+import { authorizeAndIssue, parseScope, type RequestedScope } from '../services/token-service.js';
 
 const logger = createLogger('token-route');
 

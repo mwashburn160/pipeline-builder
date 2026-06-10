@@ -1,8 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock api-core before imports
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   AppError: class AppError extends Error {
     statusCode: number;
     code: string;
@@ -19,27 +22,21 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendError: jest.fn(),
   sendBadRequest: jest.fn(),
   sendInternalError: jest.fn(),
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    error: jest.fn(),
-    warn: jest.fn(),
-    debug: jest.fn(),
-  })),
 }));
 
 // Mock get-context to control behavior
-jest.mock('../src/api/get-context', () => ({
+jest.unstable_mockModule('../src/api/get-context.js', () => ({
   getContext: jest.fn(),
 }));
 
-import {
+const {
   AppError,
   sendError,
   sendBadRequest,
   sendInternalError,
-} from '@pipeline-builder/api-core';
-import { getContext } from '../src/api/get-context';
-import { withRoute } from '../src/api/route-wrapper';
+} = await import('@pipeline-builder/api-core');
+const { getContext } = await import('../src/api/get-context.js');
+const { withRoute } = await import('../src/api/route-wrapper.js');
 
 function mockReq(): any {
   return { headers: {}, params: {}, query: {} };

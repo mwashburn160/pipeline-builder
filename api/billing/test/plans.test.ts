@@ -7,30 +7,17 @@
  * Uses mocks for Mongoose models and api-core utilities.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mocks — must be defined before imports
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    NOT_FOUND: 'NOT_FOUND',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-  },
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
-  createCacheService: () => ({
-    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-    invalidatePattern: () => Promise.resolve(0),
-  }),
   parsePositiveInt: (value: string | undefined, fallback: number) => {
     if (!value) return fallback;
     const parsed = parseInt(value, 10);
@@ -42,14 +29,14 @@ jest.mock('@pipeline-builder/api-core', () => ({
 const mockPlanFind = jest.fn();
 const mockPlanFindOne = jest.fn();
 
-jest.mock('../src/models/plan', () => ({
+jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: {
     find: mockPlanFind,
     findOne: mockPlanFindOne,
   },
 }));
 
-import { createReadPlanRoutes } from '../src/routes/read-plans';
+const { createReadPlanRoutes } = await import('../src/routes/read-plans.js');
 
 const planRouter = createReadPlanRoutes();
 

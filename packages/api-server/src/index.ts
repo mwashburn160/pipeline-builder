@@ -31,7 +31,7 @@
  */
 
 // API Infrastructure
-export * from './api';
+export * from './api/index.js';
 
 // HTTP Utilities
-export * from './http';
+export * from './http/index.js';

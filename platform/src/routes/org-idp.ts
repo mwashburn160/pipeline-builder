@@ -16,8 +16,8 @@ import {
   listOrgIdpConfigs,
   patchOrgIdpConfig,
   putOrgIdpConfig,
-} from '../controllers/org-idp';
-import { requireAuth } from '../middleware';
+} from '../controllers/org-idp.js';
+import { requireAuth } from '../middleware/index.js';
 
 const router = Router();
 

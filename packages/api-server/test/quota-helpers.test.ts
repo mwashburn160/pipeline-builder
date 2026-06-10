@@ -1,13 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockIncrementQuota = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   incrementQuota: mockIncrementQuota,
 }));
 
-import { incrementQuotaFromCtx } from '../src/api/quota-helpers';
+const { incrementQuotaFromCtx } = await import('../src/api/quota-helpers.js');
 
 function mockReq(authHeader?: string): any {
   return { headers: authHeader !== undefined ? { authorization: authHeader } : {} };

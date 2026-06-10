@@ -2,11 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as fs from 'fs';
+import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'yaml';
-import { Config } from '../types';
-import { printDebug, printError, printWarning } from './output-utils';
+import { printDebug, printError, printWarning } from './output-utils.js';
+import { type Config } from '../types/index.js';
+
+// ESM has no __dirname; derive it from this module's URL.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export type { Config };
 

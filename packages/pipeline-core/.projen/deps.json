@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@aws-sdk/client-secrets-manager",
-      "version": "3.997.0",
+      "version": "3.1064.0",
       "type": "build"
     },
     {
@@ -17,12 +17,7 @@
     },
     {
       "name": "@types/aws-lambda",
-      "version": "8.10.160",
-      "type": "build"
-    },
-    {
-      "name": "@types/jest",
-      "version": "30.0.0",
+      "version": "8.10.162",
       "type": "build"
     },
     {
@@ -32,7 +27,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.3.0",
+      "version": "25.9.2",
       "type": "build"
     },
     {
@@ -70,7 +65,7 @@
     },
     {
       "name": "jest",
-      "version": "30.0.0",
+      "version": "30.4.2",
       "type": "build"
     },
     {
@@ -80,7 +75,7 @@
     },
     {
       "name": "typescript",
-      "version": "5.9.3",
+      "version": "6.0.3",
       "type": "build"
     },
     {
@@ -95,17 +90,17 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "2.257.0",
+      "version": "2.258.1",
       "type": "runtime"
     },
     {
       "name": "axios",
-      "version": "1.13.5",
+      "version": "1.17.0",
       "type": "runtime"
     },
     {
       "name": "constructs",
-      "version": "10.5.1",
+      "version": "10.6.0",
       "type": "runtime"
     },
     {
@@ -115,7 +110,7 @@
     },
     {
       "name": "uuid",
-      "version": "13.0.0",
+      "version": "14.0.0",
       "type": "runtime"
     }
   ],

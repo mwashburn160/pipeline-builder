@@ -31,4 +31,4 @@ USER node
 # BEFORE index.js requires express/http, so auto-instrumentation can patch them
 # and inbound requests get a trace id (no-op unless OTEL_TRACING_ENABLED=true).
 # The shared bootstrap ships in the api-server dep under node_modules.
-CMD ["node", "-r", "@pipeline-builder/api-server/lib/otel-bootstrap.js", "index.js"]
+CMD ["node", "--import", "@pipeline-builder/api-server/lib/otel-bootstrap.js", "index.js"]

@@ -8,7 +8,7 @@ import {
   getManifest,
   headBlob,
   isNotFound,
-} from './registry-client';
+} from './registry-client.js';
 
 const logger = createLogger('storage-usage');
 

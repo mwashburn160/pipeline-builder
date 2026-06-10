@@ -1,8 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { HttpRequest } from '../src/types/http';
-import { getIdentity, validateIdentity } from '../src/utils/identity';
+import { describe, it, expect } from '@jest/globals';
+
+import type { HttpRequest } from '../src/types/http.js';
+import { getIdentity, validateIdentity } from '../src/utils/identity.js';
 
 // Helpers
 function mockRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {

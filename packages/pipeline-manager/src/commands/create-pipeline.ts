@@ -6,11 +6,11 @@ import * as path from 'path';
 import { Command } from 'commander';
 import ora from 'ora';
 import pico from 'picocolors';
-import { formatDuration, formatFileSize, FILE_SIZE_LIMITS } from '../config/cli.constants';
-import { Pipeline, PipelineResponse, CreatePipelineRequest } from '../types';
-import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { formatDuration, formatFileSize, FILE_SIZE_LIMITS } from '../config/cli.constants.js';
+import { type Pipeline, type PipelineResponse, type CreatePipelineRequest } from '../types/index.js';
+import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 
 const { bold, cyan, dim, green } = pico;
 

@@ -2,5 +2,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Public API
-export { registry, generateOpenApiSpec } from './registry';
-export type { OpenApiSpecOptions } from './registry';
+export { registry, generateOpenApiSpec } from './registry.js';
+export type { OpenApiSpecOptions } from './registry.js';

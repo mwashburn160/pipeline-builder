@@ -4,11 +4,11 @@
 import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
-import { config } from '../config';
-import { formatUserResponse, toOverridesRecord } from './user-profile';
-import type { OrgSummary, OrgMembership, UserResponseInput } from './user-profile';
-import { audit } from '../helpers/audit';
-import { requireAdminContext, withController } from '../helpers/controller-helper';
+import { formatUserResponse, toOverridesRecord } from './user-profile.js';
+import type { OrgSummary, OrgMembership, UserResponseInput } from './user-profile.js';
+import { config } from '../config/index.js';
+import { audit } from '../helpers/audit.js';
+import { requireAdminContext, withController } from '../helpers/controller-helper.js';
 import {
   userAdminService,
   UA_USER_NOT_FOUND,
@@ -16,9 +16,9 @@ import {
   UA_EMAIL_TAKEN,
   UA_OWNER_HAS_ORGS,
   UA_ORG_NOT_FOUND,
-} from '../services';
-import { parsePagination } from '../utils/pagination';
-import { adminUpdateUserSchema, validateBody } from '../utils/validation';
+} from '../services/index.js';
+import { parsePagination } from '../utils/pagination.js';
+import { adminUpdateUserSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('user-admin-controller');
 

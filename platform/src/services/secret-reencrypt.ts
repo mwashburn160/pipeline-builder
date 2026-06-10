@@ -29,9 +29,9 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { Organization } from '../models';
-import OrgIdpConfig from '../models/org-idp-config';
-import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob';
+import { Organization } from '../models/index.js';
+import OrgIdpConfig from '../models/org-idp-config.js';
+import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob.js';
 
 const logger = createLogger('secret-reencrypt');
 

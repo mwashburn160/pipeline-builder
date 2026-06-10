@@ -1,12 +1,29 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Mock external dependencies — must be set up before importing the service
-const mockFind = jest.fn();
-const mockDbUpdate = jest.fn();
-const mockDbSelect = jest.fn();
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('@pipeline-builder/pipeline-core', () => {
+// Mock external dependencies — must be set up before importing the service
+const mockFind = jest.fn<(...args: unknown[]) => unknown>();
+const mockDbUpdate = jest.fn<(...args: unknown[]) => unknown>();
+const mockDbSelect = jest.fn<(...args: unknown[]) => unknown>();
+
+// The real `@pipeline-builder/api-core` barrel only re-exports a stale built
+// `createCacheService`; mock it with a pass-through cache so reads still hit the
+// underlying service methods (getOrSet invokes its loader) and invalidation is a no-op.
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  createCacheService: () => ({
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn(),
+    invalidate: jest.fn(),
+    invalidatePattern: jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
+    getOrSet: (_key: string, loader: () => unknown) => loader(),
+  }),
+}));
+
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   class MockCrudService {
     find = mockFind;
   }
@@ -44,7 +61,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
   };
 });
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   SQL: class {},
   or: jest.fn((...args: any[]) => args),
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),
@@ -56,15 +73,15 @@ jest.mock('drizzle-orm', () => ({
   ),
 }));
 
-jest.mock('drizzle-orm/column', () => ({}));
-jest.mock('drizzle-orm/pg-core', () => ({}));
+jest.unstable_mockModule('drizzle-orm/column', () => ({}));
+jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
-import { MessageService } from '../src/services/message-service';
+const { MessageService } = await import('../src/services/message-service.js');
 
 // Tests
 
 describe('MessageService', () => {
-  let service: MessageService;
+  let service: InstanceType<typeof MessageService>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -167,7 +184,7 @@ describe('MessageService', () => {
   describe('markAsRead', () => {
     it('upserts readBy[orgId] for the calling org', async () => {
       const updated = { id: 'msg-1', readBy: { 'org-1': '2026-04-27T00:00:00Z' } };
-      const returningFn = jest.fn().mockResolvedValue([updated]);
+      const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([updated]);
       const whereFn = jest.fn().mockReturnValue({ returning: returningFn });
       const setFn = jest.fn().mockReturnValue({ where: whereFn });
       mockDbUpdate.mockReturnValue({ set: setFn });
@@ -182,7 +199,7 @@ describe('MessageService', () => {
     });
 
     it('should return null when message not found', async () => {
-      const returningFn = jest.fn().mockResolvedValue([]);
+      const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([]);
       mockDbUpdate.mockReturnValue({
         set: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ returning: returningFn }) }),
       });
@@ -198,7 +215,7 @@ describe('MessageService', () => {
         { id: 'msg-2', readBy: { 'org-1': '2026-04-27T00:00:00Z' } },
         { id: 'msg-3', readBy: { 'org-1': '2026-04-27T00:00:00Z' } },
       ];
-      const returningFn = jest.fn().mockResolvedValue(updated);
+      const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue(updated);
       const whereFn = jest.fn().mockReturnValue({ returning: returningFn });
       const setFn = jest.fn().mockReturnValue({ where: whereFn });
       mockDbUpdate.mockReturnValue({ set: setFn });
@@ -215,7 +232,7 @@ describe('MessageService', () => {
 
   describe('getUnreadCount', () => {
     it('counts messages where readBy lacks the orgId key', async () => {
-      const whereFn = jest.fn().mockResolvedValue([{ count: 5 }]);
+      const whereFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([{ count: 5 }]);
       const fromFn = jest.fn().mockReturnValue({ where: whereFn });
       mockDbSelect.mockReturnValue({ from: fromFn });
 
@@ -226,7 +243,7 @@ describe('MessageService', () => {
     });
 
     it('should return 0 when no unread messages', async () => {
-      const whereFn = jest.fn().mockResolvedValue([{ count: 0 }]);
+      const whereFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([{ count: 0 }]);
       mockDbSelect.mockReturnValue({ from: jest.fn().mockReturnValue({ where: whereFn }) });
 
       const result = await service.getUnreadCount('org-1');
@@ -257,7 +274,7 @@ describe('MessageService', () => {
   describe('deleteThread', () => {
     it('soft-deletes thread replies scoped to the caller org', async () => {
       // deleteThread doesn't call .returning() — the .where() resolves directly.
-      const whereFn = jest.fn().mockResolvedValue(undefined);
+      const whereFn = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
       const setFn = jest.fn().mockReturnValue({ where: whereFn });
       mockDbUpdate.mockReturnValue({ set: setFn });
 

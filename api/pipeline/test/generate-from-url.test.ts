@@ -3,6 +3,9 @@
 
 // Mock function references  must be defined before jest.mock() calls
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockParseGitUrl = jest.fn();
 const mockAnalyzeRepository = jest.fn();
 const mockBuildEnhancedPrompt = jest.fn();
@@ -16,25 +19,16 @@ const mockSendQuotaExceeded = jest.fn();
 const mockCreateSafeClient = jest.fn();
 const mockPluginClientPost = jest.fn();
 const mockDbSelect = jest.fn();
-const mockReserveQuota = jest.fn().mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 1000, used: 1, remaining: 999 } });
+const mockReserveQuota = jest.fn<(...args: any[]) => any>().mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 1000, used: 1, remaining: 999 } });
 const mockDecrementQuota = jest.fn();
 
 // Mocks  must be defined before imports
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
-  SYSTEM_ORG_ID: 'system',
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-    warn: jest.fn(),
-  })),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: (...args: any[]) => {
     mockCreateSafeClient(...args);
     return { post: mockPluginClientPost };
   },
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message: String(e))),
   initSSEStream: jest.fn((req: any, res: any, timeoutMs: number) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -86,7 +80,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   createAuthenticatedWithOrgRoute: () => [],
   incrementQuotaFromCtx: jest.fn(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
@@ -105,7 +99,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
 }));
 
 // Mock drizzle-orm operators as identity/passthrough functions
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   eq: jest.fn((_col: any, _val: any) => ({ type: 'eq', col: _col, val: _val })),
   or: jest.fn((...args: any[]) => ({ type: 'or', args })),
   and: jest.fn((...args: any[]) => ({ type: 'and', args })),
@@ -121,7 +115,7 @@ const mockDbChain = {
   then: jest.fn((resolve: Function) => resolve([])),
 };
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     SSE_STREAM_TIMEOUT_MS: 300000,
   },
@@ -155,22 +149,22 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-jest.mock('../src/services/git-analysis-service', () => ({
+jest.unstable_mockModule('../src/services/git-analysis-service.js', () => ({
   parseGitUrl: mockParseGitUrl,
   analyzeRepository: mockAnalyzeRepository,
   buildEnhancedPrompt: mockBuildEnhancedPrompt,
 }));
 
-jest.mock('../src/services/ai-generation-service', () => ({
+jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
   getAvailableProviders: mockGetAvailableProviders,
-  getFilteredPlugins: jest.fn().mockResolvedValue([]),
+  getFilteredPlugins: jest.fn<(...args: any[]) => any>().mockResolvedValue([]),
   streamPipelineConfig: mockStreamPipelineConfig,
   generatePipelineConfig: jest.fn(),
 }));
 
 // Imports  after mocks
 
-import { createGeneratePipelineRoutes } from '../src/routes/generate-pipeline';
+const { createGeneratePipelineRoutes } = await import('../src/routes/generate-pipeline.js');
 
 // Helpers
 

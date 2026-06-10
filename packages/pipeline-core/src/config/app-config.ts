@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Algorithm } from 'jsonwebtoken';
-import { loadBillingConfig } from './billing-config';
-import type { AppConfig } from './config-types';
+import { loadBillingConfig } from './billing-config.js';
+import type { AppConfig } from './config-types.js';
 import {
   loadRegistryConfig,
   loadRedisConfig,
@@ -13,14 +13,14 @@ import {
   loadObservabilityConfig,
   loadComplianceConfig,
   loadAWSConfig,
-} from './infrastructure-config';
+} from './infrastructure-config.js';
 import {
   loadServerConfig,
   loadAuthConfig,
   loadRateLimitConfig,
   validateServerConfig,
   validateAuthConfig,
-} from './server-config';
+} from './server-config.js';
 
 /**
  * Core constants — configurable via environment variables with sensible defaults.

@@ -3,15 +3,15 @@
 
 import * as fs from 'fs';
 import path from 'path';
+import { jest, describe, it, expect, afterAll } from '@jest/globals';
 import AdmZip from 'adm-zip';
-import { parsePluginZip, validateBuildArgs } from '../src/helpers/plugin-spec';
 
 // Mock uuid to produce deterministic values
-jest.mock('uuid', () => ({
+jest.unstable_mockModule('uuid', () => ({
   v7: jest.fn(() => '01234567-89ab-cdef-0123-456789abcdef'),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   __esModule: true,
   CoreConstants: {},
   // Template-validator dependencies — minimal stubs so plugin-spec.ts loads
@@ -34,6 +34,8 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
     return { get, getAny: get };
   })(),
 }));
+
+const { parsePluginZip, validateBuildArgs } = await import('../src/helpers/plugin-spec.js');
 
 // Helper: build an in-memory ZIP with the given entries
 function buildZip(entries: Record<string, string>): string {

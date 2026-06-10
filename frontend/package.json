@@ -14,41 +14,40 @@
     "test": "pnpm dlx projen test",
     "test:watch": "pnpm dlx projen test:watch",
     "projen": "pnpm dlx projen",
-    "start": "node lib/index.js",
+    "start": "node --import @pipeline-builder/api-server/lib/otel-bootstrap.js lib/index.js",
     "docker:build": "pnpm nx run-many -t build --projects=frontend --with-deps; rm -rf .docker-build; pnpm deploy --filter frontend --prod --legacy .docker-build; docker buildx build --no-cache --pull --load --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t ${PROJECT_NAME:-frontend}:$(jq -r .version package.json) .; status=$?; rm -rf .docker-build; exit $status",
     "docker:tag": "docker image tag ${PROJECT_NAME:-frontend}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json)",
     "docker:push": "docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json)"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "4.2.1",
-    "@testing-library/jest-dom": "6.6.3",
-    "@testing-library/react": "16.3.0",
-    "@testing-library/user-event": "14.5.2",
-    "@types/node": "25.3.0",
-    "@types/react": "19.2.14",
+    "@tailwindcss/postcss": "4.3.0",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "25.9.2",
+    "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "@types/react-grid-layout": "1.3.5",
-    "autoprefixer": "10.4.24",
-    "jest": "30.0.0",
-    "jest-environment-jsdom": "30.2.0",
+    "autoprefixer": "10.5.0",
+    "jest": "30.4.2",
+    "jest-environment-jsdom": "30.4.1",
     "jest-junit": "^17",
-    "postcss": "8.5.6",
-    "ts-jest": "^29.4.6",
-    "typescript": "5.9.3"
+    "postcss": "8.5.15",
+    "ts-jest": "^29.4.11",
+    "typescript": "6.0.3"
   },
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
-    "framer-motion": "12.34.3",
-    "lucide-react": "0.575.0",
+    "framer-motion": "12.40.0",
+    "lucide-react": "1.17.0",
     "next": "^16.1.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-grid-layout": "1.5.2",
-    "react-resizable": "3.0.5",
-    "swr": "2.3.3",
-    "tailwindcss": "4.2.1"
+    "react-grid-layout": "2.2.3",
+    "react-resizable": "4.0.1",
+    "swr": "2.4.1",
+    "tailwindcss": "4.3.0"
   },
   "engines": {
     "node": ">= 24.14.0"
@@ -65,7 +64,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.87",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
@@ -106,10 +105,6 @@
         }
       ]
     ],
-    "moduleNameMapper": {
-      "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
-      "^@/(.*)$": "<rootDir>/src/$1"
-    },
     "transform": {
       "^.+\\.tsx?$": [
         "ts-jest",
@@ -122,6 +117,10 @@
           }
         }
       ]
+    },
+    "moduleNameMapper": {
+      "^uuid$": "<rootDir>/../jest-uuid-stub.js",
+      "^@/(.*)$": "<rootDir>/src/$1"
     },
     "modulePathIgnorePatterns": [
       "<rootDir>/.next/"

@@ -3,8 +3,8 @@
 
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
-import { config } from '../config';
-import { getNextResetDate } from '../helpers/quota-helpers';
+import { config } from '../config.js';
+import { getNextResetDate } from '../helpers/quota-helpers.js';
 
 // Types
 

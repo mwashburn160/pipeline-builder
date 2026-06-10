@@ -23,12 +23,27 @@ process.env.REGISTRY_TOKEN_ISSUER = 'test-platform';
 process.env.REGISTRY_TOKEN_SERVICE = 'test-registry';
 process.env.JWT_SECRET = 'test-jwt-secret';
 
+import { jest, describe, it, expect } from '@jest/globals';
 import jwt from 'jsonwebtoken';
-import {
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+// @pipeline-builder/api-core ships as CommonJS under a `type: module` package,
+// so its named exports don't resolve under jest's ESM loader. Mock the few
+// exports token-service uses. createQuotaService's `check` resolves an
+// unlimited tier (limit: -1) so the storage push-gate is a no-op — matching
+// the fail-open behaviour the original (unmocked) test relied on.
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  createQuotaService: () => ({
+    check: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ limit: -1 }),
+  }),
+  getServiceAuthHeader: jest.fn<(...args: unknown[]) => string>().mockReturnValue('Bearer test'),
+}));
+
+const {
   parseScope,
   authorizeScope,
   authorizeAndIssue,
-} from '../src/services/token-service';
+} = await import('../src/services/token-service.js');
 
 describe('parseScope', () => {
   it('parses simple repo:name:actions', () => {

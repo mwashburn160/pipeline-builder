@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode } from '@pipeline-builder/api-core';
-import { resolve, lookupPath, dependencies } from '../../src/template/evaluator';
-import { tokenize } from '../../src/template/tokenizer';
+import { resolve, lookupPath, dependencies } from '../../src/template/evaluator.js';
+import { tokenize } from '../../src/template/tokenizer.js';
 
 describe('lookupPath', () => {
   it('returns nested string', () => {

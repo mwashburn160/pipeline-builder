@@ -1,24 +1,27 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAuth: jest.fn((_req: unknown, _res: unknown, next: () => void) => next()),
 }));
 
-jest.mock('../src/api/check-quota', () => ({
+jest.unstable_mockModule('../src/api/check-quota.js', () => ({
   checkQuota: jest.fn(() => 'CHECK_QUOTA_MIDDLEWARE'),
 }));
 
-jest.mock('../src/api/require-org-id', () => ({
+jest.unstable_mockModule('../src/api/require-org-id.js', () => ({
   requireOrgId: jest.fn(() => 'REQUIRE_ORG_ID_MIDDLEWARE'),
 }));
 
-import { checkQuota } from '../src/api/check-quota';
-import {
+const { checkQuota } = await import('../src/api/check-quota.js');
+const {
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
-} from '../src/api/middleware-factory';
-import { requireOrgId } from '../src/api/require-org-id';
+} = await import('../src/api/middleware-factory.js');
+const { requireOrgId } = await import('../src/api/require-org-id.js');
 
 describe('createProtectedRoute', () => {
   beforeEach(() => {

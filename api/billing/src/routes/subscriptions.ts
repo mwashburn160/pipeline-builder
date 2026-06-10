@@ -21,12 +21,12 @@ import {
   calculatePeriodEnd,
   createBillingEvent,
   syncTierToQuotaService,
-} from '../helpers/billing-helpers';
-import { BillingEvent } from '../models/billing-event';
-import { Plan } from '../models/plan';
-import { Subscription } from '../models/subscription';
-import { getPaymentProvider } from '../providers/provider-factory';
-import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validation/schemas';
+} from '../helpers/billing-helpers.js';
+import { BillingEvent } from '../models/billing-event.js';
+import { Plan } from '../models/plan.js';
+import { Subscription } from '../models/subscription.js';
+import { getPaymentProvider } from '../providers/provider-factory.js';
+import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-subscriptions');
 

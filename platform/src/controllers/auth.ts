@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import { audit } from '../helpers/audit';
-import { withController } from '../helpers/controller-helper';
-import { incCounter } from '../observability/metrics';
-import { authService, DUPLICATE_CREDENTIALS } from '../services';
-import { issueTokens } from '../utils/token';
-import { validateBody, registerSchema, loginSchema, refreshSchema } from '../utils/validation';
+import { config } from '../config/index.js';
+import { audit } from '../helpers/audit.js';
+import { withController } from '../helpers/controller-helper.js';
+import { incCounter } from '../observability/metrics.js';
+import { authService, DUPLICATE_CREDENTIALS } from '../services/index.js';
+import { issueTokens } from '../utils/token.js';
+import { validateBody, registerSchema, loginSchema, refreshSchema } from '../utils/validation.js';
 
 const logger = createLogger('auth-controller');
 

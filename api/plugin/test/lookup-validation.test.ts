@@ -10,6 +10,10 @@
  * filter to the service layer.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import * as z from 'zod';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockFind = jest.fn();
 const mockIncrementQuotaFromCtx = jest.fn();
 const mockNormalizeArrayFields = jest.fn((p: unknown) => p);
@@ -19,50 +23,47 @@ const mockSendSuccess = jest.fn((res: any, status: number, data: any) =>
   res.status(status).json({ success: true, statusCode: status, data }));
 const mockSendEntityNotFound = jest.fn((res: any) => res.status(404).json({}));
 
-jest.mock('../src/services/plugin-service', () => ({
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { find: mockFind, findPaginated: jest.fn(), findById: jest.fn() },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => {
-  const z = jest.requireActual('zod');
-  return {
-    sendBadRequest: mockSendBadRequest,
-    sendSuccess: mockSendSuccess,
-    sendEntityNotFound: mockSendEntityNotFound,
-    sendPaginatedNested: jest.fn((res: any, _k: string, items: any) => res.json({ items })),
-    ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD' },
-    normalizeArrayFields: mockNormalizeArrayFields,
-    parsePaginationParams: () => ({ limit: 25, offset: 0 }),
-    validateQuery: () => ({ ok: true, value: {} }),
-    getParam: (p: any, k: string) => p[k],
-    // Keep using the real PluginFilterSchema so this test exercises the
-    // actual validation surface — that's the whole point of the test.
-    PluginFilterSchema: z.object({
-      name: z.string().optional(),
-      version: z.string().optional(),
-      pluginType: z.string().optional(),
-      computeType: z.string().optional(),
-      isActive: z.union([z.boolean(), z.string()]).optional(),
-      isDefault: z.union([z.boolean(), z.string()]).optional(),
-      accessModifier: z.enum(['public', 'private']).optional(),
-      id: z.union([z.string(), z.array(z.string())]).optional(),
-    }).strict(),
-  };
-});
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  sendBadRequest: mockSendBadRequest,
+  sendSuccess: mockSendSuccess,
+  sendEntityNotFound: mockSendEntityNotFound,
+  sendPaginatedNested: jest.fn((res: any, _k: string, items: any) => res.json({ items })),
+  normalizeArrayFields: mockNormalizeArrayFields,
+  parsePaginationParams: () => ({ limit: 25, offset: 0 }),
+  validateQuery: () => ({ ok: true, value: {} }),
+  getParam: (p: any, k: string) => p[k],
+  // Keep using the real PluginFilterSchema so this test exercises the
+  // actual validation surface — that's the whole point of the test.
+  PluginFilterSchema: z.object({
+    name: z.string().optional(),
+    version: z.string().optional(),
+    pluginType: z.string().optional(),
+    computeType: z.string().optional(),
+    isActive: z.union([z.boolean(), z.string()]).optional(),
+    isDefault: z.union([z.boolean(), z.string()]).optional(),
+    accessModifier: z.enum(['public', 'private']).optional(),
+    id: z.union([z.string(), z.array(z.string())]).optional(),
+  }).strict(),
+}));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: Function) => async (req: any, res: any) => {
     await handler({ req, res, ctx: { log: jest.fn() }, orgId: 'org-1', userId: 'u-1' });
   },
   incrementQuotaFromCtx: (...a: unknown[]) => mockIncrementQuotaFromCtx(...a),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: { CACHE_CONTROL_LIST: 'public, max-age=60', CACHE_CONTROL_DETAIL: 'public, max-age=300' },
   db: { execute: jest.fn().mockResolvedValue({ rows: [] }) },
+  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
 }));
 
-import { createReadPluginRoutes } from '../src/routes/read-plugins';
+const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 
 const stubQuotaService = { increment: jest.fn() } as any;
 

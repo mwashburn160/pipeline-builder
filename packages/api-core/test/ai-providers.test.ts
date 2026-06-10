@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import {
   AI_PROVIDER_CATALOG,
   AI_PROVIDER_ENV_VARS,
@@ -8,7 +10,7 @@ import {
   getAIProviderName,
   type AIProviderInfo,
   type AIModelInfo,
-} from '../src/constants/ai-providers';
+} from '../src/constants/ai-providers.js';
 
 // Catalog Structure
 

@@ -5,20 +5,16 @@
  * Tests for AWS Marketplace SNS helper functions.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-import {
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+const {
   mapActionToStatus,
   verifySNSSignature,
-  type SNSMessage,
-} from '../src/helpers/marketplace-helpers';
+} = await import('../src/helpers/marketplace-helpers.js');
+type SNSMessage = import('../src/helpers/marketplace-helpers.js').SNSMessage;
 
 // mapActionToStatus
 

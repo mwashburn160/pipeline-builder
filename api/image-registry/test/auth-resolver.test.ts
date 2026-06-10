@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { generateKeyPairSync } from 'crypto';
+import { jest, describe, it, expect, beforeEach, beforeAll, afterAll } from '@jest/globals';
+import jwt from 'jsonwebtoken';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const privateKeyPem = privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
@@ -14,14 +17,19 @@ process.env.REGISTRY_TOKEN_PRIVATE_KEY = privateKeyPem;
 process.env.REGISTRY_TOKEN_CERTIFICATE = publicKeyPem;
 process.env.JWT_SECRET = 'test-jwt-secret';
 // Default: platform-user path disabled. Tests that exercise it set
-// PLATFORM_BASE_URL via jest.isolateModules to opt in per-test.
+// PLATFORM_BASE_URL and re-import the module to opt in per-suite.
 
-import axios from 'axios';
-import jwt from 'jsonwebtoken';
-import { resolveIdentity } from '../src/services/auth-resolver';
+const mockPost = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
-jest.mock('axios');
-const mockAxios = axios as jest.Mocked<typeof axios>;
+// ESM module mocks must be registered with jest.unstable_mockModule BEFORE the
+// module under test is (dynamically) imported.
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+jest.unstable_mockModule('axios', () => ({
+  default: { post: (...args: unknown[]) => mockPost(...args) },
+}));
+
+const { resolveIdentity } = await import('../src/services/auth-resolver.js');
 
 function signPlatformJwt(payload: Record<string, unknown>): string {
   return jwt.sign(payload, 'test-jwt-secret');
@@ -52,7 +60,7 @@ describe('resolveIdentity', () => {
     await expect(resolveIdentity('whoever', 'not-a-jwt')).resolves.toBeNull();
     // Platform-user path requires PLATFORM_BASE_URL — unset in this test
     // suite, so axios should never be called.
-    expect(mockAxios.post).not.toHaveBeenCalled();
+    expect(mockPost).not.toHaveBeenCalled();
   });
 
   it('returns null for JWT verified but missing organizationId', async () => {
@@ -73,12 +81,12 @@ describe('resolveIdentity', () => {
 describe('resolveIdentity — platform-user path', () => {
   let resolveIdentityWithPlatform: typeof resolveIdentity;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     process.env.PLATFORM_BASE_URL = 'https://platform.example.com';
-    jest.isolateModules(() => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      resolveIdentityWithPlatform = require('../src/services/auth-resolver').resolveIdentity;
-    });
+    jest.resetModules();
+    ({ resolveIdentity: resolveIdentityWithPlatform } = await import(
+      '../src/services/auth-resolver.js'
+    ));
   });
 
   afterAll(() => {
@@ -91,11 +99,11 @@ describe('resolveIdentity — platform-user path', () => {
 
   it('resolves identity when platform login returns a valid JWT', async () => {
     const platformJwt = signPlatformJwt({ sub: 'user-9', organizationId: 'acme', isAdmin: false });
-    mockAxios.post.mockResolvedValueOnce({ status: 200, data: { accessToken: platformJwt } });
+    mockPost.mockResolvedValueOnce({ status: 200, data: { accessToken: platformJwt } });
 
     const identity = await resolveIdentityWithPlatform('user@acme.com', 'real-password');
 
-    expect(mockAxios.post).toHaveBeenCalledWith(
+    expect(mockPost).toHaveBeenCalledWith(
       'https://platform.example.com/auth/login',
       { identifier: 'user@acme.com', password: 'real-password' },
       expect.objectContaining({ timeout: 5000 }),
@@ -104,18 +112,18 @@ describe('resolveIdentity — platform-user path', () => {
   });
 
   it('returns null when platform login returns no accessToken', async () => {
-    mockAxios.post.mockResolvedValueOnce({ status: 401, data: {} });
+    mockPost.mockResolvedValueOnce({ status: 401, data: {} });
     await expect(resolveIdentityWithPlatform('user@acme.com', 'wrong')).resolves.toBeNull();
   });
 
   it('returns null when platform call throws', async () => {
-    mockAxios.post.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    mockPost.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     await expect(resolveIdentityWithPlatform('user@acme.com', 'pw')).resolves.toBeNull();
   });
 
   it('returns null when JWT from platform is missing organizationId', async () => {
     const platformJwt = signPlatformJwt({ sub: 'user-9' });
-    mockAxios.post.mockResolvedValueOnce({ status: 200, data: { accessToken: platformJwt } });
+    mockPost.mockResolvedValueOnce({ status: 200, data: { accessToken: platformJwt } });
     await expect(resolveIdentityWithPlatform('user@acme.com', 'pw')).resolves.toBeNull();
   });
 });

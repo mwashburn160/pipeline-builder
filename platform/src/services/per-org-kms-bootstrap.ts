@@ -32,7 +32,7 @@ import {
   type PerOrgKmsConfig,
   type PerOrgKmsResolver,
 } from '@pipeline-builder/api-core';
-import { Organization } from '../models';
+import { Organization } from '../models/index.js';
 
 const logger = createLogger('per-org-kms-bootstrap');
 

@@ -1,8 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+
 // In-memory Organization model (parent chain) for the quota hierarchy helpers.
-jest.mock('../src/models/organization', () => {
+jest.unstable_mockModule('../src/models/organization.js', () => {
   const orgs = new Map<string, { _id: string; parentOrgId: string | null }>();
   const Organization = {
     __set(list: Array<{ _id: string; parentOrgId: string | null }>) {
@@ -24,9 +26,12 @@ jest.mock('../src/models/organization', () => {
   return { Organization };
 });
 
-import { resolveRootOrgId, expandOrgScope } from '../src/helpers/org-hierarchy';
-
-const { Organization } = jest.requireMock('../src/models/organization');
+const { resolveRootOrgId, expandOrgScope } = await import('../src/helpers/org-hierarchy.js');
+const { Organization } = await import('../src/models/organization.js') as unknown as {
+  Organization: {
+    __set(list: Array<{ _id: string; parentOrgId: string | null }>): void;
+  };
+};
 
 // root ──┬── teamA ── subA
 //        └── teamB

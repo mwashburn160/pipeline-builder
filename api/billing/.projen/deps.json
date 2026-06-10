@@ -21,18 +21,13 @@
       "type": "build"
     },
     {
-      "name": "@types/jest",
-      "version": "30.0.0",
-      "type": "build"
-    },
-    {
       "name": "@types/jsonwebtoken",
       "version": "9.0.10",
       "type": "build"
     },
     {
       "name": "@types/node",
-      "version": "25.3.0",
+      "version": "25.9.2",
       "type": "build"
     },
     {
@@ -65,7 +60,7 @@
     },
     {
       "name": "jest",
-      "version": "30.0.0",
+      "version": "30.4.2",
       "type": "build"
     },
     {
@@ -75,17 +70,17 @@
     },
     {
       "name": "typescript",
-      "version": "5.9.3",
+      "version": "6.0.3",
       "type": "build"
     },
     {
       "name": "@aws-sdk/client-marketplace-entitlement-service",
-      "version": "3.997.0",
+      "version": "3.1064.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-marketplace-metering",
-      "version": "3.997.0",
+      "version": "3.1064.0",
       "type": "runtime"
     },
     {
@@ -110,7 +105,7 @@
     },
     {
       "name": "express-rate-limit",
-      "version": "8.2.1",
+      "version": "8.5.2",
       "type": "runtime"
     },
     {
@@ -120,7 +115,7 @@
     },
     {
       "name": "helmet",
-      "version": "8.1.0",
+      "version": "8.2.0",
       "type": "runtime"
     },
     {
@@ -130,12 +125,12 @@
     },
     {
       "name": "mongoose",
-      "version": "9.2.2",
+      "version": "9.6.3",
       "type": "runtime"
     },
     {
       "name": "stripe",
-      "version": "17.7.0",
+      "version": "22.2.0",
       "type": "runtime"
     },
     {
@@ -145,7 +140,7 @@
     },
     {
       "name": "zod",
-      "version": "4.3.6",
+      "version": "4.4.3",
       "type": "runtime"
     }
   ],

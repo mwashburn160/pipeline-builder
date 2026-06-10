@@ -10,8 +10,8 @@ import {
   getBlobJson,
   deleteManifest,
   isNotFound,
-} from './registry-client';
-import { invalidateStorageCache } from './storage-usage';
+} from './registry-client.js';
+import { invalidateStorageCache } from './storage-usage.js';
 
 const logger = createLogger('registry-gc');
 

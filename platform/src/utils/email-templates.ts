@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import { createLogger } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import type { InvitationEmailData } from './email';
-import type { InvitationOAuthProvider } from '../models/invitation';
+import type { InvitationEmailData } from './email.js';
+import { config } from '../config/index.js';
+import type { InvitationOAuthProvider } from '../models/invitation.js';
 
 const logger = createLogger('email-templates');
 
@@ -16,7 +17,10 @@ interface EmailContent {
   html: string;
 }
 
-const TEMPLATES_DIR = join(__dirname, 'email-templates');
+// ESM-safe module directory (the package is `type: module`; `__dirname` is
+// not defined in ES modules).
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const TEMPLATES_DIR = join(MODULE_DIR, 'email-templates');
 
 /** Placeholder keys that contain pre-rendered HTML and must NOT be escaped. */
 const RAW_HTML_KEYS = new Set(['oauthHtml', 'body']);

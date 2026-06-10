@@ -4,9 +4,9 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool, PoolConfig, PoolClient } from 'pg';
-import { schema } from './drizzle-schema';
-import { ConnectionRetryStrategy } from './retry-strategy';
+import { Pool, type PoolConfig, type PoolClient } from 'pg';
+import { schema } from './drizzle-schema.js';
+import { ConnectionRetryStrategy } from './retry-strategy.js';
 
 const logger = createLogger('database');
 

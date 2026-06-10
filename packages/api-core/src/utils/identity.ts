@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getHeaderString } from './headers';
-import { HttpRequest } from '../types/http';
+import { getHeaderString } from './headers.js';
+import type { HttpRequest } from '../types/http.js';
 
 /**
  * Identity information extracted from request headers.

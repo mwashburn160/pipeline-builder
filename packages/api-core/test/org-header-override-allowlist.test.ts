@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+
 /**
  * Governance guard for the `allowOrgHeaderOverride` footgun.
  *
@@ -16,6 +17,10 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { describe, it, expect } from '@jest/globals';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Files allowed to enable the override — all internal/service-to-service. */
 const ALLOWLIST = new Set([

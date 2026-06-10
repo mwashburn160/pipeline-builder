@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
-import { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
-import axios, { AxiosInstance, AxiosError } from 'axios';
-import { CoreConstants } from '../config/app-config';
+import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
+import type { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
+import axios, { type AxiosInstance, AxiosError } from 'axios';
+import { CoreConstants } from '../config/app-config.js';
 
 /**
  * Structured logger for Lambda (outputs JSON to CloudWatch).

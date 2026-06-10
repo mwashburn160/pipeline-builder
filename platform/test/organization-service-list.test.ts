@@ -10,6 +10,8 @@
  *   Organization.find(filter).populate(...).sort(...).skip(n).limit(m).lean()
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgFind = jest.fn();
 const mockOrgFindById = jest.fn();
 const mockOrgCount = jest.fn();
@@ -17,12 +19,10 @@ const mockUserOrgCount = jest.fn();
 const mockIdpFind = jest.fn();
 const mockIdpDistinct = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   decryptSecret: jest.fn(),
   encryptSecret: jest.fn(),
   isEncryptedBlob: jest.fn(() => false),
-  SYSTEM_ORG_ID: 'system',
   // `organization-service.setTier` now reseeds quotas from QUOTA_TIERS so
   // every QuotaTierLimits field stays in lockstep with api-core. Mirror the
   // real shape — `setTier` does `{...QUOTA_TIERS[newTier].limits}`. The
@@ -75,7 +75,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   },
 }));
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class Schema {
     constructor() { /* no-op */ }
     index() { /* no-op */ }
@@ -89,13 +89,13 @@ jest.mock('mongoose', () => {
   return { default: { startSession: jest.fn() }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.mock('../src/middleware/quota', () => ({
+jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   getOrganizationQuotaStatus: jest.fn(),
   updateQuotaLimits: jest.fn(),
   QuotaType: {},
 }));
 
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     quota: {
       tier: {
@@ -107,9 +107,9 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('../src/helpers/controller-helper', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     find: (...a: unknown[]) => mockOrgFind(...a),
     findById: (...a: unknown[]) => mockOrgFindById(...a),
@@ -121,9 +121,13 @@ jest.mock('../src/models', () => ({
     find: (...a: unknown[]) => mockIdpFind(...a),
     exists: jest.fn(),
   },
+  // Consumed transitively via organization-service.js -> groups-service.js.
+  Group: { create: jest.fn(), find: jest.fn(), findOne: jest.fn(), exists: jest.fn() },
+  GroupMembership: { create: jest.fn(), find: jest.fn(), exists: jest.fn(), countDocuments: jest.fn() },
 }));
 
-import { organizationService } from '../src/services/organization-service';
+const { organizationService } = await import('../src/services/organization-service.js');
+
 
 // Build a chain matching Organization.find(...).populate(...).sort(...).skip(...).limit(...).lean()
 function makeFindChain(rows: unknown[]) {

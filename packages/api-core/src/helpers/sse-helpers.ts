@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Request, Response } from 'express';
-import { sendBadRequest, sendInternalError } from '../utils/response';
+import { sendBadRequest, sendInternalError } from '../utils/response.js';
 
 /**
  * Set SSE response headers and flush.

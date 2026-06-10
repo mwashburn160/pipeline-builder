@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Command } from 'commander';
-import { formatDuration, validateBoolean } from '../config/cli.constants';
-import { PipelineListResponse, Pipeline } from '../types';
-import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { buildCommonFilters, CommonFilterParams, displayPaginationInfo, displayListResults } from '../utils/list-command-utils';
-import { outputData, extractListResponse, printInfo, printKeyValue, printSection } from '../utils/output-utils';
+import { formatDuration, validateBoolean } from '../config/cli.constants.js';
+import { type PipelineListResponse, type Pipeline } from '../types/index.js';
+import { printCommandHeader, printSslWarning, createAuthenticatedClient } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { buildCommonFilters, type CommonFilterParams, displayPaginationInfo, displayListResults } from '../utils/list-command-utils.js';
+import { outputData, extractListResponse, printInfo, printKeyValue, printSection } from '../utils/output-utils.js';
 
 /**
  * Query parameters for the pipeline list API endpoint.

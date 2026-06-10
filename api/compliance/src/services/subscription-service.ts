@@ -5,7 +5,7 @@ import { createLogger, isSystemOrgId } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import type { RuleScope } from '@pipeline-builder/pipeline-core';
 import { eq, and, isNull, inArray } from 'drizzle-orm';
-import { complianceRuleService } from './compliance-rule-service';
+import { complianceRuleService } from './compliance-rule-service.js';
 
 const logger = createLogger('subscription-service');
 

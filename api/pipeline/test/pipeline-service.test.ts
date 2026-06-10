@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock external dependencies — must be set up before importing the service
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+
 const mockTransactionSet = jest.fn().mockReturnValue({ where: jest.fn() });
 const mockTransactionOnConflict = jest.fn().mockReturnValue({
   returning: jest.fn().mockResolvedValue([{ id: 'new-pipeline', isDefault: true }]),
@@ -10,7 +12,7 @@ const mockTransactionValues = jest.fn().mockReturnValue({
   onConflictDoUpdate: mockTransactionOnConflict,
 });
 
-jest.mock('@pipeline-builder/pipeline-core', () => {
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   const mockFind = jest.fn();
   const mockSetDefault = jest.fn();
 
@@ -52,7 +54,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
   };
 });
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   SQL: class {},
   sql: jest.fn((strings: TemplateStringsArray, ...values: any[]) => ({ strings, values, type: 'sql' })),
   or: jest.fn((...args: any[]) => args),
@@ -61,18 +63,16 @@ jest.mock('drizzle-orm', () => ({
   and: jest.fn((...args: any[]) => args),
 }));
 
-jest.mock('drizzle-orm/column', () => ({}));
-jest.mock('drizzle-orm/pg-core', () => ({}));
+jest.unstable_mockModule('drizzle-orm/column', () => ({}));
+jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
-import { PipelineService } from '../src/services/pipeline-service';
-
-// Ensure the hoisted mock is loaded
-jest.requireMock('@pipeline-builder/pipeline-core');
+const { PipelineService } = await import('../src/services/pipeline-service.js');
+const pipelineCoreMock = await import('@pipeline-builder/pipeline-core');
 
 // Tests
 
 describe('PipelineService', () => {
-  let service: PipelineService;
+  let service: InstanceType<typeof PipelineService>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -86,7 +86,7 @@ describe('PipelineService', () => {
       const result = await service.createAsDefault(data, 'user-1', 'proj', 'org');
 
       // Verify the tenancy-aware transaction wrapper was used.
-      const { withTenantTx } = jest.requireMock('@pipeline-builder/pipeline-core');
+      const { withTenantTx } = pipelineCoreMock as unknown as { withTenantTx: jest.Mock };
       expect(withTenantTx).toHaveBeenCalled();
 
       // Verify update was called to clear defaults

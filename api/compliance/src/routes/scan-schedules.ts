@@ -14,8 +14,8 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { CRON_VALIDATION_HINT, isValidCronExpression } from '../helpers/scan-scheduler';
-import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service';
+import { CRON_VALIDATION_HINT, isValidCronExpression } from '../helpers/scan-scheduler.js';
+import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service.js';
 
 /**
  * CRUD routes for compliance scan schedules.

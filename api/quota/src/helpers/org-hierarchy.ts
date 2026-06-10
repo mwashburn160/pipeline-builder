@@ -20,8 +20,8 @@ import {
   expandOrgScopeWith,
   toOrgIdString,
 } from '@pipeline-builder/api-core';
-import { toOrgId } from './org-id';
-import { Organization } from '../models/organization';
+import { toOrgId } from './org-id.js';
+import { Organization } from '../models/organization.js';
 
 /** Fetch a single org's direct parent id (cast-aware), or undefined. */
 async function getParentOrgId(orgId: string): Promise<string | undefined> {

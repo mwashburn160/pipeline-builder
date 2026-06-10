@@ -1,8 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock dependencies
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     quota: {
       defaults: { plugins: 100, pipelines: 10, apiCalls: -1 },
@@ -11,23 +14,10 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn(),
   sendError: jest.fn(),
-  ErrorCode: {
-    UNAUTHORIZED: 'UNAUTHORIZED',
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    ORG_NOT_FOUND: 'ORG_NOT_FOUND',
-  },
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  })),
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'] as const,
   QUOTA_TIERS: {},
@@ -37,8 +27,8 @@ jest.mock('@pipeline-builder/api-core', () => ({
   isValidQuotaType: jest.fn(),
 }));
 
-import { isSystemAdmin, sendError } from '@pipeline-builder/api-core';
-import { authorizeOrg } from '../src/middleware/authorize-org';
+const { isSystemAdmin, sendError } = await import('@pipeline-builder/api-core');
+const { authorizeOrg } = await import('../src/middleware/authorize-org.js');
 
 const mockIsSystemAdmin = isSystemAdmin as jest.MockedFunction<typeof isSystemAdmin>;
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;

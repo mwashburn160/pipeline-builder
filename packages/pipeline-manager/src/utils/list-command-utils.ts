@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { printInfo, printKeyValue } from './output-utils';
-import { formatDuration, validateBoolean, validateNumber, validateSort } from '../config/cli.constants';
+import { printInfo, printKeyValue } from './output-utils.js';
+import { formatDuration, validateBoolean, validateNumber, validateSort } from '../config/cli.constants.js';
 
 /**
  * Common filter parameters shared by all list commands.

@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Response } from 'express';
-import { createLogger } from './logger';
-import { QuotaInfo } from '../types/common';
-import { ErrorCode } from '../types/error-codes';
-import { MAX_PAGE_LIMIT } from '../validation/common-schemas';
+import type { Response } from 'express';
+import { createLogger } from './logger.js';
+import type { QuotaInfo } from '../types/common.js';
+import { ErrorCode } from '../types/error-codes.js';
+import { MAX_PAGE_LIMIT } from '../validation/common-schemas.js';
 
 const logger = createLogger('response');
 

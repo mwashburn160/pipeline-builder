@@ -1,7 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('../src/config', () => ({
+import { jest, describe, it, expect, afterEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     loki: {
       url: 'http://loki.test:3100',
@@ -15,16 +18,9 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  })),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-import { queryLogs, getServiceNames, getLogLevels } from '../src/services/log-service';
+const { queryLogs, getServiceNames, getLogLevels } = await import('../src/services/log-service.js');
 
 describe('log-service', () => {
   const originalFetch = global.fetch;

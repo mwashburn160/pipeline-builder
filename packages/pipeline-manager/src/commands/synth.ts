@@ -1,15 +1,20 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
-import { assertShellSafe } from '../config/cli.constants';
-import type { Pipeline } from '../types/pipeline';
-import { auditLog } from '../utils/audit-log';
-import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils';
-import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
-import { resolvePluginsForProps } from '../utils/plugin-resolver';
+import { assertShellSafe } from '../config/cli.constants.js';
+import type { Pipeline } from '../types/pipeline.js';
+import { auditLog } from '../utils/audit-log.js';
+import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
+import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { resolvePluginsForProps } from '../utils/plugin-resolver.js';
+
+// ESM has no __dirname; derive it from this module's URL.
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Fetch pipeline config and set PIPELINE_PROPS env var for the boilerplate app.
@@ -194,8 +199,7 @@ async function showResolvedPipeline(
   const decoded = JSON.parse(Buffer.from(encoded, 'base64').toString('utf-8'));
 
   // Lazy import to avoid pulling pipeline-core into every CLI invocation
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { resolveSelfReferencing } = require('@pipeline-builder/pipeline-core');
+  const { resolveSelfReferencing } = await import('@pipeline-builder/pipeline-core');
   const scope = { metadata: decoded.metadata ?? {}, vars: decoded.vars ?? {} };
   const isTemplatable = (f: string) =>
     f === 'projectName' || f.startsWith('metadata.') || f.startsWith('vars.');

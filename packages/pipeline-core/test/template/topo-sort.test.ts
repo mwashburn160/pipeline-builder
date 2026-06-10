@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { topoSort } from '../../src/template/topo-sort';
+import { topoSort } from '../../src/template/topo-sort.js';
 
 describe('topoSort', () => {
   it('orders a simple chain', () => {

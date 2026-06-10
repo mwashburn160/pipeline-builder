@@ -25,11 +25,12 @@
     "stripInternal": true,
     "target": "ESNext",
     "types": [
-      "jest",
       "node"
     ],
     "rootDir": "src",
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "outDir": "lib",
     "moduleResolution": "nodenext"
   },

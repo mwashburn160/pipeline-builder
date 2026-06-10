@@ -3,45 +3,43 @@
 
 // Mock external dependencies — must be set up before importing the service
 
-const mockGenerateText = jest.fn();
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('ai', () => ({
+const mockGenerateText = jest.fn<(...args: any[]) => any>();
+
+jest.unstable_mockModule('ai', () => ({
   generateText: mockGenerateText,
+  streamText: jest.fn(),
   Output: {
     object: jest.fn((opts: any) => ({ type: 'object', schema: opts.schema })),
   },
 }));
 
-jest.mock('@ai-sdk/amazon-bedrock', () => ({
+jest.unstable_mockModule('@ai-sdk/amazon-bedrock', () => ({
   createAmazonBedrock: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'amazon-bedrock', modelId }))),
 }));
-jest.mock('@ai-sdk/anthropic', () => ({
+jest.unstable_mockModule('@ai-sdk/anthropic', () => ({
   createAnthropic: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'anthropic', modelId }))),
 }));
-jest.mock('@ai-sdk/openai', () => ({
+jest.unstable_mockModule('@ai-sdk/openai', () => ({
   createOpenAI: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'openai', modelId }))),
 }));
-jest.mock('@ai-sdk/google', () => ({
+jest.unstable_mockModule('@ai-sdk/google', () => ({
   createGoogleGenerativeAI: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'google', modelId }))),
 }));
-jest.mock('@ai-sdk/xai', () => ({
+jest.unstable_mockModule('@ai-sdk/xai', () => ({
   createXai: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'xai', modelId }))),
 }));
 
-jest.mock('@pipeline-builder/api-core', () => {
+jest.unstable_mockModule('@pipeline-builder/api-core', () => {
   class ValidationError extends Error {
     statusCode = 400;
     code = 'VALIDATION_ERROR';
     constructor(message: string) { super(message); this.name = 'ValidationError'; }
   }
-  return {
+  return apiCoreMock({
     ValidationError,
-    createLogger: jest.fn(() => ({
-      info: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn(),
-      warn: jest.fn(),
-    })),
     AI_PROVIDER_CATALOG: {
       'anthropic': {
         id: 'anthropic',
@@ -100,22 +98,22 @@ jest.mock('@pipeline-builder/api-core', () => {
       };
       return catalog[id] ?? [];
     }),
-  };
+  });
 });
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   db: { select: jest.fn().mockReturnThis(), from: jest.fn().mockReturnThis(), where: jest.fn().mockResolvedValue([]) },
   schema: { plugin: {} },
 }));
 
 // Import AFTER mocks
 
-import {
+const {
   getAvailableProviders,
   getProviderModels,
   generatePipelineConfig,
-  type GenerationRequest,
-} from '../src/services/ai-generation-service';
+} = await import('../src/services/ai-generation-service.js');
+type GenerationRequest = import('../src/services/ai-generation-service.js').GenerationRequest;
 
 // Tests
 

@@ -8,15 +8,15 @@ import {
   createLogger,
   errorMessage,
 } from '@pipeline-builder/api-core';
-import { Router, Request, Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
-import { config } from '../config';
-import { createBillingEvent, calculatePeriodEnd, syncTierToQuotaService } from '../helpers/billing-helpers';
-import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers';
-import { Plan } from '../models/plan';
-import { claimWebhookEvent } from '../models/webhook-dedupe';
-import { getPaymentProvider } from '../providers/provider-factory';
-import { StripeProvider } from '../providers/stripe-provider';
+import { config } from '../config.js';
+import { createBillingEvent, calculatePeriodEnd, syncTierToQuotaService } from '../helpers/billing-helpers.js';
+import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
+import { Plan } from '../models/plan.js';
+import { claimWebhookEvent } from '../models/webhook-dedupe.js';
+import { getPaymentProvider } from '../providers/provider-factory.js';
+import { StripeProvider } from '../providers/stripe-provider.js';
 
 const logger = createLogger('billing-stripe-webhook');
 
@@ -113,6 +113,16 @@ export function createStripeWebhookRoutes(): Router {
 // Event Handlers
 
 /**
+ * stripe 22 (API 2025+) removed the top-level Invoice.subscription field — the
+ * subscription now lives under parent.subscription_details. Returns the
+ * subscription id, or undefined for a non-subscription invoice.
+ */
+function invoiceSubscriptionId(invoice: Stripe.Invoice): string | undefined {
+  const sub = invoice.parent?.subscription_details?.subscription;
+  return typeof sub === 'string' ? sub : sub?.id;
+}
+
+/**
  * Handle a subscription created out-of-band (e.g. directly in the Stripe
  * dashboard or via a non-app checkout flow). Without this, the local DB
  * drifts from Stripe and the org has no Subscription row backing the
@@ -148,9 +158,7 @@ async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription
  * waiting for the lifecycle cron to run a separate reminder.
  */
 async function handleInvoiceUpcoming(invoice: Stripe.Invoice): Promise<void> {
-  const stripeSubscriptionId = typeof invoice.subscription === 'string'
-    ? invoice.subscription
-    : invoice.subscription?.id;
+  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
   if (!stripeSubscriptionId) return;
 
   const subscription = await findSubscriptionByStripeId(stripeSubscriptionId);
@@ -262,9 +270,7 @@ async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription
  * Confirms the subscription is active, resets grace period state, and updates the billing period.
  */
 async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
-  const stripeSubscriptionId = typeof invoice.subscription === 'string'
-    ? invoice.subscription
-    : invoice.subscription?.id;
+  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
   if (!stripeSubscriptionId) {
     logger.debug('Invoice payment_succeeded has no subscription', { invoiceId: invoice.id });
     return;
@@ -332,9 +338,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
  * (checked by the subscription lifecycle background job).
  */
 async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
-  const stripeSubscriptionId = typeof invoice.subscription === 'string'
-    ? invoice.subscription
-    : invoice.subscription?.id;
+  const stripeSubscriptionId = invoiceSubscriptionId(invoice);
   if (!stripeSubscriptionId) {
     logger.debug('Invoice payment_failed has no subscription', { invoiceId: invoice.id });
     return;

@@ -11,13 +11,13 @@ import type { SSEManager } from '@pipeline-builder/api-server';
 import type { PluginBuildConfig } from '@pipeline-builder/pipeline-core';
 import { Config, CoreConstants, db, schema, reportingService, runWithTenantContext, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { Queue, Worker } from 'bullmq';
-import type { Job } from 'bullmq';
-import IORedis from 'ioredis';
+import type { Job, ConnectionOptions } from 'bullmq';
+import { Redis } from 'ioredis';
 
-import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper';
-import { buildAndPush, getBuildkitAddrForTier, loadAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build';
-import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers';
-import { pluginService } from '../services/plugin-service';
+import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
+import { buildAndPush, getBuildkitAddrForTier, loadAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
+import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -168,7 +168,7 @@ function getRedisDbForTier(tier: QuotaTier): number {
 
 // One ioredis client per DB number, shared across Queue/Worker instances per
 // BullMQ guidance. Constructed lazily on first use.
-const connectionsByDb = new Map<number, IORedis>();
+const connectionsByDb = new Map<number, Redis>();
 const tierQueues = new Map<QuotaTier, Queue<PluginBuildJobData>>();
 const tierWorkers = new Map<QuotaTier, Worker<PluginBuildJobData>>();
 let dlq: Queue<PluginBuildJobData> | null = null;
@@ -214,14 +214,14 @@ function getAuditClient(): RemoteAuditClient {
 // Redis connection
 // ---------------------------------------------------------------------------
 
-function getConnectionForDb(dbNum: number): IORedis {
+function getConnectionForDb(dbNum: number): Redis {
   let conn = connectionsByDb.get(dbNum);
   if (!conn) {
     const redis = Config.get('redis');
     const host = redis.host;
     const port = redis.port;
 
-    conn = new IORedis({
+    conn = new Redis({
       host,
       port,
       db: dbNum,
@@ -246,7 +246,7 @@ function getConnectionForDb(dbNum: number): IORedis {
   return conn;
 }
 
-function getConnectionForTier(tier: QuotaTier): IORedis {
+function getConnectionForTier(tier: QuotaTier): Redis {
   return getConnectionForDb(getRedisDbForTier(tier));
 }
 
@@ -257,7 +257,7 @@ function getConnectionForTier(tier: QuotaTier): IORedis {
 export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
   if (!dlq) {
     dlq = new Queue<PluginBuildJobData>(DLQ_NAME, {
-      connection: getConnectionForDb(0),
+      connection: getConnectionForDb(0) as ConnectionOptions,
       defaultJobOptions: {
         removeOnComplete: false,
         removeOnFail: false,
@@ -272,7 +272,7 @@ export function getTierQueue(tier: QuotaTier): Queue<PluginBuildJobData> {
   if (!q) {
     const cfg = getBuildCfg();
     q = new Queue<PluginBuildJobData>(TIER_QUEUE_NAMES[tier], {
-      connection: getConnectionForTier(tier),
+      connection: getConnectionForTier(tier) as ConnectionOptions,
       defaultJobOptions: {
         attempts: cfg.maxAttempts,
         backoff: { type: 'exponential', delay: cfg.backoffDelayMs },
@@ -749,7 +749,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   for (const tier of VALID_TIERS) {
     const tierQueue = getTierQueue(tier);
     const tierWorker = new Worker<PluginBuildJobData>(tierQueue.name, processor, {
-      connection: getConnectionForTier(tier),
+      connection: getConnectionForTier(tier) as ConnectionOptions,
       concurrency: tierConcurrency[tier],
     });
 
@@ -821,7 +821,7 @@ function startDlqWorker(quotaService: QuotaService): void {
       await getTierQueue(tier).add(`retry-${pluginRecord.name}`, cleanData);
     },
     {
-      connection: getConnectionForDb(0),
+      connection: getConnectionForDb(0) as ConnectionOptions,
       concurrency: 1,
     },
   );

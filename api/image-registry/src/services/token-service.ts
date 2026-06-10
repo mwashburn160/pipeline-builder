@@ -4,9 +4,9 @@
 import { createHash, createPublicKey, randomUUID } from 'crypto';
 import { createLogger, createQuotaService, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
-import { config } from '../config';
-import type { Identity } from './auth-resolver';
-import { computeStorageUsage } from './storage-usage';
+import type { Identity } from './auth-resolver.js';
+import { computeStorageUsage } from './storage-usage.js';
+import { config } from '../config/index.js';
 
 const logger = createLogger('token-service');
 

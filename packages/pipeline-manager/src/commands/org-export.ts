@@ -5,9 +5,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
+import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
 
 const { bold, green } = pico;
 

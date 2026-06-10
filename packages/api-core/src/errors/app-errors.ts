@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, getStatusForErrorCode } from '../types/error-codes';
+import { ErrorCode, getStatusForErrorCode } from '../types/error-codes.js';
 
 /**
  * Base application error with HTTP status code and error code.

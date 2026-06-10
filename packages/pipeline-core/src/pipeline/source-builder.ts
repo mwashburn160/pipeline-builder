@@ -7,10 +7,10 @@ import { CodeCommitTrigger, GitHubTrigger, S3Trigger } from 'aws-cdk-lib/aws-cod
 import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { CodePipelineSource } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
-import type { PipelineConfiguration } from './pipeline-configuration';
-import { UniqueId } from '../core/id-generator';
-import { unwrapSecret } from '../core/pipeline-helpers';
-import { TriggerType, type SourceType } from '../core/pipeline-types';
+import type { PipelineConfiguration } from './pipeline-configuration.js';
+import { UniqueId } from '../core/id-generator.js';
+import { unwrapSecret } from '../core/pipeline-helpers.js';
+import { TriggerType, type SourceType } from '../core/pipeline-types.js';
 
 /**
  * Creates the appropriate CodePipelineSource based on the pipeline configuration.

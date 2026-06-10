@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit';
+import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
   canAdministerOrg,
   getAdminContext,
   requireAuth,
   withController,
-} from '../helpers/controller-helper';
+} from '../helpers/controller-helper.js';
 import {
   listGroupsWithMembers,
   addUserToGroup,
@@ -20,8 +20,8 @@ import {
   GRP_CANNOT_REMOVE_SELF,
   GRP_LAST_PRIVILEGED_MEMBER,
   GRP_REQUIRES_SUPERADMIN,
-} from '../services';
-import { validateBody, addGroupMemberSchema } from '../utils/validation';
+} from '../services/index.js';
+import { validateBody, addGroupMemberSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-groups-controller');
 

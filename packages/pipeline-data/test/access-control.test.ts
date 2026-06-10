@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
 import {
   parseBooleanFilter,
   normalizeStringFilter,
   escapeLikeWildcards,
-} from '../src/api/access-control-builder';
+} from '../src/api/access-control-builder.js';
 
 describe('parseBooleanFilter', () => {
   it('should return boolean values as-is', () => {

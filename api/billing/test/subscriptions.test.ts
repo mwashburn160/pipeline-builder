@@ -8,6 +8,9 @@
  * the router. Mocks Mongoose models, payment provider, and helpers.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mocks — must be defined before imports
 
 const mockSendSuccess = jest.fn();
@@ -17,36 +20,21 @@ const mockValidateBody = jest.fn();
 const mockIsSystemAdmin = jest.fn();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendBadRequest: mockSendBadRequest,
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    NOT_FOUND: 'NOT_FOUND',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-    DUPLICATE_ENTRY: 'DUPLICATE_ENTRY',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-  },
   requireAuth: mockRequireAuth,
   requireAdmin: (_req: any, _res: any, next: () => void) => next(),
   isSystemAdmin: mockIsSystemAdmin,
   requireSystemAdmin: (_req: any, _res: any, next: () => void) => next(),
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   getServiceAuthHeader: jest.fn(() => 'Bearer service-token'),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   validateBody: mockValidateBody,
   createCacheService: () => ({ get: jest.fn(), set: jest.fn(), del: jest.fn(), invalidate: jest.fn() }),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const userId = req.user?.sub || '';
@@ -63,33 +51,33 @@ jest.mock('@pipeline-builder/api-server', () => ({
   },
 }));
 
-const mockSubscriptionFindOne = jest.fn();
-const mockSubscriptionCreate = jest.fn();
+const mockSubscriptionFindOne = jest.fn<(...args: unknown[]) => any>();
+const mockSubscriptionCreate = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
-jest.mock('../src/models/subscription', () => ({
+jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     findOne: mockSubscriptionFindOne,
     create: mockSubscriptionCreate,
   },
 }));
 
-const mockPlanFindOne = jest.fn();
-const mockPlanFindById = jest.fn();
+const mockPlanFindOne = jest.fn<(...args: unknown[]) => any>();
+const mockPlanFindById = jest.fn<(...args: unknown[]) => any>();
 
-jest.mock('../src/models/plan', () => ({
+jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: {
     findOne: mockPlanFindOne,
     findById: mockPlanFindById,
   },
 }));
 
-const mockCreateCustomer = jest.fn();
-const mockCreateSubscription = jest.fn();
-const mockUpdateSubscription = jest.fn();
-const mockCancelSubscription = jest.fn();
-const mockReactivateSubscription = jest.fn();
+const mockCreateCustomer = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockCreateSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockUpdateSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockCancelSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockReactivateSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
-jest.mock('../src/providers/provider-factory', () => ({
+jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({
     createCustomer: mockCreateCustomer,
     createSubscription: mockCreateSubscription,
@@ -106,22 +94,22 @@ const mockBuildSubscriptionResponse = jest.fn((sub: any, planName?: string) => (
   status: sub.status,
 }));
 const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-04-01'));
-const mockCreateBillingEvent = jest.fn().mockResolvedValue(undefined);
-const mockSyncTierToQuotaService = jest.fn().mockResolvedValue(true);
+const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockSyncTierToQuotaService = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 
-jest.mock('../src/helpers/billing-helpers', () => ({
+jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   buildSubscriptionResponse: mockBuildSubscriptionResponse,
   calculatePeriodEnd: mockCalculatePeriodEnd,
   createBillingEvent: mockCreateBillingEvent,
   syncTierToQuotaService: mockSyncTierToQuotaService,
 }));
 
-jest.mock('../src/validation/schemas', () => ({
+jest.unstable_mockModule('../src/validation/schemas.js', () => ({
   SubscriptionCreateSchema: {},
   SubscriptionUpdateSchema: {},
 }));
 
-import { createSubscriptionRoutes } from '../src/routes/subscriptions';
+const { createSubscriptionRoutes } = await import('../src/routes/subscriptions.js');
 
 const router = createSubscriptionRoutes();
 

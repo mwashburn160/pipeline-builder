@@ -6,9 +6,9 @@ export {
   getProviderModels,
   resolveModel,
   createModelWithKey,
-} from './provider-registry';
+} from './provider-registry.js';
 
-export type { ProviderEntry } from './provider-registry';
+export type { ProviderEntry } from './provider-registry.js';
 
 // Re-export AI SDK types consumers commonly need
 export type { LanguageModel } from 'ai';

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Router } from 'express';
-import { getProviders, getAuthUrl, handleCallback } from '../controllers/oauth';
+import { getProviders, getAuthUrl, handleCallback } from '../controllers/oauth.js';
 
 const router = Router();
 

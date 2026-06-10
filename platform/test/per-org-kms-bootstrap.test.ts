@@ -6,12 +6,14 @@
  * startup, plus the Mongo-backed resolver that maps orgId → KMS config.
  */
 
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockSetKeyProvider = jest.fn();
 const mockEnvKeyProvider = jest.fn();
 const mockPerOrgCtor = jest.fn();
 const mockOrgFindById = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   EnvKeyProvider: jest.fn().mockImplementation(() => {
     mockEnvKeyProvider();
     return { __type: 'EnvKeyProvider' };
@@ -21,21 +23,16 @@ jest.mock('@pipeline-builder/api-core', () => ({
     return { __type: 'PerOrgKmsKeyProvider', opts };
   }),
   setKeyProvider: (provider: unknown) => mockSetKeyProvider(provider),
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
 }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     findById: (...args: unknown[]) => mockOrgFindById(...args),
   },
 }));
 
-import { bootstrapPerOrgKmsProvider, perOrgKmsResolver } from '../src/services/per-org-kms-bootstrap';
+const { bootstrapPerOrgKmsProvider, perOrgKmsResolver } = await import('../src/services/per-org-kms-bootstrap.js');
+
 
 const ORIGINAL_FLAG = process.env.SECRET_ENCRYPTION_PER_ORG_KMS;
 

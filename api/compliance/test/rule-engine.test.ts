@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { evaluateRules, type EvaluableRule, type ActiveExemption } from '../src/engine/rule-engine';
+import { describe, it, expect } from '@jest/globals';
+import { evaluateRules, type EvaluableRule, type ActiveExemption } from '../src/engine/rule-engine.js';
 
 function makeRule(overrides: Partial<EvaluableRule> = {}): EvaluableRule {
   return {

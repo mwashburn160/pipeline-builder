@@ -4,9 +4,9 @@
 import { ErrorCode, sendError } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail } from '../controllers';
-import { stepUpVerify } from '../controllers/step-up';
-import { requireAuth, isValidRefreshToken } from '../middleware';
+import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail } from '../controllers/index.js';
+import { stepUpVerify } from '../controllers/step-up.js';
+import { requireAuth, isValidRefreshToken } from '../middleware/index.js';
 
 const router = Router();
 

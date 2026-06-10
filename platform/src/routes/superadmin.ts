@@ -11,8 +11,8 @@
  */
 
 import { Router } from 'express';
-import { addUserGrant, removeUserGrant } from '../controllers/superadmin';
-import { requireAuth, requireStepUp } from '../middleware';
+import { addUserGrant, removeUserGrant } from '../controllers/superadmin.js';
+import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router = Router({ mergeParams: true });
 

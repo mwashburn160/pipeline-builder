@@ -3,11 +3,11 @@
 
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Command } from 'commander';
-import { decodeTokenPayload } from '../utils/auth-guard';
-import { getSecretValue, listSecrets } from '../utils/aws-secrets';
-import { printCommandHeader } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { decodeTokenPayload } from '../utils/auth-guard.js';
+import { getSecretValue, listSecrets } from '../utils/aws-secrets.js';
+import { printCommandHeader } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 
 interface TokenAuditEntry {
   secretName: string;

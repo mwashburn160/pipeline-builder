@@ -39,24 +39,24 @@
  */
 
 // Configuration
-export * from './config/app-config';
-export * from './config/config-types';
+export * from './config/app-config.js';
+export * from './config/config-types.js';
 
 // Core types (public surface)
-export * from './core/pipeline-types';
-export * from './core/network-types';
-export * from './core/role-types';
-export * from './core/security-group-types';
-export * from './core/id-generator';
-export { replaceNonAlphanumeric, extractMetadataEnv } from './core/pipeline-helpers';
+export * from './core/pipeline-types.js';
+export * from './core/network-types.js';
+export * from './core/role-types.js';
+export * from './core/security-group-types.js';
+export * from './core/id-generator.js';
+export { replaceNonAlphanumeric, extractMetadataEnv } from './core/pipeline-helpers.js';
 export {
   buildConfigFromMetadata,
   metadataForCodePipeline,
   metadataForCodeBuildStep,
   metadataForShellStep,
   metadataForBuildEnvironment,
-} from './core/metadata-builder';
-export * from './core/artifact-manager';
+} from './core/metadata-builder.js';
+export * from './core/artifact-manager.js';
 
 // Re-export from api-core (only items consumed by external packages)
 export {
@@ -134,12 +134,12 @@ export {
 } from '@pipeline-builder/pipeline-data';
 
 // Pipeline (CDK constructs)
-export * from './pipeline/source-types';
-export * from './pipeline/step-types';
-export * from './pipeline/stage-builder';
-export * from './pipeline/pipeline-builder';
-export * from './pipeline/plugin-lookup';
-export { PipelineConfiguration } from './pipeline/pipeline-configuration';
+export * from './pipeline/source-types.js';
+export * from './pipeline/step-types.js';
+export * from './pipeline/stage-builder.js';
+export * from './pipeline/pipeline-builder.js';
+export * from './pipeline/plugin-lookup.js';
+export { PipelineConfiguration } from './pipeline/pipeline-configuration.js';
 
 // Template engine  synth-time scripting for pipeline config + plugin specs
-export * from './template';
+export * from './template/index.js';

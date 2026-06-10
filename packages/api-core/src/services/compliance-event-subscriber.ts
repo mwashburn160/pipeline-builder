@@ -1,12 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { enqueueComplianceEvent } from './compliance-queue';
-import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events';
-import { InternalHttpClient } from './http-client';
-import { getServiceAuthHeader } from '../middleware/auth';
-import { type ServiceConfig } from '../types/common';
-import { createLogger } from '../utils/logger';
+import { enqueueComplianceEvent } from './compliance-queue.js';
+import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events.js';
+import { InternalHttpClient } from './http-client.js';
+import { getServiceAuthHeader } from '../middleware/auth.js';
+import { type ServiceConfig } from '../types/common.js';
+import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('compliance-events');
 

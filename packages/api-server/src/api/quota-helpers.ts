@@ -3,7 +3,7 @@
 
 import { incrementQuota, type QuotaService, type QuotaType } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
-import type { RequestContext } from './request-types';
+import type { RequestContext } from './request-types.js';
 
 /**
  * Increment a quota counter using values pulled from a route context.

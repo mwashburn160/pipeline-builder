@@ -11,14 +11,15 @@
  * misconfiguration BEFORE a PUT triggers a real rotation.
  */
 
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgFindById = jest.fn();
 const mockRequireSystemAdmin = jest.fn();
 const mockDeriveKeyAsync = jest.fn();
 const mockPerOrgCtor = jest.fn();
 const mockAudit = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   // The controller constructs `new PerOrgKmsKeyProvider({ resolver, fallback })`
@@ -30,10 +31,9 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
   EnvKeyProvider: jest.fn(function () { /* opaque fallback */ }),
   getDefaultKeyProvider: jest.fn(() => ({})),
-  SYSTEM_ORG_ID: 'system',
 }));
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class Schema {
     constructor() { /* no-op */ }
     index() { /* no-op */ }
@@ -47,15 +47,15 @@ jest.mock('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.mock('../src/helpers/audit', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.mock('../src/helpers/controller-helper', () => ({
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireSystemAdmin: (req: any, res: any) => mockRequireSystemAdmin(req, res),
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
 }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     findById: (...a: unknown[]) => mockOrgFindById(...a),
   },
@@ -63,12 +63,13 @@ jest.mock('../src/models', () => ({
 
 // The controller imports captureOrgSecrets + reencryptOrgSecrets for the
 // PUT path; for testOrgKmsConfig they're irrelevant but still resolved.
-jest.mock('../src/services/secret-reencrypt', () => ({
+jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
   captureOrgSecrets: jest.fn(),
   reencryptOrgSecrets: jest.fn(),
 }));
 
-import { testOrgKmsConfig } from '../src/controllers/org-kms-config';
+const { testOrgKmsConfig } = await import('../src/controllers/org-kms-config.js');
+
 
 function mockRes() {
   const res: any = {};

@@ -5,54 +5,51 @@
  * Tests for Stripe webhook route.
  */
 
+import { jest, describe, it, expect, beforeAll, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock api-core
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((_res: unknown, status: number, data: unknown) => ({ status, data })),
   sendError: jest.fn((_res: unknown, status: number, msg: string) => ({ status, msg })),
-  ErrorCode: {
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-  },
-  errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
 // Mock helpers
-const mockSyncTier = jest.fn().mockResolvedValue(true);
-const mockCreateBillingEvent = jest.fn().mockResolvedValue(undefined);
-jest.mock('../src/helpers/billing-helpers', () => ({
+const mockSyncTier = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
+const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-04-01'));
+jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
+  calculatePeriodEnd: (...args: unknown[]) => mockCalculatePeriodEnd(),
 }));
 
+// Capture the real `mapStripeStatus` before the stripe-helpers module is mocked.
+// (ESM jest has no jest.requireActual; import the real module first, then mock.)
+const { mapStripeStatus: realMapStripeStatus } = await import('../src/helpers/stripe-helpers.js');
+
 // Mock stripe-helpers
-const mockFindByStripeId = jest.fn();
-jest.mock('../src/helpers/stripe-helpers', () => ({
+const mockFindByStripeId = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
   findSubscriptionByStripeId: (...args: unknown[]) => mockFindByStripeId(...args),
-  mapStripeStatus: jest.requireActual('../src/helpers/stripe-helpers').mapStripeStatus,
+  mapStripeStatus: realMapStripeStatus,
 }));
 
 // Mock config
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     paymentGracePeriodDays: 7,
   },
 }));
 
 // Mock Plan model
-const mockPlanFindById = jest.fn().mockResolvedValue({ tier: 'pro', name: 'Pro' });
-jest.mock('../src/models/plan', () => ({
+const mockPlanFindById = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ tier: 'pro', name: 'Pro' });
+jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: { findById: (...args: unknown[]) => mockPlanFindById(...args) },
 }));
 
 // Mock Subscription model
-jest.mock('../src/models/subscription', () => ({
+jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { findOne: jest.fn() },
 }));
 
@@ -63,7 +60,7 @@ const mockGetStripeClient = jest.fn().mockReturnValue({
   webhooks: { constructEvent: (...args: unknown[]) => mockConstructEvent(...args) },
 });
 
-jest.mock('../src/providers/provider-factory', () => ({
+jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({
     getStripeClient: mockGetStripeClient,
     getWebhookSecret: mockGetWebhookSecret,
@@ -73,13 +70,13 @@ jest.mock('../src/providers/provider-factory', () => ({
 }));
 
 // Override instanceof check for StripeProvider
-jest.mock('../src/providers/stripe-provider', () => {
+jest.unstable_mockModule('../src/providers/stripe-provider.js', () => {
   class MockStripeProvider {}
   return { StripeProvider: MockStripeProvider };
 });
 
-import { sendError } from '@pipeline-builder/api-core';
-import { createStripeWebhookRoutes } from '../src/routes/stripe-webhook';
+const { sendError } = await import('@pipeline-builder/api-core');
+const { createStripeWebhookRoutes } = await import('../src/routes/stripe-webhook.js');
 
 // Since we can't easily test instanceof with mocks, we test the handler logic directly.
 // Extract the route handler from the router.
@@ -127,7 +124,7 @@ describe('Stripe Webhook Route', () => {
 
   describe('mapStripeStatus', () => {
     // Test the helper directly since webhook integration depends on mocks
-    const { mapStripeStatus } = jest.requireActual('../src/helpers/stripe-helpers');
+    const mapStripeStatus = realMapStripeStatus;
 
     it('maps active status', () => {
       expect(mapStripeStatus('active')).toBe('active');

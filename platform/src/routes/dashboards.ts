@@ -9,8 +9,8 @@ import {
   updateDashboard,
   deleteDashboard,
   cloneDashboard,
-} from '../controllers/dashboards';
-import { requireAuth } from '../middleware';
+} from '../controllers/dashboards.js';
+import { requireAuth } from '../middleware/index.js';
 
 const router = Router();
 

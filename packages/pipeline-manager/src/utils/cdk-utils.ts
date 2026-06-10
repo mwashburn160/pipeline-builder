@@ -3,7 +3,7 @@
 
 import { execSync } from 'child_process';
 import path from 'path';
-import { printError } from './output-utils';
+import { printError } from './output-utils.js';
 
 /**
  * Path to dist/boilerplate.js. tsc emits commands at dist/commands/, so

@@ -10,17 +10,17 @@
  * runs inside a `withTenantTx` so it inherits the caller's RLS context.
  */
 
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrderBy = jest.fn().mockReturnValue(Promise.resolve([]));
 const mockWhere = jest.fn(() => ({ orderBy: mockOrderBy }));
 const mockFrom = jest.fn(() => ({ where: mockWhere }));
 const mockSelect = jest.fn(() => ({ from: mockFrom }));
 const mockWithTenantTx = jest.fn(async (fn: (tx: unknown) => unknown) => fn({ select: mockSelect }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: {
     orgAlertDestination: {
       orgId: 'orgId-col',
@@ -34,7 +34,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   withTenantTx: (fn: (tx: unknown) => unknown) => mockWithTenantTx(fn),
 }));
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   and: (...conds: unknown[]) => ({ and: conds }),
   asc: (col: unknown) => ({ asc: col }),
   eq: (col: unknown, v: unknown) => ({ eq: [col, v] }),
@@ -42,7 +42,8 @@ jest.mock('drizzle-orm', () => ({
   sql: (() => undefined) as unknown,
 }));
 
-import { alertDestinationService } from '../src/services/alert-destination-service';
+const { alertDestinationService } = await import('../src/services/alert-destination-service.js');
+
 
 beforeEach(() => {
   mockOrderBy.mockClear().mockReturnValue(Promise.resolve([]));

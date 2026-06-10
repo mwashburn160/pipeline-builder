@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { QUOTA_TIERS, type QuotaTier, VALID_TIERS } from '@pipeline-builder/api-core';
-import { Algorithm } from 'jsonwebtoken';
+import type { Algorithm } from 'jsonwebtoken';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
 

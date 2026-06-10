@@ -11,8 +11,8 @@ import {
   listUserOrganizations,
   revokeAllTokens,
   updateUser,
-} from '../controllers';
-import { requireAuth, requireStepUp } from '../middleware';
+} from '../controllers/index.js';
+import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router = Router();
 

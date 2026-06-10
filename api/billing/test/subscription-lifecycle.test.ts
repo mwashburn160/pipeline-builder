@@ -5,57 +5,46 @@
  * Tests for subscription lifecycle background checker.
  */
 
-const mockSyncTier = jest.fn().mockResolvedValue(true);
-const mockCreateBillingEvent = jest.fn().mockResolvedValue(undefined);
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+const mockSyncTier = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
+const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({
     post: jest.fn().mockResolvedValue({ statusCode: 201 }),
   }),
   getServiceAuthHeader: () => 'Bearer test-service-token',
-  // Required because the lifecycle module now imports `runWithTenantContext`
-  // from pipeline-core, whose transitive `reporting-service` module calls
-  // `createCacheService` at module load.
-  createCacheService: () => ({
-    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-    invalidatePattern: () => Promise.resolve(0),
-  }),
 }));
 
 // Pass-through tenant-context wrapper. Real runWithTenantContext lives in
 // pipeline-core; we stub it so the lifecycle code calls execute synchronously
 // without standing up an AsyncLocalStorage.
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
-jest.mock('../src/helpers/billing-helpers', () => ({
+jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
 }));
 
-const mockFind = jest.fn().mockResolvedValue([]);
-jest.mock('../src/models/subscription', () => ({
+const mockFind = jest.fn<(...args: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]);
+jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     find: (...args: unknown[]) => mockFind(...args),
   },
 }));
 
-const mockPlanFindById = jest.fn().mockResolvedValue({ name: 'Pro', tier: 'pro' });
-jest.mock('../src/models/plan', () => ({
+const mockPlanFindById = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ name: 'Pro', tier: 'pro' });
+jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: {
     findById: (...args: unknown[]) => mockPlanFindById(...args),
   },
 }));
 
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     paymentGracePeriodDays: 7,
     renewalReminderDays: 7,
@@ -64,10 +53,10 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-import {
+const {
   startSubscriptionLifecycleChecker,
   stopSubscriptionLifecycleChecker,
-} from '../src/helpers/subscription-lifecycle';
+} = await import('../src/helpers/subscription-lifecycle.js');
 
 describe('Subscription Lifecycle Checker', () => {
   beforeEach(() => {

@@ -8,6 +8,9 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mocks — must be defined before imports
 
 const mockIsSystemAdmin = jest.fn((_req?: any) => false);
@@ -18,18 +21,9 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-  },
   isSystemAdmin: mockIsSystemAdmin,
-  SYSTEM_ORG_ID: 'system',
-  createLogger: jest.fn(() => ({ error: jest.fn(), warn: jest.fn(), info: jest.fn() })),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   requirePublicAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
   resolveAccessModifier: jest.fn((_req: any, am?: string) => am || 'private'),
   pickDefined: jest.fn((obj: any) => {
@@ -64,7 +58,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -84,7 +78,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   PluginType: {},
   ComputeType: {},
   AccessModifier: {},
@@ -93,7 +87,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
 const mockFindById = jest.fn();
 const mockUpdate = jest.fn();
 
-jest.mock('../src/services/plugin-service', () => ({
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     findById: mockFindById,
     update: mockUpdate,
@@ -103,8 +97,8 @@ jest.mock('../src/services/plugin-service', () => ({
 
 // Imports (after mocks)
 
-import { sendBadRequest, sendSuccess, requirePublicAccess, validateBody } from '@pipeline-builder/api-core';
-import { createUpdatePluginRoutes } from '../src/routes/update-plugin';
+const { sendBadRequest, sendSuccess, requirePublicAccess, validateBody } = await import('@pipeline-builder/api-core');
+const { createUpdatePluginRoutes } = await import('../src/routes/update-plugin.js');
 
 // Helpers
 

@@ -5,10 +5,10 @@ import type { QuotaTier } from '@pipeline-builder/api-core';
 import { createLogger, createSafeClient, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
-import { config } from '../config';
-import { BillingEvent } from '../models/billing-event';
-import type { BillingEventType } from '../models/billing-event';
-import type { BillingInterval } from '../models/subscription';
+import { config } from '../config.js';
+import { BillingEvent } from '../models/billing-event.js';
+import type { BillingEventType } from '../models/billing-event.js';
+import type { BillingInterval } from '../models/subscription.js';
 
 const logger = createLogger('billing-helpers');
 

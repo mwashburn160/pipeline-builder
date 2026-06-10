@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHealthCheck, createHealthRouter, createReadinessCheck } from '../src/routes/health';
+import { jest, describe, it, expect } from '@jest/globals';
 
-// Mock sendSuccess and sendError from response utilities
-jest.mock('../src/utils/response', () => ({
+// Mock sendSuccess and sendError from response utilities. Registered with
+// jest.unstable_mockModule BEFORE the module under test is dynamically imported.
+jest.unstable_mockModule('../src/utils/response.js', () => ({
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any) => {
     res.status(statusCode).json({ success: true, statusCode, ...data });
   }),
@@ -12,6 +13,8 @@ jest.mock('../src/utils/response', () => ({
     res.status(statusCode).json({ success: false, statusCode, message: msg, ...data });
   }),
 }));
+
+const { createHealthCheck, createHealthRouter, createReadinessCheck } = await import('../src/routes/health.js');
 
 function mockReq(): any {
   return {};

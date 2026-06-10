@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { pickDefined } from '../src/utils/object';
+import { describe, it, expect } from '@jest/globals';
+
+import { pickDefined } from '../src/utils/object.js';
 
 describe('pickDefined', () => {
   it('removes undefined values', () => {

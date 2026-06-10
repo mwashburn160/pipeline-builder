@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, isSystemAdmin as apiCoreIsSystemAdmin, isSystemOrgId, sendError } from '@pipeline-builder/api-core';
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import mongoose from 'mongoose';
 
 const logger = createLogger('platform-api');
@@ -49,7 +49,7 @@ export function withController(
  * vector: any user whose active org was named "system" became a platform
  * sysadmin. Only the explicit `req.user.isSuperAdmin === true` claim should
  * confer platform-wide authority. Keeping this re-export so existing
- * `import { isSystemAdmin } from '../helpers/controller-helper'` callers
+ * `import { isSystemAdmin } from '../helpers/controller-helper.js'` callers
  * keep working.
  */
 export const isSystemAdmin = apiCoreIsSystemAdmin;
@@ -205,7 +205,7 @@ async function targetIsDescendantOf(activeOrgId: string, targetOrgId: string): P
   // module init) while sidestepping the NodeNext literal-extension rule; the
   // `typeof import(...)` annotation keeps it fully typed.
   const modPath = './org-hierarchy';
-  const mod: typeof import('./org-hierarchy') = await import(modPath);
+  const mod: typeof import('./org-hierarchy.js') = await import(modPath);
   return mod.isAncestorOrg(activeOrgId, targetOrgId);
 }
 

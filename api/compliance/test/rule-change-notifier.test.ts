@@ -1,33 +1,29 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-const mockPost = jest.fn();
-const mockFindSubscribers = jest.fn();
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+const mockPost = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockFindSubscribers = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
-jest.mock('../src/helpers/message-client', () => ({
+jest.unstable_mockModule('../src/helpers/message-client.js', () => ({
   messageClient: {
     post: (...args: unknown[]) => mockPost(...args),
   },
 }));
 
-jest.mock('../src/services/subscription-service', () => ({
+jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
   subscriptionService: {
     findSubscribers: (...args: unknown[]) => mockFindSubscribers(...args),
   },
 }));
 
-import { notifyPublishedRuleChange } from '../src/helpers/rule-change-notifier';
+const { notifyPublishedRuleChange } = await import('../src/helpers/rule-change-notifier.js');
 
 describe('notifyPublishedRuleChange', () => {
   beforeEach(() => {

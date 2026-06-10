@@ -18,8 +18,8 @@ import {
 import { SQL, eq, and, desc, inArray, isNull, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
-import { validateRuleRegexPatterns } from '../engine/rule-operators';
-import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier';
+import { validateRuleRegexPatterns } from '../engine/rule-operators.js';
+import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier.js';
 
 /**
  * Thrown by `create`/`update` when one of the rule's regex operators fails

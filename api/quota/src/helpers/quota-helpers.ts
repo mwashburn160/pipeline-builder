@@ -5,9 +5,9 @@ import { DEFAULT_TIER, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
 export type { QuotaTier } from '@pipeline-builder/api-core';
 export { QUOTA_TIERS, VALID_TIERS, VALID_QUOTA_TYPES, isValidQuotaType } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization';
-export { toOrgId } from './org-id';
+import { config } from '../config.js';
+import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
+export { toOrgId } from './org-id.js';
 
 // Date helpers
 

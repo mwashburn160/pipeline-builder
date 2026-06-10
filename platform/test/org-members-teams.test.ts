@@ -8,6 +8,8 @@
  *     rejecting targets outside the context org's subtree.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgFind = jest.fn();
 const mockUserFindById = jest.fn();
 const mockUserFindOne = jest.fn();
@@ -16,11 +18,9 @@ const mockUserOrgFindOne = jest.fn();
 const mockUserOrgCreate = jest.fn();
 const mockExpandOrgScope = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class Schema {
     constructor() { /* no-op */ }
     index() { /* no-op */ }
@@ -29,14 +29,14 @@ jest.mock('mongoose', () => {
   return { default: { Types: { ObjectId: class {} } }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.mock('../src/helpers/controller-helper', () => ({ toOrgId: (id: string) => id }));
-jest.mock('../src/helpers/org-hierarchy', () => ({ expandOrgScope: (...a: unknown[]) => mockExpandOrgScope(...a) }));
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: (...a: unknown[]) => mockExpandOrgScope(...a) }));
 // Run the transaction body immediately with a stub session.
-jest.mock('../src/utils/mongo-tx', () => ({
+jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => unknown) => fn({ id: 'session' }),
 }));
 
-jest.mock('../src/models', () => ({
+jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: { find: (...a: unknown[]) => mockOrgFind(...a) },
   User: {
     findById: (...a: unknown[]) => mockUserFindById(...a),
@@ -50,7 +50,8 @@ jest.mock('../src/models', () => ({
   },
 }));
 
-import { orgMembersService, OM_USER_NOT_FOUND, OM_TARGETS_OUT_OF_SCOPE } from '../src/services/org-members-service';
+const { orgMembersService, OM_USER_NOT_FOUND, OM_TARGETS_OUT_OF_SCOPE } = await import('../src/services/org-members-service.js');
+
 
 /** Organization.find(...).select(...).lean() */
 const orgFindReturns = (rows: unknown[]) =>

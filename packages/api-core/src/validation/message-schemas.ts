@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod';
-import { BaseFilterSchema, BooleanQuerySchema } from './common-schemas';
+import { BaseFilterSchema, BooleanQuerySchema } from './common-schemas.js';
 
 /**
  * Message type schema

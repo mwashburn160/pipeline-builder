@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Plugin } from '@pipeline-builder/pipeline-data';
-import { resolvePluginTemplates, isPluginTemplatableField } from '../../src/template/plugin-resolver';
+import { resolvePluginTemplates, isPluginTemplatableField } from '../../src/template/plugin-resolver.js';
 
 function mkPlugin(overrides: Partial<Plugin> = {}): Plugin {
   return {

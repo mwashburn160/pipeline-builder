@@ -5,19 +5,19 @@
  * Tests for POST /pipelines/registry endpoint.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockInsert = jest.fn();
 const mockOnConflictDoUpdate = jest.fn();
 const mockReturning = jest.fn();
 const mockSelect = jest.fn();
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn(),
   sendBadRequest: jest.fn(),
   sendError: jest.fn(),
   sendPaginatedNested: jest.fn(),
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', NOT_FOUND: 'NOT_FOUND', CONFLICT: 'CONFLICT', MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD' },
-  errorMessage: (e: unknown) => e instanceof Error ? e.message : String(e),
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: (_q: unknown) => ({ limit: 50, offset: 0 }),
   validateBody: (req: any, schema: any) => {
@@ -26,14 +26,14 @@ jest.mock('@pipeline-builder/api-core', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   // pipeline-registry-service was migrated to withTenantTx — hand the tx the
   // same spies registry.test.ts already tracks so existing assertions hold.
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({
@@ -52,15 +52,15 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   and: (...args: unknown[]) => ({ _kind: 'and', args }),
   eq: (col: unknown, val: unknown) => ({ _kind: 'eq', col, val }),
   desc: (col: unknown) => ({ _kind: 'desc', col }),
   sql: jest.fn(),
 }));
 
-import { sendSuccess, sendBadRequest, sendError, sendPaginatedNested } from '@pipeline-builder/api-core';
-import { createRegistryRoutes } from '../src/routes/registry';
+const { sendSuccess, sendBadRequest, sendError, sendPaginatedNested } = await import('@pipeline-builder/api-core');
+const { createRegistryRoutes } = await import('../src/routes/registry.js');
 
 describe('POST /pipelines/registry', () => {
   let router: any;

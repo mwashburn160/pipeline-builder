@@ -2,23 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit';
+import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
   canAdministerOrg,
   requireAuth,
   requireSystemAdmin,
   withController,
-} from '../helpers/controller-helper';
-import { expandOrgScope } from '../helpers/org-hierarchy';
+} from '../helpers/controller-helper.js';
+import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import {
   organizationService,
   ORG_NOT_FOUND,
   SYSTEM_ORG_DELETE_FORBIDDEN,
-} from '../services';
-import { cascadeDeleteOrg, exportOrg } from '../services/org-cascade-service';
-import { parsePagination } from '../utils/pagination';
-import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateQuotasSchema } from '../utils/validation';
+} from '../services/index.js';
+import { cascadeDeleteOrg, exportOrg } from '../services/org-cascade-service.js';
+import { parsePagination } from '../utils/pagination.js';
+import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateQuotasSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-controller');
 

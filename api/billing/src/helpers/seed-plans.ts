@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
-import { Plan } from '../models/plan';
+import { Plan } from '../models/plan.js';
 
 const logger = createLogger('seed-plans');
 

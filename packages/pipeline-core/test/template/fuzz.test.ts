@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { resolve } from '../../src/template/evaluator';
-import { tokenize, TokenizerError } from '../../src/template/tokenizer';
+import { resolve } from '../../src/template/evaluator.js';
+import { tokenize, TokenizerError } from '../../src/template/tokenizer.js';
 
 /**
  * Property-style fuzz tests for the template engine. The goal is not exhaustive

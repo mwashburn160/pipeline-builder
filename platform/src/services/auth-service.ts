@@ -3,11 +3,11 @@
 
 import crypto from 'crypto';
 import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import { User, Organization, UserOrganization } from '../models';
-import { seedDefaultGroups } from './groups-service';
-import { withMongoTransaction } from '../utils/mongo-tx';
-import { hashRefreshToken } from '../utils/token';
+import { seedDefaultGroups } from './groups-service.js';
+import { config } from '../config/index.js';
+import { User, Organization, UserOrganization } from '../models/index.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
+import { hashRefreshToken } from '../utils/token.js';
 
 const logger = createLogger('auth-service');
 

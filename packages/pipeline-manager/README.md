@@ -2,7 +2,7 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-CLI for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): bootstrap, synth, deploy, and manage CDK pipelines + plugins against a running platform.
+CLI for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): install the platform itself with `provision`, then bootstrap, synth, deploy, and manage CDK pipelines + plugins against it.
 
 ## Install
 
@@ -28,7 +28,35 @@ pipeline-manager synth
 pipeline-manager deploy
 ```
 
+## Install the platform (`provision`)
+
+`provision` is the recommended way to stand up the **platform itself** (not a pipeline) — on Docker Compose, Minikube, EC2, or Fargate. It runs read-only prerequisite checks, assembles the exact `bin/setup.sh` command (secrets masked, missing inputs reported — never guessed), and can run it end-to-end.
+
+```bash
+# Advisor (default) — prints the exact command + prereq results, runs nothing:
+pipeline-manager provision --target local
+
+# Execute (gated: confirm → deploy → verify /health + /ready → init-platform):
+pipeline-manager provision --target fargate \
+  --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email --execute
+
+# Tear it down (AWS targets prompt you to TYPE the target id to confirm):
+pipeline-manager provision --target fargate --teardown --execute
+```
+
+- **Advise → execute → teardown.** Default is read-only. `--execute` deploys — it refuses on failed prerequisites or missing inputs, then verifies health and offers to run `init-platform`. `--teardown` removes a deployment (`local`/`minikube` stop the stack; **EC2/Fargate delete their CloudFormation stacks irreversibly** and require typing the target id to confirm — `--force` skips it for CI).
+- **Self-healing.** On a failed deploy it matches known CloudFormation issues (cause + fix) and can auto-fix + retry a few — e.g. an existing SES identity → re-run with `--skip-ses-identity`. Gated and bounded by `--retries` (the scripts are idempotent, so a re-run resumes).
+- **AI-optional.** Set `ANTHROPIC_API_KEY` (or `AI_PROVIDER` + its key) to parse a natural-language `--prompt` and add free-form failure diagnosis; without a key it falls back to the deterministic advisor + issue matcher.
+
+The underlying `bin/setup.sh` / `bin/teardown.sh` scripts remain the source of truth and can always be run directly. Full guide: [AWS deployment → AI-assisted install](https://mwashburn160.github.io/pipeline-builder/docs/aws-deployment#ai-assisted-install-provision).
+
 ## Commands
+
+### Platform installation
+
+| Command | Purpose |
+| --- | --- |
+| `provision` | Install (or tear down) the **platform** on local/Minikube/EC2/Fargate: prereq checks + assembles the exact `bin/setup.sh` command; `--execute` runs it (gated, then verifies health + `init-platform`), `--teardown` removes it. On failure it diagnoses + auto-fixes/retries known issues. See [Install the platform](#install-the-platform-provision). |
 
 ### Project lifecycle
 
@@ -83,7 +111,9 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | --- | --- | --- |
 | `PLATFORM_TOKEN` | Yes (for API ops) | Auth token for the Pipeline Builder platform |
 | `PLATFORM_BASE_URL` | Yes (for API ops) | Base URL of your platform deployment |
-| `AWS_REGION` | Yes (for deploy) | Target AWS region for `synth` / `deploy` |
+| `AWS_REGION` | Yes (for deploy) | Target AWS region for `synth` / `deploy` / `provision` teardown |
+| `ANTHROPIC_API_KEY` (or other provider key) | No | Enables `provision`'s natural-language `--prompt` parsing + failure diagnosis (else it falls back to the deterministic advisor) |
+| `AI_PROVIDER` / `AI_MODEL` | No | Provider + model for `provision` (`anthropic` \| `openai` \| `google` \| `xai` \| `bedrock`) |
 
 Full reference: [Environment Variables](https://mwashburn160.github.io/pipeline-builder/docs/environment-variables).
 

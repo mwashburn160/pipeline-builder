@@ -31,12 +31,13 @@
       "cors",
       "express-serve-static-core",
       "express",
-      "jest",
       "jsonwebtoken",
       "node",
       "swagger-ui-express"
     ],
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "moduleResolution": "nodenext"
   },
   "include": [

@@ -3,11 +3,11 @@
 
 import crypto from 'crypto';
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import { config } from '../config';
-import { withController } from '../helpers/controller-helper';
-import { authService } from '../services';
-import { issueTokens } from '../utils/token';
-import { validateBody, oauthCallbackSchema } from '../utils/validation';
+import { config } from '../config/index.js';
+import { withController } from '../helpers/controller-helper.js';
+import { authService } from '../services/index.js';
+import { issueTokens } from '../utils/token.js';
+import { validateBody, oauthCallbackSchema } from '../utils/validation.js';
 
 const logger = createLogger('oauth-controller');
 

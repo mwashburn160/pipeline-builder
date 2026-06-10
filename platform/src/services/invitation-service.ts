@@ -3,12 +3,12 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { config } from '../config';
-import { toOrgId } from '../helpers/controller-helper';
-import { Invitation, InvitationDocument, Organization, OrganizationDocument, User, UserDocument, UserOrganization } from '../models';
-import type { InvitationOAuthProvider } from '../models/invitation';
-import { emailService } from '../utils/email';
-import { withMongoTransaction } from '../utils/mongo-tx';
+import { config } from '../config/index.js';
+import { toOrgId } from '../helpers/controller-helper.js';
+import { Invitation, type InvitationDocument, Organization, type OrganizationDocument, User, type UserDocument, UserOrganization } from '../models/index.js';
+import type { InvitationOAuthProvider } from '../models/invitation.js';
+import { emailService } from '../utils/email.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('invitation-service');
 

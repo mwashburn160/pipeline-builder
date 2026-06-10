@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, afterEach } from '@jest/globals';
+
 import {
   isDebugMode,
   formatFileSize,
@@ -12,7 +14,7 @@ import {
   TIMEOUTS,
   FILE_SIZE_LIMITS,
   ENV_VARS,
-} from '../src/config/cli.constants';
+} from '../src/config/cli.constants.js';
 
 // Tests
 

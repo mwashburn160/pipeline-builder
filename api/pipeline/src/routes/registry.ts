@@ -19,7 +19,7 @@ import {
   pipelineRegistryService,
   PR_PIPELINE_NOT_OWNED,
   PR_REGISTRY_OWNED_BY_OTHER_ORG,
-} from '../services/pipeline-registry-service';
+} from '../services/pipeline-registry-service.js';
 
 const PipelineRegistrySchema = z.object({
   pipelineId: z.string().min(1, 'pipelineId is required'),

@@ -11,22 +11,13 @@
  * Mocks heavy CDK deps to avoid pulling the full aws-cdk-lib at test time.
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-  ErrorCode: {
-    TEMPLATE_UNKNOWN_PATH: 'TEMPLATE_UNKNOWN_PATH',
-    TEMPLATE_CYCLE: 'TEMPLATE_CYCLE',
-    TEMPLATE_PARSE_ERROR: 'TEMPLATE_PARSE_ERROR',
-    TEMPLATE_TYPE_MISMATCH: 'TEMPLATE_TYPE_MISMATCH',
-    TEMPLATE_SECRETS_RESERVED: 'TEMPLATE_SECRETS_RESERVED',
-    TEMPLATE_CONTRACT_VIOLATION: 'TEMPLATE_CONTRACT_VIOLATION',
-    TEMPLATE_SIZE_EXCEEDED: 'TEMPLATE_SIZE_EXCEEDED',
-    TEMPLATE_VALIDATION_FAILED: 'TEMPLATE_VALIDATION_FAILED',
-  },
-}));
-
+import { jest, describe, it, expect } from '@jest/globals';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
-import { resolvePluginTemplates } from '../../src/template/plugin-resolver';
+import { apiCoreMock } from '../helpers/mock-api-core.js';
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+const { resolvePluginTemplates } = await import('../../src/template/plugin-resolver.js');
 
 function mkPlugin(overrides: Partial<Plugin> = {}): Plugin {
   return {

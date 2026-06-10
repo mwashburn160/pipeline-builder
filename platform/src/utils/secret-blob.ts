@@ -14,7 +14,7 @@
  * programmer error and the underlying `encryptSecret` throws.
  */
 
-import { EncryptedBlob, decryptSecret, encryptSecret, isEncryptedBlob } from '@pipeline-builder/api-core';
+import { type EncryptedBlob, decryptSecret, encryptSecret, isEncryptedBlob } from '@pipeline-builder/api-core';
 
 /**
  * Quick heuristic — does this raw string look like one of our stored

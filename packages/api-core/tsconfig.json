@@ -28,11 +28,12 @@
     "target": "ESNext",
     "types": [
       "express",
-      "jest",
       "jsonwebtoken",
       "node"
     ],
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "moduleResolution": "nodenext"
   },
   "include": [

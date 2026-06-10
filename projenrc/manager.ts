@@ -8,7 +8,7 @@
  * This is an application project (not a library) designed to be run as a command.
  *
  * CLI Tool Characteristics:
- * - CommonJS module format for maximum Node.js compatibility
+ * - ES Module format (NodeNext), matching every other package in the monorepo
  * - Executable binary in package.json
  * - Outputs to 'dist' directory
  * - ES2024 target for modern JavaScript features
@@ -24,8 +24,9 @@
  */
 
 import { execSync } from 'node:child_process'
+import { TypeScriptModuleResolution } from 'projen/lib/javascript';
 import { TypeScriptAppProject, TypeScriptProjectOptions } from 'projen/lib/typescript';
-import { BASE_STRICT_COMPILER_OPTIONS } from './shared-config';
+import { BASE_STRICT_COMPILER_OPTIONS, ESM_COMPILER_OPTIONS, configureEsmJest } from './shared-config';
 
 /**
  * CLI application project for pipeline management.
@@ -57,10 +58,13 @@ export class ManagerProject extends TypeScriptAppProject {
             tsconfig: {
                 compilerOptions: {
                     ...BASE_STRICT_COMPILER_OPTIONS,
+                    ...ESM_COMPILER_OPTIONS,
                     outDir: 'dist',
 
-                    // Module configuration (CommonJS for CLI compatibility)
-                    module: 'CommonJS',
+                    // Module configuration (ES Modules with Node.js support),
+                    // matching every other package in the monorepo.
+                    module: TypeScriptModuleResolution.NODE_NEXT,
+                    moduleResolution: TypeScriptModuleResolution.NODE_NEXT,
                     target: 'ES2024',
                     lib: ['ES2024'],
 
@@ -71,13 +75,16 @@ export class ManagerProject extends TypeScriptAppProject {
                     declarationMap: true,
                     allowJs: true,
                     forceConsistentCasingInFileNames: true,
-                    types: ['node', 'jest'],
+                    // ESM suites import globals from `@jest/globals` (configured by
+                    // configureEsmJest), so the ambient `jest` types are dropped.
+                    types: ['node'],
                 },
 
                 include: ['src/*'],
                 exclude: ['dist', 'node_modules'],
             }
         })
+        configureEsmJest(this);
     }
 
     /**

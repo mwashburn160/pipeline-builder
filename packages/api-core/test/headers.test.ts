@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getHeaderString } from '../src/utils/headers';
+import { describe, it, expect } from '@jest/globals';
+
+import { getHeaderString } from '../src/utils/headers.js';
 
 describe('getHeaderString', () => {
   it('should return string value as-is', () => {

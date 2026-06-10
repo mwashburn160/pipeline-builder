@@ -1,14 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('../src/config', () => ({
+import { jest, describe, it, expect } from '@jest/globals';
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     app: { frontendUrl: 'https://app.example.com' },
     email: { fromName: 'Pipeline Builder' },
   },
 }));
 
-jest.mock('fs', () => {
+jest.unstable_mockModule('fs', () => {
   const actualFs = jest.requireActual<typeof import('fs')>('fs');
   return {
     ...actualFs,
@@ -24,8 +25,9 @@ jest.mock('fs', () => {
   };
 });
 
-import type { InvitationEmailData } from '../src/utils/email';
-import { invitationTemplate, invitationAcceptedTemplate } from '../src/utils/email-templates';
+const { invitationTemplate, invitationAcceptedTemplate } = await import('../src/utils/email-templates.js');
+
+import type { InvitationEmailData } from '../src/utils/email.js';
 
 function buildData(overrides: Partial<InvitationEmailData> = {}): InvitationEmailData {
   return {

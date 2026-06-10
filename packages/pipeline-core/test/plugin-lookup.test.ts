@@ -1,6 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock CDK and heavy dependencies before imports
 const mockNodejsFunction = jest.fn().mockImplementation(() => ({
   addToRolePolicy: jest.fn(),
@@ -13,25 +16,15 @@ const mockCustomResource = jest.fn().mockImplementation(() => ({
   getAttString: jest.fn().mockReturnValue('unresolved-token'),
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
-  ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
-  PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('aws-cdk-lib/aws-codebuild', () => ({
+jest.unstable_mockModule('aws-cdk-lib/aws-codebuild', () => ({
   BuildEnvironmentVariableType: { PLAINTEXT: 'PLAINTEXT', SECRETS_MANAGER: 'SECRETS_MANAGER', PARAMETER_STORE: 'PARAMETER_STORE' },
   ComputeType: { SMALL: 'BUILD_GENERAL1_SMALL', MEDIUM: 'BUILD_GENERAL1_MEDIUM', LARGE: 'BUILD_GENERAL1_LARGE', X2_LARGE: 'BUILD_GENERAL1_2XLARGE' },
   LinuxBuildImage: { STANDARD_7_0: 'aws/codebuild/standard:7.0' },
 }));
 
-jest.mock('aws-cdk-lib', () => ({
+jest.unstable_mockModule('aws-cdk-lib', () => ({
   CustomResource: mockCustomResource,
   Token: {
     isUnresolved: jest.fn().mockReturnValue(true),
@@ -41,14 +34,17 @@ jest.mock('aws-cdk-lib', () => ({
     minutes: jest.fn((m: number) => ({ toMinutes: () => m })),
   },
   RemovalPolicy: { DESTROY: 'DESTROY' },
+  Stack: jest.fn(),
+  SecretValue: { plainText: jest.fn((v: string) => v) },
+  Tags: { of: jest.fn(() => ({ add: jest.fn() })) },
 }));
 
-jest.mock('aws-cdk-lib/aws-lambda', () => ({
+jest.unstable_mockModule('aws-cdk-lib/aws-lambda', () => ({
   Runtime: { NODEJS_24_X: 'nodejs24.x' },
   Architecture: { ARM_64: 'arm64' },
 }));
 
-jest.mock('aws-cdk-lib/aws-lambda-nodejs', () => ({
+jest.unstable_mockModule('aws-cdk-lib/aws-lambda-nodejs', () => ({
   NodejsFunction: mockNodejsFunction,
 }));
 
@@ -61,22 +57,23 @@ const mockLogGroupFromName = jest.fn().mockImplementation((_scope: unknown, _id:
 }));
 (mockLogGroup as unknown as { fromLogGroupName: typeof mockLogGroupFromName }).fromLogGroupName = mockLogGroupFromName;
 
-jest.mock('aws-cdk-lib/aws-logs', () => ({
+jest.unstable_mockModule('aws-cdk-lib/aws-logs', () => ({
   LogGroup: mockLogGroup,
   RetentionDays: { ONE_WEEK: 7, ONE_MONTH: 30 },
 }));
 
-jest.mock('aws-cdk-lib/custom-resources', () => ({
+jest.unstable_mockModule('aws-cdk-lib/custom-resources', () => ({
   Provider: mockProvider,
 }));
 
-jest.mock('constructs', () => ({
+jest.unstable_mockModule('constructs', () => ({
   Construct: jest.fn(),
 }));
 
-import { Token } from 'aws-cdk-lib';
-import { UniqueId } from '../src/core/id-generator';
-import { PluginLookup } from '../src/pipeline/plugin-lookup';
+const { Token } = await import('aws-cdk-lib');
+const { UniqueId } = await import('../src/core/id-generator.js');
+const { PluginLookup } = await import('../src/pipeline/plugin-lookup.js');
+type UniqueId = InstanceType<typeof UniqueId>;
 
 // Minimal mock scope
 const mockScope = {} as any;

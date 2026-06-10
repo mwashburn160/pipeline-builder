@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AIGenerateBodySchema, PluginDeployGeneratedSchema } from '../src/validation/ai-schemas';
+import { describe, it, expect } from '@jest/globals';
+
+import { AIGenerateBodySchema, PluginDeployGeneratedSchema } from '../src/validation/ai-schemas.js';
 
 describe('AIGenerateBodySchema', () => {
   const validBody = {

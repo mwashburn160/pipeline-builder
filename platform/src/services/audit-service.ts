@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import AuditEvent, { type AuditAction, type AuditEventDocument } from '../models/audit-event';
-import { escapeRegex } from '../utils/regex';
+import AuditEvent, { type AuditAction, type AuditEventDocument } from '../models/audit-event.js';
+import { escapeRegex } from '../utils/regex.js';
 
 export interface AuditFilter {
   /** Actor's org at action-time. */

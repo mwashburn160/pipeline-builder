@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ValidationError, NetworkError } from '../src/utils/error-handler';
+import { describe, it, expect } from '@jest/globals';
+
+import { ValidationError, NetworkError } from '../src/utils/error-handler.js';
 
 describe('ValidationError', () => {
   it('should create error with message', () => {

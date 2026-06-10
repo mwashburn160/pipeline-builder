@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+
 /**
  * CLI tests for `validate-templates`. Exercises the `--file` mode end-to-end
  * and the `--pipeline` / `--plugin` modes against a mocked client.
@@ -9,9 +10,13 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { describe, it, test, expect, jest, beforeEach, afterEach } from '@jest/globals';
+
+const mockCreateAuthenticatedClientAsync = jest.fn();
 
 // Silence command header / pretty output
-jest.mock('../src/utils/output-utils', () => ({
+jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
+  __esModule: true,
   printCommandHeader: () => 'EXEC-TEST',
   printSslWarning: jest.fn(),
   printSuccess: jest.fn(),
@@ -23,22 +28,23 @@ jest.mock('../src/utils/output-utils', () => ({
   printDebug: jest.fn(),
 }));
 
-jest.mock('../src/utils/command-utils', () => ({
+jest.unstable_mockModule('../src/utils/command-utils.js', () => ({
+  __esModule: true,
   printCommandHeader: () => 'EXEC-TEST',
   printSslWarning: jest.fn(),
-  createAuthenticatedClientAsync: jest.fn(),
+  createAuthenticatedClientAsync: mockCreateAuthenticatedClientAsync,
 }));
 
-jest.mock('../src/utils/error-handler', () => ({
+jest.unstable_mockModule('../src/utils/error-handler.js', () => ({
+  __esModule: true,
   ERROR_CODES: { API_REQUEST: 3 },
   handleError: jest.fn((err) => { throw err; }),
 }));
 
-import { Command } from 'commander';
-import { validateTemplatesCommand } from '../src/commands/validate-templates';
-import { createAuthenticatedClientAsync } from '../src/utils/command-utils';
+const { Command } = await import('commander');
+const { validateTemplatesCommand } = await import('../src/commands/validate-templates.js');
 
-let exitSpy: jest.SpyInstance;
+let exitSpy: ReturnType<typeof jest.spyOn>;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -88,7 +94,7 @@ describe('validate-templates CLI', () => {
         commands: ['echo {{ pipeline.metadata.env }}'],
       },
     });
-    (createAuthenticatedClientAsync as jest.Mock).mockResolvedValue({
+    mockCreateAuthenticatedClientAsync.mockResolvedValue({
       getConfig: () => ({ api: { pluginUrl: 'https://p.example.com/api/plugin' } }),
       get: getMock,
     });

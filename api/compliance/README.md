@@ -1,104 +1,85 @@
-# Compliance Service
+# compliance
 
-Per-organization compliance rule enforcement for pipelines and plugins.
+Per-organization compliance rule enforcement for pipelines and plugins — authors and evaluates rules, gates entity mutations in real time, and re-scans existing entities asynchronously.
 
-## Features
+## Responsibilities
 
-- **Rule CRUD** — Create, read, update, delete compliance rules per org
-- **Rule engine** — Field-level conditions with operators over dot-notation paths, plus computed fields (`$count`, `$length`, `$keys`, `$lines`) and length-capped regex matching; results separate blocking violations from non-blocking warnings by severity (`warning`, `error`, `critical`)
-- **Policy management** — Group rules into policies with transactional linking
-- **Real-time validation** — Blocking checks on plugin upload and pipeline creation (fail-closed); super-admins are exempt
-- **Dry-run validation** — Pre-flight checks against caller-supplied attributes with no audit log or notification side effects
-- **Published rules catalog** — System-wide rules that orgs can browse and subscribe to
-- **Rule subscriptions** — Orgs subscribe to published rules (inactive by default), activate/deactivate them, and bulk-toggle up to 100 at once; auto-subscribe runs at org onboarding
-- **Version pinning** — Pin a subscription to a specific rule version, or unpin to track the latest
-- **Rule cloning** — Copy a published rule into org scope as an independent, editable rule
-- **Impact preview** — Evaluate a rule against the org's existing plugins/pipelines before enabling it, with aggregate pass/fail counts and sample failing entities
-- **Exemptions** — Per-entity rule exemptions with approval workflow, bulk creation, and self-approval guard
-- **Compliance scans** — Re-evaluate existing entities against current rules, with concurrency control, progress tracking, and cancellation
-- **Scheduled scans** — Cron-style scan schedules that can be activated, paused, and deleted
-- **Rule templates** — Pre-built rule definitions an org can apply to bootstrap its policy set
-- **Audit logging** — Full audit trail of all compliance checks, with daily retention-based pruning
-- **Entity event evaluation** — Automatic post-mutation compliance checks driven by a Redis/BullMQ-backed event queue
-- **Rule history** — Change tracking with diff for every rule mutation
+- **Rules & policies** — org-scoped CRUD over compliance rules (field-level conditions with operators, computed fields, severity) and the policies that group them.
+- **Real-time validation** — blocking checks on plugin uploads and pipeline creation (fail-closed; super-admins exempt), plus side-effect-free dry runs.
+- **Published catalog & subscriptions** — system-wide published rules orgs can browse, subscribe to, version-pin, clone, and preview impact before enabling.
+- **Exemptions** — per-entity rule exemptions with an approval workflow.
+- **Scans & schedules** — re-evaluate existing entities against current rules on demand or on a cron schedule, with concurrency control, progress tracking, and cancellation.
+- **Audit log** — records every compliance check; pruned daily on a retention window.
+- **Async re-validation** — consumes entity lifecycle events (from the plugin/pipeline services) off a BullMQ/Redis queue and re-evaluates affected entities under each event's tenant scope.
+
+Built on the shared core packages: `@pipeline-builder/api-core` (auth, quota, response helpers), `@pipeline-builder/api-server` (app factory, request context), and `@pipeline-builder/pipeline-core` (config, tenant context). Requires Redis for the event queue.
 
 ## Endpoints
 
-### Validation (auth + org)
-- `POST /compliance/validate/plugin` — Validate plugin attributes (blocking)
-- `POST /compliance/validate/pipeline` — Validate pipeline attributes (blocking)
-- `POST /compliance/validate/plugin/dry-run` — Pre-flight check (no audit/notification)
-- `POST /compliance/validate/pipeline/dry-run` — Pre-flight check
+The service listens on port `3000`. The API gateway (nginx) routes `/api/compliance/*` here, rewriting to the internal `/compliance/*` paths below.
 
-### Rules (auth + org)
-- `GET /compliance/rules` — List rules (paginated, filterable)
-- `GET /compliance/rules/:id` — Get a single rule
-- `GET /compliance/rules/:id/history` — Rule change history with diffs
-- `POST /compliance/rules` — Create rule
-- `PUT /compliance/rules/:id` — Update rule
-- `DELETE /compliance/rules/:id` — Delete rule (soft)
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/compliance/validate/{plugin\|pipeline}` | Blocking compliance check (with audit + notify) |
+| POST | `/compliance/validate/{plugin\|pipeline}/dry-run` | Pre-flight check, no side effects |
+| GET/POST | `/compliance/rules` | List / create rules |
+| GET/PUT/DELETE | `/compliance/rules/:id` | Get / update / delete a rule |
+| GET | `/compliance/rules/:id/history` | Rule version history |
+| GET | `/compliance/published-rules` | Browse the published rules catalog |
+| GET | `/compliance/subscriptions` | List the org's subscriptions |
+| POST | `/compliance/subscriptions` | Subscribe to a published rule |
+| POST | `/compliance/subscriptions/bulk` | Bulk activate/deactivate subscriptions |
+| POST | `/compliance/subscriptions/auto-subscribe` | Auto-subscribe at org onboarding |
+| POST | `/compliance/subscriptions/clone` | Clone a published rule into org scope |
+| GET | `/compliance/subscriptions/enforced` | List enforced (active) subscriptions |
+| POST | `/compliance/subscriptions/preview` | Preview a rule against sample attributes |
+| POST | `/compliance/subscriptions/preview/impact` | Preview a rule's impact on existing entities |
+| PATCH/DELETE | `/compliance/subscriptions/:ruleId` | Set active / unsubscribe |
+| POST/DELETE | `/compliance/subscriptions/:ruleId/pin` | Pin / unpin a subscription to a rule version |
+| GET/POST | `/compliance/policies` | List / create policies |
+| GET/PUT/DELETE | `/compliance/policies/:id` | Get / update / delete a policy |
+| GET/POST | `/compliance/exemptions` | List / create exemptions |
+| POST | `/compliance/exemptions/bulk` | Bulk-create exemptions |
+| PUT | `/compliance/exemptions/:id/review` | Approve/reject an exemption |
+| DELETE | `/compliance/exemptions/:id` | Delete an exemption |
+| GET/POST | `/compliance/scans` | List / start scans |
+| GET | `/compliance/scans/:id` | Get scan status |
+| POST | `/compliance/scans/:id/cancel` | Cancel a running scan |
+| GET/POST | `/compliance/scan-schedules` | List / create scan schedules |
+| PUT | `/compliance/scan-schedules/:id` | Update a schedule |
+| PATCH | `/compliance/scan-schedules/:id/active` | Activate/pause a schedule |
+| DELETE | `/compliance/scan-schedules/:id` | Delete a schedule |
+| GET | `/compliance/templates` | List rule templates |
+| POST | `/compliance/templates/apply` | Apply a template to bootstrap rules |
+| GET | `/compliance/audit` | Query the compliance audit log |
+| POST | `/compliance/events/entity` | Internal entity-event receiver (service-principal JWT only) |
 
-### Policies (auth + org)
-- `GET /compliance/policies` — List policies
-- `POST /compliance/policies` — Create policy (with atomic rule linking)
-- `PUT /compliance/policies/:id` — Update policy
-- `DELETE /compliance/policies/:id` — Delete policy
+## Configuration
 
-### Published Rules & Subscriptions (auth + org)
-- `GET /compliance/published-rules` — Browse published rules catalog (paginated, filterable; includes subscription status for the caller)
-- `GET /compliance/subscriptions` — List the org's subscriptions with rule details
-- `GET /compliance/subscriptions/enforced` — Merged view of all enforced rules (org rules + active subscriptions)
-- `POST /compliance/subscriptions` — Subscribe to a published rule (starts inactive)
-- `PATCH /compliance/subscriptions/:ruleId` — Activate or deactivate a subscription
-- `POST /compliance/subscriptions/bulk` — Bulk activate/deactivate up to 100 subscriptions
-- `POST /compliance/subscriptions/auto-subscribe` — Subscribe the org to all published rules (used at onboarding)
-- `POST /compliance/subscriptions/clone` — Clone a published rule into an independent org-scoped rule
-- `POST /compliance/subscriptions/preview` — Preview a rule against caller-supplied sample attributes
-- `POST /compliance/subscriptions/preview/impact` — Preview a rule against the org's existing entities (pass/fail counts + samples)
-- `POST /compliance/subscriptions/:ruleId/pin` — Pin a subscription to the current rule version
-- `DELETE /compliance/subscriptions/:ruleId/pin` — Unpin a subscription (track latest version)
-- `DELETE /compliance/subscriptions/:ruleId` — Unsubscribe
+Shared server/auth/DB/Redis settings (`PORT`, `JWT_SECRET`, `DB_*`, `REDIS_HOST`, `REDIS_PORT`, `PLATFORM_BASE_URL`) are read via `@pipeline-builder/pipeline-core`. Env vars read directly by this service:
 
-### Exemptions (auth + org)
-- `GET /compliance/exemptions` — List exemptions
-- `POST /compliance/exemptions` — Request an exemption
-- `POST /compliance/exemptions/bulk` — Bulk-create exemptions
-- `PUT /compliance/exemptions/:id/review` — Approve or reject an exemption (self-approval guarded)
-- `DELETE /compliance/exemptions/:id` — Revoke an exemption
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `REDIS_HOST` | Redis host for the event queue | `redis` |
+| `REDIS_PORT` | Redis port for the event queue | `6379` |
+| `COMPLIANCE_AUDIT_RETENTION_DAYS` | Days to retain audit-log rows before the daily prune | `180` |
+| `COMPLIANCE_MAX_ATTRIBUTE_KEYS` | Max attribute keys accepted on a validate request | `100` |
+| `COMPLIANCE_MAX_ATTRIBUTE_DEPTH` | Max nesting depth of validate-request attributes | `10` |
+| `COMPLIANCE_MAX_REGEX_LENGTH` | Cap on user-supplied regex length in rule conditions | unset (no cap) |
+| `COMPLIANCE_SCAN_CONCURRENCY` | Concurrent entity evaluations per scan | `10` |
+| `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE` | Entities per scan-progress update | `10` |
 
-### Scans & Schedules (auth + org)
-- `GET /compliance/scans` — List scans
-- `GET /compliance/scans/:id` — Get scan status/results
-- `POST /compliance/scans` — Start a scan re-evaluating existing entities
-- `POST /compliance/scans/:id/cancel` — Cancel a running scan
-- `GET /compliance/scan-schedules` — List scan schedules
-- `POST /compliance/scan-schedules` — Create a scan schedule
-- `PUT /compliance/scan-schedules/:id` — Update a scan schedule
-- `PATCH /compliance/scan-schedules/:id/active` — Activate or pause a schedule
-- `DELETE /compliance/scan-schedules/:id` — Delete a schedule
+## Development
 
-### Templates & Audit (auth + org)
-- `GET /compliance/templates` — List rule templates
-- `POST /compliance/templates/apply` — Apply a template to create org rules
-- `GET /compliance/audit` — Query the compliance audit log
+```bash
+pnpm build   # projen build (compile + test + package)
+pnpm compile # tsc only
+pnpm test    # jest
+pnpm watch   # incremental compile
+```
 
-### Internal (service-to-service)
-- `POST /compliance/events/entity` — Receive entity lifecycle events for post-mutation evaluation. Callers must present a valid service-principal JWT (minted via `getServiceAuthHeader`); the route enforces `requireAuth` + `requireServicePrincipal`, so a plain HTTP header is not sufficient.
+Routes delegate to per-resource services (rule, policy, exemption, scan, scan-schedule, subscription, audit). On startup the service registers the BullMQ event-queue backend, starts the compliance worker and scan scheduler, and schedules the daily audit prune; all are torn down on graceful shutdown.
 
-## Caching
+## License
 
-Active compliance rules per org+target are cached in-memory (default 60s TTL, configurable via `CACHE_TTL_COMPLIANCE_RULES`). Cache is invalidated on rule create/update/delete and when subscribed published rules change.
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CACHE_TTL_COMPLIANCE_RULES` | `60` | Rule cache TTL in seconds |
-| `COMPLIANCE_AUDIT_RETENTION_DAYS` | `180` | Days of audit log retained before daily pruning |
-| `COMPLIANCE_MAX_ATTRIBUTE_KEYS` | `100` | Max top-level keys allowed in a validation payload (DoS guard) |
-| `COMPLIANCE_MAX_ATTRIBUTE_DEPTH` | `10` | Max nesting depth allowed in a validation payload (DoS guard) |
-| `COMPLIANCE_MAX_REGEX_LENGTH` | `100` | Max length of a user-supplied regex pattern in a rule (ReDoS guard) |
-| `COMPLIANCE_SCAN_CONCURRENCY` | `10` | Number of entities evaluated in parallel during a scan |
-| `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE` | `10` | How often scan progress is flushed (entities per batch) |
-| `REDIS_HOST` | `redis` | Redis host for the BullMQ entity-event queue |
-| `REDIS_PORT` | `6379` | Redis port for the BullMQ entity-event queue |
+Apache-2.0

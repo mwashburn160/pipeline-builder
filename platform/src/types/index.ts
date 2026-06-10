@@ -1,5 +1,5 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-export * from './jwt';
-export * from './oauth-provider';
+export * from './jwt.js';
+export * from './oauth-provider.js';

@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { runConcurrent } from '../src/utils/concurrency';
+import { describe, it, expect } from '@jest/globals';
+
+import { runConcurrent } from '../src/utils/concurrency.js';
 
 describe('runConcurrent', () => {
   it('returns empty array for empty input', async () => {

@@ -4,8 +4,8 @@
 import { Duration, Stack } from 'aws-cdk-lib';
 import {
   Effect,
-  IOpenIdConnectProvider,
-  IRole,
+  type IOpenIdConnectProvider,
+  type IRole,
   ManagedPolicy,
   OpenIdConnectPrincipal,
   OpenIdConnectProvider,
@@ -14,9 +14,9 @@ import {
   ServicePrincipal,
 } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
-import { UniqueId } from './id-generator';
-import type { CodeBuildDefaultRoleOptions, OidcRoleOptions, RoleConfig } from './role-types';
-import { Config } from '../config/app-config';
+import { UniqueId } from './id-generator.js';
+import type { CodeBuildDefaultRoleOptions, OidcRoleOptions, RoleConfig } from './role-types.js';
+import { Config } from '../config/app-config.js';
 
 /**
  * Resolve a RoleConfig into a CDK IRole.

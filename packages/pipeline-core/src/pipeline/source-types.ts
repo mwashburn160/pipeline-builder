@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { SecretValue } from 'aws-cdk-lib';
-import type { TriggerType } from '../core/pipeline-types';
+import type { TriggerType } from '../core/pipeline-types.js';
 
 /**
  * S3 source configuration for CodePipeline

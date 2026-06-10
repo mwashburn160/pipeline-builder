@@ -5,23 +5,20 @@
  * Tests for billing helper functions.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockBillingEventCreate = jest.fn();
 
-jest.mock('../src/models/billing-event', () => ({
+jest.unstable_mockModule('../src/models/billing-event.js', () => ({
   BillingEvent: {
     create: mockBillingEventCreate,
   },
 }));
 
-const mockClientPut = jest.fn();
+const mockClientPut = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({
     put: mockClientPut,
   }),
@@ -33,11 +30,11 @@ jest.mock('@pipeline-builder/api-core', () => ({
 
 // Stub api-server so its idempotency-middleware + app-factory don't try to
 // initialize a real Prometheus registry at module load.
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incCounter: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => {
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   const get = (section: string) => {
     if (section === 'server') return { services: { billingTimeout: 5000 } };
     return {};
@@ -54,18 +51,18 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
   };
 });
 
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     quotaService: { host: 'quota', port: 3000 },
   },
 }));
 
-import {
+const {
   calculatePeriodEnd,
   createBillingEvent,
   buildSubscriptionResponse,
   syncTierToQuotaService,
-} from '../src/helpers/billing-helpers';
+} = await import('../src/helpers/billing-helpers.js');
 
 // calculatePeriodEnd
 

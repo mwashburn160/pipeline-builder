@@ -29,12 +29,13 @@
     "types": [
       "cors",
       "express",
-      "jest",
       "jsonwebtoken",
       "node",
       "pg"
     ],
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "moduleResolution": "nodenext"
   },
   "include": [

@@ -14,19 +14,13 @@
  * - With orgId, accessModifier='private': own org private only (2 conditions)
  */
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  SYSTEM_ORG_ID: 'system',
-  AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
-}));
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-import { AccessControlQueryBuilder } from '../src/api/access-control-builder';
-import { schema } from '../src/database/drizzle-schema';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+const { AccessControlQueryBuilder } = await import('../src/api/access-control-builder.js');
+const { schema } = await import('../src/database/drizzle-schema.js');
 
 // Use the real pipeline schema as the table for the builder
 const builder = new AccessControlQueryBuilder(schema.pipeline);

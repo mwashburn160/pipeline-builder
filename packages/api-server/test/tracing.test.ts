@@ -1,42 +1,38 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockSdkInstance = {
   start: jest.fn(),
-  shutdown: jest.fn().mockResolvedValue(undefined),
+  shutdown: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
 };
 const mockNodeSDK = jest.fn(() => mockSdkInstance);
 
-jest.mock('@opentelemetry/sdk-node', () => ({
+jest.unstable_mockModule('@opentelemetry/sdk-node', () => ({
   NodeSDK: mockNodeSDK,
 }));
 
-jest.mock('@opentelemetry/exporter-trace-otlp-http', () => ({
+jest.unstable_mockModule('@opentelemetry/exporter-trace-otlp-http', () => ({
   OTLPTraceExporter: jest.fn(),
 }));
 
-jest.mock('@opentelemetry/resources', () => ({
+jest.unstable_mockModule('@opentelemetry/resources', () => ({
   resourceFromAttributes: (attrs: unknown) => attrs,
 }));
 
 const mockTracingConfig = { enabled: false, endpoint: 'http://localhost:4318/v1/traces' };
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: {
     getAny: () => ({ tracing: mockTracingConfig }),
   },
 }));
 
-import { initTracing, shutdownTracing, currentTraceId } from '../src/api/tracing';
+const { initTracing, shutdownTracing, currentTraceId } = await import('../src/api/tracing.js');
 
 describe('tracing', () => {
   beforeEach(() => {

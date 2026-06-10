@@ -1,10 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { auditLog } from '../src/utils/audit-log';
+import { describe, it, test, expect, beforeAll, afterAll } from '@jest/globals';
+import { auditLog } from '../src/utils/audit-log.js';
 
 const AUDIT_DIR = path.join(os.homedir(), '.pipeline-manager');
 const AUDIT_FILE = path.join(AUDIT_DIR, 'audit.log');

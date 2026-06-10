@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { TriggerType, MetadataKeys } from '../src/core/pipeline-types';
+import { TriggerType, MetadataKeys } from '../src/core/pipeline-types.js';
 
 describe('TriggerType', () => {
   it('should define NONE', () => {

@@ -15,15 +15,17 @@
  * - Forwards caller orgId (lowercased) to the SQL parameters.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockFindById = jest.fn();
 const mockExecute = jest.fn();
 
-jest.mock('../src/services/plugin-service', () => ({
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { findById: mockFindById, find: jest.fn(), findPaginated: jest.fn() },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  ErrorCode: { MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD' },
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
   requirePublicAccess: () => true,
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
@@ -38,14 +40,14 @@ jest.mock('@pipeline-builder/api-core', () => ({
   PluginFilterSchema: {},
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId ?? 'org-1', userId: 'u-1' });
   },
   incrementQuotaFromCtx: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: { CACHE_CONTROL_LIST: 'private, max-age=30', CACHE_CONTROL_DETAIL: 'private, max-age=60' },
   // The route was migrated from direct `db.execute(...)` to
   // `withTenantTx(tx => tx.execute(...))`. The mock hands back a tx whose
@@ -56,7 +58,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   }),
 }));
 
-import { createReadPluginRoutes } from '../src/routes/read-plugins';
+const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 
 const mockQuotaService = { increment: jest.fn(), check: jest.fn(), getUsage: jest.fn() } as any;
 const router = createReadPluginRoutes(mockQuotaService);

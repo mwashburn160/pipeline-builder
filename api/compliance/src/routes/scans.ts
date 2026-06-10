@@ -14,7 +14,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { complianceScanService } from '../services/compliance-scan-service';
+import { complianceScanService } from '../services/compliance-scan-service.js';
 
 /**
  * Compliance scan implementation.

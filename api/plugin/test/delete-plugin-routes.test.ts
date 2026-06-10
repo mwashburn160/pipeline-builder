@@ -8,6 +8,9 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mocks — must be defined before imports
 
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
@@ -17,12 +20,8 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-  },
   requirePublicAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
     const response: any = { success: true, statusCode };
@@ -38,7 +37,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -59,7 +58,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
 const mockFindById = jest.fn();
 const mockDelete = jest.fn();
 
-jest.mock('../src/services/plugin-service', () => ({
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     findById: mockFindById,
     delete: mockDelete,
@@ -69,8 +68,8 @@ jest.mock('../src/services/plugin-service', () => ({
 
 // Imports (after mocks)
 
-import { sendBadRequest, requirePublicAccess, sendSuccess } from '@pipeline-builder/api-core';
-import { createDeletePluginRoutes } from '../src/routes/delete-plugin';
+const { sendBadRequest, requirePublicAccess, sendSuccess } = await import('@pipeline-builder/api-core');
+const { createDeletePluginRoutes } = await import('../src/routes/delete-plugin.js');
 
 // Helpers
 

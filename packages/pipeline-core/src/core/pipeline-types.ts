@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { CodeCommitSourceConfig, CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '../pipeline/source-types';
+import type { CodeCommitSourceConfig, CodeStarSourceConfig, GitHubSourceConfig, S3SourceConfig } from '../pipeline/source-types.js';
 
 // Re-export shared types from api-core for convenience
-export { AccessModifier, ComputeType, PluginType, MetaDataType } from '@pipeline-builder/api-core';
+export { AccessModifier, ComputeType, PluginType, type MetaDataType } from '@pipeline-builder/api-core';
 
 /**
  * Pipeline trigger behavior.

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type winston from 'winston';
-import type { AuditEvent } from '../types/audit-events';
+import type { AuditEvent } from '../types/audit-events.js';
 
 /**
  * Emit a cross-service audit event as a structured log line.

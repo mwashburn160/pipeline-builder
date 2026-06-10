@@ -43,4 +43,4 @@ RUN mkdir -p /app/tmp /app/uploads && chown -R node:node /app/tmp /app/uploads
 USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
-CMD ["node", "-r", "@pipeline-builder/api-server/lib/otel-bootstrap.js", "index.js"]
+CMD ["node", "--import", "@pipeline-builder/api-server/lib/otel-bootstrap.js", "index.js"]

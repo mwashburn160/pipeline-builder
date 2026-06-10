@@ -22,7 +22,7 @@ Parameters:
       Public base URL clients use to reach the platform (e.g.
       "https://example.com"). Single source of truth for PLATFORM_BASE_URL,
       PLATFORM_FRONTEND_URL, and NEXT_PUBLIC_API_URL across services.
-      Computed by deploy.sh as scheme + DomainName.
+      Computed by setup.sh as scheme + DomainName.
 
   DeployMode:
     Type: String
@@ -57,12 +57,12 @@ Parameters:
 
   EmailEnabled:
     Type: String
-    Default: "false"
+    Default: "true"
     AllowedValues: ["true", "false"]
     Description: >
       When true, the platform sends transactional email via SES (EMAIL_ENABLED).
       Requires the SES identity (01-foundation) and task-role grant (02-cluster),
-      all driven by deploy.sh --email.
+      all driven by setup.sh --email.
 
   EmailFrom:
     Type: String
@@ -456,8 +456,9 @@ Resources:
             - Name: EMAIL_FROM_NAME
               Value: !Ref EmailFromName
             # Route every send through the configuration set (01-foundation) so
-            # bounces/complaints publish to the SNS topic. Unused when email is
-            # disabled (EMAIL_ENABLED=false), so a static name is safe here.
+            # bounces/complaints publish to the SNS topic. When email is enabled
+            # (the default) this matches the set created in 01-foundation; when
+            # disabled (--no-email) it is unused, so the static name is safe either way.
             - Name: SES_CONFIGURATION_SET
               Value: !Sub "${StackPrefix}-email"
           Secrets:

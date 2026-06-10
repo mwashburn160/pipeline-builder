@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import { audit } from '../helpers/audit';
+import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
   canAdministerOrg,
@@ -10,21 +10,21 @@ import {
   requireAuth,
   getAdminContext,
   withController,
-} from '../helpers/controller-helper';
+} from '../helpers/controller-helper.js';
 import {
   orgMembersService,
   OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER,
   OM_CANNOT_REMOVE_OWNER, OM_CANNOT_CHANGE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND,
   OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE,
   OM_TARGETS_OUT_OF_SCOPE,
-} from '../services';
+} from '../services/index.js';
 import {
   validateBody,
   addMemberSchema,
   bulkAddMemberSchema,
   updateMemberRoleSchema,
   transferOwnershipSchema,
-} from '../utils/validation';
+} from '../utils/validation.js';
 
 const logger = createLogger('organization-members-controller');
 

@@ -2,30 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  })),
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
-  // Subset of api-core's ErrorCode enum used by middleware/error.ts.
-  // `pickClientErrorCode` maps 4xx → code; INTERNAL_ERROR is reserved for 5xx.
-  ErrorCode: {
-    NOT_FOUND: 'NOT_FOUND',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    UNAUTHORIZED: 'UNAUTHORIZED',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-    CONFLICT: 'CONFLICT',
-    PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
-    RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
-  },
 }));
 
-import { sendError } from '@pipeline-builder/api-core';
-import { notFoundHandler, errorHandler } from '../src/middleware/error';
+const { notFoundHandler, errorHandler } = await import('../src/middleware/error.js');
+
+const { sendError } = await import('@pipeline-builder/api-core');
 
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;
 

@@ -1,14 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ISecurityGroup, IVpc, SecurityGroup, Subnet, SubnetSelection, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
+import { type ISecurityGroup, type IVpc, SecurityGroup, Subnet, type SubnetSelection, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
-import { UniqueId } from './id-generator';
+import { UniqueId } from './id-generator.js';
 import type {
   NetworkConfig,
   SubnetTypeName,
-} from './network-types';
-import { unwrapSecret } from './pipeline-helpers';
+} from './network-types.js';
+import { unwrapSecret } from './pipeline-helpers.js';
 
 /**
  * Mapping from string subnet type names to CDK SubnetType enum values

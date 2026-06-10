@@ -1,12 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import {
   PluginFilterSchema,
   PluginCreateSchema,
   PluginUpdateSchema,
   PluginUploadBodySchema,
-} from '../src/validation/plugin-schemas';
+} from '../src/validation/plugin-schemas.js';
 
 describe('PluginFilterSchema', () => {
   it('accepts valid filter', () => {

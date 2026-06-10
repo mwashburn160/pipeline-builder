@@ -4,10 +4,10 @@
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-core';
 import { eq, and, or, isNull, gt, inArray } from 'drizzle-orm';
-import { logComplianceCheck } from './audit-logger';
-import { notifyComplianceBlock } from './compliance-notifier';
-import { evaluateRules, type ActiveExemption } from '../engine/rule-engine';
-import { complianceRuleService } from '../services/compliance-rule-service';
+import { logComplianceCheck } from './audit-logger.js';
+import { notifyComplianceBlock } from './compliance-notifier.js';
+import { evaluateRules, type ActiveExemption } from '../engine/rule-engine.js';
+import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('scan-executor');
 

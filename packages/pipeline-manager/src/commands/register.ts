@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Command } from 'commander';
-import { Pipeline, PipelineResponse } from '../types';
-import { createAuthenticatedClient, printCommandHeader, printSslWarning } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils';
+import { type Pipeline, type PipelineResponse } from '../types/index.js';
+import { createAuthenticatedClient, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import {
   buildRegistryPayload,
   clearPendingIntent,
   readPendingIntents,
   writePendingIntent,
   type RegistryPayload,
-} from '../utils/registry';
+} from '../utils/registry.js';
 
 /**
  * Registers the `register` command with the CLI program.

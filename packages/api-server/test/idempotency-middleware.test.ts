@@ -1,16 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-}));
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60000,
     IDEMPOTENCY_TTL_MS: 60000,
@@ -18,7 +14,7 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-import { idempotencyMiddleware } from '../src/api/idempotency-middleware';
+const { idempotencyMiddleware } = await import('../src/api/idempotency-middleware.js');
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
   return {

@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createBuildJobData, pluginUri, shapePlugin } from '../src/helpers/plugin-helpers';
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.mock('../src/helpers/docker-build', () => ({}));
+jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({}));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   normalizeArrayFields: jest.fn(<T extends Record<string, unknown>>(record: T, fields: (keyof T)[]) => {
     const result = { ...record };
     for (const field of fields) {
@@ -15,10 +16,11 @@ jest.mock('@pipeline-builder/api-core', () => ({
     }
     return result;
   }),
-  SYSTEM_ORG_ID: 'system',
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({}));
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({}));
+
+const { createBuildJobData, pluginUri, shapePlugin } = await import('../src/helpers/plugin-helpers.js');
 
 // Tests
 

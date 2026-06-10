@@ -1,8 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mock config BEFORE importing helpers (config is required at import time)
-jest.mock('../src/config', () => ({
+jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     quota: {
       defaults: { plugins: 100, pipelines: 10, apiCalls: -1 },
@@ -11,13 +14,8 @@ jest.mock('../src/config', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
-  ErrorCode: {
-    ORG_NOT_FOUND: 'ORG_NOT_FOUND',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-  },
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'] as const,
   QUOTA_TIERS: {
@@ -29,19 +27,18 @@ jest.mock('@pipeline-builder/api-core', () => ({
   isValidTier: jest.fn((t: string) => ['developer', 'pro', 'unlimited'].includes(t)),
   getTierLimits: jest.fn(),
   isValidQuotaType: jest.fn((t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t)),
-  createLogger: jest.fn(() => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() })),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   isSystemAdmin: jest.fn(() => false),
 }));
 
-import {
+const {
   getNextResetDate,
   computeQuotaStatus,
   applyQuotaLimits,
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
-} from '../src/helpers/quota-helpers';
-import { INTERNAL_AUTH_OPTS } from '../src/middleware/authorize-org';
+} = await import('../src/helpers/quota-helpers.js');
+const { INTERNAL_AUTH_OPTS } = await import('../src/middleware/authorize-org.js');
 
 // Tests
 

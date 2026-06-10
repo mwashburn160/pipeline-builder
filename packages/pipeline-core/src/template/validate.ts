@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode } from '@pipeline-builder/api-core';
-import { dependencies } from './evaluator';
-import { SourcePosition, Token, TokenizerError, tokenize } from './tokenizer';
-import { topoSort } from './topo-sort';
-import { FieldPredicate, visitStrings, walkAndBind } from './walker';
+import { dependencies } from './evaluator.js';
+import { type SourcePosition, type Token, TokenizerError, tokenize } from './tokenizer.js';
+import { topoSort } from './topo-sort.js';
+import { type FieldPredicate, visitStrings, walkAndBind } from './walker.js';
 
 export interface TemplateError {
   field: string;

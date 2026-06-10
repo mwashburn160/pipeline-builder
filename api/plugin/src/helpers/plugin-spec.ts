@@ -14,9 +14,9 @@ import YAML from 'yaml';
 import yauzl from 'yauzl';
 import { z } from 'zod';
 
-import { BUILD_TEMP_ROOT } from './docker-build';
-import type { BuildType } from './docker-build';
-import type { PluginConfig } from './plugin-helpers';
+import { BUILD_TEMP_ROOT } from './docker-build.js';
+import type { BuildType } from './docker-build.js';
+import type { PluginConfig } from './plugin-helpers.js';
 
 // -----------------------------------------------------------------------------
 // Types

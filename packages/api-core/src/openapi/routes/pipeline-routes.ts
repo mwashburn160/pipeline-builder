@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { registry } from '../registry';
+import { registry } from '../registry.js';
 
 const tags = ['Pipelines'];
 const auth = [{ bearerAuth: [] }];

@@ -5,7 +5,7 @@
  * Main type definitions export
  */
 
-export * from './config';
-export * from './pipeline';
-export * from './plugin';
-export * from './error';
+export * from './config.js';
+export * from './pipeline.js';
+export * from './plugin.js';
+export * from './error.js';

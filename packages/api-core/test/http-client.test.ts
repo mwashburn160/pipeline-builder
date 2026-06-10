@@ -5,8 +5,11 @@
  * Unit tests for HTTP client retry logic: parseRetryAfter, addJitter, and requestWithRetry.
  */
 
-// Mock logger to avoid Winston open handles
-jest.mock('../src/utils/logger', () => ({
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+
+// Mock logger to avoid Winston open handles. Registered with
+// jest.unstable_mockModule BEFORE the modules under test are dynamically imported.
+jest.unstable_mockModule('../src/utils/logger.js', () => ({
   createLogger: () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -15,12 +18,20 @@ jest.mock('../src/utils/logger', () => ({
   }),
 }));
 
-// Mock the http module so no real network calls are made
-jest.mock('http');
+// Mock the http module so no real network calls are made. Keep the rest of the
+// real module (Agent, type helpers, etc.) and only override `request`.
+const mockHttpRequest = jest.fn<(...args: any[]) => any>();
+const actualHttp = jest.requireActual('http') as typeof import('http');
+jest.unstable_mockModule('http', () => ({
+  __esModule: true,
+  ...actualHttp,
+  default: { ...actualHttp, request: mockHttpRequest },
+  request: mockHttpRequest,
+}));
 
-import * as http from 'http';
-import { InternalHttpClient } from '../src/services/http-client';
-import { parseRetryAfter, addJitter } from '../src/services/retry-strategy';
+const http = await import('http');
+const { InternalHttpClient } = await import('../src/services/http-client.js');
+const { parseRetryAfter, addJitter } = await import('../src/services/retry-strategy.js');
 
 // parseRetryAfter
 describe('parseRetryAfter', () => {
@@ -90,8 +101,8 @@ describe('addJitter', () => {
 
 // InternalHttpClient retry behavior
 describe('InternalHttpClient retry behavior', () => {
-  let mockRequest: jest.Mock;
-  let client: InternalHttpClient;
+  let mockRequest: typeof mockHttpRequest;
+  let client: InstanceType<typeof InternalHttpClient>;
 
   /**
    * Helper to set up what http.request returns for each call.
@@ -136,7 +147,7 @@ describe('InternalHttpClient retry behavior', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
-    mockRequest = http.request as jest.Mock;
+    mockRequest = http.request as unknown as typeof mockHttpRequest;
     mockRequest.mockReset();
     client = new InternalHttpClient({ host: 'localhost', port: 3000 });
   });

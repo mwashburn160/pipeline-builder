@@ -1,43 +1,79 @@
 # frontend
 
-Next.js dashboard for the pipeline-builder platform. Provides pipeline management, AI-powered generation from Git repositories, plugin management, and quota monitoring.
+The Next.js dashboard for the Pipeline Builder platform (TypeScript + React).
 
-## Pages
+## Overview
 
-| Path | Description |
-|------|-------------|
-| `/dashboard` | Home page with Git URL hero input, recent pipelines, and quota summary |
-| `/dashboard/pipelines` | Pipeline list with single search bar and collapsible advanced filters |
-| `/dashboard/pipelines/[id]` | Pipeline detail view |
-| `/dashboard/plugins` | Plugin list with single search bar and collapsible advanced filters; plugin details open in an in-page view modal |
-| `/dashboard/quotas` | Quota management |
-| `/dashboard/settings` | User and organization settings |
+A single-page dashboard (Next.js Pages Router, React 19) that operators and
+developers use to manage the platform. It provides:
 
-The table above lists the core pipeline and plugin surfaces. The dashboard also includes additional pages for organizations, users, teams, invitations, billing, audit, observability, registry, and platform administration.
+- **Build surfaces** — create and manage pipelines and plugins, including
+  AI-assisted generation from a Git repo URL, JSON upload, and a manual wizard.
+- **Insights** — reports, executions, logs, audit trail, compliance, and an
+  observability section (DB-stored dashboards, alerts, silences) backed by the
+  platform's Prometheus/Loki/Alertmanager catalog.
+- **Organization & platform admin** — members, permission groups, invitations,
+  quotas, billing, plus sysadmin-only views for all organizations, all users,
+  the OCI registry, the plugin build queue, and platform settings.
+- **Command palette** (`⌘K`) and a **sidebar**, both driven by a single nav
+  definition (`src/lib/nav.ts`) with shared role/feature gating.
+- An **in-app help system** (`src/lib/help/`) mirroring the `docs/` topics.
 
-## Key Components
+The app talks to the platform and the pipeline/plugin/quota/billing services
+through one API client (`src/lib/api.ts`). In the browser it uses relative
+`/api/*` URLs that nginx proxies to the backend services.
 
-### Pipeline Creation
+## Key pages
 
-- **CreatePipelineModal** — Three-tab modal: Git URL (default), Upload, Wizard
-- **GitUrlTab** — Accepts a repo URL, analyzes it via backend (GitHub, GitLab, Bitbucket, and self-hosted Git URLs), streams AI-generated pipeline config. Includes editable Project/Organization fields, provider/model selection, and auto-plugin creation status.
-- **UploadConfigTab** — Paste or upload JSON pipeline config
-- **FormBuilderTab** — Multi-step wizard for manual pipeline configuration
+Routes live under `pages/`. The main ones:
 
-### Plugin Creation
+| Path | Purpose |
+|------|---------|
+| `/dashboard` | Home: Git URL hero input, recent pipelines, quota summary |
+| `/dashboard/pipelines`, `/dashboard/pipelines/[id]` | Pipeline list and detail |
+| `/dashboard/plugins` | Plugin list (AI builder / upload) |
+| `/dashboard/reports`, `/dashboard/executions`, `/dashboard/logs` | Build reports, run health, logs |
+| `/dashboard/audit`, `/dashboard/compliance` | Audit trail and compliance policies/rules (admin) |
+| `/dashboard/observability/*` | Dashboards, alerts, alert destinations, audit activity |
+| `/dashboard/members`, `/dashboard/groups`, `/dashboard/invitations` | Org members, permission groups, invitations (admin) |
+| `/dashboard/quotas`, `/dashboard/billing` | Quota management and billing |
+| `/dashboard/messages`, `/dashboard/notifications` | In-app messages and notification settings |
+| `/dashboard/registry`, `/dashboard/build-queue`, `/dashboard/triage` | OCI registry, plugin build queue, DLQ triage (sysadmin) |
+| `/dashboard/organizations`, `/dashboard/users` | All-orgs and all-users views (sysadmin) |
+| `/dashboard/admin/platform-settings`, `/dashboard/admin/alert-destinations`, `/dashboard/admin/orgs/[orgId]` | Platform admin (sysadmin) |
+| `/dashboard/settings`, `/dashboard/tokens`, `/dashboard/downloads`, `/dashboard/help` | Profile, API tokens, CLI downloads, help |
+| `/auth/register` | New account / organization sign-up |
 
-- **CreatePluginModal** — Two-tab modal: AI Builder (default), Upload
+## Configuration
 
-### Dashboard Home
+Environment variables the app reads:
 
-The home page features a Git URL hero input as the primary CTA. Entering a URL and clicking "Generate" opens the CreatePipelineModal on the Git URL tab with the URL pre-filled and auto-generation started.
+| Variable | Default | Used by | Purpose |
+|----------|---------|---------|---------|
+| `PLATFORM_BASE_URL` | `https://localhost:8443` | SSR only | Backend API base URL for server-side requests. In the browser the client uses relative `/api/*` URLs through nginx, so this is unused client-side. |
+| `NEXT_PUBLIC_ERROR_REPORT_URL` | _(unset)_ | Browser | Collector endpoint for client-side error reports. When unset, reporting is a no-op in production and logs to the console in development. |
+| `NEXT_PUBLIC_PLUGIN_BUILD_TIMEOUT_MS` | `300000` (5 min) | Browser | Client-side abort timeout for plugin Docker build requests. |
+| `ANALYZE` | _(unset)_ | Build | Set to `true` to enable `@next/bundle-analyzer`. |
+| `NODE_ENV` | — | Both | Standard Next.js mode flag (affects error-report behavior). |
 
-Secondary actions: "Upload config" and "Create manually" open the modal on their respective tabs.
+## Development
 
-## AI Provider Selection
+Scripts are generated by projen (`pnpm dlx projen <task>`); the underlying
+Next.js commands are:
 
-The `useAIProviders` hook merges providers from three sources — server environment variables, saved per-organization API keys, and the full provider catalog — so the dropdown always shows every known provider. Configured providers are sorted first; unconfigured ones are listed alphabetically after them and auto-expand a custom API key field when selected. Supported cloud providers are Anthropic, OpenAI, Google, xAI, and Amazon Bedrock; each requires an API key configured on the server, saved at the organization level, or provided per-request.
+| Command | Runs | Notes |
+|---------|------|-------|
+| `pnpm dev` | `next dev` | Dev server on http://localhost:3000 |
+| `pnpm build` | full build: compile + test + package | `compile` runs `next build` (standalone output) |
+| `pnpm compile` | `next build` | Production build only |
+| `pnpm server` | `next start` | Serve the production build |
+| `pnpm test` | `jest` | Jest + Testing Library (jsdom) |
 
-## Simplified Filters
+`next dev` serves the app directly on port 3000 for local iteration. In a
+running deployment the dashboard is served through nginx (which terminates TLS)
+at **https://localhost:8443** — the same origin its `/api/*` calls are proxied
+from. The production image uses Next.js `standalone` output (`next.config.js`).
 
-Both the Pipelines and Plugins pages use a single search bar with a collapsible "Filters" panel for advanced filtering. The search input is focusable via the `/` keyboard shortcut, and a filter count badge shows how many advanced filters are active.
+## License
+
+Apache-2.0

@@ -9,8 +9,8 @@ import {
   escapeLikeWildcards,
   normalizeStringFilter,
   parseBooleanFilter,
-} from './access-control-builder';
-import {
+} from './access-control-builder.js';
+import type {
   MessageFilter,
   PipelineFilter,
   PluginFilter,
@@ -20,7 +20,7 @@ import {
   ComplianceAuditFilter,
   ComplianceScanFilter,
   ComplianceRuleSubscriptionFilter,
-} from '../core/query-filters';
+} from '../core/query-filters.js';
 import {
   schema,
   type MessagePriority,
@@ -28,7 +28,7 @@ import {
   type RuleTarget,
   type RuleSeverity,
   type RuleScope,
-} from '../database/drizzle-schema';
+} from '../database/drizzle-schema.js';
 
 // Query builder instances
 const pipelineBuilder = new AccessControlQueryBuilder(schema.pipeline);

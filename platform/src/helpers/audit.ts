@@ -4,8 +4,8 @@
 import { randomUUID } from 'crypto';
 import { createLogger } from '@pipeline-builder/api-core';
 import { currentTraceId } from '@pipeline-builder/api-server';
-import { Request } from 'express';
-import AuditEvent, { AuditAction } from '../models/audit-event';
+import type { Request } from 'express';
+import AuditEvent, { type AuditAction } from '../models/audit-event.js';
 
 const logger = createLogger('audit');
 

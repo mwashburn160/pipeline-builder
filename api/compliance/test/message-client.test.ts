@@ -1,11 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
+import { jest, describe, it, expect } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   InternalHttpClient: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: {
     getAny: (key: string) => {
       if (key === 'server') {
@@ -16,8 +19,8 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-import { InternalHttpClient } from '@pipeline-builder/api-core';
-import { messageClient } from '../src/helpers/message-client';
+const { InternalHttpClient } = await import('@pipeline-builder/api-core');
+const { messageClient } = await import('../src/helpers/message-client.js');
 
 describe('messageClient', () => {
   it('exports a defined client instance', () => {

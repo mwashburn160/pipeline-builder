@@ -1,13 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Request, Response } from 'express';
+import { jest, describe, it, expect, beforeAll } from '@jest/globals';
+
+import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import {
   requireAuth, requireAdmin, isSystemAdmin, resolveAccessModifier,
   signServiceToken, getServiceAuthHeader, isServicePrincipal,
-} from '../src/middleware/auth';
-import type { JwtPayload } from '../src/types/common';
+} from '../src/middleware/auth.js';
+import type { JwtPayload } from '../src/types/common.js';
 
 const TEST_SECRET = 'test-jwt-secret-for-unit-tests';
 

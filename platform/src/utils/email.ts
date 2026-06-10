@@ -3,10 +3,10 @@
 
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { createLogger } from '@pipeline-builder/api-core';
-import nodemailer, { Transporter } from 'nodemailer';
-import { config } from '../config';
-import { invitationTemplate, invitationAcceptedTemplate } from './email-templates';
-import type { InvitationType, InvitationOAuthProvider } from '../models/invitation';
+import nodemailer, { type Transporter } from 'nodemailer';
+import { invitationTemplate, invitationAcceptedTemplate } from './email-templates.js';
+import { config } from '../config/index.js';
+import type { InvitationType, InvitationOAuthProvider } from '../models/invitation.js';
 
 const logger = createLogger('email-service');
 

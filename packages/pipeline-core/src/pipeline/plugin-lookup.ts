@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { join } from 'path';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import { createLogger } from '@pipeline-builder/api-core';
-import { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
+import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
 import { CustomResource, Token, Duration } from 'aws-cdk-lib';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
@@ -11,11 +12,15 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
-import type { PluginOptions } from './step-types';
-import { Config, CoreConstants } from '../config/app-config';
-import { UniqueId } from '../core/id-generator';
+import type { PluginOptions } from './step-types.js';
+import { Config, CoreConstants } from '../config/app-config.js';
+import { UniqueId } from '../core/id-generator.js';
 
 const log = createLogger('plugin-lookup');
+
+// ESM-safe module directory (the package is `type: module`; `__dirname` is
+// not defined under ES modules).
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
 interface InputProps {
   readonly baseURL: string;
@@ -196,8 +201,8 @@ export class PluginLookup extends Construct {
       timeout: this._timeout,
       memorySize: this._memorySize,
       architecture: Architecture.ARM_64,
-      entry: join(__dirname, '/../handlers/plugin-lookup-handler.js'),
-      depsLockFilePath: join(__dirname, '/../handlers/pnpm-lock.yaml'),
+      entry: join(MODULE_DIR, '/../handlers/plugin-lookup-handler.js'),
+      depsLockFilePath: join(MODULE_DIR, '/../handlers/pnpm-lock.yaml'),
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       environment: {
         PLATFORM_SECRET_NAME: secretName,

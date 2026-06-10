@@ -8,6 +8,9 @@
  * Mocks Mongoose models, billing helpers, and api-core utilities.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // Mocks — must be defined before imports
 
 const mockSendSuccess = jest.fn();
@@ -17,29 +20,15 @@ const mockValidateBody = jest.fn();
 const mockIsSystemAdmin = jest.fn();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
-jest.mock('@pipeline-builder/api-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendBadRequest: mockSendBadRequest,
-  ErrorCode: {
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    NOT_FOUND: 'NOT_FOUND',
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
-  },
   requireAuth: mockRequireAuth,
   isSystemAdmin: mockIsSystemAdmin,
   requireSystemAdmin: (_req: any, _res: any, next: () => void) => next(),
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   getServiceAuthHeader: jest.fn(() => 'Bearer service-token'),
-  errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   parseQueryInt: jest.fn((_val: unknown, defaultVal: number) => defaultVal),
   parseQueryIntClamped: jest.fn((val: unknown, def: number, max: number) => {
     const raw = val === undefined ? def : parseInt(String(val), 10);
@@ -48,17 +37,13 @@ jest.mock('@pipeline-builder/api-core', () => ({
   }),
   parseQueryString: jest.fn((_val: unknown) => undefined as string | undefined),
   validateBody: mockValidateBody,
-  createCacheService: () => ({
-    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
-    invalidatePattern: () => Promise.resolve(0),
-  }),
 }));
 
-const mockSubscriptionFind = jest.fn();
-const mockSubscriptionFindById = jest.fn();
-const mockSubscriptionCountDocuments = jest.fn();
+const mockSubscriptionFind = jest.fn<(...args: unknown[]) => any>();
+const mockSubscriptionFindById = jest.fn<(...args: unknown[]) => any>();
+const mockSubscriptionCountDocuments = jest.fn<(...args: unknown[]) => Promise<number>>();
 
-jest.mock('../src/models/subscription', () => ({
+jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     find: mockSubscriptionFind,
     findById: mockSubscriptionFindById,
@@ -66,16 +51,16 @@ jest.mock('../src/models/subscription', () => ({
   },
 }));
 
-const mockPlanFindOne = jest.fn();
+const mockPlanFindOne = jest.fn<(...args: unknown[]) => any>();
 
-jest.mock('../src/models/plan', () => ({
+jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: { findOne: mockPlanFindOne },
 }));
 
-const mockBillingEventFind = jest.fn();
-const mockBillingEventCountDocuments = jest.fn();
+const mockBillingEventFind = jest.fn<(...args: unknown[]) => any>();
+const mockBillingEventCountDocuments = jest.fn<(...args: unknown[]) => Promise<number>>();
 
-jest.mock('../src/models/billing-event', () => ({
+jest.unstable_mockModule('../src/models/billing-event.js', () => ({
   BillingEvent: {
     find: mockBillingEventFind,
     countDocuments: mockBillingEventCountDocuments,
@@ -88,20 +73,20 @@ const mockBuildSubscriptionResponse = jest.fn((sub: any) => ({
   planId: sub.planId,
   status: sub.status,
 }));
-const mockSyncTierToQuotaService = jest.fn().mockResolvedValue(true);
-const mockCreateBillingEvent = jest.fn().mockResolvedValue(undefined);
+const mockSyncTierToQuotaService = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
+const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 
-jest.mock('../src/helpers/billing-helpers', () => ({
+jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   buildSubscriptionResponse: mockBuildSubscriptionResponse,
   syncTierToQuotaService: mockSyncTierToQuotaService,
   createBillingEvent: mockCreateBillingEvent,
 }));
 
-jest.mock('../src/validation/schemas', () => ({
+jest.unstable_mockModule('../src/validation/schemas.js', () => ({
   AdminSubscriptionUpdateSchema: {},
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any, _opts?: any) => async (req: any, res: any) => {
     const ctx = {
       identity: { orgId: req.user?.organizationId, userId: req.user?.sub },
@@ -117,7 +102,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
   },
 }));
 
-import { createAdminSubscriptionRoutes } from '../src/routes/admin-subscriptions';
+const { createAdminSubscriptionRoutes } = await import('../src/routes/admin-subscriptions.js');
 
 const router = createAdminSubscriptionRoutes();
 

@@ -4,11 +4,11 @@
 import { createLogger, requireAuth } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext } from '@pipeline-builder/api-server';
 
-import { config } from './config';
-import { createAdminRoutes } from './routes/admin';
-import { createImageRoutes } from './routes/images';
-import { createTokenRoute } from './routes/token';
-import { startGcScheduler } from './services/gc-scheduler';
+import { config } from './config/index.js';
+import { createAdminRoutes } from './routes/admin.js';
+import { createImageRoutes } from './routes/images.js';
+import { createTokenRoute } from './routes/token.js';
+import { startGcScheduler } from './services/gc-scheduler.js';
 
 const logger = createLogger('pipeline-image-registry');
 

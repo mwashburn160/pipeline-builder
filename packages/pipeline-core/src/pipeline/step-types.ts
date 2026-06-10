@@ -5,10 +5,10 @@ import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import type { IFileSetProducer } from 'aws-cdk-lib/pipelines';
 import type { Construct } from 'constructs';
-import type { ArtifactKey, ArtifactManager } from '../core/artifact-manager';
-import type { UniqueId } from '../core/id-generator';
-import type { NetworkConfig } from '../core/network-types';
-import type { ComputeType, PluginType, MetaDataType, SourceType } from '../core/pipeline-types';
+import type { ArtifactKey, ArtifactManager } from '../core/artifact-manager.js';
+import type { UniqueId } from '../core/id-generator.js';
+import type { NetworkConfig } from '../core/network-types.js';
+import type { ComputeType, PluginType, MetaDataType, SourceType } from '../core/pipeline-types.js';
 
 /**
  * Options for selecting and configuring a plugin

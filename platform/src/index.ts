@@ -5,20 +5,20 @@ import crypto from 'crypto';
 import { createLogger, installCrashHandlers, isValidTier, mongoSanitize, sendError } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import cors from 'cors';
-import express, { Request, Response, NextFunction } from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
-import { config } from './config';
-import { notFoundHandler, errorHandler } from './middleware';
+import { config } from './config/index.js';
+import { notFoundHandler, errorHandler } from './middleware/index.js';
 import {
   isWriteBlockedByImpersonation,
   IMPERSONATION_READ_ONLY_MESSAGE,
   IMPERSONATION_READ_ONLY_CODE,
-} from './middleware/require-write-access';
-import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes';
+} from './middleware/require-write-access.js';
+import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes/index.js';
 
 const logger = createLogger('platform-api');
 

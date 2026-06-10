@@ -4,7 +4,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-core';
 import { lt } from 'drizzle-orm';
-import type { ValidationResult } from '../engine/rule-engine';
+import type { ValidationResult } from '../engine/rule-engine.js';
 
 const logger = createLogger('audit-logger');
 

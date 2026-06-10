@@ -10,11 +10,14 @@
 
 // Mocks — must be defined before imports
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const mockFindPaginated = jest.fn();
 const mockFind = jest.fn();
 const mockFindById = jest.fn();
 
-jest.mock('../src/services/pipeline-service', () => ({
+jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     findPaginated: mockFindPaginated,
     find: mockFind,
@@ -22,16 +25,12 @@ jest.mock('../src/services/pipeline-service', () => ({
   },
 }));
 
-jest.mock('@pipeline-builder/api-core', () => {
+jest.unstable_mockModule('@pipeline-builder/api-core', () => {
   const mockIsSystemAdmin = jest.fn((_req?: any) => false);
-  return {
+  return apiCoreMock({
+    ValidationError: class ValidationError extends Error {},
     getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
-    ErrorCode: {
-      MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-      INTERNAL_ERROR: 'INTERNAL_ERROR',
-    },
     isSystemAdmin: mockIsSystemAdmin,
-    errorMessage: jest.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
     validateQuery: jest.fn(() => ({ ok: true, value: {} })),
     PipelineFilterSchema: {},
     normalizeArrayFields: jest.fn((p: any) => p),
@@ -70,7 +69,7 @@ jest.mock('@pipeline-builder/api-core', () => {
       return true;
     }),
     incrementQuota: jest.fn(),
-  };
+  });
 });
 
 const mockGetContext = (req: any) => req.context;
@@ -81,7 +80,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);
@@ -101,7 +100,7 @@ jest.mock('@pipeline-builder/api-server', () => ({
   incrementQuotaFromCtx: jest.fn(),
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
     CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',
@@ -114,9 +113,9 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   tokenize: () => [],
 }));
 
-import { isSystemAdmin, sendBadRequest, validateQuery } from '@pipeline-builder/api-core';
-import { incrementQuotaFromCtx } from '@pipeline-builder/api-server';
-import { createReadPipelineRoutes } from '../src/routes/read-pipelines';
+const { isSystemAdmin, sendBadRequest, validateQuery } = await import('@pipeline-builder/api-core');
+const { incrementQuotaFromCtx } = await import('@pipeline-builder/api-server');
+const { createReadPipelineRoutes } = await import('../src/routes/read-pipelines.js');
 
 // Helpers
 

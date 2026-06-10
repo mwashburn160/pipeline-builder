@@ -29,7 +29,6 @@
       "cors",
       "express-serve-static-core",
       "express",
-      "jest",
       "jsonwebtoken",
       "multer",
       "node",
@@ -38,6 +37,8 @@
     ],
     "rootDir": "src",
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "outDir": "lib",
     "moduleResolution": "nodenext"
   },

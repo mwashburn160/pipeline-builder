@@ -3,12 +3,12 @@
 
 import { Command } from 'commander';
 import pico from 'picocolors';
-import { ENV_VARS, assertShellSafe } from '../config/cli.constants';
-import { auditLog } from '../utils/audit-log';
-import { ensureCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils';
-import { printCommandHeader } from '../utils/command-utils';
-import { ERROR_CODES, handleError } from '../utils/error-handler';
-import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils';
+import { ENV_VARS, assertShellSafe } from '../config/cli.constants.js';
+import { auditLog } from '../utils/audit-log.js';
+import { ensureCdkAvailable, executeCdkShellCommand } from '../utils/cdk-utils.js';
+import { printCommandHeader } from '../utils/command-utils.js';
+import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
 
 const { bold, cyan, dim } = pico;
 

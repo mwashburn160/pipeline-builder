@@ -1,11 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+
 import {
   resolveAccount,
   resolveRegion,
   buildBootstrapCommand,
-} from '../src/commands/bootstrap';
+} from '../src/commands/bootstrap.js';
 
 // Environment save / restore
 const ENV_KEYS = [

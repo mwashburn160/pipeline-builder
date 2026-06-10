@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { Subscription } from '../models/subscription';
-import type { SubscriptionStatus } from '../models/subscription';
+import { Subscription } from '../models/subscription.js';
+import type { SubscriptionStatus } from '../models/subscription.js';
 
 const logger = createLogger('stripe-helpers');
 

@@ -26,7 +26,7 @@
 import { execSync } from 'node:child_process';
 import { TypeScriptModuleResolution } from 'projen/lib/javascript';
 import { TypeScriptProject, TypeScriptProjectOptions } from 'projen/lib/typescript';
-import { BASE_STRICT_COMPILER_OPTIONS } from './shared-config';
+import { BASE_STRICT_COMPILER_OPTIONS, ESM_COMPILER_OPTIONS, configureEsmJest } from './shared-config';
 
 /**
  * Base class for library package projects.
@@ -58,6 +58,7 @@ export class PackageProject extends TypeScriptProject {
             tsconfig: {
                 compilerOptions: {
                     ...BASE_STRICT_COMPILER_OPTIONS,
+                    ...ESM_COMPILER_OPTIONS,
                     outDir: 'lib',
 
                     // Module configuration (ES Modules with Node.js support)
@@ -72,6 +73,7 @@ export class PackageProject extends TypeScriptProject {
                 }
             }
         })
+        configureEsmJest(this);
     }
 
     /**

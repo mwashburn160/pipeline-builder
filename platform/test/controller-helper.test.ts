@@ -2,15 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  })),
+import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
-  SYSTEM_ORG_ID: 'system',
   // `isSystemAdmin` is re-exported from api-core into the platform helper;
   // mock it to match the production semantics (sysadmin iff JWT claim).
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
@@ -22,7 +17,7 @@ jest.mock('@pipeline-builder/api-core', () => ({
   ),
 }));
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   const Types = {
     ObjectId: {
       isValid: jest.fn((id: string) => /^[0-9a-f]{24}$/i.test(id)),
@@ -44,8 +39,8 @@ jest.mock('mongoose', () => {
   };
 });
 
-import { sendError } from '@pipeline-builder/api-core';
-import {
+const { sendError } = await import('@pipeline-builder/api-core');
+const {
   isOrgAdmin,
   requireAuth,
   requireAuthUserId,
@@ -55,7 +50,7 @@ import {
   requireAdminContext,
   handleControllerError,
   toOrgId,
-} from '../src/helpers/controller-helper';
+} = await import('../src/helpers/controller-helper.js');
 
 const mockSendError = sendError as jest.MockedFunction<typeof sendError>;
 

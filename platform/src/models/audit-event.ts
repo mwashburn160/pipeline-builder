@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Schema, model, Document } from 'mongoose';
-import { config } from '../config';
+import { config } from '../config/index.js';
 
 /**
  * Audit event action categories.

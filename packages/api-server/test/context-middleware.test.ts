@@ -1,21 +1,20 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
+import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getIdentity: jest.fn(() => ({ orgId: 'org-1', userId: 'user-1' })),
+  createCacheService: () => ({}),
+  errorMessage: (e: unknown) => String(e),
 }));
 
-jest.mock('uuid', () => ({
+jest.unstable_mockModule('uuid', () => ({
   v7: () => 'mock-uuid-v7',
 }));
 
-import { attachRequestContext } from '../src/api/context-middleware';
+const { attachRequestContext } = await import('../src/api/context-middleware.js');
 
 function mockReq(): any {
   return { headers: {}, requestId: 'req-from-app' };

@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { emitCounter, resetCounterEmitter, setCounterEmitter } from '../src/utils/metric-emitter';
+import { jest, describe, it, expect, afterEach } from '@jest/globals';
+
+import { emitCounter, resetCounterEmitter, setCounterEmitter } from '../src/utils/metric-emitter.js';
 
 describe('metric-emitter', () => {
   afterEach(() => {

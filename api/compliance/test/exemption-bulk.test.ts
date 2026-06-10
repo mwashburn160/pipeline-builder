@@ -14,10 +14,12 @@
  * - Returned ids are forwarded from db.returning
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 const insertedRowsRef: { value: { id: string }[] } = { value: [] };
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  ErrorCode: { VALIDATION_ERROR: 'VALIDATION_ERROR', MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD' },
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   validateBody: (req: any, schema: any) => {
@@ -35,13 +37,13 @@ jest.mock('@pipeline-builder/api-core', () => ({
   sendEntityNotFound: jest.fn((res: any) => res.status(404).json({ message: 'not found' })),
 }));
 
-jest.mock('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
   },
 }));
 
-jest.mock('@pipeline-builder/pipeline-core', () => {
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   const insertChain = {
     values: () => insertChain,
     returning: () => Promise.resolve(insertedRowsRef.value),
@@ -67,14 +69,17 @@ jest.mock('@pipeline-builder/pipeline-core', () => {
   };
 });
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   and: (...a: unknown[]) => ({ __op: 'and', a }),
+  or: (...a: unknown[]) => ({ __op: 'or', a }),
   eq: (c: unknown, v: unknown) => ({ __op: 'eq', c, v }),
+  gt: (c: unknown, v: unknown) => ({ __op: 'gt', c, v }),
+  isNull: (c: unknown) => ({ __op: 'isNull', c }),
   desc: (c: unknown) => ({ __op: 'desc', c }),
   sql: jest.fn(),
 }));
 
-import { createExemptionRoutes } from '../src/routes/exemptions';
+const { createExemptionRoutes } = await import('../src/routes/exemptions.js');
 
 function getHandler() {
   const router = createExemptionRoutes();

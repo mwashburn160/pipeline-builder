@@ -14,9 +14,9 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { evaluateRules } from '../engine/rule-engine';
-import { complianceRuleService } from '../services/compliance-rule-service';
-import { subscriptionService } from '../services/subscription-service';
+import { evaluateRules } from '../engine/rule-engine.js';
+import { complianceRuleService } from '../services/compliance-rule-service.js';
+import { subscriptionService } from '../services/subscription-service.js';
 
 const SubscribeSchema = z.object({
   ruleId: z.string().uuid(),

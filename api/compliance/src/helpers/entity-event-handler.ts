@@ -3,9 +3,9 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import type { RuleTarget } from '@pipeline-builder/pipeline-core';
-import { logComplianceCheck } from './audit-logger';
-import { evaluateRules } from '../engine/rule-engine';
-import { complianceRuleService } from '../services/compliance-rule-service';
+import { logComplianceCheck } from './audit-logger.js';
+import { evaluateRules } from '../engine/rule-engine.js';
+import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('entity-event-handler');
 

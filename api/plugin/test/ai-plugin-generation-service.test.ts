@@ -7,7 +7,10 @@
 // raw `ai` package has no effect — Jest's module mocking matches on the
 // exact specifier the code under test imports.
 
-const mockGenerateText = jest.fn();
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+const mockGenerateText = jest.fn<(...args: any[]) => any>();
 const mockStreamText = jest.fn();
 
 // Mirror the real registry's validation so tests that exercise error paths
@@ -38,7 +41,7 @@ const mockCreateModelWithKey = jest.fn((provider: string, modelId: string) => {
   return { provider, modelId, customKey: true };
 });
 
-jest.mock('@pipeline-builder/ai-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({
   generateText: mockGenerateText,
   streamText: mockStreamText,
   Output: {
@@ -71,13 +74,7 @@ jest.mock('@pipeline-builder/ai-core', () => ({
   }),
 }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-    warn: jest.fn(),
-  })),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   AI_PROVIDER_CATALOG: {
     'anthropic': {
       id: 'anthropic',
@@ -142,15 +139,14 @@ jest.mock('@pipeline-builder/api-core', () => ({
     return catalog[id] ?? [];
   }),
 }));
-
 // Import AFTER mocks
 
-import {
+const {
   getAvailableProviders,
   getProviderModels,
   generatePluginConfig,
-  type PluginGenerationRequest,
-} from '../src/services/ai-plugin-generation-service';
+} = await import('../src/services/ai-plugin-generation-service.js');
+type PluginGenerationRequest = import('../src/services/ai-plugin-generation-service.js').PluginGenerationRequest;
 
 // Tests
 

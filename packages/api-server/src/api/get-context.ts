@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Request } from 'express';
-import type { RequestContext } from './request-types';
+import type { RequestContext } from './request-types.js';
 
 /**
  * Safely retrieve the RequestContext from an Express request.

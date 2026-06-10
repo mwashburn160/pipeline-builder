@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import {
   AppError,
   NotFoundError,
@@ -8,8 +10,8 @@ import {
   ValidationError,
   ConflictError,
   UnauthorizedError,
-} from '../src/errors/app-errors';
-import { ErrorCode } from '../src/types/error-codes';
+} from '../src/errors/app-errors.js';
+import { ErrorCode } from '../src/types/error-codes.js';
 
 describe('AppError', () => {
   it('exposes statusCode, code, and message', () => {

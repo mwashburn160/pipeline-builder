@@ -1,10 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
+
 import {
   normalizeArrayFields,
   sendEntityNotFound,
-} from '../src/helpers/crud-helpers';
+} from '../src/helpers/crud-helpers.js';
 
 // Mock Response
 function mockRes() {

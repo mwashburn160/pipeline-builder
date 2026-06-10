@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { entityEvents, type EntityEvent, type EntityEventSubscriber } from '../src/services/entity-events';
+import { jest, describe, it, expect, afterEach } from '@jest/globals';
+
+import { entityEvents, type EntityEvent, type EntityEventSubscriber } from '../src/services/entity-events.js';
 
 function makeEvent(overrides: Partial<EntityEvent> = {}): EntityEvent {
   return {
@@ -20,7 +22,7 @@ describe('entityEvents', () => {
   // Clean up subscribers after each test to avoid leaks
   const subscribers: EntityEventSubscriber[] = [];
 
-  function addSubscriber(onEvent: jest.Mock): EntityEventSubscriber {
+  function addSubscriber(onEvent: ReturnType<typeof jest.fn>): EntityEventSubscriber {
     const sub: EntityEventSubscriber = { onEntityEvent: onEvent };
     entityEvents.subscribe(sub);
     subscribers.push(sub);

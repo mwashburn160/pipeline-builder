@@ -4,7 +4,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { Bell, Plus, Trash2, Edit2, Slack, Webhook, Bell as BellIcon } from 'lucide-react';
+// lucide-react v1 removed brand icons (e.g. Slack); use a generic messaging glyph.
+import { Bell, Plus, Trash2, Edit2, MessageSquare, Webhook, Bell as BellIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';
@@ -250,7 +251,7 @@ export default function AlertDestinationsPage() {
 }
 
 function ChannelIcon({ channel }: { channel: AlertDestination['channel'] }) {
-  if (channel === 'slack') return <Slack className="w-5 h-5 text-purple-600" />;
+  if (channel === 'slack') return <MessageSquare className="w-5 h-5 text-purple-600" />;
   if (channel === 'webhook') return <Webhook className="w-5 h-5 text-blue-600" />;
   return <BellIcon className="w-5 h-5 text-gray-600" />;
 }

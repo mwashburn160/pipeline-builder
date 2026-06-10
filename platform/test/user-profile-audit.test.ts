@@ -9,6 +9,8 @@
  * call should fail these tests loudly.
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockAudit = jest.fn();
 const mockUpdateProfile = jest.fn();
 const mockChangePassword = jest.fn();
@@ -16,15 +18,13 @@ const mockFindForTokenIssue = jest.fn();
 const mockIssueTokens = jest.fn();
 const mockValidateBody = jest.fn((_schema: unknown, body: unknown) => body);
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   resolveUserFeatures: jest.fn(),
-  SYSTEM_ORG_ID: 'system',
 }));
 
-jest.mock('mongoose', () => {
+jest.unstable_mockModule('mongoose', () => {
   class Schema {
     constructor() { /* no-op */ }
     index() { /* no-op */ }
@@ -38,15 +38,15 @@ jest.mock('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.mock('../src/helpers/audit', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
-jest.mock('../src/helpers/controller-helper', () => ({
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireAuthUserId: (req: any) => req.user?.sub,
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
 }));
 
-jest.mock('../src/services', () => ({
+jest.unstable_mockModule('../src/services/index.js', () => ({
   PROFILE_USER_NOT_FOUND: 'PROFILE_USER_NOT_FOUND',
   PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
   PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
@@ -58,16 +58,17 @@ jest.mock('../src/services', () => ({
   },
 }));
 
-jest.mock('../src/models', () => ({ User: {}, Organization: {}, UserOrganization: {} }));
+jest.unstable_mockModule('../src/models/index.js', () => ({ User: {}, Organization: {}, UserOrganization: {} }));
 
-jest.mock('../src/utils/token', () => ({ issueTokens: (...a: unknown[]) => mockIssueTokens(...a) }));
-jest.mock('../src/utils/validation', () => ({
+jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: (...a: unknown[]) => mockIssueTokens(...a) }));
+jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (schema: unknown, body: unknown, _res: unknown) => mockValidateBody(schema, body),
   updateProfileSchema: {},
   changePasswordSchema: {},
 }));
 
-import { changePassword, generateToken, updateUser } from '../src/controllers/user-profile';
+const { changePassword, generateToken, updateUser } = await import('../src/controllers/user-profile.js');
+
 
 function mockRes() {
   const res: any = {};

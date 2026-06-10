@@ -1,14 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: jest.fn(() => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  })),
-}));
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const mockLean = jest.fn();
 const mockLimit = jest.fn(() => ({ lean: mockLean }));
@@ -18,7 +13,7 @@ const mockFind = jest.fn(() => ({ sort: mockSort }));
 const mockCountDocuments = jest.fn();
 const mockCreate = jest.fn();
 
-jest.mock('../src/models/audit-event', () => ({
+jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
   default: {
     find: mockFind,
@@ -27,7 +22,8 @@ jest.mock('../src/models/audit-event', () => ({
   },
 }));
 
-import { auditService } from '../src/services/audit-service';
+const { auditService } = await import('../src/services/audit-service.js');
+
 
 describe('auditService.findEvents', () => {
   beforeEach(() => {

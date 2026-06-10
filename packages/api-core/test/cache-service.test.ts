@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { CacheService, createCacheService } from '../src/services/cache-service';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+
+import { CacheService, createCacheService } from '../src/services/cache-service.js';
 
 describe('CacheService (in-memory)', () => {
   let cache: CacheService;

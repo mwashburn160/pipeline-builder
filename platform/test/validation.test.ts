@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock config before importing schemas that depend on it
-jest.mock('../src/config', () => ({
+import { jest, describe, it, expect, test } from '@jest/globals';
+jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     auth: { passwordMinLength: 8 },
   },
 }));
 
-import {
+const {
   emailSchema,
   registerSchema,
   loginSchema,
@@ -22,7 +23,7 @@ import {
   updateMemberRoleSchema,
   transferOwnershipSchema,
   updateQuotasSchema,
-} from '../src/utils/validation';
+} = await import('../src/utils/validation.js');
 
 // Tests
 

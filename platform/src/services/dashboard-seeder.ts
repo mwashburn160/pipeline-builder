@@ -5,11 +5,11 @@ import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { and, eq, isNull } from 'drizzle-orm';
 
-import auditActivity from '../observability/dashboards/audit-activity.json';
-import platformOverview from '../observability/dashboards/platform-overview.json';
-import pluginBuilds from '../observability/dashboards/plugin-builds.json';
-import queueHealth from '../observability/dashboards/queue-health.json';
-import registryActivity from '../observability/dashboards/registry-activity.json';
+import auditActivity from '../observability/dashboards/audit-activity.json' with { type: 'json' };
+import platformOverview from '../observability/dashboards/platform-overview.json' with { type: 'json' };
+import pluginBuilds from '../observability/dashboards/plugin-builds.json' with { type: 'json' };
+import queueHealth from '../observability/dashboards/queue-health.json' with { type: 'json' };
+import registryActivity from '../observability/dashboards/registry-activity.json' with { type: 'json' };
 
 const logger = createLogger('dashboard-seeder');
 

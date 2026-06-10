@@ -10,7 +10,7 @@ import {
   GetSecretValueCommand,
   ListSecretsCommand,
 } from '@aws-sdk/client-secrets-manager';
-import { printInfo, printSuccess } from './output-utils';
+import { printInfo, printSuccess } from './output-utils.js';
 
 /**
  * Options for Secrets Manager operations.

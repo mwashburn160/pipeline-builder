@@ -19,18 +19,18 @@
 
 import { parseQueryString, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
-import * as am from './alertmanager-client';
+import * as am from './alertmanager-client.js';
 import {
   QUERIES,
   type RangeKey,
   rangeSeconds,
   stepForRange,
   substituteVars,
-} from './catalog';
-import * as loki from './loki-client';
-import * as prom from './prometheus-client';
-import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper';
-import { isReasonableString } from '../utils/string-guards';
+} from './catalog.js';
+import * as loki from './loki-client.js';
+import * as prom from './prometheus-client.js';
+import { isSystemAdmin, requireAuth, withController } from '../helpers/controller-helper.js';
+import { isReasonableString } from '../utils/string-guards.js';
 
 /**
  * Parse the `range` query param.

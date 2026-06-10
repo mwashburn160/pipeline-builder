@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Request, Response } from 'express';
-import { isSystemAdmin } from '../middleware/auth';
-import { ErrorCode } from '../types/error-codes';
-import { AccessModifier } from '../types/pipeline';
-import { sendError } from '../utils/response';
+import { isSystemAdmin } from '../middleware/auth.js';
+import { ErrorCode } from '../types/error-codes.js';
+import { AccessModifier } from '../types/pipeline.js';
+import { sendError } from '../utils/response.js';
 
 /**
  * Check whether a non-admin user may modify a public resource.

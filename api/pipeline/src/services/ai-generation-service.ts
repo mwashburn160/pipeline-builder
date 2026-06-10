@@ -15,7 +15,7 @@ import { createLogger, ValidationError } from '@pipeline-builder/api-core';
 import { db, schema } from '@pipeline-builder/pipeline-core';
 import { and } from 'drizzle-orm';
 import { z } from 'zod';
-import { availablePluginConditions } from './plugin-lookup-service';
+import { availablePluginConditions } from './plugin-lookup-service.js';
 
 export { getAvailableProviders, getProviderModels };
 

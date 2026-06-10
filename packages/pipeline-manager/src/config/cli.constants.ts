@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomBytes } from 'crypto';
-import { version } from '../../package.json';
+import { readFileSync } from 'node:fs';
+
+// ESM has no synchronous named JSON import (Node only exposes a default export,
+// and importing `../../package.json` would also fall outside `rootDir: src`), so
+// read the version from package.json at load time relative to this module.
+const { version } = JSON.parse(
+  readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'),
+) as { version: string };
 
 /**
  * Application metadata

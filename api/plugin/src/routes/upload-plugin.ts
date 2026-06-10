@@ -7,14 +7,13 @@ import { ErrorCode, createLogger, errorMessage, getServiceAuthHeader, reserveQuo
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireAuth, requireOrgId, withRoute } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
-import { Router, Request, Response } from 'express';
-import type { RequestHandler, ErrorRequestHandler } from 'express';
+import { Router, type Request, type Response, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
 
-import { createBuildJobData } from '../helpers/plugin-helpers';
-import { parsePluginZip, validateBuildArgs } from '../helpers/plugin-spec';
-import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue';
-import { pluginService } from '../services/plugin-service';
+import { createBuildJobData } from '../helpers/plugin-helpers.js';
+import { parsePluginZip, validateBuildArgs } from '../helpers/plugin-spec.js';
+import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
+import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('upload-plugin');
 

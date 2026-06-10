@@ -16,8 +16,8 @@ import {
   getOrgKmsConfig,
   putOrgKmsConfig,
   testOrgKmsConfig,
-} from '../controllers/org-kms-config';
-import { requireAuth, requireStepUp } from '../middleware';
+} from '../controllers/org-kms-config.js';
+import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router = Router({ mergeParams: true });
 

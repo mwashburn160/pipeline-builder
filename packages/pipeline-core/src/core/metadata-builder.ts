@@ -3,11 +3,11 @@
 
 import type { BuildEnvironment } from 'aws-cdk-lib/aws-codebuild';
 import type { CodeBuildStepProps, CodePipelineProps, ShellStepProps } from 'aws-cdk-lib/pipelines';
-import type { NetworkConfig, SubnetTypeName } from './network-types';
-import { CDK_METADATA_PREFIX, MetadataKeys } from './pipeline-types';
-import type { MetaDataType } from './pipeline-types';
-import type { RoleConfig } from './role-types';
-import type { SecurityGroupConfig } from './security-group-types';
+import type { NetworkConfig, SubnetTypeName } from './network-types.js';
+import { CDK_METADATA_PREFIX, MetadataKeys } from './pipeline-types.js';
+import type { MetaDataType } from './pipeline-types.js';
+import type { RoleConfig } from './role-types.js';
+import type { SecurityGroupConfig } from './security-group-types.js';
 
 /**
  * Type-safe namespace constants for metadata configuration.

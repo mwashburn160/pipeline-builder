@@ -3,8 +3,8 @@
 
 import { OpenAPIRegistry, OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi';
 
-import { registerAllRoutes } from './routes';
-import { registerSchemas } from './schema-registry';
+import { registerAllRoutes } from './routes/index.js';
+import { registerSchemas } from './schema-registry.js';
 
 /** Shared OpenAPI registry for all schema and path registrations. */
 export const registry = new OpenAPIRegistry();

@@ -7,8 +7,8 @@
  */
 
 import { Router } from 'express';
-import { getAdminSummary } from '../controllers/admin-summary';
-import { requireAuth } from '../middleware';
+import { getAdminSummary } from '../controllers/admin-summary.js';
+import { requireAuth } from '../middleware/index.js';
 
 const router = Router();
 

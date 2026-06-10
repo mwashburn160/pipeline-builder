@@ -2,65 +2,96 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-Core server-side utilities shared by every backend service in [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): JWT authentication middleware, structured logging, response helpers, error codes, quota enforcement, parameter parsing, validation schemas, an internal HTTP client, and the AI provider catalog.
+Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/) backend service.
 
-## Key Exports
+> Internal workspace package — consumed by other packages via `workspace:*`. Not published or used standalone.
 
-### Authentication Middleware
-- `requireAuth` — JWT authentication middleware (also accepts `RequireAuthOptions` for `allowOrgHeaderOverride` on internal-service routes)
-- `requireAdmin`, `requireSystemAdmin` — role gates (admin/owner; system-org admin/owner)
-- `requireFeature` — feature-flag gate
-- `isSystemOrg`, `isSystemAdmin`, `isServicePrincipal` — authorization checks (last one is true when `req.user.sub` starts with `service:`)
-- `resolveAccessModifier(req, requested)` — coerces `requested='public'` to `'private'` unless caller is admin/owner
+## Responsibilities
 
-### Service-to-Service Tokens
-- `signServiceToken({ serviceName, orgId?, orgName?, ttlSeconds? })` — mints a short-lived JWT identifying the calling service. Default TTL 5 minutes.
-- `getServiceAuthHeader(opts)` — convenience wrapper returning `Bearer <token>` for direct use in fetch/axios headers.
+Provides the cross-cutting primitives every backend service depends on: JWT authentication and authorization middleware, inter-service token minting, standardized HTTP response and error helpers, request parameter/identity parsing, Zod validation schemas with an OpenAPI registry, a safe service-to-service HTTP client, quota enforcement types and client, structured Winston logging, an in-memory/Redis cache, domain event pub/sub, and the static AI provider catalog.
 
-Tokens satisfy the standard `requireAuth` middleware unmodified (sub: `service:<name>`, role: `owner`, type: `access`). Use for inter-service HTTP calls (billing → message renewals, platform → billing on register, etc.).
+## Key exports
 
-### Request/Response Utilities
-- `sendSuccess`, `sendError`, `sendBadRequest`, `sendInternalError`, `sendQuotaExceeded`, `sendPaginated`, `sendPaginatedNested`
-- `extractDbError` — Extract database error details
-- `ErrorCode`, `getStatusForErrorCode` — Standard error codes
-- `AppError`, `NotFoundError`, `ForbiddenError`, `ValidationError`, `ConflictError`, `UnauthorizedError` — Typed HTTP error classes
+### Authentication & authorization (`./middleware`)
+| Export | Purpose |
+| --- | --- |
+| `requireAuth` | JWT authentication middleware (accepts `RequireAuthOptions`, e.g. `allowOrgHeaderOverride` for internal routes) |
+| `requireAdmin`, `requireSystemAdmin` | Role gates (admin/owner; system-org admin/owner) |
+| `requireFeature` | Feature-flag gate |
+| `isSystemOrgId`, `isSystemAdmin`, `isServicePrincipal` | Authorization helpers (`isServicePrincipal` is true when `req.user.sub` starts with `service:`) |
+| `resolveAccessModifier` | Coerces requested `'public'` to `'private'` unless caller is admin/owner |
+| `signServiceToken`, `getServiceAuthHeader` | Mint short-lived inter-service JWTs (default TTL 5 min) accepted unmodified by `requireAuth` |
 
-### Parameter Parsing
-- `getParam`, `getRequiredParam`, `getParams`, `getOrgId`, `getAuthHeader`
-- `parseQueryBoolean`, `parseQueryInt`, `parseQueryString`
+### Responses & errors (`./utils`, `./errors`)
+| Export | Purpose |
+| --- | --- |
+| `sendSuccess`, `sendError`, `sendBadRequest`, `sendInternalError`, `sendQuotaExceeded` | Standardized JSON responses |
+| `sendPaginated`, `sendPaginatedNested`, `parsePaginationParams` | Paginated response helpers |
+| `extractDbError`, `errorMessage` | Safe DB-error and error-to-string extraction |
+| `ErrorCode`, `getStatusForErrorCode` | Standard error code enum and HTTP status mapping |
+| `AppError`, `NotFoundError`, `ForbiddenError`, `ValidationError`, `ConflictError`, `UnauthorizedError` | Typed HTTP error classes |
 
-### Validation Schemas (Zod)
-- `AIGenerateBodySchema` — Validates AI generation requests (prompt, provider, model)
-- `AIGenerateFromUrlBodySchema` — Validates Git URL generation requests (gitUrl, provider, model, apiKey?, repoToken?)
-- Plugin, pipeline, and message schemas (`PluginCreateSchema`, `PipelineFilterSchema`, `MessageCreateSchema`, etc.) plus shared building blocks (`PaginationSchema`, `UUIDSchema`, `AccessModifierSchema`)
+### Request parsing (`./utils`)
+| Export | Purpose |
+| --- | --- |
+| `getParam`, `getRequiredParam`, `getParams`, `getOrgId`, `getAuthHeader` | Request parameter/header extraction |
+| `parseQueryBoolean`, `parseQueryInt`, `parseQueryString` | Query-string coercion |
+| `getIdentity`, `validateIdentity` | Parsed JWT identity (`RequestIdentity`) helpers |
 
-### Internal HTTP Client
-- `InternalHttpClient`, `createSafeClient` — Service-to-service HTTP communication
-- `ServiceConfig`, `RequestOptions` — Client types
-- `createComplianceClient` / `ComplianceClient` — Typed client for the compliance service, built on the safe HTTP client
+### HTTP client & services (`./services`)
+| Export | Purpose |
+| --- | --- |
+| `InternalHttpClient`, `createSafeClient` | Service-to-service HTTP client (`ServiceConfig`, `RequestOptions`) |
+| `createComplianceClient` / `ComplianceClient` | Typed compliance-service client built on the safe client |
+| `QuotaService`, `createQuotaService`, `QuotaType`, `QuotaCheckResult`, `QuotaTier`, `QUOTA_TIERS`, `getTierLimits` | Quota enforcement client and tier presets |
+| `CacheService`, `createCacheService` | In-memory TTL cache with optional Redis backend |
+| `entityEvents` | Process-local domain event pub/sub for entity changes |
 
-### AI Provider Constants
-- `AI_PROVIDER_CATALOG` — Static provider/model catalog
-- `AI_PROVIDER_ENV_VARS` — Provider-to-env-var mapping
-- `getAIProviderModels` — Get models for a provider
+### Logging, validation & OpenAPI
+| Export | Purpose |
+| --- | --- |
+| `createLogger`, `logger` | Winston structured logger factory and default instance |
+| `AIGenerateBodySchema`, `AIGenerateFromUrlBodySchema`, `PluginCreateSchema`, `PipelineFilterSchema`, `MessageCreateSchema`, plus `PaginationSchema`, `UUIDSchema`, `AccessModifierSchema` | Zod request-validation schemas and shared building blocks |
+| `registry`, `generateOpenApiSpec` | Shared schema registry and OpenAPI spec generation |
 
-### Logging
-- `createLogger` — Winston logger factory
+### AI provider catalog (`./constants`)
+| Export | Purpose |
+| --- | --- |
+| `AI_PROVIDER_CATALOG` | Static provider/model catalog |
+| `AI_PROVIDER_ENV_VARS` | Provider-to-env-var mapping |
+| `getAIProviderModels`, `getAIProviderName` | Lookup helpers for a provider's models/name |
 
-### Caching & Events
-- `CacheService`, `createCacheService` — In-memory TTL cache with an optional Redis backend
-- `entityEvents` — Process-local domain event pub/sub for entity changes
+### Health (`./routes`)
+| Export | Purpose |
+| --- | --- |
+| `createHealthRouter` | Registers `GET /health` (liveness) and `GET /ready` (readiness; 503 when a dependency is `'disconnected'`) |
 
-### OpenAPI
-- `registry`, `generateOpenApiSpec` — Shared schema registry and OpenAPI spec generation, so services expose consistent API documentation
+## Usage
 
-### Quota Service
-- `QuotaService` (type), `createQuotaService` — Quota enforcement client
-- `QuotaType` — `'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls' | 'storageBytes' | 'dashboards' | 'alertRules' | 'alertDestinations' | 'idpConfigs'`
-- `QuotaCheckResult`, `QuotaTier` (`'developer' | 'pro' | 'unlimited'`), `QUOTA_TIERS`, `getTierLimits` — Quota domain types and tier presets
+```ts
+import {
+  requireAuth,
+  sendSuccess,
+  sendError,
+  NotFoundError,
+  createLogger,
+} from '@pipeline-builder/api-core';
 
-### Health Endpoints
-- `createHealthRouter({ serviceName, version?, checkDependencies? })` — registers `GET /health` (liveness; always 200 unless process is dead) and `GET /ready` (readiness; 503 when any dependency is `'disconnected'`). Use as Kubernetes/ECS liveness + readiness probes respectively.
+const log = createLogger('plugin-service');
+
+router.get('/plugins/:id', requireAuth(), async (req, res) => {
+  const plugin = await plugins.findById(req.params.id);
+  if (!plugin) throw new NotFoundError('plugin not found');
+  return sendSuccess(res, plugin);
+});
+```
+
+## Development
+
+```bash
+pnpm build   # projen build (compile + lint + test)
+pnpm test    # run the Jest test suite
+```
 
 ## License
 

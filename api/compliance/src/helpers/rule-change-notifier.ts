@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
-import { messageClient } from './message-client';
-import { subscriptionService } from '../services/subscription-service';
+import { messageClient } from './message-client.js';
+import { subscriptionService } from '../services/subscription-service.js';
 
 const logger = createLogger('rule-change-notifier');
 

@@ -13,16 +13,15 @@
  * - Tick failures don't kill the cron — next tick still scheduled.
  */
 
-const dbDelete = jest.fn();
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
+const dbDelete = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const ltMock = jest.fn((col: unknown, val: unknown) => ({ __op: 'lt', col, val }));
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
-  }),
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: {
     complianceAuditLog: { id: 'col_id', createdAt: 'col_created_at' },
   },
@@ -40,15 +39,15 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   }),
 }));
 
-jest.mock('drizzle-orm', () => ({
+jest.unstable_mockModule('drizzle-orm', () => ({
   lt: (col: unknown, val: unknown) => ltMock(col, val),
 }));
 
-import {
+const {
   pruneComplianceAudit,
   startAuditPruneCron,
   DEFAULT_AUDIT_RETENTION_DAYS,
-} from '../src/helpers/audit-logger';
+} = await import('../src/helpers/audit-logger.js');
 
 describe('pruneComplianceAudit', () => {
   beforeEach(() => {

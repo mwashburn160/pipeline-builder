@@ -1,6 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { apiCoreMock } from './helpers/mock-api-core.js';
+
 // db chainable helpers
 type ChainTerminal = () => Promise<unknown[]>;
 function makeChain(terminal: ChainTerminal): Record<string, unknown> {
@@ -32,22 +35,13 @@ const dbInsert = jest.fn(() => makeChain(() => Promise.resolve([])));
 const dbUpdate = jest.fn(() => makeChain(() => Promise.resolve(nextUpdate())));
 
 const mockEvaluateRules = jest.fn();
-const mockFindActiveByOrgAndTarget = jest.fn();
-const mockLogComplianceCheck = jest.fn().mockResolvedValue(undefined);
-const mockNotifyComplianceBlock = jest.fn().mockResolvedValue(undefined);
+const mockFindActiveByOrgAndTarget = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockLogComplianceCheck = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
+const mockNotifyComplianceBlock = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 
-jest.mock('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  SYSTEM_ORG_ID: 'system',
-}));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.mock('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   schema: {
     complianceScan: { id: 'col_id', status: 'col_status', orgId: 'col_org' },
     complianceExemption: {},
@@ -64,25 +58,25 @@ jest.mock('@pipeline-builder/pipeline-core', () => ({
   }),
 }));
 
-jest.mock('../src/engine/rule-engine', () => ({
+jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({
   evaluateRules: mockEvaluateRules,
 }));
 
-jest.mock('../src/services/compliance-rule-service', () => ({
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
     findActiveByOrgAndTarget: mockFindActiveByOrgAndTarget,
   },
 }));
 
-jest.mock('../src/helpers/audit-logger', () => ({
+jest.unstable_mockModule('../src/helpers/audit-logger.js', () => ({
   logComplianceCheck: mockLogComplianceCheck,
 }));
 
-jest.mock('../src/helpers/compliance-notifier', () => ({
+jest.unstable_mockModule('../src/helpers/compliance-notifier.js', () => ({
   notifyComplianceBlock: mockNotifyComplianceBlock,
 }));
 
-import { executeScan } from '../src/helpers/scan-executor';
+const { executeScan } = await import('../src/helpers/scan-executor.js');
 
 describe('executeScan', () => {
   beforeEach(() => {
