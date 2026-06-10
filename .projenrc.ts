@@ -316,10 +316,12 @@ const aiCore = new PackageProject({
   devDeps: ['@types/node@25.9.2', `typescript@${typescriptVersion}`],
 });
 aiCore.eslint?.addRules(rules);
-// Marked private  workspace-only dependency for downstream services.
-// Never published to npm (its version stays at 0.0.0 and any publish run
-// otherwise fails with "Cannot publish over previously published version").
-addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.', { private: true });
+// Published to npm: the released pipeline-manager CLI hard-depends on ai-core
+// (its AI-provider registry), so it MUST ship in lockstep — otherwise consumers
+// of pipeline-manager can't resolve `@pipeline-builder/ai-core@<version>`.
+// Listed in LIBRARY_PROJECTS (projenrc/workflow.ts) so the release publishes it.
+aiCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
 
 // -- Pipeline Events (CodePipeline → Reporting Lambda) --
 const pipelineEvents = new PackageProject({
@@ -339,10 +341,12 @@ const pipelineEvents = new PackageProject({
   ],
 });
 pipelineEvents.eslint?.addRules(rules);
-// Marked private  Lambda handler bundled into a zip via `lambda.Code.fromAsset()`,
-// never consumed as an `@pipeline-builder/pipeline-events` npm import. Same
-// 0.0.0-version publish-skip pattern as `ai-core`.
-addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.', { private: true });
+// Published to npm: `pipeline-manager setup-events` runs `npm install
+// @pipeline-builder/pipeline-events@<version>` to fetch the Lambda handler it
+// uploads (see commands/setup-events.ts), so it must be on the registry and
+// version-synced. Listed in LIBRARY_PROJECTS (projenrc/workflow.ts).
+pipelineEvents.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
 
 // =============================================================================
 // Pipeline Manager CLI

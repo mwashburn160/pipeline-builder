@@ -135,7 +135,7 @@ jobs:
       - name: Compute affected library packages
         id: check
         env:
-          LIBRARY_PROJECTS: '["api-core","api-server","pipeline-core","pipeline-data","pipeline-manager"]'
+          LIBRARY_PROJECTS: '["api-core","ai-core","api-server","pipeline-core","pipeline-data","pipeline-events","pipeline-manager"]'
         run: AFFECTED=$(pnpm nx show projects --affected --json --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }}) && echo AFFECTED_LIBS=$(jq -nc --argjson a "$AFFECTED" --argjson l "$LIBRARY_PROJECTS" '[$a[] | sub("^@pipeline-builder/"; "") | select(IN($l[]))]') >> $GITHUB_OUTPUT
       - name: Publish npm packages
         if: ${{ steps.check.outputs.AFFECTED_LIBS != '[]' }}

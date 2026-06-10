@@ -46,12 +46,13 @@ const IMAGE_PROJECTS = ['frontend', 'platform', 'billing', 'reporting', 'complia
  * to decide whether to run `pnpm publish` at all — only triggers when at
  * least one of these is in the affected set.
  *
- * Excludes packages marked `"private": true` in `.projenrc.ts` (currently
- * `ai-core` and `pipeline-events` — both workspace-only). Adding a private
- * package here would cause publish runs to fire on its changes with nothing
- * to actually publish.
+ * Includes `ai-core` and `pipeline-events`: the published `pipeline-manager`
+ * CLI hard-depends on `ai-core`, and `setup-events` does `npm install
+ * @pipeline-builder/pipeline-events` at runtime — so both must publish in
+ * lockstep (they were previously private, which left `pipeline-manager` pinning
+ * versions that were never published → ETARGET on `npx pipeline-manager`).
  */
-const LIBRARY_PROJECTS = ['api-core', 'api-server', 'pipeline-core', 'pipeline-data', 'pipeline-manager'] as const;
+const LIBRARY_PROJECTS = ['api-core', 'ai-core', 'api-server', 'pipeline-core', 'pipeline-data', 'pipeline-events', 'pipeline-manager'] as const;
 
 /**
  * GitHub Actions workflow component for automated releases.
