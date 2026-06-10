@@ -172,14 +172,24 @@ describe('isTargetId', () => {
 });
 
 describe('checkPrereqs / prereqsSatisfied', () => {
-  it('local checks Docker', () => {
+  it('local checks Docker, Docker Compose, and yq (all setup.sh hard-requires)', () => {
     const checks = checkPrereqs('local');
-    expect(checks.map((c) => c.name)).toEqual(['Docker']);
+    expect(checks.map((c) => c.name)).toEqual(['Docker', 'Docker Compose', 'yq']);
+    expect(checks.every((c) => c.required)).toBe(true);
   });
-  it('ec2/fargate check the AWS CLI and credentials', () => {
+  it('minikube adds a yq check only when plugins are loaded', () => {
+    expect(checkPrereqs('minikube').map((c) => c.name)).not.toContain('yq');
+    expect(checkPrereqs('minikube', { withPlugins: true }).map((c) => c.name)).toContain('yq');
+  });
+  it('ec2 checks only the AWS CLI + credentials (instance self-bootstraps)', () => {
+    const names = checkPrereqs('ec2').map((c) => c.name);
+    expect(names).toEqual(['AWS CLI', 'AWS credentials']);
+  });
+  it('fargate additionally requires openssl (init-secrets.sh generates secrets locally)', () => {
     const names = checkPrereqs('fargate').map((c) => c.name);
     expect(names).toContain('AWS CLI');
     expect(names).toContain('AWS credentials');
+    expect(names).toContain('openssl');
   });
   it('prereqsSatisfied honors required vs advisory', () => {
     expect(prereqsSatisfied([{ name: 'x', ok: true, detail: '', required: true }])).toBe(true);

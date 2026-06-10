@@ -268,7 +268,7 @@ export function provision(program: Command): void {
           return;
         }
 
-        const prereqs = checkPrereqs(target, { bootstrap: wantBootstrap });
+        const prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
         const { command, missing } = assembleCommand(spec, params);
         const url = deriveHealthUrl(target, params);
 
