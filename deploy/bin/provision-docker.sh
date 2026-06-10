@@ -16,7 +16,7 @@ set -euo pipefail
 # or provision would block inside the container the same way it does on a bare host.
 #   ec2           : git, curl, unzip, AWS CLI v2                       (mounts ~/.aws ro)
 #   fargate       : ec2 set + openssl (init-secrets.sh generates secrets)
-#   local         : git, yq only — Docker + Docker Compose are EXTERNAL (Docker
+#   local         : git, yq, openssl — Docker + Docker Compose are EXTERNAL (Docker
 #                   Desktop provides both); reached via the mounted socket + host docker CLI.
 #   minikube      : host-side cluster — run on the host instead.
 
@@ -53,10 +53,12 @@ case "$TARGET" in
     # Docker + Docker Compose are EXTERNAL (host) requirements — NOT installed in
     # the slim image (you already have Docker on the host; that's what runs this
     # container). The container reaches the host's Docker via the mounted socket +
-    # the host's docker CLI and compose plugin. Only yq — a provision prereq the
-    # host may lack — is added here. (Linux host: the CLI mount works as-is. macOS:
-    # the Docker Desktop CLI is a mac binary that can't run in a Linux container —
-    # run local provisioning directly on the host there.)
+    # the host's docker CLI and compose plugin. yq + openssl ARE added: setup.sh
+    # needs yq (plugin/config generation) and openssl (the self-signed TLS cert +
+    # the registry JWT key — mkcert isn't in the container, so it always falls back
+    # to openssl). (Linux host: the CLI mount works as-is. macOS: the Docker Desktop
+    # CLI is a mac binary that can't run in a Linux container — run local on the host.)
+    apt="$apt openssl"
     extra='curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_$(dpkg --print-architecture)" -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq'
     mounts+=( -v /var/run/docker.sock:/var/run/docker.sock --network host )
     docker_bin="$(command -v docker || true)"

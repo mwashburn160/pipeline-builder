@@ -172,13 +172,15 @@ describe('isTargetId', () => {
 });
 
 describe('checkPrereqs / prereqsSatisfied', () => {
-  it('local checks Docker, Docker Compose, and yq (all setup.sh hard-requires)', () => {
+  it('local checks Docker, Docker Compose, yq, and openssl (all setup.sh hard-requires)', () => {
     const checks = checkPrereqs('local');
-    expect(checks.map((c) => c.name)).toEqual(['Docker', 'Docker Compose', 'yq']);
+    expect(checks.map((c) => c.name)).toEqual(['Docker', 'Docker Compose', 'yq', 'openssl']);
     expect(checks.every((c) => c.required)).toBe(true);
   });
-  it('minikube adds a yq check only when plugins are loaded', () => {
-    expect(checkPrereqs('minikube').map((c) => c.name)).not.toContain('yq');
+  it('minikube checks Docker/minikube/kubectl/openssl, and yq only with plugins', () => {
+    const base = checkPrereqs('minikube').map((c) => c.name);
+    expect(base).toEqual(['Docker', 'minikube', 'kubectl', 'openssl']);
+    expect(base).not.toContain('yq');
     expect(checkPrereqs('minikube', { withPlugins: true }).map((c) => c.name)).toContain('yq');
   });
   it('ec2 checks only the AWS CLI + credentials (instance self-bootstraps)', () => {

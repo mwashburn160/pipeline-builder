@@ -112,6 +112,12 @@ export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; with
       detail: has('yq') ? 'on PATH' : 'install yq (macOS: `brew install yq`) — setup.sh requires it',
       required: true,
     });
+    checks.push({
+      name: 'openssl',
+      ok: has('openssl'),
+      detail: has('openssl') ? 'on PATH' : 'install openssl — setup.sh generates the TLS cert + registry JWT key with it',
+      required: true,
+    });
     return checks;
   }
 
@@ -119,6 +125,8 @@ export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; with
     checks.push({ name: 'Docker', ok: dockerRunning(), detail: dockerRunning() ? 'daemon reachable' : 'install Docker and start the daemon', required: true });
     checks.push({ name: 'minikube', ok: has('minikube'), detail: has('minikube') ? 'on PATH' : 'install minikube', required: true });
     checks.push({ name: 'kubectl', ok: has('kubectl'), detail: has('kubectl') ? 'on PATH' : 'install kubectl', required: true });
+    // minikube's setup.sh generates the TLS cert + registry JWT key with openssl.
+    checks.push({ name: 'openssl', ok: has('openssl'), detail: has('openssl') ? 'on PATH' : 'install openssl — setup.sh generates the TLS cert + registry JWT key with it', required: true });
     // minikube's setup.sh doesn't need yq, but --with-plugins builds images
     // (build-plugin-images.sh / generate-plugins.sh) which do.
     if (opts.withPlugins) {

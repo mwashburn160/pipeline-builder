@@ -12,6 +12,7 @@ import { deriveHealthUrl, waitHealthy } from '../agent/health.js';
 import { resolvePostSteps } from '../agent/post-steps.js';
 import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied } from '../agent/prereqs.js';
 import { TOOLS_DIR, fetchTool, isFetchable, withToolsOnPath } from '../agent/tools.js';
+import { createEnvFile, envFileMissing } from '../agent/env-file.js';
 import {
   assembleCommand,
   isTargetId,
@@ -423,8 +424,19 @@ export function provision(program: Command): void {
             return;
           }
         }
+        // The target's .env must exist (local/minikube) — setup.sh aborts without
+        // it. Create from .env.example with generated secrets so the deploy is
+        // non-interactive. (ec2/fargate use AWS Secrets Manager, not a .env.)
+        if (envFileMissing(cwd, spec.dir)) {
+          if (await confirm(`\n${spec.dir}/.env not found — create it from .env.example (generates secrets; edit later for optional integrations like OAuth)?`, options.yes)) {
+            const n = createEnvFile(cwd, spec.dir);
+            printSuccess(`Created ${spec.dir}/.env — ${n} secret(s) generated.`);
+          } else {
+            printWarning('Continuing without .env — setup.sh will abort if it stays missing.');
+          }
+        }
         if (!(await confirm('\nProceed with this deploy?', options.yes))) {
-          printWarning('Aborted — nothing was executed.');
+          printWarning('No problem — nothing was changed.');
           return;
         }
 
