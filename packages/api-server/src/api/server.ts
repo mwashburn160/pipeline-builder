@@ -206,7 +206,13 @@ export function runServer(app: Express, options: StartServerOptions = {}): void 
   // process exits for the orchestrator to restart. No-op under NODE_ENV=test.
   installCrashHandlers(logger);
   startServer(app, options).catch((error) => {
-    logger.error('Failed to start server', { error });
+    // Log the message + stack explicitly: an Error in winston metadata serializes
+    // to `{}` (message/stack are non-enumerable), which hid the real cause (e.g.
+    // "Database connection failed") behind an empty `{error:{}}`.
+    logger.error('Failed to start server', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     process.exit(1);
   });
 }
