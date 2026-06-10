@@ -1,9 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { createRequire } from 'node:module';
 import winston from 'winston';
 
 const { combine, timestamp, printf, colorize, errors, json } = winston.format;
+
+// ESM has no global `require`; createRequire enables the synchronous, OPTIONAL
+// lazy-load of @opentelemetry/api in getCurrentTraceId() below — a winston
+// format callback must stay synchronous, so a dynamic import() won't work there.
+const require = createRequire(import.meta.url);
 
 /**
  * Custom log format for human-readable console output.

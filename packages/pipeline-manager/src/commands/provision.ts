@@ -1,16 +1,21 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
+import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 import { Command } from 'commander';
 import { diagnoseFailure, isAiConfigured, parseGoal } from '../agent/ai.js';
+import { bootstrapCommand, resolveBootstrap } from '../agent/bootstrap.js';
 import { entrypointExists, executionBlocked, runScript } from '../agent/executor.js';
 import { deriveHealthUrl, waitHealthy } from '../agent/health.js';
-import { checkPrereqs, prereqsSatisfied } from '../agent/prereqs.js';
+import { resolvePostSteps } from '../agent/post-steps.js';
+import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied } from '../agent/prereqs.js';
 import {
   assembleCommand,
   isTargetId,
+  LOAD_STEPS,
+  sparsePathsFor,
   TARGETS,
   TARGET_IDS,
   teardownCommand,
@@ -44,6 +49,11 @@ async function confirm(question: string, autoYes: boolean): Promise<boolean> {
   return answer === 'y' || answer === 'yes';
 }
 
+/** Commander collector: accumulate repeated `--post-step` values in order. */
+function collectStep(value: string, acc: string[]): string[] {
+  return [...acc, value];
+}
+
 /**
  * Redact secret param values (e.g. the ghcr token) from captured deploy output
  * before it is sent to the LLM for diagnosis. The deploy runs with secrets
@@ -62,11 +72,12 @@ function redactSecrets(text: string, spec: TargetSpec, params: Record<string, un
 }
 
 /**
- * Registers the `provision` command — an advisor that helps deploy the Pipeline
- * Builder PLATFORM (local/minikube/EC2/Fargate). Phase 1 is READ-ONLY: it checks
- * prerequisites, parses a natural-language goal (when an AI key is configured),
- * assembles the exact deploy command, and can diagnose a failure — but it never
- * executes anything (gated execution lands in a later phase).
+ * Registers the `provision` command — an AI-assisted installer for the Pipeline
+ * Builder PLATFORM (local/minikube/EC2/Fargate). Phase 1 is READ-ONLY (prereq
+ * checks, NL-goal parsing, command assembly, failure diagnosis); `--execute`
+ * gates a real deploy. With `--repo` it can bootstrap a fresh machine by sparsely
+ * cloning only the deploy folders the selected target + options need, then runs
+ * post-install steps (register admin, opt-in loads, smoke test, custom commands).
  *
  * @param program - The root Commander program instance to attach the command to.
  */
@@ -98,7 +109,22 @@ export function provision(program: Command): void {
     .option('--teardown', 'Tear down an existing deployment instead of creating one (gated; AWS targets require a typed confirmation)', false)
     .option('--stack-name <name>', 'Stack name (EC2) / stack prefix (Fargate) to tear down — defaults to the deploy default')
     .option('--force', 'Skip the teardown typed-confirmation (DANGEROUS — for CI/automation only)', false)
-    .option('--no-init', 'Skip the post-deploy init-platform step (local/minikube)')
+    .option('--no-init', 'Skip the post-deploy register/init-platform step')
+    // Bootstrap (sparse clone) — provision a fresh machine in one command.
+    .option('--repo [url]', 'Bootstrap: git-clone the platform repo first (sparse — only the needed deploy folders), then run from it (no value = the upstream default)')
+    .option('--ref <ref>', 'Git branch/tag to check out when bootstrapping (default: main)')
+    .option('--workdir <dir>', 'Directory to clone into / run from when bootstrapping (default: pipeline-builder)')
+    // Post-install loads — each opt-in step also adds its deploy folder to the sparse clone.
+    .option('--with-plugins', 'Post-install: build + load plugins (adds deploy/plugins, deploy/codebuild)', false)
+    .option('--with-compliance', 'Post-install: load sample compliance rules/policies (adds deploy/compliance)', false)
+    .option('--with-samples', 'Post-install: load sample pipelines (adds deploy/samples)', false)
+    .option('--with-all', 'Post-install: plugins + compliance + samples', false)
+    .option('--build-bootstrap', 'Build + publish the CodeBuild bootstrap image during register (adds deploy/codebuild)', false)
+    .option('--with-smoke-test', 'Post-install: read-only API reachability check', false)
+    .option('--with-events', 'Post-install: EventBridge ingestion via setup-events (AWS targets)', false)
+    .option('--post-step <cmd>', 'Run an extra command after the loads (repeatable, in order)', collectStep, [])
+    .option('--admin-email <addr>', 'Admin email for non-interactive register (sets PLATFORM_IDENTIFIER)')
+    .option('--admin-password <pw>', 'Admin password for non-interactive register (sets PLATFORM_PASSWORD)')
     .option('--json', 'Output the plan as JSON (never executes)', false)
     .action(async (options) => {
       const executionId = printCommandHeader('Provision (advisor)');
@@ -124,6 +150,22 @@ export function provision(program: Command): void {
           noCreateSesIdentity: options.skipSesIdentity,
         };
         const aiOpts = { provider: options.aiProvider, model: options.model };
+
+        // Bootstrap (sparse clone) + post-install selections.
+        const wantBootstrap = options.repo !== undefined && options.repo !== false;
+        const withAll = options.withAll === true;
+        const enabledLoadIds = LOAD_STEPS.filter((s) => withAll || options[s.flag] === true).map((s) => s.id);
+        const postStepFlags = {
+          init: options.init !== false,
+          buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
+          smokeTest: options.withSmokeTest === true,
+          events: options.withEvents === true,
+          steps: (options.postStep ?? []) as string[],
+        };
+        // Admin credentials forwarded as env so register runs non-interactively.
+        const adminEnv: Record<string, string> = {};
+        if (typeof options.adminEmail === 'string') adminEnv.PLATFORM_IDENTIFIER = options.adminEmail;
+        if (typeof options.adminPassword === 'string') adminEnv.PLATFORM_PASSWORD = options.adminPassword;
 
         // 2. Optionally parse a natural-language goal to fill any GAPS (best-effort).
         let target: TargetId | undefined = isTargetId(options.target) ? options.target : undefined;
@@ -175,7 +217,7 @@ export function provision(program: Command): void {
         }
 
         const spec = TARGETS[target];
-        const cwd = process.cwd();
+        let cwd = process.cwd();
 
         // 4b. Teardown mode — the destroy counterpart of provisioning. Gated harder
         // than deploy: AWS targets are irreversible, so we require the operator to
@@ -207,11 +249,11 @@ export function provision(program: Command): void {
           if (destructive && !options.force) {
             const token = await ask(`\nThis is IRREVERSIBLE. Type "${target}" to confirm teardown: `);
             if (token !== target) {
-              printWarning('Confirmation did not match — aborted. Nothing was destroyed.');
+              printWarning('That didn\'t match, so nothing was destroyed — you have to type the exact target id to confirm.');
               return;
             }
           } else if (!destructive && !options.force && !(await confirm('\nProceed with teardown (stops the stack; on-disk data persists)?', options.yes))) {
-            printWarning('Aborted — nothing was executed.');
+            printWarning('No problem — nothing was changed.');
             return;
           }
 
@@ -226,8 +268,26 @@ export function provision(program: Command): void {
           return;
         }
 
-        const prereqs = checkPrereqs(target);
+        const prereqs = checkPrereqs(target, { bootstrap: wantBootstrap });
         const { command, missing } = assembleCommand(spec, params);
+        const url = deriveHealthUrl(target, params);
+
+        // Sparse bootstrap clone command (common base + target + selected loads).
+        const sparsePaths = sparsePathsFor(target, enabledLoadIds);
+        const bootstrap = resolveBootstrap(
+          { repo: typeof options.repo === 'string' ? options.repo : undefined, ref: options.ref, workdir: options.workdir, full: !gitSupportsSparseCheckout() },
+          sparsePaths,
+        );
+        const bootstrapCmd = wantBootstrap ? bootstrapCommand(bootstrap) : null;
+
+        // Resolve post-install steps (register → smoke → events → custom).
+        const { steps: postSteps, skipped: skippedSteps } = resolvePostSteps({
+          target,
+          url,
+          region: typeof params.region === 'string' ? params.region : undefined,
+          enabledLoadIds,
+          ...postStepFlags,
+        });
 
         if (options.json) {
           console.log(JSON.stringify({
@@ -237,8 +297,11 @@ export function provision(program: Command): void {
             prereqs,
             prereqsSatisfied: prereqsSatisfied(prereqs),
             missingInputs: missing.map((m) => ({ flag: m.flag, description: m.description })),
+            bootstrap: bootstrapCmd,
+            sparsePaths: wantBootstrap ? sparsePaths : null,
             command,
-            postDeploy: spec.postDeploy ?? null,
+            postSteps: postSteps.map((s) => ({ id: s.id, label: s.label, command: s.command })),
+            skippedPostSteps: skippedSteps,
           }, null, 2));
           return;
         }
@@ -256,37 +319,96 @@ export function provision(program: Command): void {
           for (const m of missing) printInfo(`  --${m.flag}  (${m.description})`);
         }
 
+        if (bootstrapCmd) {
+          printSection('Bootstrap (sparse git clone, runs first)');
+          printInfo(`Clone ${bootstrap.repo} @ ${bootstrap.ref} → ${bootstrap.workdir}; folders: ${sparsePaths.join(', ')}`);
+          printInfo(bootstrapCmd);
+        }
+
         printSection('Command to run');
         printInfo(command);
 
+        if (postSteps.length > 0 || skippedSteps.length > 0) {
+          printSection('Post-install steps');
+          for (const s of postSteps) printInfo(`• ${s.label}\n    ${s.command}`);
+          for (const s of skippedSteps) printWarning(`skipped ${s.id}: ${s.reason}`);
+        }
+
         // 6. Advisor mode (default) — stop here, nothing executed.
         if (!options.execute) {
-          if (spec.postDeploy) {
-            printInfo('\nThen initialize the platform (register admin + load plugins):');
-            printInfo(`  ${spec.postDeploy}`);
-          }
           printWarning('\nAdvisor mode — nothing was executed. Re-run with --execute to deploy (gated by approval).');
           return;
         }
 
-        // 7. Gated execution.
-        if (!entrypointExists(spec, cwd)) {
-          printError(`Cannot find ${spec.dir}/${spec.entrypoint} from here. Run --execute from the pipeline-builder repo root.`);
+        // 7. Gated execution. Check prereqs / required inputs first — this also
+        // catches a missing `git` when bootstrapping.
+        const blocked = executionBlocked(prereqs, missing);
+        if (blocked) {
+          printError(`Can't start just yet — ${blocked}. Resolve that and re-run.`);
           process.exitCode = 1;
           return;
         }
-        const blocked = executionBlocked(prereqs, missing);
-        if (blocked) {
-          printError(`Refusing to execute — ${blocked}.`);
-          process.exitCode = 1;
-          return;
+
+        // 7a. Sparse-clone the platform repo, repoint cwd, and verify the tree.
+        // Shared by `--repo` (below) and the interactive offer in 7b. Returns
+        // false (and sets exitCode) on failure — with a friendly message.
+        const bootstrapClone = async (): Promise<boolean> => {
+          const cmd = bootstrapCommand(bootstrap);
+          printSection('Bootstrap');
+          printInfo(cmd);
+          const { code } = await runScript(cmd, cwd, { capture: false });
+          if (code !== 0) {
+            printError(`\nThe clone didn't finish (exit ${code}). Double-check the repo URL / ref (or your network) and give it another go.`);
+            process.exitCode = 1;
+            return false;
+          }
+          cwd = path.resolve(cwd, bootstrap.workdir);
+          printSuccess(`Repo is ready — continuing from ${cwd}`);
+          const absent = sparsePaths.filter((p) => !existsSync(path.join(cwd, p)));
+          if (absent.length > 0) {
+            printError(`\nThe sparse clone is missing ${absent.join(', ')} — that ref may not have those folders. Try a different --ref.`);
+            process.exitCode = 1;
+            return false;
+          }
+          return true;
+        };
+
+        // `--repo`: clone up front (must precede the entrypoint check).
+        if (bootstrapCmd) {
+          printInfo(`\nBootstrap → clone ${bootstrap.repo} @ ${bootstrap.ref} into ${bootstrap.workdir} (sparse).`);
+          if (!(await confirm('Go ahead with the clone?', options.yes))) {
+            printWarning('No problem — nothing was changed. Re-run whenever you\'re ready.');
+            return;
+          }
+          if (!(await bootstrapClone())) return;
+        }
+
+        // 7b. The deploy entrypoint must exist relative to cwd. If it doesn't and
+        // we haven't bootstrapped, gracefully OFFER to clone (interactive only),
+        // so a fresh machine can proceed without re-running with --repo.
+        if (!entrypointExists(spec, cwd)) {
+          const interactive = Boolean(process.stdin.isTTY) && !options.yes;
+          if (!bootstrapCmd && interactive && gitAvailable()) {
+            printInfo(`\nLooks like you're not inside a pipeline-builder checkout, so the ${spec.label} deploy scripts aren't here yet.`);
+            if (await confirm(`Want me to sparse-clone them into ${bootstrap.workdir} and keep going?`, false)) {
+              if (!(await bootstrapClone())) return;
+            }
+          }
+          if (!entrypointExists(spec, cwd)) {
+            printWarning(`\nI couldn't find ${spec.dir}/${spec.entrypoint} from ${cwd}.`);
+            printInfo('Two easy ways forward:');
+            printInfo('  • cd into your pipeline-builder checkout and re-run, or');
+            printInfo(`  • add --repo and I'll bootstrap a fresh sparse clone for you${gitAvailable() ? '.' : ' (once git is installed).'}`);
+            process.exitCode = 1;
+            return;
+          }
         }
         if (!(await confirm('\nProceed with this deploy?', options.yes))) {
           printWarning('Aborted — nothing was executed.');
           return;
         }
 
-        // 7a. Run the deploy out-of-loop (real command, secrets unmasked, streamed +
+        // 7c. Run the deploy out-of-loop (real command, secrets unmasked, streamed +
         // captured), with a bounded auto-fix + retry loop — the deploy scripts are
         // idempotent, so a fixed re-run resumes rather than starting over.
         const maxAttempts = 1 + Math.max(0, parseInt(options.retries, 10) || 0);
@@ -325,7 +447,7 @@ export function provision(program: Command): void {
         if (!succeeded) { process.exitCode = 1; return; }
         printSuccess('Deploy command completed.');
 
-        // 7b. SES post-deploy guidance (async DKIM + sandbox + bounce topic).
+        // 7d. SES post-deploy guidance (async DKIM + sandbox + bounce topic).
         // SES is provisioned BY DEFAULT on AWS deploys, so surface the guidance
         // for ec2/fargate unless the operator opted out with --no-email.
         const sesProvisioned = (target === 'ec2' || target === 'fargate') && runParams.noEmail !== true;
@@ -334,8 +456,7 @@ export function provision(program: Command): void {
           for (const line of sesPostDeployGuidance()) printInfo(`• ${line}`);
         }
 
-        // 7c. Verify health (CREATE_COMPLETE != serving).
-        const url = deriveHealthUrl(target, runParams);
+        // 7e. Verify health (CREATE_COMPLETE != serving).
         if (url) {
           printSection('Verifying health');
           printInfo(`Polling ${url}/health …`);
@@ -343,20 +464,35 @@ export function provision(program: Command): void {
           (health.healthy ? printSuccess : printWarning)(`${health.url} — ${health.detail}`);
         }
 
-        // 7d. Initialize the platform (register admin + load plugins).
-        if (options.init === false) {
-          printInfo('\nSkipped init-platform (--no-init). Run it later to register admin + load plugins.');
-        } else if (target === 'local' || target === 'minikube') {
-          if (await confirm('\nRun init-platform now (register admin + load plugins)?', options.yes)) {
-            printSection('Initializing platform');
-            await runScript(`./deploy/bin/init-platform.sh ${target}`, cwd);
-          } else {
-            printInfo(`\nLater: ./deploy/bin/init-platform.sh ${target}`);
+        // 7f. Post-install steps (register + opt-in loads, smoke test, events, custom).
+        // register runs init-platform; for EC2/Fargate it must run from inside the
+        // VPC, so we surface the command there instead of executing it locally.
+        if (postSteps.length > 0) {
+          for (const s of skippedSteps) printWarning(`Skipped post-step ${s.id}: ${s.reason}`);
+          const isRemoteRegister = (id: string): boolean => id === 'register' && (target === 'ec2' || target === 'fargate');
+          const runnable = postSteps.filter((s) => !isRemoteRegister(s.id));
+          for (const s of postSteps) {
+            if (isRemoteRegister(s.id)) {
+              printInfo('\nNext (run from inside the VPC): register admin + load plugins —');
+              printInfo(`  ${s.command}`);
+            }
           }
-        } else {
-          // EC2/Fargate: init must run from inside the VPC, not the operator machine.
-          printInfo('\nNext (from inside the VPC): register admin + load plugins —');
-          printInfo(`  ${spec.postDeploy}`);
+          if (runnable.length > 0 && await confirm(`\nRun ${runnable.length} post-install step(s) now?`, options.yes)) {
+            for (const s of runnable) {
+              printSection(`Post-step: ${s.label}`);
+              printInfo(s.command);
+              const env = s.id === 'register' ? { ...s.env, ...adminEnv } : s.env;
+              const { code } = await runScript(s.command, cwd, { capture: false, env });
+              if (code !== 0) {
+                printError(`\nPost-step '${s.id}' failed (exit ${code}). The platform is deployed; fix and re-run the step manually.`);
+                process.exitCode = 1;
+                break;
+              }
+              printSuccess(`${s.id} ✓`);
+            }
+          } else if (runnable.length > 0) {
+            printInfo('\nSkipped post-install steps. Run the commands above manually when ready.');
+          }
         }
       } catch (error) {
         handleError(error, ERROR_CODES.GENERAL, {

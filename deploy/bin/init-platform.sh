@@ -198,8 +198,14 @@ esac
 
 # Load plugins
 echo ""
-printf "Load plugins? [y/N] "
-read -r LOAD_PLUGINS
+# Env-overridable (LOAD_PLUGINS=y|n) for non-interactive / automated runs (e.g.
+# `pipeline-manager provision`); prompt only on a TTY when unset.
+LOAD_PLUGINS="${LOAD_PLUGINS:-}"
+if [ -z "$LOAD_PLUGINS" ] && [ -t 0 ]; then
+  printf "Load plugins? [y/N] "
+  read -r LOAD_PLUGINS
+fi
+LOAD_PLUGINS="${LOAD_PLUGINS:-n}"
 if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
 
   # ---- Plugin build strategy ----
@@ -298,8 +304,13 @@ fi
 
 # Load pipelines
 echo ""
-printf "Load sample pipelines? [y/N] "
-read -r LOAD_PIPELINES
+# Env-overridable (LOAD_PIPELINES=y|n) for non-interactive runs; prompt on a TTY when unset.
+LOAD_PIPELINES="${LOAD_PIPELINES:-}"
+if [ -z "$LOAD_PIPELINES" ] && [ -t 0 ]; then
+  printf "Load sample pipelines? [y/N] "
+  read -r LOAD_PIPELINES
+fi
+LOAD_PIPELINES="${LOAD_PIPELINES:-n}"
 if [ "$LOAD_PIPELINES" = "y" ] || [ "$LOAD_PIPELINES" = "Y" ]; then
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-pipelines.sh"
 else
@@ -308,8 +319,13 @@ fi
 
 # Load compliance rules and policy templates
 echo ""
-printf "Load sample compliance rules and policy templates? [y/N] "
-read -r LOAD_COMPLIANCE
+# Env-overridable (LOAD_COMPLIANCE=y|n) for non-interactive runs; prompt on a TTY when unset.
+LOAD_COMPLIANCE="${LOAD_COMPLIANCE:-}"
+if [ -z "$LOAD_COMPLIANCE" ] && [ -t 0 ]; then
+  printf "Load sample compliance rules and policy templates? [y/N] "
+  read -r LOAD_COMPLIANCE
+fi
+LOAD_COMPLIANCE="${LOAD_COMPLIANCE:-n}"
 if [ "$LOAD_COMPLIANCE" = "y" ] || [ "$LOAD_COMPLIANCE" = "Y" ]; then
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-compliance.sh"
 else

@@ -40,11 +40,11 @@ collectDefaultMetrics({ register: metricsRegistry });
 // setGauge in./observability/metrics) to this registry so call sites in
 // controllers + the periodic scraper publish to the same /metrics endpoint
 // exposed below.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { setMetricsRegistry } = require('./observability/metrics');
+// Deferred (post-registry) load via top-level await — keeps the original lazy
+// ordering (register the registry before the metrics module's call sites bind).
+const { setMetricsRegistry } = await import('./observability/metrics.js');
 setMetricsRegistry(metricsRegistry);
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { startPlatformMetricsScraper, stopPlatformMetricsScraper } = require('./observability/scraper');
+const { startPlatformMetricsScraper, stopPlatformMetricsScraper } = await import('./observability/scraper.js');
 startPlatformMetricsScraper();
 process.once('SIGTERM', () => stopPlatformMetricsScraper());
 
@@ -386,8 +386,7 @@ async function startServer(): Promise<void> {
     // so the loud WARN logs land before HTTP comes up — operator can see
     // immediately whether their bootstrap config landed. Idempotent + tolerant
     // of missing accounts (warns rather than fails).
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { bootstrapSuperAdmins } = require('./services/superadmin-bootstrap');
+    const { bootstrapSuperAdmins } = await import('./services/superadmin-bootstrap.js');
     try {
       await bootstrapSuperAdmins();
     } catch (err) {
@@ -400,8 +399,7 @@ async function startServer(): Promise<void> {
     // Must run AFTER Mongo connects (resolver reads Organization docs) but
     // BEFORE any code path can encrypt/decrypt a secret — i.e. before HTTP
     // listens. Idempotent; no-op when the env isn't set.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { bootstrapPerOrgKmsProvider } = require('./services/per-org-kms-bootstrap');
+    const { bootstrapPerOrgKmsProvider } = await import('./services/per-org-kms-bootstrap.js');
     try {
       bootstrapPerOrgKmsProvider();
     } catch (err) {
@@ -418,8 +416,7 @@ async function startServer(): Promise<void> {
     // idempotent (insert-if-missing per `(org_id='system', name)`) and logs
     // its own warnings on failure, so a transient Postgres outage at cold
     // start doesn't block HTTP from coming up.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { seedDefaultDashboards } = require('./services/dashboard-seeder');
+    const { seedDefaultDashboards } = await import('./services/dashboard-seeder.js');
     void seedDefaultDashboards();
 
     // Last-resort fault handlers: log + exit(1) on uncaught exception /

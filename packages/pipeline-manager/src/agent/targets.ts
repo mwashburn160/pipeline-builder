@@ -38,6 +38,11 @@ export interface TargetSpec {
   readonly required: readonly InputSpec[];
   /** Optional inputs, passed through only when provided. */
   readonly optional: readonly InputSpec[];
+  /**
+   * Repo folder(s) this target's deploy needs, for a sparse `--repo` bootstrap.
+   * Combined with COMMON_SPARSE_PATHS and any selected load steps' paths.
+   */
+  readonly sparsePaths: readonly string[];
   /** Post-deploy step to surface (registers admin + loads plugins). */
   readonly postDeploy?: string;
   /** Rough monthly cost (from docs). */
@@ -78,6 +83,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     label: 'Local (Docker Compose)',
     dir: 'deploy/local',
     entrypoint: 'bin/setup.sh',
+    sparsePaths: ['deploy/local'],
     required: [],
     optional: [],
     postDeploy: './deploy/bin/init-platform.sh local',
@@ -90,6 +96,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     label: 'Minikube (local Kubernetes)',
     dir: 'deploy/minikube',
     entrypoint: 'bin/setup.sh',
+    sparsePaths: ['deploy/minikube'],
     required: [],
     optional: [],
     postDeploy: './deploy/bin/init-platform.sh minikube',
@@ -102,6 +109,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     label: 'AWS EC2 (single Minikube instance behind an ALB)',
     dir: 'deploy/aws/ec2',
     entrypoint: 'bin/setup.sh',
+    sparsePaths: ['deploy/aws/ec2'],
     required: [KEY_PAIR, DOMAIN, HOSTED_ZONE],
     optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, INSTANCE_TYPE, ...EMAIL],
     postDeploy: './deploy/bin/init-platform.sh ec2  # from inside the VPC (SSM)',
@@ -114,6 +122,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     label: 'AWS Fargate (serverless ECS, 6 CloudFormation stacks)',
     dir: 'deploy/aws/fargate',
     entrypoint: 'bin/setup.sh',
+    sparsePaths: ['deploy/aws/fargate'],
     required: [DOMAIN, HOSTED_ZONE],
     optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, ...EMAIL],
     postDeploy: './deploy/bin/init-platform.sh fargate  # from a VPC-attached host',
@@ -127,6 +136,43 @@ export const TARGET_IDS: readonly TargetId[] = ['local', 'minikube', 'ec2', 'far
 
 export function isTargetId(value: unknown): value is TargetId {
   return typeof value === 'string' && (TARGET_IDS as readonly string[]).includes(value);
+}
+
+// --- Sparse bootstrap paths -------------------------------------------------
+
+/**
+ * Folders every `--repo` bootstrap needs regardless of target: the orchestration
+ * scripts. Each target's setup.sh + init-platform.sh live in / drive these.
+ * Deliberately minimal — heavier folders (plugins/compliance/samples) are pulled
+ * in only when their post-install option is selected (see LOAD_STEPS).
+ */
+export const COMMON_SPARSE_PATHS: readonly string[] = ['deploy/bin'];
+
+/**
+ * Opt-in post-install load steps. Each maps a provision `--with-*` flag to the
+ * init-platform env var that enables it AND the repo folder(s) it reads — so the
+ * sparse checkout grows exactly with the selected options.
+ */
+export const LOAD_STEPS = [
+  // The plugin build reads deploy/plugins/_base AND deploy/codebuild/bootstrap.
+  { id: 'plugins', flag: 'withPlugins', env: 'LOAD_PLUGINS', paths: ['deploy/plugins', 'deploy/codebuild'] },
+  { id: 'compliance', flag: 'withCompliance', env: 'LOAD_COMPLIANCE', paths: ['deploy/compliance'] },
+  { id: 'samples', flag: 'withSamples', env: 'LOAD_PIPELINES', paths: ['deploy/samples'] },
+] as const;
+
+export type LoadStepId = (typeof LOAD_STEPS)[number]['id'];
+
+/**
+ * The de-duplicated set of sparse paths for a target plus the enabled load
+ * steps: common base ∪ target folder(s) ∪ each enabled step's folder(s).
+ */
+export function sparsePathsFor(target: TargetId, enabledLoadIds: readonly string[]): string[] {
+  const paths = new Set<string>(COMMON_SPARSE_PATHS);
+  for (const p of TARGETS[target].sparsePaths) paths.add(p);
+  for (const step of LOAD_STEPS) {
+    if (enabledLoadIds.includes(step.id)) for (const p of step.paths) paths.add(p);
+  }
+  return [...paths];
 }
 
 export interface AssembleResult {

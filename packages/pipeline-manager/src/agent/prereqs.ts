@@ -47,12 +47,43 @@ function awsIdentity(): string | null {
   return read('aws sts get-caller-identity --query Account --output text');
 }
 
+/** Parsed `git --version` as [major, minor], or null if git is absent/unparseable. */
+function gitVersion(): [number, number] | null {
+  const out = read('git --version');
+  const m = out?.match(/(\d+)\.(\d+)/);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+/** True when git is on PATH (required to bootstrap a clone at all). */
+export function gitAvailable(): boolean {
+  return gitVersion() !== null;
+}
+
+/**
+ * Cone `sparse-checkout` (+ `--filter=blob:none`) needs git ≥ 2.27. Below that,
+ * the bootstrap falls back to a (correct, just larger) full clone.
+ */
+export function gitSupportsSparseCheckout(): boolean {
+  const v = gitVersion();
+  return v !== null && (v[0] > 2 || (v[0] === 2 && v[1] >= 27));
+}
+
 /**
  * Run the read-only prerequisite checks for a target. Pure inspection — safe to
  * run unconditionally (Phase-1 advisor calls this before assembling the command).
  */
-export function checkPrereqs(target: TargetId): PrereqCheck[] {
+export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean } = {}): PrereqCheck[] {
   const checks: PrereqCheck[] = [];
+
+  // `--repo` bootstrap git-clones the platform repo first → git is required. A
+  // git below 2.27 still works (full-clone fallback), so the version is advisory.
+  if (opts.bootstrap) {
+    const v = gitVersion();
+    checks.push({ name: 'git', ok: v !== null, detail: v ? `on PATH (${v[0]}.${v[1]})` : 'install git', required: true });
+    if (v !== null && !gitSupportsSparseCheckout()) {
+      checks.push({ name: 'git ≥ 2.27', ok: false, detail: 'sparse clone needs git ≥ 2.27 — falling back to a full clone', required: false });
+    }
+  }
 
   if (target === 'local') {
     checks.push({

@@ -42,11 +42,22 @@ pipeline-manager provision --target fargate \
 
 # Tear it down (AWS targets prompt you to TYPE the target id to confirm):
 pipeline-manager provision --target fargate --teardown --execute
+
+# Bootstrap a fresh machine — sparse-clones ONLY the deploy folders this target
+# + options need (here: deploy/bin + deploy/local), then deploys + registers:
+pipeline-manager provision --target local --repo --execute --yes \
+  --admin-email admin@acme.com --admin-password 's3cret'
+
+# Add post-install loads (each also adds its folder to the sparse clone):
+pipeline-manager provision --target local --repo --with-all --with-smoke-test --execute
 ```
 
 - **Advise → execute → teardown.** Default is read-only. `--execute` deploys — it refuses on failed prerequisites or missing inputs, then verifies health and offers to run `init-platform`. `--teardown` removes a deployment (`local`/`minikube` stop the stack; **EC2/Fargate delete their CloudFormation stacks irreversibly** and require typing the target id to confirm — `--force` skips it for CI).
 - **Self-healing.** On a failed deploy it matches known CloudFormation issues (cause + fix) and can auto-fix + retry a few — e.g. an existing SES identity → re-run with `--skip-ses-identity`. Gated and bounded by `--retries` (the scripts are idempotent, so a re-run resumes).
 - **AI-optional.** Set `ANTHROPIC_API_KEY` (or `AI_PROVIDER` + its key) to parse a natural-language `--prompt` and add free-form failure diagnosis; without a key it falls back to the deterministic advisor + issue matcher.
+- **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first, then runs from it. The clone is **sparse + partial** (`--filter=blob:none` + cone `sparse-checkout`, git ≥ 2.27 — else a full-clone fallback): it materializes only the deploy folders the selected target + options need. The common base is just `deploy/bin`; each target adds its own folder (e.g. `deploy/local`; minikube is self-contained), and each post-install load adds its folder. Re-syncs are **additive** — a single `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`.
+- **Run in Docker, zero host installs.** Don't want `git`/`yq`/AWS CLI on your machine? [`deploy/bin/provision-docker.sh`](../../deploy/bin/provision-docker.sh) runs `provision` inside a throwaway `node:24-slim` container, installing only the tools the chosen target needs (ec2/fargate → git + AWS CLI, mounts `~/.aws`; local → git + yq + docker CLI via the shared daemon). Host footprint = just Docker. Args pass straight through: `deploy/bin/provision-docker.sh --target fargate --repo --domain … --execute --yes`.
+- **Post-install steps.** After deploy + health, `provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`) and runs opt-in loads — `--with-plugins` (adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Plus `--with-smoke-test` (read-only API check), `--with-events` (AWS EventBridge ingestion), and repeatable `--post-step "<cmd>"`. Default is register-only; `--no-init` skips even that. All steps are idempotent, so re-running with more options just layers them on.
 
 The underlying `bin/setup.sh` / `bin/teardown.sh` scripts remain the source of truth and can always be run directly. Full guide: [AWS deployment → AI-assisted install](https://mwashburn160.github.io/pipeline-builder/docs/aws-deployment#ai-assisted-install-provision).
 
@@ -56,7 +67,7 @@ The underlying `bin/setup.sh` / `bin/teardown.sh` scripts remain the source of t
 
 | Command | Purpose |
 | --- | --- |
-| `provision` | Install (or tear down) the **platform** on local/Minikube/EC2/Fargate: prereq checks + assembles the exact `bin/setup.sh` command; `--execute` runs it (gated, then verifies health + `init-platform`), `--teardown` removes it. On failure it diagnoses + auto-fixes/retries known issues. See [Install the platform](#install-the-platform-provision). |
+| `provision` | Install (or tear down) the **platform** on local/Minikube/EC2/Fargate: prereq checks + assembles the exact `bin/setup.sh` command; `--execute` runs it (gated, then verifies health + post-install steps). `--repo` bootstraps a fresh machine via a **sparse** clone of only the needed deploy folders; `--with-plugins`/`--with-compliance`/`--with-samples`/`--with-all`/`--with-smoke-test`/`--with-events`/`--post-step` add post-install steps; `--teardown` removes it. On failure it diagnoses + auto-fixes/retries known issues. See [Install the platform](#install-the-platform-provision). |
 
 ### Project lifecycle
 

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { createRequire } from 'node:module';
 import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, getOrgId, createHealthRouter, setCounterEmitter } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants, getConnection } from '@pipeline-builder/pipeline-core';
@@ -260,6 +261,9 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     // Use Redis store when available for shared state across instances
     if (options.redisUrl) {
       try {
+        // ESM has no global `require`; createRequire loads the optional redis
+        // deps synchronously here (only when a redisUrl is configured).
+        const require = createRequire(import.meta.url);
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { RedisStore } = require('rate-limit-redis');
         // eslint-disable-next-line @typescript-eslint/no-require-imports

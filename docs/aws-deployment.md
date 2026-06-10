@@ -78,6 +78,16 @@ pipeline-manager provision --target fargate --diagnose ./stack-events.txt
 > # Execute (prompts: type "fargate" to confirm):
 > pipeline-manager provision --target fargate --teardown --execute
 > ```
+>
+> **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first and runs from it. The clone is **sparse + partial** — `git clone --filter=blob:none --no-checkout` + cone `sparse-checkout` (git ≥ 2.27; older git falls back to a full clone) — so it materializes **only the deploy folders the selected target + options need**, not the whole repo (`packages/`, `api/`, `frontend/`, … are never downloaded). The common base is just `deploy/bin`; each target adds its own folder (`deploy/local`, `deploy/minikube` — self-contained — `deploy/aws/ec2`, `deploy/aws/fargate`), and each post-install load adds its folder. Re-syncs are **additive** (`sparse-checkout add`), so one `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`. (`--ref` is a branch/tag; arbitrary SHAs may not fetch under the shallow clone.)
+>
+> **Post-install steps.** After deploy + health, `provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EventBridge ingestion via `setup-events`, EC2/Fargate), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. (EC2/Fargate register must run from inside the VPC, so it's surfaced rather than auto-run.)
+>
+> ```bash
+> # Fresh box → sparse-clone just deploy/bin + deploy/local, deploy, register, load samples:
+> pipeline-manager provision --target local --repo --with-samples --execute --yes \
+>   --admin-email admin@acme.com --admin-password 's3cret'
+> ```
 
 The underlying `bin/setup.sh` scripts remain the source of truth and can always be run directly — the rest of this guide documents them.
 

@@ -2,6 +2,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { program } from 'commander';
 import { auditStacks } from './commands/audit-stacks.js';
 import { auditTokens } from './commands/audit-tokens.js';
@@ -464,9 +466,14 @@ export function main(options: CliOptions = {}): void {
 }
 
 /**
- * Run CLI if executed directly
+ * Run CLI if executed directly. ESM has no `require.main`; compare the invoked
+ * script to this module's path, resolving symlinks on both sides so the `bin`
+ * symlink (node_modules/.bin/pipeline-manager → dist/cli.js) still matches.
  */
-if (require.main === module) {
+const invokedScript = process.argv[1];
+const isMainModule = invokedScript !== undefined
+  && realpathSync(invokedScript) === realpathSync(fileURLToPath(import.meta.url));
+if (isMainModule) {
   // Parse CLI options from environment or command line
   const options: CliOptions = {
     debug: process.env.DEBUG === 'true',

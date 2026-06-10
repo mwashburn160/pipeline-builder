@@ -9,6 +9,12 @@
  * server contexts.
  */
 
+import { createRequire } from 'node:module';
+
+// ESM has no global `require`; createRequire enables the synchronous, OPTIONAL
+// lazy-load of prom-client below (no-op stubs when it isn't installed).
+const require = createRequire(import.meta.url);
+
 interface Counter { inc(labels?: Record<string, string>, value?: number): void }
 interface Histogram { observe(labels: Record<string, string>, value: number): void }
 

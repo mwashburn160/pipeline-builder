@@ -43,17 +43,24 @@ export interface RunResult {
 /**
  * Run a shell command from `cwd`, streaming to the terminal. With `capture`,
  * stdout/stderr are tee'd and the tail retained (for diagnosis); without it,
- * stdio is fully inherited so interactive prompts work (init-platform).
+ * stdio is fully inherited so interactive prompts work (init-platform). `env` is
+ * merged over `process.env` for the child (e.g. the register step's load flags
+ * and admin creds — kept out of the displayed command so secrets never print).
  */
-export function runScript(command: string, cwd: string, opts: { capture?: boolean } = {}): Promise<RunResult> {
+export function runScript(
+  command: string,
+  cwd: string,
+  opts: { capture?: boolean; env?: Record<string, string> } = {},
+): Promise<RunResult> {
+  const childEnv = opts.env ? { ...process.env, ...opts.env } : process.env;
   return new Promise((resolve) => {
     if (!opts.capture) {
-      const child = spawn('bash', ['-lc', command], { cwd, stdio: 'inherit' });
+      const child = spawn('bash', ['-lc', command], { cwd, stdio: 'inherit', env: childEnv });
       child.on('close', (code) => resolve({ code: code ?? 1, tail: '' }));
       child.on('error', () => resolve({ code: 1, tail: '' }));
       return;
     }
-    const child = spawn('bash', ['-lc', command], { cwd, stdio: ['inherit', 'pipe', 'pipe'] });
+    const child = spawn('bash', ['-lc', command], { cwd, stdio: ['inherit', 'pipe', 'pipe'], env: childEnv });
     let tail = '';
     const cap = (chunk: Buffer): void => {
       process.stdout.write(chunk);
