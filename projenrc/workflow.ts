@@ -90,8 +90,8 @@ export class Workflow extends Component {
         workflow.addJobs({
             init: this.createInitJob(),                  // Stage 1: Detect affected projects
             build: this.createBuildJob(),                // Stage 2: Build and publish libraries
-            publish: this.createPublishJob(),            // Stage 3: Build and push Docker images
-            verify_images: this.createVerifyImagesJob(), // Stage 4: Fail if a deploy manifest references an unpublished image
+            publish: this.createPublishJob(),              // Stage 3: Build and push Docker images
+            verify_release: this.createVerifyReleaseJob(), // Stage 4: Fail if a published npm dep / deploy image tag isn't actually published
         });
     }
 
@@ -418,31 +418,39 @@ export class Workflow extends Component {
     }
 
     /**
-     * Release gate: every `ghcr.io/mwashburn160/<svc>:<version>` referenced under
-     * deploy/** must actually be published on GHCR. Runs AFTER the image push (so
-     * just-pushed tags exist) and fails the run if a manifest points at an
-     * unpublished tag — the "sync-ahead-of-publish" gap that left e.g.
-     * compliance:3.4.78 dangling. Catches it at release time instead of at deploy.
+     * Release gate: every published artifact's pinned versions must actually
+     * resolve, catching "published-ahead-of-its-dependency" gaps at release time
+     * instead of at install/deploy.
+     *  - npm: each published `@pipeline-builder/*` package's internal dep versions
+     *    must exist on the registry (the gap that 404'd `pipeline-core@<ver>` /
+     *    `ai-core@<ver>` on `npm i`). Runs after `build` (which `pnpm publish`es).
+     *  - images: every `ghcr.io/mwashburn160/<svc>:<version>` referenced under
+     *    deploy/** must exist on GHCR (the gap that left `compliance:3.4.78`
+     *    dangling). Runs after `publish` (the image push).
      *
      * @returns Job configuration object
      */
-    private createVerifyImagesJob() {
+    private createVerifyReleaseJob() {
         return {
-            name: 'verify image tags',
-            needs: ['init', 'publish'],
+            name: 'verify release',
+            needs: ['init', 'build', 'publish'],
             runsOn: ['ubuntu-latest'],
             permissions: {
                 contents: JobPermission.READ,
                 packages: JobPermission.READ,
             },
-            // Run when images published OR when publish was skipped (no affected
-            // images) — a stale manifest tag is still caught. Skip only if an
+            // Run after build + publish whether they succeeded OR were skipped
+            // (nothing affected) — stale refs are still caught. Skip only if an
             // upstream job failed or was cancelled.
-            if: '${{ always() && needs.init.result == \'success\' && needs.publish.result != \'failure\' && needs.publish.result != \'cancelled\' }}',
+            if: '${{ always() && needs.init.result == \'success\' && needs.build.result != \'failure\' && needs.build.result != \'cancelled\' && needs.publish.result != \'failure\' && needs.publish.result != \'cancelled\' }}',
             steps: [
                 {
                     name: 'Checkout repository',
                     uses: 'actions/checkout@v6',
+                },
+                {
+                    name: 'Verify published npm package deps resolve',
+                    run: 'bash deploy/bin/verify-npm-deps.sh',
                 },
                 {
                     name: 'Verify deploy image tags are published on ghcr.io',

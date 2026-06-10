@@ -259,19 +259,22 @@ jobs:
       fail-fast: false
       matrix:
         project_name: ${{ fromJson(needs.init.outputs.AFFECTED_IMAGES) }}
-  verify_images:
-    name: verify image tags
+  verify_release:
+    name: verify release
     needs:
       - init
+      - build
       - publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
-    if: ${{ always() && needs.init.result == 'success' && needs.publish.result != 'failure' && needs.publish.result != 'cancelled' }}
+    if: ${{ always() && needs.init.result == 'success' && needs.build.result != 'failure' && needs.build.result != 'cancelled' && needs.publish.result != 'failure' && needs.publish.result != 'cancelled' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+      - name: Verify published npm package deps resolve
+        run: bash deploy/bin/verify-npm-deps.sh
       - name: Verify deploy image tags are published on ghcr.io
         env:
           GHCR_TOKEN: ${{ secrets.GHRC_TOKEN }}
