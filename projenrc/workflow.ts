@@ -433,6 +433,7 @@ export class Workflow extends Component {
             runsOn: ['ubuntu-latest'],
             permissions: {
                 contents: JobPermission.READ,
+                packages: JobPermission.READ,
             },
             // Run when images published OR when publish was skipped (no affected
             // images) — a stale manifest tag is still caught. Skip only if an
@@ -446,6 +447,11 @@ export class Workflow extends Component {
                 {
                     name: 'Verify deploy image tags are published on ghcr.io',
                     run: 'bash deploy/bin/verify-image-tags.sh',
+                    // Authenticate the GHCR token endpoint to dodge anonymous rate limits.
+                    env: {
+                        GHCR_TOKEN: '${{ secrets.GHRC_TOKEN }}',
+                        GHCR_USER: '${{ github.actor }}',
+                    },
                 },
             ],
         };

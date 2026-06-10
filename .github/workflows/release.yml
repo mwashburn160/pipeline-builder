@@ -267,9 +267,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
     if: ${{ always() && needs.init.result == 'success' && needs.publish.result != 'failure' && needs.publish.result != 'cancelled' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
       - name: Verify deploy image tags are published on ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GHRC_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
         run: bash deploy/bin/verify-image-tags.sh

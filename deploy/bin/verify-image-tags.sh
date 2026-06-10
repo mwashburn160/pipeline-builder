@@ -11,10 +11,18 @@ set -euo pipefail
 #   deploy/bin/verify-image-tags.sh [owner]        # default owner: mwashburn160
 #
 # Exit codes: 0 = every referenced tag exists · 1 = one or more missing · 2 = no refs.
-# Public images need no auth (an anonymous pull token is enough).
+# Public images work anonymously; to dodge GHCR's anonymous pull-token rate limits
+# (useful in CI / for a long image list), export a token — GHCR_TOKEN or GITHUB_TOKEN
+# (and optionally GHCR_USER / GITHUB_ACTOR for the username; any value works for ghcr,
+# the token is what counts).
 
 OWNER="${1:-mwashburn160}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# Optional auth for the GHCR token endpoint (higher rate limits than anonymous).
+TOKEN="${GHCR_TOKEN:-${GITHUB_TOKEN:-}}"
+AUTH=()
+[ -n "$TOKEN" ] && AUTH=(-u "${GHCR_USER:-${GITHUB_ACTOR:-ghcr}}:${TOKEN}")
 
 # Distinct semver-pinned ghcr refs across compose / k8s / CloudFormation under deploy/.
 mapfile -t REFS < <(
@@ -30,8 +38,12 @@ echo "Verifying ${#REFS[@]} deploy image tag(s) against ghcr.io …"
 MISSING=()
 for ref in "${REFS[@]}"; do
   repo="${ref#ghcr.io/${OWNER}/}"; tag="${repo##*:}"; repo="${repo%%:*}"
-  tok="$(curl -fsSL "https://ghcr.io/token?scope=repository:${OWNER}/${repo}:pull" \
-    | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
+  tok="$(curl -fsSL "${AUTH[@]}" "https://ghcr.io/token?scope=repository:${OWNER}/${repo}:pull" 2>/dev/null \
+    | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || true)"
+  if [ -z "$tok" ]; then
+    echo "ERROR: could not obtain a GHCR pull token for ${OWNER}/${repo} — check GHCR_TOKEN / network." >&2
+    exit 2
+  fi
   code="$(curl -fsS -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${tok}" \
     -H 'Accept: application/vnd.oci.image.index.v1+json' \
