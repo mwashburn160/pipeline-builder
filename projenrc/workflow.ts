@@ -247,13 +247,24 @@ export class Workflow extends Component {
                     run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && pnpm publish --access public $FILTERS --no-git-checks --verbose',
                 },
                 {
+                    // `nx affected` only builds frontend when it's in the affected set,
+                    // so `.next/standalone` is often absent on a given run. hashFiles()
+                    // THROWS ("Fail to hash files under directory") when its globbed
+                    // directory doesn't exist — it does NOT return '' — which fails
+                    // template evaluation. Gate on a plain directory test instead, which
+                    // never throws.
+                    name: 'Check for frontend standalone bundle',
+                    id: 'fe_bundle',
+                    run: 'if [ -d ./frontend/.next/standalone ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi',
+                },
+                {
                     // actions/upload-artifact dereferences symlinks, which breaks the
                     // Next.js standalone bundle (its node_modules uses pnpm-style symlinks
                     // — e.g. frontend/node_modules/next → ../../node_modules/.pnpm/next@…
                     // — and Node resolves @swc/helpers via the symlink target's .pnpm
                     // peers). Tar manually with --dereference NOT set so symlinks survive.
                     name: 'Package frontend bundle (preserves symlinks)',
-                    if: 'hashFiles(\'./frontend/.next/standalone/**\') != \'\'',
+                    if: 'steps.fe_bundle.outputs.exists == \'true\'',
                     run: 'tar -czf frontend-bundle.tar.gz -C ./frontend .next/standalone .next/static',
                 },
                 {

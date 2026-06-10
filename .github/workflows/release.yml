@@ -140,8 +140,11 @@ jobs:
       - name: Publish npm packages
         if: ${{ steps.check.outputs.AFFECTED_LIBS != '[]' }}
         run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo '${{ steps.check.outputs.AFFECTED_LIBS }}' | jq -r '[.[] | "--filter @pipeline-builder/" + .] | join(" ")') && pnpm publish --access public $FILTERS --no-git-checks --verbose
+      - name: Check for frontend standalone bundle
+        id: fe_bundle
+        run: if [ -d ./frontend/.next/standalone ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
       - name: Package frontend bundle (preserves symlinks)
-        if: hashFiles('./frontend/.next/standalone/**') != ''
+        if: steps.fe_bundle.outputs.exists == 'true'
         run: tar -czf frontend-bundle.tar.gz -C ./frontend .next/standalone .next/static
       - name: Upload artifact
         uses: actions/upload-artifact@v7
