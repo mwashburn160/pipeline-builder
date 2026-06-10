@@ -259,3 +259,17 @@ jobs:
       fail-fast: false
       matrix:
         project_name: ${{ fromJson(needs.init.outputs.AFFECTED_IMAGES) }}
+  verify_images:
+    name: verify image tags
+    needs:
+      - init
+      - publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: ${{ always() && needs.init.result == 'success' && needs.publish.result != 'failure' && needs.publish.result != 'cancelled' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Verify deploy image tags are published on ghcr.io
+        run: bash deploy/bin/verify-image-tags.sh

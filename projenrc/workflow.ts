@@ -86,11 +86,12 @@ export class Workflow extends Component {
         // Trigger: Manual workflow dispatch only (no automatic triggers)
         workflow.on({ workflowDispatch: {} });
 
-        // Define the three-stage workflow
+        // Define the four-stage workflow
         workflow.addJobs({
-            init: this.createInitJob(),       // Stage 1: Detect affected projects
-            build: this.createBuildJob(),     // Stage 2: Build and publish libraries
-            publish: this.createPublishJob(), // Stage 3: Build and push Docker images
+            init: this.createInitJob(),                  // Stage 1: Detect affected projects
+            build: this.createBuildJob(),                // Stage 2: Build and publish libraries
+            publish: this.createPublishJob(),            // Stage 3: Build and push Docker images
+            verify_images: this.createVerifyImagesJob(), // Stage 4: Fail if a deploy manifest references an unpublished image
         });
     }
 
@@ -411,6 +412,40 @@ export class Workflow extends Component {
                         REGISTRY: 'ghcr.io/mwashburn160',
                         PROJECT_NAME: '${{ matrix.project_name }}',
                     },
+                },
+            ],
+        };
+    }
+
+    /**
+     * Release gate: every `ghcr.io/mwashburn160/<svc>:<version>` referenced under
+     * deploy/** must actually be published on GHCR. Runs AFTER the image push (so
+     * just-pushed tags exist) and fails the run if a manifest points at an
+     * unpublished tag — the "sync-ahead-of-publish" gap that left e.g.
+     * compliance:3.4.78 dangling. Catches it at release time instead of at deploy.
+     *
+     * @returns Job configuration object
+     */
+    private createVerifyImagesJob() {
+        return {
+            name: 'verify image tags',
+            needs: ['init', 'publish'],
+            runsOn: ['ubuntu-latest'],
+            permissions: {
+                contents: JobPermission.READ,
+            },
+            // Run when images published OR when publish was skipped (no affected
+            // images) — a stale manifest tag is still caught. Skip only if an
+            // upstream job failed or was cancelled.
+            if: '${{ always() && needs.init.result == \'success\' && needs.publish.result != \'failure\' && needs.publish.result != \'cancelled\' }}',
+            steps: [
+                {
+                    name: 'Checkout repository',
+                    uses: 'actions/checkout@v6',
+                },
+                {
+                    name: 'Verify deploy image tags are published on ghcr.io',
+                    run: 'bash deploy/bin/verify-image-tags.sh',
                 },
             ],
         };

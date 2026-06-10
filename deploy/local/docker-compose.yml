@@ -536,7 +536,7 @@ services:
           memory: 192M
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:3.4.78'
+    image: 'ghcr.io/mwashburn160/compliance:3.4.77'
     container_name: compliance
     restart: always
     stop_grace_period: 10s
