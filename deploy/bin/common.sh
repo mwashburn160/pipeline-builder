@@ -245,7 +245,8 @@ wait_for_health() {
 # prompt_credentials — prompt for identifier/password if not already set
 #   Sets PLATFORM_IDENTIFIER and PLATFORM_PASSWORD
 #
-#   - Password read with `-s` so it doesn't echo to the terminal.
+#   - Password is masked with `*` per keystroke (so input is visible as feedback
+#     without echoing the value); a piped/non-interactive stdin uses a silent read.
 #   - Default identifier (`admin@internal`) is shown in the prompt only on
 #     the `local` deploy target — for ec2/fargate/minikube, the operator is
 #     forced to type a value to avoid accidentally creating a production
@@ -272,7 +273,26 @@ prompt_credentials() {
 
   if [ -z "${PLATFORM_PASSWORD:-}" ]; then
     printf "Password: "
-    read -rs PLATFORM_PASSWORD
+    # Echo a `*` per keystroke so the user can see input is registering (plain
+    # `read -s` shows nothing at all). Handles backspace; the value itself never
+    # echoes. Non-interactive stdin (pipe) falls back to a silent read.
+    if [ -t 0 ]; then
+      PLATFORM_PASSWORD=''
+      local _ch
+      while IFS= read -rsn1 _ch; do
+        case "$_ch" in
+          '') break ;;                                   # Enter
+          $'\177'|$'\b')                                  # Backspace / Delete
+            if [ -n "$PLATFORM_PASSWORD" ]; then
+              PLATFORM_PASSWORD="${PLATFORM_PASSWORD%?}"
+              printf '\b \b'
+            fi ;;
+          *) PLATFORM_PASSWORD="${PLATFORM_PASSWORD}${_ch}"; printf '*' ;;
+        esac
+      done
+    else
+      read -rs PLATFORM_PASSWORD
+    fi
     printf "\n"
     if [ -z "$PLATFORM_PASSWORD" ]; then
       if [ "$_is_local" = true ]; then

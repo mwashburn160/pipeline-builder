@@ -233,8 +233,9 @@ For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, 
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
-pipeline-manager provision --target local              # advisor: prints the command
-pipeline-manager provision --target local --execute    # run it (gated: confirm, then verify health + init)
+pipeline-manager provision --target local              # deploy it (shows the plan, then asks to confirm)
+pipeline-manager provision --target local --yes        # non-interactive (auto-accept prompts; for CI)
+pipeline-manager provision --target local --json       # inspect the plan as JSON, run nothing
 # or describe the goal: pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email"
 ```
 

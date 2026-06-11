@@ -75,18 +75,20 @@ function redactSecrets(text: string, spec: TargetSpec, params: Record<string, un
 
 /**
  * Registers the `provision` command — an AI-assisted installer for the Pipeline
- * Builder PLATFORM (local/minikube/EC2/Fargate). Phase 1 is READ-ONLY (prereq
- * checks, NL-goal parsing, command assembly, failure diagnosis); `--execute`
- * gates a real deploy. With `--repo` it can bootstrap a fresh machine by sparsely
- * cloning only the deploy folders the selected target + options need, then runs
- * post-install steps (register admin, opt-in loads, smoke test, custom commands).
+ * Builder PLATFORM (local/minikube/EC2/Fargate). It prints the assembled plan
+ * (prereq checks, NL-goal parsing, command assembly) and then DEPLOYS, gated by
+ * confirmation prompts (`--yes` to auto-accept; `--json` is the only non-executing
+ * mode, printing the plan for tooling). With `--repo` it can bootstrap a fresh
+ * machine by sparsely cloning only the deploy folders the selected target +
+ * options need, then runs post-install steps (register admin, opt-in loads,
+ * smoke test, custom commands). `--teardown` removes a deployment instead.
  *
  * @param program - The root Commander program instance to attach the command to.
  */
 export function provision(program: Command): void {
   program
     .command('provision')
-    .description('AI-assisted installer for the platform (local/minikube/EC2/Fargate): advise, --execute to deploy, or --teardown to remove')
+    .description('AI-assisted installer for the platform (local/minikube/EC2/Fargate): deploys it (gated by confirmation prompts), or --teardown to remove')
     .option('-t, --target <target>', `Deploy target: ${TARGET_IDS.join(' | ')}`)
     .option('-p, --prompt <text>', 'Natural-language goal (parsed into params when an AI key is set)')
     .option('--region <region>', 'AWS region (EC2/Fargate)')
@@ -105,8 +107,7 @@ export function provision(program: Command): void {
     .option('--ai-provider <provider>', 'AI provider (anthropic|openai|google|xai|bedrock)')
     .option('--model <model>', 'AI model id')
     .option('--diagnose <file>', 'Diagnose a CloudFormation/deploy failure from a file (needs an AI key)')
-    .option('-y, --yes', 'Auto-accept the execution approval prompt (for CI / non-interactive)', false)
-    .option('--execute', 'Run the deploy (gated: needs approval, refuses on failed prereqs / missing inputs)', false)
+    .option('-y, --yes', 'Auto-accept all confirmation prompts (for CI / non-interactive)', false)
     .option('--retries <n>', 'Auto-fix + retry attempts after a failure (deploy scripts are idempotent)', '1')
     .option('--teardown', 'Tear down an existing deployment instead of creating one (gated; AWS targets require a typed confirmation)', false)
     .option('--stack-name <name>', 'Stack name (EC2) / stack prefix (Fargate) to tear down — defaults to the deploy default')
@@ -127,9 +128,9 @@ export function provision(program: Command): void {
     .option('--post-step <cmd>', 'Run an extra command after the loads (repeatable, in order)', collectStep, [])
     .option('--admin-email <addr>', 'Admin email for non-interactive register (sets PLATFORM_IDENTIFIER)')
     .option('--admin-password <pw>', 'Admin password for non-interactive register (sets PLATFORM_PASSWORD)')
-    .option('--json', 'Output the plan as JSON (never executes)', false)
+    .option('--json', 'Print the plan as JSON and exit WITHOUT running (the only non-executing mode — for tooling/CI inspection)', false)
     .action(async (options) => {
-      const executionId = printCommandHeader('Provision (advisor)');
+      const executionId = printCommandHeader('Provision');
 
       try {
         // 1. Assemble params from explicit flags (flags always win over NL parse).
@@ -158,13 +159,11 @@ export function provision(program: Command): void {
         const withAll = options.withAll === true;
         const anyLoadFlag = withAll || LOAD_STEPS.some((s) => options[s.flag] === true);
         let enabledLoadIds = LOAD_STEPS.filter((s) => withAll || options[s.flag] === true).map((s) => s.id);
-        // With no --with-* flags, an interactive `--execute` offers each load — but
-        // AFTER the clone, so the questions come once you've agreed to proceed (not
-        // up front). The sparse clone pre-stages every load folder when we'll prompt
-        // (they're tiny next to the excluded packages/, api/, frontend/), so any
-        // choice is ready with no re-sync. Flags / --yes / --json / non-interactive
-        // shells skip the prompts.
-        const willPromptLoads = options.execute === true && !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
+        // With no --with-* flags, an interactive run offers each load — but AFTER the
+        // clone, so the questions come once you've agreed to proceed (not up front).
+        // Each picked load's folder is then fetched via an additive sparse re-sync.
+        // Flags / --yes / --json / non-interactive shells skip the prompts.
+        const willPromptLoads = !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
         const postStepFlags = {
           init: options.init !== false,
           buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
@@ -251,11 +250,6 @@ export function provision(program: Command): void {
           printSection('Command to run');
           printInfo(downCommand);
 
-          if (!options.execute) {
-            printWarning('\nAdvisor mode — nothing was executed. Re-run with --execute to tear down.');
-            return;
-          }
-
           if (destructive && !options.force) {
             const token = await ask(`\nThis is IRREVERSIBLE. Type "${target}" to confirm teardown: `);
             if (token !== target) {
@@ -323,7 +317,7 @@ export function provision(program: Command): void {
           return;
         }
 
-        // 5. Print the plan (shared by advisor + execute).
+        // 5. Print the plan (shown before the gated execution below).
         printSection(`Provision plan — ${spec.label}`);
         printKeyValue({ 'Target': target, 'Best for': spec.bestFor, 'Cost': spec.cost });
 
@@ -351,13 +345,7 @@ export function provision(program: Command): void {
           for (const s of skippedSteps) printWarning(`skipped ${s.id}: ${s.reason}`);
         }
 
-        // 6. Advisor mode (default) — stop here, nothing executed.
-        if (!options.execute) {
-          printWarning('\nAdvisor mode — nothing was executed. Re-run with --execute to deploy (gated by approval).');
-          return;
-        }
-
-        // 7. Any missing required prereq that's a single static binary (e.g. yq)
+        // 6. Any missing required prereq that's a single static binary (e.g. yq)
         // can be fetched into the tools cache instead of a system install — no
         // brew/apt. Offer it, then re-check (the cache dir is already on PATH).
         const fetchable = prereqs.filter((c) => !c.ok && c.required && isFetchable(c.name));

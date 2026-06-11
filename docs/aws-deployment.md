@@ -44,18 +44,18 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 ## AI-assisted install (`provision`)
 
-The **recommended** way to install the platform is the `pipeline-manager provision` advisor. It picks the target, runs read-only prerequisite checks (AWS CLI + working credentials for EC2/Fargate — and **`openssl`** for Fargate, whose `init-secrets.sh` generates the platform secrets on the host; Docker etc. for local), and assembles the **exact, validated `setup.sh` command** for you to run — secrets masked, missing inputs reported rather than guessed. With an AI key configured it also parses a natural-language goal and diagnoses CloudFormation failures.
+The **recommended** way to install the platform is `pipeline-manager provision`. It picks the target, runs prerequisite checks (AWS CLI + working credentials for EC2/Fargate — and **`openssl`** for Fargate, whose `init-secrets.sh` generates the platform secrets on the host; Docker etc. for local), assembles the **exact, validated `setup.sh` command** (secrets masked, missing inputs reported rather than guessed), prints the plan, and then **deploys it — gated by confirmation prompts** (`--yes` to auto-accept for CI; `--json` prints the plan and runs nothing). With an AI key configured it also parses a natural-language goal and diagnoses CloudFormation failures.
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
 
-# Advisor (default): prints the exact command + prereq results, runs nothing.
+# Deploy (shows the plan, then confirms; add --yes for non-interactive CI):
 pipeline-manager provision --target fargate \
   --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
 
-# Execute the deploy (gated — see below):
-pipeline-manager provision --target fargate \
-  --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email --execute
+# Inspect the plan as JSON without running anything:
+pipeline-manager provision --target fargate --json \
+  --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
 
 # Or describe the goal (needs an AI key — see Environment Variables):
 pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email enabled"
@@ -64,7 +64,7 @@ pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email e
 pipeline-manager provision --target fargate --diagnose ./stack-events.txt
 ```
 
-> **Two modes.** By default `provision` is an **advisor** — it checks and assembles, printing the exact command without running it. Add **`--execute`** to run the deploy: it **refuses** on failed prerequisites or missing inputs, asks for confirmation, streams the deploy to your terminal, then verifies `/health` + `/ready` on the application URL and offers to run `init-platform`.
+> **Always deploys (gated).** `provision` checks, assembles, prints the plan, and runs the deploy — it **refuses** on failed prerequisites or missing inputs, asks for confirmation before deploying (**`--yes`** auto-accepts for CI), streams the deploy to your terminal, then verifies `/health` + `/ready` on the application URL and runs `init-platform`. **`--json`** is the only non-executing mode — it prints the plan and exits (for tooling).
 >
 > **On failure it troubleshoots.** It matches known CloudFormation signatures and prints the likely cause + fix — and for a few it can **auto-fix and retry** (e.g. an existing SES identity → re-run with `--skip-ses-identity`; an ACM/DNS-propagation timeout → resume). Retries are gated and bounded by **`--retries <n>`** (default 1; the scripts are idempotent so a re-run resumes). With an AI key it adds a free-form diagnosis on top. When SES is enabled, a successful deploy prints DKIM/sandbox next-steps.
 >
@@ -73,10 +73,8 @@ pipeline-manager provision --target fargate --diagnose ./stack-events.txt
 > **Teardown.** Add **`--teardown`** to remove a deployment. `local`/`minikube` stop the stack (on-disk / PVC data persists). **EC2/Fargate DELETE their CloudFormation stacks and are irreversible** — so the destructive path is gated harder than deploy: you must **type the target id** to confirm (a y/N is too easy to fat-finger), and **`--yes` alone does *not* bypass it** — only **`--force`** does (for CI). Override the stack name/prefix with **`--stack-name <name>`**; the region comes from **`--region`** / `AWS_REGION`. As always, `bin/shutdown.sh` (local/minikube/EC2) and `deploy/aws/fargate/bin/teardown.sh` can be run directly.
 >
 > ```bash
-> # Advisor — prints the exact destroy command, runs nothing:
+> # Teardown — prints the destroy plan, then prompts (type "fargate" to confirm):
 > pipeline-manager provision --target fargate --teardown
-> # Execute (prompts: type "fargate" to confirm):
-> pipeline-manager provision --target fargate --teardown --execute
 > ```
 >
 > **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first and runs from it. The clone is **sparse + partial** — `git clone --filter=blob:none --no-checkout` + cone `sparse-checkout` (git ≥ 2.27; older git falls back to a full clone) — so it materializes **only the deploy folders the selected target + options need**, not the whole repo (`packages/`, `api/`, `frontend/`, … are never downloaded). The common base is just `deploy/bin`; each target adds its own folder (`deploy/local`, `deploy/minikube` — self-contained — `deploy/aws/ec2`, `deploy/aws/fargate`), and each post-install load adds its folder. Re-syncs are **additive** (`sparse-checkout add`), so one `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`. (`--ref` is a branch/tag; arbitrary SHAs may not fetch under the shallow clone.)
@@ -85,7 +83,7 @@ pipeline-manager provision --target fargate --diagnose ./stack-events.txt
 >
 > ```bash
 > # Fresh box → sparse-clone just deploy/bin + deploy/local, deploy, register, load samples:
-> pipeline-manager provision --target local --repo --with-samples --execute --yes \
+> pipeline-manager provision --target local --repo --with-samples --yes \
 >   --admin-email admin@acme.com --admin-password 's3cret'
 > ```
 
