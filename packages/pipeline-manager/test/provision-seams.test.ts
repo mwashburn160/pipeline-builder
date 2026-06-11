@@ -10,6 +10,8 @@ import type { PostStep } from '../src/agent/post-steps.js';
 const runScript = jest.fn<(...a: unknown[]) => Promise<{ code: number; tail: string }>>();
 const entrypointExists = jest.fn<(...a: unknown[]) => boolean>();
 const matchIssues = jest.fn<(...a: unknown[]) => unknown[]>();
+const checkHostPorts = jest.fn<(...a: unknown[]) => Promise<Array<{ service: string; port: number; available: boolean }>>>();
+const questionMock = jest.fn<(q: string) => Promise<string>>(); // scripts the interactive load prompts
 
 jest.unstable_mockModule('../src/agent/executor.js', () => ({
   runScript,
@@ -26,8 +28,14 @@ jest.unstable_mockModule('../src/agent/ai.js', () => ({
   diagnoseFailure: jest.fn(),
   parseGoal: jest.fn(),
 }));
+jest.unstable_mockModule('../src/agent/ports.js', () => ({ checkHostPorts }));
+// Drive ask()'s readline so resolveLoadsInteractively's prompts return scripted answers.
+jest.unstable_mockModule('node:readline/promises', () => ({
+  createInterface: () => ({ question: questionMock, close: jest.fn() }),
+}));
 
-const { runPostSteps, bootstrapAndLocate, runDeployWithRetry } = await import('../src/commands/provision.js');
+const { runPostSteps, bootstrapAndLocate, runDeployWithRetry, preflightPorts, runTeardown, resolveLoadsInteractively } =
+  await import('../src/commands/provision.js');
 const { TARGETS } = await import('../src/agent/targets.js');
 
 const step = (id: string, command: string): PostStep => ({ id, label: id, command });
@@ -36,6 +44,8 @@ beforeEach(() => {
   runScript.mockReset();
   entrypointExists.mockReset();
   matchIssues.mockReset();
+  checkHostPorts.mockReset();
+  questionMock.mockReset();
   process.exitCode = undefined;
 });
 afterEach(() => {
@@ -146,5 +156,78 @@ describe('runDeployWithRetry — retry + auto-fix', () => {
     const r = await runDeployWithRetry(spec, 'url', '/cwd', {}, {}, { retries: '2', yes: true });
     expect(r.succeeded).toBe(false);
     expect(runScript).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('preflightPorts — fatal (local) vs warn-and-proceed (minikube) vs skip (remote)', () => {
+  const withAvail = (ports: ReadonlyArray<{ service: string; port: number }>, takenIdx = -1) =>
+    ports.map((p, i) => ({ ...p, available: i !== takenIdx }));
+
+  it('all ports free → true', async () => {
+    checkHostPorts.mockResolvedValue(withAvail(TARGETS.local.hostPorts));
+    expect(await preflightPorts(TARGETS.local, 'local')).toBe(true);
+  });
+
+  it('a conflict on local is FATAL → false (abort)', async () => {
+    checkHostPorts.mockResolvedValue(withAvail(TARGETS.local.hostPorts, 0));
+    expect(await preflightPorts(TARGETS.local, 'local')).toBe(false);
+  });
+
+  it('a conflict on minikube WARNS but proceeds → true', async () => {
+    checkHostPorts.mockResolvedValue(withAvail(TARGETS.minikube.hostPorts, 0));
+    expect(await preflightPorts(TARGETS.minikube, 'minikube')).toBe(true);
+  });
+
+  it('remote target (no host ports) skips the check → true', async () => {
+    expect(await preflightPorts(TARGETS.ec2, 'ec2')).toBe(true);
+    expect(checkHostPorts).not.toHaveBeenCalled();
+  });
+});
+
+describe('runTeardown — gating + execution', () => {
+  it('runs the destroy for a non-destructive target (local, --yes)', async () => {
+    runScript.mockResolvedValue({ code: 0, tail: '' });
+    await runTeardown(TARGETS.local, 'local', '/cwd', 'exec1', { yes: true });
+    expect(runScript).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs the destroy for a destructive AWS target with --force (skips the typed gate)', async () => {
+    runScript.mockResolvedValue({ code: 0, tail: '' });
+    await runTeardown(TARGETS.fargate, 'fargate', '/cwd', 'exec1', { force: true });
+    expect(runScript).toHaveBeenCalledTimes(1);
+  });
+
+  it('--json prints the plan and runs nothing', async () => {
+    await runTeardown(TARGETS.local, 'local', '/cwd', 'exec1', { json: true });
+    expect(runScript).not.toHaveBeenCalled();
+  });
+
+  it('sets exitCode=1 when the destroy fails', async () => {
+    runScript.mockResolvedValue({ code: 1, tail: '' });
+    await runTeardown(TARGETS.local, 'local', '/cwd', 'exec1', { yes: true });
+    expect(process.exitCode).toBe(1);
+  });
+});
+
+describe('resolveLoadsInteractively — prompts, re-sync, re-resolve', () => {
+  const bootstrap = { repo: 'r', ref: 'main', workdir: 'pb', paths: [], full: false };
+  const flags = { init: true, buildBootstrap: false, smokeTest: false, events: false, steps: [] };
+
+  it('declining every load → no selections, no re-sync', async () => {
+    questionMock.mockResolvedValue('n');
+    const r = await resolveLoadsInteractively('local', 'url', undefined, '/cwd', false, bootstrap, flags);
+    expect(r.enabledLoadIds).toEqual([]);
+    expect(runScript).not.toHaveBeenCalled();
+  });
+
+  it('choosing plugins → fetched via additive sparse re-sync', async () => {
+    questionMock.mockImplementation((q) => Promise.resolve(/plugins/i.test(q) ? 'y' : 'n'));
+    runScript.mockResolvedValue({ code: 0, tail: '' });
+    const r = await resolveLoadsInteractively('local', 'url', undefined, '/cwd', true, bootstrap, flags);
+    expect(r.enabledLoadIds).toEqual(['plugins']);
+    expect(runScript).toHaveBeenCalledTimes(1);
+    const cmd = runScript.mock.calls[0][0] as string;
+    expect(cmd).toContain('sparse-checkout add');
+    expect(cmd).toContain('deploy/plugins');
   });
 });

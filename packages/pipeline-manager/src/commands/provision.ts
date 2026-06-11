@@ -65,7 +65,7 @@ function collectStep(value: string, acc: string[]): string[] {
  * ports are managed forwards (setup.sh pkills/restarts them), so a conflict there warns
  * but proceeds. Remote targets (ec2/fargate) bind nothing locally → returns true.
  */
-async function preflightPorts(spec: TargetSpec, target: TargetId): Promise<boolean> {
+export async function preflightPorts(spec: TargetSpec, target: TargetId): Promise<boolean> {
   if (spec.hostPorts.length === 0) return true;
   const portChecks = await checkHostPorts(spec);
   const taken = portChecks.filter((c) => !c.available);
@@ -92,7 +92,7 @@ async function preflightPorts(spec: TargetSpec, target: TargetId): Promise<boole
  * AWS targets are irreversible, so the operator must TYPE the target id (--force
  * bypasses for CI; --yes alone does NOT). Terminal: owns its output + exitCode.
  */
-async function runTeardown(
+export async function runTeardown(
   spec: TargetSpec,
   target: TargetId,
   cwd: string,
@@ -322,7 +322,7 @@ export async function bootstrapAndLocate(
  * folders into a bootstrapped sparse clone, then re-resolves the post-install steps
  * with the selections. Returns the chosen ids + the recomputed steps.
  */
-async function resolveLoadsInteractively(
+export async function resolveLoadsInteractively(
   target: TargetId,
   url: string | null,
   region: string | undefined,

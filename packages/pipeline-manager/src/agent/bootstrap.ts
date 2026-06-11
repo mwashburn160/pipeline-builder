@@ -77,23 +77,23 @@ export function bootstrapCommand(spec: BootstrapSpec): string {
   const dir = shellQuote(spec.workdir);
   const paths = spec.paths.map(shellQuote).join(' ');
 
+  // Shared re-sync tail: prefer the remote-tracking ref, fall back to the local ref.
+  const reset = `{ git -C ${dir} reset --hard ${originRef} 2>/dev/null || git -C ${dir} reset --hard ${ref}; }`;
+  // Shared idempotent frame: re-sync an existing checkout, else fresh-clone.
+  const frame = (existing: string, fresh: string): string =>
+    [`if [ -d ${dir}/.git ]; then`, `  ${existing}`, 'else', `  ${fresh}`, 'fi'].join('\n');
+
   if (spec.full) {
     // Full-clone fallback (no partial/sparse) for git < 2.27.
-    return [
-      `if [ -d ${dir}/.git ]; then`,
-      `  git -C ${dir} fetch --all --tags --prune && git -C ${dir} checkout ${ref} && { git -C ${dir} reset --hard ${originRef} 2>/dev/null || git -C ${dir} reset --hard ${ref}; };`,
-      'else',
-      `  git clone ${repo} ${dir} && git -C ${dir} checkout ${ref};`,
-      'fi',
-    ].join('\n');
+    return frame(
+      `git -C ${dir} fetch --all --tags --prune && git -C ${dir} checkout ${ref} && ${reset};`,
+      `git clone ${repo} ${dir} && git -C ${dir} checkout ${ref};`,
+    );
   }
 
-  return [
-    `if [ -d ${dir}/.git ]; then`,
+  return frame(
     // Additive: keep folders from earlier targets/options already in the cone.
-    `  git -C ${dir} sparse-checkout add ${paths} && git -C ${dir} fetch --filter=blob:none --depth 1 origin ${ref} && git -C ${dir} checkout ${ref} && { git -C ${dir} reset --hard ${originRef} 2>/dev/null || git -C ${dir} reset --hard ${ref}; };`,
-    'else',
-    `  git clone --filter=blob:none --no-checkout --depth 1 ${repo} ${dir} && git -C ${dir} sparse-checkout set --cone ${paths} && git -C ${dir} checkout ${ref};`,
-    'fi',
-  ].join('\n');
+    `git -C ${dir} sparse-checkout add ${paths} && git -C ${dir} fetch --filter=blob:none --depth 1 origin ${ref} && git -C ${dir} checkout ${ref} && ${reset};`,
+    `git clone --filter=blob:none --no-checkout --depth 1 ${repo} ${dir} && git -C ${dir} sparse-checkout set --cone ${paths} && git -C ${dir} checkout ${ref};`,
+  );
 }

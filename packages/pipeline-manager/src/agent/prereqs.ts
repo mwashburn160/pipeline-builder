@@ -74,11 +74,22 @@ export function gitSupportsSparseCheckout(): boolean {
 }
 
 /**
+ * Build a PrereqCheck from a SINGLE presence evaluation. Collapses the repeated
+ * `{ ok: probe(), detail: probe() ? a : b }` shape — which also called the probe
+ * twice — into one place; the caller evaluates the probe once and passes the result.
+ */
+function check(name: string, present: boolean, presentDetail: string, missingDetail: string, required = true): PrereqCheck {
+  return { name, ok: present, detail: present ? presentDetail : missingDetail, required };
+}
+
+/**
  * Run the read-only prerequisite checks for a target. Pure inspection — safe to
- * run unconditionally (Phase-1 advisor calls this before assembling the command).
+ * run unconditionally (the plan assembles this before the gated execution).
  */
 export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; withPlugins?: boolean } = {}): PrereqCheck[] {
   const checks: PrereqCheck[] = [];
+  // setup.sh (local) + setup.sh (minikube) both generate the TLS cert + registry JWT key with openssl.
+  const OPENSSL_TLS = 'install openssl — setup.sh generates the TLS cert + registry JWT key with it';
 
   // `--repo` bootstrap git-clones the platform repo first → git is required. A
   // git below 2.27 still works (full-clone fallback), so the version is advisory.
@@ -91,46 +102,25 @@ export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; with
   }
 
   if (target === 'local') {
-    // deploy/local/bin/setup.sh hard-checks all three at startup and aborts if
+    // deploy/local/bin/setup.sh hard-checks all of these at startup and aborts if
     // any is missing — mirror them here so provision blocks up front instead of
     // failing mid-deploy (e.g. the classic "yq is not installed").
-    checks.push({
-      name: 'Docker',
-      ok: dockerRunning(),
-      detail: dockerRunning() ? 'daemon reachable' : 'install Docker and start the daemon',
-      required: true,
-    });
-    checks.push({
-      name: 'Docker Compose',
-      ok: dockerComposeAvailable(),
-      detail: dockerComposeAvailable() ? 'available' : 'needs `docker compose` (v2 plugin) or `docker-compose` (v1)',
-      required: true,
-    });
-    checks.push({
-      name: 'yq',
-      ok: has('yq'),
-      detail: has('yq') ? 'on PATH' : 'install yq (macOS: `brew install yq`) — setup.sh requires it',
-      required: true,
-    });
-    checks.push({
-      name: 'openssl',
-      ok: has('openssl'),
-      detail: has('openssl') ? 'on PATH' : 'install openssl — setup.sh generates the TLS cert + registry JWT key with it',
-      required: true,
-    });
+    checks.push(check('Docker', dockerRunning(), 'daemon reachable', 'install Docker and start the daemon'));
+    checks.push(check('Docker Compose', dockerComposeAvailable(), 'available', 'needs `docker compose` (v2 plugin) or `docker-compose` (v1)'));
+    checks.push(check('yq', has('yq'), 'on PATH', 'install yq (macOS: `brew install yq`) — setup.sh requires it'));
+    checks.push(check('openssl', has('openssl'), 'on PATH', OPENSSL_TLS));
     return checks;
   }
 
   if (target === 'minikube') {
-    checks.push({ name: 'Docker', ok: dockerRunning(), detail: dockerRunning() ? 'daemon reachable' : 'install Docker and start the daemon', required: true });
-    checks.push({ name: 'minikube', ok: has('minikube'), detail: has('minikube') ? 'on PATH' : 'install minikube', required: true });
-    checks.push({ name: 'kubectl', ok: has('kubectl'), detail: has('kubectl') ? 'on PATH' : 'install kubectl', required: true });
-    // minikube's setup.sh generates the TLS cert + registry JWT key with openssl.
-    checks.push({ name: 'openssl', ok: has('openssl'), detail: has('openssl') ? 'on PATH' : 'install openssl — setup.sh generates the TLS cert + registry JWT key with it', required: true });
+    checks.push(check('Docker', dockerRunning(), 'daemon reachable', 'install Docker and start the daemon'));
+    checks.push(check('minikube', has('minikube'), 'on PATH', 'install minikube'));
+    checks.push(check('kubectl', has('kubectl'), 'on PATH', 'install kubectl'));
+    checks.push(check('openssl', has('openssl'), 'on PATH', OPENSSL_TLS));
     // minikube's setup.sh doesn't need yq, but --with-plugins builds images
     // (build-plugin-images.sh / generate-plugins.sh) which do.
     if (opts.withPlugins) {
-      checks.push({ name: 'yq', ok: has('yq'), detail: has('yq') ? 'on PATH' : 'install yq (macOS: `brew install yq`) — required to build plugins', required: true });
+      checks.push(check('yq', has('yq'), 'on PATH', 'install yq (macOS: `brew install yq`) — required to build plugins'));
     }
     return checks;
   }
@@ -139,24 +129,13 @@ export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; with
   // the AWS CLI with working credentials (and nothing CDK/node-related). ec2's
   // instance self-bootstraps over UserData, so the CLI is its only host tool.
   const account = awsIdentity();
-  checks.push({ name: 'AWS CLI', ok: has('aws'), detail: has('aws') ? 'on PATH' : 'install the AWS CLI v2', required: true });
-  checks.push({
-    name: 'AWS credentials',
-    ok: account !== null,
-    detail: account ? `authenticated (account ${account})` : 'run `aws configure` / set AWS_PROFILE',
-    required: true,
-  });
+  checks.push(check('AWS CLI', has('aws'), 'on PATH', 'install the AWS CLI v2'));
+  checks.push({ name: 'AWS credentials', ok: account !== null, detail: account ? `authenticated (account ${account})` : 'run `aws configure` / set AWS_PROFILE', required: true });
   // fargate runs init-secrets.sh on the host to generate the platform secrets
   // (JWT/refresh secrets, DB passwords, the registry's RSA signing key) with
-  // openssl before the first deploy. ec2 bootstraps its secrets on the instance,
-  // so this is fargate-only.
+  // openssl before the first deploy. ec2 bootstraps its secrets on the instance.
   if (target === 'fargate') {
-    checks.push({
-      name: 'openssl',
-      ok: has('openssl'),
-      detail: has('openssl') ? 'on PATH' : 'install openssl — init-secrets.sh needs it to generate platform secrets',
-      required: true,
-    });
+    checks.push(check('openssl', has('openssl'), 'on PATH', 'install openssl — init-secrets.sh needs it to generate platform secrets'));
   }
   return checks;
 }
