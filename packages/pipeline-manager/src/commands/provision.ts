@@ -286,10 +286,10 @@ export function provision(program: Command): void {
         const { command, missing } = assembleCommand(spec, params);
         const url = deriveHealthUrl(target, params);
 
-        // Sparse bootstrap clone command (common base + target + loads). When we'll
-        // prompt for loads after the clone, pre-stage every load folder so any choice
-        // is ready without a re-sync.
-        const sparsePaths = sparsePathsFor(target, willPromptLoads ? LOAD_STEPS.map((s) => s.id) : enabledLoadIds);
+        // Sparse bootstrap clone command (common base + target + selected loads).
+        // Interactive loads are chosen AFTER the clone, so the clone stays minimal —
+        // each picked load's folder is fetched then via an additive sparse re-sync.
+        const sparsePaths = sparsePathsFor(target, enabledLoadIds);
         const bootstrap = resolveBootstrap(
           { repo: typeof options.repo === 'string' ? options.repo : undefined, ref: options.ref, workdir: options.workdir, full: !gitSupportsSparseCheckout() },
           sparsePaths,
@@ -384,6 +384,9 @@ export function provision(program: Command): void {
         // 7a. Sparse-clone the platform repo, repoint cwd, and verify the tree.
         // Shared by `--repo` (below) and the interactive offer in 7b. Returns
         // false (and sets exitCode) on failure — with a friendly message.
+        // `bootstrapped` records whether we created the clone (vs. running inside an
+        // existing checkout) — only then can we additively sparse-fetch load folders.
+        let bootstrapped = false;
         const bootstrapClone = async (): Promise<boolean> => {
           const cmd = bootstrapCommand(bootstrap);
           printSection('Bootstrap');
@@ -395,6 +398,7 @@ export function provision(program: Command): void {
             return false;
           }
           cwd = path.resolve(cwd, bootstrap.workdir);
+          bootstrapped = true;
           printSuccess(`Repo is ready — continuing from ${cwd}`);
           const absent = sparsePaths.filter((p) => !existsSync(path.join(cwd, p)));
           if (absent.length > 0) {
@@ -451,6 +455,21 @@ export function provision(program: Command): void {
             if (await confirm(prompts[s.id] ?? `Load ${s.id}?`, false)) chosen.push(s.id);
           }
           enabledLoadIds = chosen;
+          // Additive sparse re-sync: materialize ONLY the picked loads' folders in
+          // the clone (the partial clone fetches their blobs on demand). Only when we
+          // created the clone — a normal checkout already has every folder.
+          if (bootstrapped) {
+            const absent = sparsePathsFor(target, enabledLoadIds).filter((p) => !existsSync(path.join(cwd, p)));
+            if (absent.length > 0) {
+              printSection('Fetching selected load folders');
+              const addCmd = `git sparse-checkout add ${absent.map((p) => `'${p}'`).join(' ')} && git checkout '${bootstrap.ref}'`;
+              printInfo(addCmd);
+              const { code } = await runScript(addCmd, cwd, { capture: false });
+              if (code !== 0) {
+                printWarning(`Couldn't fetch ${absent.join(', ')} — the matching load step(s) may fail. Re-run with --repo to refresh the clone.`);
+              }
+            }
+          }
           ({ steps: postSteps, skipped: skippedSteps } = resolvePostSteps({
             target,
             url,
