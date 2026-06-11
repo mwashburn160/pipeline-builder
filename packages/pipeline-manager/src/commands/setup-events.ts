@@ -12,6 +12,7 @@ import { Command } from 'commander';
 import { printCommandHeader } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
+import { resolvePlatformSecretName } from '../utils/platform-secret.js';
 
 // ESM has no __dirname; derive it from this module's URL.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -38,7 +39,9 @@ export function setupEvents(program: Command): void {
     .command('setup-events')
     .description('Deploy EventBridge event ingestion infrastructure for pipeline reporting')
     .option('--package-version <version>', 'pipeline-events package version (default: latest)')
-    .option('--secret-name <name>', 'Platform secret name (e.g. pipeline-builder/{orgId}/platform)')
+    .option('--secret-name <name>', 'Platform secret name (default: derived from the platform token org, e.g. pipeline-builder/{orgId}/platform)')
+    .option('-e, --email <email>', 'Login email to mint a token when PLATFORM_TOKEN is unset (for deriving --secret-name)')
+    .option('-p, --password <password>', 'Login password (used with --email)')
     .option('--region <region>', 'AWS region')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
     .action(async (options) => {
@@ -57,11 +60,11 @@ export function setupEvents(program: Command): void {
           throw new Error('PLATFORM_BASE_URL not set');
         }
 
-        const secretName = options.secretName || process.env.PLATFORM_SECRET_NAME;
-        if (!secretName) {
-          printError('--secret-name or PLATFORM_SECRET_NAME env var is required');
-          throw new Error('Platform secret name not provided');
-        }
+        // Derive the secret path from the platform token (the one init-platform.sh
+        // minted) when --secret-name / PLATFORM_SECRET_NAME isn't given — matching
+        // store-token, which WROTE the secret at the same derived path. Logs in with
+        // --email/--password or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD if no token yet.
+        const secretName = await resolvePlatformSecretName(options);
 
         printInfo('Parameters', {
           stack: STACK_NAME,

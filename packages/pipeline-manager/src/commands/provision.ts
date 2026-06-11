@@ -6,11 +6,11 @@ import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 import { Command } from 'commander';
 import { diagnoseFailure, isAiConfigured, parseGoal } from '../agent/ai.js';
-import { bootstrapCommand, resolveBootstrap } from '../agent/bootstrap.js';
+import { bootstrapCommand, resolveBootstrap, type BootstrapSpec } from '../agent/bootstrap.js';
 import { entrypointExists, executionBlocked, runScript } from '../agent/executor.js';
 import { deriveHealthUrl, waitHealthy, ensureMinikubeGateway } from '../agent/health.js';
 import { checkHostPorts } from '../agent/ports.js';
-import { resolvePostSteps } from '../agent/post-steps.js';
+import { resolvePostSteps, type PostStep, type SkippedStep } from '../agent/post-steps.js';
 import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied } from '../agent/prereqs.js';
 import { TOOLS_DIR, fetchTool, isFetchable, withToolsOnPath } from '../agent/tools.js';
 import { createEnvFile, envFileMissing } from '../agent/env-file.js';
@@ -55,6 +55,318 @@ async function confirm(question: string, autoYes: boolean): Promise<boolean> {
 /** Commander collector: accumulate repeated `--post-step` values in order. */
 function collectStep(value: string, acc: string[]): string[] {
   return [...acc, value];
+}
+
+/**
+ * Host-port pre-flight (local/minikube). The deploy binds fixed host ports (Docker
+ * publish / kubectl port-forward); a taken port makes a container/forward fail to
+ * bind mid-deploy — for the gateway, a silent unreachable hang. Prints a ✓/✗ summary
+ * and returns false ONLY when the caller must ABORT (a fatal local conflict). minikube
+ * ports are managed forwards (setup.sh pkills/restarts them), so a conflict there warns
+ * but proceeds. Remote targets (ec2/fargate) bind nothing locally → returns true.
+ */
+async function preflightPorts(spec: TargetSpec, target: TargetId): Promise<boolean> {
+  if (spec.hostPorts.length === 0) return true;
+  const portChecks = await checkHostPorts(spec);
+  const taken = portChecks.filter((c) => !c.available);
+  printSection('Port availability');
+  for (const c of portChecks) printInfo(`${c.available ? '✓' : '✗'} ${String(c.port).padEnd(5)} — ${c.service}`);
+  if (taken.length === 0) return true;
+  // local PUBLISHES these ports at `docker compose up` time, so a conflict is fatal.
+  // minikube's are kubectl port-forwards setup.sh pkills + restarts (and
+  // ensureMinikubeGateway recovers), so a stale forward must NOT block a re-run.
+  const fatal = target === 'local';
+  const lead = `${taken.length} required port(s) already in use: ${taken.map((c) => c.port).join(', ')}`;
+  (fatal ? printError : printWarning)(fatal
+    ? `\n${lead} — the deploy can't bind them and would fail mid-way. Free them and re-run:`
+    : `\n${lead} — on minikube these are usually a previous run's port-forwards (setup.sh restarts them). Free any NON-minikube holder if the gateway stays unreachable:`);
+  for (const c of taken) printInfo(`  • port ${c.port} (${c.service}) — find the holder:  lsof -i :${c.port}`);
+  if (taken.some((c) => c.port === 5000)) {
+    printInfo('  Note: on macOS, port 5000 is usually AirPlay Receiver — System Settings → General → AirDrop & Handoff → AirPlay Receiver (off).');
+  }
+  return !fatal;
+}
+
+/**
+ * Teardown mode — the destroy counterpart of provisioning, gated HARDER than deploy:
+ * AWS targets are irreversible, so the operator must TYPE the target id (--force
+ * bypasses for CI; --yes alone does NOT). Terminal: owns its output + exitCode.
+ */
+async function runTeardown(
+  spec: TargetSpec,
+  target: TargetId,
+  cwd: string,
+  executionId: string,
+  opts: { stackName?: string; region?: string; force?: boolean; yes?: boolean; json?: boolean },
+): Promise<void> {
+  const { command: downCommand, destructive } = teardownCommand(target, {
+    stackName: opts.stackName,
+    region: opts.region,
+    // Our typed gate IS the confirmation — forward --yes so the native script
+    // (Fargate) doesn't also block on stdin we're inheriting.
+    assumeYes: true,
+  });
+  if (opts.json) {
+    console.log(JSON.stringify({ success: true, executionId, target, teardown: true, destructive, destroys: spec.destroys, command: downCommand }, null, 2));
+    return;
+  }
+  printSection(`Teardown plan — ${spec.label}`);
+  printKeyValue({ 'Target': target, 'Destroys': spec.destroys, 'Stops cost': spec.cost });
+  printSection('Command to run');
+  printInfo(downCommand);
+  if (destructive && !opts.force) {
+    const token = await ask(`\nThis is IRREVERSIBLE. Type "${target}" to confirm teardown: `);
+    if (token !== target) {
+      printWarning('That didn\'t match, so nothing was destroyed — you have to type the exact target id to confirm.');
+      return;
+    }
+  } else if (!destructive && !opts.force && !(await confirm('\nProceed with teardown (stops the stack; on-disk data persists)?', opts.yes ?? false))) {
+    printWarning('No problem — nothing was changed.');
+    return;
+  }
+  printSection('Tearing down');
+  const { code: downCode } = await runScript(downCommand, cwd, { capture: false });
+  if (downCode !== 0) {
+    printError(`\nTeardown failed (exit ${downCode}). Inspect the stack/containers and retry.`);
+    process.exitCode = 1;
+    return;
+  }
+  printSuccess('Teardown complete.');
+}
+
+/**
+ * Run the deploy command (real, secrets unmasked, streamed + captured) with a
+ * bounded auto-fix + retry loop — the deploy scripts are idempotent, so a fixed
+ * re-run resumes rather than starting over. Returns whether it succeeded plus the
+ * (possibly fix-adjusted) params, which the caller needs for SES guidance.
+ */
+export async function runDeployWithRetry(
+  spec: TargetSpec,
+  url: string | null,
+  cwd: string,
+  params: Record<string, unknown>,
+  aiOpts: { provider?: string; model?: string },
+  opts: { retries?: string; yes?: boolean },
+): Promise<{ succeeded: boolean; runParams: Record<string, unknown> }> {
+  const maxAttempts = 1 + Math.max(0, parseInt(opts.retries ?? '', 10) || 0);
+  let runParams: Record<string, unknown> = params;
+  let succeeded = false;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const realCommand = assembleCommand(spec, runParams, { mask: false }).command;
+    printSection(attempt === 1 ? 'Deploying' : `Deploying — retry ${attempt - 1}`);
+    if (attempt === 1) {
+      printInfo(`Deploying ${spec.label} → ${url}`);
+      printInfo(spec.deploys);
+      printInfo('Streaming the deploy below — first run is the slow one (image pulls + cert generation).');
+    }
+    const { code, tail } = await runScript(realCommand, cwd, { capture: true });
+    if (code === 0) { succeeded = true; break; }
+
+    printError(`\nDeploy failed (exit ${code}).`);
+    const issues = matchIssues(tail);
+    if (issues.length > 0) {
+      printSection('Likely cause');
+      for (const i of issues) printInfo(`• ${i.cause}\n  → ${i.suggestion}`);
+    }
+    if (isAiConfigured(aiOpts)) {
+      const diagnosis = await diagnoseFailure(redactSecrets(tail, spec, runParams), aiOpts);
+      if (diagnosis) { printSection('Diagnosis'); printInfo(diagnosis); }
+    }
+    if (attempt >= maxAttempts) break;
+
+    // Auto-fix: a retryable issue with a param we haven't already applied.
+    const fix = issues.find((i) => i.retryable && i.paramFix && runParams[i.paramFix.key] !== i.paramFix.value);
+    if (fix?.paramFix && await confirm(`\nApply fix and retry — ${fix.suggestion}`, opts.yes ?? false)) {
+      runParams = { ...runParams, [fix.paramFix.key]: fix.paramFix.value };
+      continue;
+    }
+    // Retryable but no param change (e.g. ACM DNS propagation) — offer a plain re-run.
+    if (!fix && issues.some((i) => i.retryable) && await confirm('\nRetry the deploy (it is idempotent and will resume)?', opts.yes ?? false)) {
+      continue;
+    }
+    break;
+  }
+  return { succeeded, runParams };
+}
+
+/**
+ * Execute the post-install steps (register → loads → smoke → events → custom). On
+ * EC2/Fargate, register + the events bundle (store-token → setup-events) need a
+ * reachable, REGISTERED platform that's only true inside the VPC, so those are
+ * SURFACED as ordered manual next-steps instead of auto-run (they'd fail locally).
+ * Sets exitCode on a step failure; the platform is already deployed by this point.
+ */
+export async function runPostSteps(
+  postSteps: PostStep[],
+  skippedSteps: SkippedStep[],
+  target: TargetId,
+  cwd: string,
+  adminEnv: Record<string, string>,
+  opts: { yes?: boolean },
+): Promise<void> {
+  if (postSteps.length === 0) return;
+  for (const s of skippedSteps) printWarning(`Skipped post-step ${s.id}: ${s.reason}`);
+  const isRemote = (id: string): boolean =>
+    (target === 'ec2' || target === 'fargate') && (id === 'register' || id === 'store-token' || id === 'events');
+  const runnable = postSteps.filter((s) => !isRemote(s.id));
+  const remote = postSteps.filter((s) => isRemote(s.id));
+  if (remote.length > 0) {
+    printInfo('\nNext (run from inside the VPC, in this order):');
+    for (const s of remote) printInfo(`  • ${s.label} — ${s.command}`);
+  }
+  if (runnable.length > 0 && await confirm(`\nRun ${runnable.length} post-install step(s) now?`, opts.yes ?? false)) {
+    for (const s of runnable) {
+      printSection(`Post-step: ${s.label}`);
+      // register (local/minikube) logs into the platform, so it needs the admin creds
+      // (PLATFORM_IDENTIFIER / PLATFORM_PASSWORD) on top of its step env.
+      const needsCreds = s.id === 'register' || s.id === 'store-token';
+      const env = needsCreds ? { ...s.env, ...adminEnv } : s.env;
+      // Loads/smoke are noisy + non-interactive → run QUIET (capture, show only on
+      // failure). Exception: a register with no admin creds prompts, so it must stream.
+      const interactiveRegister = s.id === 'register' && !adminEnv.PLATFORM_IDENTIFIER;
+      const quiet = !interactiveRegister;
+      if (quiet) printInfo(`${s.command}\n  …running (output shown only if it fails)`);
+      else printInfo(s.command);
+      const { code, tail } = await runScript(s.command, cwd, { quiet, capture: false, env });
+      if (code !== 0) {
+        if (quiet && tail) { printError('\n--- last output ---'); printInfo(tail); }
+        printError(`\nPost-step '${s.id}' failed (exit ${code}). The platform is deployed; fix and re-run the step manually.`);
+        process.exitCode = 1;
+        break;
+      }
+      printSuccess(`${s.id} ✓`);
+    }
+  } else if (runnable.length > 0) {
+    printInfo('\nSkipped post-install steps. Run the commands above manually when ready.');
+  }
+}
+
+/**
+ * Sparse-clone the platform repo (when --repo, or accepted via the interactive
+ * offer), repoint cwd into it, and verify the deploy entrypoint exists. Owns the
+ * cwd/bootstrapped state. Sets exitCode on a hard failure (clone error / missing
+ * entrypoint), matching the old inline behavior; a plain decline leaves exitCode
+ * untouched. Returns ok:false when the caller must abort.
+ */
+export async function bootstrapAndLocate(
+  spec: TargetSpec,
+  bootstrap: BootstrapSpec,
+  bootstrapCmd: string | null,
+  sparsePaths: readonly string[],
+  startCwd: string,
+  opts: { yes?: boolean },
+): Promise<{ cwd: string; bootstrapped: boolean; ok: boolean }> {
+  let cwd = startCwd;
+  let bootstrapped = false;
+  // Shared by `--repo` and the interactive offer. Repoints cwd + sets bootstrapped;
+  // `bootstrapped` records whether we created the clone (vs. an existing checkout) —
+  // only then can the caller additively sparse-fetch load folders.
+  const bootstrapClone = async (): Promise<boolean> => {
+    const cmd = bootstrapCommand(bootstrap);
+    printSection('Bootstrap');
+    printInfo(cmd);
+    const { code } = await runScript(cmd, cwd, { capture: false });
+    if (code !== 0) {
+      printError(`\nThe clone didn't finish (exit ${code}). Double-check the repo URL / ref (or your network) and give it another go.`);
+      process.exitCode = 1;
+      return false;
+    }
+    cwd = path.resolve(cwd, bootstrap.workdir);
+    bootstrapped = true;
+    printSuccess(`Repo is ready — continuing from ${cwd}`);
+    const absent = sparsePaths.filter((p) => !existsSync(path.join(cwd, p)));
+    if (absent.length > 0) {
+      printError(`\nThe sparse clone is missing ${absent.join(', ')} — that ref may not have those folders. Try a different --ref.`);
+      process.exitCode = 1;
+      return false;
+    }
+    return true;
+  };
+
+  // `--repo`: clone up front (must precede the entrypoint check).
+  if (bootstrapCmd) {
+    printInfo(`\nBootstrap → clone ${bootstrap.repo} @ ${bootstrap.ref} into ${bootstrap.workdir} (sparse).`);
+    if (!(await confirm('Go ahead with the clone?', opts.yes ?? false))) {
+      printWarning('No problem — nothing was changed. Re-run whenever you\'re ready.');
+      return { cwd, bootstrapped, ok: false };
+    }
+    if (!(await bootstrapClone())) return { cwd, bootstrapped, ok: false };
+  }
+
+  // The deploy entrypoint must exist relative to cwd. If it doesn't and we haven't
+  // bootstrapped, gracefully OFFER to clone (interactive only) so a fresh machine can
+  // proceed without re-running with --repo.
+  if (!entrypointExists(spec, cwd)) {
+    const interactive = Boolean(process.stdin.isTTY) && !opts.yes;
+    if (!bootstrapCmd && interactive && gitAvailable()) {
+      printInfo(`\nLooks like you're not inside a pipeline-builder checkout, so the ${spec.label} deploy scripts aren't here yet.`);
+      if (await confirm(`Want me to sparse-clone them into ${bootstrap.workdir} and keep going?`, false)) {
+        if (!(await bootstrapClone())) return { cwd, bootstrapped, ok: false };
+      }
+    }
+    if (!entrypointExists(spec, cwd)) {
+      printWarning(`\nI couldn't find ${spec.dir}/${spec.entrypoint} from ${cwd}.`);
+      printInfo('Two easy ways forward:');
+      printInfo('  • cd into your pipeline-builder checkout and re-run, or');
+      printInfo(`  • add --repo and I'll bootstrap a fresh sparse clone for you${gitAvailable() ? '.' : ' (once git is installed).'}`);
+      process.exitCode = 1;
+      return { cwd, bootstrapped, ok: false };
+    }
+  }
+  return { cwd, bootstrapped, ok: true };
+}
+
+/**
+ * Interactive opt-in loads, offered AFTER the clone (so we only ask once the operator
+ * has agreed to proceed). Prompts per load, additively sparse-fetches the picked
+ * folders into a bootstrapped sparse clone, then re-resolves the post-install steps
+ * with the selections. Returns the chosen ids + the recomputed steps.
+ */
+async function resolveLoadsInteractively(
+  target: TargetId,
+  url: string | null,
+  region: string | undefined,
+  cwd: string,
+  bootstrapped: boolean,
+  bootstrap: BootstrapSpec,
+  postStepFlags: { init: boolean; buildBootstrap: boolean; smokeTest: boolean; events: boolean; steps: string[] },
+): Promise<{ enabledLoadIds: string[]; steps: PostStep[]; skipped: SkippedStep[] }> {
+  const prompts: Record<string, string> = {
+    plugins: 'Load plugins? (builds the plugin images locally — the slow one)',
+    samples: 'Load sample pipelines?',
+    compliance: 'Load compliance rules?',
+  };
+  printSection('Optional post-install loads');
+  const chosen: string[] = [];
+  for (const s of LOAD_STEPS) {
+    if (await confirm(prompts[s.id] ?? `Load ${s.id}?`, false)) chosen.push(s.id);
+  }
+  // Additive sparse re-sync: materialize ONLY the picked loads' folders (the partial
+  // clone fetches their blobs on demand). Only when we created a SPARSE clone — a
+  // normal checkout already has every folder, and the git<2.27 full-clone fallback
+  // (bootstrap.full) is non-sparse, where `sparse-checkout add` would switch it to
+  // cone mode and PRUNE the already-materialized deploy folders.
+  if (bootstrapped && !bootstrap.full) {
+    const absent = sparsePathsFor(target, chosen).filter((p) => !existsSync(path.join(cwd, p)));
+    if (absent.length > 0) {
+      printSection('Fetching selected load folders');
+      const addCmd = `git sparse-checkout add ${absent.map((p) => `'${p}'`).join(' ')} && git checkout '${bootstrap.ref}'`;
+      printInfo(addCmd);
+      const { code } = await runScript(addCmd, cwd, { capture: false });
+      if (code !== 0) {
+        printWarning(`Couldn't fetch ${absent.join(', ')} — the matching load step(s) may fail. Re-run with --repo to refresh the clone.`);
+      }
+    }
+  }
+  const resolved = resolvePostSteps({
+    target,
+    url,
+    region,
+    enabledLoadIds: chosen,
+    ...postStepFlags,
+    buildBootstrap: postStepFlags.buildBootstrap || chosen.includes('plugins'),
+  });
+  return { enabledLoadIds: chosen, steps: resolved.steps, skipped: resolved.skipped };
 }
 
 /**
@@ -159,7 +471,7 @@ export function provision(program: Command): void {
         const wantBootstrap = options.repo !== undefined && options.repo !== false;
         const withAll = options.withAll === true;
         const anyLoadFlag = withAll || LOAD_STEPS.some((s) => options[s.flag] === true);
-        let enabledLoadIds = LOAD_STEPS.filter((s) => withAll || options[s.flag] === true).map((s) => s.id);
+        let enabledLoadIds: string[] = LOAD_STEPS.filter((s) => withAll || options[s.flag] === true).map((s) => s.id);
         // With no --with-* flags, an interactive run offers each load — but AFTER the
         // clone, so the questions come once you've agreed to proceed (not up front).
         // Each picked load's folder is then fetched via an additive sparse re-sync.
@@ -229,47 +541,9 @@ export function provision(program: Command): void {
         const spec = TARGETS[target];
         let cwd = process.cwd();
 
-        // 4b. Teardown mode — the destroy counterpart of provisioning. Gated harder
-        // than deploy: AWS targets are irreversible, so we require the operator to
-        // TYPE the target id (--force bypasses for CI; --yes alone does NOT).
+        // 4b. Teardown mode — the destroy counterpart of provisioning (see runTeardown).
         if (options.teardown) {
-          const { command: downCommand, destructive } = teardownCommand(target, {
-            stackName: options.stackName,
-            region: options.region,
-            // Our typed gate IS the confirmation — forward --yes so the native
-            // script (Fargate) doesn't also block on stdin we're inheriting.
-            assumeYes: true,
-          });
-
-          if (options.json) {
-            console.log(JSON.stringify({ success: true, executionId, target, teardown: true, destructive, destroys: spec.destroys, command: downCommand }, null, 2));
-            return;
-          }
-
-          printSection(`Teardown plan — ${spec.label}`);
-          printKeyValue({ 'Target': target, 'Destroys': spec.destroys, 'Stops cost': spec.cost });
-          printSection('Command to run');
-          printInfo(downCommand);
-
-          if (destructive && !options.force) {
-            const token = await ask(`\nThis is IRREVERSIBLE. Type "${target}" to confirm teardown: `);
-            if (token !== target) {
-              printWarning('That didn\'t match, so nothing was destroyed — you have to type the exact target id to confirm.');
-              return;
-            }
-          } else if (!destructive && !options.force && !(await confirm('\nProceed with teardown (stops the stack; on-disk data persists)?', options.yes))) {
-            printWarning('No problem — nothing was changed.');
-            return;
-          }
-
-          printSection('Tearing down');
-          const { code: downCode } = await runScript(downCommand, cwd, { capture: false });
-          if (downCode !== 0) {
-            printError(`\nTeardown failed (exit ${downCode}). Inspect the stack/containers and retry.`);
-            process.exitCode = 1;
-            return;
-          }
-          printSuccess('Teardown complete.');
+          await runTeardown(spec, target, cwd, executionId, options);
           return;
         }
 
@@ -346,25 +620,11 @@ export function provision(program: Command): void {
           for (const s of skippedSteps) printWarning(`skipped ${s.id}: ${s.reason}`);
         }
 
-        // 5b. Host-port pre-flight (local/minikube only). The deploy binds fixed host
-        // ports (Docker publish / kubectl port-forward); if one is taken, a container
-        // or forward fails to bind mid-deploy — and for the gateway that surfaces as a
-        // silent "/health never reachable" hang. Stop NOW with a summary instead of
-        // failing halfway. Remote targets (ec2/fargate) bind nothing locally → skipped.
-        if (spec.hostPorts.length > 0) {
-          const portChecks = await checkHostPorts(spec);
-          const taken = portChecks.filter((c) => !c.available);
-          printSection('Port availability');
-          for (const c of portChecks) printInfo(`${c.available ? '✓' : '✗'} ${String(c.port).padEnd(5)} — ${c.service}`);
-          if (taken.length > 0) {
-            printError(`\n${taken.length} required port(s) already in use — the deploy can't bind them and would fail mid-way. Free them and re-run:`);
-            for (const c of taken) printInfo(`  • port ${c.port} (${c.service}) — find the holder:  lsof -i :${c.port}`);
-            if (taken.some((c) => c.port === 5000)) {
-              printInfo('  Note: on macOS, port 5000 is usually AirPlay Receiver — System Settings → General → AirDrop & Handoff → AirPlay Receiver (off).');
-            }
-            process.exitCode = 1;
-            return;
-          }
+        // 5b. Host-port pre-flight (local/minikube only) — stop early on a fatal
+        // conflict instead of failing mid-deploy. See preflightPorts.
+        if (!(await preflightPorts(spec, target))) {
+          process.exitCode = 1;
+          return;
         }
 
         // 6. Any missing required prereq that's a single static binary (e.g. yq)
@@ -391,103 +651,29 @@ export function provision(program: Command): void {
           return;
         }
 
-        // 7a. Sparse-clone the platform repo, repoint cwd, and verify the tree.
-        // Shared by `--repo` (below) and the interactive offer in 7b. Returns
-        // false (and sets exitCode) on failure — with a friendly message.
-        // `bootstrapped` records whether we created the clone (vs. running inside an
-        // existing checkout) — only then can we additively sparse-fetch load folders.
-        let bootstrapped = false;
-        const bootstrapClone = async (): Promise<boolean> => {
-          const cmd = bootstrapCommand(bootstrap);
-          printSection('Bootstrap');
-          printInfo(cmd);
-          const { code } = await runScript(cmd, cwd, { capture: false });
-          if (code !== 0) {
-            printError(`\nThe clone didn't finish (exit ${code}). Double-check the repo URL / ref (or your network) and give it another go.`);
-            process.exitCode = 1;
-            return false;
-          }
-          cwd = path.resolve(cwd, bootstrap.workdir);
-          bootstrapped = true;
-          printSuccess(`Repo is ready — continuing from ${cwd}`);
-          const absent = sparsePaths.filter((p) => !existsSync(path.join(cwd, p)));
-          if (absent.length > 0) {
-            printError(`\nThe sparse clone is missing ${absent.join(', ')} — that ref may not have those folders. Try a different --ref.`);
-            process.exitCode = 1;
-            return false;
-          }
-          return true;
-        };
+        // 7a/7b. Sparse-clone (if --repo or accepted interactively) + locate the deploy
+        // entrypoint, repointing cwd into the clone. See bootstrapAndLocate.
+        const located = await bootstrapAndLocate(spec, bootstrap, bootstrapCmd, sparsePaths, cwd, options);
+        cwd = located.cwd;
+        const bootstrapped = located.bootstrapped;
+        if (!located.ok) return;
 
-        // `--repo`: clone up front (must precede the entrypoint check).
-        if (bootstrapCmd) {
-          printInfo(`\nBootstrap → clone ${bootstrap.repo} @ ${bootstrap.ref} into ${bootstrap.workdir} (sparse).`);
-          if (!(await confirm('Go ahead with the clone?', options.yes))) {
-            printWarning('No problem — nothing was changed. Re-run whenever you\'re ready.');
-            return;
-          }
-          if (!(await bootstrapClone())) return;
-        }
-
-        // 7b. The deploy entrypoint must exist relative to cwd. If it doesn't and
-        // we haven't bootstrapped, gracefully OFFER to clone (interactive only),
-        // so a fresh machine can proceed without re-running with --repo.
-        if (!entrypointExists(spec, cwd)) {
-          const interactive = Boolean(process.stdin.isTTY) && !options.yes;
-          if (!bootstrapCmd && interactive && gitAvailable()) {
-            printInfo(`\nLooks like you're not inside a pipeline-builder checkout, so the ${spec.label} deploy scripts aren't here yet.`);
-            if (await confirm(`Want me to sparse-clone them into ${bootstrap.workdir} and keep going?`, false)) {
-              if (!(await bootstrapClone())) return;
-            }
-          }
-          if (!entrypointExists(spec, cwd)) {
-            printWarning(`\nI couldn't find ${spec.dir}/${spec.entrypoint} from ${cwd}.`);
-            printInfo('Two easy ways forward:');
-            printInfo('  • cd into your pipeline-builder checkout and re-run, or');
-            printInfo(`  • add --repo and I'll bootstrap a fresh sparse clone for you${gitAvailable() ? '.' : ' (once git is installed).'}`);
-            process.exitCode = 1;
-            return;
-          }
-        }
-
-        // Opt-in loads — offered AFTER the clone (so we only ask once you've agreed
-        // to proceed). The clone pre-staged every load folder, so each choice is ready
-        // without a re-sync; re-resolve the post-install steps with the selections.
+        // Opt-in loads — offered AFTER the clone (see resolveLoadsInteractively); it
+        // prompts, additively sparse-fetches the picked folders, and re-resolves the
+        // post-install steps with the selections.
         if (willPromptLoads) {
-          const prompts: Record<string, string> = {
-            plugins: 'Load plugins? (builds the plugin images locally — the slow one)',
-            samples: 'Load sample pipelines?',
-            compliance: 'Load compliance rules?',
-          };
-          printSection('Optional post-install loads');
-          const chosen: typeof enabledLoadIds = [];
-          for (const s of LOAD_STEPS) {
-            if (await confirm(prompts[s.id] ?? `Load ${s.id}?`, false)) chosen.push(s.id);
-          }
-          enabledLoadIds = chosen;
-          // Additive sparse re-sync: materialize ONLY the picked loads' folders in
-          // the clone (the partial clone fetches their blobs on demand). Only when we
-          // created the clone — a normal checkout already has every folder.
-          if (bootstrapped) {
-            const absent = sparsePathsFor(target, enabledLoadIds).filter((p) => !existsSync(path.join(cwd, p)));
-            if (absent.length > 0) {
-              printSection('Fetching selected load folders');
-              const addCmd = `git sparse-checkout add ${absent.map((p) => `'${p}'`).join(' ')} && git checkout '${bootstrap.ref}'`;
-              printInfo(addCmd);
-              const { code } = await runScript(addCmd, cwd, { capture: false });
-              if (code !== 0) {
-                printWarning(`Couldn't fetch ${absent.join(', ')} — the matching load step(s) may fail. Re-run with --repo to refresh the clone.`);
-              }
-            }
-          }
-          ({ steps: postSteps, skipped: skippedSteps } = resolvePostSteps({
+          const loaded = await resolveLoadsInteractively(
             target,
             url,
-            region: typeof params.region === 'string' ? params.region : undefined,
-            enabledLoadIds,
-            ...postStepFlags,
-            buildBootstrap: postStepFlags.buildBootstrap || enabledLoadIds.includes('plugins'),
-          }));
+            typeof params.region === 'string' ? params.region : undefined,
+            cwd,
+            bootstrapped,
+            bootstrap,
+            postStepFlags,
+          );
+          enabledLoadIds = loaded.enabledLoadIds;
+          postSteps = loaded.steps;
+          skippedSteps = loaded.skipped;
         }
         // local/minikube's setup.sh REQUIRES a `.env` and aborts without it — create
         // it from .env.example with generated secrets so the deploy is non-interactive.
@@ -507,47 +693,8 @@ export function provision(program: Command): void {
           return;
         }
 
-        // 7c. Run the deploy out-of-loop (real command, secrets unmasked, streamed +
-        // captured), with a bounded auto-fix + retry loop — the deploy scripts are
-        // idempotent, so a fixed re-run resumes rather than starting over.
-        const maxAttempts = 1 + Math.max(0, parseInt(options.retries, 10) || 0);
-        let runParams: Record<string, unknown> = params;
-        let succeeded = false;
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          const realCommand = assembleCommand(spec, runParams, { mask: false }).command;
-          printSection(attempt === 1 ? 'Deploying' : `Deploying — retry ${attempt - 1}`);
-          if (attempt === 1) {
-            printInfo(`Deploying ${spec.label} → ${url}`);
-            printInfo(spec.deploys);
-            printInfo('Streaming the deploy below — first run is the slow one (image pulls + cert generation).');
-          }
-          const { code, tail } = await runScript(realCommand, cwd, { capture: true });
-          if (code === 0) { succeeded = true; break; }
-
-          printError(`\nDeploy failed (exit ${code}).`);
-          const issues = matchIssues(tail);
-          if (issues.length > 0) {
-            printSection('Likely cause');
-            for (const i of issues) printInfo(`• ${i.cause}\n  → ${i.suggestion}`);
-          }
-          if (isAiConfigured(aiOpts)) {
-            const diagnosis = await diagnoseFailure(redactSecrets(tail, spec, runParams), aiOpts);
-            if (diagnosis) { printSection('Diagnosis'); printInfo(diagnosis); }
-          }
-          if (attempt >= maxAttempts) break;
-
-          // Auto-fix: a retryable issue with a param we haven't already applied.
-          const fix = issues.find((i) => i.retryable && i.paramFix && runParams[i.paramFix.key] !== i.paramFix.value);
-          if (fix?.paramFix && await confirm(`\nApply fix and retry — ${fix.suggestion}`, options.yes)) {
-            runParams = { ...runParams, [fix.paramFix.key]: fix.paramFix.value };
-            continue;
-          }
-          // Retryable but no param change (e.g. ACM DNS propagation) — offer a plain re-run.
-          if (!fix && issues.some((i) => i.retryable) && await confirm('\nRetry the deploy (it is idempotent and will resume)?', options.yes)) {
-            continue;
-          }
-          break;
-        }
+        // 7c. Run the deploy with a bounded auto-fix + retry loop (see runDeployWithRetry).
+        const { succeeded, runParams } = await runDeployWithRetry(spec, url, cwd, params, aiOpts, options);
         if (!succeeded) { process.exitCode = 1; return; }
         printSuccess('Deploy command completed.');
 
@@ -571,52 +718,15 @@ export function provision(program: Command): void {
           }
           printInfo(`Polling ${url}/health …`);
           const health = await waitHealthy(url, { onTick: (m) => printInfo(m) });
-          (health.healthy ? printSuccess : printWarning)(`${health.url} — ${health.detail}`);
+          // Green only when fully ready; a "health OK but /ready never came" proceed-
+          // anyway state is healthy:true but degraded → warn so it doesn't read as done.
+          (health.healthy && health.ready ? printSuccess : printWarning)(`${health.url} — ${health.detail}`);
         }
 
         // 7f. Post-install steps (register + opt-in loads, smoke test, events, custom).
-        // register runs init-platform; for EC2/Fargate it must run from inside the
-        // VPC, so we surface the command there instead of executing it locally.
-        if (postSteps.length > 0) {
-          for (const s of skippedSteps) printWarning(`Skipped post-step ${s.id}: ${s.reason}`);
-          const isRemoteRegister = (id: string): boolean => id === 'register' && (target === 'ec2' || target === 'fargate');
-          const runnable = postSteps.filter((s) => !isRemoteRegister(s.id));
-          for (const s of postSteps) {
-            if (isRemoteRegister(s.id)) {
-              printInfo('\nNext (run from inside the VPC): register admin + load plugins —');
-              printInfo(`  ${s.command}`);
-            }
-          }
-          if (runnable.length > 0 && await confirm(`\nRun ${runnable.length} post-install step(s) now?`, options.yes)) {
-            for (const s of runnable) {
-              printSection(`Post-step: ${s.label}`);
-              // Steps that log into the platform (register + store-token) need the
-              // admin creds (PLATFORM_IDENTIFIER / PLATFORM_PASSWORD) on top of their
-              // own step env. setup-events does NOT log in — it reads PLATFORM_SECRET_NAME,
-              // AWS creds, and the region from the AWS environment — so it's excluded.
-              const needsCreds = s.id === 'register' || s.id === 'store-token';
-              const env = needsCreds ? { ...s.env, ...adminEnv } : s.env;
-              // These steps (plugin/sample/compliance loads, smoke, events) are noisy
-              // and non-interactive, so run them QUIETLY — capture the output and only
-              // surface it on failure. The exception is a register with no admin creds:
-              // init-platform.sh prompts for them, so it must stream to the terminal.
-              const interactiveRegister = s.id === 'register' && !adminEnv.PLATFORM_IDENTIFIER;
-              const quiet = !interactiveRegister;
-              if (quiet) printInfo(`${s.command}\n  …running (output shown only if it fails)`);
-              else printInfo(s.command);
-              const { code, tail } = await runScript(s.command, cwd, { quiet, capture: false, env });
-              if (code !== 0) {
-                if (quiet && tail) { printError('\n--- last output ---'); printInfo(tail); }
-                printError(`\nPost-step '${s.id}' failed (exit ${code}). The platform is deployed; fix and re-run the step manually.`);
-                process.exitCode = 1;
-                break;
-              }
-              printSuccess(`${s.id} ✓`);
-            }
-          } else if (runnable.length > 0) {
-            printInfo('\nSkipped post-install steps. Run the commands above manually when ready.');
-          }
-        }
+        // See runPostSteps — it surfaces register + the events bundle as manual in-VPC
+        // next-steps on EC2/Fargate instead of auto-running (and failing) them locally.
+        await runPostSteps(postSteps, skippedSteps, target, cwd, adminEnv, options);
       } catch (error) {
         handleError(error, ERROR_CODES.GENERAL, {
           debug: program.opts().debug,

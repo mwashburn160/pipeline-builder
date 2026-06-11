@@ -25,7 +25,9 @@ AUTH=()
 [ -n "$TOKEN" ] && AUTH=(-u "${GHCR_USER:-${GITHUB_ACTOR:-ghcr}}:${TOKEN}")
 
 # Distinct semver-pinned ghcr refs across compose / k8s / CloudFormation under deploy/.
-mapfile -t REFS < <(
+# while-read, not `mapfile` (bash 4+), so this also runs on macOS bash 3.2.
+REFS=()
+while IFS= read -r _ref; do REFS+=("$_ref"); done < <(
   grep -rhoE "ghcr\.io/${OWNER}/[a-z0-9-]+:[0-9]+\.[0-9]+\.[0-9]+" "$ROOT/deploy" 2>/dev/null | sort -u
 )
 
@@ -38,7 +40,7 @@ echo "Verifying ${#REFS[@]} deploy image tag(s) against ghcr.io …"
 MISSING=()
 for ref in "${REFS[@]}"; do
   repo="${ref#ghcr.io/${OWNER}/}"; tag="${repo##*:}"; repo="${repo%%:*}"
-  tok="$(curl -fsSL "${AUTH[@]}" "https://ghcr.io/token?scope=repository:${OWNER}/${repo}:pull" 2>/dev/null \
+  tok="$(curl -fsSL "${AUTH[@]+"${AUTH[@]}"}" "https://ghcr.io/token?scope=repository:${OWNER}/${repo}:pull" 2>/dev/null \
     | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || true)"
   if [ -z "$tok" ]; then
     echo "ERROR: could not obtain a GHCR pull token for ${OWNER}/${repo} — check GHCR_TOKEN / network." >&2

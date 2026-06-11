@@ -2,6 +2,17 @@
 # Shared functions for deploy/bin scripts.
 # Source this file: . "$(dirname "$0")/common.sh"
 # Note: Requires bash (uses arrays, ERRORS+=(), ${#ERRORS[@]}).
+#
+# ── BASH 3.2 / macOS PORTABILITY ─────────────────────────────────────────────
+# These scripts must run on the stock macOS bash (3.2). The recurring foot-guns,
+# documented here ONCE so they aren't re-learned (and re-broken) per script:
+#   • Expand a possibly-EMPTY array under `set -u` with the `+` form, never bare:
+#       docker build "${args[@]+"${args[@]}"}" ...   # bare "${args[@]}" → "unbound variable"
+#   • No `mapfile`/`readarray` (bash 4+) — use `read_lines <arr>` below (or `while read`).
+#   • No associative arrays (`declare -A`) and no case-mod (`${v^^}` / `${v,,}`).
+# A function can't safely expand an array (command substitution drops quoting), so the
+# `"${arr[@]+...}"` idiom must stay inline — this block is its single source of truth.
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Common paths.
 #
@@ -44,6 +55,15 @@ log_fail() { echo -e "  ${RED}FAIL${NC} $1"; FAILED=$((FAILED + 1)); ERRORS+=("$
 log_skip() { echo -e "  ${YELLOW}SKIP${NC} $1"; SKIPPED=$((SKIPPED + 1)); }
 log_warn() { echo -e "  ${YELLOW}WARN${NC} $1"; }
 log_info() { echo -e "${BLUE}==>${NC} $1"; }
+
+# read_lines ARRAY < input — portable `mapfile -t` (bash 3.2 has none). Reads each
+# line of stdin into the named array (no nameref in 3.2, so it goes via eval).
+#   Usage:  read_lines REFS < <(grep -rhoE '…' "$dir" | sort -u)
+read_lines() {
+  local __name="$1" __line
+  eval "$__name=()"
+  while IFS= read -r __line; do eval "$__name+=(\"\$__line\")"; done
+}
 
 # ---------------------------------------------------------------------------
 # get_spec_field — extract a top-level field from a YAML file (e.g. plugin-spec.yaml)

@@ -16,6 +16,12 @@ import type { TargetId } from './targets.js';
 export interface HealthResult {
   readonly url: string;
   readonly healthy: boolean;
+  /**
+   * True only when BOTH /health and /ready passed. Distinguishes a fully-ready
+   * platform from the degraded "health OK but /ready never came, proceeding anyway"
+   * state — both have healthy:true, so callers should style success on `ready`.
+   */
+  readonly ready: boolean;
   readonly detail: string;
 }
 
@@ -69,13 +75,14 @@ export async function waitHealthy(
     if (await probe(`${url}/health`)) {
       if (healthSeenAt === 0) healthSeenAt = Date.now();
       if (await probe(`${url}/ready`)) {
-        return { url, healthy: true, detail: 'health + ready OK' };
+        return { url, healthy: true, ready: true, detail: 'health + ready OK' };
       }
       const leftMs = readyGraceMs - (Date.now() - healthSeenAt);
       if (leftMs <= 0) {
         return {
           url,
           healthy: true,
+          ready: false,
           detail: `health OK, but /ready didn't pass within ${Math.round(readyGraceMs / 1000)}s — a backend service is likely down (check \`docker compose ps\` / its logs). Continuing; routes for that service may 502 until it's healthy.`,
         };
       }
@@ -87,8 +94,8 @@ export async function waitHealthy(
   }
   // Overall timeout. If /health came up but /ready never did, proceed (non-fatal).
   return healthSeenAt > 0
-    ? { url, healthy: true, detail: 'health OK but /ready not reached — the platform is still warming up; post-install steps (register) may need a re-run' }
-    : { url, healthy: false, detail: `not reachable within ${Math.round(timeoutMs / 1000)}s — check the stack / DNS / health logs` };
+    ? { url, healthy: true, ready: false, detail: 'health OK but /ready not reached — the platform is still warming up; post-install steps (register) may need a re-run' }
+    : { url, healthy: false, ready: false, detail: `not reachable within ${Math.round(timeoutMs / 1000)}s — check the stack / DNS / health logs` };
 }
 
 /**

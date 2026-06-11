@@ -29,11 +29,16 @@ function canBind(port: number, host: string): Promise<boolean> {
 }
 
 /**
- * Is `port` free? Probes BOTH interfaces the deploy paths bind: `0.0.0.0` (Docker
- * publishes `0.0.0.0:<port>`) and `127.0.0.1` (kubectl port-forward, Docker Desktop
- * localhost). A holder on either makes the matching bind fail, so requiring both to
- * succeed catches the real conflict (e.g. macOS AirPlay on 5000) without
- * SO_REUSEADDR false-negatives.
+ * Is `port` free? Probes BOTH `0.0.0.0` (where Docker publishes `0.0.0.0:<port>`)
+ * AND `127.0.0.1` (where kubectl port-forward / Docker Desktop bind), requiring both.
+ *
+ * This is NOT redundant — do not "simplify" to one bind. Verified empirically on
+ * macOS (Node sets SO_REUSEADDR): neither interface subsumes the other. With a holder
+ * on 127.0.0.1, binding 0.0.0.0 still SUCCEEDS (a single 0.0.0.0 probe would MISS a
+ * port-forward squatting the gateway on loopback); with a holder on 0.0.0.0, binding
+ * 127.0.0.1 still succeeds. Only checking both reliably catches the real conflict (a
+ * port-forward on 8443, AirPlay on 5000, …). For a pre-flight, a false positive
+ * (over-cautious) beats a false negative (miss it → the deploy fails mid-way).
  */
 async function isPortFree(port: number): Promise<boolean> {
   const [allIfaces, loopback] = await Promise.all([canBind(port, '0.0.0.0'), canBind(port, '127.0.0.1')]);

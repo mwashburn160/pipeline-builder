@@ -73,7 +73,9 @@ else
   _build_args=()
   [ -n "${PIPELINE_MANAGER_VERSION:-}" ] && \
     _build_args+=(--build-arg "PIPELINE_MANAGER_VERSION=${PIPELINE_MANAGER_VERSION}")
-  docker build "${_build_args[@]}" -t "$TAG" "$BUILD_CTX"
+  # "${arr[@]+"${arr[@]}"}" expands to nothing for an EMPTY array — plain
+  # "${arr[@]}" throws "unbound variable" under `set -u` on bash 3.2 (macOS).
+  docker build "${_build_args[@]+"${_build_args[@]}"}" -t "$TAG" "$BUILD_CTX"
 fi
 
 # ---- Publish ----

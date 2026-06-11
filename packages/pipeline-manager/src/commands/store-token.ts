@@ -1,31 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import axios from 'axios';
 import { Command } from 'commander';
 import { validateNumber } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
 import { decodeTokenPayload } from '../utils/auth-guard.js';
 import { upsertSecret, getSecretArn } from '../utils/aws-secrets.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
-import { getConfigWithOptions } from '../utils/config-loader.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
-
-/**
- * Build the secret name from the JWT token's organizationId.
- * Pattern: {SECRETS_PATH_PREFIX}/{orgId}/platform
- * @throws Error if organizationId is not present in the token
- */
-function resolveSecretName(token: string): string {
-  const payload = decodeTokenPayload(token);
-  const orgId = payload?.organizationId;
-  if (!orgId) {
-    throw new Error('Token does not contain organizationId — cannot derive secret name. Use --secret-name to specify explicitly.');
-  }
-  return `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/platform`;
-}
+import { ensurePlatformToken, resolveSecretName } from '../utils/platform-secret.js';
 
 /**
  * Registers the `store-token` command with the CLI program.
@@ -69,39 +53,12 @@ export function storeToken(program: Command): void {
         const days = validateNumber(options.days, 'days', 1, 365);
         const expiresInSeconds = days * 24 * 60 * 60;
 
-        // Step 0: log in first when creds are available and no PLATFORM_TOKEN is set.
-        // Credentials may come from --email/--password OR from the
-        // PLATFORM_IDENTIFIER/PLATFORM_PASSWORD env vars — the env path lets callers
-        // like `provision --with-events` pass them without putting the password on
-        // the command line (where it would show in plans/logs).
-        const loginEmail = options.email || process.env.PLATFORM_IDENTIFIER;
-        const loginPassword = options.password || process.env.PLATFORM_PASSWORD;
-        if (loginEmail && loginPassword && !process.env.PLATFORM_TOKEN) {
-          printSection('Login');
-          printInfo('Authenticating with email/password...');
-
-          const config = getConfigWithOptions(options);
-          const loginUrl = `${config.api.baseUrl}/api/auth/login`;
-
-          const loginResponse = await axios.post(loginUrl, {
-            email: loginEmail,
-            password: loginPassword,
-          }, {
-            httpsAgent: config.api.rejectUnauthorized === false
-              ? new (await import('https')).Agent({ rejectUnauthorized: false })
-              : undefined,
-          });
-
-          const loginData = loginResponse.data?.data ?? loginResponse.data;
-          const loginToken = loginData?.accessToken;
-
-          if (!loginToken || typeof loginToken !== 'string') {
-            throw new Error('Login failed — no access token in response');
-          }
-
-          process.env.PLATFORM_TOKEN = loginToken;
-          printSuccess('Login successful');
-        }
+        // Step 0: log in first when creds are available and no PLATFORM_TOKEN is set
+        // (shared with setup-events). Creds come from --email/--password OR the env
+        // vars PLATFORM_IDENTIFIER/PLATFORM_PASSWORD — the env path lets callers like
+        // `provision --with-events` pass them without putting the password on the
+        // command line (where it would show in plans/logs).
+        await ensurePlatformToken(options);
 
         // Step 1: Authenticate and generate long-lived token
         printSection('Generate Token');

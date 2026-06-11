@@ -86,10 +86,13 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   if (opts.smokeTest) {
     if (opts.url) {
       // -k: local/minikube front a self-signed cert; harmless against real-cert AWS URLs.
+      // Probe /health — the one route guaranteed to exist and serve unauthenticated
+      // through nginx (every /api/* route requires auth → 401; /api/version doesn't
+      // exist and would fall through to the SPA, making `curl -f` meaningless).
       steps.push({
         id: 'smoke-test',
-        label: 'Smoke test — read-only API check',
-        command: `curl -fsSk ${opts.url}/api/version && echo 'smoke-test: API reachable'`,
+        label: 'Smoke test — gateway/API reachability',
+        command: `curl -fsSk ${opts.url}/health && echo 'smoke-test: API reachable'`,
       });
     } else {
       skipped.push({ id: 'smoke-test', reason: 'no platform URL to probe for this target' });
@@ -101,10 +104,11 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
       // Event ingestion needs a platform JWT in Secrets Manager BEFORE the Lambda
       // is wired up, so this is a two-step bundle: store-token writes the token,
       // then setup-events deploys the EventBridge → SQS → Lambda that reads it.
-      // Neither takes a secret name — both derive pipeline-builder's own pattern
-      // (CoreConstants.secretPath → pipeline-builder/{orgId}/platform) from the
-      // org, so they agree automatically. They get PLATFORM_BASE_URL (step env) +
-      // admin creds (merged by the caller) to resolve the org.
+      // store-token derives the secret path from the JWT's org (CoreConstants pattern
+      // → pipeline-builder/{orgId}/platform). NOTE: setup-events still REQUIRES that
+      // name via --secret-name / PLATFORM_SECRET_NAME (it does not yet derive it), so
+      // the operator supplies it when running this bundle. provision surfaces (does not
+      // auto-run) the bundle on AWS — it needs a registered, in-VPC platform.
       const region = opts.region ? ` --region ${opts.region}` : '';
       const env = opts.url ? { PLATFORM_BASE_URL: opts.url } : undefined;
       steps.push({
