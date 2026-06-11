@@ -11,6 +11,8 @@ const runScript = jest.fn<(...a: unknown[]) => Promise<{ code: number; tail: str
 const entrypointExists = jest.fn<(...a: unknown[]) => boolean>();
 const matchIssues = jest.fn<(...a: unknown[]) => unknown[]>();
 const checkHostPorts = jest.fn<(...a: unknown[]) => Promise<Array<{ service: string; port: number; available: boolean }>>>();
+const discoverHostPorts = jest.fn<(...a: unknown[]) => Array<{ service: string; port: number }>>();
+const stackRunning = jest.fn<(...a: unknown[]) => boolean>();
 const questionMock = jest.fn<(q: string) => Promise<string>>(); // scripts the interactive load prompts
 
 jest.unstable_mockModule('../src/agent/executor.js', () => ({
@@ -28,7 +30,7 @@ jest.unstable_mockModule('../src/agent/ai.js', () => ({
   diagnoseFailure: jest.fn(),
   parseGoal: jest.fn(),
 }));
-jest.unstable_mockModule('../src/agent/ports.js', () => ({ checkHostPorts }));
+jest.unstable_mockModule('../src/agent/ports.js', () => ({ checkHostPorts, discoverHostPorts, stackRunning }));
 // Drive ask()'s readline so resolveLoadsInteractively's prompts return scripted answers.
 jest.unstable_mockModule('node:readline/promises', () => ({
   createInterface: () => ({ question: questionMock, close: jest.fn() }),
@@ -45,6 +47,8 @@ beforeEach(() => {
   entrypointExists.mockReset();
   matchIssues.mockReset();
   checkHostPorts.mockReset();
+  discoverHostPorts.mockReset();
+  stackRunning.mockReset();
   questionMock.mockReset();
   process.exitCode = undefined;
 });
@@ -159,27 +163,40 @@ describe('runDeployWithRetry — retry + auto-fix', () => {
   });
 });
 
-describe('preflightPorts — fatal (local) vs warn-and-proceed (minikube) vs skip (remote)', () => {
+describe('preflightPorts — fatal / warn / skip / re-run', () => {
+  const portsOf = (t: 'local' | 'minikube') => TARGETS[t].hostPorts.map((p) => ({ ...p }));
   const withAvail = (ports: ReadonlyArray<{ service: string; port: number }>, takenIdx = -1) =>
     ports.map((p, i) => ({ ...p, available: i !== takenIdx }));
 
   it('all ports free → true', async () => {
-    checkHostPorts.mockResolvedValue(withAvail(TARGETS.local.hostPorts));
-    expect(await preflightPorts(TARGETS.local, 'local')).toBe(true);
+    discoverHostPorts.mockReturnValue(portsOf('local'));
+    checkHostPorts.mockResolvedValue(withAvail(portsOf('local')));
+    expect(await preflightPorts(TARGETS.local, 'local', '/cwd')).toBe(true);
   });
 
-  it('a conflict on local is FATAL → false (abort)', async () => {
-    checkHostPorts.mockResolvedValue(withAvail(TARGETS.local.hostPorts, 0));
-    expect(await preflightPorts(TARGETS.local, 'local')).toBe(false);
+  it('a conflict on local (stack NOT running) is FATAL → false (abort)', async () => {
+    discoverHostPorts.mockReturnValue(portsOf('local'));
+    checkHostPorts.mockResolvedValue(withAvail(portsOf('local'), 0));
+    stackRunning.mockReturnValue(false);
+    expect(await preflightPorts(TARGETS.local, 'local', '/cwd')).toBe(false);
+  });
+
+  it('a conflict on local but the OWN stack is already running → true (re-run is not blocked)', async () => {
+    discoverHostPorts.mockReturnValue(portsOf('local'));
+    checkHostPorts.mockResolvedValue(withAvail(portsOf('local'), 0));
+    stackRunning.mockReturnValue(true);
+    expect(await preflightPorts(TARGETS.local, 'local', '/cwd')).toBe(true);
   });
 
   it('a conflict on minikube WARNS but proceeds → true', async () => {
-    checkHostPorts.mockResolvedValue(withAvail(TARGETS.minikube.hostPorts, 0));
-    expect(await preflightPorts(TARGETS.minikube, 'minikube')).toBe(true);
+    discoverHostPorts.mockReturnValue(portsOf('minikube'));
+    checkHostPorts.mockResolvedValue(withAvail(portsOf('minikube'), 0));
+    expect(await preflightPorts(TARGETS.minikube, 'minikube', '/cwd')).toBe(true);
   });
 
   it('remote target (no host ports) skips the check → true', async () => {
-    expect(await preflightPorts(TARGETS.ec2, 'ec2')).toBe(true);
+    discoverHostPorts.mockReturnValue([]);
+    expect(await preflightPorts(TARGETS.ec2, 'ec2', '/cwd')).toBe(true);
     expect(checkHostPorts).not.toHaveBeenCalled();
   });
 });

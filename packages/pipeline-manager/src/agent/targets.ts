@@ -54,10 +54,11 @@ export interface TargetSpec {
   /** What a teardown of this target destroys — shown before a (gated) teardown. */
   readonly destroys: string;
   /**
-   * Host ports the deploy binds (Docker-published for local, kubectl port-forwards
-   * for minikube). Checked up front — a conflict means a container/forward can't
-   * bind and silently fails. Mirror deploy/<target>'s compose/setup.sh. Empty for
-   * remote targets (ec2/fargate bind nothing on the operator's machine).
+   * Host ports the deploy binds — a FALLBACK only. The live list is DERIVED from the
+   * cloned deploy source at runtime (ports.ts `discoverHostPorts`): local from
+   * docker-compose.yml's published ports, minikube from setup.sh's port-forwards. This
+   * static copy is used only when that source can't be read. Empty for remote targets
+   * (ec2/fargate bind nothing on the operator's machine).
    */
   readonly hostPorts: readonly { service: string; port: number }[];
 }

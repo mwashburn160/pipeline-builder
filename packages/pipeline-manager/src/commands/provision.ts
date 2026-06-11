@@ -9,7 +9,7 @@ import { diagnoseFailure, isAiConfigured, parseGoal } from '../agent/ai.js';
 import { bootstrapCommand, resolveBootstrap, type BootstrapSpec } from '../agent/bootstrap.js';
 import { entrypointExists, executionBlocked, runScript } from '../agent/executor.js';
 import { deriveHealthUrl, waitHealthy, ensureMinikubeGateway } from '../agent/health.js';
-import { checkHostPorts } from '../agent/ports.js';
+import { checkHostPorts, discoverHostPorts, stackRunning } from '../agent/ports.js';
 import { resolvePostSteps, type PostStep, type SkippedStep } from '../agent/post-steps.js';
 import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied } from '../agent/prereqs.js';
 import { TOOLS_DIR, fetchTool, isFetchable, withToolsOnPath } from '../agent/tools.js';
@@ -58,16 +58,18 @@ function collectStep(value: string, acc: string[]): string[] {
 }
 
 /**
- * Host-port pre-flight (local/minikube). The deploy binds fixed host ports (Docker
- * publish / kubectl port-forward); a taken port makes a container/forward fail to
- * bind mid-deploy — for the gateway, a silent unreachable hang. Prints a ✓/✗ summary
- * and returns false ONLY when the caller must ABORT (a fatal local conflict). minikube
- * ports are managed forwards (setup.sh pkills/restarts them), so a conflict there warns
- * but proceeds. Remote targets (ec2/fargate) bind nothing locally → returns true.
+ * Host-port pre-flight (local/minikube). Ports are DERIVED from the target's cloned
+ * deploy source (compose / setup.sh) so the list can't drift — hence this runs AFTER
+ * the clone. A taken port makes a container/forward fail to bind mid-deploy (for the
+ * gateway, a silent unreachable hang). Prints a ✓/✗ summary and returns false ONLY
+ * when the caller must ABORT (a fatal local conflict). minikube ports are managed
+ * forwards (setup.sh pkills/restarts them), so a conflict there warns but proceeds.
+ * Remote targets (ec2/fargate) bind nothing locally → returns true.
  */
-export async function preflightPorts(spec: TargetSpec, target: TargetId): Promise<boolean> {
-  if (spec.hostPorts.length === 0) return true;
-  const portChecks = await checkHostPorts(spec);
+export async function preflightPorts(spec: TargetSpec, target: TargetId, cwd: string): Promise<boolean> {
+  const ports = discoverHostPorts(target, cwd, spec);
+  if (ports.length === 0) return true;
+  const portChecks = await checkHostPorts(ports);
   const taken = portChecks.filter((c) => !c.available);
   printSection('Port availability');
   for (const c of portChecks) printInfo(`${c.available ? '✓' : '✗'} ${String(c.port).padEnd(5)} — ${c.service}`);
@@ -76,6 +78,13 @@ export async function preflightPorts(spec: TargetSpec, target: TargetId): Promis
   // minikube's are kubectl port-forwards setup.sh pkills + restarts (and
   // ensureMinikubeGateway recovers), so a stale forward must NOT block a re-run.
   const fatal = target === 'local';
+  // …UNLESS the local stack is already running: those ports are held by YOUR OWN
+  // stack, and `docker compose up` no-ops them — this is exactly how you re-run to
+  // add loads/options. Don't block (the would-be conflict is a self-conflict).
+  if (fatal && stackRunning(target, cwd, spec)) {
+    printWarning(`\n${taken.length} port(s) are held by your already-running ${spec.label} stack — re-running is a no-op/resume, so continuing.`);
+    return true;
+  }
   const lead = `${taken.length} required port(s) already in use: ${taken.map((c) => c.port).join(', ')}`;
   (fatal ? printError : printWarning)(fatal
     ? `\n${lead} — the deploy can't bind them and would fail mid-way. Free them and re-run:`
@@ -332,7 +341,7 @@ export async function resolveLoadsInteractively(
   postStepFlags: { init: boolean; buildBootstrap: boolean; smokeTest: boolean; events: boolean; steps: string[] },
 ): Promise<{ enabledLoadIds: string[]; steps: PostStep[]; skipped: SkippedStep[] }> {
   const prompts: Record<string, string> = {
-    plugins: 'Load plugins? (builds the plugin images locally — the slow one)',
+    plugins: 'Load plugins?',
     samples: 'Load sample pipelines?',
     compliance: 'Load compliance rules?',
   };
@@ -620,13 +629,6 @@ export function provision(program: Command): void {
           for (const s of skippedSteps) printWarning(`skipped ${s.id}: ${s.reason}`);
         }
 
-        // 5b. Host-port pre-flight (local/minikube only) — stop early on a fatal
-        // conflict instead of failing mid-deploy. See preflightPorts.
-        if (!(await preflightPorts(spec, target))) {
-          process.exitCode = 1;
-          return;
-        }
-
         // 6. Any missing required prereq that's a single static binary (e.g. yq)
         // can be fetched into the tools cache instead of a system install — no
         // brew/apt. Offer it, then re-check (the cache dir is already on PATH).
@@ -657,6 +659,14 @@ export function provision(program: Command): void {
         cwd = located.cwd;
         const bootstrapped = located.bootstrapped;
         if (!located.ok) return;
+
+        // Host-port pre-flight — now that the deploy source is on disk (post-clone),
+        // derive the ports from it (compose / setup.sh) and stop on a fatal conflict
+        // before deploying. See preflightPorts.
+        if (!(await preflightPorts(spec, target, cwd))) {
+          process.exitCode = 1;
+          return;
+        }
 
         // Opt-in loads — offered AFTER the clone (see resolveLoadsInteractively); it
         // prompts, additively sparse-fetches the picked folders, and re-resolves the
