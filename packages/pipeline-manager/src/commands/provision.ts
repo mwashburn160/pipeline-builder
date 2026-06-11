@@ -158,23 +158,13 @@ export function provision(program: Command): void {
         const withAll = options.withAll === true;
         const anyLoadFlag = withAll || LOAD_STEPS.some((s) => options[s.flag] === true);
         let enabledLoadIds = LOAD_STEPS.filter((s) => withAll || options[s.flag] === true).map((s) => s.id);
-        // Interactive: with no --with-* flags given, offer each opt-in load so a
-        // plain `provision --execute` can still load plugins/samples/compliance.
-        // Explicit flags, --yes, --json, or non-interactive shells skip the prompts
-        // (advisor mode never executes loads, so it doesn't ask either).
-        if (options.execute && !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag) {
-          const prompts: Record<string, string> = {
-            plugins: 'Load plugins? (builds the plugin images locally — the slow one)',
-            samples: 'Load sample pipelines?',
-            compliance: 'Load compliance rules?',
-          };
-          printSection('Optional post-install loads');
-          const chosen: typeof enabledLoadIds = [];
-          for (const s of LOAD_STEPS) {
-            if (await confirm(prompts[s.id] ?? `Load ${s.id}?`, false)) chosen.push(s.id);
-          }
-          enabledLoadIds = chosen;
-        }
+        // With no --with-* flags, an interactive `--execute` offers each load — but
+        // AFTER the clone, so the questions come once you've agreed to proceed (not
+        // up front). The sparse clone pre-stages every load folder when we'll prompt
+        // (they're tiny next to the excluded packages/, api/, frontend/), so any
+        // choice is ready with no re-sync. Flags / --yes / --json / non-interactive
+        // shells skip the prompts.
+        const willPromptLoads = options.execute === true && !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
         const postStepFlags = {
           init: options.init !== false,
           buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
@@ -292,20 +282,23 @@ export function provision(program: Command): void {
         // prereq checks + the deploy — they live in the tools cache, not on the
         // system PATH. (Both `has()` and the deploy's `bash -lc` inherit this.)
         withToolsOnPath();
-        let prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
+        let prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: willPromptLoads || enabledLoadIds.includes('plugins') });
         const { command, missing } = assembleCommand(spec, params);
         const url = deriveHealthUrl(target, params);
 
-        // Sparse bootstrap clone command (common base + target + selected loads).
-        const sparsePaths = sparsePathsFor(target, enabledLoadIds);
+        // Sparse bootstrap clone command (common base + target + loads). When we'll
+        // prompt for loads after the clone, pre-stage every load folder so any choice
+        // is ready without a re-sync.
+        const sparsePaths = sparsePathsFor(target, willPromptLoads ? LOAD_STEPS.map((s) => s.id) : enabledLoadIds);
         const bootstrap = resolveBootstrap(
           { repo: typeof options.repo === 'string' ? options.repo : undefined, ref: options.ref, workdir: options.workdir, full: !gitSupportsSparseCheckout() },
           sparsePaths,
         );
         const bootstrapCmd = wantBootstrap ? bootstrapCommand(bootstrap) : null;
 
-        // Resolve post-install steps (register → smoke → events → custom).
-        const { steps: postSteps, skipped: skippedSteps } = resolvePostSteps({
+        // Resolve post-install steps (register → smoke → events → custom). Re-resolved
+        // after the post-clone load prompts (see below) when those run interactively.
+        let { steps: postSteps, skipped: skippedSteps } = resolvePostSteps({
           target,
           url,
           region: typeof params.region === 'string' ? params.region : undefined,
@@ -375,7 +368,7 @@ export function provision(program: Command): void {
               printInfo(`Fetching ${c.name}…`);
               if (!fetchTool(c.name)) printWarning(`Couldn't fetch ${c.name} — install it manually and re-run.`);
             }
-            prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
+            prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: willPromptLoads || enabledLoadIds.includes('plugins') });
           }
         }
 
@@ -441,6 +434,31 @@ export function provision(program: Command): void {
             process.exitCode = 1;
             return;
           }
+        }
+
+        // Opt-in loads — offered AFTER the clone (so we only ask once you've agreed
+        // to proceed). The clone pre-staged every load folder, so each choice is ready
+        // without a re-sync; re-resolve the post-install steps with the selections.
+        if (willPromptLoads) {
+          const prompts: Record<string, string> = {
+            plugins: 'Load plugins? (builds the plugin images locally — the slow one)',
+            samples: 'Load sample pipelines?',
+            compliance: 'Load compliance rules?',
+          };
+          printSection('Optional post-install loads');
+          const chosen: typeof enabledLoadIds = [];
+          for (const s of LOAD_STEPS) {
+            if (await confirm(prompts[s.id] ?? `Load ${s.id}?`, false)) chosen.push(s.id);
+          }
+          enabledLoadIds = chosen;
+          ({ steps: postSteps, skipped: skippedSteps } = resolvePostSteps({
+            target,
+            url,
+            region: typeof params.region === 'string' ? params.region : undefined,
+            enabledLoadIds,
+            ...postStepFlags,
+            buildBootstrap: postStepFlags.buildBootstrap || enabledLoadIds.includes('plugins'),
+          }));
         }
         // local/minikube's setup.sh REQUIRES a `.env` and aborts without it — create
         // it from .env.example with generated secrets so the deploy is non-interactive.
