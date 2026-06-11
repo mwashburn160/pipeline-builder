@@ -314,7 +314,12 @@ log "Starting port-forwards"
 pkill -f "kubectl port-forward.*-n $NS" 2>/dev/null || true
 sleep 1
 
-port_forward "Nginx"          nginx            "8443:8443 8080:8080"
+# Gateway: forward 8443 (HTTPS) ONLY. Binding 8080 too made the WHOLE forward
+# fail whenever either port was busy (e.g. a leftover bind from a local stack on
+# 8443/8080), silently killing the gateway while the single-port forwards below
+# survived — leaving https://localhost:8443 unreachable. The HTTP→HTTPS redirect
+# on 8080 isn't needed for the API/UI (use the NodePort if you want it).
+port_forward "Nginx"          nginx            "8443:8443"
 port_forward "Mongo Express"  mongo-express    "8081:8081"
 port_forward "pgAdmin"        pgadmin          "5480:80"
 # Registry UI is served via the platform frontend at /dashboard/registry
@@ -337,7 +342,6 @@ echo "  Platform UI / API : https://localhost:8443       (NodePort: https://$MK_
 echo "  Default admin     : admin@internal  (set the password during init-platform)"
 echo ""
 echo "  Dev tools           port-forward (localhost)      NodePort (minikube):"
-echo "    HTTP gateway    : http://localhost:8080         http://$MK_IP:30080"
 echo "    Mongo Express   : http://localhost:8081         http://$MK_IP:30081"
 echo "    pgAdmin         : http://localhost:5480         http://$MK_IP:30480"
 echo "    Registry browser: https://localhost:8443/dashboard/registry  (sysadmin)"

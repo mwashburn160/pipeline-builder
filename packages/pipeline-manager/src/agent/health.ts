@@ -8,6 +8,7 @@
  * `/health` + `/ready` endpoints, so the executor polls them with backoff.
  */
 
+import { spawn } from 'child_process';
 import https from 'https';
 import axios from 'axios';
 import type { TargetId } from './targets.js';
@@ -48,32 +49,73 @@ const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  */
 export async function waitHealthy(
   url: string,
-  opts: { timeoutMs?: number; intervalMs?: number; onTick?: (msg: string) => void } = {},
+  opts: { timeoutMs?: number; intervalMs?: number; readyGraceMs?: number; onTick?: (msg: string) => void } = {},
 ): Promise<HealthResult> {
   const timeoutMs = opts.timeoutMs ?? 300_000; // 5 min — services come up async
   const intervalMs = opts.intervalMs ?? 10_000;
+  // Once /health is up, only wait this much longer for /ready before proceeding.
+  const readyGraceMs = opts.readyGraceMs ?? 90_000; // 90s covers normal warmup
   const deadline = Date.now() + timeoutMs;
 
-  // Wait for BOTH /health AND /ready. /health flips first (the process is up),
-  // but the platform only accepts API calls once /ready passes (DB connections,
-  // dependencies warmed up). Returning on /health alone let post-install steps
-  // (register) hit a not-yet-ready platform and get a 502.
-  let healthSeen = false;
+  // Wait for /health, then give /ready a BOUNDED grace window. /health flips first
+  // (the process is up); /ready also requires every backend dependency to be up.
+  // We prefer /ready (post-install register hits a not-yet-ready platform → 502),
+  // but if a dependency is DOWN (e.g. a crash-looping service) /ready never flips —
+  // so we must not block the full timeout on it. Once /health is up we wait at most
+  // `readyGraceMs` more, then proceed with a warning (register only needs the
+  // platform service, which /health already confirms is up).
+  let healthSeenAt = 0;
   while (Date.now() < deadline) {
     if (await probe(`${url}/health`)) {
-      healthSeen = true;
+      if (healthSeenAt === 0) healthSeenAt = Date.now();
       if (await probe(`${url}/ready`)) {
         return { url, healthy: true, detail: 'health + ready OK' };
       }
-      opts.onTick?.(`health OK — waiting for ${url}/ready (dependencies warming up) …`);
+      const leftMs = readyGraceMs - (Date.now() - healthSeenAt);
+      if (leftMs <= 0) {
+        return {
+          url,
+          healthy: true,
+          detail: `health OK, but /ready didn't pass within ${Math.round(readyGraceMs / 1000)}s — a backend service is likely down (check \`docker compose ps\` / its logs). Continuing; routes for that service may 502 until it's healthy.`,
+        };
+      }
+      opts.onTick?.(`health OK — waiting up to ${Math.ceil(leftMs / 1000)}s for ${url}/ready (dependencies warming up) …`);
     } else {
       opts.onTick?.(`waiting for ${url}/health …`);
     }
     await delay(intervalMs);
   }
-  // Timed out. If /health came up but /ready never did, the platform is up but
-  // not fully ready — proceed (non-fatal) but flag that post-steps may need a retry.
-  return healthSeen
-    ? { url, healthy: true, detail: `health OK but /ready not reached within ${Math.round(timeoutMs / 1000)}s — the platform is still warming up; post-install steps (register) may need a re-run` }
+  // Overall timeout. If /health came up but /ready never did, proceed (non-fatal).
+  return healthSeenAt > 0
+    ? { url, healthy: true, detail: 'health OK but /ready not reached — the platform is still warming up; post-install steps (register) may need a re-run' }
     : { url, healthy: false, detail: `not reachable within ${Math.round(timeoutMs / 1000)}s — check the stack / DNS / health logs` };
+}
+
+/**
+ * Minikube only: the gateway (https://localhost:8443) is reached through a
+ * `kubectl port-forward svc/nginx` that setup.sh backgrounds — which can die or
+ * fail to bind (e.g. a busy port) while the pods stay healthy, leaving the gateway
+ * unreachable so the health poll just times out. Before polling, probe the gateway;
+ * if it's down, (re)start the forward DETACHED so it outlives this CLI, then give
+ * it a moment to bind. Best-effort: never throws; on no-kubectl it logs the manual
+ * command. (setup.sh now forwards 8443 only, so a busy 8080 can't take it down.)
+ */
+export async function ensureMinikubeGateway(
+  url: string,
+  opts: { ns?: string; port?: number; onInfo?: (msg: string) => void } = {},
+): Promise<void> {
+  const ns = opts.ns ?? 'pipeline-builder';
+  const port = opts.port ?? 8443;
+  if (await probe(`${url}/health`)) return; // forward already up — nothing to do
+  opts.onInfo?.(`Gateway unreachable — (re)starting the nginx port-forward (svc/nginx ${port}:${port}, ns ${ns}) …`);
+  try {
+    spawn('kubectl', ['port-forward', '-n', ns, 'svc/nginx', `${port}:${port}`], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref(); // detached + unref → survives this CLI so the user keeps the gateway
+  } catch {
+    opts.onInfo?.(`Couldn't start it (is kubectl on PATH?). Start it manually: kubectl port-forward -n ${ns} svc/nginx ${port}:${port}`);
+    return;
+  }
+  await delay(2000); // let it bind before the caller polls
 }

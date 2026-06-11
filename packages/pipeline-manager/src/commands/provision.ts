@@ -8,7 +8,7 @@ import { Command } from 'commander';
 import { diagnoseFailure, isAiConfigured, parseGoal } from '../agent/ai.js';
 import { bootstrapCommand, resolveBootstrap } from '../agent/bootstrap.js';
 import { entrypointExists, executionBlocked, runScript } from '../agent/executor.js';
-import { deriveHealthUrl, waitHealthy } from '../agent/health.js';
+import { deriveHealthUrl, waitHealthy, ensureMinikubeGateway } from '../agent/health.js';
 import { resolvePostSteps } from '../agent/post-steps.js';
 import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied } from '../agent/prereqs.js';
 import { TOOLS_DIR, fetchTool, isFetchable, withToolsOnPath } from '../agent/tools.js';
@@ -541,6 +541,12 @@ export function provision(program: Command): void {
         // 7e. Verify health (CREATE_COMPLETE != serving).
         if (url) {
           printSection('Verifying health');
+          // Minikube reaches the gateway via a kubectl port-forward that setup.sh
+          // backgrounds and that can die/fail to bind — (re)start it before polling
+          // so we don't sit at the gate on a dead forward while the pods are fine.
+          if (target === 'minikube') {
+            await ensureMinikubeGateway(url, { onInfo: (m) => printInfo(m) });
+          }
           printInfo(`Polling ${url}/health …`);
           const health = await waitHealthy(url, { onTick: (m) => printInfo(m) });
           (health.healthy ? printSuccess : printWarning)(`${health.url} — ${health.detail}`);
