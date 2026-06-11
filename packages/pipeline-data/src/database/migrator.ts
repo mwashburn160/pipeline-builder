@@ -20,11 +20,17 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { createLogger } from '@pipeline-builder/api-core';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { getConnection } from './postgres-connection.js';
 
 const logger = createLogger('migrator');
+
+// ESM has no __dirname; derive it from this module's URL. Without this the
+// migration runner threw `ReferenceError: __dirname is not defined` at startup
+// (onBeforeStart → runMigrations), crash-looping every service that migrates.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface MigrateOptions {
   /** Absolute path to the migrations folder. Defaults to `<package>/drizzle`. */
