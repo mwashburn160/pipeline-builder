@@ -9,6 +9,7 @@ import { diagnoseFailure, isAiConfigured, parseGoal } from '../agent/ai.js';
 import { bootstrapCommand, resolveBootstrap } from '../agent/bootstrap.js';
 import { entrypointExists, executionBlocked, runScript } from '../agent/executor.js';
 import { deriveHealthUrl, waitHealthy, ensureMinikubeGateway } from '../agent/health.js';
+import { checkHostPorts } from '../agent/ports.js';
 import { resolvePostSteps } from '../agent/post-steps.js';
 import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied } from '../agent/prereqs.js';
 import { TOOLS_DIR, fetchTool, isFetchable, withToolsOnPath } from '../agent/tools.js';
@@ -343,6 +344,27 @@ export function provision(program: Command): void {
           printSection('Post-install steps');
           for (const s of postSteps) printInfo(`• ${s.label}\n    ${s.command}`);
           for (const s of skippedSteps) printWarning(`skipped ${s.id}: ${s.reason}`);
+        }
+
+        // 5b. Host-port pre-flight (local/minikube only). The deploy binds fixed host
+        // ports (Docker publish / kubectl port-forward); if one is taken, a container
+        // or forward fails to bind mid-deploy — and for the gateway that surfaces as a
+        // silent "/health never reachable" hang. Stop NOW with a summary instead of
+        // failing halfway. Remote targets (ec2/fargate) bind nothing locally → skipped.
+        if (spec.hostPorts.length > 0) {
+          const portChecks = await checkHostPorts(spec);
+          const taken = portChecks.filter((c) => !c.available);
+          printSection('Port availability');
+          for (const c of portChecks) printInfo(`${c.available ? '✓' : '✗'} ${String(c.port).padEnd(5)} — ${c.service}`);
+          if (taken.length > 0) {
+            printError(`\n${taken.length} required port(s) already in use — the deploy can't bind them and would fail mid-way. Free them and re-run:`);
+            for (const c of taken) printInfo(`  • port ${c.port} (${c.service}) — find the holder:  lsof -i :${c.port}`);
+            if (taken.some((c) => c.port === 5000)) {
+              printInfo('  Note: on macOS, port 5000 is usually AirPlay Receiver — System Settings → General → AirDrop & Handoff → AirPlay Receiver (off).');
+            }
+            process.exitCode = 1;
+            return;
+          }
         }
 
         // 6. Any missing required prereq that's a single static binary (e.g. yq)

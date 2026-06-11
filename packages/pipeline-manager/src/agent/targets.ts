@@ -53,6 +53,13 @@ export interface TargetSpec {
   readonly deploys: string;
   /** What a teardown of this target destroys — shown before a (gated) teardown. */
   readonly destroys: string;
+  /**
+   * Host ports the deploy binds (Docker-published for local, kubectl port-forwards
+   * for minikube). Checked up front — a conflict means a container/forward can't
+   * bind and silently fails. Mirror deploy/<target>'s compose/setup.sh. Empty for
+   * remote targets (ec2/fargate bind nothing on the operator's machine).
+   */
+  readonly hostPorts: readonly { service: string; port: number }[];
 }
 
 // --- Shared input specs -----------------------------------------------------
@@ -93,6 +100,15 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     bestFor: 'Development',
     deploys: 'the platform as a Docker Compose stack — an nginx TLS proxy, the API services (platform, plugin, pipeline, message, reporting, compliance, quota, billing, image-registry), the frontend, and postgres + mongo + redis. First run pulls the ghcr.io images and generates a local TLS cert (a few minutes).',
     destroys: 'stops all containers — data under deploy/local/data persists on disk (delete it manually for a clean slate)',
+    // Mirrors the published ports in deploy/local/docker-compose.yml.
+    hostPorts: [
+      { service: 'nginx — HTTPS gateway (UI/API)', port: 8443 },
+      { service: 'nginx — HTTP redirect', port: 8080 },
+      { service: 'pgAdmin (Postgres UI)', port: 5480 },
+      { service: 'Mongo Express (Mongo UI)', port: 27081 },
+      { service: 'Docker registry', port: 5000 },
+      { service: 'Jaeger (tracing UI)', port: 16686 },
+    ],
   },
   minikube: {
     id: 'minikube',
@@ -107,6 +123,12 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     bestFor: 'Local Kubernetes',
     deploys: 'the platform onto a local Minikube cluster — the same services as Kubernetes Deployments/Services behind an ingress, plus in-cluster postgres + mongo + redis. First run pulls images, builds the cluster, and generates a TLS cert (several minutes).',
     destroys: 'stops the minikube stack — persistent volumes (PVC data) remain until the cluster is deleted',
+    // Mirrors the kubectl port-forwards started in deploy/minikube/bin/setup.sh.
+    hostPorts: [
+      { service: 'nginx — HTTPS gateway (UI/API)', port: 8443 },
+      { service: 'Mongo Express (Mongo UI)', port: 8081 },
+      { service: 'pgAdmin (Postgres UI)', port: 5480 },
+    ],
   },
   ec2: {
     id: 'ec2',
@@ -121,6 +143,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     bestFor: 'Dev / staging',
     deploys: 'the platform on a single EC2 instance via CloudFormation — a VPC, the instance (running the Minikube stack), an ALB, a Route 53 record + ACM cert for the domain, and (by default) SES email. The instance pulls images on first boot.',
     destroys: 'DELETES the CloudFormation stack: the VPC, EC2 instance, and its EBS data volume (databases, registry, plugin builds). Irreversible.',
+    hostPorts: [], // remote (AWS) — binds nothing on the operator's machine
   },
   fargate: {
     id: 'fargate',
@@ -135,6 +158,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     bestFor: 'Production',
     deploys: 'the platform on serverless ECS Fargate via 6 CloudFormation stacks — a VPC, an ALB, the ECS services, EFS-backed databases + registry, Route 53 + ACM for the domain, and (by default) SES email. Secrets are generated into Secrets Manager first.',
     destroys: 'DELETES all pb-* CloudFormation stacks: EFS data, databases, and registry. Secrets Manager entries are NOT auto-deleted. Irreversible.',
+    hostPorts: [], // remote (AWS) — binds nothing on the operator's machine
   },
 };
 
