@@ -113,17 +113,27 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
 }
 
 /**
- * The signing cert as a JWT `x5c` header value: a JSON array of base64 (standard,
- * not base64url) DER certificates — here the single self-signed cert. Docker
- * Distribution v3 verifies a token by chaining the JWT's `x5c` leaf cert to a cert
- * in its `rootcertbundle` (which is this very cert); it dropped the older libtrust
- * `kid` scheme. The PEM body (markers + whitespace stripped) is already the base64
- * DER. Computed once at startup.
+ * Build the JWT `x5c` header value from the signing certificate PEM: a JSON array of
+ * base64 (standard, not base64url) DER certs, leaf first. Docker Distribution v3
+ * verifies a token by chaining the JWT's `x5c` leaf cert to a cert in its
+ * `rootcertbundle` (this same self-signed cert); it dropped the older libtrust `kid`
+ * scheme. Each PEM CERTIFICATE block's body is already the base64 DER, so we split on
+ * the blocks (a rotation bundle may hold several) and strip markers + whitespace from
+ * each. Throws if the PEM carries no certificate — a bare public key or empty secret
+ * fails fast at startup instead of silently shipping a malformed x5c that the registry
+ * rejects on every token. Computed once at startup.
  */
-function certToX5c(pem: string): string {
-  return pem.replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\s+/g, '');
+function certsToX5c(pem: string): string[] {
+  const blocks = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g);
+  if (!blocks?.length) {
+    throw new Error(
+      'REGISTRY_TOKEN_CERTIFICATE must be an x509 certificate PEM (no CERTIFICATE block found) — '
+        + 'registry v3 verifies the token via its x5c cert chain, not a bare public key.',
+    );
+  }
+  return blocks.map((b) => b.replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\s+/g, ''));
 }
-const x5c = [certToX5c(config.tokenSigning.certificatePem)];
+const x5c = certsToX5c(config.tokenSigning.certificatePem);
 
 logger.info('Initialized token service', { issuer: config.tokenSigning.issuer });
 

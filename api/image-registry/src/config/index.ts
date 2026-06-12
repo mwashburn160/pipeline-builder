@@ -53,7 +53,7 @@ export interface AppConfig {
    */
   readonly tokenSigning: {
     readonly privateKeyPem: string;
-    /** Certificate the registry trusts; used to compute the libtrust `kid` for the JWT header. */
+    /** Certificate the registry trusts; base64-DER'd into the JWT `x5c` header so registry v3 verifies the token against its rootcertbundle. */
     readonly certificatePem: string;
     /** `iss` claim on issued tokens. Must match the registry's `REGISTRY_AUTH_TOKEN_ISSUER`. */
     readonly issuer: string;

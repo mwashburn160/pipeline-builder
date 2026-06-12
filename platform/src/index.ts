@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 import { createLogger, installCrashHandlers, isValidTier, mongoSanitize, sendError } from '@pipeline-builder/api-core';
-import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
+import { withTenantContext } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -247,18 +247,15 @@ app.use(requestIdMiddleware);
  * authenticated (e.g. the /alert-webhook shared-secret endpoint) still
  * get a sensible default (empty orgId, isSuperAdmin=false).
  */
-app.use((req: Request, _res: Response, next: NextFunction) => {
+// Reuses the shared `withTenantContext` helper with platform's own pre-auth resolver.
+app.use(withTenantContext((req: Request) => {
+  // Use the JWT-stamped isSuperAdmin flag (post system-org cutover). The peek is
+  // unverified — `requireAuth` re-validates downstream. The worst a tampered token can
+  // do here is set sysadmin=true and trigger RLS's sysadmin-bypass branch on a DB query
+  // that the same request will then be rejected from at the route guard.
   const claims = peekJwtClaims(req);
-  // Use the JWT-stamped isSuperAdmin flag (post system-org cutover). The
-  // peek is unverified — `requireAuth` re-validates downstream. The worst
-  // a tampered token can do here is set sysadmin=true and trigger RLS's
-  // sysadmin-bypass branch on a DB query that the same request will then
-  // be rejected from at the route guard.
-  runWithTenantContext(
-    { orgId: claims.organizationId, isSuperAdmin: claims.isSuperAdmin === true },
-    () => next(),
-  );
-});
+  return { orgId: claims.organizationId, isSuperAdmin: claims.isSuperAdmin === true };
+}));
 
 /** Prometheus metrics middleware  records request duration and count */
 app.use((req: Request, res: Response, next: NextFunction) => {

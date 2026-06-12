@@ -5,7 +5,7 @@ import * as fs from 'fs';
 
 import { ErrorCode, createLogger, errorMessage, getServiceAuthHeader, reserveQuota, decrementQuota, resolveAccessModifier, sendBadRequest, sendError, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { requireAuth, requireOrgId, withRoute } from '@pipeline-builder/api-server';
+import { requireAuth, requireOrgId, withRoute, withTenantContext } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request, type Response, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
@@ -75,6 +75,10 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     }) as ErrorRequestHandler,
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
+    // Open the RLS tenant scope (orgId + isSuperAdmin) so deployVersion's reads/writes
+    // against the FORCE-RLS plugins table see the caller's org — the factory routes get
+    // this via createProtectedRoute, but this route hand-wires its chain.
+    withTenantContext() as RequestHandler,
     // Any authenticated org member may upload a plugin. The accessModifier is
     // resolved by `resolveAccessModifier` below  only admins/owners can mark
     // a plugin 'public'; member uploads are forced to 'private' (org-scoped).

@@ -1,25 +1,71 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { generateKeyPairSync } from 'crypto';
+import { createPublicKey, X509Certificate } from 'crypto';
 
-// Generate a test keypair before importing config / token-service so the
-// service picks them up at module load.
-const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
-const privateKeyPem = privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
-
-// We can't easily generate an x509 cert here without external tools, so we use
-// the public key PEM as a stand-in for REGISTRY_TOKEN_CERTIFICATE. The token's
-// x5c header is therefore not a real DER cert in this unit test — the registry-v3
-// path (a real openssl cert verified against the registry's rootcertbundle) is
-// what exercises that end-to-end. Here we only assert the header SHAPE below.
-const publicKeyPem = publicKey.export({ format: 'pem', type: 'spki' }).toString();
+// A fixed RSA keypair + matching self-signed x509 cert (generated once with openssl,
+// embedded so the test needs no external tools at runtime). We use a REAL certificate
+// — not a bare public key — for REGISTRY_TOKEN_CERTIFICATE so the `x5c` header is
+// genuine base64 DER and the assertion below exercises the registry-v3 cert path
+// (certsToX5c throws on a non-cert PEM). The public key derived from the cert verifies
+// the token signatures.
+const privateKeyPem = `-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC/uvorjR4hVMJv
+0MxdyyGAj8woPBqga+8pYMRt/k693LuUZujtl32SPSQVVRYjzOGgvn5gF5lMoYkh
+WMiSpkqgnQXS4ylnyfNxJLNsQFhyae2+lzh1fvrORCLo5ahIxRaEe53ZDlFzmWk8
+jUxn6hB/Uj4AxryyOyfJBIXSgGcBiTYEy7qbPOtIRltu06V8gFq9AwzeTHQ8TtLL
+/rlsw6WvdEqBui4FtA7sgt6AyetWEp/HU8u85U9apML4dZm4c0ljUa8BtP3ZxnPt
+Ph/vJn2RXGk2OZoeZCN4o79etxSMPxYVZz/amJBnEWUfdCn6ZfZUjrSkGvDHq0q5
+NNMmahQ9AgMBAAECggEACc8eLUa6Z9BPOfXCfY+e0+s8xxfbcTbRxPnsAB2ejS+j
+EtKuBY52e0TGA70MlYHN+abtTmtpVCaVM7Uis9VZTud3Ag+i/BSfWrvwMwWwELsd
+0Z5TzOJqy00976Y6P8OCOqkcDbFiFj+JxweKmmwQR9dJup6a+Ppg93OUCM2OwjZa
+be6YimPqS29OddqLP2bhAoGykLcW2hmHzDcXC7rHyG7nR37/qIWJwY3PqLFkOmwB
+tcU1YBjjQCC9fr2YbJdXKWJQoktB7BKRQY+mGBh5JMHKoFS7hc43hzN96CcZVlEG
+vFYlnqlcwqzA981Mbk48yU1OwCERPZsOfzdv/EbNSQKBgQDqj3P3m3X4hNk12EZ/
++1WUDjk1Zb0cOKJoRU4BbZtIu3BoRMk2piEzfXj6LM4gGGScqIvA4hagdLiiSe+h
+LauMcnkSpHhmA8AaH3E4dTGFDQx0b9dDTKu9UCto39bYV5nBdvIV18C3E91T77tV
+6aojwFv153gqQNAfDJfUJ4NAKQKBgQDRQVU0vqcaG8n/iKRwTSFae4CsJEz5/6LH
+OTVih1f+IkN34B1o/tWJCYL00DQYrPAKLKBXXGgUGCsvP0qdN8j8IuPSAwknZwX5
+y33eXZSy5GfTK8Og3u+vD5WXYH50iLTZ8gbj+SkeRh1Iz3+zIX/CP9khQq9IGD0G
+tkh460Hl9QKBgAW5+trQsNCgba0i2pXFTRGQR1VGZpeJym1BQ+ZFBsV/zf69ryvm
+YmkfZxS0g1PFRK+ObdsHqgXA08EijPciZk3Hfa021rmm3cnFer4mHk9hQiyVjmvW
+M1sr2eN1k4k0mkxe2wotekb99SlXcPtn+P9mcthODmD5tBsN86b6T/oBAoGAS8s4
+S6SK7kAGiJI7zZmCbT2yu6diYmMf2L12Arw3OQu8GF2LCY7UVZCmaHpJhG6Pe3/y
+i/IimLSwX6qzIgMkv377ugPzetwsI/B7JOIMjEeC+9AsSca2Vlh0vKHs69TgfNjX
+eheztw16afcOsBmAJyHtScjXqGtvH1FDKtk7w0kCgYBixxwzrvcnvv1iC36CqFL8
+ClLvJeLqs7H+vc2ggYAAnhg9LkJ3GX0Ocuybxt9dM4AlBhn1IVZ6kwcLLjAPezl5
+un92mzJiPgBVKAPVWbZZ4UarqXn8ATLRAxNOT6sM+oTaVjUcXgxB+Soth+RPUIge
+YJnkbFG6JS+bq8O5+N3VSQ==
+-----END PRIVATE KEY-----
+`;
+const certPem = `-----BEGIN CERTIFICATE-----
+MIIDLzCCAhegAwIBAgIUIoW3p/W0frI6Fsx94GJw3O1kiGowDQYJKoZIhvcNAQEL
+BQAwJzElMCMGA1UEAwwccGlwZWxpbmUtaW1hZ2UtcmVnaXN0cnktdGVzdDAeFw0y
+NjA2MTIxNDIyMjNaFw0zNjA2MDkxNDIyMjNaMCcxJTAjBgNVBAMMHHBpcGVsaW5l
+LWltYWdlLXJlZ2lzdHJ5LXRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK
+AoIBAQC/uvorjR4hVMJv0MxdyyGAj8woPBqga+8pYMRt/k693LuUZujtl32SPSQV
+VRYjzOGgvn5gF5lMoYkhWMiSpkqgnQXS4ylnyfNxJLNsQFhyae2+lzh1fvrORCLo
+5ahIxRaEe53ZDlFzmWk8jUxn6hB/Uj4AxryyOyfJBIXSgGcBiTYEy7qbPOtIRltu
+06V8gFq9AwzeTHQ8TtLL/rlsw6WvdEqBui4FtA7sgt6AyetWEp/HU8u85U9apML4
+dZm4c0ljUa8BtP3ZxnPtPh/vJn2RXGk2OZoeZCN4o79etxSMPxYVZz/amJBnEWUf
+dCn6ZfZUjrSkGvDHq0q5NNMmahQ9AgMBAAGjUzBRMB0GA1UdDgQWBBQyqTJclUMN
+9e7SbSxlIM4izd8lWDAfBgNVHSMEGDAWgBQyqTJclUMN9e7SbSxlIM4izd8lWDAP
+BgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQCFkqUk/0ztTKSwN38z
+1WdcMKCGUTi1TlBqPKiFhWIdFA5GreAI8AS3B3DRgFaDpnH/mc17iYmJB4LcJJ6r
+qQm20VpipNm6y5d6Tcy+DvmP8s+1n8SYbG/Z2XAml4uOLh1WX7OVj/JoP/34NUPu
+ANzOxfLl1430qwBcpcXqdF/BVmJn9Z4ekq/Z/CjcBf1EBVGKSHRpp6bbHKgUUH5E
+klG0KIX9XwOCxWkdutHR/uKzXoquWBO1dQ02W6Q9x+hKHmi/V0wtDlATi5MHdosx
+rzOZmOFBeXYrkwSUTtzfL8JfllcmQ3g3sY/lSk9yazPaqKpBTYspjB07/iMXbWdN
+7mYv
+-----END CERTIFICATE-----
+`;
+const publicKeyPem = createPublicKey(certPem).export({ format: 'pem', type: 'spki' }).toString();
 
 process.env.IMAGE_REGISTRY_HOST = 'localhost';
 process.env.IMAGE_REGISTRY_USERNAME = 'test-svc';
 process.env.IMAGE_REGISTRY_PASSWORD = 'test-pw';
 process.env.REGISTRY_TOKEN_PRIVATE_KEY = privateKeyPem;
-process.env.REGISTRY_TOKEN_CERTIFICATE = publicKeyPem;
+process.env.REGISTRY_TOKEN_CERTIFICATE = certPem;
 process.env.REGISTRY_TOKEN_ISSUER = 'test-platform';
 process.env.REGISTRY_TOKEN_SERVICE = 'test-registry';
 process.env.JWT_SECRET = 'test-jwt-secret';
@@ -159,11 +205,13 @@ describe('authorizeAndIssue', () => {
       { type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] },
     ]);
 
-    // registry v3: the JWT header must carry the x5c cert chain, and must NOT
-    // carry the old libtrust kid (which v3 rejects as an untrusted key).
-    const header = (jwt.decode(result.token, { complete: true }) as { header: Record<string, unknown> }).header;
+    // registry v3: the JWT header carries the x5c cert chain — each entry genuine
+    // base64-DER that parses as an x509 cert — and NOT the old libtrust kid (which v3
+    // rejects as an untrusted key).
+    const header = (jwt.decode(result.token, { complete: true }) as { header: { x5c?: string[] } }).header;
     expect(Array.isArray(header.x5c)).toBe(true);
     expect(header.x5c).toHaveLength(1);
+    expect(() => new X509Certificate(Buffer.from(header.x5c![0], 'base64'))).not.toThrow();
     expect(header).not.toHaveProperty('kid');
   });
 

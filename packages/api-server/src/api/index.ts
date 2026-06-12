@@ -7,6 +7,7 @@ export * from './middleware-factory.js';
 export * from './context-middleware.js';
 export * from './check-quota.js';
 export * from './require-org-id.js';
+export * from './tenant-context.js';
 export * from './get-context.js';
 
 // App factory
