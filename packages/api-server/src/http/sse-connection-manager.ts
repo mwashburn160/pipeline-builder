@@ -385,12 +385,16 @@ export class SSEManager {
    * ```
    */
   middleware() {
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    // The requestId is either a dashed UUID (api-server's uuid()) or nginx's
+    // `$request_id` — 16 random bytes rendered as 32 hex chars with NO dashes. Accept
+    // both by making the group separators optional; still strictly 32 hex chars so it
+    // can't carry an injection/path-traversal payload into the SSE subject.
+    const REQUEST_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
 
     return (req: { params: { requestId: string }; user?: { organizationId?: string } }, res: Response) => {
       const { requestId } = req.params;
 
-      if (!UUID_RE.test(requestId)) {
+      if (!REQUEST_ID_RE.test(requestId)) {
         res.status(400).end('Invalid requestId format');
         return;
       }
