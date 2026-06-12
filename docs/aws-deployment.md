@@ -719,7 +719,8 @@ Register the admin user and load pre-built plugins and sample pipelines:
 ```bash
 cd deploy
 
-# Interactive — prompts for admin credentials, build strategy, and categories
+# Prompts for build strategy + categories. Admin creds come from PLATFORM_IDENTIFIER /
+# PLATFORM_PASSWORD (defaulting if unset — export real values on ec2/fargate)
 bash bin/init-platform.sh ec2         # EC2 (resolves URL from the pipeline-builder stack)
 bash bin/init-platform.sh fargate     # Fargate (resolves URL from the <prefix>-foundation stack)
 bash bin/init-platform.sh local       # Docker Compose

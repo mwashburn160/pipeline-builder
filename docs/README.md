@@ -67,7 +67,7 @@ The web UI at `https://localhost:8443` provides visual pipeline and plugin manag
 | Identifier | `admin@internal` |
 | Password | `SecurePassword123!` |
 
-These defaults are only accepted on `DEPLOY_TARGET=local`. The `minikube`/`ec2`/`fargate` targets refuse the defaults and require the operator to type real values at the `init-platform.sh` prompt, so a production-style init won't silently create an account with this password. **Change the password from the dashboard immediately after first login on any environment that's reachable beyond your laptop.**
+`init-platform.sh` is non-interactive: it reads `PLATFORM_IDENTIFIER` and `PLATFORM_PASSWORD` from the environment and falls back to the defaults above when unset — on **every** target. **On any non-local or production target, export real `PLATFORM_IDENTIFIER` / `PLATFORM_PASSWORD` before running** — otherwise the admin is created with this trivial dev password. Change the password from the dashboard immediately after first login on anything reachable beyond your laptop.
 
 ### CLI
 
@@ -198,14 +198,14 @@ PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh loc
 
 Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGORY` (comma-separated filter), `PARALLEL_JOBS` (upload concurrency, auto-lowered to 1 for prebuilt), `FORCE_REBUILD` (rebuild existing image.tar files).
 
-**Admin credentials** prompted by `init-platform.sh`:
+**Admin credentials** — `init-platform.sh` is non-interactive and reads them from the environment, falling back to defaults when unset:
 
-| Target | Identifier default | Password default | Defaults accepted? |
-|---|---|---|---|
-| `local` | `admin@internal` | `SecurePassword123!` | yes — hit Enter to accept |
-| `minikube` / `ec2` / `fargate` | none | none | no — operator must type real values |
+| Env var | Default (used if unset) |
+|---|---|
+| `PLATFORM_IDENTIFIER` | `admin@internal` |
+| `PLATFORM_PASSWORD` | `SecurePassword123!` |
 
-Set `PLATFORM_IDENTIFIER` and `PLATFORM_PASSWORD` env vars (or `PLATFORM_TOKEN` for an existing JWT) to skip the prompts in CI.
+The defaults apply on **every** target, so **export real values on `minikube`/`ec2`/`fargate`** (or any shared/production environment) before running — otherwise the admin is created with the trivial dev password.
 
 ---
 

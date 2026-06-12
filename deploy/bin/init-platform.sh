@@ -157,7 +157,11 @@ wait_for_health 60 5
 # Register admin user
 echo ""
 echo "=== Registering admin user ==="
-prompt_credentials
+# Non-interactive: take the admin credentials from the environment, falling back to
+# the dev defaults when unset. Export PLATFORM_IDENTIFIER / PLATFORM_PASSWORD to
+# override (always set them on a non-local/production target).
+PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-admin@internal}"
+PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-SecurePassword123!}"
 REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
   -k -s -o /dev/null -w "%{http_code}" \
   -H 'Content-Type: application/json' \
