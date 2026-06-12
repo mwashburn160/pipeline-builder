@@ -6,6 +6,7 @@ import type { RequestHandler } from 'express';
 import { checkQuota } from './check-quota.js';
 import { requireAuth } from './middleware.js';
 import { requireOrgId } from './require-org-id.js';
+import { withTenantContext } from './tenant-context.js';
 
 /**
  * Creates a middleware chain for protected routes requiring authentication, org ID, and quota check.
@@ -13,7 +14,8 @@ import { requireOrgId } from './require-org-id.js';
  * Applies middleware in order:
  * 1. requireAuth - Validates JWT and extracts user identity
  * 2. requireOrgId - Ensures request has x-org-id header
- * 3. checkQuota - Validates quota for the specified resource type
+ * 3. withTenantContext - Opens the RLS tenant scope (orgId + isSuperAdmin) for the request
+ * 4. checkQuota - Validates quota for the specified resource type
  *
  * @param quotaService - Quota service client
  * @param quotaType - Which quota to check (e.g., 'apiCalls', 'pipelines', 'plugins')
@@ -36,6 +38,7 @@ export function createProtectedRoute(
   return [
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
+    withTenantContext() as RequestHandler,
     checkQuota(quotaService, quotaType) as RequestHandler,
   ];
 }
@@ -46,6 +49,7 @@ export function createProtectedRoute(
  * Applies middleware in order:
  * 1. requireAuth - Validates JWT and extracts user identity
  * 2. requireOrgId - Ensures request has x-org-id header
+ * 3. withTenantContext - Opens the RLS tenant scope (orgId + isSuperAdmin) for the request
  *
  * Use this for read-only routes that don't consume quota.
  *
@@ -65,5 +69,6 @@ export function createAuthenticatedWithOrgRoute(): RequestHandler[] {
   return [
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
+    withTenantContext() as RequestHandler,
   ];
 }
