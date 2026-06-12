@@ -85,7 +85,7 @@ spec:
       initContainers:
         # Fix keyfile permissions (MongoDB requires 400)
         - name: fix-keyfile-permissions
-          image: busybox:1.36
+          image: busybox:1.38
           resources:
             limits:
               cpu: "100m"
@@ -107,7 +107,7 @@ spec:
               mountPath: /keyfile
       containers:
         - name: mongodb
-          image: mongo:7.0
+          image: mongo:8.0
           args:
             - "--bind_ip_all"
             - "--replSet"
@@ -147,15 +147,10 @@ spec:
                     --username "$MONGO_INITDB_ROOT_USERNAME" \
                     --password "$MONGO_INITDB_ROOT_PASSWORD" \
                     --authenticationDatabase admin \
-                    --eval "db.getSiblingDB('admin').runCommand({ replSetGetStatus: 1 }).ok" || \
-                  (mongosh --quiet --host localhost:27017 \
-                    --username "$MONGO_INITDB_ROOT_USERNAME" \
-                    --password "$MONGO_INITDB_ROOT_PASSWORD" \
-                    --authenticationDatabase admin \
-                    --eval "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongodb:27017' }] })" && exit 1)
+                    --eval 'try { rs.status() } catch (e) { if (e.codeName === "NotYetInitialized") { rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongodb:27017" }] }) } else { throw e } } quit(db.hello().isWritablePrimary ? 0 : 1)'
             initialDelaySeconds: 30
             periodSeconds: 30
-            timeoutSeconds: 10
+            timeoutSeconds: 25
             failureThreshold: 5
           livenessProbe:
             exec:
@@ -170,7 +165,7 @@ spec:
                     --eval "db.adminCommand('ping')"
             initialDelaySeconds: 90
             periodSeconds: 30
-            timeoutSeconds: 10
+            timeoutSeconds: 15
             failureThreshold: 3
           volumeMounts:
             - name: mongodb-data

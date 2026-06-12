@@ -218,7 +218,7 @@ log "Creating ConfigMaps"
 configmap postgres-init   --from-file=init.sql="$DEPLOY_DIR/postgres-init.sql"
 configmap mongodb-init    --from-file=mongo-init.js="$DEPLOY_DIR/mongodb-init.js"
 secret   mongodb-keyfile  --from-file=mongodb-keyfile="$DEPLOY_DIR/mongodb-keyfile"
-configmap nginx-config    --from-file=nginx.conf="$NGINX_DIR/nginx-ec2.conf"
+configmap nginx-config    --from-file=nginx.conf="$NGINX_DIR/nginx.conf"
 configmap nginx-njs       --from-file=jwt.js="$NGINX_DIR/jwt.js" --from-file=metrics.js="$NGINX_DIR/metrics.js" --from-file=registry-auth.js="$NGINX_DIR/registry-auth.js"
 configmap loki-config     --from-file=loki-config.yml="$CONFIG_DIR/loki/loki-config.yml"
 configmap prometheus-config \

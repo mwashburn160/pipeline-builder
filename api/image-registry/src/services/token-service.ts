@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHash, createPublicKey, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import { createLogger, createQuotaService, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
@@ -113,50 +113,24 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
 }
 
 /**
- * Compute the registry-spec `kid` (key ID) for the public-key half of our
- * signing keypair. The Distribution token-auth spec adopted libtrust's
- * format: SHA-256 over the DER-encoded SPKI of the public key, take the
- * first 240 bits, base32-encode (no padding), insert colons every 4 chars.
- *
- * Result looks like: `ABCD:EFGH:IJKL:MNOP:QRST:UVWX:YZ23:4567:ABCD:EFGH:IJKL:MNOP`
- *
- * The registry uses this to look up which trusted public key signed the
- * token. We compute it once at startup and cache it.
+ * The signing cert as a JWT `x5c` header value: a JSON array of base64 (standard,
+ * not base64url) DER certificates — here the single self-signed cert. Docker
+ * Distribution v3 verifies a token by chaining the JWT's `x5c` leaf cert to a cert
+ * in its `rootcertbundle` (which is this very cert); it dropped the older libtrust
+ * `kid` scheme. The PEM body (markers + whitespace stripped) is already the base64
+ * DER. Computed once at startup.
  */
-/* eslint-disable no-bitwise -- bit-shifts are required for base32 encoding */
-function computeLibtrustKid(certPem: string): string {
-  const pubKey = createPublicKey(certPem).export({ format: 'der', type: 'spki' });
-  const digest = createHash('sha256').update(pubKey).digest();
-  const truncated = digest.subarray(0, 30); // 240 bits
-
-  // Base32 alphabet per RFC 4648
-  const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = 0;
-  let buffer = 0;
-  let out = '';
-  for (const b of truncated) {
-    buffer = (buffer << 8) | b;
-    bits += 8;
-    while (bits >= 5) {
-      out += ALPHABET[(buffer >> (bits - 5)) & 0b11111];
-      bits -= 5;
-    }
-  }
-  if (bits > 0) {
-    out += ALPHABET[(buffer << (5 - bits)) & 0b11111];
-  }
-  // Insert `:` every 4 chars
-  return (out.match(/.{1,4}/g) ?? []).join(':');
+function certToX5c(pem: string): string {
+  return pem.replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\s+/g, '');
 }
-/* eslint-enable no-bitwise */
+const x5c = [certToX5c(config.tokenSigning.certificatePem)];
 
-const kid = computeLibtrustKid(config.tokenSigning.certificatePem);
-logger.info('Initialized token service', { kid, issuer: config.tokenSigning.issuer });
+logger.info('Initialized token service', { issuer: config.tokenSigning.issuer });
 
 /**
- * Mint a registry token for the given identity + granted access claims.
- * Signed with the configured private key + libtrust kid so the registry's
- * `rootcertbundle` verifier accepts it.
+ * Mint a registry token for the given identity + granted access claims. Signed with
+ * the configured private key; the header carries the `x5c` cert chain so Docker
+ * Distribution v3 verifies it against its `rootcertbundle`.
  */
 export function issueRegistryToken( identity: Identity,
   access: AccessClaim[],
@@ -179,7 +153,7 @@ export function issueRegistryToken( identity: Identity,
 
   return jwt.sign(payload, config.tokenSigning.privateKeyPem, {
     algorithm: 'RS256',
-    header: { kid, typ: 'JWT', alg: 'RS256' },
+    header: { x5c, typ: 'JWT', alg: 'RS256' },
   });
 }
 

@@ -236,18 +236,20 @@ print_errors_and_exit() {
 }
 
 # ---------------------------------------------------------------------------
-# wait_for_health — poll $PLATFORM_BASE_URL/health until 200
+# wait_for_health — poll $PLATFORM_BASE_URL/ready until 200
 #   $1  max retries  (default 30)
 #   $2  interval sec (default 5)
 # ---------------------------------------------------------------------------
 wait_for_health() {
   local _max="${1:-30}"
   local _interval="${2:-5}"
-  echo "Waiting for platform to be ready at ${PLATFORM_BASE_URL}/health ..."
+  # Poll /ready (proxies to platform:3000/health) — NOT /health, which is nginx's
+  # static stub that returns 200 instantly even while the platform is still starting.
+  echo "Waiting for platform to be ready at ${PLATFORM_BASE_URL}/ready ..."
   local _i=1
   while [ "$_i" -le "$_max" ]; do
     local _status
-    _status=$(curl -s -k -o /dev/null -w "%{http_code}" "${PLATFORM_BASE_URL}/health" 2>/dev/null || true)
+    _status=$(curl -s -k -o /dev/null -w "%{http_code}" "${PLATFORM_BASE_URL}/ready" 2>/dev/null || true)
     if [ "$_status" = "200" ]; then
       echo "Platform is healthy."
       return 0

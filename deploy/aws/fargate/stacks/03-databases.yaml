@@ -23,10 +23,10 @@ Parameters:
     Default: postgres:18
   MongoImage:
     Type: String
-    Default: mongo:7.0
+    Default: mongo:8.0
   RedisImage:
     Type: String
-    Default: redis:7-alpine
+    Default: redis:8-alpine
   AwsCliImage:
     Type: String
     Default: amazon/aws-cli:2.24.0
@@ -210,7 +210,7 @@ Resources:
         - Name: pgbouncer-config
       ContainerDefinitions:
         - Name: pgbouncer
-          Image: edoburu/pgbouncer:v1.23.1-p3
+          Image: edoburu/pgbouncer:v1.25.2-p0
           Essential: true
           DependsOn:
             - ContainerName: pgbouncer-init
@@ -391,15 +391,20 @@ Resources:
               ContainerPath: /data/db
               ReadOnly: false
           HealthCheck:
+            # Single idempotent self-init probe (the shared pattern): initiate rs0 if not
+            # yet initialized, then report healthy only once this node is primary. Replaces
+            # the separate mongo-init container that used to run rs.initiate.
             Command:
-              - CMD
-              - mongosh
-              - "--eval"
-              - "db.adminCommand('ping')"
-            Interval: 15
-            Timeout: 5
+              - CMD-SHELL
+              - >-
+                mongosh --quiet --host localhost:27017
+                -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD"
+                --authenticationDatabase admin
+                --eval 'try { rs.status() } catch (e) { if (e.codeName === "NotYetInitialized") { rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "localhost:27017" }] }) } else { throw e } } quit(db.hello().isWritablePrimary ? 0 : 1)'
+            Interval: 30
+            Timeout: 25
             Retries: 5
-            StartPeriod: 30
+            StartPeriod: 90
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -407,38 +412,6 @@ Resources:
                 Fn::ImportValue: !Sub "${StackPrefix}-MongodbLogGroupName"
               awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: mongodb
-
-        - Name: mongo-init
-          Image: !Ref MongoImage
-          Essential: false
-          DependsOn:
-            - ContainerName: mongodb
-              Condition: HEALTHY
-          EntryPoint:
-            - /bin/sh
-            - "-c"
-          Command:
-            - !Sub >-
-              sleep 10 &&
-              mongosh --host localhost:27017
-              -u $MONGO_INITDB_ROOT_USERNAME
-              -p $MONGO_INITDB_ROOT_PASSWORD
-              --authenticationDatabase admin
-              --eval 'try { rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]}) } catch(e) { if (e.codeName === "AlreadyInitialized") { print("Already initialized"); } else { throw e; } }'
-              && echo 'Replica set initialized'
-          Environment:
-            - Name: MONGO_INITDB_ROOT_USERNAME
-              Value: admin
-          Secrets:
-            - Name: MONGO_INITDB_ROOT_PASSWORD
-              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:MONGO_INITDB_ROOT_PASSWORD::"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group:
-                Fn::ImportValue: !Sub "${StackPrefix}-MongodbLogGroupName"
-              awslogs-region: !Ref "AWS::Region"
-              awslogs-stream-prefix: mongo-init
       Tags:
         - Key: Name
           Value: !Sub "${StackPrefix}-mongodb-task"

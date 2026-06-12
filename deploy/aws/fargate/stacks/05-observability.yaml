@@ -21,16 +21,16 @@ Parameters:
     Description: Secrets Manager secret name for application secrets
   PrometheusImage:
     Type: String
-    Default: prom/prometheus:v3.2.1
+    Default: prom/prometheus:v3.12.0
   LokiImage:
     Type: String
-    Default: grafana/loki:3.4.2
+    Default: grafana/loki:3.6.11
   AlertmanagerImage:
     Type: String
     Default: prom/alertmanager:v0.27.0
   JaegerImage:
     Type: String
-    Default: jaegertracing/all-in-one:1.62.0
+    Default: jaegertracing/all-in-one:1.76.0
     Description: Docker image for the Jaeger all-in-one OTLP trace collector + UI
   AwsCliImage:
     Type: String
@@ -265,9 +265,13 @@ Resources:
               SourceVolume: loki-data
               ReadOnly: false
           HealthCheck:
+            # loki 3.6+ images are distroless (no wget/shell) — use the loki binary's
+            # own -health flag, which probes localhost:3100/ready and exits non-zero
+            # until ready.
             Command:
-              - CMD-SHELL
-              - wget --spider http://localhost:3100/ready || exit 1
+              - CMD
+              - /usr/bin/loki
+              - -health
             Interval: 15
             Timeout: 5
             Retries: 5

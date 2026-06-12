@@ -151,7 +151,8 @@ if [ "$TARGET" = "ec2" ]; then
 fi
 echo ""
 
-wait_for_health 30 5
+# Up to 300s: the platform container's own healthcheck start_period is 180s.
+wait_for_health 60 5
 
 # Register admin user
 echo ""
@@ -164,8 +165,10 @@ REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
     '{username: "admin", email: $email, password: $pw, organizationName: "system"}')")
 
 case "$(classify_status "$REG_STATUS")" in
-  ok)   echo "  Admin user created." ;;
-  *)    echo "  Admin user already exists (HTTP $REG_STATUS) — continuing." ;;
+  ok)     echo "  Admin user created." ;;
+  exists) echo "  Admin user already exists (HTTP $REG_STATUS) — continuing." ;;
+  *)      echo "  Admin registration FAILED (HTTP $REG_STATUS) — platform not ready or erroring, not a conflict." >&2
+          exit 1 ;;
 esac
 
 echo ""

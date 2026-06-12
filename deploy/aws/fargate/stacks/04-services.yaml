@@ -138,7 +138,7 @@ Parameters:
 
   NginxImage:
     Type: String
-    Default: nginx:1.27
+    Default: nginxinc/nginx-unprivileged:1.30
 
   AwsCliImage:
     Type: String
@@ -180,6 +180,10 @@ Resources:
         Fn::ImportValue: !Sub "${StackPrefix}-TaskRoleArn"
       Volumes:
         - Name: nginx-config
+        # Writable scratch for the read-only-root nginx container: PID + nginx temp
+        # files (/tmp) and proxy buffer cache (/var/cache/nginx).
+        - Name: nginx-tmp
+        - Name: nginx-cache
       ContainerDefinitions:
         - Name: config-init
           Image: !Ref AwsCliImage
@@ -207,15 +211,17 @@ Resources:
                 Fn::ImportValue: !Sub "${StackPrefix}-NginxLogGroupName"
               awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: config-init
-        # NOTE: This container is intentionally NOT yet `ReadonlyRootFilesystem: true` —
-        # the Command below `apt-get install`s nginx-module-njs at startup, which
-        # writes to /var/cache/apt and /var/lib/dpkg. Hardening requires baking a
-        # custom nginx image with njs preinstalled (and switching the runtime image
-        # to nginxinc/nginx-unprivileged:1.27). Tracked as a follow-up in
-        # docs/plans/k8s-fargate-hardening.md.
+        # Hardened gateway: unprivileged nginx (UID 101) under a read-only root
+        # filesystem. njs is bundled in the official 1.30 image (no apt install, no
+        # custom image), and the conf + njs scripts are read straight from the
+        # config-init volume via `nginx -c /shared-config/nginx.conf` (the conf's
+        # js_path already points at /shared-config/njs), so nothing is written under
+        # /etc/nginx. The only writes are the PID and proxy temp files, backed by the
+        # ephemeral nginx-tmp (/tmp) and nginx-cache (/var/cache/nginx) volumes above.
         - Name: nginx
           Image: !Ref NginxImage
           Essential: true
+          ReadonlyRootFilesystem: true
           DependsOn:
             - ContainerName: config-init
               Condition: SUCCESS
@@ -224,15 +230,15 @@ Resources:
             - -c
           Command:
             - >-
-              apt-get update -qq && apt-get install -y -qq nginx-module-njs >/dev/null 2>&1 &&
-              cp /shared-config/nginx.conf /etc/nginx/nginx.conf &&
-              mkdir -p /etc/nginx/njs &&
-              cp /shared-config/njs/* /etc/nginx/njs/ &&
-              nginx -g 'daemon off;'
+              nginx -c /shared-config/nginx.conf -g 'daemon off;'
           MountPoints:
             - ContainerPath: /shared-config
               SourceVolume: nginx-config
               ReadOnly: true
+            - ContainerPath: /tmp
+              SourceVolume: nginx-tmp
+            - ContainerPath: /var/cache/nginx
+              SourceVolume: nginx-cache
           PortMappings:
             - ContainerPort: 8080
               Protocol: tcp

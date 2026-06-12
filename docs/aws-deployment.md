@@ -971,7 +971,7 @@ deploy/aws/ec2/
 ├── k8s/                   # 26 Kubernetes manifests
 │   └── kustomization.yaml # Kustomize entry point
 ├── nginx/
-│   ├── nginx-ec2.conf     # Nginx config (TLS + JWT)
+│   ├── nginx.conf     # Nginx config (TLS + JWT)
 │   ├── jwt.js             # NJS JWT parsing
 │   └── metrics.js         # NJS metrics
 └── config/                # Prometheus, Loki, Promtail configs
@@ -996,7 +996,7 @@ deploy/aws/fargate/
 │   ├── 05-observability.yaml
 │   └── 06-admin.yaml
 ├── config/                # Prometheus, Loki, Alertmanager, Fluent Bit, PgBouncer
-├── nginx/                 # nginx-fargate.conf, jwt.js, metrics.js
+├── nginx/                 # nginx.conf, jwt.js, metrics.js
 ├── .env.example
 ├── mongodb-init.js
 └── postgres-init.sql

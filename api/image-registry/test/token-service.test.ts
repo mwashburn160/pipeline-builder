@@ -8,10 +8,11 @@ import { generateKeyPairSync } from 'crypto';
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const privateKeyPem = privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
 
-// We can't easily generate an x509 cert here without external tools, so we
-// use the public key PEM directly  the kid computation only needs the
-// public key, not a wrapping cert. For tests, certificatePem is treated as
-// a public-key bundle (createPublicKey accepts both forms).
+// We can't easily generate an x509 cert here without external tools, so we use
+// the public key PEM as a stand-in for REGISTRY_TOKEN_CERTIFICATE. The token's
+// x5c header is therefore not a real DER cert in this unit test — the registry-v3
+// path (a real openssl cert verified against the registry's rootcertbundle) is
+// what exercises that end-to-end. Here we only assert the header SHAPE below.
 const publicKeyPem = publicKey.export({ format: 'pem', type: 'spki' }).toString();
 
 process.env.IMAGE_REGISTRY_HOST = 'localhost';
@@ -157,6 +158,13 @@ describe('authorizeAndIssue', () => {
     expect(decoded.access).toEqual([
       { type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] },
     ]);
+
+    // registry v3: the JWT header must carry the x5c cert chain, and must NOT
+    // carry the old libtrust kid (which v3 rejects as an untrusted key).
+    const header = (jwt.decode(result.token, { complete: true }) as { header: Record<string, unknown> }).header;
+    expect(Array.isArray(header.x5c)).toBe(true);
+    expect(header.x5c).toHaveLength(1);
+    expect(header).not.toHaveProperty('kid');
   });
 
   it('omits scopes that fully fail authorization', async () => {

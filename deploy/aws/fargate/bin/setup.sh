@@ -87,7 +87,7 @@ fi
 # Validate config files exist
 MISSING_CONFIGS=()
 for cfg in \
-  "$DEPLOY_DIR/nginx/nginx-fargate.conf" \
+  "$DEPLOY_DIR/nginx/nginx.conf" \
   "$DEPLOY_DIR/nginx/jwt.js" \
   "$DEPLOY_DIR/nginx/metrics.js" \
   "$DEPLOY_DIR/nginx/registry-auth.js" \
@@ -199,7 +199,7 @@ if [ -z "$CONFIG_BUCKET" ] || [ "$CONFIG_BUCKET" = "None" ]; then
   exit 1
 fi
 
-aws s3 cp "$DEPLOY_DIR/nginx/nginx-fargate.conf" "s3://${CONFIG_BUCKET}/nginx/nginx.conf" --region "$REGION"
+aws s3 cp "$DEPLOY_DIR/nginx/nginx.conf" "s3://${CONFIG_BUCKET}/nginx/nginx.conf" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/nginx/jwt.js" "s3://${CONFIG_BUCKET}/nginx/jwt.js" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/nginx/metrics.js" "s3://${CONFIG_BUCKET}/nginx/metrics.js" --region "$REGION"
 aws s3 cp "$DEPLOY_DIR/nginx/registry-auth.js" "s3://${CONFIG_BUCKET}/nginx/registry-auth.js" --region "$REGION"

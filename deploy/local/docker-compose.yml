@@ -87,7 +87,10 @@ services:
   # Infrastructure
   # ---------------------------------------------------------------------------
   nginx:
-    image: 'nginx:1.27'
+    # Unprivileged (UID 101) nginx, matching the k8s gateways. The njs module is
+    # bundled in the official 1.30 image; nginx.conf sets `pid /tmp/nginx.pid` so
+    # the non-root master can write its PID file.
+    image: 'nginxinc/nginx-unprivileged:1.30'
     container_name: nginx
     restart: always
     stop_grace_period: 5s
@@ -135,7 +138,7 @@ services:
   # Databases
   # ---------------------------------------------------------------------------
   mongodb:
-    image: 'mongo:7.0'
+    image: 'mongo:8.0'
     container_name: mongodb
     restart: always
     stop_grace_period: 15s
@@ -151,19 +154,29 @@ services:
     networks:
       - backend-network
     healthcheck:
-      test: >
-        bash -c 'mongosh --quiet --host localhost:27017 --username
-        ${MONGO_INITDB_ROOT_USERNAME} --password ${MONGO_INITDB_ROOT_PASSWORD}
-        --authenticationDatabase admin --eval
-        "db.getSiblingDB(\"admin\").runCommand({ replSetGetStatus: 1 }).ok" ||
-        (mongosh --quiet --host localhost:27017 --username
-        ${MONGO_INITDB_ROOT_USERNAME} --password ${MONGO_INITDB_ROOT_PASSWORD}
-        --authenticationDatabase admin --eval "rs.initiate({ _id: \"rs0\",
-        members: [{ _id: 0, host: \"mongodb:27017\" }] })" && exit 1)'
+      # Single idempotent self-init probe — the one shared pattern across all targets:
+      # initiate rs0 if not yet initialized, then report healthy only once this node is
+      # the writable primary (so `healthy` ⇒ apps can connect via ?replicaSet=rs0). One
+      # mongosh call, runs on localhost (no service chicken-and-egg). mongosh is a heavy
+      # Node process, hence the generous 30s timeout.
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --host
+        - localhost:27017
+        - --username
+        - ${MONGO_INITDB_ROOT_USERNAME}
+        - --password
+        - ${MONGO_INITDB_ROOT_PASSWORD}
+        - --authenticationDatabase
+        - admin
+        - --eval
+        - 'try { rs.status() } catch (e) { if (e.codeName === "NotYetInitialized") { rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongodb:27017" }] }) } else { throw e } } quit(db.hello().isWritablePrimary ? 0 : 1)'
       interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 90s
     deploy: *db-deploy
 
   postgres:
@@ -195,7 +208,7 @@ services:
   # All app services connect through pgbouncer (DB_HOST=pgbouncer / DB_PORT=6432).
   # See `deploy/local/config/pgbouncer/pgbouncer.ini` for per-tier pool layout.
   pgbouncer:
-    image: 'edoburu/pgbouncer:v1.23.1-p3'
+    image: 'edoburu/pgbouncer:v1.25.2-p0'
     container_name: pgbouncer
     restart: always
     environment:
@@ -225,7 +238,7 @@ services:
       start_period: 10s
 
   redis:
-    image: 'redis:7-alpine'
+    image: 'redis:8-alpine'
     container_name: redis
     restart: always
     stop_grace_period: 10s
@@ -764,7 +777,7 @@ services:
   # Docker Registry
   # ---------------------------------------------------------------------------
   registry:
-    image: 'registry:2'
+    image: 'registry:3'
     container_name: registry
     restart: always
     ports:
@@ -823,7 +836,7 @@ services:
   # the native /dashboard/observability page.
   # ---------------------------------------------------------------------------
   prometheus:
-    image: 'prom/prometheus:v3.2.1'
+    image: 'prom/prometheus:v3.12.0'
     container_name: prometheus
     restart: always
     command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.retention.time=7d']
@@ -856,7 +869,7 @@ services:
   # silently. That's the intended degraded behavior; the alerts still
   # land in Alertmanager's UI / API.
   alertmanager:
-    image: 'prom/alertmanager:v0.28.0'
+    image: 'prom/alertmanager:v0.32.2'
     container_name: alertmanager
     restart: always
     command:
@@ -893,7 +906,7 @@ services:
           memory: 64M
 
   loki:
-    image: 'grafana/loki:3.4.2'
+    image: 'grafana/loki:3.6.11'
     container_name: loki
     restart: always
     command: -config.file=/etc/loki/loki-config.yml
@@ -903,7 +916,9 @@ services:
     networks:
       - backend-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      # loki 3.6+ images are distroless (no wget/curl/sh) — the loki binary's own
+      # `-health` flag probes localhost:3100/ready and exits non-zero until ready.
+      test: ["CMD", "/usr/bin/loki", "-health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -918,7 +933,7 @@ services:
           memory: 256M
 
   promtail:
-    image: 'grafana/promtail:3.4.2'
+    image: 'grafana/promtail:3.6.11'
     container_name: promtail
     restart: always
     # Wrap promtail to auto-clean corrupted positions file on startup.
@@ -942,7 +957,15 @@ services:
       loki:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9080/ready"]
+      # promtail 3.6.11 is distroless-ish: /bin/sh is dash (no /dev/tcp) and there's
+      # no wget/curl and no `-health` flag — but `bash` and `grep` ARE present. Probe
+      # /ready over a bash /dev/tcp socket and match the 200 status line. (k8s targets
+      # use an httpGet probe instead, which needs no in-container tool.)
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/localhost/9080 && printf 'GET /ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -qa '200 OK' <&3"
       interval: 30s
       timeout: 10s
       retries: 3
@@ -963,7 +986,7 @@ services:
   # http://localhost:16686. In-memory storage means traces are lost on restart,
   # which is the right trade-off for a local stack.
   jaeger:
-    image: 'jaegertracing/all-in-one:1.62.0'
+    image: 'jaegertracing/all-in-one:1.76.0'
     container_name: jaeger
     restart: always
     environment:

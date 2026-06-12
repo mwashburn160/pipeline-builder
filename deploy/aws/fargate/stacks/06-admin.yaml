@@ -21,7 +21,7 @@ Parameters:
     Description: Secrets Manager secret name for application secrets
   RegistryImage:
     Type: String
-    Default: registry:2
+    Default: registry:3
   PgadminImage:
     Type: String
     Default: dpage/pgadmin4:9
@@ -77,7 +77,7 @@ Resources:
         # and writes it to the shared volume. Runs to completion before the
         # registry container starts (`dependsOn: condition: COMPLETE`).
         - Name: registry-token-cert-init
-          Image: amazon/aws-cli:latest
+          Image: amazon/aws-cli:2.35.3
           Essential: false
           Environment:
             - Name: AWS_DEFAULT_REGION
