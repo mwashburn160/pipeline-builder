@@ -9,12 +9,14 @@
  *
  * Access control rules:
  * - No orgId: system org public only (2 conditions)
- * - With orgId, no accessModifier: own org public + system public (2 conditions)
+ * - With orgId, no accessModifier: own org (any modifier) OR system/parent public,
+ *   folded into a single OR (1 condition)
  * - With orgId, accessModifier='public': own org public only (2 conditions)
  * - With orgId, accessModifier='private': own org private only (2 conditions)
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -45,8 +47,8 @@ describe('AccessControlQueryBuilder - no orgId (anonymous access)', () => {
 describe('AccessControlQueryBuilder - isActive default filter', () => {
   it('should include isActive=true by default when isActive is not in filter', () => {
     const conditions = builder.buildCommonConditions({}, ORG_ID);
-    // access control (2) + isActive default (1) = 3
-    expect(conditions.length).toBeGreaterThanOrEqual(3);
+    // access control (1: single OR of own-org + system/parent-public) + isActive default (1) = 2
+    expect(conditions.length).toBeGreaterThanOrEqual(2);
 
     // Explicitly providing isActive=true should produce the same number of conditions
     const explicitTrue = builder.buildCommonConditions({ isActive: true }, ORG_ID);
@@ -80,7 +82,7 @@ describe('AccessControlQueryBuilder - isActive default filter', () => {
       ORG_ID,
     );
     // Still produces same number of conditions (access control + isActive)
-    expect(withStringFalse.length).toBeGreaterThanOrEqual(3);
+    expect(withStringFalse.length).toBeGreaterThanOrEqual(2);
   });
 
   it('should parse isActive string "true" as true', () => {
@@ -119,12 +121,12 @@ describe('AccessControlQueryBuilder - parentOrgId (team → parent inheritance)'
   const PARENT_ID = 'org-parent-999';
 
   it('folds parentOrgId into the single default-case OR (no extra condition)', () => {
-    // Default case: accessModifier='public' (1) + or(own, system[, parent]) (1) + isActive (1) = 3,
+    // Default case: or(ownOrg, and(public, or(system[, parent]))) (1) + isActive (1) = 2,
     // whether or not a parent is supplied — the parent is an extra OR branch, not a new condition.
     const withoutParent = builder.buildCommonConditions({}, ORG_ID);
     const withParent = builder.buildCommonConditions({}, ORG_ID, PARENT_ID);
     expect(withParent.length).toBe(withoutParent.length);
-    expect(withParent.length).toBe(3);
+    expect(withParent.length).toBe(2);
   });
 
   it('ignores parentOrgId when an explicit accessModifier filter is set (own-org scoped)', () => {
@@ -140,12 +142,35 @@ describe('AccessControlQueryBuilder - parentOrgId (team → parent inheritance)'
   });
 });
 
+// Default-view access semantics: own org is visible regardless of access
+// modifier; the public gate applies only to other orgs (system/parent).
+// Regression for: a freshly uploaded PRIVATE plugin vanishing from its own
+// org's default listing because the view forced accessModifier='public'.
+describe('AccessControlQueryBuilder - default view shows own-org private', () => {
+  const dialect = new PgDialect();
+
+  it('OR-s in the own-org branch without a public constraint', () => {
+    const [accessControl] = builder.buildCommonConditions({}, ORG_ID);
+    const { sql: text, params } = dialect.sqlToQuery(accessControl);
+
+    // The own org id is a bare branch of the top-level OR (own-org rows are
+    // returned for ANY access modifier), while 'public' only gates the
+    // system/parent rows. So 'private' must NOT appear anywhere here.
+    expect(params).toContain(ORG_ID.toLowerCase());
+    expect(params).toContain('system');
+    expect(params).toContain('public');
+    expect(params).not.toContain('private');
+    // own-org equality is OR'd in, not AND'ed with the public predicate.
+    expect(text.toLowerCase()).toMatch(/org_id"?\s*=\s*\$\d+\s+or\s+\(/);
+  });
+});
+
 // Combined filters
 describe('AccessControlQueryBuilder - combined common conditions', () => {
   it('should include access control + isActive default for empty filter', () => {
     const conditions = builder.buildCommonConditions({}, ORG_ID);
-    // access control (2: accessModifier='public' + or(orgId=$org, orgId='system')) + isActive default (1) = 3
-    expect(conditions.length).toBe(3);
+    // access control (1: or(orgId=$org, public AND orgId='system')) + isActive default (1) = 2
+    expect(conditions.length).toBe(2);
   });
 
   it('should add id filter condition', () => {

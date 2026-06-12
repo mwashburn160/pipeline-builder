@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { eq, or, sql, SQL } from 'drizzle-orm';
+import { and, eq, or, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 
 const FULL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -90,7 +90,8 @@ export class AccessControlQueryBuilder<
    * With orgId:
    *   - accessModifier='private': orgId=$org AND accessModifier='private'
    *   - accessModifier='public':  orgId=$org AND accessModifier='public'
-   *   - no accessModifier:        accessModifier='public' AND (orgId=$org OR orgId=$parent OR orgId='system')
+   *   - no accessModifier:        orgId=$org (any access modifier)
+   *                               OR (accessModifier='public' AND (orgId='system' OR orgId=$parent))
    *
    * `parentOrgId` (org → team hierarchy) widens the default catalog view so a
    * team org also sees its parent's public records. Absent for root orgs, so
@@ -122,15 +123,20 @@ export class AccessControlQueryBuilder<
       conditions.push(eq(this.schema.orgId, normalizedOrgId));
       conditions.push(eq(this.schema.accessModifier, normalized));
     } else {
-      // Default catalog view: own org public + parent org public (team →
-      // parent inheritance) + system org public.
-      conditions.push(eq(this.schema.accessModifier, AccessModifier.PUBLIC));
-      const orgScopes = [
-        eq(this.schema.orgId, normalizedOrgId),
-        eq(this.schema.orgId, SYSTEM_ORG_ID),
-      ];
-      if (parentOrgId) orgScopes.push(eq(this.schema.orgId, parentOrgId.toLowerCase()));
-      conditions.push(or(...orgScopes)!);
+      // Default catalog view: ALL of the caller's own-org records (any access
+      // modifier — you always see what you own, including private), PLUS the
+      // PUBLIC records of the system org and the parent org (team → parent
+      // inheritance). The public restriction applies only to those other orgs'
+      // rows, never to your own — otherwise a freshly uploaded private plugin
+      // would vanish from its owner's own listing.
+      const ownOrg = eq(this.schema.orgId, normalizedOrgId);
+      const otherOrgScopes = [eq(this.schema.orgId, SYSTEM_ORG_ID)];
+      if (parentOrgId) otherOrgScopes.push(eq(this.schema.orgId, parentOrgId.toLowerCase()));
+      const otherOrgsPublic = and(
+        eq(this.schema.accessModifier, AccessModifier.PUBLIC),
+        or(...otherOrgScopes)!,
+      )!;
+      conditions.push(or(ownOrg, otherOrgsPublic)!);
     }
 
     return conditions;

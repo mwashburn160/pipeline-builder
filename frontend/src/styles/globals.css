@@ -316,6 +316,20 @@
     @apply text-sm font-medium;
   }
 
+  .alert-warning {
+    background-color: color-mix(in srgb, var(--pb-accent) 14%, var(--pb-surface) 86%);
+    border: 1px solid color-mix(in srgb, var(--pb-accent) 40%, var(--pb-border) 60%);
+    @apply mb-6 rounded-2xl p-4;
+  }
+
+  /* Amber is inherently light, so weight the text heavily toward --pb-text
+     for legible contrast on the tinted background (unlike error/success which
+     can lean on their saturated base colors). */
+  .alert-warning p {
+    color: color-mix(in srgb, var(--pb-accent) 45%, var(--pb-text) 55%);
+    @apply text-sm font-medium;
+  }
+
   /* ---- Sidebar ---- */
   .sidebar {
     background-color: var(--pb-surface);

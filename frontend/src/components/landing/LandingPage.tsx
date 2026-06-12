@@ -144,7 +144,9 @@ function Hero() {
             <h2 className="font-bold mb-4">Sign in</h2>
 
             {sessionExpired && !error && (
-              <p className="text-xs text-[var(--pb-accent)] mb-3">Session expired. Please sign in again.</p>
+              <div className="alert-warning mb-3" role="status" aria-live="polite">
+                <p>Session expired. Please sign in again.</p>
+              </div>
             )}
             {error && (
               <div className="alert-error mb-3" role="alert" aria-live="polite">

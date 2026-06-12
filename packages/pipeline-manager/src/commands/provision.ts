@@ -82,7 +82,7 @@ export async function preflightPorts(spec: TargetSpec, target: TargetId, cwd: st
   // stack, and `docker compose up` no-ops them — this is exactly how you re-run to
   // add loads/options. Don't block (the would-be conflict is a self-conflict).
   if (fatal && stackRunning(target, cwd, spec)) {
-    printWarning(`\n${taken.length} port(s) are held by your already-running ${spec.label} stack — re-running is a no-op/resume, so continuing.`);
+    printWarning(`\n${taken.length} port(s) are held by your already-running ${spec.label} stack — re-running just resumes it (no real conflict), so continuing.`);
     return true;
   }
   const lead = `${taken.length} required port(s) already in use: ${taken.map((c) => c.port).join(', ')}`;
@@ -190,7 +190,7 @@ export async function runDeployWithRetry(
       continue;
     }
     // Retryable but no param change (e.g. ACM DNS propagation) — offer a plain re-run.
-    if (!fix && issues.some((i) => i.retryable) && await confirm('\nRetry the deploy (it is idempotent and will resume)?', opts.yes ?? false)) {
+    if (!fix && issues.some((i) => i.retryable) && await confirm('\nRetry the deploy (safe to re-run — it resumes where it left off)?', opts.yes ?? false)) {
       continue;
     }
     break;
@@ -211,7 +211,7 @@ export async function runPostSteps(
   target: TargetId,
   cwd: string,
   adminEnv: Record<string, string>,
-  opts: { yes?: boolean },
+  opts: { yes?: boolean; autoRun?: boolean },
 ): Promise<void> {
   if (postSteps.length === 0) return;
   for (const s of skippedSteps) printWarning(`Skipped post-step ${s.id}: ${s.reason}`);
@@ -223,7 +223,11 @@ export async function runPostSteps(
     printInfo('\nNext (run from inside the VPC, in this order):');
     for (const s of remote) printInfo(`  • ${s.label} — ${s.command}`);
   }
-  if (runnable.length > 0 && await confirm(`\nRun ${runnable.length} post-install step(s) now?`, opts.yes ?? false)) {
+  if (runnable.length === 0) return;
+  // When the loads were picked interactively (autoRun), the user already opted in — skip
+  // the redundant second confirm. Flag-driven / non-interactive runs still gate here.
+  if (opts.autoRun || await confirm(`\nRun ${runnable.length} post-install step(s) now?`, opts.yes ?? false)) {
+    if (opts.autoRun) printInfo(`\nRunning the ${runnable.length} post-install step(s) you selected…`);
     for (const s of runnable) {
       printSection(`Post-step: ${s.label}`);
       // register (local/minikube) logs into the platform, so it needs the admin creds
@@ -245,7 +249,7 @@ export async function runPostSteps(
       }
       printSuccess(`${s.id} ✓`);
     }
-  } else if (runnable.length > 0) {
+  } else {
     printInfo('\nSkipped post-install steps. Run the commands above manually when ready.');
   }
 }
@@ -653,6 +657,14 @@ export function provision(program: Command): void {
           return;
         }
 
+        // Commit gate — confirm BEFORE any side effect (clone, .env, deploy) so a "No"
+        // leaves nothing behind. The port check + optional loads + .env below are part of
+        // executing the agreed-to plan.
+        if (!(await confirm(`\nProceed with provisioning ${spec.label}?`, options.yes))) {
+          printWarning('No problem — nothing was changed.');
+          return;
+        }
+
         // 7a/7b. Sparse-clone (if --repo or accepted interactively) + locate the deploy
         // entrypoint, repointing cwd into the clone. See bootstrapAndLocate.
         const located = await bootstrapAndLocate(spec, bootstrap, bootstrapCmd, sparsePaths, cwd, options);
@@ -698,11 +710,6 @@ export function provision(program: Command): void {
             printWarning('Continuing without .env — setup.sh will abort if it stays missing.');
           }
         }
-        if (!(await confirm('\nProceed with this deploy?', options.yes))) {
-          printWarning('No problem — nothing was changed.');
-          return;
-        }
-
         // 7c. Run the deploy with a bounded auto-fix + retry loop (see runDeployWithRetry).
         const { succeeded, runParams } = await runDeployWithRetry(spec, url, cwd, params, aiOpts, options);
         if (!succeeded) { process.exitCode = 1; return; }
@@ -736,7 +743,7 @@ export function provision(program: Command): void {
         // 7f. Post-install steps (register + opt-in loads, smoke test, events, custom).
         // See runPostSteps — it surfaces register + the events bundle as manual in-VPC
         // next-steps on EC2/Fargate instead of auto-running (and failing) them locally.
-        await runPostSteps(postSteps, skippedSteps, target, cwd, adminEnv, options);
+        await runPostSteps(postSteps, skippedSteps, target, cwd, adminEnv, { yes: options.yes, autoRun: willPromptLoads });
       } catch (error) {
         handleError(error, ERROR_CODES.GENERAL, {
           debug: program.opts().debug,
