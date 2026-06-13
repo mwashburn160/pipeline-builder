@@ -220,12 +220,19 @@ _push_local() {
        "$CRANE_IMAGE" -c "$_cmd" >/dev/null 2>&1; then
     return 0
   fi
-  # Re-run with output for diagnosis.
-  docker save "$_tag" | docker run --rm -i \
-     --network "$BACKEND_NETWORK" \
-     --entrypoint sh \
-     "$CRANE_IMAGE" -c "$_cmd" 2>&1 | tail -15 | sed 's/^/    /' >&2
-  return 1
+  # First attempt reported non-zero. Re-run once as a RETRY, capturing crane's
+  # REAL exit code (not the exit of the tail/sed pipe) and honoring it. A crane
+  # push against an already-present manifest is an idempotent success ("existing
+  # manifest", exit 0); a transient first-attempt hiccup often clears on retry.
+  # Unconditionally returning 1 here mis-reported both as a hard "push FAILED".
+  local _out _rc
+  _out="$(docker save "$_tag" | docker run --rm -i \
+            --network "$BACKEND_NETWORK" \
+            --entrypoint sh \
+            "$CRANE_IMAGE" -c "$_cmd" 2>&1)"
+  _rc=$?
+  printf '%s\n' "$_out" | tail -15 | sed 's/^/    /' >&2
+  return "$_rc"
 }
 
 # Build the JSON `--overrides` for a one-shot crane pod. Shared by both
@@ -296,17 +303,23 @@ _push_k8s() {
        --overrides="$_overrides" >/dev/null 2>&1; then
     return 0
   fi
-  # Re-run with output for diagnosis. Pod name reused with a suffix so
+  # First attempt reported non-zero. Re-run once as a RETRY, capturing the pod's
+  # REAL exit code (not the exit of the tail/sed pipe) and honoring it — an
+  # idempotent "existing manifest" push or a transient first-attempt hiccup must
+  # not be mis-reported as a hard "push FAILED". Pod name reused with a suffix so
   # there's no name collision against the prior --rm cleanup.
   local _retry_podname="${_podname}-retry"
   local _retry_overrides
   _retry_overrides=$(_pod_overrides "$_retry_podname" "$_cmd_json" true "$_jwt" "$REGISTRY_HOST" "$_remote")
-  docker save "$_tag" | kubectl_ctx -n "$NAMESPACE" run "$_retry_podname" \
-     --rm -i --quiet \
-     --restart=Never \
-     --image="$CRANE_IMAGE" \
-     --overrides="$_retry_overrides" 2>&1 | tail -15 | sed 's/^/    /' >&2
-  return 1
+  local _out _rc
+  _out="$(docker save "$_tag" | kubectl_ctx -n "$NAMESPACE" run "$_retry_podname" \
+            --rm -i --quiet \
+            --restart=Never \
+            --image="$CRANE_IMAGE" \
+            --overrides="$_retry_overrides" 2>&1)"
+  _rc=$?
+  printf '%s\n' "$_out" | tail -15 | sed 's/^/    /' >&2
+  return "$_rc"
 }
 
 # -----------------------------------------------------------------------
