@@ -339,7 +339,7 @@ MK_IP=$(minikube ip --profile="$PROFILE" 2>/dev/null || echo "unknown")
 log "Deployment Complete — Minikube"
 echo ""
 echo "  Platform UI / API : https://localhost:8443       (NodePort: https://$MK_IP:30443)"
-echo "  Default admin     : admin@internal  (set the password during init-platform)"
+echo "  Default admin     : admin@internal  (default password & overrides in docs/README.md — set PLATFORM_PASSWORD to change)"
 echo ""
 echo "  Dev tools           port-forward (localhost)      NodePort (minikube):"
 echo "    Mongo Express   : http://localhost:8081         http://$MK_IP:30081"
