@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature } from '@pipeline-builder/api-core';
-import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
+import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck, redisHealthCheck, combineHealthChecks } from '@pipeline-builder/api-server';
 
-import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue.js';
+import { startWorker, waitForWorkerReady, shutdownQueue, getHealthRedisConnection } from './queue/plugin-build-queue.js';
 import { createBulkPluginRoutes } from './routes/bulk-plugin.js';
 import { createDeletePluginRoutes } from './routes/delete-plugin.js';
 import { createDeployGeneratedPluginRoutes } from './routes/deploy-generated-plugin.js';
@@ -17,7 +17,12 @@ import { createUploadPluginRoutes } from './routes/upload-plugin.js';
 const logger = createLogger('plugin');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({
-  checkDependencies: async () => ({ ...(await postgresHealthCheck()), redis: 'connected' }),
+  // Plugin depends on BOTH postgres and redis (the BullMQ build queue) — probe
+  // each in parallel rather than reporting redis as always-connected.
+  checkDependencies: combineHealthChecks(
+    () => postgresHealthCheck(),
+    redisHealthCheck(() => getHealthRedisConnection()),
+  ),
 });
 
 // -- Attach request context to all requests -----------------------------------

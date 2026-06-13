@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, installCrashHandlers, isValidTier, mongoSanitize, sendError } from '@pipeline-builder/api-core';
-import { withTenantContext } from '@pipeline-builder/api-server';
+import { createHealthRouter, createLogger, installCrashHandlers, isValidTier, mongoSanitize, sendError } from '@pipeline-builder/api-core';
+import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -247,6 +247,26 @@ app.use(requestIdMiddleware);
  * authenticated (e.g. the /alert-webhook shared-secret endpoint) still
  * get a sensible default (empty orgId, isSuperAdmin=false).
  */
+// Health + readiness, standardized on the shared router (replacing platform's
+// bespoke /health): GET /health = liveness (200 while the process answers),
+// GET /ready = readiness (503 while Mongo is disconnected). Mounted before the
+// tenant/auth/rate-limit chain so probes are never gated or throttled.
+app.use(createHealthRouter({
+  serviceName: 'platform',
+  checkDependencies: mongoHealthCheck(mongoose.connection),
+}));
+
+// Readiness guard — 503s business routes until Mongo connects (and the
+// post-connect bootstraps finish). Critically preserves the "per-org KMS
+// installed before any secret is served" invariant: `ready` is only set true
+// after that bootstrap, so no secret-touching request is served before it.
+//
+// Narrow allowlist (NOT the shared default): platform serves a tenant log
+// query API at `/logs`, which must be gated like any other Mongo-backed route.
+// The default bypass list includes `/logs` for api-server's SSE log relay,
+// which platform does not have.
+app.use(readinessGuard(['/health', '/ready', '/metrics']));
+
 // Reuses the shared `withTenantContext` helper with platform's own pre-auth resolver.
 app.use(withTenantContext((req: Request) => {
   // Use the JWT-stamped isSuperAdmin flag (post system-org cutover). The peek is
@@ -259,7 +279,7 @@ app.use(withTenantContext((req: Request) => {
 
 /** Prometheus metrics middleware  records request duration and count */
 app.use((req: Request, res: Response, next: NextFunction) => {
-  if (req.path === '/metrics' || req.path === '/health') {
+  if (req.path === '/metrics' || req.path === '/health' || req.path === '/ready') {
     next();
     return;
   }
@@ -295,15 +315,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     return;
   }
   next();
-});
-
-/** Health check endpoint */
-app.get('/health', (_req: Request, res: Response) => {
-  const mongodb = mongoose.connection.readyState === 1 ? 'connected'
-    : mongoose.connection.readyState === 0 ? 'unknown'
-      : 'disconnected';
-  const status = mongodb === 'disconnected' ? 503: 200;
-  res.status(status).json({ status: status === 200 ? 'ok': 'degraded', dependencies: { mongodb } });
 });
 
 /**
@@ -344,119 +355,155 @@ app.use('/admin/impersonate', impersonateRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const MONGO_RETRY_BASE_MS = 1000;
+const MONGO_RETRY_MAX_MS = 10000;
+const READINESS_MONITOR_INTERVAL_MS = parseInt(process.env.READINESS_MONITOR_INTERVAL_MS || '15000', 10);
+
 /**
- * Initialize MongoDB connection and start the HTTP server.
- * Sets up graceful shutdown handlers for SIGINT and SIGTERM signals.
+ * Establish MongoDB + run the post-connect bootstraps in the BACKGROUND, then
+ * flip readiness. Retries a cold Mongo with capped backoff instead of
+ * crash-looping the process — the readiness guard 503s business traffic until
+ * this completes, so nothing is served against a disconnected datastore.
  *
- * @returns Promise that resolves when server is listening
- * @throws Exits process with code 1 on startup failure
+ * Ordering invariant preserved: per-org KMS is installed BEFORE `setReady(true)`,
+ * so the guard never lets a secret-touching request through before KMS is ready.
+ *
+ * This intentionally mirrors api-server's `superviseDependencies` (server.ts)
+ * — keep the retry/monitor behaviour in sync. It is NOT shared because platform
+ * interleaves fail-closed bootstraps (per-org KMS aborts via `process.exit`)
+ * between connect and ready, whereas the shared helper treats every
+ * `onBeforeStart` failure as a RETRYABLE dependency error — which would loop a
+ * KMS misconfig forever instead of surfacing it.
  */
-async function startServer(): Promise<void> {
+async function initDependencies(): Promise<void> {
+  // Pool sizing via env (see api/billing/database.ts for rationale): bound the
+  // connection ceiling so multiple replicas don't exhaust Mongo's default cap.
+  const maxPoolSize = parseInt(process.env.MONGO_MAX_POOL || '20', 10);
+  const minPoolSize = parseInt(process.env.MONGO_MIN_POOL || '2', 10);
+  const serverSelectionTimeoutMS = parseInt(process.env.MONGO_SERVER_SELECTION_MS || '5000', 10);
+
+  let delay = MONGO_RETRY_BASE_MS;
+  for (;;) {
+    try {
+      await mongoose.connect(config.mongodb.uri, { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
+      break;
+    } catch (err) {
+      logger.warn(`MongoDB connect failed, retrying in ${delay}ms`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await sleep(delay);
+      delay = Math.min(delay * 2, MONGO_RETRY_MAX_MS);
+    }
+  }
+  logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
+
+  // Bootstrap super-admins from BOOTSTRAP_SUPERADMIN_EMAILS (idempotent,
+  // non-fatal — warns rather than fails on missing accounts).
+  const { bootstrapSuperAdmins } = await import('./services/superadmin-bootstrap.js');
   try {
-    logger.info('Starting platform microservice...');
-
-    // Configure Mongoose
-    mongoose.set('strictQuery', true);
-
-    mongoose.connection.on('error', (err) => {
-      logger.error('MongoDB connection error:', err);
+    await bootstrapSuperAdmins();
+  } catch (err) {
+    logger.error('Super-admin bootstrap failed (service will still come ready)', {
+      error: err instanceof Error ? err.message : String(err),
     });
+  }
 
-    mongoose.connection.on('disconnected', () => {
-      logger.warn('MongoDB disconnected');
+  // Install the per-org KMS provider if SECRET_ENCRYPTION_PER_ORG_KMS=true.
+  // Must run AFTER Mongo connects (resolver reads Organization docs) and BEFORE
+  // the service goes ready (the guard then lets secret-touching requests
+  // through). Fail-closed: a misconfig must not silently fall back to the
+  // shared master — abort so the operator sees it immediately.
+  const { bootstrapPerOrgKmsProvider } = await import('./services/per-org-kms-bootstrap.js');
+  try {
+    bootstrapPerOrgKmsProvider();
+  } catch (err) {
+    logger.error('Per-org KMS provider bootstrap failed; aborting startup', {
+      error: err instanceof Error ? err.message : String(err),
     });
-
-    mongoose.connection.on('reconnected', () => {
-      logger.info('MongoDB reconnected');
-    });
-
-    // Connect to MongoDB. Pool sizing via env (see api/billing/database.ts
-    // for rationale): bound the connection ceiling so multiple replicas
-    // don't exhaust Mongo's default 100-connection cap.
-    const maxPoolSize = parseInt(process.env.MONGO_MAX_POOL || '20', 10);
-    const minPoolSize = parseInt(process.env.MONGO_MIN_POOL || '2', 10);
-    const serverSelectionTimeoutMS = parseInt(process.env.MONGO_SERVER_SELECTION_MS || '5000', 10);
-    await mongoose.connect(config.mongodb.uri, { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
-    logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
-
-    // Bootstrap super-admins from BOOTSTRAP_SUPERADMIN_EMAILS env. Awaited
-    // so the loud WARN logs land before HTTP comes up — operator can see
-    // immediately whether their bootstrap config landed. Idempotent + tolerant
-    // of missing accounts (warns rather than fails).
-    const { bootstrapSuperAdmins } = await import('./services/superadmin-bootstrap.js');
-    try {
-      await bootstrapSuperAdmins();
-    } catch (err) {
-      logger.error('Super-admin bootstrap failed (HTTP will still start)', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    // Install the per-org KMS provider if SECRET_ENCRYPTION_PER_ORG_KMS=true.
-    // Must run AFTER Mongo connects (resolver reads Organization docs) but
-    // BEFORE any code path can encrypt/decrypt a secret — i.e. before HTTP
-    // listens. Idempotent; no-op when the env isn't set.
-    const { bootstrapPerOrgKmsProvider } = await import('./services/per-org-kms-bootstrap.js');
-    try {
-      bootstrapPerOrgKmsProvider();
-    } catch (err) {
-      // Fail-closed: misconfigured per-org KMS shouldn't silently fall back
-      // to the shared master in production. Re-throw to abort startup so
-      // the operator sees the misconfig immediately.
-      logger.error('Per-org KMS provider bootstrap failed; aborting startup', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      throw err;
-    }
-
-    // Seed default dashboards into Postgres. Fire-and-forget: the seeder is
-    // idempotent (insert-if-missing per `(org_id='system', name)`) and logs
-    // its own warnings on failure, so a transient Postgres outage at cold
-    // start doesn't block HTTP from coming up.
-    const { seedDefaultDashboards } = await import('./services/dashboard-seeder.js');
-    void seedDefaultDashboards();
-
-    // Last-resort fault handlers: log + exit(1) on uncaught exception /
-    // unhandled rejection so a faulted process restarts cleanly instead of
-    // dying without a trace. Separate from the graceful SIGTERM path below.
-    installCrashHandlers(logger);
-
-    // Start HTTP server
-    const server = app.listen(config.app.port, () => {
-      logger.info(`Platform microservice listening on port: ${config.app.port}`);
-    });
-
-    // Graceful shutdown
-    const shutdown = async (signal: string) => {
-      logger.info(`${signal} received, shutting down gracefully...`);
-
-      server.close(async () => {
-        logger.info('HTTP server closed');
-
-        try {
-          await mongoose.connection.close(false);
-          logger.info('MongoDB connection closed');
-        } catch (error) {
-          logger.error('Error closing MongoDB:', error);
-        }
-
-        process.exit(0);
-      });
-
-      // Force shutdown after timeout
-      const shutdownTimeoutMs = parseInt(process.env.SHUTDOWN_TIMEOUT_MS || '15000', 10);
-      setTimeout(() => {
-        logger.error('Forced shutdown after timeout');
-        process.exit(1);
-      }, shutdownTimeoutMs);
-    };
-
-    process.on('SIGINT', () => void shutdown('SIGINT'));
-    process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  } catch (error) {
-    logger.error('Failed to start server:', error);
     process.exit(1);
   }
+
+  // Seed default dashboards into Postgres (idempotent, fire-and-forget).
+  const { seedDefaultDashboards } = await import('./services/dashboard-seeder.js');
+  void seedDefaultDashboards();
+
+  setReady(true);
+  logger.info('Platform ready — dependencies connected');
+
+  // Keep readiness in sync with Mongo for the life of the process so a later
+  // outage drains traffic (NotReady) and a recovery restores it — no restart.
+  for (;;) {
+    await sleep(READINESS_MONITOR_INTERVAL_MS);
+    const ok = mongoose.connection.readyState === 1;
+    if (ok && !isReady()) {
+      setReady(true);
+      logger.info('Platform ready — MongoDB reconnected');
+    } else if (!ok && isReady()) {
+      setReady(false);
+      logger.warn('Platform degraded — MongoDB disconnected (now NotReady)');
+    }
+  }
+}
+
+/**
+ * Start the HTTP server, then establish dependencies in the background.
+ * Listens FIRST so /health, /ready and the readiness guard respond
+ * immediately; a cold Mongo no longer crash-loops the process.
+ */
+async function startServer(): Promise<void> {
+  logger.info('Starting platform microservice...');
+
+  // Configure Mongoose + connection event handlers.
+  mongoose.set('strictQuery', true);
+  mongoose.connection.on('error', (err) => logger.error('MongoDB connection error:', err));
+  mongoose.connection.on('disconnected', () => logger.warn('MongoDB disconnected'));
+  mongoose.connection.on('reconnected', () => logger.info('MongoDB reconnected'));
+
+  // Last-resort fault handlers (uncaught exception / unhandled rejection).
+  installCrashHandlers(logger);
+
+  // Mark NotReady before the port opens so the guard rejects business traffic
+  // until dependencies connect.
+  setReady(false);
+
+  // Start HTTP server (before connecting Mongo).
+  const server = app.listen(config.app.port, () => {
+    logger.info(`Platform microservice listening on port: ${config.app.port}`);
+  });
+
+  // Graceful shutdown
+  const shutdown = async (signal: string) => {
+    logger.info(`${signal} received, shutting down gracefully...`);
+
+    server.close(async () => {
+      logger.info('HTTP server closed');
+
+      try {
+        await mongoose.connection.close(false);
+        logger.info('MongoDB connection closed');
+      } catch (error) {
+        logger.error('Error closing MongoDB:', error);
+      }
+
+      process.exit(0);
+    });
+
+    // Force shutdown after timeout (unref'd so it never itself keeps the
+    // process alive, matching api-server's startServer).
+    const shutdownTimeoutMs = parseInt(process.env.SHUTDOWN_TIMEOUT_MS || '15000', 10);
+    setTimeout(() => {
+      logger.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, shutdownTimeoutMs).unref();
+  };
+
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+  // Establish Mongo + bootstraps in the background; readiness flips when done.
+  void initDependencies();
 }
 
 // Start

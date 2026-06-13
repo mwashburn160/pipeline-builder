@@ -9,7 +9,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   getConnection: () => ({ testConnection: mockTestConnection }),
 }));
 
-const { postgresHealthCheck, mongoHealthCheck } = await import('../src/api/health-checks.js');
+const { postgresHealthCheck, mongoHealthCheck, redisHealthCheck, combineHealthChecks } = await import('../src/api/health-checks.js');
 
 describe('postgresHealthCheck', () => {
   beforeEach(() => {
@@ -53,5 +53,60 @@ describe('mongoHealthCheck', () => {
   it('returns disconnected for any other readyState', async () => {
     const fn = mongoHealthCheck({ readyState: 3 });
     await expect(fn()).resolves.toEqual({ mongodb: 'disconnected' });
+  });
+});
+
+describe('redisHealthCheck', () => {
+  it('returns connected when PING resolves', async () => {
+    const fn = redisHealthCheck({ ping: async () => 'PONG' });
+    await expect(fn()).resolves.toEqual({ redis: 'connected' });
+  });
+
+  it('returns disconnected when PING rejects', async () => {
+    const fn = redisHealthCheck({ ping: async () => { throw new Error('ECONNREFUSED'); } });
+    await expect(fn()).resolves.toEqual({ redis: 'disconnected' });
+  });
+
+  it('returns disconnected (not hang) when PING never settles — timeout', async () => {
+    // A BullMQ ioredis client with an offline queue can leave ping() pending
+    // when redis is down; the probe must time-box it.
+    const fn = redisHealthCheck({ ping: () => new Promise<string>(() => {}) }, 50);
+    await expect(fn()).resolves.toEqual({ redis: 'disconnected' });
+  });
+
+  it('accepts an async client getter (e.g. BullMQ queue.client)', async () => {
+    const fn = redisHealthCheck(async () => ({ ping: async () => 'PONG' }));
+    await expect(fn()).resolves.toEqual({ redis: 'connected' });
+  });
+
+  it('returns disconnected when the client getter itself rejects', async () => {
+    const fn = redisHealthCheck(async () => { throw new Error('no client'); });
+    await expect(fn()).resolves.toEqual({ redis: 'disconnected' });
+  });
+});
+
+describe('combineHealthChecks', () => {
+  it('runs probes in parallel and merges their results', async () => {
+    const fn = combineHealthChecks(
+      async () => ({ postgres: 'connected' }),
+      async () => ({ redis: 'connected' }),
+    );
+    await expect(fn()).resolves.toEqual({ postgres: 'connected', redis: 'connected' });
+  });
+
+  it('preserves a failing probe\'s status without dropping the others', async () => {
+    const fn = combineHealthChecks(
+      async () => ({ postgres: 'connected' }),
+      async () => ({ redis: 'disconnected' }),
+    );
+    await expect(fn()).resolves.toEqual({ postgres: 'connected', redis: 'disconnected' });
+  });
+
+  it('does not let one probe throwing take down the merge', async () => {
+    const fn = combineHealthChecks(
+      async () => ({ postgres: 'connected' }),
+      async () => { throw new Error('probe blew up'); },
+    );
+    await expect(fn()).resolves.toEqual({ postgres: 'connected' });
   });
 });

@@ -35,20 +35,29 @@ interface MongooseLike {
  * Pass the service's own mongoose instance — api-server doesn't bundle
  * mongoose itself.
  */
+let handlersWired = false;
+
 export async function connectMongo(mongoose: MongooseLike, uri: string): Promise<void> {
   mongoose.set('strictQuery', true);
 
-  mongoose.connection.on('error', (err) => {
-    logger.error('MongoDB connection error', { error: err?.message });
-  });
+  // Wire the connection event handlers exactly once. The startup supervisor
+  // may call connectMongo repeatedly (retrying until Mongo is reachable);
+  // re-registering on every attempt would leak listeners.
+  if (!handlersWired) {
+    handlersWired = true;
 
-  mongoose.connection.on('disconnected', () => {
-    logger.warn('MongoDB disconnected');
-  });
+    mongoose.connection.on('error', (err) => {
+      logger.error('MongoDB connection error', { error: err?.message });
+    });
 
-  mongoose.connection.on('reconnected', () => {
-    logger.info('MongoDB reconnected');
-  });
+    mongoose.connection.on('disconnected', () => {
+      logger.warn('MongoDB disconnected');
+    });
+
+    mongoose.connection.on('reconnected', () => {
+      logger.info('MongoDB reconnected');
+    });
+  }
 
   const maxPoolSize = parseInt(process.env.MONGO_MAX_POOL || '20', 10);
   const minPoolSize = parseInt(process.env.MONGO_MIN_POOL || '2', 10);

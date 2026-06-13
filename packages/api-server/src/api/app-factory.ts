@@ -15,6 +15,7 @@ import { v7 as uuid } from 'uuid';
 import { etagMiddleware } from './etag-middleware.js';
 import { idempotencyMiddleware } from './idempotency-middleware.js';
 import { metricsMiddleware, metricsHandler, incCounter } from './metrics.js';
+import { readinessGuard } from './readiness.js';
 import { SSEManager } from '../http/sse-connection-manager.js';
 
 // Wire api-core's counter shim to the real prom-client registry. This is
@@ -207,6 +208,14 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     serviceName: process.env.SERVICE_NAME || 'api',
     checkDependencies,
   }));
+
+  // Readiness guard — 503s business traffic while the service is NotReady
+  // (datastore still connecting at startup, or dropped). Mounted right after
+  // the health router and before everything else so a NotReady request is
+  // rejected cheaply, before rate-limit / idempotency / business handlers ever
+  // touch a disconnected datastore. It allowlists the infra endpoints
+  // (/metrics, /warmup, /docs, /logs) registered below, plus /health + /ready.
+  app.use(readinessGuard());
 
   // Warm-up endpoint — pre-opens connection pools so the first real request
   // doesn't pay cold-start latency. Always pings Postgres; services using

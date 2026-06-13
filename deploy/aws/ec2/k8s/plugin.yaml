@@ -234,7 +234,7 @@ spec:
               memory: 1024Mi
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: 3000
             initialDelaySeconds: 10
             periodSeconds: 10

@@ -246,6 +246,15 @@ function getConnectionForDb(dbNum: number): Redis {
   return conn;
 }
 
+/**
+ * ioredis connection (db 0) for the service's readiness probe — reuses the
+ * same pooled connection the build queue uses, so `/ready` reflects the real
+ * redis the plugin service depends on rather than opening a throwaway client.
+ */
+export function getHealthRedisConnection(): Redis {
+  return getConnectionForDb(0);
+}
+
 function getConnectionForTier(tier: QuotaTier): Redis {
   return getConnectionForDb(getRedisDbForTier(tier));
 }

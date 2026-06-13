@@ -9,12 +9,14 @@ import {
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
   postgresHealthCheck,
+  redisHealthCheck,
+  combineHealthChecks,
 } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { startAuditPruneCron } from './helpers/audit-logger.js';
 import { evaluateEntityEvent } from './helpers/entity-event-handler.js';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler.js';
-import { enqueue, startComplianceWorker, stopComplianceWorker } from './queue/compliance-event-queue.js';
+import { enqueue, startComplianceWorker, stopComplianceWorker, getQueueRedis } from './queue/compliance-event-queue.js';
 import { createAuditRoutes } from './routes/audit.js';
 import { createCreatePolicyRoutes } from './routes/create-policies.js';
 import { createCreateRuleRoutes } from './routes/create-rules.js';
@@ -34,7 +36,14 @@ import { createValidateRoutes } from './routes/validate.js';
 
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();
-const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
+const { app, sseManager } = createApp({
+  // Compliance depends on BOTH postgres and redis (the BullMQ event queue) —
+  // probe each in parallel.
+  checkDependencies: combineHealthChecks(
+    () => postgresHealthCheck(),
+    redisHealthCheck(() => getQueueRedis()),
+  ),
+});
 
 // Attach request context to all requests
 app.use(attachRequestContext(sseManager));

@@ -3,8 +3,15 @@
 # =============================================================================
 
 # -- Healthcheck for API containers --
+# Probes /ready (readiness), not /health (liveness): a container is only
+# "healthy" once its datastore deps are connected, so `depends_on:
+# condition: service_healthy` actually waits for a service that can serve —
+# closing the startup races (e.g. a load hitting a still-connecting compliance).
+# Safe under plain compose: an unhealthy container is NOT restarted (`restart:`
+# fires only on exit); this just gates ordering. With the listen-first servers,
+# the port opens immediately and the container reports "starting" until ready.
 x-api-healthcheck: &api-healthcheck
-  test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+  test: ["CMD", "curl", "-f", "http://localhost:3000/ready"]
   interval: 30s
   timeout: 10s
   retries: 5

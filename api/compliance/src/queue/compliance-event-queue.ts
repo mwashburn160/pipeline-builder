@@ -33,6 +33,15 @@ export async function enqueue(event: ComplianceEvent): Promise<void> {
 }
 
 /**
+ * The queue's underlying ioredis client, for the service's readiness probe.
+ * BullMQ exposes it as a `Promise<RedisClient>`; pass this getter to
+ * `redisHealthCheck` so `/ready` reflects the real redis compliance depends on.
+ */
+export function getQueueRedis(): Promise<{ ping(): Promise<string> }> {
+  return queue.client as unknown as Promise<{ ping(): Promise<string> }>;
+}
+
+/**
  * Start the BullMQ worker that processes compliance events.
  * Calls the provided handler for each event.
  */

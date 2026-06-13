@@ -32,6 +32,9 @@ export * from './metrics.js';
 // Server utilities
 export * from './server.js';
 
+// Readiness state + guard middleware
+export * from './readiness.js';
+
 // Route wrapper
 export * from './route-wrapper.js';
 

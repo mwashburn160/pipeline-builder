@@ -2,13 +2,95 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { createLogger, installCrashHandlers } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, installCrashHandlers } from '@pipeline-builder/api-core';
 import { Config, getConnection, closeConnection } from '@pipeline-builder/pipeline-core';
 import type { Express } from 'express';
 import { shutdownTracing } from './tracing.js';
+import { setReady, isReady } from './readiness.js';
 import { SSEManager } from '../http/sse-connection-manager.js';
 
 const logger = createLogger('server');
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Dependency-supervisor cadence. Initial connect retries with capped backoff;
+// once connected, re-checks at a steady interval so a later outage flips the
+// service NotReady (draining traffic) and a recovery flips it back — without
+// ever exiting / restarting the process.
+const READY_RETRY_BASE_MS = 1000;
+const READY_RETRY_MAX_MS = 10000;
+const READY_MONITOR_INTERVAL_MS = parseInt(process.env.READINESS_MONITOR_INTERVAL_MS || '15000', 10);
+
+/**
+ * Establish and continuously monitor the service's datastore dependency,
+ * flipping readiness state instead of crash-looping.
+ *
+ * - Establish phase: retry `onBeforeStart` (e.g. connectMongo) with capped
+ *   backoff until it succeeds — a cold datastore must never exit the process.
+ * - Monitor phase: poll `testDatabase` for the life of the process; flip
+ *   ready/NotReady on transitions. While NotReady the readiness guard 503s
+ *   business traffic and orchestrator readiness probes drain the instance.
+ *
+ * Runs in the background (the HTTP server is already listening). Stops when
+ * `aborted()` returns true (graceful shutdown), so it never keeps a closing
+ * process alive.
+ */
+async function superviseDependencies(
+  name: string,
+  onBeforeStart: (() => Promise<void>) | undefined,
+  testDatabase: (() => Promise<boolean>) | false | undefined,
+  aborted: () => boolean,
+): Promise<void> {
+  if (onBeforeStart) {
+    let delay = READY_RETRY_BASE_MS;
+    while (!aborted()) {
+      try {
+        await onBeforeStart();
+        break;
+      } catch (error) {
+        logger.warn(`${name}: dependency init failed, retrying in ${delay}ms`, { error: errorMessage(error) });
+        await sleep(delay);
+        delay = Math.min(delay * 2, READY_RETRY_MAX_MS);
+      }
+    }
+  }
+
+  // No datastore to gate on → ready as soon as we are listening.
+  if (testDatabase === false) {
+    setReady(true);
+    logger.info(`${name} ready (no datastore dependency)`);
+    return;
+  }
+
+  const probe = testDatabase ?? (() => getConnection().testConnection());
+  let waitDelay = READY_RETRY_BASE_MS;
+  while (!aborted()) {
+    let ok = false;
+    try {
+      ok = await probe();
+    } catch {
+      ok = false;
+    }
+
+    if (ok && !isReady()) {
+      setReady(true);
+      waitDelay = READY_RETRY_BASE_MS;
+      logger.info(`${name} ready — dependencies connected`);
+    } else if (!ok && isReady()) {
+      setReady(false);
+      logger.warn(`${name} degraded — dependency check failing (now NotReady)`);
+    }
+
+    // Steady cadence once ready; faster backoff while waiting so we flip to
+    // ready promptly when the datastore comes up.
+    if (isReady()) {
+      await sleep(READY_MONITOR_INTERVAL_MS);
+    } else {
+      await sleep(waitDelay);
+      waitDelay = Math.min(waitDelay * 2, READY_RETRY_MAX_MS);
+    }
+  }
+}
 
 /**
  * Options for starting a server
@@ -94,25 +176,17 @@ export async function startServer(
 
   logger.info(`Starting ${name}...`);
 
-  // Pre-start hook (e.g., initialize external connections)
-  if (onBeforeStart) {
-    await onBeforeStart();
-  }
+  // Mark NotReady synchronously, BEFORE the port opens, so no request slips
+  // through the readiness guard before the supervisor has run. The supervisor
+  // flips it true once dependencies connect.
+  setReady(false);
 
-  // Test database connection
-  if (testDatabase !== false) {
-    const dbHealthy = testDatabase
-      ? await testDatabase()
-      : await getConnection().testConnection();
-
-    if (!dbHealthy) {
-      throw new Error('Database connection failed');
-    }
-
-    logger.info('Database connection established');
-  }
-
-  // Start server
+  // Listen FIRST. Previously the process tested the DB and `process.exit(1)`'d
+  // on failure (to be restarted), so during a cold-DB stampede services
+  // crash-looped and never even opened their port. Now we open the port
+  // immediately — /health (liveness), /ready (readiness) and the readiness
+  // guard all respond at once — and establish + monitor the datastore in the
+  // background, reporting NotReady until it connects instead of exiting.
   const server = app.listen(port, () => {
     logger.info(`${name} listening on port: ${port}`);
     logger.info(`Platform URL: ${serverConfig.platformUrl}`);
@@ -121,6 +195,18 @@ export async function startServer(
 
   // Shutdown handler (guarded against concurrent signals)
   let shuttingDown = false;
+
+  // Background dependency supervisor — established + monitored after listen,
+  // stopped on shutdown so it never keeps a closing process alive. Guard the
+  // floating promise: every expected failure is handled inside, so a rejection
+  // here means a programming error — log it and leave the service NotReady
+  // rather than letting it become an unhandledRejection that crash-exits the
+  // process (which would defeat the whole "never exit on dependency trouble"
+  // goal).
+  superviseDependencies(name, onBeforeStart, testDatabase, () => shuttingDown).catch((error) => {
+    logger.error('Dependency supervisor crashed; service will remain NotReady', { error: errorMessage(error) });
+  });
+
   const shutdown = async (signal?: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -206,9 +292,11 @@ export function runServer(app: Express, options: StartServerOptions = {}): void 
   // process exits for the orchestrator to restart. No-op under NODE_ENV=test.
   installCrashHandlers(logger);
   startServer(app, options).catch((error) => {
-    // Log the message + stack explicitly: an Error in winston metadata serializes
-    // to `{}` (message/stack are non-enumerable), which hid the real cause (e.g.
-    // "Database connection failed") behind an empty `{error:{}}`.
+    // startServer now listens-first and supervises the DB in the background, so
+    // it only rejects on a genuinely fatal SETUP error (invalid auth config, a
+    // failed onStart, the port already in use). Log message + stack explicitly:
+    // an Error in winston metadata serializes to `{}` (message/stack are
+    // non-enumerable), which would otherwise hide the cause behind `{error:{}}`.
     logger.error('Failed to start server', {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
