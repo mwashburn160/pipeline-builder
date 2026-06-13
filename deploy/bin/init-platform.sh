@@ -203,6 +203,24 @@ case "$BUILD_BOOTSTRAP" in
   *)            echo "  Skipping CodeBuild bootstrap image." ;;
 esac
 
+# Gate a sample load on the backend services it actually talks to — beyond the
+# platform readiness already waited for above. The plugin upload and pipeline
+# bulk both validate via the compliance service, which can still be crash-
+# looping on its own DB connection while the platform is already serving; without
+# this gate the load races ahead and every item fails with opaque errors. Tunable
+# via READY_MAX_RETRIES (default 60) / READY_INTERVAL (default 5s) = up to 5min.
+gate_services_ready() {
+  local _svc _failed=""
+  for _svc in "$@"; do
+    wait_for_service_ready "$_svc" "${READY_MAX_RETRIES:-60}" "${READY_INTERVAL:-5}" || _failed="${_failed} ${_svc}"
+  done
+  if [ -n "$_failed" ]; then
+    echo "  ERROR: dependent service(s) not ready:${_failed}. Re-run this load once they are healthy." >&2
+    return 1
+  fi
+  return 0
+}
+
 # Load plugins
 echo ""
 # Env-overridable (LOAD_PLUGINS=y|n) for non-interactive / automated runs (e.g.
@@ -300,6 +318,11 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
   CLEANUP_ARG=""
   [ "$CLEANUP_AFTER_UPLOAD" = true ] && CLEANUP_ARG="--cleanup"
 
+  # The upload validates each plugin via compliance — wait for both the plugin
+  # and compliance services before starting, so the upload doesn't race a
+  # still-starting compliance service.
+  gate_services_ready compliance plugin || exit 1
+
   # shellcheck disable=SC2086
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" \
     PLATFORM_TOKEN="$JWT_TOKEN" \
@@ -319,6 +342,10 @@ if [ -z "$LOAD_PIPELINES" ] && [ -t 0 ]; then
 fi
 LOAD_PIPELINES="${LOAD_PIPELINES:-n}"
 if [ "$LOAD_PIPELINES" = "y" ] || [ "$LOAD_PIPELINES" = "Y" ]; then
+  # The pipeline bulk-create validates each item via compliance — wait for both
+  # services so the load doesn't race a still-starting compliance service (the
+  # failure that motivated this gate).
+  gate_services_ready compliance pipeline || exit 1
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-pipelines.sh"
 else
   echo "  Skipping pipeline loading."
@@ -334,6 +361,8 @@ if [ -z "$LOAD_COMPLIANCE" ] && [ -t 0 ]; then
 fi
 LOAD_COMPLIANCE="${LOAD_COMPLIANCE:-n}"
 if [ "$LOAD_COMPLIANCE" = "y" ] || [ "$LOAD_COMPLIANCE" = "Y" ]; then
+  # load-compliance talks straight to the compliance service — wait for it.
+  gate_services_ready compliance || exit 1
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-compliance.sh"
 else
   echo "  Skipping compliance loading."

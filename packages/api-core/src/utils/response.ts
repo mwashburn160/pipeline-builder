@@ -298,9 +298,34 @@ export function extractDbError(error: unknown): Record<string, unknown> {
 
 // Convenience helpers (shared across plugin, pipeline, quota services)
 
-/** Extract a message string from an unknown catch value. */
+/**
+ * Extract a human-readable message from an unknown catch value.
+ *
+ * Falls back beyond `.message` because several common Node errors carry an
+ * EMPTY `.message`:
+ *  - dual-stack (IPv4+IPv6) connect failures surface as an `AggregateError`
+ *    whose own message is blank — the cause lives in `.code` (e.g.
+ *    `ECONNREFUSED`/`ETIMEDOUT`) and/or the `.errors[]` sub-errors;
+ *  - raw socket `ErrnoException`s can likewise carry only a `.code`.
+ * Without this, an unreachable internal service (e.g. compliance still
+ * starting) produced blank per-item errors in bulk responses and `error:""`
+ * in logs — a silent black box. Order: message → code → joined sub-errors →
+ * error name.
+ */
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (!(error instanceof Error)) return String(error);
+  if (error.message) return error.message;
+
+  const code = (error as { code?: string }).code;
+  if (code) return code;
+
+  const inner = (error as { errors?: unknown[] }).errors;
+  if (Array.isArray(inner) && inner.length > 0) {
+    const joined = inner.map(errorMessage).filter(Boolean).join('; ');
+    if (joined) return joined;
+  }
+
+  return error.name || 'Unknown error';
 }
 
 /** Send a 400 bad-request response. */

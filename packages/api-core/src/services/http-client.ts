@@ -248,12 +248,16 @@ export class InternalHttpClient {
       });
 
       req.on('error', (error) => {
+        // Node dual-stack connect failures are an AggregateError with an empty
+        // `.message`; the cause is in `.code` (ECONNREFUSED/ETIMEDOUT). Fall
+        // back so the log isn't a blank `error:""`.
+        const detail = error.message || (error as NodeJS.ErrnoException).code || error.name;
         logger.error('HTTP request failed', {
           host: this.config.host,
           port: this.config.port,
           path,
           method,
-          error: error.message,
+          error: detail,
         });
         reject(error);
       });

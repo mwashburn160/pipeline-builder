@@ -264,6 +264,35 @@ describe('errorMessage', () => {
     expect(errorMessage(42)).toBe('42');
     expect(errorMessage(null)).toBe('null');
   });
+
+  it('falls back to .code when message is empty (socket ErrnoException)', () => {
+    // Node socket errors (ECONNREFUSED/ETIMEDOUT) can carry only a code.
+    const err = Object.assign(new Error(''), { code: 'ECONNREFUSED' });
+    expect(errorMessage(err)).toBe('ECONNREFUSED');
+  });
+
+  it('falls back to .code for an empty-message AggregateError (dual-stack connect)', () => {
+    // Node's IPv4+IPv6 connect failures surface as an AggregateError whose own
+    // message is blank — this is exactly what produced the silent `error:""`.
+    const agg = Object.assign(new Error(''), {
+      name: 'AggregateError',
+      code: 'ETIMEDOUT',
+      errors: [new Error('connect ETIMEDOUT 172.18.0.13:3000')],
+    });
+    expect(errorMessage(agg)).toBe('ETIMEDOUT');
+  });
+
+  it('joins sub-errors when an empty-message AggregateError has no code', () => {
+    const agg = Object.assign(new Error(''), {
+      name: 'AggregateError',
+      errors: [new Error('v6 refused'), new Error('v4 refused')],
+    });
+    expect(errorMessage(agg)).toBe('v6 refused; v4 refused');
+  });
+
+  it('falls back to the error name when nothing else is present', () => {
+    expect(errorMessage(new Error(''))).toBe('Error');
+  });
 });
 
 describe('sendBadRequest', () => {

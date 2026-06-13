@@ -264,6 +264,48 @@ wait_for_health() {
 }
 
 # ---------------------------------------------------------------------------
+# wait_for_service_ready — poll $PLATFORM_BASE_URL/ready/<svc> until the named
+#   backend service reports ready (its own /ready, surfaced by the nginx
+#   /ready/<svc> route). Used to gate the sample loads on their *dependent*
+#   services (compliance/pipeline/plugin) so a load never races ahead of a
+#   still-starting service (e.g. compliance crash-looping on its DB connection).
+#
+#   $1  service name (plugin|pipeline|compliance)
+#   $2  max retries  (default 60)
+#   $3  interval sec (default 5)
+#
+#   Returns 0 once the service reports ready (HTTP 200). If the gateway has no
+#   /ready/<svc> route (HTTP 404 — e.g. an older nginx.conf), it warns and
+#   returns 0 so behaviour degrades to the previous no-gate path rather than
+#   blocking forever. Returns 1 only if the service never became ready in time.
+# ---------------------------------------------------------------------------
+wait_for_service_ready() {
+  local _svc="$1"
+  local _max="${2:-60}"
+  local _interval="${3:-5}"
+  echo "Waiting for '${_svc}' service to be ready at ${PLATFORM_BASE_URL}/ready/${_svc} ..."
+  local _i=1
+  local _status
+  while [ "$_i" -le "$_max" ]; do
+    _status=$(curl -s -k -o /dev/null -w "%{http_code}" "${PLATFORM_BASE_URL}/ready/${_svc}" 2>/dev/null || true)
+    if [ "$_status" = "200" ]; then
+      echo "  '${_svc}' is ready."
+      return 0
+    fi
+    if [ "$_status" = "404" ]; then
+      log_warn "Gateway has no /ready/${_svc} route — skipping readiness gate for '${_svc}'."
+      return 0
+    fi
+    if [ "$_i" = "$_max" ]; then
+      echo "  '${_svc}' not ready after $((_max * _interval))s (last HTTP ${_status:-000})." >&2
+      return 1
+    fi
+    sleep "$_interval"
+    _i=$((_i + 1))
+  done
+}
+
+# ---------------------------------------------------------------------------
 # prompt_credentials — prompt for identifier/password if not already set
 #   Sets PLATFORM_IDENTIFIER and PLATFORM_PASSWORD
 #
