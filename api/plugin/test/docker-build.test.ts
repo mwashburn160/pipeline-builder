@@ -106,6 +106,12 @@ describe('buildAndPush', () => {
     ]));
   });
 
+  it('pins the published platform to linux/amd64 (the CodeBuild runtime)', async () => {
+    await buildAndPush(makeRequest());
+    const [, args] = mockSpawn.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['--opt', 'platform=linux/amd64']));
+  });
+
   it('namespaces tenant builds under org-<id>/<name>:<version>', async () => {
     const result = await buildAndPush(makeRequest({ orgId: 'acme', name: 'foo', version: '2.1.0' }));
     expect(result.fullImage).toBe('registry:5000/org-acme/foo:2.1.0');

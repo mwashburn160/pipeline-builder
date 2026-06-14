@@ -10,6 +10,14 @@ import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('docker-build');
 
+// Platform the built plugin image is published for. Default linux/amd64 — the
+// CodeBuild runtime that runs plugin images. On an amd64 buildkitd host this is
+// native (no-op); on an arm64 host buildkit emulates amd64 via qemu so the
+// registry artifact still matches the runtime. Override PUBLISH_PLATFORM (e.g.
+// linux/arm64) for an all-Graviton stack — same env name the deploy scripts
+// (build-plugin-images.sh / build-codebuild-bootstrap.sh) use.
+const PUBLISH_PLATFORM = process.env.PUBLISH_PLATFORM || 'linux/amd64';
+
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
@@ -109,6 +117,9 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
     '--local', `context=${req.contextDir}`,
     '--local', `dockerfile=${path.dirname(path.join(req.contextDir, req.dockerfile))}`,
     '--opt', `filename=${path.basename(req.dockerfile)}`,
+    // Pin the published plugin image platform (default linux/amd64 = the
+    // CodeBuild runtime). The `FROM` base image must have a matching variant.
+    '--opt', `platform=${PUBLISH_PLATFORM}`,
     ...flagBuildArgs(req.buildArgs),
     '--output', outputSpec(image, req.registry),
   ], cfg.timeoutMs, { DOCKER_CONFIG: dockerConfigDir });

@@ -41,6 +41,15 @@ BASES_ONLY=false
 CATEGORY_FILTER=""
 MAX_IMAGE_SIZE_MB="${MAX_IMAGE_SIZE_MB:-4096}"
 
+# Platform all plugin/base images are built for. Default linux/amd64 — the
+# CodeBuild runtime that runs them. Override PUBLISH_PLATFORM for an all-Graviton
+# stack (linux/arm64) or your host arch for fast local-only iteration. On an
+# arm64 host (Apple-Silicon dev) docker emulates amd64 via the Docker Desktop
+# qemu binfmt, so the subsequent `docker save | crane push` still uploads an
+# amd64 manifest. The platform is fixed HERE at build time; crane has no
+# per-push platform flag — it pushes the tarball's arch as-is.
+PUBLISH_PLATFORM="${PUBLISH_PLATFORM:-linux/amd64}"
+
 # ---- Argument parsing ----
 
 while [ $# -gt 0 ]; do
@@ -159,11 +168,11 @@ _build_base_quiet() {
   _start=$(date +%s)
   if [ "${VERBOSE_BUILD:-0}" = "1" ]; then
     # shellcheck disable=SC2086
-    docker build --progress plain $_build_extra -t "$_tag" "$_ctx" || _rc=$?
+    docker build --progress plain --platform "$PUBLISH_PLATFORM" $_build_extra -t "$_tag" "$_ctx" || _rc=$?
   else
     _log=$(mktemp)
     # shellcheck disable=SC2086
-    docker build --progress plain $_build_extra -t "$_tag" "$_ctx" > "$_log" 2>&1 || _rc=$?
+    docker build --progress plain --platform "$PUBLISH_PLATFORM" $_build_extra -t "$_tag" "$_ctx" > "$_log" 2>&1 || _rc=$?
     if [ "$_rc" -ne 0 ]; then
       echo "  ✗ $_tag — build failed (last 30 lines):" >&2
       tail -30 "$_log" | sed 's/^/    /' >&2
@@ -405,7 +414,7 @@ while IFS= read -r plugin_dir; do
     build_ok=false
     while [ "$attempt" -le "$max_attempts" ]; do
       # shellcheck disable=SC2086
-      if docker build --progress plain $build_args \
+      if docker build --progress plain --platform "$PUBLISH_PLATFORM" $build_args \
           -t "plugin:${tag}" -f "$plugin_dir/Dockerfile" "$plugin_dir" > "$build_log" 2>&1; then
         build_ok=true
         break

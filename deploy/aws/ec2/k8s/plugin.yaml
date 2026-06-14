@@ -180,6 +180,10 @@ spec:
             # same sidecar — no standalone per-tier buildkitd Deployments.
             - name: BUILDKIT_HOST
               value: "unix:///run/buildkit/buildkitd.sock"
+            # Platform buildkit publishes plugin images for (default linux/amd64,
+            # the CodeBuild runtime). Set linux/arm64 for an all-Graviton stack.
+            - name: PUBLISH_PLATFORM
+              value: "linux/amd64"
             - name: BILLING_ENABLED
               valueFrom:
                 configMapKeyRef:

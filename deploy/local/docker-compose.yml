@@ -389,6 +389,10 @@ services:
       # mounts at `/run/buildkit/` owned by root inside the container and the
       # rootless daemon (UID 1000) can't bind a socket there.
       BUILDKIT_HOST: tcp://buildkitd:1234
+      # Platform buildkit publishes plugin images for. Default linux/amd64 (the
+      # CodeBuild runtime). Set PUBLISH_PLATFORM=linux/arm64 to build native on an
+      # Apple-Silicon dev box (faster — local plugin images aren't run on AWS).
+      PUBLISH_PLATFORM: ${PUBLISH_PLATFORM:-linux/amd64}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-900000}

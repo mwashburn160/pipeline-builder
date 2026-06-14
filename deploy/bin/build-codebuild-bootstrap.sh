@@ -38,6 +38,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 BUILD_CTX="$DEPLOY_DIR/codebuild/bootstrap"
 TAG="pipeline-bootstrap:1.0"
+# Platform the bootstrap image is built for. Default linux/amd64 — the CodeBuild
+# runtime that runs it. Override PUBLISH_PLATFORM (e.g. linux/arm64) for an
+# all-Graviton stack. On an arm64 host docker emulates amd64; crane pushes the
+# tarball's arch as-is (no per-push platform flag).
+PUBLISH_PLATFORM="${PUBLISH_PLATFORM:-linux/amd64}"
 
 FORCE_BUILD=false
 
@@ -75,7 +80,7 @@ else
     _build_args+=(--build-arg "PIPELINE_MANAGER_VERSION=${PIPELINE_MANAGER_VERSION}")
   # "${arr[@]+"${arr[@]}"}" expands to nothing for an EMPTY array — plain
   # "${arr[@]}" throws "unbound variable" under `set -u` on bash 3.2 (macOS).
-  docker build "${_build_args[@]+"${_build_args[@]}"}" -t "$TAG" "$BUILD_CTX"
+  docker build --platform "$PUBLISH_PLATFORM" "${_build_args[@]+"${_build_args[@]}"}" -t "$TAG" "$BUILD_CTX"
 fi
 
 # ---- Publish ----

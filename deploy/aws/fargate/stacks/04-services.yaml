@@ -979,6 +979,10 @@ Resources:
             # ECS services.
             - Name: BUILDKIT_HOST
               Value: "unix:///run/buildkit/buildkitd.sock"
+            # Platform buildkit publishes plugin images for (default linux/amd64,
+            # the CodeBuild runtime). Set linux/arm64 for an all-Graviton stack.
+            - Name: PUBLISH_PLATFORM
+              Value: "linux/amd64"
             - Name: BILLING_ENABLED
               Value: !Ref BillingEnabled
             - Name: COMPLIANCE_SERVICE_HOST
