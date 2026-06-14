@@ -383,6 +383,12 @@ export class Workflow extends Component {
                     },
                 },
                 {
+                    // QEMU registers binfmt handlers so the amd64 runner can
+                    // build the non-native (arm64) leg of the multi-arch image.
+                    name: 'Setup QEMU',
+                    uses: 'docker/setup-qemu-action@v3',
+                },
+                {
                     name: 'Setup buildx',
                     uses: 'docker/setup-buildx-action@v4',
                     with: {
@@ -391,23 +397,25 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    name: 'Build docker image',
-                    run: 'pnpm nx run ${PROJECT_NAME}:docker:build --verbose',
-                    env: {
-                        PROJECT_NAME: '${{ matrix.project_name }}',
-                    },
-                },
-                {
-                    name: 'Tag docker image',
-                    run: 'pnpm nx run ${PROJECT_NAME}:docker:tag --verbose',
+                    // Multi-arch build + push in one step. --push (not --load) is
+                    // mandatory for a manifest list; buildx uploads the OCI index
+                    // directly to ghcr. Platforms come from DOCKER_PLATFORMS
+                    // (default linux/amd64,linux/arm64 in the docker:publish task).
+                    name: 'Build + push multi-arch image',
+                    run: 'pnpm nx run ${PROJECT_NAME}:docker:publish --verbose',
                     env: {
                         REGISTRY: 'ghcr.io/mwashburn160',
                         PROJECT_NAME: '${{ matrix.project_name }}',
+                        // Enables the GHA-backed buildx layer cache (--cache-to/from
+                        // type=gha) so the emulated arm64 leg reuses layers across runs.
+                        DOCKER_CACHE: '1',
                     },
                 },
                 {
-                    name: 'Push docker image',
-                    run: 'pnpm nx run ${PROJECT_NAME}:docker:push --verbose',
+                    // Fail the release if the published tag is not a multi-arch
+                    // manifest list (guards against a silent single-arch regression).
+                    name: 'Verify multi-arch manifest',
+                    run: 'pnpm nx run ${PROJECT_NAME}:docker:verify --verbose',
                     env: {
                         REGISTRY: 'ghcr.io/mwashburn160',
                         PROJECT_NAME: '${{ matrix.project_name }}',

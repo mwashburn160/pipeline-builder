@@ -232,6 +232,15 @@ _push_local() {
             "$CRANE_IMAGE" -c "$_cmd" 2>&1)"
   _rc=$?
   printf '%s\n' "$_out" | tail -15 | sed 's/^/    /' >&2
+  # crane logs "existing manifest" (+ the resolved tag@digest) when the image is
+  # ALREADY present at the remote — a definitive idempotent success. Honor that
+  # even if the docker-run/crane wrapper then exits non-zero (observed on arm64
+  # hosts: crane confirms the manifest yet the run exits 1), so a redundant
+  # re-push of an already-present base/bootstrap image doesn't fail the publish.
+  if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'existing manifest'; then
+    echo "    (manifest already present at remote — treating as pushed)" >&2
+    return 0
+  fi
   return "$_rc"
 }
 
@@ -319,6 +328,12 @@ _push_k8s() {
             --overrides="$_retry_overrides" 2>&1)"
   _rc=$?
   printf '%s\n' "$_out" | tail -15 | sed 's/^/    /' >&2
+  # See _push_local: "existing manifest" is a definitive idempotent-success
+  # signal, honored even if the run wrapper exits non-zero.
+  if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'existing manifest'; then
+    echo "    (manifest already present at remote — treating as pushed)" >&2
+    return 0
+  fi
   return "$_rc"
 }
 

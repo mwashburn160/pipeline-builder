@@ -151,44 +151,70 @@ function addPackageMetadata(  p: { package: { addField: (k: string, v: unknown) 
 }
 
 function dockerScripts(name: string) {
+  const version = '$(jq -r .version package.json)';
+
+  // Shared build-context staging. CRITICAL: `nx run-many -t build --with-deps`
+  // recompiles every workspace dep (api-core, api-server, pipeline-core,
+  // pipeline-data) BEFORE `pnpm deploy` stages the self-contained tree at
+  // ./.docker-build/. Without it, pnpm deploy copies whatever stale lib/ is on
+  // disk and the image silently diverges from source. The Dockerfile copies
+  // that tree as-is (no in-Docker npm install to drift on caret ranges). The
+  // --legacy flag deep-copies workspace internal deps; --prod skips devDeps.
+  // Nx caches the no-op case so unchanged builds stay fast.
+  const stage = [
+    `pnpm nx run-many -t build --projects=${name} --with-deps`,
+    'rm -rf .docker-build',
+    `pnpm deploy --filter ${name} --prod --legacy .docker-build`,
+  ];
+  // Common buildx flags; each task appends the ` .` build-context path. The
+  // `status=$?; rm -rf .docker-build; exit $status` tail keeps the cleanup
+  // running on buildx failure while propagating buildx's real exit code (a
+  // `;`-joined `rm` would otherwise mask docker errors as success).
+  //
+  // --pull (not --no-cache): the staged ./.docker-build tree is content-hashed
+  // by buildx, so layer cache stays correct while --pull keeps the base image
+  // fresh — dropping --no-cache lets the (slow, emulated) arm64 leg reuse
+  // layers. --provenance=false keeps the pushed manifest a clean 2-entry list
+  // (default buildx provenance adds an `unknown/unknown` attestation entry).
+  const buildxCommon = `--pull --provenance=false --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig)`;
+  // Registry-backed layer cache, enabled only when DOCKER_CACHE is set (CI), so
+  // a local `docker:publish` doesn't fail on the GHA-only cache backend. Scoped
+  // per-project so images don't collide in the shared cache.
+  const cacheFlags = `\${DOCKER_CACHE:+--cache-from type=gha,scope=\${PROJECT_NAME:-${name}} --cache-to type=gha,mode=max,scope=\${PROJECT_NAME:-${name}}}`;
+  const localTag = `\${PROJECT_NAME:-${name}}:${version}`;
+  const registryRef = `\${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:${version}`;
+  const cleanup = ['status=$?', 'rm -rf .docker-build', 'exit $status'];
+
   return {
     // --import preloads the otel bootstrap for dev parity with the Dockerfile CMD
     // (a no-op unless OTEL_TRACING_ENABLED=true). Frontend's start is vestigial (Next).
     'start': 'node --import @pipeline-builder/api-server/lib/otel-bootstrap.js lib/index.js',
-    // docker:build pre-stages a self-contained pnpm deploy tree at
-    //./.docker-build/ before invoking buildx. The Dockerfile copies that
-    // tree as-is  no in-Docker `npm install` to drift on caret ranges,
-    // because pnpm deploy installs against pnpm-lock.yaml. The --legacy
-    // flag deep-copies workspace internal deps (since we don't use
-    // inject-workspace-packages); --prod skips devDeps. Cleanup runs even
-    // if buildx fails so a half-broken tree doesn't poison the next build.
-    //
-    // CRITICAL: `nx run-many -t build --projects=<name> --with-deps` runs
-    // BEFORE `pnpm deploy` to force a recompile of every workspace dep
-    // (api-core, api-server, pipeline-core, pipeline-data). Without this,
-    // `pnpm deploy` copies whatever lib/ output happens to be on disk —
-    // which means a freshly-edited source in api-core silently ships
-    // a stale compiled bundle inside the docker image, and runtime
-    // behaviour quietly diverges from source. Nx caches the no-op case
-    // so unchanged builds stay fast.
+    // Local SINGLE-ARCH build → loads into the local docker daemon for fast dev
+    // iteration (builds for the host arch). Multi-arch can't use --load (the
+    // daemon has no manifest-list store); CI uses docker:publish instead.
     'docker:build': [
-      `pnpm nx run-many -t build --projects=${name} --with-deps`,
-      'rm -rf .docker-build',
-      `pnpm deploy --filter ${name} --prod --legacy .docker-build`,
-      // The trailing ` .` is the PATH (build context) argument to `docker
-      // buildx build` — missing the space was joining it to the `-t` tag
-      // value, which made buildx error "requires 1 argument". The
-      // `status=$?; ...; exit $status` tail keeps the cleanup running even
-      // on buildx failure while propagating buildx's exit code (the prior
-      // `;`-joined form let the trailing `rm -rf` mask docker errors and
-      // made nx report "successfully ran" on every failed build).
-      `docker buildx build --no-cache --pull --load --build-arg WORKSPACE=\${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) -t \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) .`,
-      'status=$?',
-      'rm -rf .docker-build',
-      'exit $status',
+      ...stage,
+      `docker buildx build ${buildxCommon} --load -t ${localTag} .`,
+      ...cleanup,
     ].join('; '),
-    'docker:tag': `docker image tag \${PROJECT_NAME:-${name}}:$(jq -r .version package.json) \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
-    'docker:push': `docker push \${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:$(jq -r .version package.json)`,
+    'docker:tag': `docker image tag ${localTag} ${registryRef}`,
+    'docker:push': `docker push ${registryRef}`,
+    // MULTI-ARCH publish (CI): build a manifest list for all DOCKER_PLATFORMS and
+    // push it in ONE step. --push (not --load) is mandatory — buildx assembles +
+    // uploads the OCI index directly. Each non-native arch is an emulated (QEMU)
+    // build leg, so CI must set up QEMU (see release.yml). Override
+    // DOCKER_PLATFORMS to narrow to one arch or add more.
+    'docker:publish': [
+      ...stage,
+      `docker buildx build ${buildxCommon} ${cacheFlags} --platform \${DOCKER_PLATFORMS:-linux/amd64,linux/arm64} -t ${registryRef} --push .`,
+      ...cleanup,
+    ].join('; '),
+    // REAL multi-arch gate: assert the published tag is a manifest list that
+    // contains BOTH amd64 and arm64. `imagetools inspect` alone exits 0 even for
+    // a single-arch image, so we parse the index and `jq -e` (non-zero if the
+    // expression is false/null, or if .manifests is absent on a single-arch
+    // image). DOCKER_PLATFORMS-narrowed builds should override this check.
+    'docker:verify': `docker buildx imagetools inspect ${registryRef} --format '{{json .Manifest.manifests}}' | jq -e 'map(.platform.architecture) as $a | (($a | index("amd64")) and ($a | index("arm64")))'`,
   };
 }
 

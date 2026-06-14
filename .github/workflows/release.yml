@@ -235,25 +235,24 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHRC_TOKEN }}
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
       - name: Setup buildx
         uses: docker/setup-buildx-action@v4
         with:
           cleanup: true
           cache-binary: false
-      - name: Build docker image
-        env:
-          PROJECT_NAME: ${{ matrix.project_name }}
-        run: pnpm nx run ${PROJECT_NAME}:docker:build --verbose
-      - name: Tag docker image
+      - name: Build + push multi-arch image
         env:
           REGISTRY: ghcr.io/mwashburn160
           PROJECT_NAME: ${{ matrix.project_name }}
-        run: pnpm nx run ${PROJECT_NAME}:docker:tag --verbose
-      - name: Push docker image
+          DOCKER_CACHE: "1"
+        run: pnpm nx run ${PROJECT_NAME}:docker:publish --verbose
+      - name: Verify multi-arch manifest
         env:
           REGISTRY: ghcr.io/mwashburn160
           PROJECT_NAME: ${{ matrix.project_name }}
-        run: pnpm nx run ${PROJECT_NAME}:docker:push --verbose
+        run: pnpm nx run ${PROJECT_NAME}:docker:verify --verbose
     strategy:
       max-parallel: 4
       fail-fast: false
