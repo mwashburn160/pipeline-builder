@@ -15,6 +15,13 @@
  */
 import { jest } from '@jest/globals';
 
+/**
+ * Pass-through middleware stub. Route suites exercise handler logic directly,
+ * not the auth gate, so `requireAdmin` (and similar guards) default to calling
+ * `next()`. A suite that wants to assert the gate can override it.
+ */
+const passThroughMiddleware = (_req: unknown, _res: unknown, next: () => void) => next();
+
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
   info: jest.fn(),
@@ -49,6 +56,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    requireAdmin: passThroughMiddleware,
     NotFoundError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),

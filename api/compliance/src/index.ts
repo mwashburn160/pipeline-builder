@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, registerComplianceQueueBackend } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, registerComplianceQueueBackend, requireAdmin } from '@pipeline-builder/api-core';
 import {
   createApp,
   runServer,
@@ -52,10 +52,12 @@ app.use(attachRequestContext(sseManager));
 app.use('/compliance/validate', ...createAuthenticatedWithOrgRoute(), createValidateRoutes());
 
 // Rule CRUD routes — all mutations and reads run through quota middleware.
+// Mutations additionally require an org admin/owner: compliance rules are
+// org-governance config, so a regular member must not create/change/delete them.
 app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), createReadRuleRoutes());
-app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), createCreateRuleRoutes());
-app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), createUpdateRuleRoutes());
-app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), createDeleteRuleRoutes());
+app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), requireAdmin, createCreateRuleRoutes());
+app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), requireAdmin, createUpdateRuleRoutes());
+app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), requireAdmin, createDeleteRuleRoutes());
 
 // Published rules catalog (auth + org, rate limited)
 app.use('/compliance/published-rules', ...createProtectedRoute(quotaService, 'apiCalls'), createPublishedRulesCatalogRoutes());
@@ -75,11 +77,12 @@ app.use('/compliance/scans', ...createAuthenticatedWithOrgRoute(), createScanRou
 // Scan schedules (auth + org)
 app.use('/compliance/scan-schedules', ...createAuthenticatedWithOrgRoute(), createScanScheduleRoutes());
 
-// Policy CRUD routes
+// Policy CRUD routes — mutations require an org admin/owner (governance config),
+// reads are open to any authenticated org member.
 app.use('/compliance/policies', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPolicyRoutes());
-app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), createCreatePolicyRoutes());
-app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), createUpdatePolicyRoutes());
-app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), createDeletePolicyRoutes());
+app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), requireAdmin, createCreatePolicyRoutes());
+app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), requireAdmin, createUpdatePolicyRoutes());
+app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), requireAdmin, createDeletePolicyRoutes());
 
 // Rule templates (auth + org)
 app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTemplateRoutes());

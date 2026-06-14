@@ -112,6 +112,61 @@ describe('idempotencyMiddleware', () => {
     expect(res2.json).toHaveBeenCalledWith({ id: 'created' });
   });
 
+  it('rejects a concurrent duplicate (same key, original still in-flight) with 409', async () => {
+    const middleware = idempotencyMiddleware();
+    const key = 'inflight-key-' + Math.random();
+
+    // First call reserves the key and is left in-flight (res1.json NOT called).
+    const req1 = mockReq({ headers: { 'idempotency-key': key } });
+    const res1 = mockRes();
+    const next1 = jest.fn();
+    middleware(req1, res1, next1);
+    await flush();
+    expect(next1).toHaveBeenCalled(); // first request proceeds
+
+    // Second call with the same key, before the first completed → 409, no run.
+    const req2 = mockReq({ headers: { 'idempotency-key': key } });
+    const res2 = mockRes();
+    const next2 = jest.fn();
+    middleware(req2, res2, next2);
+    await flush();
+
+    expect(next2).not.toHaveBeenCalled();
+    expect(res2.status).toHaveBeenCalledWith(409);
+    expect(res2.setHeader).toHaveBeenCalledWith('Retry-After', '1');
+  });
+
+  it('prefers the verified req.user org over req.context.identity for the namespace', async () => {
+    const middleware = idempotencyMiddleware();
+    const key = 'verified-org-' + Math.random();
+
+    // Cache under the VERIFIED user org even though context.identity differs.
+    const req1 = mockReq({
+      headers: { 'idempotency-key': key },
+      context: { identity: { orgId: 'unverified-peek' } },
+      user: { organizationId: 'verified-org' },
+    });
+    const res1 = mockRes();
+    res1.statusCode = 200;
+    middleware(req1, res1, jest.fn());
+    await flush();
+    res1.json({ ok: true });
+
+    // A replay carrying the SAME verified user org replays the cached response.
+    const req2 = mockReq({
+      headers: { 'idempotency-key': key },
+      context: { identity: { orgId: 'something-else' } },
+      user: { organizationId: 'verified-org' },
+    });
+    const res2 = mockRes();
+    const next2 = jest.fn();
+    middleware(req2, res2, next2);
+    await flush();
+    expect(next2).not.toHaveBeenCalled();
+    expect(res2.setHeader).toHaveBeenCalledWith('X-Idempotent-Replayed', 'true');
+    expect(res2.json).toHaveBeenCalledWith({ ok: true });
+  });
+
   it('namespaces cache by orgId to prevent cross-org collisions', async () => {
     const middleware = idempotencyMiddleware();
     const key = 'shared-key-' + Math.random();

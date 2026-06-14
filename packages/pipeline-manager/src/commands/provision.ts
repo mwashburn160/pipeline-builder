@@ -7,13 +7,12 @@ import * as readline from 'node:readline/promises';
 import { Command } from 'commander';
 import { diagnoseFailure, isAiConfigured, parseGoal } from '../agent/ai.js';
 import { bootstrapCommand, resolveBootstrap, type BootstrapSpec } from '../agent/bootstrap.js';
+import { createEnvFile, envFileMissing } from '../agent/env-file.js';
 import { entrypointExists, executionBlocked, runScript } from '../agent/executor.js';
 import { deriveHealthUrl, waitHealthy, ensureMinikubeGateway } from '../agent/health.js';
 import { checkHostPorts, discoverHostPorts, stackRunning } from '../agent/ports.js';
 import { resolvePostSteps, type PostStep, type SkippedStep } from '../agent/post-steps.js';
 import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied } from '../agent/prereqs.js';
-import { TOOLS_DIR, fetchTool, isFetchable, withToolsOnPath } from '../agent/tools.js';
-import { createEnvFile, envFileMissing } from '../agent/env-file.js';
 import {
   assembleCommand,
   isTargetId,
@@ -25,6 +24,7 @@ import {
   type TargetId,
   type TargetSpec,
 } from '../agent/targets.js';
+import { TOOLS_DIR, fetchTool, isFetchable, withToolsOnPath } from '../agent/tools.js';
 import { matchIssues, sesPostDeployGuidance } from '../agent/troubleshoot.js';
 import { printCommandHeader } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';

@@ -21,6 +21,10 @@ const logger = createLogger('http-client');
  */
 const DEFAULT_TIMEOUT = parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10);
 
+// HTTP methods that are idempotent by definition — safe to auto-retry on a
+// 5xx/connection/timeout without risking a duplicate side effect.
+const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
 /**
  * HTTP request options.
  */
@@ -37,6 +41,13 @@ export interface RequestOptions {
   maxRateLimitRetries?: number;
   /** Optional request ID for distributed tracing (added as X-Request-Id header) */
   requestId?: string;
+  /**
+   * Treat this request as safe to auto-retry on 5xx/connection/timeout even
+   * though the method is non-idempotent (e.g. the endpoint is idempotent by an
+   * Idempotency-Key, or the operation is naturally idempotent). Default false:
+   * non-idempotent methods are NOT retried on those failures, only on 429.
+   */
+  idempotent?: boolean;
 }
 
 /**
@@ -142,6 +153,17 @@ export class InternalHttpClient {
     };
     const totalMaxAttempts = Math.max(retryConfig.maxRetries, retryConfig.maxRateLimitRetries);
 
+    // Whether it's safe to auto-retry this request on a 5xx/connection/timeout.
+    // A timed-out POST may have already been processed server-side, so retrying
+    // a non-idempotent request risks a DUPLICATE side effect (double-charge,
+    // double-create). Only GET/HEAD/OPTIONS, an explicit `idempotent` opt-in, or
+    // a request carrying an Idempotency-Key are auto-retried on those failures.
+    // (429 is always retried — see below — since it was rejected, not processed.)
+    const retrySafe =
+      IDEMPOTENT_METHODS.has(method.toUpperCase()) ||
+      options?.idempotent === true ||
+      !!(options?.headers && (options.headers['Idempotency-Key'] || options.headers['idempotency-key']));
+
     let lastError: Error | undefined;
 
     for (let attempt = 0; attempt <= totalMaxAttempts; attempt++) {
@@ -149,7 +171,9 @@ export class InternalHttpClient {
         const response = await this.request<T>(method, path, body, options);
 
         const decision = getRetryDecision(response.statusCode, response.headers, attempt, retryConfig);
-        if (decision.shouldRetry) {
+        // 429 is safe to retry for ANY method (rate-limited → not processed); a
+        // 5xx/gateway error is only retried when the request is retry-safe.
+        if (decision.shouldRetry && (response.statusCode === 429 || retrySafe)) {
           logger.debug(decision.reason + ', retrying', { method, path, attempt: attempt + 1, delayMs: decision.delayMs });
           await this.sleep(decision.delayMs);
           continue;
@@ -160,11 +184,13 @@ export class InternalHttpClient {
         lastError = error instanceof Error ? error : new Error(String(error));
 
         const decision = getErrorRetryDecision(attempt, retryConfig);
-        if (decision.shouldRetry) {
+        if (decision.shouldRetry && retrySafe) {
           logger.debug('Retrying after error', { method, path, error: lastError.message, attempt: attempt + 1 });
           await this.sleep(decision.delayMs);
           continue;
         }
+        // Not retrying (non-idempotent, or attempts exhausted) — fail now.
+        throw lastError;
       }
     }
 

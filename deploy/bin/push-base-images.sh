@@ -213,9 +213,14 @@ fi
 # (crane push needs a real path, not stdin), then pushes.
 _push_local() {
   local _tag="$1" _remote="$2" _jwt="$3"
-  local _cmd="cat > /tmp/img.tar && crane --insecure auth login '${REGISTRY_HOST}' --username _token --password '${_jwt}' >/dev/null && crane --insecure push /tmp/img.tar '${_remote}'"
-  if docker save "$_tag" | docker run --rm -i \
+  # The JWT is passed to the sidecar via env (`-e PLATFORM_JWT` copies it from
+  # THIS process's environment), never interpolated into the `sh -c` argv — argv
+  # is world-visible in the host `ps`, the process environment is not. The
+  # container's shell expands "$PLATFORM_JWT" at runtime (mirrors the k8s path).
+  local _cmd="cat > /tmp/img.tar && crane --insecure auth login '${REGISTRY_HOST}' --username _token --password \"\$PLATFORM_JWT\" >/dev/null && crane --insecure push /tmp/img.tar '${_remote}'"
+  if docker save "$_tag" | PLATFORM_JWT="$_jwt" docker run --rm -i \
        --network "$BACKEND_NETWORK" \
+       -e PLATFORM_JWT \
        --entrypoint sh \
        "$CRANE_IMAGE" -c "$_cmd" >/dev/null 2>&1; then
     return 0
@@ -226,8 +231,9 @@ _push_local() {
   # manifest", exit 0); a transient first-attempt hiccup often clears on retry.
   # Unconditionally returning 1 here mis-reported both as a hard "push FAILED".
   local _out _rc
-  _out="$(docker save "$_tag" | docker run --rm -i \
+  _out="$(docker save "$_tag" | PLATFORM_JWT="$_jwt" docker run --rm -i \
             --network "$BACKEND_NETWORK" \
+            -e PLATFORM_JWT \
             --entrypoint sh \
             "$CRANE_IMAGE" -c "$_cmd" 2>&1)"
   _rc=$?
@@ -374,9 +380,12 @@ _discover_existing() {
       # checks are simpler and don't depend on the registry exposing
       # the catalog API (Docker registry's catalog is admin-only in
       # some configs).
-      local _login="crane --insecure auth login '${REGISTRY_HOST}' --username _token --password '${_jwt}' >/dev/null"
-      docker run --rm \
+      # JWT via env (`-e PLATFORM_JWT`), not argv — see _push_local. The
+      # container shell expands "$PLATFORM_JWT"; _check_cmd is non-secret.
+      local _login="crane --insecure auth login '${REGISTRY_HOST}' --username _token --password \"\$PLATFORM_JWT\" >/dev/null"
+      PLATFORM_JWT="$_jwt" docker run --rm \
         --network "$BACKEND_NETWORK" \
+        -e PLATFORM_JWT \
         --entrypoint sh \
         "$CRANE_IMAGE" -c "$_login && $_check_cmd" 2>/dev/null \
         || true

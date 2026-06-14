@@ -294,9 +294,11 @@ class ApiClient {
     const originalOrgId = sessionStorage.getItem('impersonation.originalOrgId');
     if (!originalAccess || !originalRefresh) {
       // Lost the original tokens — fall back to a hard sign-out. Better
-      // than leaving the sysadmin stuck in the impersonation token.
+      // than leaving the sysadmin stuck in the impersonation token. The login
+      // screen is the landing route '/' (there is no '/login' page — that path
+      // 404s); this matches the sign-out redirect used by useAuth/useAuthGuard.
       this.clearTokens();
-      window.location.href = '/login';
+      window.location.href = '/';
       return;
     }
     this.setTokens({ accessToken: originalAccess, refreshToken: originalRefresh });
@@ -1670,11 +1672,18 @@ class ApiClient {
   ): AsyncGenerator<StreamEvent> {
     await this.ensureFreshToken();
 
+    // Tie the fetch to an AbortController so that when the consumer stops
+    // iterating early — component unmount, route change, an upstream `break` —
+    // the generator's `finally` aborts the request. Without this the SSE
+    // connection (and the server-side work behind it, e.g. a repoToken-
+    // authenticated git clone) keeps running after the UI has moved on.
+    const controller = new AbortController();
     const response = await fetch(`${API_URL}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
       body: JSON.stringify(body),
       credentials: 'same-origin',
+      signal: controller.signal,
     });
 
     if (!response.ok || !response.body) {
@@ -1706,7 +1715,10 @@ class ApiClient {
         }
       }
     } finally {
-      reader.releaseLock();
+      // Abort first so an early-exit (break/unmount) actually cancels the
+      // request; releasing a lock on an aborted stream can throw, so guard it.
+      controller.abort();
+      try { reader.releaseLock(); } catch { /* already released by abort */ }
     }
   }
 

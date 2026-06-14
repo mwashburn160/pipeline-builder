@@ -63,3 +63,14 @@ export async function claimWebhookEvent(source: WebhookSource, eventId: string):
     throw err;
   }
 }
+
+/**
+ * Release a previously-claimed event so the provider's NEXT retry reprocesses
+ * it. Call this only when processing FAILED after `claimWebhookEvent` returned
+ * `true`: the claim doubles as a concurrency lock, but a failed attempt must
+ * not leave a permanent "processed" marker — otherwise every retry of a
+ * transient failure short-circuits as a duplicate and the event is lost.
+ */
+export async function releaseWebhookEvent(source: WebhookSource, eventId: string): Promise<void> {
+  await WebhookDedupe.deleteOne({ source, eventId });
+}

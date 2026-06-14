@@ -134,7 +134,13 @@ export async function requireAuth(
       return sendError(res, 401, 'Session invalid');
     }
 
-    await populateRequestUser(req, user);
+    // Scope the request to the org the ACCESS TOKEN was minted for, not the
+    // user's `lastActiveOrgId` in the DB. The two diverge whenever the user
+    // switches active org in another session/tab: honoring lastActiveOrgId
+    // would silently run this request (and its role check) against the wrong
+    // org. populateRequestUser re-verifies the membership for this org and
+    // falls back to a valid membership if the user no longer belongs to it.
+    await populateRequestUser(req, user, decoded.organizationId);
     next();
   } catch {
     // Token verification failed - return unauthorized without exposing error details

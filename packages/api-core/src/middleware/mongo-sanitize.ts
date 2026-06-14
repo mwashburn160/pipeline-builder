@@ -29,11 +29,16 @@ export function mongoSanitize() {
   };
 }
 
+// Prototype-pollution keys — these never belong in JSON request bodies, and a
+// downstream recursive merge/assign on the parsed object could otherwise walk
+// `constructor.prototype` to inject Mongo operators or pollute Object.prototype.
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function sanitizeObject(obj: Record<string, unknown>, depth = 0): void {
   // Cap depth — defense against pathological nested input.
   if (depth > 10) return;
   for (const key of Object.keys(obj)) {
-    if (key.startsWith('$') || key.includes('.')) {
+    if (key.startsWith('$') || key.includes('.') || FORBIDDEN_KEYS.has(key)) {
       delete obj[key];
       continue;
     }

@@ -5,7 +5,7 @@ import { NotFoundError, createLogger } from '@pipeline-builder/api-core';
 import { SQL, eq, and, asc, desc, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
-import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
+import { withTenantTx, runWithTenantContext, getTenantContext } from '../database/tenancy.js';
 
 /** Pagination defaults — read from env to match CoreConstants in pipeline-core. */
 const DEFAULT_PAGE_LIMIT = parseInt(process.env.DEFAULT_PAGE_LIMIT || '100', 10);
@@ -321,20 +321,41 @@ export abstract class CrudService<
   // Mutation operations
 
   /**
+   * Defense-in-depth tenant stamp. RLS is in owner-bypass mode, so the app layer
+   * is the only tenant gate on writes. A NON-sysadmin caller may only write into
+   * its OWN org, so overwrite any caller-supplied `orgId` with the trusted
+   * tenant-context org — a route that forwards a forged `data.orgId` then can't
+   * cross tenants. Sysadmin (and out-of-context worker/system paths) keep the
+   * supplied org, matching the RLS policy `current_is_sysadmin() OR org_id = current_org_id()`.
+   */
+  protected enforceOrgId(data: TInsert): TInsert {
+    const ctx = getTenantContext();
+    const d = data as Record<string, unknown>;
+    if (ctx && !ctx.isSuperAdmin && ctx.orgId && 'orgId' in d && d.orgId !== ctx.orgId) {
+      this._logger.warn('CrudService: overriding caller orgId with tenant-context org', {
+        supplied: d.orgId, enforced: ctx.orgId,
+      });
+      return { ...d, orgId: ctx.orgId } as TInsert;
+    }
+    return data;
+  }
+
+  /**
    * Create a new entity
    */
   async create(data: TInsert, userId: string): Promise<TEntity> {
+    const safeData = this.enforceOrgId(data);
     const [created] = await withTenantTx(async (tx) => tx
       .insert(this.schema)
       .values({
-        ...data,
+        ...safeData,
         createdBy: userId || 'system',
         updatedBy: userId || 'system',
       } as any)
       .onConflictDoUpdate({
         target: this.conflictTarget as any,
         set: {
-          ...data,
+          ...safeData,
           updatedAt: new Date(),
           updatedBy: userId || 'system',
         } as any,
@@ -426,6 +447,11 @@ export abstract class CrudService<
     id: string,
     userId: string,
   ): Promise<TEntity> {
+    // A non-sysadmin may only flip defaults within its OWN org — pin the scope to
+    // the trusted tenant context so a forwarded `org` arg can't touch another
+    // tenant's defaults (RLS is in owner-bypass mode; this is the gate).
+    const ctx = getTenantContext();
+    if (ctx && !ctx.isSuperAdmin && ctx.orgId) org = ctx.orgId;
     return withTenantTx(async (tx) => {
       const orgColumn = this.getOrgColumn();
       const projectColumn = this.getProjectColumn();
@@ -522,7 +548,7 @@ export abstract class CrudService<
       for (let i = 0; i < items.length; i += CHUNK_SIZE) {
         const chunk = items.slice(i, i + CHUNK_SIZE);
         const values = chunk.map(data => ({
-          ...data,
+          ...this.enforceOrgId(data),
           createdBy: user,
           updatedBy: user,
         } as any));

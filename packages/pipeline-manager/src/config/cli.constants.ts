@@ -174,8 +174,15 @@ export function validateSort(value: string | undefined): string | undefined {
  */
 const SHELL_UNSAFE = /[;&|`$(){}[\]<>!#~*?\\\n\r]/;
 
-export function assertShellSafe(value: string, fieldName: string): void {
+export function assertShellSafe(
+  value: string,
+  fieldName: string,
+  opts: { redactValue?: boolean } = {},
+): void {
   if (SHELL_UNSAFE.test(value)) {
-    throw new Error(`${fieldName} contains unsafe characters: "${value}"`);
+    // `redactValue` is for secrets (tokens, passwords) — never echo the offending
+    // value into an error/log line when the field is sensitive.
+    const detail = opts.redactValue ? '' : `: "${value}"`;
+    throw new Error(`${fieldName} contains unsafe characters${detail}`);
   }
 }

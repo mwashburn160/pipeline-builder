@@ -32,18 +32,19 @@ const identityScope: TenantScopeResolver = (req) => ({
  * at the request boundary" bookend the RLS enforcement plan calls for.
  *
  * Default placement is AFTER `requireAuth` + `requireOrgId` (the route factories do this);
- * pass a custom `resolve` for a different boundary. If the resolver throws (e.g. the request
- * context was never attached because `attachRequestContext` is missing), we fail OPEN —
- * proceed without a scope rather than 500. Empty GUCs HIDE rows (never expose them), so
- * this degrades safely.
+ * pass a custom `resolve` for a different boundary. A thrown resolver means tenant identity
+ * could NOT be established (a wiring bug — this runs after auth) — we hard-FAIL the request
+ * (500 via next(err)) rather than proceed. Proceeding would run queries with empty RLS GUCs;
+ * under FORCE RLS that hides rows, but while RLS is in owner-bypass mode the app-layer WHERE
+ * clause is the only tenant gate, so a scopeless request must not silently continue.
  */
 export function withTenantContext(resolve: TenantScopeResolver = identityScope) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     let scope: TenantContext;
     try {
       scope = resolve(req);
-    } catch {
-      next();
+    } catch (err) {
+      next(err);
       return;
     }
     runWithTenantContext(scope, () => next());

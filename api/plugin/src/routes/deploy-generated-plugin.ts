@@ -10,9 +10,14 @@ import {
   decrementQuota,
   resolveAccessModifier,
   sendBadRequest,
+  sendError,
   sendQuotaExceeded,
   sendSuccess,
   validateBody,
+  errorMessage,
+  ErrorCode,
+  getServiceAuthHeader,
+  createComplianceClient,
   PluginDeployGeneratedSchema,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
@@ -26,6 +31,10 @@ import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { validateBuildArgs } from '../helpers/plugin-spec.js';
 import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
+
+// Fail-closed compliance client (shared with the upload path's contract):
+// an unreachable compliance service rejects the deploy rather than letting it through.
+const complianceClient = createComplianceClient();
 
 /**
  * Create and register the deploy-generated plugin route.
@@ -73,6 +82,53 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         return sendQuotaExceeded(res, 'plugins', reservation.quota, reservation.quota.resetAt);
       }
       let reserved = true;
+
+      // -- Compliance check (fail-closed) -----------------------------------
+      // AI-generated plugins must satisfy the same org compliance rules as
+      // uploaded ones (see upload-plugin.ts). Without this, the deploy-generated
+      // path was a bypass around org governance. Mint a service token for the
+      // downstream call — the caller's bearer may lack service-to-service scopes.
+      const complianceAuth = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
+      try {
+        const complianceResult = await complianceClient.validatePlugin(orgId, {
+          name,
+          version,
+          pluginType: pluginType || 'CodeBuildStep',
+          computeType: computeType || 'MEDIUM',
+          env: env || {},
+          buildArgs: buildArgs || {},
+          installCommands: installCommands || [],
+          commands,
+          accessModifier,
+          keywords: keywords || [],
+          buildType: 'build_image',
+        }, complianceAuth, undefined, name, 'deploy-generated');
+
+        if (complianceResult.blocked) {
+          ctx.log('WARN', 'AI-generated plugin blocked by compliance', {
+            pluginName: name,
+            violations: complianceResult.violations.length,
+          });
+          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'));
+          reserved = false;
+          return sendError(res, 403, 'Plugin deploy blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
+            violations: complianceResult.violations,
+          });
+        }
+
+        if (complianceResult.warnings.length > 0) {
+          ctx.log('WARN', 'Compliance warnings on AI-generated plugin', {
+            pluginName: name,
+            warnings: complianceResult.warnings.length,
+          });
+        }
+      } catch (err) {
+        // Fail-closed: compliance unreachable → reject the deploy and release the slot.
+        ctx.log('ERROR', 'Compliance service unavailable', { error: errorMessage(err) });
+        decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'));
+        reserved = false;
+        return sendError(res, 503, 'Compliance service unavailable — plugin deploy rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+      }
 
       ctx.log('INFO', 'Deploying AI-generated plugin', {
         pluginName: name,

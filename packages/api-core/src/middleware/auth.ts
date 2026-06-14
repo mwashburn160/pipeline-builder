@@ -38,13 +38,11 @@ export interface RequireAuthOptions {
   /**
    * Allow x-org-id/x-org-name headers to override the JWT's organization fields.
    *
-   * **SECURITY WARNING:** When enabled, a caller can set `x-org-id` to ANY
-   * organization ID, effectively impersonating that org. This MUST only be
-   * used on routes that are:
-   *   1. Internal service-to-service routes (not exposed to end users)
-   *   2. Behind network isolation (container network, VPC, etc.)
-   *
-   * NEVER enable this on user-facing API routes. If unsure, leave it disabled.
+   * When enabled, the `x-org-id`/`x-org-name` headers override the caller's org
+   * — but ONLY for a verified SYS-ADMIN (`isSuperAdmin` claim). For any ordinary
+   * authenticated user the headers are ignored, so enabling this can never let a
+   * normal user impersonate another tenant's org. Use for cross-org admin tooling
+   * (e.g. a sysadmin managing a given org's billing). If unsure, leave it disabled.
    */
   allowOrgHeaderOverride?: boolean;
 }
@@ -95,7 +93,12 @@ function _requireAuth(
     // Without these, a JWT signed by any system that happens to share the
     // same JWT_SECRET would be accepted — defence-in-depth for shared-secret
     // misconfigurations across services / environments.
-    const verifyOptions: jwt.VerifyOptions = {};
+    // Pin the accepted algorithm to the configured HMAC alg (default HS256).
+    // Without an allow-list, `jwt.verify` accepts any algorithm the key can
+    // verify — the classic alg-confusion vector (and a hard guard against
+    // `alg:none`). Env-driven so it stays in lockstep with how tokens are
+    // signed (see signServiceToken + platform's config.auth.jwt.algorithm).
+    const verifyOptions: jwt.VerifyOptions = { algorithms: [(process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm] };
     const expectedIssuer = process.env.JWT_ISSUER;
     const expectedAudience = process.env.JWT_AUDIENCE;
     if (expectedIssuer) verifyOptions.issuer = expectedIssuer;
@@ -112,7 +115,12 @@ function _requireAuth(
 
     req.user = { ...decoded };
 
-    if (options.allowOrgHeaderOverride) {
+    // The x-org-id/x-org-name override lets a SYS-ADMIN act on a chosen org
+    // (cross-org admin tooling). It is gated on the verified `isSuperAdmin` claim
+    // here so that even a route which mistakenly enables `allowOrgHeaderOverride`
+    // can NEVER let an ordinary authenticated user spoof another tenant's org via
+    // the header — defence-in-depth against the cross-tenant break this caused.
+    if (options.allowOrgHeaderOverride && decoded.isSuperAdmin === true) {
       const headerOrgId = getHeaderString(req.headers['x-org-id']);
       const headerOrgName = getHeaderString(req.headers['x-org-name']);
       if (headerOrgId) req.user.organizationId = headerOrgId;
@@ -296,6 +304,9 @@ export function signServiceToken(opts: ServiceTokenOptions): string {
   // requireAuth in a deployment that has set JWT_ISSUER/JWT_AUDIENCE.
   const signOptions: jwt.SignOptions = {
     expiresIn: opts.ttlSeconds ?? DEFAULT_SERVICE_TOKEN_TTL_SECONDS,
+    // Sign with the same configured alg requireAuth pins on verify, so service
+    // tokens stay valid under a non-default JWT_ALGORITHM.
+    algorithm: (process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm,
   };
   if (process.env.JWT_ISSUER) signOptions.issuer = process.env.JWT_ISSUER;
   if (process.env.JWT_AUDIENCE) signOptions.audience = process.env.JWT_AUDIENCE;

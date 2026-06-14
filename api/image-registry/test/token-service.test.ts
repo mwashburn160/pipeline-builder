@@ -126,36 +126,64 @@ describe('parseScope', () => {
 
 describe('authorizeScope', () => {
   it('grants pull on system/* to JWT identity', () => {
-    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false },
       { type: 'repository', name: 'system/cdk-synth', actions: ['pull'] },
     );
     expect(granted).toEqual(['pull']);
   });
 
   it('denies push on system/* to non-admin JWT', () => {
-    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false },
       { type: 'repository', name: 'system/cdk-synth', actions: ['pull', 'push'] },
     );
     expect(granted).toEqual(['pull']);
   });
 
   it('grants pull,push on org-{orgId}/* to matching JWT', () => {
-    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false },
       { type: 'repository', name: 'org-acme/my-plugin', actions: ['pull', 'push'] },
     );
     expect(granted).toEqual(['pull', 'push']);
   });
 
   it('denies access to a different orgs repo for non-admin', () => {
-    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false },
       { type: 'repository', name: 'org-other/their-plugin', actions: ['pull'] },
     );
     expect(granted).toEqual([]);
   });
 
-  it('grants admin pull,push on any org-prefix repo', () => {
-    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: true },
+  it('grants super-admin pull,push on any org-prefix repo', () => {
+    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: true },
       { type: 'repository', name: 'org-other/foo', actions: ['pull', 'push'] },
+    );
+    expect(granted).toEqual(['pull', 'push']);
+  });
+
+  it('grants super-admin push on system/* (bootstrap base-image push)', () => {
+    const granted = authorizeScope( { type: 'jwt', orgId: 'system', userId: 'bootstrap-push', isAdmin: true, isSuperAdmin: true },
+      { type: 'repository', name: 'system/cdk-synth', actions: ['pull', 'push'] },
+    );
+    expect(granted).toEqual(['pull', 'push']);
+  });
+
+  it('denies an ORG admin (isAdmin, not super-admin) push into another orgs repo', () => {
+    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: false },
+      { type: 'repository', name: 'org-other/foo', actions: ['pull', 'push'] },
+    );
+    expect(granted).toEqual([]);
+  });
+
+  it('denies an ORG admin (isAdmin, not super-admin) push to system/* (pull only)', () => {
+    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: false },
+      { type: 'repository', name: 'system/cdk-synth', actions: ['pull', 'push'] },
+    );
+    expect(granted).toEqual(['pull']);
+  });
+
+  it('still grants an org admin pull,push on their OWN org namespace', () => {
+    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: false },
+      { type: 'repository', name: 'org-acme/my-plugin', actions: ['pull', 'push'] },
     );
     expect(granted).toEqual(['pull', 'push']);
   });
@@ -175,7 +203,7 @@ describe('authorizeScope', () => {
   });
 
   it('rejects non-repository scope types for external identities', () => {
-    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: true },
+    const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: true },
       { type: 'unknown', name: 'foo', actions: ['pull'] },
     );
     expect(granted).toEqual([]);
@@ -187,7 +215,7 @@ describe('authorizeScope', () => {
 // fail-opens, but the call still requires an await.
 describe('authorizeAndIssue', () => {
   it('mints a JWT signed with the configured key', async () => {
-    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false },
       [{ type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] }],
       'u1',
     );
@@ -216,7 +244,7 @@ describe('authorizeAndIssue', () => {
   });
 
   it('omits scopes that fully fail authorization', async () => {
-    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false },
       [
         { type: 'repository', name: 'org-acme/foo', actions: ['pull'] },
         { type: 'repository', name: 'org-other/bar', actions: ['pull'] },
@@ -231,7 +259,7 @@ describe('authorizeAndIssue', () => {
   });
 
   it('issues an empty-access token when nothing is authorized', async () => {
-    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false },
       [{ type: 'repository', name: 'org-other/foo', actions: ['pull'] }],
       'u1',
     );
@@ -242,7 +270,7 @@ describe('authorizeAndIssue', () => {
   });
 
   it('issues a token even with no requested scopes (docker login probe)', async () => {
-    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false },
+    const result = await authorizeAndIssue( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false },
       [],
       'u1',
     );

@@ -87,7 +87,10 @@ function getReviewHandler() {
     (l) => l.route?.path === '/:id/review' && l.route?.methods?.put,
   );
   if (!layer) throw new Error('PUT /:id/review not registered');
-  return layer.route.stack[0].handle;
+  // The route may carry guard middleware (e.g. requireAdmin) before the
+  // business handler; the handler under test is always the LAST in the stack.
+  const stack = layer.route.stack as any[];
+  return stack[stack.length - 1].handle;
 }
 
 function makeRes() {

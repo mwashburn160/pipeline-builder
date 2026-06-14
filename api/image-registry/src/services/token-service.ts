@@ -67,7 +67,8 @@ export const LIBRARY_NAMESPACE_PREFIX = 'library/';
  *
  * Policy * - **management** (internal only): anything; in-process self-issue
  * - **jwt** (org user / api/plugin service token): pull on `system/*`;
- * pull,push on `org-{orgId}/*`; admins also push on any org
+ * pull,push on `org-{orgId}/*`; only super-admins (platform sysadmin) push
+ * on any namespace
  */
 export function authorizeScope(identity: Identity, requested: RequestedScope): string[] {
   // Internal management identity bypasses scope-type filtering — it needs
@@ -85,11 +86,16 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
 
   const orgPrefix = `${ORG_NAMESPACE_PREFIX}${identity.orgId}/`;
 
-  // Admins get pull+push on any repo. Evaluated first because the
-  // namespace rules below would otherwise downgrade an admin push to
-  // system/* or library/* into pull-only — which breaks the bootstrap
-  // base-image push and any operator-driven system seeding.
-  if (identity.isAdmin) {
+  // SUPER-admins (platform sysadmin, e.g. the bootstrap base-image push)
+  // get pull+push on any repo. Evaluated first because the namespace rules
+  // below would otherwise downgrade a cross-namespace push to system/* or
+  // library/* into pull-only — which breaks the bootstrap base-image push
+  // and any operator-driven system seeding. Gated on the USER-level
+  // `isSuperAdmin` claim, NOT the org-level `isAdmin` (owner/admin role):
+  // an org admin must not be able to push into another org's namespace or
+  // overwrite system/library base images. Org admins still get pull+push on
+  // their OWN `org-{orgId}/*` via the namespace rule below.
+  if (identity.isSuperAdmin) {
     return requested.actions.filter((a) => ['pull', 'push'].includes(a));
   }
 

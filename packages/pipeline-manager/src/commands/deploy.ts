@@ -192,9 +192,12 @@ export function deploy(program: Command): void {
         printInfo('Preparing output directory', { path: outputPath });
         ensureOutputDirectory(outputPath);
 
-        // Build CDK command (validate inputs that flow into shell)
+        // Build CDK command (validate EVERY input that flows into the shell).
+        // requireApproval is interpolated unquoted into the command below, so a
+        // value like `never; rm -rf ~` would otherwise execute — validate it too.
         if (options.profile) assertShellSafe(options.profile, 'profile');
         assertShellSafe(outputPath, 'output');
+        assertShellSafe(options.requireApproval, 'require-approval');
 
         const scriptPath = resolveBoilerplatePath(__dirname);
         const profileArg = options.profile ? `--profile=${options.profile}` : '';

@@ -122,8 +122,29 @@ describe('requireAuth', () => {
     expect(req.user!.organizationId).toBe('org1');
   });
 
-  it('should apply org header override when enabled', () => {
+  it('should IGNORE org header override for a non-sysadmin even when enabled', () => {
+    // The override is sysadmin-only — a normal user cannot impersonate another
+    // tenant's org via x-org-id, regardless of the route enabling the option.
     const payload = { type: 'access', sub: 'user1', role: 'member', organizationId: 'org1' };
+    const token = signToken(payload);
+    const req = createMockReq({
+      headers: {
+        'authorization': `Bearer ${token}`,
+        'x-org-id': 'override-org',
+      },
+    });
+    const res = createMockRes();
+    const next = jest.fn();
+
+    const middleware = requireAuth({ allowOrgHeaderOverride: true });
+    middleware(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(req.user!.organizationId).toBe('org1');
+  });
+
+  it('should apply org header override for a sysadmin when enabled', () => {
+    const payload = { type: 'access', sub: 'admin1', role: 'owner', organizationId: 'org1', isSuperAdmin: true };
     const token = signToken(payload);
     const req = createMockReq({
       headers: {

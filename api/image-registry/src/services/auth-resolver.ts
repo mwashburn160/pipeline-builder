@@ -24,7 +24,7 @@ const PlatformLoginResponseSchema = z.object({
  * producible via any external auth path.
  */
 export type Identity =
-  | { type: 'jwt'; orgId: string; userId: string; isAdmin: boolean }
+  | { type: 'jwt'; orgId: string; userId: string; isAdmin: boolean; isSuperAdmin: boolean }
   | { type: 'management' };
 
 /**
@@ -37,6 +37,7 @@ interface PlatformJwtPayload {
   sub: string;
   organizationId?: string;
   isAdmin?: boolean;
+  isSuperAdmin?: boolean;
   type?: string;
 }
 
@@ -96,6 +97,7 @@ function verifyPlatformJwt(token: string): Identity | null {
       orgId: decoded.organizationId,
       userId: decoded.sub,
       isAdmin: !!decoded.isAdmin,
+      isSuperAdmin: !!decoded.isSuperAdmin,
     };
   } catch {
     // Error contents may include the raw decode string (which is the user's

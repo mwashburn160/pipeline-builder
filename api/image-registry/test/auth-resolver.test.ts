@@ -43,7 +43,7 @@ describe('resolveIdentity', () => {
   it('resolves a valid platform JWT (password)', async () => {
     const token = signPlatformJwt({ sub: 'user-1', organizationId: 'acme', isAdmin: false });
     const identity = await resolveIdentity('orgname', token);
-    expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-1', isAdmin: false });
+    expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-1', isAdmin: false, isSuperAdmin: false });
   });
 
   it('resolves admin JWT with isAdmin flag preserved', async () => {
@@ -53,6 +53,23 @@ describe('resolveIdentity', () => {
       orgId: 'system',
       userId: 'admin-1',
       isAdmin: true,
+      isSuperAdmin: false,
+    });
+  });
+
+  it('resolves super-admin JWT with isSuperAdmin flag preserved', async () => {
+    const token = signPlatformJwt({
+      sub: 'bootstrap-push',
+      organizationId: 'system',
+      isAdmin: true,
+      isSuperAdmin: true,
+    });
+    await expect(resolveIdentity('system', token)).resolves.toEqual({
+      type: 'jwt',
+      orgId: 'system',
+      userId: 'bootstrap-push',
+      isAdmin: true,
+      isSuperAdmin: true,
     });
   });
 
@@ -108,7 +125,7 @@ describe('resolveIdentity — platform-user path', () => {
       { identifier: 'user@acme.com', password: 'real-password' },
       expect.objectContaining({ timeout: 5000 }),
     );
-    expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-9', isAdmin: false });
+    expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-9', isAdmin: false, isSuperAdmin: false });
   });
 
   it('returns null when platform login returns no accessToken', async () => {

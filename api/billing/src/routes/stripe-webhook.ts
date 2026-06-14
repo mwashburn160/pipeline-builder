@@ -14,7 +14,7 @@ import { config } from '../config.js';
 import { createBillingEvent, calculatePeriodEnd, syncTierToQuotaService } from '../helpers/billing-helpers.js';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
-import { claimWebhookEvent } from '../models/webhook-dedupe.js';
+import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { StripeProvider } from '../providers/stripe-provider.js';
 
@@ -98,6 +98,19 @@ export function createStripeWebhookRoutes(): Router {
 
         return sendSuccess(res, 200, { received: true });
       } catch (error) {
+        // Release the idempotency claim so Stripe's retry reprocesses this
+        // event. The claim is a concurrency lock taken BEFORE processing, not a
+        // record of success — leaving it after a failure would make every retry
+        // short-circuit as a duplicate and silently drop the event. Best-effort:
+        // a failed release is logged but doesn't change the 500 we return.
+        try {
+          await releaseWebhookEvent('stripe', event.id);
+        } catch (releaseError) {
+          logger.error('Failed to release Stripe webhook idempotency claim after processing error', {
+            eventId: event.id,
+            error: errorMessage(releaseError),
+          });
+        }
         logger.error('Failed to process Stripe webhook event', {
           type: event.type,
           error: errorMessage(error),

@@ -11,6 +11,8 @@
  * operator entrypoint is `bin/setup.sh` (deploy/<target>/bin/setup.sh).
  */
 
+import { assertShellSafe } from '../config/cli.constants.js';
+
 export type TargetId = 'local' | 'minikube' | 'ec2' | 'fargate';
 
 /** A single input the underlying deploy script accepts. */
@@ -240,7 +242,13 @@ export function assembleCommand(
       parts.push(`--${spec.flag}`);
       continue;
     }
-    const value = spec.secret && mask ? '***' : String(params[spec.key]);
+    const raw = String(params[spec.key]);
+    // The assembled command is executed via a shell (runScript), so a param
+    // value carrying shell metacharacters would be command injection. Validate
+    // the REAL value even when masking for display — the executed command uses
+    // the unmasked value. Redact secrets so the error never echoes a token.
+    assertShellSafe(raw, `--${spec.flag}`, { redactValue: spec.secret });
+    const value = spec.secret && mask ? '***' : raw;
     parts.push(`--${spec.flag} ${value}`);
   }
 
@@ -273,6 +281,10 @@ export function teardownCommand(
   opts: { stackName?: string; region?: string; assumeYes?: boolean } = {},
 ): TeardownResult {
   const region = opts.region || process.env.AWS_REGION || 'us-east-1';
+  // stackName/region flow unquoted into a shell-executed teardown command —
+  // reject shell metacharacters (mirrors assembleCommand).
+  assertShellSafe(region, 'region');
+  if (opts.stackName) assertShellSafe(opts.stackName, 'stack-name');
   switch (target) {
     case 'local':
       return { command: 'cd deploy/local && bash bin/shutdown.sh', destructive: false };
