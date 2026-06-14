@@ -17,7 +17,7 @@
     "docker:tag": "docker image tag ${PROJECT_NAME:-billing}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json)",
     "docker:push": "docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json)",
     "docker:publish": "pnpm nx run-many -t build --projects=billing --with-deps; rm -rf .docker-build; pnpm deploy --filter billing --prod --legacy .docker-build; docker buildx build --pull --provenance=false --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) ${DOCKER_CACHE:+--cache-from type=gha,scope=${PROJECT_NAME:-billing} --cache-to type=gha,mode=max,scope=${PROJECT_NAME:-billing}} --platform ${DOCKER_PLATFORMS:-linux/amd64,linux/arm64} -t ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json) --push .; status=$?; rm -rf .docker-build; exit $status",
-    "docker:verify": "docker buildx imagetools inspect ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json) --format '{{json .Manifest.manifests}}' | jq -e 'map(.platform.architecture) as $a | (($a | index(\"amd64\")) and ($a | index(\"arm64\")))'"
+    "docker:verify": "docker buildx imagetools inspect ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json) --raw | jq -e '[(.manifests // [])[].platform.architecture] as $a | (($a | index(\"amd64\")) and ($a | index(\"arm64\")))'"
   },
   "devDependencies": {
     "@jest/globals": "30.2.0",
@@ -66,7 +66,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.86",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

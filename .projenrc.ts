@@ -210,11 +210,14 @@ function dockerScripts(name: string) {
       ...cleanup,
     ].join('; '),
     // REAL multi-arch gate: assert the published tag is a manifest list that
-    // contains BOTH amd64 and arm64. `imagetools inspect` alone exits 0 even for
-    // a single-arch image, so we parse the index and `jq -e` (non-zero if the
-    // expression is false/null, or if .manifests is absent on a single-arch
-    // image). DOCKER_PLATFORMS-narrowed builds should override this check.
-    'docker:verify': `docker buildx imagetools inspect ${registryRef} --format '{{json .Manifest.manifests}}' | jq -e 'map(.platform.architecture) as $a | (($a | index("amd64")) and ($a | index("arm64")))'`,
+    // contains BOTH amd64 and arm64. Use `--raw` (the raw index/manifest JSON,
+    // lowercase keys) rather than a Go `--format` template — `{{json .Manifest.manifests}}`
+    // fails to evaluate `.manifests` on the template's interface{} value. jq does
+    // all the work: `(.manifests // [])` is [] for a single-arch image, so it
+    // fails cleanly (exit non-zero) instead of erroring. `jq -e` exits non-zero
+    // when the result is false/null. DOCKER_PLATFORMS-narrowed builds should
+    // override this check.
+    'docker:verify': `docker buildx imagetools inspect ${registryRef} --raw | jq -e '[(.manifests // [])[].platform.architecture] as $a | (($a | index("amd64")) and ($a | index("arm64")))'`,
   };
 }
 
