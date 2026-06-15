@@ -593,7 +593,7 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: !GetAtt VPC.CidrBlock
-          Description: HTTPS from within the VPC (CodeBuild -> endpoints)
+          Description: HTTPS from within the VPC (CodeBuild to endpoints)
       Tags:
         - Key: Name
           Value: !Sub "${StackPrefix}-vpce-sg"
