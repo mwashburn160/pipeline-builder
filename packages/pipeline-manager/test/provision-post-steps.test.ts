@@ -46,6 +46,10 @@ describe('resolvePostSteps', () => {
       steps: ['echo hi'],
     });
     expect(steps.map((s) => s.id)).toEqual(['register', 'smoke-test', 'store-token', 'events', 'custom-1']);
+    // On AWS, register is surfaced (run on the box) with the resolved URL baked in so the
+    // operator copy-pastes a correct line regardless of their shell's PLATFORM_BASE_URL.
+    const reg = steps.find((s) => s.id === 'register')!;
+    expect(reg.command).toBe('PLATFORM_BASE_URL=https://x.example.com ./deploy/bin/init-platform.sh ec2');
     // store-token must precede setup-events (the Lambda reads the secret it writes).
     const storeToken = steps.find((s) => s.id === 'store-token')!;
     expect(storeToken.command).toContain('store-token --region us-east-1');

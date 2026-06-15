@@ -75,10 +75,18 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   if (opts.init) {
     const enabled = LOAD_STEPS.filter((s) => opts.enabledLoadIds.includes(s.id)).map((s) => s.id);
     const loads = enabled.length > 0 ? ` (+ ${enabled.join(', ')})` : '';
+    // On AWS (ec2/fargate) register can't run from here — it builds + pushes images and
+    // reads the cluster's jwt-secret, so it runs ON the box and is surfaced as a manual
+    // next-step. Bake the resolved platform URL into the command so the operator copy-pastes
+    // a correct line (and a stale PLATFORM_BASE_URL in their shell can't misdirect it).
+    const isAws = opts.target === 'ec2' || opts.target === 'fargate';
+    const registerCommand = isAws && opts.url
+      ? `PLATFORM_BASE_URL=${opts.url} ./deploy/bin/init-platform.sh ${opts.target}`
+      : `./deploy/bin/init-platform.sh ${opts.target}`;
     steps.push({
       id: 'register',
       label: `Register admin${loads}`,
-      command: `./deploy/bin/init-platform.sh ${opts.target}`,
+      command: registerCommand,
       env: registerEnv(opts.enabledLoadIds, opts.buildBootstrap),
     });
   }

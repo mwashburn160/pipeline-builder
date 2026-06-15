@@ -220,8 +220,21 @@ export async function runPostSteps(
   const runnable = postSteps.filter((s) => !isRemote(s.id));
   const remote = postSteps.filter((s) => isRemote(s.id));
   if (remote.length > 0) {
-    printInfo('\nNext (run from inside the VPC, in this order):');
-    for (const s of remote) printInfo(`  • ${s.label} — ${s.command}`);
+    if (target === 'ec2') {
+      // EC2 runs the platform as a dedicated `minikube` user inside the instance: the
+      // cluster, its kubeconfig, and the jwt-secret all belong to that user, and the
+      // register step builds+pushes images against it. So it MUST run on the box as
+      // `minikube` — print the exact landing sequence rather than a bare command.
+      printInfo('\nNext — finish setup ON the instance (it builds images + reads the cluster, so it');
+      printInfo('cannot run from here). Land on the box, become the `minikube` user, then run it:');
+      printInfo('  aws ssm start-session --target <InstanceId>      # InstanceId stack output (or ssh via the bastion)');
+      printInfo('  sudo -iu minikube                                # owns the cluster + docker');
+      printInfo('  cd /opt/pipeline/pipeline-builder                # the deployed checkout');
+      for (const s of remote) printInfo(`  ${s.command}`);
+    } else {
+      printInfo('\nNext (run from inside the VPC, in this order):');
+      for (const s of remote) printInfo(`  • ${s.label} — ${s.command}`);
+    }
   }
   if (runnable.length === 0) return;
   // When the loads were picked interactively (autoRun), the user already opted in — skip
