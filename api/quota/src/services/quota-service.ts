@@ -364,7 +364,10 @@ export class QuotaService {
           },
         },
       ],
-      { returnDocument: 'after' },
+      // `updatePipeline: true` is REQUIRED for aggregation-pipeline (array)
+      // updates as of Mongoose 9 — without it the driver throws "Cannot pass an
+      // array to query updates", which surfaces as a 500 on every increment.
+      { returnDocument: 'after', updatePipeline: true },
     );
 
     // `findOneAndUpdate` returns null when the filter didn't match — could be
@@ -448,7 +451,9 @@ export class QuotaService {
           },
         },
       ],
-      { returnDocument: 'after' },
+      // Pipeline (array) update — see incrementUsage: Mongoose 9 requires
+      // `updatePipeline: true` or it throws "Cannot pass an array to query updates".
+      { returnDocument: 'after', updatePipeline: true },
     );
 
     if (!org) {
