@@ -118,7 +118,7 @@ Parameters:
 
   ImageRegistryImage:
     Type: String
-    Default: ghcr.io/mwashburn160/image-registry:3.4.93
+    Default: ghcr.io/mwashburn160/image-registry:3.4.94
     Description: Docker image for the pipeline-image-registry service
 
   FrontendImage:

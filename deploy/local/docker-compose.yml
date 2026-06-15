@@ -629,7 +629,7 @@ services:
   # the Basic-auth password — image-registry verifies the JWT and issues
   # a registry-scoped Bearer token.
   image-registry:
-    image: 'ghcr.io/mwashburn160/image-registry:3.4.93'
+    image: 'ghcr.io/mwashburn160/image-registry:3.4.94'
     container_name: image-registry
     restart: always
     stop_grace_period: 10s
