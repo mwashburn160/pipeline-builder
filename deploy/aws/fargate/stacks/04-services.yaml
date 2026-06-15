@@ -93,7 +93,7 @@ Parameters:
 
   QuotaImage:
     Type: String
-    Default: ghcr.io/mwashburn160/quota:3.4.88
+    Default: ghcr.io/mwashburn160/quota:3.4.89
     Description: Docker image for the Quota service
 
   BillingImage:
