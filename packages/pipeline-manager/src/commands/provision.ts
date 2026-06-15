@@ -518,7 +518,7 @@ export function provision(program: Command): void {
         // clone, so the questions come once you've agreed to proceed (not up front).
         // Each picked load's folder is then fetched via an additive sparse re-sync.
         // Flags / --yes / --json / non-interactive shells skip the prompts.
-        const willPromptLoads = !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
+        let willPromptLoads = !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
         const postStepFlags = {
           init: options.init !== false,
           // EC2 auto-init is ON BY DEFAULT (off only with --no-auto-init). resolvePostSteps
@@ -575,6 +575,14 @@ export function provision(program: Command): void {
             printWarning('Diagnosis unavailable (no AI key configured or the model could not be reached).');
           }
           if (!target) return;
+        }
+
+        // EC2 auto-init (ON by default) loads plugins/compliance/samples ON THE BOX, so the
+        // local load picker — and the load-folder fetch it triggers — is pointless. Skip both
+        // (the instance has its own checkout). `--no-auto-init` restores the local loads/prompts.
+        if (options.autoInit !== false && target === 'ec2') {
+          willPromptLoads = false;
+          enabledLoadIds = [];
         }
 
         // 4. Need a target to assemble a plan.
