@@ -15,7 +15,6 @@ RUN update-ca-certificates 2>/dev/null
 # rebuild can no longer pull a newer caret-compatible version of any
 # dep behind the platform's back.
 FROM node:${NODE_VERSION}-alpine
-LABEL org.opencontainers.image.description="Pipeline Builder compliance service — policy rules, plugin/pipeline validation, exemptions, and scans."
 RUN apk add --no-cache curl
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 

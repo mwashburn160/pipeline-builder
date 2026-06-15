@@ -16,7 +16,7 @@
     "docker:build": "pnpm nx run-many -t build --projects=pipeline --with-deps; rm -rf .docker-build; pnpm deploy --filter pipeline --prod --legacy .docker-build; docker buildx build --pull --provenance=false --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) --load -t ${PROJECT_NAME:-pipeline}:$(jq -r .version package.json) .; status=$?; rm -rf .docker-build; exit $status",
     "docker:tag": "docker image tag ${PROJECT_NAME:-pipeline}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-pipeline}:$(jq -r .version package.json)",
     "docker:push": "docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-pipeline}:$(jq -r .version package.json)",
-    "docker:publish": "pnpm nx run-many -t build --projects=pipeline --with-deps; rm -rf .docker-build; pnpm deploy --filter pipeline --prod --legacy .docker-build; docker buildx build --pull --provenance=false --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) ${DOCKER_CACHE:+--cache-from type=gha,scope=${PROJECT_NAME:-pipeline} --cache-to type=gha,mode=max,scope=${PROJECT_NAME:-pipeline}} --platform ${DOCKER_PLATFORMS:-linux/amd64,linux/arm64} -t ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-pipeline}:$(jq -r .version package.json) --push .; status=$?; rm -rf .docker-build; exit $status",
+    "docker:publish": "pnpm nx run-many -t build --projects=pipeline --with-deps; rm -rf .docker-build; pnpm deploy --filter pipeline --prod --legacy .docker-build; docker buildx build --pull --provenance=false --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) --annotation \"index:org.opencontainers.image.description=Pipeline Builder pipeline service — pipeline CRUD and CDK pipeline synthesis.\" ${DOCKER_CACHE:+--cache-from type=gha,scope=${PROJECT_NAME:-pipeline} --cache-to type=gha,mode=max,scope=${PROJECT_NAME:-pipeline}} --platform ${DOCKER_PLATFORMS:-linux/amd64,linux/arm64} -t ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-pipeline}:$(jq -r .version package.json) --push .; status=$?; rm -rf .docker-build; exit $status",
     "docker:verify": "docker buildx imagetools inspect ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-pipeline}:$(jq -r .version package.json) --raw | jq -e '[(.manifests // [])[].platform.architecture] as $a | (($a | index(\"amd64\")) and ($a | index(\"arm64\")))'"
   },
   "devDependencies": {
@@ -67,7 +67,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.88",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

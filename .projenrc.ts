@@ -150,6 +150,24 @@ function addPackageMetadata(  p: { package: { addField: (k: string, v: unknown) 
   if (opts.private) p.package.addField('private', true);
 }
 
+// Per-image package descriptions surfaced on the registry (GHCR) package page.
+// SINGLE source of truth: emitted as the index-level org.opencontainers.image.description
+// annotation in docker:publish (below). A Dockerfile LABEL only sets the per-arch image
+// config, which GHCR doesn't surface for a manifest list, so those were removed. Keyed by
+// project name.
+const IMAGE_DESCRIPTIONS: Record<string, string> = {
+  platform: 'Pipeline Builder platform service — authentication, organizations, users, and admin APIs.',
+  frontend: 'Pipeline Builder web UI.',
+  quota: 'Pipeline Builder quota service — per-org usage quotas and metering.',
+  billing: 'Pipeline Builder billing service — subscriptions, usage metering, and Stripe/marketplace billing.',
+  plugin: 'Pipeline Builder plugin service — plugin upload, BuildKit image builds, and registry publishing.',
+  pipeline: 'Pipeline Builder pipeline service — pipeline CRUD and CDK pipeline synthesis.',
+  message: 'Pipeline Builder message service — in-app notifications and messaging.',
+  reporting: 'Pipeline Builder reporting service — dashboards, metrics, and reporting.',
+  compliance: 'Pipeline Builder compliance service — policy rules, plugin/pipeline validation, exemptions, and scans.',
+  'image-registry': 'Pipeline Builder image-registry service — Docker registry token authorization for plugin images.',
+};
+
 function dockerScripts(name: string) {
   const version = '$(jq -r .version package.json)';
 
@@ -185,6 +203,16 @@ function dockerScripts(name: string) {
   const registryRef = `\${REGISTRY:-ghcr.io/mwashburn160}/\${PROJECT_NAME:-${name}}:${version}`;
   const cleanup = ['status=$?', 'rm -rf .docker-build', 'exit $status'];
 
+  // GHCR shows the package "Description" from the `org.opencontainers.image.description`
+  // annotation on the pushed image INDEX (the manifest list). A Dockerfile LABEL only
+  // sets the per-arch image *config*, which GHCR does NOT surface for a manifest list —
+  // which is why the labelled images still read "No description provided". Emit it as an
+  // index-level buildx annotation on docker:publish so the description lands on the page.
+  const description = IMAGE_DESCRIPTIONS[name];
+  const descAnnotation = description
+    ? `--annotation "index:org.opencontainers.image.description=${description}" `
+    : '';
+
   return {
     // --import preloads the otel bootstrap for dev parity with the Dockerfile CMD
     // (a no-op unless OTEL_TRACING_ENABLED=true). Frontend's start is vestigial (Next).
@@ -206,7 +234,7 @@ function dockerScripts(name: string) {
     // DOCKER_PLATFORMS to narrow to one arch or add more.
     'docker:publish': [
       ...stage,
-      `docker buildx build ${buildxCommon} ${cacheFlags} --platform \${DOCKER_PLATFORMS:-linux/amd64,linux/arm64} -t ${registryRef} --push .`,
+      `docker buildx build ${buildxCommon} ${descAnnotation}${cacheFlags} --platform \${DOCKER_PLATFORMS:-linux/amd64,linux/arm64} -t ${registryRef} --push .`,
       ...cleanup,
     ].join('; '),
     // REAL multi-arch gate: assert the published tag is a manifest list that

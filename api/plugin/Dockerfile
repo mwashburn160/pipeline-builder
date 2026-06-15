@@ -26,7 +26,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
         | tar -xz -C /usr/local/bin crane
 
 FROM node:${NODE_VERSION}-slim
-LABEL org.opencontainers.image.description="Pipeline Builder plugin service — plugin upload, BuildKit image builds, and registry publishing."
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=tools /usr/local/bin/buildctl /usr/local/bin/buildctl
