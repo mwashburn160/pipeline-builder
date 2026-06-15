@@ -139,6 +139,26 @@ describe('authorizeScope', () => {
     expect(granted).toEqual(['pull']);
   });
 
+  it('grants pull,push on system/* to a SYSTEM-ORG token (system sample-plugin build)', () => {
+    // The system org owns system/*; a system-org-scoped build token (not a
+    // super-admin) must be able to push its sample plugins there.
+    const granted = authorizeScope( { type: 'jwt', orgId: 'system', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false },
+      { type: 'repository', name: 'system/sentry-release', actions: ['pull', 'push'] },
+    );
+    expect(granted).toEqual(['pull', 'push']);
+  });
+
+  it('does NOT let the system-org token push outside system/* (e.g. library/* or another org)', () => {
+    const lib = authorizeScope( { type: 'jwt', orgId: 'system', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false },
+      { type: 'repository', name: 'library/ubuntu', actions: ['pull', 'push'] },
+    );
+    expect(lib).toEqual(['pull']); // library/* push stays super-admin-only
+    const other = authorizeScope( { type: 'jwt', orgId: 'system', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false },
+      { type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] },
+    );
+    expect(other).toEqual([]); // system org has no claim on a tenant namespace
+  });
+
   it('grants pull,push on org-{orgId}/* to matching JWT', () => {
     const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false },
       { type: 'repository', name: 'org-acme/my-plugin', actions: ['pull', 'push'] },

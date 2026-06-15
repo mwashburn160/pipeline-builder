@@ -51,6 +51,14 @@ export function parseScope(raw: string): RequestedScope | null {
 /** Constants for repo namespace policy. */
 export const SYSTEM_NAMESPACE_PREFIX = 'system/';
 export const ORG_NAMESPACE_PREFIX = 'org-';
+/**
+ * The org id that OWNS the un-prefixed `system/*` namespace. System sample
+ * plugins are built and pushed under this org id and land in `system/<name>`
+ * rather than `org-<id>/<name>` (see api/plugin docker-build.ts `resolveImage`
+ * — this MUST stay in lock-step with that mapping). A token scoped to this org
+ * may push to `system/*`, exactly as a tenant org pushes to its `org-{id}/*`.
+ */
+export const SYSTEM_ORG_ID = 'system';
 // Docker's convention for unqualified base images: `FROM ubuntu` →
 // `docker.io/library/ubuntu`. Our buildkit mirror redirects those
 // lookups at `registry:5000/library/<name>`, so plugin Dockerfiles
@@ -67,8 +75,9 @@ export const LIBRARY_NAMESPACE_PREFIX = 'library/';
  *
  * Policy * - **management** (internal only): anything; in-process self-issue
  * - **jwt** (org user / api/plugin service token): pull on `system/*`;
- * pull,push on `org-{orgId}/*`; only super-admins (platform sysadmin) push
- * on any namespace
+ * pull,push on `org-{orgId}/*`; pull,push on `system/*` ONLY for the system
+ * org (which owns that namespace); only super-admins (platform sysadmin) push
+ * on any other namespace (e.g. cross-org or `library/*`)
  */
 export function authorizeScope(identity: Identity, requested: RequestedScope): string[] {
   // Internal management identity bypasses scope-type filtering — it needs
@@ -96,6 +105,16 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
   // overwrite system/library base images. Org admins still get pull+push on
   // their OWN `org-{orgId}/*` via the namespace rule below.
   if (identity.isSuperAdmin) {
+    return requested.actions.filter((a) => ['pull', 'push'].includes(a));
+  }
+
+  // The system org OWNS the `system/*` namespace — the un-prefixed analog of
+  // `org-{orgId}/*`. A token scoped to the system org may pull+push there (this
+  // is how system sample plugins are built and published; see docker-build.ts).
+  // Evaluated before the generic `system/*` pull-only rule below so the push
+  // isn't downgraded. NOT a cross-org grant: a tenant token carries its real
+  // orgId, so it never matches here and still only owns its own `org-{id}/*`.
+  if (identity.orgId === SYSTEM_ORG_ID && requested.name.startsWith(SYSTEM_NAMESPACE_PREFIX)) {
     return requested.actions.filter((a) => ['pull', 'push'].includes(a));
   }
 
