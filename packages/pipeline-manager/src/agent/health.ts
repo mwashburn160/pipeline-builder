@@ -86,9 +86,9 @@ export async function waitHealthy(
           detail: `health OK, but /ready didn't pass within ${Math.round(readyGraceMs / 1000)}s — a backend service is likely down (check \`docker compose ps\` / its logs). Continuing; routes for that service may 502 until it's healthy.`,
         };
       }
-      opts.onTick?.(`health OK — waiting up to ${Math.ceil(leftMs / 1000)}s for ${url}/ready (dependencies warming up) …`);
+      opts.onTick?.(`Health OK — waiting up to ${Math.ceil(leftMs / 1000)}s for ${url}/ready (dependencies warming up) …`);
     } else {
-      opts.onTick?.(`waiting for ${url}/health …`);
+      opts.onTick?.(`Waiting for ${url}/health …`);
     }
     await delay(intervalMs);
   }

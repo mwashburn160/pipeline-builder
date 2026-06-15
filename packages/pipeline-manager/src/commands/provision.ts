@@ -630,7 +630,7 @@ export function provision(program: Command): void {
         if (postSteps.length > 0 || skippedSteps.length > 0) {
           printSection('Post-install steps');
           for (const s of postSteps) printInfo(`• ${s.label}\n    ${s.command}`);
-          for (const s of skippedSteps) printWarning(`skipped ${s.id}: ${s.reason}`);
+          for (const s of skippedSteps) printWarning(`Skipped ${s.id}: ${s.reason}`);
         }
 
         // 6. Any missing required prereq that's a single static binary (e.g. yq)
