@@ -556,16 +556,19 @@ Resources:
       SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
       SecurityGroupIds: [!Ref EndpointSecurityGroup]
 
+  # S3 must be a GATEWAY endpoint, not Interface: an S3 *interface* endpoint with
+  # PrivateDnsEnabled requires a co-existing S3 gateway endpoint (the API rejects it
+  # otherwise — "must have a Gateway endpoint for the service"). The gateway endpoint
+  # is route-table based (no subnets / SG / private-DNS) and is the path ECR image-layer
+  # pulls actually traverse, which is what VPC-attached CodeBuild needs.
   S3Endpoint:
     Type: AWS::EC2::VPCEndpoint
     Condition: IsPrivate
     Properties:
       VpcId: !Ref VPC
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
-      VpcEndpointType: Interface
-      PrivateDnsEnabled: true
-      SubnetIds: [!Ref PrivateSubnet, !Ref PrivateSubnet2]
-      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      VpcEndpointType: Gateway
+      RouteTableIds: [!Ref PrivateRouteTable]
 
   # Private hosted zone → the domain resolves to the internal ALB for in-VPC
   # clients (and VPC-attached CodeBuild pulling plugin images via /v2/).

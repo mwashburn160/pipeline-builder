@@ -675,16 +675,19 @@ Resources:
       SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
       SecurityGroupIds: [!Ref EndpointSecurityGroup]
 
-  S3InterfaceEndpoint:
+  # S3 must be a GATEWAY endpoint, not Interface: an S3 *interface* endpoint with
+  # PrivateDnsEnabled requires a co-existing S3 gateway endpoint (the API rejects it
+  # otherwise — "must have a Gateway endpoint for the service"). The gateway endpoint
+  # is route-table based (no subnets / SG / private-DNS) and is the path ECR image-layer
+  # pulls actually traverse, which is what VPC-attached Fargate tasks / CodeBuild need.
+  S3GatewayEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Condition: IsPrivate
     Properties:
       VpcId: !Ref VPC
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
-      VpcEndpointType: Interface
-      PrivateDnsEnabled: true
-      SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
-      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      VpcEndpointType: Gateway
+      RouteTableIds: [!Ref PrivateRouteTable]
 
   # ---------------------------------------------------------------------------
   # Storage - EFS File System
