@@ -359,6 +359,26 @@ bash "${DEPLOY_DIR}/bin/startup.sh"
 dnf install -y iptables-services 2>/dev/null || true
 systemctl enable iptables 2>/dev/null || true
 
+# =============================================================================
+# Phase 10: Optional auto-init (AUTO_INIT=true) — register + load everything
+# =============================================================================
+# Runs init-platform ON the box, as the minikube user (it owns the cluster +
+# docker + jwt-secret). All init-platform prompts are env-gated, so the loads run
+# non-interactively with everything = y. Never aborts the boot: a non-zero exit is
+# logged, not fatal (the operator can re-run from the box). Long step — the plugin
+# image builds dominate.
+if [ "${AUTO_INIT:-false}" = "true" ]; then
+  echo ""
+  echo "========================================"
+  echo "Phase 10: Auto-initialize platform (AUTO_INIT=true)"
+  echo "========================================"
+  runuser -u minikube -- env \
+    BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y \
+    PLATFORM_BASE_URL="https://${DOMAIN}" \
+    bash "${INSTALL_DIR}/deploy/bin/init-platform.sh" --continue-on-build-failure ec2 \
+    || echo "WARNING: auto-init exited non-zero — re-run on the box: sudo -iu minikube; cd ${INSTALL_DIR}; PLATFORM_BASE_URL=https://${DOMAIN} ./deploy/bin/init-platform.sh ec2"
+fi
+
 echo ""
 echo "========================================"
 echo "Bootstrap Complete"

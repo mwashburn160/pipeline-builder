@@ -35,6 +35,17 @@ describe('resolvePostSteps', () => {
     expect(steps.map((s) => s.id)).toEqual(['smoke-test']);
   });
 
+  it('ec2 --auto-init drops the register step (the instance self-runs it on boot)', () => {
+    const { steps, skipped } = resolvePostSteps({ ...base, target: 'ec2', url: 'https://x.example.com', autoInit: true, smokeTest: true });
+    expect(steps.map((s) => s.id)).toEqual(['smoke-test']); // register not surfaced
+    expect(skipped.map((s) => s.id)).not.toContain('register'); // dropped cleanly, not a "skip" warning
+  });
+
+  it('--auto-init on a NON-ec2 target is ignored (register stays)', () => {
+    const { steps } = resolvePostSteps({ ...base, target: 'local', autoInit: true });
+    expect(steps.map((s) => s.id)).toEqual(['register']);
+  });
+
   it('orders register → smoke → events bundle (store-token → setup-events) → custom', () => {
     const { steps } = resolvePostSteps({
       ...base,

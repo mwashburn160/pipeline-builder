@@ -74,6 +74,7 @@ const REGION: InputSpec = { flag: 'region', key: 'region', description: 'AWS reg
 const DEPLOY_MODE: InputSpec = { flag: 'deploy-mode', key: 'deployMode', description: 'public (internet-facing ALB) or private (internal, default)' };
 const KEY_PAIR: InputSpec = { flag: 'key-pair', key: 'keyPair', description: 'EC2 key pair in the region (break-glass serial console; routine access is SSM)' };
 const INSTANCE_TYPE: InputSpec = { flag: 'instance-type', key: 'instanceType', description: 'EC2 instance type (default t3.2xlarge)' };
+const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'Instance self-runs init-platform on first boot (register + all loads)', boolean: true };
 
 // SES / email family — shared by ec2 + fargate. SES is provisioned BY DEFAULT
 // on AWS deploys; `--no-email` is the opt-out (`--email` is a harmless no-op kept
@@ -140,8 +141,8 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     entrypoint: 'bin/setup.sh',
     sparsePaths: ['deploy/aws/ec2'],
     required: [KEY_PAIR, DOMAIN, HOSTED_ZONE],
-    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, INSTANCE_TYPE, ...EMAIL],
-    postDeploy: './deploy/bin/init-platform.sh ec2  # from inside the VPC (SSM)',
+    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, INSTANCE_TYPE, AUTO_INIT, ...EMAIL],
+    postDeploy: './deploy/bin/init-platform.sh ec2  # from inside the VPC (SSM), unless --auto-init',
     cost: '~$140-265/mo',
     bestFor: 'Dev / staging',
     deploys: 'the platform on a single EC2 instance via CloudFormation — a VPC, the instance (running the Minikube stack), an ALB, a Route 53 record + ACM cert for the domain, and (by default) SES email. The instance pulls images on first boot.',

@@ -144,6 +144,18 @@ Parameters:
       (`ssh -J`). Set to EMPTY ("") to create NO bastion (app instance is SSM-only).
       Key-pair auth is required throughout.
 
+  AutoInit:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      When true, the instance auto-runs init-platform on first boot (register admin +
+      build/publish the bootstrap image + load ALL of plugins/compliance/sample-pipelines),
+      so no manual on-box step is needed. Adds ~30-60 min to first boot (plugin image
+      builds); progress is in /var/log/user-data.log. SECURITY: this registers the admin
+      with the default password (SecurePassword123!) — change it after first login, and
+      prefer leaving this false in public mode. Default false (run init-platform manually).
+
 # =============================================================================
 # Conditions
 # =============================================================================
@@ -899,6 +911,8 @@ Resources:
             export GHCR_USER="mwashburn160"
             export GIT_REPO="${GitRepo}"
             export GIT_BRANCH="${GitBranch}"
+            # When "true", bootstrap.sh runs init-platform (all loads) after the cluster is up.
+            export AUTO_INIT="${AutoInit}"
             # AWS_REGION is the ACTUAL deploy region (the SES identity is regional;
             # bootstrap.sh pins SES_REGION to it instead of the static .env default).
             export AWS_REGION="${AWS::Region}"

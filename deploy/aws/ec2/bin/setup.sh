@@ -56,6 +56,10 @@ ALERT_EMAIL="${ALERT_EMAIL:-}"
 # to create NO bastion (app instance stays SSM-only). `-` (not `:-`) so an explicit "" is
 # preserved as the disable signal. See template.yaml BastionSshCidr.
 BASTION_SSH_CIDR="${BASTION_SSH_CIDR-0.0.0.0/0}"
+# Auto-init: when true, the instance runs init-platform on first boot (register + build
+# bootstrap image + load ALL of plugins/compliance/samples) — no manual on-box step.
+# Adds ~30-60 min to first boot; progress in /var/log/user-data.log. See template AutoInit.
+AUTO_INIT="${AUTO_INIT:-false}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -75,6 +79,7 @@ while [[ $# -gt 0 ]]; do
     --no-create-ses-identity) CREATE_SES_IDENTITY="false"; shift ;;
     --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
     --bastion-ssh-cidr) BASTION_SSH_CIDR="$2"; shift 2 ;;
+    --auto-init) AUTO_INIT="true"; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -175,6 +180,7 @@ BASE_PARAMS=(
   # Always passed (even empty) so BASTION_SSH_CIDR="" actually DISABLES the bastion —
   # an omitted override would fall back to the template's on-by-default value.
   "BastionSshCidr=${BASTION_SSH_CIDR}"
+  "AutoInit=${AUTO_INIT}"
 )
 [ -n "$DOMAIN" ]         && BASE_PARAMS+=("DomainName=${DOMAIN}")
 [ -n "$HOSTED_ZONE_ID" ] && BASE_PARAMS+=("HostedZoneId=${HOSTED_ZONE_ID}")

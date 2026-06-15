@@ -211,8 +211,17 @@ export async function runPostSteps(
   target: TargetId,
   cwd: string,
   adminEnv: Record<string, string>,
-  opts: { yes?: boolean; autoRun?: boolean },
+  opts: { yes?: boolean; autoRun?: boolean; autoInit?: boolean },
 ): Promise<void> {
+  // EC2 --auto-init: the box self-runs init-platform on first boot, so there's no
+  // register/loads step to surface here — confirm it and point at the boot log.
+  if (opts.autoInit && target === 'ec2') {
+    printInfo('\n✓ Auto-init enabled — the instance runs init-platform itself on first boot');
+    printInfo('  (register admin + build bootstrap image + load plugins/compliance/samples).');
+    printInfo('  It takes ~30-60 min; watch progress:');
+    printInfo('    aws ssm start-session --target <InstanceId>   # InstanceId stack output');
+    printInfo('    sudo tail -f /var/log/user-data.log');
+  }
   if (postSteps.length === 0) return;
   for (const s of skippedSteps) printWarning(`Skipped post-step ${s.id}: ${s.reason}`);
   const isRemote = (id: string): boolean =>
@@ -355,7 +364,7 @@ export async function resolveLoadsInteractively(
   cwd: string,
   bootstrapped: boolean,
   bootstrap: BootstrapSpec,
-  postStepFlags: { init: boolean; buildBootstrap: boolean; smokeTest: boolean; events: boolean; steps: string[] },
+  postStepFlags: { init: boolean; autoInit: boolean; buildBootstrap: boolean; smokeTest: boolean; events: boolean; steps: string[] },
 ): Promise<{ enabledLoadIds: string[]; steps: PostStep[]; skipped: SkippedStep[] }> {
   const prompts: Record<string, string> = {
     plugins: 'Load plugins?',
@@ -452,6 +461,7 @@ export function provision(program: Command): void {
     .option('--stack-name <name>', 'Stack name (EC2) / stack prefix (Fargate) to tear down — defaults to the deploy default')
     .option('--force', 'Skip the teardown typed-confirmation (DANGEROUS — for CI/automation only)', false)
     .option('--no-init', 'Skip the post-deploy register/init-platform step')
+    .option('--auto-init', 'EC2 only: the instance self-runs init-platform on first boot (register + all loads) — no manual on-box step. Adds ~30-60 min to boot; registers admin with the default password (change it after).', false)
     // Bootstrap (sparse clone) — provision a fresh machine in one command.
     .option('--repo [url]', 'Bootstrap: git-clone the platform repo first (sparse — only the needed deploy folders), then run from it (no value = the upstream default)')
     .option('--ref <ref>', 'Git branch/tag to check out when bootstrapping (default: main)')
@@ -490,6 +500,8 @@ export function provision(program: Command): void {
           emailFromName: options.emailFromName,
           alertEmail: options.alertEmail,
           noCreateSesIdentity: options.skipSesIdentity,
+          // EC2-only boolean; the ec2 target spec maps it to `--auto-init` on setup.sh.
+          autoInit: options.autoInit === true,
         };
         const aiOpts = { provider: options.aiProvider, model: options.model };
 
@@ -505,6 +517,9 @@ export function provision(program: Command): void {
         const willPromptLoads = !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
         const postStepFlags = {
           init: options.init !== false,
+          // EC2 self-runs init on boot → resolvePostSteps drops the register step (it
+          // gates on target === 'ec2'); the ec2 target spec maps the flag to setup.sh.
+          autoInit: options.autoInit === true,
           buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
           smokeTest: options.withSmokeTest === true,
           events: options.withEvents === true,
@@ -756,7 +771,7 @@ export function provision(program: Command): void {
         // 7f. Post-install steps (register + opt-in loads, smoke test, events, custom).
         // See runPostSteps — it surfaces register + the events bundle as manual in-VPC
         // next-steps on EC2/Fargate instead of auto-running (and failing) them locally.
-        await runPostSteps(postSteps, skippedSteps, target, cwd, adminEnv, { yes: options.yes, autoRun: willPromptLoads });
+        await runPostSteps(postSteps, skippedSteps, target, cwd, adminEnv, { yes: options.yes, autoRun: willPromptLoads, autoInit: postStepFlags.autoInit });
       } catch (error) {
         handleError(error, ERROR_CODES.GENERAL, {
           debug: program.opts().debug,
