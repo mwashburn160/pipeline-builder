@@ -236,7 +236,7 @@ export async function runPostSteps(
       // `minikube` — print the exact landing sequence rather than a bare command.
       printInfo('\nNext — finish setup ON the instance (it builds images + reads the cluster, so it');
       printInfo('cannot run from here). Land on the box, become the `minikube` user, then run it:');
-      printInfo('  aws ssm start-session --target <InstanceId>      # InstanceId stack output (or ssh via the bastion)');
+      printInfo('  aws ssm start-session --target <InstanceId>      # InstanceId stack output');
       printInfo('  sudo -iu minikube                                # owns the cluster + docker');
       printInfo('  cd /opt/pipeline/pipeline-builder                # the deployed checkout');
       for (const s of remote) printInfo(`  ${s.command}`);

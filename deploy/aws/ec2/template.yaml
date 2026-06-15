@@ -131,19 +131,6 @@ Parameters:
       warning before SES throttles the account (you must confirm the subscription
       email AWS sends). Empty => the topic is created but no subscription is added.
 
-  BastionSshCidr:
-    Type: String
-    Default: "0.0.0.0/0"
-    AllowedPattern: "^$|^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
-    Description: >
-      Public SSH jump box (bastion). When set to a CIDR (default 0.0.0.0/0 = SSH from
-      ANYWHERE — RESTRICT to a /32 of your IP), a small t3.micro bastion is launched in a
-      PUBLIC subnet with an Elastic IP, accepts SSH (22) from this CIDR, and is the ONLY
-      source permitted to SSH into the otherwise-private app instance (the app instance
-      stays in the private subnet with no public IP). SSH into the app box via the bastion
-      (`ssh -J`). Set to EMPTY ("") to create NO bastion (app instance is SSM-only).
-      Key-pair auth is required throughout.
-
   AutoInit:
     Type: String
     Default: "true"
@@ -163,8 +150,6 @@ Conditions:
   HasDomain: !Not [!Equals [!Ref DomainName, ""]]
   IsPrivate: !Equals [!Ref DeployMode, private]
   IsPublic: !Equals [!Ref DeployMode, public]
-  # Bastion is created whenever a CIDR is supplied (default 0.0.0.0/0). Empty disables it.
-  BastionEnabled: !Not [!Equals [!Ref BastionSshCidr, ""]]
   SesEnabled: !Equals [!Ref EmailEnabled, "true"]
   HasAlertEmail: !And
     - !Condition SesEnabled
@@ -791,86 +776,6 @@ Resources:
   # ---------------------------------------------------------------------------
   # EC2 Instance (Hardened)
   # ---------------------------------------------------------------------------
-  # ---------------------------------------------------------------------------
-  # Public SSH jump box (bastion) — created only when BastionSshCidr is set.
-  # Lets you SSH into the PRIVATE app instance without giving that instance a
-  # public IP: ssh to the bastion, then `ssh -J` through it to the app box.
-  # ---------------------------------------------------------------------------
-  BastionSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Condition: BastionEnabled
-    Properties:
-      GroupDescription: Pipeline Builder bastion - public SSH jump box
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !Ref BastionSshCidr
-          Description: SSH to the jump box from the allowed CIDR
-      SecurityGroupEgress:
-        - IpProtocol: "-1"
-          CidrIp: 0.0.0.0/0
-          Description: All outbound traffic
-      Tags:
-        - Key: Name
-          Value: !Sub "pipeline-builder-bastion-sg"
-
-  # Open SSH (22) on the APP instance's SG to the bastion SG ONLY. A standalone
-  # ingress resource (not inline on SecurityGroup) so it's purely additive and
-  # conditional — the app SG is otherwise unchanged (ALB target + SSM only).
-  BastionToInstanceSshIngress:
-    Type: AWS::EC2::SecurityGroupIngress
-    Condition: BastionEnabled
-    Properties:
-      GroupId: !Ref SecurityGroup
-      IpProtocol: tcp
-      FromPort: 22
-      ToPort: 22
-      SourceSecurityGroupId: !Ref BastionSecurityGroup
-      Description: SSH from the bastion jump box only
-
-  BastionEip:
-    Type: AWS::EC2::EIP
-    Condition: BastionEnabled
-    Properties:
-      Domain: vpc
-      Tags:
-        - Key: Name
-          Value: !Sub "pipeline-builder-bastion-eip"
-
-  BastionEipAssociation:
-    Type: AWS::EC2::EIPAssociation
-    Condition: BastionEnabled
-    Properties:
-      AllocationId: !GetAtt BastionEip.AllocationId
-      InstanceId: !Ref BastionInstance
-
-  BastionInstance:
-    Type: AWS::EC2::Instance
-    Condition: BastionEnabled
-    Properties:
-      InstanceType: t3.micro
-      KeyName: !Ref KeyPairName
-      SubnetId: !Ref PublicSubnet
-      SecurityGroupIds:
-        - !Ref BastionSecurityGroup
-      ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
-      BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            VolumeSize: 8
-            VolumeType: gp3
-            Encrypted: true
-            DeleteOnTermination: true
-      MetadataOptions:
-        HttpTokens: required
-        HttpEndpoint: enabled
-        HttpPutResponseHopLimit: 1
-      Tags:
-        - Key: Name
-          Value: !Sub "pipeline-builder-bastion"
-
   EC2Instance:
     Type: AWS::EC2::Instance
     Properties:
@@ -1049,21 +954,6 @@ Outputs:
   SSHCommand:
     Description: Connect to the app instance via SSM (always available, no public IP)
     Value: !Sub "aws ssm start-session --target ${EC2Instance} --region ${AWS::Region}"
-
-  BastionPublicIp:
-    Condition: BastionEnabled
-    Description: Public Elastic IP of the SSH jump box
-    Value: !Ref BastionEip
-
-  BastionSshCommand:
-    Condition: BastionEnabled
-    Description: SSH to the jump box
-    Value: !Sub "ssh -i <path-to-${KeyPairName}.pem> ec2-user@${BastionEip}"
-
-  InstanceSshViaBastion:
-    Condition: BastionEnabled
-    Description: SSH into the private app instance, hopping through the bastion
-    Value: !Sub "ssh -i <path-to-${KeyPairName}.pem> -J ec2-user@${BastionEip} ec2-user@${EC2Instance.PrivateIp}"
 
   InstanceId:
     Description: EC2 Instance ID

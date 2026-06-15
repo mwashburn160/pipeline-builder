@@ -51,11 +51,6 @@ CREATE_SES_IDENTITY="${CREATE_SES_IDENTITY:-true}"
 # Optional: subscribe an address to the SES bounce/complaint SNS topic for early
 # warning before SES throttles the account (you must confirm the email AWS sends).
 ALERT_EMAIL="${ALERT_EMAIL:-}"
-# Public SSH jump box (bastion). Default 0.0.0.0/0 = a bastion is created with SSH open
-# from anywhere (key-pair auth still required); RESTRICT to a /32 of your IP, or set to ""
-# to create NO bastion (app instance stays SSM-only). `-` (not `:-`) so an explicit "" is
-# preserved as the disable signal. See template.yaml BastionSshCidr.
-BASTION_SSH_CIDR="${BASTION_SSH_CIDR-0.0.0.0/0}"
 # Auto-init: ON BY DEFAULT — the instance runs init-platform on first boot (register +
 # build bootstrap image + load ALL of plugins/compliance/samples), no manual on-box step.
 # Pass --no-auto-init (or AUTO_INIT=false) to skip it. Adds ~30-60 min to first boot;
@@ -79,7 +74,6 @@ while [[ $# -gt 0 ]]; do
     --email-from-name) EMAIL_FROM_NAME="$2"; shift 2 ;;
     --no-create-ses-identity) CREATE_SES_IDENTITY="false"; shift ;;
     --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
-    --bastion-ssh-cidr) BASTION_SSH_CIDR="$2"; shift 2 ;;
     --auto-init) AUTO_INIT="true"; shift ;;
     --no-auto-init) AUTO_INIT="false"; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
@@ -179,9 +173,6 @@ BASE_PARAMS=(
   "EmailFrom=${EMAIL_FROM}"
   "EmailFromName=${EMAIL_FROM_NAME}"
   "AlertEmail=${ALERT_EMAIL}"
-  # Always passed (even empty) so BASTION_SSH_CIDR="" actually DISABLES the bastion —
-  # an omitted override would fall back to the template's on-by-default value.
-  "BastionSshCidr=${BASTION_SSH_CIDR}"
   "AutoInit=${AUTO_INIT}"
 )
 [ -n "$DOMAIN" ]         && BASE_PARAMS+=("DomainName=${DOMAIN}")
