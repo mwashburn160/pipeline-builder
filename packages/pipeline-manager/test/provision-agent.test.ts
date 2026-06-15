@@ -74,6 +74,18 @@ describe('assembleCommand', () => {
     expect(assembleCommand(TARGETS.ec2, params, { mask: false }).command).toContain('--ghcr-token ghp_real');
   });
 
+  it('auto-init is default-on: emits neither flag by default, --no-auto-init only when opted out', () => {
+    const reqd = { keyPair: 'k', domain: 'd', hostedZoneId: 'z' };
+    // Default: neither flag → setup.sh/template default (true) applies.
+    const def = assembleCommand(TARGETS.ec2, reqd).command;
+    expect(def).not.toContain('--auto-init');
+    expect(def).not.toContain('--no-auto-init');
+    // Opt out: the load-bearing --no-auto-init is emitted.
+    expect(assembleCommand(TARGETS.ec2, { ...reqd, noAutoInit: true }).command).toContain('--no-auto-init');
+    // Explicit reaffirm: --auto-init is emitted.
+    expect(assembleCommand(TARGETS.ec2, { ...reqd, autoInit: true }).command).toContain('--auto-init');
+  });
+
   it('rejects a param value carrying shell metacharacters (command injection)', () => {
     // The assembled command is executed via a shell, so an unquoted injection
     // in any value must be refused rather than interpolated.

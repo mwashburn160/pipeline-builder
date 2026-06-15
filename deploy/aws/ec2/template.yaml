@@ -146,15 +146,15 @@ Parameters:
 
   AutoInit:
     Type: String
-    Default: "false"
+    Default: "true"
     AllowedValues: ["true", "false"]
     Description: >
-      When true, the instance auto-runs init-platform on first boot (register admin +
+      ON BY DEFAULT. The instance auto-runs init-platform on first boot (register admin +
       build/publish the bootstrap image + load ALL of plugins/compliance/sample-pipelines),
-      so no manual on-box step is needed. Adds ~30-60 min to first boot (plugin image
-      builds); progress is in /var/log/user-data.log. SECURITY: this registers the admin
-      with the default password (SecurePassword123!) — change it after first login, and
-      prefer leaving this false in public mode. Default false (run init-platform manually).
+      so no manual on-box step is needed. Set to "false" to skip it and run init-platform
+      yourself. Adds ~30-60 min to first boot (plugin image builds); progress is in
+      /var/log/user-data.log. SECURITY: registers the admin with the default password
+      (SecurePassword123!) — change it after first login (especially in public mode).
 
 # =============================================================================
 # Conditions

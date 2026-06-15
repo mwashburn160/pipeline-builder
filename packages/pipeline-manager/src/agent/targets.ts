@@ -74,7 +74,10 @@ const REGION: InputSpec = { flag: 'region', key: 'region', description: 'AWS reg
 const DEPLOY_MODE: InputSpec = { flag: 'deploy-mode', key: 'deployMode', description: 'public (internet-facing ALB) or private (internal, default)' };
 const KEY_PAIR: InputSpec = { flag: 'key-pair', key: 'keyPair', description: 'EC2 key pair in the region (break-glass serial console; routine access is SSM)' };
 const INSTANCE_TYPE: InputSpec = { flag: 'instance-type', key: 'instanceType', description: 'EC2 instance type (default t3.2xlarge)' };
-const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'Instance self-runs init-platform on first boot (register + all loads)', boolean: true };
+// Auto-init is ON BY DEFAULT on ec2 (setup.sh/template default true), so `--no-auto-init`
+// is the load-bearing opt-out and `--auto-init` is a no-op reaffirm — mirrors --email/--no-email.
+const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'Instance self-runs init-platform on first boot — the DEFAULT on ec2 (register + all loads)', boolean: true };
+const NO_AUTO_INIT: InputSpec = { flag: 'no-auto-init', key: 'noAutoInit', description: 'Skip on-boot auto-init; run init-platform manually on the box instead', boolean: true };
 
 // SES / email family — shared by ec2 + fargate. SES is provisioned BY DEFAULT
 // on AWS deploys; `--no-email` is the opt-out (`--email` is a harmless no-op kept
@@ -141,8 +144,8 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     entrypoint: 'bin/setup.sh',
     sparsePaths: ['deploy/aws/ec2'],
     required: [KEY_PAIR, DOMAIN, HOSTED_ZONE],
-    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, INSTANCE_TYPE, AUTO_INIT, ...EMAIL],
-    postDeploy: './deploy/bin/init-platform.sh ec2  # from inside the VPC (SSM), unless --auto-init',
+    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, INSTANCE_TYPE, AUTO_INIT, NO_AUTO_INIT, ...EMAIL],
+    postDeploy: './deploy/bin/init-platform.sh ec2  # auto-runs on the instance by default; --no-auto-init to do it manually',
     cost: '~$140-265/mo',
     bestFor: 'Dev / staging',
     deploys: 'the platform on a single EC2 instance via CloudFormation — a VPC, the instance (running the Minikube stack), an ALB, a Route 53 record + ACM cert for the domain, and (by default) SES email. The instance pulls images on first boot.',

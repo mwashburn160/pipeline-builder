@@ -56,10 +56,11 @@ ALERT_EMAIL="${ALERT_EMAIL:-}"
 # to create NO bastion (app instance stays SSM-only). `-` (not `:-`) so an explicit "" is
 # preserved as the disable signal. See template.yaml BastionSshCidr.
 BASTION_SSH_CIDR="${BASTION_SSH_CIDR-0.0.0.0/0}"
-# Auto-init: when true, the instance runs init-platform on first boot (register + build
-# bootstrap image + load ALL of plugins/compliance/samples) — no manual on-box step.
-# Adds ~30-60 min to first boot; progress in /var/log/user-data.log. See template AutoInit.
-AUTO_INIT="${AUTO_INIT:-false}"
+# Auto-init: ON BY DEFAULT — the instance runs init-platform on first boot (register +
+# build bootstrap image + load ALL of plugins/compliance/samples), no manual on-box step.
+# Pass --no-auto-init (or AUTO_INIT=false) to skip it. Adds ~30-60 min to first boot;
+# progress in /var/log/user-data.log. See template AutoInit.
+AUTO_INIT="${AUTO_INIT:-true}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -80,6 +81,7 @@ while [[ $# -gt 0 ]]; do
     --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
     --bastion-ssh-cidr) BASTION_SSH_CIDR="$2"; shift 2 ;;
     --auto-init) AUTO_INIT="true"; shift ;;
+    --no-auto-init) AUTO_INIT="false"; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done

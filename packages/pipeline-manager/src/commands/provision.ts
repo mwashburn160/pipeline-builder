@@ -461,7 +461,8 @@ export function provision(program: Command): void {
     .option('--stack-name <name>', 'Stack name (EC2) / stack prefix (Fargate) to tear down — defaults to the deploy default')
     .option('--force', 'Skip the teardown typed-confirmation (DANGEROUS — for CI/automation only)', false)
     .option('--no-init', 'Skip the post-deploy register/init-platform step')
-    .option('--auto-init', 'EC2 only: the instance self-runs init-platform on first boot (register + all loads) — no manual on-box step. Adds ~30-60 min to boot; registers admin with the default password (change it after).', false)
+    .option('--auto-init', 'EC2: instance self-runs init-platform on first boot (register + all loads). This is the DEFAULT on ec2.')
+    .option('--no-auto-init', 'EC2: skip the on-boot auto-init and surface the manual on-box step instead. Adds ~30-60 min to boot when on; auto-init registers admin with the default password.')
     // Bootstrap (sparse clone) — provision a fresh machine in one command.
     .option('--repo [url]', 'Bootstrap: git-clone the platform repo first (sparse — only the needed deploy folders), then run from it (no value = the upstream default)')
     .option('--ref <ref>', 'Git branch/tag to check out when bootstrapping (default: main)')
@@ -500,8 +501,11 @@ export function provision(program: Command): void {
           emailFromName: options.emailFromName,
           alertEmail: options.alertEmail,
           noCreateSesIdentity: options.skipSesIdentity,
-          // EC2-only boolean; the ec2 target spec maps it to `--auto-init` on setup.sh.
+          // EC2 auto-init is ON BY DEFAULT (setup.sh/template default true). Like email,
+          // only the EXPLICIT flag is emitted: `--auto-init` (reaffirm) or the load-bearing
+          // `--no-auto-init` (opt out). The ec2 target spec maps both.
           autoInit: options.autoInit === true,
+          noAutoInit: options.autoInit === false,
         };
         const aiOpts = { provider: options.aiProvider, model: options.model };
 
@@ -517,9 +521,10 @@ export function provision(program: Command): void {
         const willPromptLoads = !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
         const postStepFlags = {
           init: options.init !== false,
-          // EC2 self-runs init on boot → resolvePostSteps drops the register step (it
-          // gates on target === 'ec2'); the ec2 target spec maps the flag to setup.sh.
-          autoInit: options.autoInit === true,
+          // EC2 auto-init is ON BY DEFAULT (off only with --no-auto-init). resolvePostSteps
+          // drops the register step when this is true AND target === 'ec2', so a default ec2
+          // deploy doesn't also surface a manual register step.
+          autoInit: options.autoInit !== false,
           buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
           smokeTest: options.withSmokeTest === true,
           events: options.withEvents === true,
