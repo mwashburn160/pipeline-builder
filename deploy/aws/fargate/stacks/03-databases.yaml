@@ -249,9 +249,13 @@ Resources:
             - Name: DB_PASSWORD
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:POSTGRES_PASSWORD::"
           MountPoints:
+            # Writable: the edoburu entrypoint generates /etc/pgbouncer/userlist.txt from
+            # DB_USER/DB_PASSWORD (scram-sha-256) at startup — a read-only mount blocks that,
+            # leaving auth_file pointing at a nonexistent file so every client connection is
+            # rejected. pgbouncer-init seeds pgbouncer.ini into this same volume first.
             - SourceVolume: pgbouncer-config
               ContainerPath: /etc/pgbouncer
-              ReadOnly: true
+              ReadOnly: false
           HealthCheck:
             Command:
               - CMD-SHELL
