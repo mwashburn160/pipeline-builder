@@ -48,9 +48,9 @@ export interface PostStepOptions {
   readonly buildBootstrap: boolean;
   /** False when `--no-init` — skips the register step entirely. */
   readonly init: boolean;
-  /** `--auto-init` (ec2 only): the EC2 instance self-runs init-platform on first boot, so the
-   *  register step is NOT surfaced here — it would duplicate that on-box run. (eks/minikube run
-   *  init via provision, not a deploy-managed auto-init.) */
+  /** True for `--init auto` (the default mode). On ec2 the instance self-runs init-platform on
+   *  first boot, so the register step is NOT surfaced here — it would duplicate that on-box run.
+   *  (eks/minikube run init via provision, not a deploy-managed first-boot init.) */
   readonly autoInit?: boolean;
   readonly smokeTest: boolean;
   /** `--with-events`: the AWS event-ingestion bundle (store-token → setup-events). */
@@ -76,10 +76,9 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   const steps: PostStep[] = [];
   const skipped: SkippedStep[] = [];
 
-  // --auto-init (ec2 only): the EC2 instance runs init-platform itself on first boot (register +
+  // `--init auto` on ec2: the EC2 instance runs init-platform itself on first boot (register +
   // all loads), so DON'T add a register step here — it would duplicate the on-box run. (eks and
   // minikube run init via provision, so they're not "managed".)
-  // (The caller prints a positive "auto-init enabled" note instead of a skip warning.)
   const autoInitManaged =
     opts.init && opts.autoInit === true && opts.target === 'ec2';
   if (opts.init && !autoInitManaged) {

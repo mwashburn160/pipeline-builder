@@ -32,15 +32,13 @@ autoModeConfig:
   enabled: true
 
 # EFS CSI is NOT included in Auto Mode — added for the RWX volumes shared across
-# nodes (in-cluster registry, loki, plugin build-temp/uploads). EBS comes with
-# Auto Mode. eksctl wires the Pod Identity association when withOIDC is set.
+# nodes (in-cluster registry, loki). EBS comes with Auto Mode. eksctl creates the
+# addon's recommended Pod Identity association (the EFS CSI controller role) from
+# `useDefaultPodIdentityAssociations` — `wellKnownPolicies` is NOT valid under an
+# addon's podIdentityAssociations (eksctl errors on it).
 addons:
   - name: aws-efs-csi-driver
-    podIdentityAssociations:
-      - namespace: kube-system
-        serviceAccountName: efs-csi-controller-sa
-        wellKnownPolicies:
-          efsCSIController: true
+    useDefaultPodIdentityAssociations: true
 
 # VPC: omit to let eksctl create a dedicated VPC, or pin an existing one here to
 # match the platform's networking (private subnets + NAT for image pulls).

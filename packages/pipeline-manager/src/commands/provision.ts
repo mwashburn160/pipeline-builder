@@ -251,10 +251,10 @@ export async function runPostSteps(
   adminEnv: Record<string, string>,
   opts: { yes?: boolean; autoRun?: boolean; autoInit?: boolean },
 ): Promise<void> {
-  // ec2 --auto-init: the instance self-runs init-platform on first boot, so there's no
+  // ec2 with `--init auto`: the instance self-runs init-platform on first boot, so there's no
   // register/loads step to surface here — confirm it and point at the boot log.
   if (opts.autoInit && target === 'ec2') {
-    printInfo('\n✓ Auto-init enabled — the instance runs init-platform itself on first boot');
+    printInfo('\n✓ Init mode: auto — the instance runs init-platform itself on first boot');
     printInfo('  (register admin + build bootstrap image + load plugins/compliance/samples).');
     printInfo('  It takes ~30-60 min; watch progress:');
     printInfo('    aws ssm start-session --target <InstanceId>   # InstanceId stack output');
@@ -645,14 +645,24 @@ export function provision(program: Command): void {
           return;
         }
 
-        // In `auto` mode the EC2 instance loads plugins/compliance/samples itself on the box,
-        // so the local load picker — and the load-folder fetch it triggers — is pointless.
-        // Skip both (the instance has its own checkout). `--init manual` restores them.
-        // (eks/minikube always run init via provision, so the picker stays for them.)
+        // With `--init auto` (the default) the EC2 instance loads plugins/compliance/samples
+        // itself on the box (bootstrap.sh hardcodes LOAD_*=y), so the local load picker — and
+        // the load-folder fetch it triggers — is pointless. Skip both (the instance has its
+        // own checkout).
         if (selfInit && target === 'ec2') {
           willPromptLoads = false;
           enabledLoadIds = [];
+        } else if (selfInit && target === 'eks' && !anyLoadFlag) {
+          // `--init auto` on eks initializes like ec2: NO interactive picker — default to
+          // loading ALL of plugins + compliance + samples (matching ec2's first-boot
+          // LOAD_*=y). Unlike ec2, eks runs init via provision over a kubectl port-forward,
+          // so the loads (and the sparse-clone folders they pull) ARE resolved here. Explicit
+          // `--with-*` flags override this default; `--init manual` / `--init skip` opt out.
+          willPromptLoads = false;
+          enabledLoadIds = LOAD_STEPS.map((s) => s.id);
+          postStepFlags.buildBootstrap = options.buildBootstrap === true || enabledLoadIds.includes('plugins');
         }
+        // minikube/local keep the interactive picker (local-dev; no `--init auto` load parity).
 
         // 4. Need a target to assemble a plan.
         if (!target) {
