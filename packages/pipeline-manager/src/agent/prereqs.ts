@@ -52,6 +52,25 @@ function awsIdentity(): string | null {
   return read('aws sts get-caller-identity --query Account --output text');
 }
 
+/**
+ * State of the ECS service-linked role (`AWSServiceRoleForECS`). ECS auto-creates it on the
+ * first `CreateCluster`, but that first attempt RACES and fails ("Unable to assume the service
+ * linked role"); the role then exists and a re-run succeeds. Pre-creating it avoids the failed
+ * first stack. Returns `unknown` when we can't tell (no `aws`, no creds, or no `iam:GetRole`) —
+ * so the caller never asserts "missing" on an AccessDenied, only on a real NoSuchEntity.
+ */
+function ecsLinkedRoleState(): 'present' | 'absent' | 'unknown' {
+  if (!has('aws')) return 'unknown';
+  try {
+    // stderr piped so the throw carries the AWS error; stdout ignored.
+    execSync('aws iam get-role --role-name AWSServiceRoleForECS', { stdio: ['ignore', 'ignore', 'pipe'], timeout: 15000 });
+    return 'present';
+  } catch (e: unknown) {
+    const stderr = String((e as { stderr?: Buffer | string }).stderr ?? '');
+    return /NoSuchEntity|cannot be found/i.test(stderr) ? 'absent' : 'unknown';
+  }
+}
+
 /** Parsed `git --version` as [major, minor], or null if git is absent/unparseable. */
 function gitVersion(): [number, number] | null {
   const out = read('git --version');
@@ -136,6 +155,23 @@ export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; with
   // openssl before the first deploy. ec2 bootstraps its secrets on the instance.
   if (target === 'fargate') {
     checks.push(check('openssl', has('openssl'), 'on PATH', 'install openssl — init-secrets.sh needs it to generate platform secrets'));
+    // ECS service-linked role: surface it as a heads-up (advisory — the deploy self-heals,
+    // and the principal may lack iam:GetRole). Only checked when we have working creds, and
+    // only asserted "missing" on a confirmed NoSuchEntity. ec2 doesn't use ECS, so fargate-only.
+    if (account !== null) {
+      const slr = ecsLinkedRoleState();
+      if (slr === 'present') {
+        checks.push({ name: 'ECS service-linked role', ok: true, detail: 'AWSServiceRoleForECS exists', required: false });
+      } else if (slr === 'absent') {
+        checks.push({
+          name: 'ECS service-linked role',
+          ok: false,
+          required: false,
+          detail: 'AWSServiceRoleForECS not found — the first ECS cluster create will create it, but that first attempt fails on the not-yet-ready role (the re-run then self-heals). To avoid the failed first stack, pre-create it: aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com',
+        });
+      }
+      // 'unknown' (no iam:GetRole / transient) → no line, rather than a misleading one.
+    }
   }
   return checks;
 }
