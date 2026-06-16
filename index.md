@@ -21,7 +21,7 @@ Rather than hand-wiring AWS CodePipeline, CodeBuild, IAM roles, and deployment s
 
 | 125 | 5 | 4 | 12 | 18 |
 |:---:|:-:|:-:|:--:|:--:|
-| **plugins** ready to use | **interfaces** to create pipelines | **deploy targets** from laptop to Fargate | **AI models** for pipeline generation | **compliance operators** for guardrails |
+| **plugins** ready to use | **interfaces** to create pipelines | **deploy targets** from laptop to EKS | **AI models** for pipeline generation | **compliance operators** for guardrails |
 
 ---
 
@@ -73,7 +73,7 @@ Plugin images are built with **rootless BuildKit** (`buildkitd`) — the same da
 - **Rootless & unprivileged** — runs as a non-root user with **no Docker daemon and no docker-socket mount**, removing the dind/socket attack surface.
 - **Builds and pushes directly** — Dockerfile build with native **layer caching**, pushing the OCI image straight to the registry.
 - **Trust built in** — uses the system CA bundle for registry auth; no per-container cert mounts.
-- **One code path everywhere** — Fargate, EC2/k8s, minikube, and local differ only in where the sidecar is hosted.
+- **One code path everywhere** — EKS, EC2, minikube, and local differ only in where the sidecar is hosted.
 
 | Category | Count | Examples |
 |----------|-------|----------|
@@ -177,10 +177,10 @@ npm install -g @pipeline-builder/pipeline-manager
 pipeline-manager provision --target local              # deploy it (shows the plan, then asks to confirm)
 pipeline-manager provision --target local --yes        # non-interactive (auto-accept prompts; for CI)
 pipeline-manager provision --target local --json       # inspect the plan as JSON, run nothing
-# or: pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email"
+# or: pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email"
 ```
 
-> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — on EC2/Fargate the platform initializes itself (EC2 on first boot, Fargate via a one-shot ECS task: register admin + load plugins/compliance/samples); on `local`/`minikube`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
+> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — on EC2 the platform initializes itself on first boot (register admin + load plugins/compliance/samples); on `local`/`minikube`/`eks`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
 
 Prefer to run it directly? The full stack runs locally with Docker — prebuilt public images, no registry login:
 
@@ -194,7 +194,7 @@ Then open **https://localhost:8443** (default admin `admin@internal` / `SecurePa
 
 From there:
 
-1. **Deploy** the platform — choose Local, Minikube, [EC2]({{ '/docs/aws-deployment.html' | relative_url }}), or Fargate
+1. **Deploy** the platform — choose Local, Minikube, [EC2]({{ '/docs/aws-deployment.html' | relative_url }}), or EKS
 2. **Register** an admin user and organization
 3. **Load plugins** from the catalog or upload your own
 4. **Build pipelines** through the dashboard, CLI, API, or AI prompt
@@ -203,8 +203,8 @@ From there:
 |--------|----------|------|
 | **Local** | Development | Free |
 | **Minikube** | Local Kubernetes | Free |
-| **EC2** | Dev / staging | ~$30–80/mo |
-| **Fargate** | Production | ~$100–300/mo |
+| **EC2** | Dev / staging | ~$140–265/mo |
+| **EKS (Auto Mode)** | Production | ~$150–400/mo |
 
 ---
 
@@ -217,6 +217,6 @@ From there:
 | [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine with 18 operators, computed fields, audit trail |
 | [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time interpolation for pipeline configs and plugin specs |
-| [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | EC2 and Fargate deployment, post-deploy setup |
+| [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | EC2 and EKS deployment, post-deploy setup |
 | [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}) | 125 pre-built plugins across 10 categories |
 | [Samples]({{ '/docs/samples.html' | relative_url }}) | Pipeline configs for 7 languages and CDK patterns |
