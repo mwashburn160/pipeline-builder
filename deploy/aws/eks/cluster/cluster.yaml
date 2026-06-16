@@ -8,10 +8,8 @@
 # and CoreDNS. There are no managed node groups to define here.
 #
 # NOTE: `${...}` tokens are substituted by bin/setup.sh (envsubst) before apply.
-# Schema validated against eksctl's Auto Mode ClusterConfig (autoModeConfig +
-# addons[].podIdentityAssociations). The one thing to confirm at deploy time is
-# `metadata.version` below — it must be an EKS version that is currently SUPPORTED
-# and ≥ 1.29 (Auto Mode's floor); bump it if 1.31 has aged out.
+# `${EKS_VERSION}` is set by setup.sh — default 1.36; override with `--eks-version X`, or
+# pass `--eks-version latest` to resolve the newest version EKS offers. Auto Mode requires ≥ 1.29.
 # =============================================================================
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
@@ -19,7 +17,7 @@ kind: ClusterConfig
 metadata:
   name: ${CLUSTER_NAME}        # default: pipeline-builder
   region: ${REGION}            # default: us-east-1
-  version: "1.31"              # Auto Mode requires ≥ 1.29; use a supported version
+  version: "${EKS_VERSION}"    # set by setup.sh (default 1.36; --eks-version X / latest)
   tags:
     Project: pipeline-builder
 

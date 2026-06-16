@@ -69,10 +69,14 @@ the API calls and manifest/eksctl syntax are validated statically, but verify ag
 real account on first deploy. Specifically:
 
 - [ ] Confirm the `aws-efs-csi-driver` addon's node DaemonSet schedules on Auto Mode nodes.
-- [ ] Confirm `metadata.version` in `cluster/cluster.yaml` (1.31) is still a supported EKS
-      version at deploy time (Auto Mode floor is 1.29).
 - [ ] First-deploy run of the SES phase (DKIM verification is async; the sandbox still
       applies — request production access + verify a real recipient to smoke-test).
+
+The Kubernetes version defaults to **1.36** for fresh installs (`setup.sh`/`cluster.yaml`).
+Override with `--eks-version <X>` / `$EKS_VERSION`, or pass `--eks-version latest` to resolve
+the newest version EKS offers (`aws eks describe-cluster-versions`). If EKS doesn't yet offer
+the requested version in your region, `eksctl create` fails with an unsupported-version error —
+check availability with `aws eks describe-cluster-versions --region <r>`.
 
 ## Quick start
 

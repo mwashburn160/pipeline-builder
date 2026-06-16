@@ -29,6 +29,7 @@ DEPLOY_MODE="${DEPLOY_MODE:-private}"            # public (internet-facing ALB) 
 NAMESPACE="${NAMESPACE:-pipeline-builder}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
+EKS_VERSION="${EKS_VERSION:-1.36}"               # pinned default for fresh installs; `latest` tracks newest, or --eks-version X
 # Email (SES) — provisioned by default (parity with ec2); --no-email opts out.
 EMAIL_ENABLED="${EMAIL_ENABLED:-true}"
 EMAIL_FROM="${EMAIL_FROM:-}"                     # default noreply@<domain> (set after parse)
@@ -50,6 +51,7 @@ while [ $# -gt 0 ]; do
     --email-from) EMAIL_FROM="$2"; shift 2 ;;
     --email-from-name) EMAIL_FROM_NAME="$2"; shift 2 ;;
     --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
+    --eks-version) EKS_VERSION="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -58,7 +60,15 @@ done
 case "$DEPLOY_MODE" in public|private) ;; *) echo "ERROR: --deploy-mode must be public|private" >&2; exit 1 ;; esac
 EMAIL_FROM="${EMAIL_FROM:-noreply@$DOMAIN}"
 SES_CONFIGURATION_SET="${CLUSTER_NAME}-email"    # stack-scoped so a 2nd cluster doesn't collide
-export CLUSTER_NAME REGION DOMAIN NAMESPACE
+# Kubernetes version: a fixed value (e.g. 1.36, the default) is used as-is; the special
+# value `latest` resolves to the newest version EKS currently offers (so a deploy can
+# track current Kubernetes without editing this script).
+if [ "$EKS_VERSION" = latest ]; then
+  EKS_VERSION=$(aws eks describe-cluster-versions --region "$REGION" \
+    --query 'sort_by(clusterVersions, &to_number(clusterVersion))[-1].clusterVersion' --output text 2>/dev/null || true)
+  case "$EKS_VERSION" in 1.*) ;; *) EKS_VERSION=1.36 ;; esac   # fallback (older aws CLI / no API)
+fi
+export CLUSTER_NAME REGION DOMAIN NAMESPACE EKS_VERSION
 ALB_SCHEME=$([ "$DEPLOY_MODE" = public ] && echo internet-facing || echo internal); export ALB_SCHEME
 
 # ---- Helpers (plain kubectl — no minikube wrapper) ----
@@ -68,7 +78,7 @@ kube()      { kubectl "$@" --dry-run=client -o yaml | kubectl apply -f - ; }
 secret()    { local n="$1"; shift; kube create secret generic "$n" "$@" -n "$NAMESPACE"; echo "  secret $n"; }
 configmap() { local n="$1"; shift; kube create configmap "$n" "$@" -n "$NAMESPACE"; echo "  configmap $n"; }
 
-echo "=== EKS Auto Mode deploy: cluster=$CLUSTER_NAME region=$REGION mode=$DEPLOY_MODE domain=$DOMAIN ==="
+echo "=== EKS Auto Mode deploy: cluster=$CLUSTER_NAME region=$REGION mode=$DEPLOY_MODE k8s=$EKS_VERSION domain=$DOMAIN ==="
 
 # eksctl: prefer the binary; otherwise run the official image via Docker so a host
 # with Docker + AWS creds needs no eksctl install. Mounts ~/.aws (creds) + ~/.kube
