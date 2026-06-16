@@ -13,11 +13,15 @@ set -uo pipefail
 #   5. ACM      → deletes the cert (only possible once the ALB releasing it is gone).
 #
 #   ./bin/shutdown.sh --cluster-name pipeline-builder --region us-east-1 \
-#       --domain pipeline-builder.com --hosted-zone-id Z...   [--yes]
+#       --domain pipeline-builder.com [--hosted-zone-id Z...] [--delete-volumes] [--yes]
+#
+# Pass --domain for a COMPLETE teardown — without it the cluster + EFS are removed but the
+# ACM cert, Route 53 alias, and SES resources are LEFT BEHIND. --hosted-zone-id is optional:
+# it's auto-discovered from --domain. --delete-volumes also removes the Retain'd pb-ebs EBS
+# volumes (DB data — irreversible); without it they're reported, not deleted.
 #
 # Best-effort: continues past individual failures and warns, so a partial teardown
-# still removes as much as possible. EBS volumes on the `pb-ebs` (Retain) class are
-# NOT auto-deleted — they are reported at the end so you can remove them manually.
+# still removes as much as possible.
 # =============================================================================
 CLUSTER_NAME="${CLUSTER_NAME:-pipeline-builder}"
 REGION="${REGION:-us-east-1}"
@@ -25,6 +29,7 @@ DOMAIN="${DOMAIN:-}"
 HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"
 ASSUME_YES=false
+DELETE_VOLUMES=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -32,12 +37,26 @@ while [ $# -gt 0 ]; do
     --region) REGION="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --hosted-zone-id) HOSTED_ZONE_ID="$2"; shift 2 ;;
+    --delete-volumes) DELETE_VOLUMES=true; shift ;;
     --yes|-y) ASSUME_YES=true; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
 log() { echo ""; echo "=== $1 ==="; }
+
+# Auto-discover the hosted zone from --domain (walking up to the parent zone) so the
+# operator only needs --domain. Explicit --hosted-zone-id always wins.
+if [ -n "$DOMAIN" ] && [ -z "$HOSTED_ZONE_ID" ]; then
+  n="$DOMAIN"
+  while [ -n "$n" ]; do
+    zid=$(aws route53 list-hosted-zones-by-name --dns-name "$n" \
+      --query "HostedZones[?Name=='${n}.'].Id | [0]" --output text 2>/dev/null | sed 's#/hostedzone/##' || true)
+    case "$zid" in Z*) HOSTED_ZONE_ID="$zid"; break ;; esac
+    case "$n" in *.*) n="${n#*.}" ;; *) break ;; esac
+  done
+  [ -n "$HOSTED_ZONE_ID" ] && echo "  resolved hosted zone $HOSTED_ZONE_ID for $DOMAIN"
+fi
 
 # eksctl: prefer the binary, else the official image via Docker (mirrors setup.sh).
 if command -v eksctl >/dev/null 2>&1; then
@@ -56,8 +75,19 @@ else
 fi
 
 echo "=== EKS teardown: cluster=$CLUSTER_NAME region=$REGION domain=${DOMAIN:-<none>} ==="
-echo "This DELETES the cluster, its nodes, the EFS filesystem and (if --domain given)"
-echo "the ACM cert + Route 53 alias. EBS volumes on pb-ebs (Retain) are kept."
+echo "This DELETES the cluster, its nodes, and the EFS filesystem."
+if [ -n "$DOMAIN" ]; then
+  echo "Plus (--domain given): the ACM cert, Route 53 alias, and SES identity/config-set/SNS."
+else
+  echo ""
+  echo "  ⚠ WARNING: --domain NOT given. The cluster + EFS will be deleted, but the ACM cert,"
+  echo "    Route 53 alias, and SES resources will be LEFT BEHIND. Re-run with --domain (the"
+  echo "    hosted zone is auto-discovered) for a complete teardown."
+  echo ""
+fi
+[ "$DELETE_VOLUMES" = true ] \
+  && echo "--delete-volumes: the Retain'd pb-ebs EBS volumes (DB data) WILL be deleted." \
+  || echo "EBS volumes on pb-ebs (Retain) are kept (pass --delete-volumes to remove them)."
 if [ "$ASSUME_YES" != true ]; then
   printf 'Type the cluster name "%s" to confirm: ' "$CLUSTER_NAME"
   read -r REPLY
@@ -181,7 +211,26 @@ if [ -n "$DOMAIN" ]; then
     && echo "  deleted SES identity $DOMAIN" || echo "  (SES identity $DOMAIN not found / kept)"
 fi
 
+# ---- Phase 7: Retain'd pb-ebs EBS volumes ----------------------------------
+# pb-ebs uses ReclaimPolicy=Retain, so the DB volumes survive the cluster delete.
+# After the cluster is gone they're detached (status=available). Deleted only with
+# --delete-volumes (they hold data); otherwise reported.
+log "Phase 7: Retain'd EBS volumes (pb-ebs)"
+VOLS=$(aws ec2 describe-volumes --region "$REGION" \
+  --filters "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=$NAMESPACE" "Name=status,Values=available" \
+  --query 'Volumes[].VolumeId' --output text 2>/dev/null || true)
+if [ -n "$VOLS" ] && [ "$VOLS" != None ]; then
+  if [ "$DELETE_VOLUMES" = true ]; then
+    for v in $VOLS; do
+      aws ec2 delete-volume --volume-id "$v" --region "$REGION" 2>/dev/null \
+        && echo "  deleted volume $v" || echo "  WARNING: could not delete $v (still attached? retry shortly)" >&2
+    done
+  else
+    echo "  kept (DB data) — re-run with --delete-volumes to remove, or delete manually:"
+    for v in $VOLS; do echo "    aws ec2 delete-volume --volume-id $v --region $REGION"; done
+  fi
+else
+  echo "  none found"
+fi
+
 log "Teardown complete"
-echo "  NOTE: EBS volumes provisioned via the 'pb-ebs' StorageClass use ReclaimPolicy=Retain"
-echo "  and are NOT deleted. List + remove leftovers with:"
-echo "    aws ec2 describe-volumes --region $REGION --filters Name=tag:kubernetes.io/created-for/pvc/namespace,Values=$NAMESPACE --query 'Volumes[].VolumeId'"
