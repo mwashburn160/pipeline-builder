@@ -759,6 +759,24 @@ export function provision(program: Command): void {
           }
         }
 
+        // The ECS service-linked role (fargate) is advisory, not a fetchable tool — offer to
+        // create it on confirm (mirrors the tool-fetch above). Creating it up front lets the
+        // FIRST ECS cluster create succeed instead of failing on the not-yet-ready-role race.
+        // Idempotent + safe; never blocks (advisory check; the deploy also self-heals on retry).
+        const slrMissing = prereqs.find((c) => c.name === 'ECS service-linked role' && !c.ok);
+        if (slrMissing) {
+          if (await confirm('\nECS service-linked role (AWSServiceRoleForECS) is missing — create it now? (lets the first ECS cluster create succeed cleanly)', options.yes)) {
+            printInfo('Creating AWSServiceRoleForECS…');
+            const { code } = await runScript('aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com', cwd, { quiet: true, capture: false });
+            if (code === 0) {
+              printSuccess('ECS service-linked role created.');
+              prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
+            } else {
+              printWarning('Could not create it (it may already exist, or you lack iam:CreateServiceLinkedRole) — the deploy still self-heals on retry if needed.');
+            }
+          }
+        }
+
         // 7b. Gated execution. Check prereqs / required inputs first — this also
         // catches a missing `git` when bootstrapping.
         const blocked = executionBlocked(prereqs, missing);
