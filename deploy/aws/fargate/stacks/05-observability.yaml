@@ -76,7 +76,11 @@ Resources:
             TransitEncryption: ENABLED
             AuthorizationConfig:
               AccessPointId:
-                Fn::ImportValue: !Sub "${StackPrefix}-PrometheusAccessPointArn"
+                Fn::Select:
+                  - 1
+                  - Fn::Split:
+                      - "/"
+                      - Fn::ImportValue: !Sub "${StackPrefix}-PrometheusAccessPointArn"
               IAM: ENABLED
       ContainerDefinitions:
         - Name: config-init
@@ -221,7 +225,11 @@ Resources:
             TransitEncryption: ENABLED
             AuthorizationConfig:
               AccessPointId:
-                Fn::ImportValue: !Sub "${StackPrefix}-LokiAccessPointArn"
+                Fn::Select:
+                  - 1
+                  - Fn::Split:
+                      - "/"
+                      - Fn::ImportValue: !Sub "${StackPrefix}-LokiAccessPointArn"
               IAM: ENABLED
       ContainerDefinitions:
         - Name: config-init

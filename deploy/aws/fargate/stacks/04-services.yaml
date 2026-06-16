@@ -882,7 +882,11 @@ Resources:
             TransitEncryption: ENABLED
             AuthorizationConfig:
               AccessPointId:
-                Fn::ImportValue: !Sub "${StackPrefix}-BuildkitCacheAccessPointArn"
+                Fn::Select:
+                  - 1
+                  - Fn::Split:
+                      - "/"
+                      - Fn::ImportValue: !Sub "${StackPrefix}-BuildkitCacheAccessPointArn"
               IAM: ENABLED
         # Ephemeral writable scratch for the Node.js process (plugin tarball
         # staging, buildctl temp files). Sized small; reset on task replace.
