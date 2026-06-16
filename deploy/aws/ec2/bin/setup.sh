@@ -130,29 +130,11 @@ echo ""
 # -----------------------------------------------------------------------
 # Helper: deploy a stack (waits for completion)
 # -----------------------------------------------------------------------
+# Shared CFN deploy helper (clears un-updatable rollback stacks before deploy). deploy/bin
+# is in every target's clone (COMMON_SPARSE_PATHS). EC2 uses the bare stack name as-is.
+. "$SCRIPT_DIR/../../../bin/cfn-deploy.sh"
 deploy_stack() {
-  local stack_name="$1"
-  local template_file="$2"
-  shift 2
-  local params=("$@")
-
-  echo ""
-  echo "=== Deploying: ${stack_name} ==="
-
-  local cmd=(
-    aws cloudformation deploy
-    --stack-name "${stack_name}"
-    --template-file "$template_file"
-    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
-    --region "$REGION"
-    --no-fail-on-empty-changeset
-  )
-  if [ ${#params[@]} -gt 0 ]; then
-    cmd+=(--parameter-overrides "${params[@]}")
-  fi
-  "${cmd[@]}"
-
-  echo "  Done"
+  cfn_deploy "$@"
 }
 
 # Read a single output value from the base stack ("" if absent).
