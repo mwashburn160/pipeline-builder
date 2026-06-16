@@ -381,11 +381,23 @@ Resources:
           PortMappings:
             - ContainerPort: 27017
               Protocol: tcp
-          Command:
-            - mongod
-            - "--replSet"
-            - rs0
-            - "--bind_ip_all"
+          # The mongo image enables --auth when MONGO_INITDB_ROOT_* are set, and --auth +
+          # --replSet requires a keyFile. ECS can't mount a file (unlike local's bind mount),
+          # so wrap the image entrypoint: derive a STABLE keyfile from the root password
+          # (single-node rs0 — it only needs to be consistent across restarts), then hand off
+          # to docker-entrypoint.sh so its root-user creation still runs. The keyfile is written
+          # as root and chowned to the mongodb user the image gosu-drops to.
+          EntryPoint:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              KF=/tmp/mongodb-keyfile
+              printf '%s' "$MONGO_INITDB_ROOT_PASSWORD" | sha512sum | cut -c1-128 > "$KF"
+              chmod 400 "$KF"
+              chown mongodb:mongodb "$KF"
+              exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile "$KF"
+          Command: []
           Environment:
             - Name: MONGO_INITDB_ROOT_USERNAME
               Value: admin
