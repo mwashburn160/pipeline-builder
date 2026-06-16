@@ -88,6 +88,10 @@ if command -v eksctl >/dev/null 2>&1; then
   eksctl() { command eksctl "$@"; }
 else
   command -v docker >/dev/null 2>&1 || { echo "ERROR: need eksctl on PATH or Docker (for public.ecr.aws/eksctl/eksctl)" >&2; exit 1; }
+  # The official eksctl image bundles eksctl ONLY (no aws CLI), so eksctl can't self-verify
+  # the kubeconfig it writes ("could not find authenticator command: aws") — harmless here,
+  # since the host's aws/kubectl do the real work. To run the WHOLE deploy in one container
+  # that has aws + kubectl + eksctl (no host tools, no warning): bin/deploy-docker.sh.
   echo "  eksctl not found — using public.ecr.aws/eksctl/eksctl via Docker"
   mkdir -p "$HOME/.kube" "$HOME/.aws"
   eksctl() {
