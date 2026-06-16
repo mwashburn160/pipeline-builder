@@ -173,6 +173,12 @@ spec:
               value: "5000"
             - name: IMAGE_REGISTRY_HTTP
               value: "true"
+            # Must match the registry's REGISTRY_AUTH_TOKEN_REALM (registry.yaml) so the
+            # plugin keys Basic auth under the realm host the registry redirects to when
+            # minting a push bearer token. Without it docker-build.ts falls back to the
+            # PLATFORM_BASE_URL host (wrong) and plugin image pushes 401 / insufficient_scope.
+            - name: IMAGE_REGISTRY_TOKEN_REALM
+              value: "http://image-registry:3000/token"
             # Builds run on the in-pod buildkitd sidecar via the shared
             # unix socket. Tier partitioning lives at the BullMQ queue
             # level inside the plugin service (developer / pro /

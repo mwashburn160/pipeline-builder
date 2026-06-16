@@ -77,18 +77,6 @@ get_spec_field() {
 }
 
 # ---------------------------------------------------------------------------
-# sed_inplace — portable in-place sed (macOS uses -i '', Linux uses -i)
-#   $1 sed expression   $2 file path
-# ---------------------------------------------------------------------------
-sed_inplace() {
-  if sed --version >/dev/null 2>&1; then
-    sed -i "$1" "$2"
-  else
-    sed -i '' "$1" "$2"
-  fi
-}
-
-# ---------------------------------------------------------------------------
 # sha256_hash — portable SHA-256 (works on Linux and macOS)
 #   Reads stdin, outputs 64-char hex digest
 # ---------------------------------------------------------------------------

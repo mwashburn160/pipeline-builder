@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
 done
 
 TARGET="${1:-local}"
-NAMESPACE="pipeline-builder"
+NAMESPACE="${NAMESPACE:-pipeline-builder}"   # env-overridable, matching push-base-images.sh
 TUNNEL_PID=""
 
 # ---- Cleanup ----
@@ -295,6 +295,15 @@ if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
         exit "$BUILD_RC"
       fi
     fi
+    echo ""
+  elif [ "${BASES_PREBUILT:-false}" = "true" ]; then
+    # build_image strategy, bases PREBUILT — trust the in-cluster registry already holds
+    # the `FROM` bases (seeded out-of-band). Per-plugin images are still built at upload
+    # time by the plugin service's buildkitd, which resolves them from the registry.
+    # (The Fargate init task does NOT take this path: it builds bases via its buildkitd
+    # sidecar — BASE_BUILDER=buildkit — and leaves BASES_PREBUILT unset.)
+    echo ""
+    echo "  Base images: PREBUILT (BASES_PREBUILT=true) — skipping the base build; trusting the registry."
     echo ""
   else
     # build_image strategy — seed the in-cluster registry with base

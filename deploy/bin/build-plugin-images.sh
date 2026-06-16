@@ -38,6 +38,11 @@ FORCE=false
 RESET=false
 DRY_RUN=false
 BASES_ONLY=false
+# When true, trust that the base images are ALREADY in the in-cluster registry and
+# skip building+pushing them. Required on hosts with no Docker daemon (e.g. a Fargate
+# init task): the bases are prebuilt in CI and seeded into the registry out-of-band.
+# Default false — local/minikube/ec2 build the bases as before.
+BASES_PREBUILT="${BASES_PREBUILT:-false}"
 CATEGORY_FILTER=""
 MAX_IMAGE_SIZE_MB="${MAX_IMAGE_SIZE_MB:-4096}"
 
@@ -50,6 +55,17 @@ MAX_IMAGE_SIZE_MB="${MAX_IMAGE_SIZE_MB:-4096}"
 # per-push platform flag — it pushes the tarball's arch as-is.
 PUBLISH_PLATFORM="${PUBLISH_PLATFORM:-linux/amd64}"
 
+# Base-image builder. "docker" (default) = `docker build` (needs a Docker daemon, the
+# local/minikube/ec2 path). "buildkit" = build via `buildctl` against BUILDKIT_HOST and
+# push straight to the registry — NO Docker daemon (a Fargate init task with a buildkitd
+# sidecar). In buildkit mode push-base-images.sh is skipped (buildctl pushes directly).
+BASE_BUILDER="${BASE_BUILDER:-docker}"
+# In-cluster registry the buildkit builder pushes bases to (must match the buildkitd
+# mirror, e.g. registry.pipeline-builder.local:5000 on fargate).
+REGISTRY_HOST="${REGISTRY_HOST:-registry:5000}"
+REGISTRY_INSECURE="${REGISTRY_INSECURE:-true}"
+BUILDKIT_HOST="${BUILDKIT_HOST:-}"
+
 # ---- Argument parsing ----
 
 while [ $# -gt 0 ]; do
@@ -58,6 +74,7 @@ while [ $# -gt 0 ]; do
     --reset)     RESET=true; shift ;;
     --dry-run)   DRY_RUN=true; shift ;;
     --bases-only) BASES_ONLY=true; shift ;;
+    --skip-bases) BASES_PREBUILT=true; shift ;;
     --category)  CATEGORY_FILTER="$2"; shift 2 ;;
     --max-image-size) MAX_IMAGE_SIZE_MB="$2"; shift 2 ;;
     --help|-h)
@@ -68,6 +85,9 @@ while [ $# -gt 0 ]; do
       echo "  --reset              Revert all plugins to buildType: build_image"
       echo "  --dry-run            Show what would be built without building"
       echo "  --bases-only         Build + push base images only, skip per-plugin builds"
+      echo "  --skip-bases         Trust prebuilt bases already in the registry; skip the base"
+      echo "                       docker build+push (also: BASES_PREBUILT=true). For Docker-less"
+      echo "                       hosts (e.g. a Fargate init task)."
       echo "  --category CATS      Comma-separated categories (e.g., language,security)"
       echo "  --max-image-size MB  Skip images larger than MB (default: 4096)"
       exit 0
@@ -184,7 +204,67 @@ _build_base_quiet() {
   return "$_rc"
 }
 
+# Write a one-time docker config with the in-cluster registry's `_token` credential so
+# buildctl can PUSH the built base. Mirrors how api/plugin drives buildkitd (DOCKER_CONFIG
+# carries the registry auth the buildkit exporter reads). The JWT is minted from JWT_SECRET.
+_BK_AUTH_DIR=""
+_setup_buildkit_auth() {
+  [ -n "$_BK_AUTH_DIR" ] && return 0
+  local _jwt _auth
+  _jwt="$(sign_platform_jwt "${JWT_SECRET:-}")"
+  [ -z "$_jwt" ] && { echo "ERROR: failed to sign platform JWT (JWT_SECRET missing?) for buildkit push" >&2; return 1; }
+  _auth="$(printf '%s' "_token:${_jwt}" | base64 | tr -d '\n')"
+  _BK_AUTH_DIR="$(mktemp -d)"
+  ( umask 077; cat > "$_BK_AUTH_DIR/config.json" <<JSON
+{ "auths": { "${REGISTRY_HOST}": { "auth": "${_auth}" } } }
+JSON
+  )
+}
+
+# Build one base via buildctl (no Docker) and push it to ${REGISTRY_HOST}/library/<tag>.
+_build_base_buildkit() {
+  local _tag="$1" _ctx="$2" _rc=0
+  _setup_buildkit_auth || return 1
+  [ -z "$BUILDKIT_HOST" ] && { echo "  ✗ $_tag — BUILDKIT_HOST is empty (no buildkitd to build against)" >&2; return 1; }
+  local _out="type=image,name=${REGISTRY_HOST}/library/${_tag},push=true"
+  [ "$REGISTRY_INSECURE" = "true" ] && _out="${_out},registry.insecure=true"
+  # The root base takes APT_MIRROR; family bases inherit a fully-installed base (no apt).
+  local _opt_args=()
+  if [ "$(basename "$_ctx")" = "_plugin-base" ]; then
+    local _mirror; _mirror=$(_detect_apt_mirror)
+    [ -n "$_mirror" ] && _opt_args+=(--opt "build-arg:APT_MIRROR=${_mirror}")
+  fi
+  local _start; _start=$(date +%s)
+  DOCKER_CONFIG="$_BK_AUTH_DIR" buildctl --addr "$BUILDKIT_HOST" build \
+    --frontend dockerfile.v0 \
+    --local "context=${_ctx}" \
+    --local "dockerfile=${_ctx}" \
+    --opt "platform=${PUBLISH_PLATFORM}" \
+    "${_opt_args[@]+"${_opt_args[@]}"}" \
+    --output "$_out" || _rc=$?
+  [ "$_rc" -eq 0 ] && echo "  ✓ $_tag → ${REGISTRY_HOST}/library/${_tag} ($(($(date +%s) - _start))s)" \
+                   || echo "  ✗ $_tag — buildctl failed" >&2
+  return "$_rc"
+}
+
+# Dispatch a single base build to the configured builder.
+_build_base() {
+  if [ "$BASE_BUILDER" = "buildkit" ]; then
+    _build_base_buildkit "$1" "$2"
+  else
+    _build_base_quiet "$1" "$2"
+  fi
+}
+
 build_base_images() {
+  # Prebuilt: trust the registry already has the bases (no Docker daemon available,
+  # e.g. a Fargate init task). The bases must have been seeded out-of-band (CI →
+  # registry); buildkitd resolves `FROM pipeline-plugin-base:24.04` from there.
+  if [ "$BASES_PREBUILT" = true ]; then
+    echo "=== Base images: PREBUILT — trusting the in-cluster registry (skipping docker build + push) ==="
+    return 0
+  fi
+
   local _base_root="$PLUGINS_DIR/_base"
   [ ! -d "$_base_root" ] && return 0
 
@@ -196,7 +276,7 @@ build_base_images() {
 
   # Root base must build first.
   if [ -f "$_base_root/_plugin-base/Dockerfile" ]; then
-    _build_base_quiet "pipeline-plugin-base:24.04" "$_base_root/_plugin-base" || return 1
+    _build_base "pipeline-plugin-base:24.04" "$_base_root/_plugin-base" || return 1
   fi
 
   # Family bases — alphabetical, all inherit FROM pipeline-plugin-base:24.04.
@@ -209,8 +289,15 @@ build_base_images() {
     local _name
     _name=$(basename "$_fam_dir" | sed 's/^_//')
     [ "$_name" = "plugin-base" ] && continue
-    _build_base_quiet "pipeline-${_name}:1.0" "$_fam_dir" || return 1
+    _build_base "pipeline-${_name}:1.0" "$_fam_dir" || return 1
   done
+
+  # buildkit mode pushed each base directly (--output push=true) — no separate push step.
+  if [ "$BASE_BUILDER" = "buildkit" ]; then
+    echo "  (buildkit) bases pushed to ${REGISTRY_HOST}/library/ during build."
+    echo ""
+    return 0
+  fi
 
   # Push the bases into the in-cluster registry so buildkitd (separate
   # image cache from the host docker daemon) can resolve them. The
@@ -300,7 +387,11 @@ BUILT=0; SKIPPED=0; FAILED=0
 
 # Build list of eligible plugin directories into a temp file (avoids subshell)
 PLUGIN_LIST_FILE=$(mktemp)
-trap "rm -f '$PLUGIN_LIST_FILE'" EXIT
+# Single cumulative cleanup: the plugin-list temp AND the buildkit auth dir
+# (_BK_AUTH_DIR holds config.json with the registry _token credential — must not
+# leak). _BK_AUTH_DIR may be empty if the buildkit path never ran; guard the rm.
+_cleanup() { rm -f "$PLUGIN_LIST_FILE"; [ -n "${_BK_AUTH_DIR:-}" ] && rm -rf "$_BK_AUTH_DIR"; }
+trap _cleanup EXIT
 for category_dir in "$PLUGINS_DIR"/*/; do
   category=$(basename "$category_dir")
   case " $CATEGORIES " in *" $category "*) ;; *) continue ;; esac
@@ -472,7 +563,7 @@ while IFS= read -r plugin_dir; do
     fi
     # Single yq write: switch to prebuilt, drop the source-build fields
     # the .strict() schema would otherwise reject, persist the fresh tag.
-    # Replaces a cascade of sed_inplace deletes + `>>` append that left
+    # Replaces a cascade of in-place sed deletes + `>>` append that left
     # field order non-deterministic across plugins.
     TAG="$tag" yq -i '
       del(.imageHash) | del(.imageTag) | del(.dockerfile)

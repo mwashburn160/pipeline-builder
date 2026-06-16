@@ -971,6 +971,12 @@ Resources:
               Value: /opt/pipeline/pipeline-data/plugins-data/uploads
             - Name: IMAGE_REGISTRY_HTTP
               Value: "true"
+            # Must match the registry's REGISTRY_AUTH_TOKEN_REALM (06-admin.yaml) so the
+            # plugin keys Basic auth under the realm host the registry redirects to when
+            # minting a push bearer token. Without it docker-build.ts falls back to the
+            # PLATFORM_BASE_URL host (wrong) and plugin image pushes 401 / insufficient_scope.
+            - Name: IMAGE_REGISTRY_TOKEN_REALM
+              Value: http://image-registry.pipeline-builder.local:3000/token
             # Builds run on the co-located buildkitd container in the
             # plugin task via the shared unix socket. Tier partitioning
             # lives at the BullMQ queue level inside the plugin service
@@ -1461,6 +1467,13 @@ Resources:
               Value: !Ref OtelTracingEnabled
             - Name: OTEL_EXPORTER_OTLP_ENDPOINT
               Value: http://jaeger.pipeline-builder.local:4318/v1/traces
+            # Billing sends notifications (plan change / payment) via the message service.
+            # FQDN form like every other fargate cross-service host — a bare `message` has
+            # no Cloud Map search domain under awsvpc and fails to resolve (ENOTFOUND).
+            - Name: MESSAGE_SERVICE_HOST
+              Value: message.pipeline-builder.local
+            - Name: MESSAGE_SERVICE_PORT
+              Value: "3000"
             - Name: SERVICE_NAME
               Value: billing
             - Name: BILLING_ENABLED

@@ -44,6 +44,17 @@ CREATE_SES_IDENTITY="${CREATE_SES_IDENTITY:-true}"
 # Optional: subscribe an address to the SES bounce/complaint SNS topic for early
 # warning before SES throttles the account (you must confirm the email AWS sends).
 ALERT_EMAIL="${ALERT_EMAIL:-}"
+# Auto-init (07-init): ON BY DEFAULT — deploys a one-shot ECS task that runs
+# init-platform.sh (register admin + load plugins/compliance/samples) once the platform
+# is up. Pass --no-auto-init to skip it (run init yourself from a VPC host). Requires the
+# prebuilt INIT_IMAGE (repo+tools baked) and prebuilt bootstrap/base images in the registry.
+AUTO_INIT="${AUTO_INIT:-true}"
+INIT_IMAGE="${INIT_IMAGE:-ghcr.io/mwashburn160/pipeline-init:latest}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@internal}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-SecurePassword123!}"   # CHANGE for public mode
+INIT_VERSION="${INIT_VERSION:-1}"                        # bump to force a re-run
+# Plugin base images are built + pushed into the in-cluster registry by the init task's
+# rootless buildkitd sidecar (07-init.yaml, BASE_BUILDER=buildkit) — no seeding step.
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -60,6 +71,12 @@ while [[ $# -gt 0 ]]; do
     --email-from-name) EMAIL_FROM_NAME="$2"; shift 2 ;;
     --no-create-ses-identity) CREATE_SES_IDENTITY="false"; shift ;;
     --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
+    --no-auto-init) AUTO_INIT="false"; shift ;;
+    --auto-init) AUTO_INIT="true"; shift ;;
+    --init-image) INIT_IMAGE="$2"; shift 2 ;;
+    --admin-email) ADMIN_EMAIL="$2"; shift 2 ;;
+    --admin-password) ADMIN_PASSWORD="$2"; shift 2 ;;
+    --init-version) INIT_VERSION="$2"; shift 2 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -240,6 +257,25 @@ deploy_stack "databases" "$STACKS_DIR/03-databases.yaml" "${COMMON_PARAMS[@]}" "
 deploy_stack "services" "$STACKS_DIR/04-services.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}" "${DEPLOY_MODE_PARAM[@]}" "${EMAIL_SVC_PARAMS[@]}"
 deploy_stack "observability" "$STACKS_DIR/05-observability.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
 deploy_stack "admin" "$STACKS_DIR/06-admin.yaml" "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}"
+
+# Auto-init (07-init): a one-shot ECS task that runs init-platform.sh once the platform
+# is up — register admin + load plugins/compliance/samples (fire-and-forget; failures
+# alert via SNS, never roll back). Deployed LAST so all services exist first. Skip with
+# --no-auto-init. NOTE: needs the prebuilt INIT_IMAGE + prebuilt bootstrap/base images.
+if [ "$AUTO_INIT" = "true" ]; then
+  INIT_PARAMS=(
+    "${COMMON_PARAMS[@]}" "${SECRETS_PARAMS[@]}" "${PLATFORM_URL_PARAM[@]}"
+    "InitImage=${INIT_IMAGE}"
+    "AdminEmail=${ADMIN_EMAIL}"
+    "AdminPassword=${ADMIN_PASSWORD}"
+    "InitVersion=${INIT_VERSION}"
+    "AlertEmail=${ALERT_EMAIL}"
+  )
+  deploy_stack "init" "$STACKS_DIR/07-init.yaml" "${INIT_PARAMS[@]}"
+  echo "  Auto-init dispatched — watch: aws logs tail /ecs/${STACK_PREFIX}-init --follow --region ${REGION}"
+else
+  echo "  Auto-init skipped (--no-auto-init). Run init-platform.sh fargate from a VPC-attached host."
+fi
 
 # -----------------------------------------------------------------------
 # Done

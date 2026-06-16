@@ -80,7 +80,7 @@ case "$DEPLOY_TARGET" in
     # In-cluster service-discovery name used both by the registry and
     # by the token realm sent in WWW-Authenticate. We push from a
     # sidecar on backend-network so DNS resolves correctly.
-    REGISTRY_HOST="registry:5000"
+    REGISTRY_HOST="${REGISTRY_HOST:-registry:5000}"
     BACKEND_NETWORK="${BACKEND_NETWORK:-backend-network}"
     if ! docker network inspect "$BACKEND_NETWORK" >/dev/null 2>&1; then
       echo "ERROR: docker network '$BACKEND_NETWORK' not found." >&2
@@ -117,7 +117,7 @@ case "$DEPLOY_TARGET" in
       echo "      → run it before init-platform.sh." >&2
       exit 1
     fi
-    REGISTRY_HOST="registry:5000"
+    REGISTRY_HOST="${REGISTRY_HOST:-registry:5000}"
     ;;
   fargate)
     if ! command -v aws >/dev/null 2>&1; then
@@ -149,7 +149,7 @@ case "$DEPLOY_TARGET" in
     # ECS service-discovery hostname for the in-cluster registry task.
     # Only resolvable from inside the VPC — the operator's host MUST be
     # in-VPC (Cloud9, bastion, in-VPC EC2, or VPN).
-    REGISTRY_HOST="registry.pipeline-builder.local:5000"
+    REGISTRY_HOST="${REGISTRY_HOST:-registry.pipeline-builder.local:5000}"
     # No special docker network needed — the host's default bridge
     # network already has VPC routing when the host is in-VPC. Override
     # only if your environment requires a specific docker network.

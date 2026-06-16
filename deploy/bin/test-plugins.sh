@@ -370,9 +370,3 @@ fi
 
 print_results
 print_errors_and_exit "All tests passed!"
-
-# ---- Versions Matrix (optional) ----
-
-if [ -x "$SCRIPT_DIR/show-plugin-versions.sh" ]; then
-  "$SCRIPT_DIR/show-plugin-versions.sh"
-fi

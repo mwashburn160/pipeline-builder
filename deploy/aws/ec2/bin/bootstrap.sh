@@ -30,10 +30,11 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_DIR="$(cd "$DEPLOY_DIR/../../.." && pwd)"
 
 DOMAIN="${DOMAIN:-}"
-# Note: DEPLOY_MODE (public/private) is enforced at the CloudFormation/ALB
-# layer (ALB scheme + subnets), not on the instance — the box behaves
-# identically in both modes (plain-HTTP nginx behind the ALB), so it is not
-# read here.
+# Note: DEPLOY_MODE (public/private) flips the ALB scheme/subnets at the
+# CloudFormation layer; the box runs identical plain-HTTP nginx behind the ALB
+# either way. It IS written into .env (and passed to auto-init below) because in
+# private mode the pipeline service needs PIPELINE_VPC_ID/PIPELINE_SUBNET_IDS to
+# build VPC-attached CodeBuild projects. Exported by template.yaml UserData.
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 # Email (SES) — set by CloudFormation UserData. AWS_REGION is the ACTUAL deploy
@@ -298,6 +299,14 @@ sed -i "s|IMAGE_REGISTRY_TOKEN=CHANGE_ME|IMAGE_REGISTRY_TOKEN=${REGISTRY_TOKEN}|
 sed -i "s|GHCR_TOKEN=|GHCR_TOKEN=${GHCR_TOKEN}|" .env
 sed -i "s|GHCR_USER=mwashburn160|GHCR_USER=${GHCR_USER}|" .env
 
+# Deploy mode + VPC identity (exported by template.yaml UserData). In PRIVATE mode the
+# pipeline service builds VPC-attached CodeBuild projects from PIPELINE_VPC_ID/SUBNET_IDS,
+# and init-platform's private-mode prerequisite gate requires them; without this the
+# blank .env.example values silently produce CodeBuild projects with no VPC config.
+[ -n "${DEPLOY_MODE:-}" ]         && sed -i "s|^DEPLOY_MODE=.*|DEPLOY_MODE=${DEPLOY_MODE}|" .env
+[ -n "${PIPELINE_VPC_ID:-}" ]     && sed -i "s|^PIPELINE_VPC_ID=.*|PIPELINE_VPC_ID=${PIPELINE_VPC_ID}|" .env
+[ -n "${PIPELINE_SUBNET_IDS:-}" ] && sed -i "s|^PIPELINE_SUBNET_IDS=.*|PIPELINE_SUBNET_IDS=${PIPELINE_SUBNET_IDS}|" .env
+
 # Pin AWS_REGION + SES_REGION to the ACTUAL deploy region (the SES identity is
 # regional; the static .env.example default would break sends elsewhere), and
 # apply the SES toggles from CloudFormation. EMAIL_FROM keeps its
@@ -372,9 +381,14 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
   echo "========================================"
   echo "Phase 10: Auto-initialize platform (AUTO_INIT=true)"
   echo "========================================"
+  # init-platform reads DEPLOY_MODE/PIPELINE_VPC_ID/PIPELINE_SUBNET_IDS from the
+  # environment (not .env) for its private-mode prerequisite gate — pass them through.
   runuser -u minikube -- env \
     BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y \
     PLATFORM_BASE_URL="https://${DOMAIN}" \
+    DEPLOY_MODE="${DEPLOY_MODE:-public}" \
+    PIPELINE_VPC_ID="${PIPELINE_VPC_ID:-}" \
+    PIPELINE_SUBNET_IDS="${PIPELINE_SUBNET_IDS:-}" \
     bash "${INSTALL_DIR}/deploy/bin/init-platform.sh" --continue-on-build-failure ec2 \
     || echo "WARNING: auto-init exited non-zero — re-run on the box: sudo -iu minikube; cd ${INSTALL_DIR}; PLATFORM_BASE_URL=https://${DOMAIN} ./deploy/bin/init-platform.sh ec2"
 fi

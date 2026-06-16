@@ -816,6 +816,12 @@ Resources:
             export GHCR_USER="mwashburn160"
             export GIT_REPO="${GitRepo}"
             export GIT_BRANCH="${GitBranch}"
+            # Deploy mode + VPC identity for the instance .env: in private mode the pipeline
+            # service builds VPC-attached CodeBuild projects from these, and init-platform's
+            # private-mode prerequisite gate validates them. bootstrap.sh writes them into .env.
+            export DEPLOY_MODE="${DeployMode}"
+            export PIPELINE_VPC_ID="${VPC}"
+            export PIPELINE_SUBNET_IDS="${PrivateSubnet},${PrivateSubnet2}"
             # When "true", bootstrap.sh runs init-platform (all loads) after the cluster is up.
             export AUTO_INIT="${AutoInit}"
             # AWS_REGION is the ACTUAL deploy region (the SES identity is regional;
