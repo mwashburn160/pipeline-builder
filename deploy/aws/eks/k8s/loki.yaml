@@ -71,7 +71,13 @@ spec:
             requests:
               cpu: "25m"
               memory: 32Mi
-          command: ["sh", "-c", "chown -R 10001:10001 /loki"]
+          # The loki-data PVC is an EFS access point that POSIX-overrides ALL access to
+          # uid/gid 1000 (storageclasses.yaml). chown to ANY other id (the ec2 hostPath
+          # value was 10001) is DENIED by the access point — even for root — so the init
+          # crash-loops. chown to 1000 (the access-point id, as registry.yaml does) is a
+          # no-op that succeeds; loki's writes are squashed to 1000 and work regardless of
+          # its 10001 process uid.
+          command: ["sh", "-c", "chown -R 1000:1000 /loki"]
           securityContext:
             runAsUser: 0
             runAsNonRoot: false

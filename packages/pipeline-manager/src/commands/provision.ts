@@ -238,10 +238,11 @@ export async function runDeployWithRetry(
 
 /**
  * Execute the post-install steps (register → loads → smoke → events → custom). On
- * EC2/EKS, register + the events bundle (store-token → setup-events) need a
- * reachable, REGISTERED platform that's only true inside the VPC, so those are
- * SURFACED as ordered manual next-steps instead of auto-run (they'd fail locally).
- * Sets exitCode on a step failure; the platform is already deployed by this point.
+ * EC2/EKS the register step + the events bundle (store-token → setup-events) are
+ * SURFACED as ordered manual next-steps instead of auto-run: ec2 register must run
+ * ON the box (the minikube user owns the cluster), and the events bundle needs a
+ * registered platform + AWS creds. (eks register itself port-forwards, so it runs
+ * from anywhere with kubectl access.) Sets exitCode on a step failure.
  */
 export async function runPostSteps(
   postSteps: PostStep[],
@@ -279,7 +280,10 @@ export async function runPostSteps(
       printInfo('  cd /opt/pipeline/pipeline-builder                # the deployed checkout');
       for (const s of remote) printInfo(`  ${s.command}`);
     } else {
-      printInfo('\nNext (run from inside the VPC, in this order):');
+      // eks: init-platform port-forwards to svc/nginx, so register runs from anywhere with
+      // kubectl access — no in-VPC requirement and no waiting on the ALB/DNS. (A --with-events
+      // bundle, if present, additionally needs AWS creds + a registered platform.)
+      printInfo('\nNext — run with kubectl access to the cluster (in this order):');
       for (const s of remote) printInfo(`  • ${s.label} — ${s.command}`);
     }
   }
@@ -874,7 +878,11 @@ export function provision(program: Command): void {
             await ensureMinikubeGateway(url, { onInfo: (m) => printInfo(m) });
           }
           printInfo(`Polling ${url}/health …`);
-          const health = await waitHealthy(url, { onTick: (m) => printInfo(m) });
+          // Fresh EKS legitimately needs longer than the 300s default: Karpenter provisions
+          // nodes, ~10 services cold-pull images, the ALB provisions (~2-3 min), and the
+          // Route 53 alias propagates. Give it 15 min before surfacing the not-reachable note.
+          const healthTimeoutMs = target === 'eks' ? 900_000 : undefined;
+          const health = await waitHealthy(url, { timeoutMs: healthTimeoutMs, onTick: (m) => printInfo(m) });
           // Green only when fully ready; a "health OK but /ready never came" proceed-
           // anyway state is healthy:true but degraded → warn so it doesn't read as done.
           (health.healthy && health.ready ? printSuccess : printWarning)(`${health.url} — ${health.detail}`);

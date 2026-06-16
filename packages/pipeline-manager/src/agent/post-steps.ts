@@ -84,13 +84,13 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   if (opts.init && !autoInitManaged) {
     const enabled = LOAD_STEPS.filter((s) => opts.enabledLoadIds.includes(s.id)).map((s) => s.id);
     const loads = enabled.length > 0 ? ` (+ ${enabled.join(', ')})` : '';
-    // On AWS (ec2/eks) register can't reliably run from the operator's laptop — it builds +
-    // pushes images and reads the cluster's jwt-secret, so it's surfaced as a manual next-step.
-    // Bake the resolved platform URL into the command so the operator copy-pastes a correct line
-    // (and a stale PLATFORM_BASE_URL in their shell can't misdirect it).
-    const isAws = opts.target === 'ec2' || opts.target === 'eks';
-    const registerCommand = isAws && opts.url
-      ? `PLATFORM_BASE_URL=${opts.url} ./deploy/bin/init-platform.sh ${opts.target}`
+    // Register is surfaced as a manual next-step on AWS (see runPostSteps). The command differs:
+    //  - ec2: runs ON the box as the minikube user, where the in-VPC URL resolves → bake PLATFORM_BASE_URL.
+    //  - eks: init-platform port-forwards to svc/nginx, so it runs from anywhere with kubectl access —
+    //    do NOT bake PLATFORM_BASE_URL (that would force the public URL and wait on the ALB/DNS).
+    //  - local/minikube: plain command (the URL is localhost).
+    const registerCommand = opts.target === 'ec2' && opts.url
+      ? `PLATFORM_BASE_URL=${opts.url} ./deploy/bin/init-platform.sh ec2`
       : `./deploy/bin/init-platform.sh ${opts.target}`;
     steps.push({
       id: 'register',

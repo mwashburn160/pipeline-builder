@@ -1,11 +1,24 @@
 # =============================================================================
-# ALB Ingress → nginx gateway (EKS Auto Mode ships the AWS Load Balancer Controller)
+# ALB Ingress → nginx gateway (EKS Auto Mode's built-in load-balancer controller)
 # =============================================================================
 # TLS terminates at the ALB with an ACM cert (same posture as the ec2 target's
 # ALB); the ALB forwards plain HTTP to the nginx Service on 8080. Set scheme to
 # `internal` for a private (inside-VPC-only) deployment.
 # `${...}` tokens are substituted by bin/setup.sh.
 # =============================================================================
+# EKS Auto Mode runs its OWN ALB controller (controller: eks.amazonaws.com/alb) — NOT
+# the standalone AWS Load Balancer Controller — so it does NOT auto-create an `alb`
+# IngressClass. We must define one ourselves, else the Ingress is never reconciled
+# ("ingressClass 'alb' not found" and the ALB never provisions).
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: alb
+  labels:
+    app.kubernetes.io/name: LoadBalancerController
+spec:
+  controller: eks.amazonaws.com/alb
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
