@@ -36,6 +36,10 @@ TARGET="${1:-local}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"   # env-overridable, matching push-base-images.sh
 TUNNEL_PID=""
 
+# Accept y / yes / true (any case) as affirmative, so the LOAD_* toggles and BUILD_BOOTSTRAP
+# agree on what counts as "on" (BUILD_BOOTSTRAP's case test already allows y|yes|true).
+_truthy() { case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in y|yes|true) return 0 ;; *) return 1 ;; esac; }
+
 # ---- Cleanup ----
 
 cleanup() {
@@ -231,7 +235,7 @@ if [ -z "$LOAD_PLUGINS" ] && [ -t 0 ]; then
   read -r LOAD_PLUGINS
 fi
 LOAD_PLUGINS="${LOAD_PLUGINS:-n}"
-if [ "$LOAD_PLUGINS" = "y" ] || [ "$LOAD_PLUGINS" = "Y" ]; then
+if _truthy "$LOAD_PLUGINS"; then
 
   # ---- Plugin build strategy ----
   BUILD_STRATEGY="${PLUGIN_BUILD_STRATEGY:-}"
@@ -350,7 +354,7 @@ if [ -z "$LOAD_PIPELINES" ] && [ -t 0 ]; then
   read -r LOAD_PIPELINES
 fi
 LOAD_PIPELINES="${LOAD_PIPELINES:-n}"
-if [ "$LOAD_PIPELINES" = "y" ] || [ "$LOAD_PIPELINES" = "Y" ]; then
+if _truthy "$LOAD_PIPELINES"; then
   # The pipeline bulk-create validates each item via compliance — wait for both
   # services so the load doesn't race a still-starting compliance service (the
   # failure that motivated this gate).
@@ -369,7 +373,7 @@ if [ -z "$LOAD_COMPLIANCE" ] && [ -t 0 ]; then
   read -r LOAD_COMPLIANCE
 fi
 LOAD_COMPLIANCE="${LOAD_COMPLIANCE:-n}"
-if [ "$LOAD_COMPLIANCE" = "y" ] || [ "$LOAD_COMPLIANCE" = "Y" ]; then
+if _truthy "$LOAD_COMPLIANCE"; then
   # load-compliance talks straight to the compliance service — wait for it.
   gate_services_ready compliance || exit 1
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$JWT_TOKEN" "$SCRIPT_DIR/load-compliance.sh"

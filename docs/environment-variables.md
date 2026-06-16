@@ -165,6 +165,7 @@ AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTIO
 | `IMAGE_REGISTRY_USER` | `admin` | Registry username |
 | `IMAGE_REGISTRY_TOKEN` | — | Registry password/token |
 | `IMAGE_REGISTRY_HTTP` | `true` | Plugin builds talk to the in-cluster registry over plain HTTP. Set `false` only if the registry is exposed via a TLS-terminating proxy with a publicly trusted cert. |
+| `IMAGE_REGISTRY_TOKEN_REALM` | `${PLATFORM_BASE_URL}/image-registry/token` | Bearer-token realm the plugin keys its registry credential under. **Must match the registry's `REGISTRY_AUTH_TOKEN_REALM`** (e.g. `http://image-registry:3000/token` in-cluster; `http://image-registry.pipeline-builder.local:3000/token` on Fargate) — when the registry redirects a push to a different host than the push target, the plugin only sends Basic auth if it has a credential keyed under that realm host. Set on every target's plugin so pushes don't 401 / `insufficient_scope`. |
 
 ---
 

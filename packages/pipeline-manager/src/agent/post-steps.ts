@@ -48,8 +48,9 @@ export interface PostStepOptions {
   readonly buildBootstrap: boolean;
   /** False when `--no-init` — skips the register step entirely. */
   readonly init: boolean;
-  /** `--auto-init` (ec2): the instance self-runs init-platform on first boot, so the
-   *  register step is NOT surfaced here (it would duplicate the on-box run). */
+  /** `--auto-init` (AWS): the deploy self-runs init-platform once the platform is up
+   *  (ec2: on first boot; fargate: a one-shot 07-init ECS task), so the register step is
+   *  NOT surfaced here — it would duplicate that managed run. */
   readonly autoInit?: boolean;
   readonly smokeTest: boolean;
   /** `--with-events`: the AWS event-ingestion bundle (store-token → setup-events). */
@@ -75,11 +76,13 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   const steps: PostStep[] = [];
   const skipped: SkippedStep[] = [];
 
-  // --auto-init (ec2): the instance runs init-platform itself on first boot (register +
-  // all loads), so DON'T add a register step here — it would duplicate the on-box run.
+  // --auto-init (AWS): the deploy runs init-platform itself once the platform is up
+  // (ec2: on first boot; fargate: the one-shot 07-init ECS task — both register + all
+  // loads), so DON'T add a register step here — it would duplicate that managed run.
   // (The caller prints a positive "auto-init enabled" note instead of a skip warning.)
-  const autoInitOnBox = opts.init && opts.autoInit === true && opts.target === 'ec2';
-  if (opts.init && !autoInitOnBox) {
+  const autoInitManaged =
+    opts.init && opts.autoInit === true && (opts.target === 'ec2' || opts.target === 'fargate');
+  if (opts.init && !autoInitManaged) {
     const enabled = LOAD_STEPS.filter((s) => opts.enabledLoadIds.includes(s.id)).map((s) => s.id);
     const loads = enabled.length > 0 ? ` (+ ${enabled.join(', ')})` : '';
     // On AWS (ec2/fargate) register can't run from here — it builds + pushes images and

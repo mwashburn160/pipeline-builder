@@ -124,9 +124,13 @@ export async function runTeardown(
   printSection('Command to run');
   printInfo(downCommand);
   if (destructive && !opts.force) {
-    const token = await ask(`\nThis is IRREVERSIBLE. Type "${target}" to confirm teardown: `);
-    if (token !== target) {
-      printWarning('That didn\'t match, so nothing was destroyed — you have to type the exact target id to confirm.');
+    // Bind the confirmation to the resource actually destroyed: a custom --stack-name must
+    // be typed verbatim (so a wrong name can't be confirmed by habit); otherwise the target id.
+    const confirmToken = opts.stackName ?? target;
+    const noun = opts.stackName ? 'stack name' : 'target id';
+    const token = await ask(`\nThis is IRREVERSIBLE. Type "${confirmToken}" to confirm teardown: `);
+    if (token !== confirmToken) {
+      printWarning(`That didn't match, so nothing was destroyed — you have to type the exact ${noun} to confirm.`);
       return;
     }
   } else if (!destructive && !opts.force && !(await confirm('\nProceed with teardown (stops the stack; on-disk data persists)?', opts.yes ?? false))) {
@@ -213,14 +217,19 @@ export async function runPostSteps(
   adminEnv: Record<string, string>,
   opts: { yes?: boolean; autoRun?: boolean; autoInit?: boolean },
 ): Promise<void> {
-  // EC2 --auto-init: the box self-runs init-platform on first boot, so there's no
-  // register/loads step to surface here — confirm it and point at the boot log.
+  // AWS --auto-init: the deploy self-runs init-platform once the platform is up, so there's
+  // no register/loads step to surface here — confirm it and point at the right log.
   if (opts.autoInit && target === 'ec2') {
     printInfo('\n✓ Auto-init enabled — the instance runs init-platform itself on first boot');
     printInfo('  (register admin + build bootstrap image + load plugins/compliance/samples).');
     printInfo('  It takes ~30-60 min; watch progress:');
     printInfo('    aws ssm start-session --target <InstanceId>   # InstanceId stack output');
     printInfo('    sudo tail -f /var/log/user-data.log');
+  } else if (opts.autoInit && target === 'fargate') {
+    printInfo('\n✓ Auto-init enabled — a one-shot ECS task (07-init) runs init-platform once the');
+    printInfo('  platform is up (register admin + build base images + load plugins/compliance/samples).');
+    printInfo('  It takes ~30-60 min; watch progress:');
+    printInfo('    aws logs tail /ecs/<StackPrefix>-init --follow   # StackPrefix from the init stack');
   }
   if (postSteps.length === 0) return;
   for (const s of skippedSteps) printWarning(`Skipped post-step ${s.id}: ${s.reason}`);
@@ -458,11 +467,11 @@ export function provision(program: Command): void {
     .option('-y, --yes', 'Auto-accept all confirmation prompts (for CI / non-interactive)', false)
     .option('--retries <n>', 'Auto-fix + retry attempts after a failure (deploy scripts are idempotent)', '1')
     .option('--teardown', 'Tear down an existing deployment instead of creating one (gated; AWS targets require a typed confirmation)', false)
-    .option('--stack-name <name>', 'Stack name (EC2) / stack prefix (Fargate) to tear down — defaults to the deploy default')
+    .option('--stack-name <name>', 'Stack name (EC2) / stack prefix (Fargate) for the deploy AND teardown — defaults to the per-target default (set it to run a second environment)')
     .option('--force', 'Skip the teardown typed-confirmation (DANGEROUS — for CI/automation only)', false)
     .option('--no-init', 'Skip the post-deploy register/init-platform step')
-    .option('--auto-init', 'EC2: instance self-runs init-platform on first boot (register + all loads). This is the DEFAULT on ec2.')
-    .option('--no-auto-init', 'EC2: skip the on-boot auto-init and surface the manual on-box step instead. Adds ~30-60 min to boot when on; auto-init registers admin with the default password.')
+    .option('--auto-init', 'AWS (ec2/fargate): the deploy self-runs init-platform once the platform is up — ec2 on first boot, fargate via a one-shot ECS task (register + all loads). This is the DEFAULT on ec2/fargate.')
+    .option('--no-auto-init', 'AWS (ec2/fargate): skip the deploy-managed auto-init and surface the manual step instead (ec2: on the box; fargate: from a VPC host). Auto-init otherwise registers admin with the default password.')
     // Bootstrap (sparse clone) — provision a fresh machine in one command.
     .option('--repo [url]', 'Bootstrap: git-clone the platform repo first (sparse — only the needed deploy folders), then run from it (no value = the upstream default)')
     .option('--ref <ref>', 'Git branch/tag to check out when bootstrapping (default: main)')
@@ -491,19 +500,22 @@ export function provision(program: Command): void {
           deployMode: options.deployMode,
           keyPair: options.keyPair,
           instanceType: options.instanceType,
+          // Deploy-time stack identity (ec2 emits --stack-name, fargate --stack-prefix; both
+          // read this key). Same option drives teardown. Undefined → each script's default.
+          stackName: options.stackName,
           ghcrToken: options.ghcrToken,
-          // Commander tri-states `email`: undefined (neither), true (--email),
-          // false (--no-email). SES is on by default, so only --no-email is
-          // load-bearing (it emits `--no-email` into the deploy command).
-          email: options.email === true,
-          noEmail: options.email === false,
+          // email/noEmail are coerced AFTER the NL merge below — parseGoal can return
+          // `email`, so pre-coercing here (never-undefined) would let the merge's
+          // `=== undefined` guard silently drop an AI-parsed email choice. Left out of
+          // this literal on purpose; resolved a few lines down.
           emailFrom: options.emailFrom,
           emailFromName: options.emailFromName,
           alertEmail: options.alertEmail,
           noCreateSesIdentity: options.skipSesIdentity,
-          // EC2 auto-init is ON BY DEFAULT (setup.sh/template default true). Like email,
-          // only the EXPLICIT flag is emitted: `--auto-init` (reaffirm) or the load-bearing
-          // `--no-auto-init` (opt out). The ec2 target spec maps both.
+          // Auto-init is ON BY DEFAULT on AWS (ec2 + fargate setup.sh default true). Like
+          // email, only the EXPLICIT flag is emitted: `--auto-init` (reaffirm) or the
+          // load-bearing `--no-auto-init` (opt out). Coerced inline (not deferred like
+          // email) because parseGoal does NOT parse auto-init — there's no NL value to lose.
           autoInit: options.autoInit === true,
           noAutoInit: options.autoInit === false,
         };
@@ -521,9 +533,9 @@ export function provision(program: Command): void {
         let willPromptLoads = !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
         const postStepFlags = {
           init: options.init !== false,
-          // EC2 auto-init is ON BY DEFAULT (off only with --no-auto-init). resolvePostSteps
-          // drops the register step when this is true AND target === 'ec2', so a default ec2
-          // deploy doesn't also surface a manual register step.
+          // Auto-init is ON BY DEFAULT on AWS (off only with --no-auto-init). resolvePostSteps
+          // drops the register step when this is true AND target is ec2/fargate, so a default
+          // AWS deploy (which self-inits) doesn't also surface a manual register step.
           autoInit: options.autoInit !== false,
           buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
           smokeTest: options.withSmokeTest === true,
@@ -546,10 +558,20 @@ export function provision(program: Command): void {
                 if (k !== 'target' && params[k] === undefined && v !== undefined) params[k] = v;
               }
             }
-          } else {
+          } else if (!options.json) {
+            // Don't print human text before a --json plan (it would corrupt the stream).
             printWarning('A --prompt was given but no AI key is set — ignoring it and using flags only. Set ANTHROPIC_API_KEY (or --ai-provider + its key).');
           }
         }
+
+        // Resolve email NOW (after the NL merge): an explicit --email/--no-email flag wins,
+        // else an AI-parsed `email` (merged into params.email above) decides, else default-on.
+        // Coerce to the two load-bearing keys assembleCommand emits.
+        const emailChoice = options.email !== undefined
+          ? options.email
+          : (typeof params.email === 'boolean' ? params.email : undefined);
+        params.email = emailChoice === true;
+        params.noEmail = emailChoice === false;
 
         // 3. Optional failure diagnosis (independent of a deploy plan).
         if (options.diagnose) {
@@ -574,13 +596,16 @@ export function provision(program: Command): void {
           } else {
             printWarning('Diagnosis unavailable (no AI key configured or the model could not be reached).');
           }
-          if (!target) return;
+          // --diagnose is a read-only inspection mode: return whether or not a target was
+          // given, so it never falls through into a (possibly --yes) deploy.
+          return;
         }
 
-        // EC2 auto-init (ON by default) loads plugins/compliance/samples ON THE BOX, so the
-        // local load picker — and the load-folder fetch it triggers — is pointless. Skip both
-        // (the instance has its own checkout). `--no-auto-init` restores the local loads/prompts.
-        if (options.autoInit !== false && target === 'ec2') {
+        // AWS auto-init (ON by default) loads plugins/compliance/samples on the deploy side
+        // (ec2: on the box; fargate: the 07-init task), so the local load picker — and the
+        // load-folder fetch it triggers — is pointless. Skip both (the deploy has its own
+        // checkout). `--no-auto-init` restores the local loads/prompts.
+        if (options.autoInit !== false && (target === 'ec2' || target === 'fargate')) {
           willPromptLoads = false;
           enabledLoadIds = [];
         }
@@ -605,7 +630,11 @@ export function provision(program: Command): void {
         // prereq checks + the deploy — they live in the tools cache, not on the
         // system PATH. (Both `has()` and the deploy's `bash -lc` inherit this.)
         withToolsOnPath();
-        let prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: willPromptLoads || enabledLoadIds.includes('plugins') });
+        // Hard-require plugin prereqs (e.g. yq on minikube) only when plugins is EXPLICITLY
+        // selected — NOT on the willPromptLoads guess, which would block/prompt before the
+        // user has even been asked whether they want plugins. If they pick plugins in the
+        // interactive prompt, we re-check + offer to fetch right after that selection (below).
+        let prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
         const { command, missing } = assembleCommand(spec, params);
         const url = deriveHealthUrl(target, params);
 
@@ -685,7 +714,7 @@ export function provision(program: Command): void {
               printInfo(`Fetching ${c.name}…`);
               if (!fetchTool(c.name)) printWarning(`Couldn't fetch ${c.name} — install it manually and re-run.`);
             }
-            prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: willPromptLoads || enabledLoadIds.includes('plugins') });
+            prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
           }
         }
 
@@ -737,6 +766,22 @@ export function provision(program: Command): void {
           enabledLoadIds = loaded.enabledLoadIds;
           postSteps = loaded.steps;
           skippedSteps = loaded.skipped;
+          // Now that plugins may have been picked, re-check the plugin-specific prereqs we
+          // deliberately didn't hard-require up front (e.g. yq for minikube plugin builds).
+          // Offer to fetch any fetchable one; warn (don't block — the platform still deploys)
+          // if it can't be resolved, so the later plugin build doesn't fail opaquely.
+          if (enabledLoadIds.includes('plugins')) {
+            const pluginPrereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: true });
+            const pluginGaps = pluginPrereqs.filter((c) => !c.ok && c.required && !prereqs.some((p) => p.name === c.name));
+            for (const c of pluginGaps) {
+              if (isFetchable(c.name) && await confirm(`\n${c.name} is needed to build plugins but isn't installed — fetch the static binary into ${TOOLS_DIR}?`, options.yes)) {
+                printInfo(`Fetching ${c.name}…`);
+                if (!fetchTool(c.name)) printWarning(`Couldn't fetch ${c.name} — install it before the plugin build runs.`);
+              } else {
+                printWarning(`${c.name} missing — the plugin load/build step may fail. ${c.detail}`);
+              }
+            }
+          }
         }
         // local/minikube's setup.sh REQUIRES a `.env` and aborts without it — create
         // it from .env.example with generated secrets so the deploy is non-interactive.
@@ -784,7 +829,10 @@ export function provision(program: Command): void {
         // 7f. Post-install steps (register + opt-in loads, smoke test, events, custom).
         // See runPostSteps — it surfaces register + the events bundle as manual in-VPC
         // next-steps on EC2/Fargate instead of auto-running (and failing) them locally.
-        await runPostSteps(postSteps, skippedSteps, target, cwd, adminEnv, { yes: options.yes, autoRun: willPromptLoads, autoInit: postStepFlags.autoInit });
+        // autoRun (skip the second confirm) only when the user actually PICKED a load in the
+        // interactive prompt — declining every load shouldn't silently run register unprompted.
+        const autoRanLoads = willPromptLoads && enabledLoadIds.length > 0;
+        await runPostSteps(postSteps, skippedSteps, target, cwd, adminEnv, { yes: options.yes, autoRun: autoRanLoads, autoInit: postStepFlags.autoInit });
       } catch (error) {
         handleError(error, ERROR_CODES.GENERAL, {
           debug: program.opts().debug,

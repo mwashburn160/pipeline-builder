@@ -64,13 +64,15 @@ pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email e
 pipeline-manager provision --target fargate --diagnose ./stack-events.txt
 ```
 
-> **Always deploys (gated).** `provision` checks, assembles, prints the plan, and runs the deploy — it **refuses** on failed prerequisites or missing inputs, asks for confirmation before deploying (**`--yes`** auto-accepts for CI), streams the deploy to your terminal, then verifies `/health` + `/ready` on the application URL and runs `init-platform`. **`--json`** is the only non-executing mode — it prints the plan and exits (for tooling).
+> **Always deploys (gated).** `provision` checks, assembles, prints the plan, and runs the deploy — it **refuses** on failed prerequisites or missing inputs, asks for confirmation before deploying (**`--yes`** auto-accepts for CI), streams the deploy to your terminal, then verifies `/health` + `/ready` on the application URL. On **EC2/Fargate, init runs automatically by default** (auto-init — EC2 on first boot, Fargate via a one-shot ECS task), so `provision` surfaces it rather than running it locally; on **local/minikube** it runs `init-platform` for you. **`--json`** is the only non-executing mode — it prints the plan and exits (for tooling).
 >
 > **On failure it troubleshoots.** It matches known CloudFormation signatures and prints the likely cause + fix — and for a few it can **auto-fix and retry** (e.g. an existing SES identity → re-run with `--skip-ses-identity`; an ACM/DNS-propagation timeout → resume). Retries are gated and bounded by **`--retries <n>`** (default 1; the scripts are idempotent so a re-run resumes). With an AI key it adds a free-form diagnosis on top. When SES is enabled, a successful deploy prints DKIM/sandbox next-steps.
 >
-> Flags: **`--yes`** auto-approves (CI), **`--retries <n>`** auto-fix/retry budget, **`--no-init`** skips the post-deploy init step, **`--skip-ses-identity`** for an already-verified SES domain. (EC2/Fargate `init-platform` must run from inside the VPC, so it's surfaced rather than auto-run.)
+> Flags: **`--yes`** auto-approves (CI), **`--retries <n>`** auto-fix/retry budget, **`--no-init`** skips the post-deploy init step entirely, **`--skip-ses-identity`** for an already-verified SES domain, **`--stack-name <name>`** to deploy/manage a second environment (EC2 stack name / Fargate stack prefix).
 >
-> **Teardown.** Add **`--teardown`** to remove a deployment. `local`/`minikube` stop the stack (on-disk / PVC data persists). **EC2/Fargate DELETE their CloudFormation stacks and are irreversible** — so the destructive path is gated harder than deploy: you must **type the target id** to confirm (a y/N is too easy to fat-finger), and **`--yes` alone does *not* bypass it** — only **`--force`** does (for CI). Override the stack name/prefix with **`--stack-name <name>`**; the region comes from **`--region`** / `AWS_REGION`. As always, `bin/shutdown.sh` (local/minikube/EC2) and `deploy/aws/fargate/bin/teardown.sh` can be run directly.
+> **Auto-init (EC2/Fargate, ON by default).** The deploy self-runs `init-platform` once the platform is up — **EC2** on first boot (UserData → on the box as the `minikube` user), **Fargate** via a one-shot `07-init` ECS task — registering the admin (with the **default** password) and loading plugins/compliance/samples. Watch it with `aws ssm start-session … && sudo tail -f /var/log/user-data.log` (EC2) or `aws logs tail /ecs/<prefix>-init --follow` (Fargate). Pass **`--no-auto-init`** to skip the managed run and surface the manual step instead — do this when you want to set real admin credentials (`PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) yourself. `--auto-init` reaffirms the default.
+>
+> **Teardown.** Add **`--teardown`** to remove a deployment. `local`/`minikube` stop the stack (on-disk / PVC data persists). **EC2/Fargate DELETE their CloudFormation stacks and are irreversible** — so the destructive path is gated harder than deploy: you must **type the target id** to confirm (a y/N is too easy to fat-finger), and **`--yes` alone does *not* bypass it** — only **`--force`** does (for CI). When you pass a custom **`--stack-name <name>`** (the same flag drives the deploy and teardown stack name/prefix), the confirmation binds to that name — you type the **stack name**, not the target id, so a wrong name can't be confirmed by habit. The region comes from **`--region`** / `AWS_REGION`. As always, `bin/shutdown.sh` (local/minikube/EC2) and `deploy/aws/fargate/bin/teardown.sh` can be run directly.
 >
 > ```bash
 > # Teardown — prints the destroy plan, then prompts (type "fargate" to confirm):
@@ -79,7 +81,7 @@ pipeline-manager provision --target fargate --diagnose ./stack-events.txt
 >
 > **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first and runs from it. The clone is **sparse + partial** — `git clone --filter=blob:none --no-checkout` + cone `sparse-checkout` (git ≥ 2.27; older git falls back to a full clone) — so it materializes **only the deploy folders the selected target + options need**, not the whole repo (`packages/`, `api/`, `frontend/`, … are never downloaded). The common base is just `deploy/bin`; each target adds its own folder (`deploy/local`, `deploy/minikube` — self-contained — `deploy/aws/ec2`, `deploy/aws/fargate`), and each post-install load adds its folder. Re-syncs are **additive** (`sparse-checkout add`), so one `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`. (`--ref` is a branch/tag; arbitrary SHAs may not fetch under the shallow clone.)
 >
-> **Post-install steps.** After deploy + health, `provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EC2/Fargate event ingestion — a two-step bundle: **`store-token`** writes a platform JWT to Secrets Manager at the `pipeline-builder/{orgId}/platform` pattern, then **`setup-events`** deploys the EventBridge → SQS → Lambda that reads it; both pull AWS creds from the standard env / `~/.aws` chain), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. (EC2/Fargate register must run from inside the VPC, so it's surfaced rather than auto-run.)
+> **Post-install steps.** After deploy + health, `provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EC2/Fargate event ingestion — a two-step bundle: **`store-token`** writes a platform JWT to Secrets Manager at the `pipeline-builder/{orgId}/platform` pattern, then **`setup-events`** deploys the EventBridge → SQS → Lambda that reads it; both pull AWS creds from the standard env / `~/.aws` chain), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On EC2/Fargate these loads run **deploy-side via auto-init by default** (so `provision` doesn't prompt for them locally); pass `--no-auto-init` to drive the register + loads manually from inside the VPC instead.
 >
 > ```bash
 > # Fresh box → sparse-clone just deploy/bin + deploy/local, deploy, register, load samples:
@@ -160,7 +162,7 @@ aws cloudformation describe-stacks --stack-name pb-foundation \
 
 ### 3. Initialize the platform
 
-Public install is otherwise identical to private — register the admin user and load plugins via [Post-Deploy Steps](#post-deploy-steps).
+Public install is otherwise identical to private — by default **auto-init** registers the admin user and loads plugins on the deploy side (EC2 on first boot, Fargate via the `07-init` task). To do it yourself, deploy with `--no-auto-init` and follow [Post-Deploy Steps](#post-deploy-steps).
 
 > **Note:** "public" exposes only the ALB. The instance/tasks have **no public IP and no inbound SSH**; admin access is still **SSM Session Manager** (EC2) or ECS Exec (Fargate). To make a deployment internal-only later, redeploy with `--deploy-mode private` (default). See [Deployment mode (`DEPLOY_MODE`)](#deployment-mode-deploy_mode) for the full mode comparison.
 
@@ -205,9 +207,11 @@ The URL is the same `https://<your-domain>`, but it **resolves only from inside 
 
 ### 3. Initialize the platform
 
-Because the URL only resolves in-VPC, run the post-deploy init **from inside the network**:
+**By default this happens automatically (auto-init).** EC2 runs `init-platform.sh ec2` on first boot (as the `minikube` user, in-VPC); Fargate runs it via the one-shot `07-init` ECS task. Both register the admin (default password) and load plugins/compliance/samples — watch with `sudo tail -f /var/log/user-data.log` (EC2, after SSM) or `aws logs tail /ecs/<prefix>-init --follow` (Fargate).
 
-- **EC2** — SSM into the instance (`aws ssm start-session --target <instance-id>`) and run `init-platform.sh ec2` there; it's already in-VPC.
+If you deployed with **`--no-auto-init`** (or want to re-run / set real admin creds), run the init **from inside the network** (the URL only resolves in-VPC):
+
+- **EC2** — SSM into the instance (`aws ssm start-session --target <instance-id>`), `sudo -iu minikube`, `cd /opt/pipeline/pipeline-builder`, then run `./deploy/bin/init-platform.sh ec2`; it's already in-VPC.
 - **Fargate** — run from a VPC-attached host (bastion, ECS Exec, or a VPC-connected runner) so `https://<your-domain>` resolves.
 
 Then load plugins per [Post-Deploy Steps](#post-deploy-steps).
@@ -415,7 +419,7 @@ TLS is terminated at the **ALB** with an **ACM certificate** the template reques
 
 See [Deployment modes](#deployment-modes-public-vs-private) for the public/private comparison and what each changes. `DEPLOY_MODE` defaults to `private`; pass `--deploy-mode public` (or `DEPLOY_MODE=public`) for the internet-facing posture. The instance is always private and TLS is always ACM-at-the-ALB regardless of mode; the private-mode VPC endpoints + private-zone alias are folded into the single stack (gated on `DeployMode=private`) — no separate prereqs stack.
 
-In `private` mode, after the stack is up set `PIPELINE_VPC_ID` / `PIPELINE_SUBNET_IDS` in `.env` (from the stack's `VpcId` / `SubnetIds` outputs) so the synthesized CodeBuild attaches to the VPC and `init-platform.sh` passes its preflight.
+`DEPLOY_MODE` and the VPC identity (`PIPELINE_VPC_ID` / `PIPELINE_SUBNET_IDS`) are **injected into the instance `.env` automatically** by `bootstrap.sh` (exported from the template's UserData, from the stack's VPC + private subnets) — and passed through to auto-init — so the synthesized CodeBuild attaches to the VPC and `init-platform.sh`'s private-mode preflight passes with no manual step. (If you run `init-platform.sh` by hand on the box, the values are already in `.env`.)
 
 ### Teardown
 
@@ -491,7 +495,7 @@ aws ecs execute-command --cluster pipeline-builder \
   --task <task-id> --container platform --interactive --command "/bin/sh" --region us-east-1
 ```
 
-Then initialize the platform and load plugins — see [Post-Deploy Steps](#post-deploy-steps) (`init-platform.sh fargate` resolves the URL from the `<prefix>-foundation` stack). In a **private** deployment the domain only resolves inside the VPC, so run the init from a VPC-attached host (bastion / ECS Exec / VPC-connected runner).
+By default the platform initializes itself — the one-shot **`07-init` ECS task** runs `init-platform.sh fargate` (register admin + build base images + load plugins/compliance/samples) once the services are healthy; watch it with `aws logs tail /ecs/<prefix>-init --follow`. To do it yourself, deploy with `--no-auto-init` (or `setup.sh --no-auto-init`) and then run `init-platform.sh fargate` (it resolves the URL from the `<prefix>-foundation` stack) — see [Post-Deploy Steps](#post-deploy-steps). In a **private** deployment the domain only resolves inside the VPC, so run the manual init from a VPC-attached host (bastion / ECS Exec / VPC-connected runner).
 
 ### Storage Requirements
 

@@ -74,10 +74,18 @@ const REGION: InputSpec = { flag: 'region', key: 'region', description: 'AWS reg
 const DEPLOY_MODE: InputSpec = { flag: 'deploy-mode', key: 'deployMode', description: 'public (internet-facing ALB) or private (internal, default)' };
 const KEY_PAIR: InputSpec = { flag: 'key-pair', key: 'keyPair', description: 'EC2 key pair in the region (break-glass serial console; routine access is SSM)' };
 const INSTANCE_TYPE: InputSpec = { flag: 'instance-type', key: 'instanceType', description: 'EC2 instance type (default t3.2xlarge)' };
-// Auto-init is ON BY DEFAULT on ec2 (setup.sh/template default true), so `--no-auto-init`
-// is the load-bearing opt-out and `--auto-init` is a no-op reaffirm — mirrors --email/--no-email.
-const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'Instance self-runs init-platform on first boot — the DEFAULT on ec2 (register + all loads)', boolean: true };
-const NO_AUTO_INIT: InputSpec = { flag: 'no-auto-init', key: 'noAutoInit', description: 'Skip on-boot auto-init; run init-platform manually on the box instead', boolean: true };
+// Deploy-time stack identity (also reused as the teardown target). ec2 takes a full
+// --stack-name; fargate takes a --stack-prefix. Both read the same `stackName` param key,
+// so a single --stack-name CLI option drives the right flag per target.
+const STACK_NAME: InputSpec = { flag: 'stack-name', key: 'stackName', description: 'CloudFormation stack name (default pipeline-builder) — set to run a second ec2 environment' };
+const STACK_PREFIX: InputSpec = { flag: 'stack-prefix', key: 'stackName', description: 'CloudFormation stack prefix (default pb) — set to run a second fargate environment' };
+// Auto-init is ON BY DEFAULT on the AWS targets (ec2 + fargate setup.sh default true), so
+// `--no-auto-init` is the load-bearing opt-out and `--auto-init` is a no-op reaffirm —
+// mirrors --email/--no-email. NOTE: `--no-auto-init`'s key (noAutoInit) is NOT derivable
+// from its flag the way the other specs' keys are (commander folds --x/--no-x into a single
+// `x` option); provision.ts assembles both keys explicitly — see the param-assembly there.
+const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'Deploy self-runs init-platform once the platform is up — the DEFAULT on ec2/fargate (ec2: on first boot; fargate: a one-shot ECS task; register + all loads)', boolean: true };
+const NO_AUTO_INIT: InputSpec = { flag: 'no-auto-init', key: 'noAutoInit', description: 'Skip the deploy-managed auto-init; run init-platform manually (ec2: on the box; fargate: from a VPC-attached host)', boolean: true };
 
 // SES / email family — shared by ec2 + fargate. SES is provisioned BY DEFAULT
 // on AWS deploys; `--no-email` is the opt-out (`--email` is a harmless no-op kept
@@ -144,7 +152,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     entrypoint: 'bin/setup.sh',
     sparsePaths: ['deploy/aws/ec2'],
     required: [KEY_PAIR, DOMAIN, HOSTED_ZONE],
-    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, INSTANCE_TYPE, AUTO_INIT, NO_AUTO_INIT, ...EMAIL],
+    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, INSTANCE_TYPE, STACK_NAME, AUTO_INIT, NO_AUTO_INIT, ...EMAIL],
     postDeploy: './deploy/bin/init-platform.sh ec2  # auto-runs on the instance by default; --no-auto-init to do it manually',
     cost: '~$140-265/mo',
     bestFor: 'Dev / staging',
@@ -159,8 +167,8 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     entrypoint: 'bin/setup.sh',
     sparsePaths: ['deploy/aws/fargate'],
     required: [DOMAIN, HOSTED_ZONE],
-    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, ...EMAIL],
-    postDeploy: './deploy/bin/init-platform.sh fargate  # from a VPC-attached host',
+    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, STACK_PREFIX, AUTO_INIT, NO_AUTO_INIT, ...EMAIL],
+    postDeploy: './deploy/bin/init-platform.sh fargate  # auto-runs as a one-shot ECS task by default; --no-auto-init to run it manually from a VPC host',
     cost: '~$100-300/mo',
     bestFor: 'Production',
     deploys: 'the platform on serverless ECS Fargate via 6 CloudFormation stacks — a VPC, an ALB, the ECS services, EFS-backed databases + registry, Route 53 + ACM for the domain, and (by default) SES email. Secrets are generated into Secrets Manager first.',
