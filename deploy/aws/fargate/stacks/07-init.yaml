@@ -200,7 +200,10 @@ Resources:
                 http = true
                 insecure = true
               TOML
-              exec buildkitd \
+              # Must exec via rootlesskit (the image's default entrypoint) — bare buildkitd as
+              # uid 1000 can't set up the user namespace and never goes healthy. Mirrors the
+              # 04-services plugin sidecar fix.
+              exec rootlesskit buildkitd \
                 --addr unix:///run/buildkit/buildkitd.sock \
                 --oci-worker-no-process-sandbox \
                 --config /home/user/.config/buildkit/buildkitd.toml

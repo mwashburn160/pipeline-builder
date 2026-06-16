@@ -377,6 +377,11 @@ Resources:
               Value: /mongo-express
             - Name: ME_CONFIG_MONGODB_ENABLE_ADMIN
               Value: "true"
+            # mongo-express 1.x gates basic auth on this flag — credentials alone don't
+            # enable it (would leave the admin UI unauthenticated). With it on, all routes
+            # return 401 unauthenticated, so the health check below must tolerate 401.
+            - Name: ME_CONFIG_BASICAUTH_ENABLED
+              Value: "true"
           Secrets:
             - Name: ME_CONFIG_BASICAUTH_USERNAME
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ME_CONFIG_BASICAUTH_USERNAME::"
@@ -391,7 +396,10 @@ Resources:
           HealthCheck:
             Command:
               - CMD-SHELL
-              - wget --spider http://localhost:8081/mongo-express/ || exit 1
+              # Basic auth makes every route return 401; `wget --spider` treats 401 as an
+              # error and would crash-loop the task. Accept ANY HTTP response (like the
+              # registry probe) — a 401 still proves mongo-express is up and serving.
+              - wget -qO /dev/null -S http://localhost:8081/mongo-express/ 2>&1 | grep -q 'HTTP/' || exit 1
             Interval: 15
             Timeout: 5
             Retries: 5

@@ -92,8 +92,12 @@ Resources:
             - Name: POSTGRES_PASSWORD
               ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:POSTGRES_PASSWORD::"
           MountPoints:
+            # postgres:18+ stores data in a major-version subdir and expects the volume
+            # mounted at /var/lib/postgresql (NOT /var/lib/postgresql/data) — data lands in
+            # /var/lib/postgresql/18/docker. Mounting at .../data trips the image's startup
+            # check ("data in unused mount/volume"). See docker-library/postgres#1259.
             - SourceVolume: postgres-data
-              ContainerPath: /var/lib/postgresql/data
+              ContainerPath: /var/lib/postgresql
               ReadOnly: false
             - SourceVolume: init-scripts
               ContainerPath: /docker-entrypoint-initdb.d
@@ -400,7 +404,7 @@ Resources:
           Command: []
           Environment:
             - Name: MONGO_INITDB_ROOT_USERNAME
-              Value: admin
+              Value: mongo   # MUST match init-secrets.sh's MONGODB_URI (mongodb://mongo:…) + other targets
             - Name: MONGO_INITDB_DATABASE
               Value: platform
           Secrets:

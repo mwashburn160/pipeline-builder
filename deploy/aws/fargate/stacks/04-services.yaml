@@ -1083,7 +1083,11 @@ Resources:
               [registry."registry.pipeline-builder.local:5000"]
                 http = true
               TOML
-              exec buildkitd \
+              # Must exec via rootlesskit (the image's default entrypoint is `rootlesskit
+              # buildkitd`) — running buildkitd bare as uid 1000 can't set up the user
+              # namespace and never goes healthy. local/minikube keep the default entrypoint;
+              # here we override it to write the toml inline, so re-invoke rootlesskit ourselves.
+              exec rootlesskit buildkitd \
                 --addr unix:///run/buildkit/buildkitd.sock \
                 --oci-worker-no-process-sandbox \
                 --config /home/user/.config/buildkit/buildkitd.toml

@@ -519,11 +519,12 @@ Resources:
               Value: !Sub "https://${DomainName}/api/observability/alert-webhook"
             - Name: ALERT_WEBHOOK_INSTANCE_ID
               Value: "fargate-am-0"
-          # Secrets-Manager-injected values go in `Secrets` (NOT `Environment`,
-          # which only accepts {Name,Value}).
-          Secrets:
-            - Name: ALERT_WEBHOOK_INSTANCE_TOKEN
-              ValueFrom: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AppSecretsName}:ALERT_WEBHOOK_INSTANCE_TOKEN::"
+          # NOTE: no ALERT_WEBHOOK_INSTANCE_TOKEN secret. init-secrets.sh doesn't create that
+          # key, and alertmanager.yml is copied verbatim (no envsubst) with a hardcoded literal
+          # token — so injecting it only caused ResourceInitializationError (secret-not-found)
+          # and was never consumed. If per-instance webhook auth is wired up later, add envsubst
+          # to config-init + restore ${ALERT_WEBHOOK_INSTANCE_TOKEN} in alertmanager.yml + a
+          # matching key in init-secrets.sh, THEN re-add a Secrets entry here.
           MountPoints:
             - ContainerPath: /shared-config
               SourceVolume: config-volume
