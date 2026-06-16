@@ -31,6 +31,34 @@ import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printSection, printKeyValue, printInfo, printWarning, printError, printSuccess } from '../utils/output-utils.js';
 
 /**
+ * Post-deploy initialization mode (the single `--init <mode>` flag):
+ *   - `auto`   — the deploy self-runs init-platform once the platform is up (register admin
+ *                + load plugins/compliance/samples). On ec2/fargate this happens on the
+ *                deploy side (ec2: first boot; fargate: the 07-init ECS task); on local/
+ *                minikube `provision` runs it for you. This is the DEFAULT.
+ *   - `manual` — don't self-init; surface the exact step for you to run yourself.
+ *   - `skip`   — don't initialize at all (no register, no loads).
+ */
+export type InitMode = 'auto' | 'manual' | 'skip';
+const INIT_MODES: readonly InitMode[] = ['auto', 'manual', 'skip'];
+
+/**
+ * Resolve the init mode from the new `--init <mode>` flag, falling back to the DEPRECATED
+ * aliases (`--no-init` → skip, `--auto-init` → auto, `--no-auto-init` → manual), then the
+ * default (`auto`). Returns `null` when `--init` was given an invalid value (caller errors).
+ */
+export function resolveInitMode(options: { init?: unknown; autoInit?: unknown }): InitMode | null {
+  if (typeof options.init === 'string') {                      // --init <mode>
+    const m = options.init.toLowerCase() as InitMode;
+    return INIT_MODES.includes(m) ? m : null;
+  }
+  if (options.init === false) return 'skip';                   // deprecated --no-init
+  if (options.autoInit === true) return 'auto';                // deprecated --auto-init
+  if (options.autoInit === false) return 'manual';             // deprecated --no-auto-init
+  return 'auto';                                               // default
+}
+
+/**
  * Read one line of trimmed input from the terminal, owning the readline
  * lifecycle. Used directly for the destructive teardown gate (a y/N is too easy
  * to fat-finger, so we require the operator to TYPE the target id back), and as
@@ -469,9 +497,11 @@ export function provision(program: Command): void {
     .option('--teardown', 'Tear down an existing deployment instead of creating one (gated; AWS targets require a typed confirmation)', false)
     .option('--stack-name <name>', 'Stack name (EC2) / stack prefix (Fargate) for the deploy AND teardown — defaults to the per-target default (set it to run a second environment)')
     .option('--force', 'Skip the teardown typed-confirmation (DANGEROUS — for CI/automation only)', false)
-    .option('--no-init', 'Skip the post-deploy register/init-platform step')
-    .option('--auto-init', 'AWS (ec2/fargate): the deploy self-runs init-platform once the platform is up — ec2 on first boot, fargate via a one-shot ECS task (register + all loads). This is the DEFAULT on ec2/fargate.')
-    .option('--no-auto-init', 'AWS (ec2/fargate): skip the deploy-managed auto-init and surface the manual step instead (ec2: on the box; fargate: from a VPC host). Auto-init otherwise registers admin with the default password.')
+    .option('--init <mode>', 'Post-deploy initialization: auto (DEFAULT — register admin + load plugins/compliance/samples; on ec2/fargate the deploy does it itself: ec2 on first boot, fargate via a one-shot ECS task), manual (don\'t self-init — surface the step for you to run, e.g. to set real admin creds), or skip (do nothing). local/minikube run init for you unless skip.')
+    // Deprecated aliases — kept working for back-compat; --init is the documented form.
+    .option('--no-init', '[deprecated] alias for --init skip')
+    .option('--auto-init', '[deprecated] alias for --init auto')
+    .option('--no-auto-init', '[deprecated] alias for --init manual')
     // Bootstrap (sparse clone) — provision a fresh machine in one command.
     .option('--repo [url]', 'Bootstrap: git-clone the platform repo first (sparse — only the needed deploy folders), then run from it (no value = the upstream default)')
     .option('--ref <ref>', 'Git branch/tag to check out when bootstrapping (default: main)')
@@ -492,6 +522,18 @@ export function provision(program: Command): void {
       const executionId = printCommandHeader('Provision');
 
       try {
+        // Resolve the single post-deploy init mode (auto|manual|skip) from --init or its
+        // deprecated aliases. Two internal signals derive from it: whether init happens at
+        // all, and whether the DEPLOY self-runs it (vs. we surface it).
+        const initMode = resolveInitMode(options);
+        if (initMode === null) {
+          printError(`Invalid --init value '${String(options.init)}'. Use one of: ${INIT_MODES.join(' | ')}.`);
+          process.exitCode = 1;
+          return;
+        }
+        const initEnabled = initMode !== 'skip';     // skip → no register/loads at all
+        const selfInit = initMode === 'auto';        // auto → the deploy initializes itself
+
         // 1. Assemble params from explicit flags (flags always win over NL parse).
         const params: Record<string, unknown> = {
           region: options.region,
@@ -512,12 +554,11 @@ export function provision(program: Command): void {
           emailFromName: options.emailFromName,
           alertEmail: options.alertEmail,
           noCreateSesIdentity: options.skipSesIdentity,
-          // Auto-init is ON BY DEFAULT on AWS (ec2 + fargate setup.sh default true). Like
-          // email, only the EXPLICIT flag is emitted: `--auto-init` (reaffirm) or the
-          // load-bearing `--no-auto-init` (opt out). Coerced inline (not deferred like
-          // email) because parseGoal does NOT parse auto-init — there's no NL value to lose.
-          autoInit: options.autoInit === true,
-          noAutoInit: options.autoInit === false,
+          // The AWS deploy scripts (ec2/fargate setup.sh) self-init by default, so we only
+          // need to emit the load-bearing `--no-auto-init` when the mode is NOT auto (manual
+          // or skip both mean "don't let the deploy init itself"). `--auto-init` (a no-op
+          // reaffirm) is never emitted. Non-AWS targets ignore these (not in their specs).
+          noAutoInit: !selfInit,
         };
         const aiOpts = { provider: options.aiProvider, model: options.model };
 
@@ -532,11 +573,11 @@ export function provision(program: Command): void {
         // Flags / --yes / --json / non-interactive shells skip the prompts.
         let willPromptLoads = !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
         const postStepFlags = {
-          init: options.init !== false,
-          // Auto-init is ON BY DEFAULT on AWS (off only with --no-auto-init). resolvePostSteps
-          // drops the register step when this is true AND target is ec2/fargate, so a default
-          // AWS deploy (which self-inits) doesn't also surface a manual register step.
-          autoInit: options.autoInit !== false,
+          init: initEnabled,
+          // selfInit (mode auto) drops the surfaced register step on ec2/fargate in
+          // resolvePostSteps, so a self-initializing AWS deploy doesn't also print a manual
+          // register step. For manual mode it's false → the step is surfaced.
+          autoInit: selfInit,
           buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
           smokeTest: options.withSmokeTest === true,
           events: options.withEvents === true,
@@ -601,11 +642,11 @@ export function provision(program: Command): void {
           return;
         }
 
-        // AWS auto-init (ON by default) loads plugins/compliance/samples on the deploy side
-        // (ec2: on the box; fargate: the 07-init task), so the local load picker — and the
-        // load-folder fetch it triggers — is pointless. Skip both (the deploy has its own
-        // checkout). `--no-auto-init` restores the local loads/prompts.
-        if (options.autoInit !== false && (target === 'ec2' || target === 'fargate')) {
+        // In `auto` mode the AWS deploy loads plugins/compliance/samples itself (ec2: on the
+        // box; fargate: the 07-init task), so the local load picker — and the load-folder
+        // fetch it triggers — is pointless. Skip both (the deploy has its own checkout).
+        // `--init manual` restores the local loads/prompts.
+        if (selfInit && (target === 'ec2' || target === 'fargate')) {
           willPromptLoads = false;
           enabledLoadIds = [];
         }

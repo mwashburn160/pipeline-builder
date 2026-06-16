@@ -180,7 +180,7 @@ pipeline-manager provision --target local --json       # inspect the plan as JSO
 # or: pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email"
 ```
 
-> On **EC2/Fargate the platform initializes itself by default** (auto-init — EC2 on first boot, Fargate via a one-shot ECS task: register admin + load plugins/compliance/samples). Pass **`--no-auto-init`** to skip that and run `init-platform` yourself. `local`/`minikube` always run init explicitly. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
+> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — on EC2/Fargate the platform initializes itself (EC2 on first boot, Fargate via a one-shot ECS task: register admin + load plugins/compliance/samples); on `local`/`minikube`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
 
 Prefer to run it directly? The full stack runs locally with Docker — prebuilt public images, no registry login:
 

@@ -182,14 +182,14 @@ See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy se
 
 ### Post-Deploy: Initialize Platform
 
-`init-platform.sh` registers the admin user and loads plugins. **On EC2/Fargate it runs automatically by default** (auto-init — EC2 on first boot, Fargate via the one-shot `07-init` ECS task); you only run it by hand on **local/minikube**, or on EC2/Fargate when you deployed with `--no-auto-init`:
+`init-platform.sh` registers the admin user and loads plugins. **On EC2/Fargate it runs automatically by default** (the `provision` default `--init auto` — EC2 on first boot, Fargate via the one-shot `07-init` ECS task); you only run it by hand on **local/minikube**, or on EC2/Fargate when you deployed with `--init manual`:
 
 ```bash
 # Local / Minikube — interactive
 ./deploy/bin/init-platform.sh local
 ./deploy/bin/init-platform.sh minikube
 
-# EC2 (only if --no-auto-init) — requires the minikube user context, on the box
+# EC2 (only if --init manual) — requires the minikube user context, on the box
 sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2
 
 # Non-interactive with prebuilt images and controlled parallelism
