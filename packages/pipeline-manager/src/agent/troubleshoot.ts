@@ -41,7 +41,7 @@ const RULES: ReadonlyArray<{ readonly match: RegExp; readonly issue: KnownIssue 
     issue: {
       id: 'stack-rollback-complete',
       cause: 'A previous attempt left the stack in ROLLBACK_COMPLETE — CloudFormation cannot update a stack in that state.',
-      suggestion: 'Delete the failed stack (aws cloudformation delete-stack --stack-name <name>), then re-run. Destructive — not auto-applied.',
+      suggestion: 'Delete the failed stack, then re-run. For ec2: `aws cloudformation delete-stack --stack-name <name>`. For eks (eksctl-managed stacks): `eksctl delete cluster --name <cluster>` (or `provision --target eks --teardown`). Destructive — not auto-applied.',
       retryable: false,
     },
   },

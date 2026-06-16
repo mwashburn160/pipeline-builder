@@ -1,0 +1,34 @@
+# =============================================================================
+# ALB Ingress → nginx gateway (EKS Auto Mode ships the AWS Load Balancer Controller)
+# =============================================================================
+# TLS terminates at the ALB with an ACM cert (same posture as the ec2 target's
+# ALB); the ALB forwards plain HTTP to the nginx Service on 8080. Set scheme to
+# `internal` for a private (inside-VPC-only) deployment.
+# `${...}` tokens are substituted by bin/setup.sh.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pb-ingress
+  namespace: pipeline-builder
+  annotations:
+    alb.ingress.kubernetes.io/scheme: ${ALB_SCHEME}            # internet-facing | internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERT_ARN}
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-port: "8080"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: ${DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx
+                port:
+                  number: 8080

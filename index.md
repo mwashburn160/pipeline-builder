@@ -186,7 +186,7 @@ Prefer to run it directly? The full stack runs locally with Docker — prebuilt 
 
 ```bash
 git clone https://github.com/mwashburn160/pipeline-builder.git && cd pipeline-builder
-cd deploy/local && ./bin/setup.sh          # 1. pull images + start the stack
+cd deploy/local/docker && ./bin/setup.sh          # 1. pull images + start the stack
 cd ../.. && ./deploy/bin/init-platform.sh local   # 2. register admin + load plugins
 ```
 

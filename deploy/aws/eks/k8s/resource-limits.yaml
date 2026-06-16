@@ -1,0 +1,69 @@
+---
+# =============================================================================
+# Namespace Resource Quota
+# =============================================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pipeline-builder-quota
+spec:
+  hard:
+    # Sized for an AWS t3.2xlarge instance (8 vCPU / 32 GiB RAM) running
+    # single-node minikube, hosting the full stack:
+    #   - registry + 3 per-tier buildkitd Deployments
+    #   - image-registry (HPA → 5 replicas)
+    #   - plugin (HPA → 4 replicas, each with a buildkitd sidecar)
+    #   - quota, platform, pipeline, message, compliance, billing,
+    #     reporting, frontend, nginx, postgres, mongo, redis, pgbouncer,
+    #     pgadmin, mongo-express, prometheus, loki, alertmanager, promtail
+    #
+    # requests = what's *actually* scheduled — capped well below physical
+    # capacity so kubelet + OS keep headroom.
+    # limits = sum of declared maxima — intentionally overcommitted on
+    # CPU (3x) because t3 burstable credits + low steady-state usage
+    # across most services make this safe in practice.
+    # memory limits sized to physical capacity with ~4Gi reserved for
+    # system overhead; further overcommit risks OOM-kill cascades.
+    #
+    # If you move to a larger instance (m5.4xlarge / c6i.4xlarge / etc.)
+    # scale these proportionally; on smaller instances (t3.xlarge or
+    # below) the full stack won't fit — disable optional services
+    # (prometheus, loki, mongo-express, pgadmin) first.
+    # requests.cpu: 7 — minikube has 7 vCPU on a t3.2xlarge (host 8, 1
+    # reserved for kubelet + OS). kube-system pods (metrics-server,
+    # coredns, kube-proxy) eat ~500m, leaving ~6.5 schedulable; setting
+    # the cap to 7 lets the full stack request 6.0 *and* still admit
+    # transient bootstrap pods (crane-push, init jobs) without thrashing.
+    # Was: 6 — left zero headroom and rejected every crane-push pod
+    # during init-platform.sh's base-image push step.
+    requests.cpu: "7"
+    requests.memory: 22Gi
+    limits.cpu: "24"
+    limits.memory: 28Gi
+    pods: "40"
+    persistentvolumeclaims: "10"
+
+---
+# =============================================================================
+# Default Resource Limits (for containers that don't specify them)
+# =============================================================================
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: pipeline-builder-limits
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: 512Mi
+      defaultRequest:
+        cpu: "100m"
+        memory: 128Mi
+      max:
+        cpu: "2"
+        memory: 2Gi
+    - type: Pod
+      max:
+        cpu: "6"
+        memory: 10Gi

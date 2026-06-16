@@ -10,7 +10,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 
 ## Getting Started
 
-1. **Deploy** — choose [Local](../deploy/local/), [Minikube](../deploy/minikube/), [EC2, or Fargate](aws-deployment.md)
+1. **Deploy** — choose [Local](../deploy/local/docker/), [Minikube](../deploy/local/minikube/), [EC2, or EKS](aws-deployment.md)
 2. **Register** — create an admin user and organization
 3. **Load plugins** — upload from `deploy/plugins/` or create your own
 4. **Build pipelines** — use the dashboard, CLI, API, or AI prompt
@@ -35,7 +35,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 
 | Document | Description |
 |----------|-------------|
-| [AWS Deployment](aws-deployment.md) | EC2 and Fargate deployment, post-deploy setup, drift detection |
+| [AWS Deployment](aws-deployment.md) | EC2 and EKS deployment, post-deploy setup, drift detection |
 | [CDK Usage](cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
 | [Audit Events](audit-events.md) | Cross-service audit event names + payload schemas (registry, etc.) |
@@ -149,16 +149,16 @@ See [Samples](samples.md) for more CDK patterns.
 ### Local (Docker Compose)
 
 ```bash
-cd deploy/local && ./bin/setup.sh        # Start
-cd deploy/local && docker compose down     # Stop
-cd deploy/local && docker compose down -v  # Stop + remove volumes
+cd deploy/local/docker && ./bin/setup.sh        # Start
+cd deploy/local/docker && docker compose down     # Stop
+cd deploy/local/docker && docker compose down -v  # Stop + remove volumes
 ```
 
 ### Minikube
 
 ```bash
-bash deploy/minikube/bin/setup.sh        # Start
-bash deploy/minikube/bin/shutdown.sh       # Stop
+bash deploy/local/minikube/bin/setup.sh        # Start
+bash deploy/local/minikube/bin/shutdown.sh       # Stop
 kubectl get pods -n pipeline-builder       # Check
 ```
 
@@ -170,19 +170,19 @@ sudo bash /opt/pipeline/pipeline-builder/deploy/aws/ec2/bin/shutdown.sh   # Stop
 sudo -u minikube kubectl get pods -n pipeline-builder             # Check
 ```
 
-### AWS Fargate
+### AWS EKS
 
 ```bash
-cd deploy/aws/fargate
-bash bin/setup.sh --stack-prefix pb --region us-east-1 --domain app.example.com  # Deploy
-bash bin/teardown.sh --stack-prefix pb --region us-east-1                          # Teardown
+cd deploy/aws/eks
+bash bin/setup.sh --domain app.example.com --hosted-zone-id Z123 --region us-east-1     # Deploy
+bash bin/shutdown.sh --cluster-name pipeline-builder --region us-east-1 --yes           # Teardown
 ```
 
 See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy setup.
 
 ### Post-Deploy: Initialize Platform
 
-`init-platform.sh` registers the admin user and loads plugins. **On EC2/Fargate it runs automatically by default** (the `provision` default `--init auto` — EC2 on first boot, Fargate via the one-shot `07-init` ECS task); you only run it by hand on **local/minikube**, or on EC2/Fargate when you deployed with `--init manual`:
+`init-platform.sh` registers the admin user and loads plugins. **On EC2 it runs automatically on first boot** (the `provision` default `--init auto`); on **local/minikube/EKS** `provision` runs it for you. You only run it by hand when you deployed with `--init manual`:
 
 ```bash
 # Local / Minikube — interactive
@@ -205,7 +205,7 @@ Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGO
 | `PLATFORM_IDENTIFIER` | `admin@internal` |
 | `PLATFORM_PASSWORD` | `SecurePassword123!` |
 
-The defaults apply on **every** target, so **export real values on `minikube`/`ec2`/`fargate`** (or any shared/production environment) before running — otherwise the admin is created with the trivial dev password.
+The defaults apply on **every** target, so **export real values on `minikube`/`ec2`/`eks`** (or any shared/production environment) before running — otherwise the admin is created with the trivial dev password.
 
 ---
 
@@ -327,7 +327,7 @@ For end-to-end request → build → deploy flow diagrams, see [Architecture Flo
 
 ## Next Steps
 
-- **First time?** Deploy [Local](../deploy/local/) and walk through [Creating Pipelines](#creating-pipelines).
+- **First time?** Deploy [Local](../deploy/local/docker/) and walk through [Creating Pipelines](#creating-pipelines).
 - **Setting up for your team?** Read [Organization Benefits](organization-benefits.md), then [Organizations](#organizations) above.
 - **Wiring CI from code?** [CDK Usage](cdk-usage.md) → [Samples](samples.md) → [Template Syntax](templates.md).
-- **Going to production on AWS?** [AWS Deployment](aws-deployment.md) covers EC2, Fargate, drift detection, and event reporting.
+- **Going to production on AWS?** [AWS Deployment](aws-deployment.md) covers EC2, EKS, drift detection, and event reporting.

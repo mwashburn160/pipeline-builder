@@ -1,0 +1,197 @@
+---
+# =============================================================================
+# Pipeline Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: pipeline
+  labels:
+    app: pipeline
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: pipeline
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline
+  labels:
+    app: pipeline
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: pipeline
+  template:
+    metadata:
+      labels:
+        app: pipeline
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Stateless API server — no need for the default ServiceAccount token
+      # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
+      # radius if the container is compromised (no kubelet API access).
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: pipeline
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.38
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres 5432; do sleep 3; done
+              echo "Dependencies ready"
+      containers:
+        - name: pipeline
+          image: ghcr.io/mwashburn160/pipeline:3.4.89
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: SERVICE_NAME
+              value: "pipeline"
+            - name: COMPLIANCE_SERVICE_HOST
+              value: "compliance"
+            - name: COMPLIANCE_SERVICE_PORT
+              value: "3000"
+            - name: COMPLIANCE_BYPASS
+              value: "false"
+            - name: PLUGIN_SERVICE_HOST
+              value: "plugin"
+            - name: PLUGIN_SERVICE_PORT
+              value: "3000"
+          resources:
+            limits:
+              cpu: "750m"
+              memory: 768Mi
+            requests:
+              cpu: "400m"
+              memory: 384Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+---
+# =============================================================================
+# Pipeline HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pipeline
+  labels:
+    app: pipeline
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pipeline
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    # Memory metric — added alongside CPU so the HPA scales on whichever
+    # signal demands more replicas. 85% chosen to leave headroom for spikes
+    # (memory usually climbs slower than CPU; premature scale-up wastes
+    # resources). Matches the plugin ScaledObject's memory trigger.
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+---
+# =============================================================================
+# Pipeline PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pipeline
+  labels:
+    app: pipeline
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pipeline

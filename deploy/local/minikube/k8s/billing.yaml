@@ -1,0 +1,189 @@
+---
+# =============================================================================
+# Billing Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: billing
+  labels:
+    app: billing
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: billing
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing
+  labels:
+    app: billing
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: billing
+  template:
+    metadata:
+      labels:
+        app: billing
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Stateless API server — no need for the default ServiceAccount token
+      # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
+      # radius if the container is compromised (no kubelet API access).
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: billing
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: wait-for-mongodb
+          image: busybox:1.38
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for mongodb..."
+              until nc -z mongodb 27017; do sleep 3; done
+              echo "Dependencies ready"
+      containers:
+        - name: billing
+          image: ghcr.io/mwashburn160/billing:3.4.89
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: mongodb-secret
+          env:
+            - name: SERVICE_NAME
+              value: "billing"
+            - name: PORT
+              value: "3000"
+          resources:
+            limits:
+              cpu: "350m"
+              memory: 384Mi
+            requests:
+              cpu: "150m"
+              memory: 192Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+---
+# =============================================================================
+# Billing HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: billing
+  labels:
+    app: billing
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: billing
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Memory metric — added alongside CPU so the HPA scales on whichever
+    # signal demands more replicas. 85% chosen to leave headroom for spikes
+    # (memory usually climbs slower than CPU; premature scale-up wastes
+    # resources). Matches the plugin ScaledObject's memory trigger.
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+---
+# =============================================================================
+# Billing PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: billing
+  labels:
+    app: billing
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: billing

@@ -27,7 +27,7 @@ export interface HealthResult {
 
 /**
  * Derive the URL the platform should be reachable at. Local/minikube front the
- * stack on localhost:8443; EC2/Fargate use the deploy domain. Returns null when
+ * stack on localhost:8443; EC2/EKS use the deploy domain. Returns null when
  * it can't be determined (caller surfaces a "verify manually" note).
  */
 export function deriveHealthUrl(target: TargetId, params: Record<string, unknown>): string | null {

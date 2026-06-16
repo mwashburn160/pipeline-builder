@@ -1,0 +1,392 @@
+---
+# =============================================================================
+# Plugin Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: plugin
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: plugin
+  template:
+    metadata:
+      labels:
+        app: plugin
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # The plugin pod orchestrates user-supplied Dockerfile builds via the
+      # rootless buildkitd sidecar. The plugin doesn't talk to the k8s API, so
+      # don't mount a service-account token — keeps the build sandbox from
+      # being able to enumerate cluster state if a malicious build escapes.
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: plugin
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.38
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres 5432; do sleep 3; done
+              echo "Waiting for redis..."
+              until nc -z redis 6379; do sleep 3; done
+              echo "Dependencies ready"
+        # Rootless buildkitd as a native sidecar (k8s 1.28+: restartPolicy: Always
+        # in initContainers). Replaces the previous privileged dind container —
+        # no SYS_ADMIN, no privileged mode, no CA-trust shell wrapper.
+        - name: buildkitd
+          # v0.30.0 (was v0.16.0): newer runc reaper avoids the hot
+          # "container not running" retry loop that zombified the pod when a
+          # build container was killed mid-flight.
+          image: moby/buildkit:v0.30.0-rootless
+          restartPolicy: Always
+          args:
+            - --addr
+            - unix:///run/user/1000/buildkit/buildkitd.sock
+            - --oci-worker-no-process-sandbox
+            # Mirror docker.io → in-cluster registry so plugin Dockerfiles
+            # using bare `FROM pipeline-plugin-base:24.04` resolve there.
+            - --config
+            - /home/user/.config/buildkit/buildkitd.toml
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            # Rootless buildkit needs several things to start. Don't trim
+            # any of these without testing the full plugin-build flow:
+            #  - seccompProfile=Unconfined: rootlesskit's `unshare` and
+            #    related syscalls aren't all in the RuntimeDefault profile.
+            #  - capabilities.add=[SETUID,SETGID]: newuidmap/newgidmap
+            #    (the SETUID-helper binaries that write /proc/<pid>/uid_map
+            #    and gid_map) need these in the *bounding set*, otherwise
+            #    their file-caps can't be granted at exec time. Dropping
+            #    them with no add was the root cause of the prior
+            #    `newuidmap … operation not permitted` startup failure.
+            seccompProfile:
+              type: Unconfined
+            capabilities:
+              drop: ["ALL"]
+              add: ["SETUID", "SETGID"]
+          volumeMounts:
+            - name: buildkit-socket
+              mountPath: /run/user/1000/buildkit
+            - name: buildkit-cache
+              mountPath: /home/user/.local/share/buildkit
+            - name: buildkitd-config
+              mountPath: /home/user/.config/buildkit
+              readOnly: true
+          resources:
+            limits:
+              cpu: "1500m"
+              memory: 2048Mi
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+          startupProbe:
+            exec:
+              command: ["buildctl", "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock", "debug", "workers"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            exec:
+              command: ["buildctl", "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock", "debug", "workers"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      containers:
+        - name: plugin
+          image: ghcr.io/mwashburn160/plugin:3.4.95
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: SERVICE_NAME
+              value: "plugin"
+            - name: IMAGE_REGISTRY_HOST
+              value: "registry"
+            - name: IMAGE_REGISTRY_PORT
+              value: "5000"
+            - name: IMAGE_REGISTRY_HTTP
+              value: "true"
+            # Must match the registry's REGISTRY_AUTH_TOKEN_REALM (registry.yaml) so the
+            # plugin keys Basic auth under the realm host the registry redirects to when
+            # minting a push bearer token. Without it docker-build.ts falls back to the
+            # PLATFORM_BASE_URL host (wrong) and plugin image pushes 401 / insufficient_scope.
+            - name: IMAGE_REGISTRY_TOKEN_REALM
+              value: "http://image-registry:3000/token"
+            # Builds run on the in-pod buildkitd sidecar via the shared
+            # unix socket (volume `buildkit-socket` mounted by both the
+            # sidecar at /run/user/1000/buildkit and the plugin
+            # container at /run/buildkit).
+            - name: BUILDKIT_HOST
+              value: "unix:///run/buildkit/buildkitd.sock"
+            # Platform buildkit publishes plugin images for (default linux/amd64,
+            # the CodeBuild runtime). Set linux/arm64 for an all-Graviton stack.
+            - name: PUBLISH_PLATFORM
+              value: "linux/amd64"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: COMPLIANCE_SERVICE_HOST
+              value: "compliance"
+            - name: COMPLIANCE_SERVICE_PORT
+              value: "3000"
+            - name: COMPLIANCE_BYPASS
+              value: "false"
+            - name: PLUGIN_MAX_UPLOAD_MB
+              value: "4096"
+            - name: DOCKER_BUILD_TIMEOUT_MS
+              value: "900000"
+            # Laptop-style /data/* paths (minikube is dev-local; mirrors
+            # local docker-compose). PLUGIN_UPLOAD_DIR must be a writable
+            # absolute path because the container has readOnlyRootFilesystem=true
+            # — a relative `uploads/` resolves to /app/uploads on the read-only
+            # root and EROFS-fails.
+            - name: DOCKER_BUILD_TEMP_ROOT
+              value: "/data/plugins-data/builds"
+            - name: PLUGIN_UPLOAD_DIR
+              value: "/data/plugins-data/uploads"
+            - name: TMPDIR
+              value: "/tmp"
+          volumeMounts:
+            # Mount at the SAME absolute path as the host (which buildkit
+            # also sees) so DOCKER_BUILD_TEMP_ROOT resolves identically on
+            # both sides — buildkit bind mounts won't work otherwise.
+            - name: tmp
+              mountPath: /data/plugins-data/builds
+            - name: uploads
+              mountPath: /data/plugins-data/uploads
+            - name: buildkit-socket
+              mountPath: /run/buildkit
+            # readOnlyRootFilesystem: true means the Node.js process can't
+            # write anywhere under `/` — but it needs a tempdir (TMPDIR=/tmp
+            # above) for plugin tarball staging.
+            - name: scratch-tmp
+              mountPath: /tmp
+          resources:
+            limits:
+              cpu: "1500m"
+              memory: 2048Mi
+            requests:
+              cpu: "750m"
+              memory: 1024Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+      volumes:
+        - name: tmp
+          hostPath:
+            path: /data/plugins-data/builds
+            type: DirectoryOrCreate
+        - name: uploads
+          hostPath:
+            path: /data/plugins-data/uploads
+            type: DirectoryOrCreate
+        - name: buildkit-socket
+          emptyDir:
+            medium: Memory
+        - name: scratch-tmp
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: buildkit-cache
+          emptyDir:
+            sizeLimit: 20Gi
+        - name: buildkitd-config
+          configMap:
+            name: buildkitd-config
+
+---
+# =============================================================================
+# Plugin KEDA ScaledObject — scales on BullMQ queue depth across all tiers
+# (KEDA creates its own HPA — no standalone HPA needed)
+# =============================================================================
+# Prometheus trigger (not Redis) for two reasons:
+#   1. AGGREGATE across all tiers. The plugin service has three BullMQ
+#      queues (plugin-build, plugin-build-pro, plugin-build-unlimited).
+#      A Redis listLength trigger watches one key; a multi-trigger
+#      ScaledObject takes MAX across triggers, not SUM — so 3 dev jobs +
+#      2 pro jobs would target max(3,2,0)=3 pods instead of the correct 5.
+#      `sum(plugin_queue_jobs{...})` aggregates correctly.
+#   2. INCLUDE in-flight work via state="active". A Redis listLength
+#      drops to zero the instant a job dispatches, so KEDA would decide
+#      "queue empty, scale down" while the buildkitd sidecar is mid-build.
+#      The pod terminates, the build dies, BullMQ retries it on the
+#      surviving pod. Counting `active` keeps the pod alive until the
+#      job moves to `completed`/`failed`.
+#
+# `threshold` is target jobs-per-replica. Activation threshold is
+# unset (defaults to 0) because minReplicaCount=1 — we never scale to
+# zero, so activation is a no-op.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+spec:
+  scaleTargetRef:
+    name: plugin
+  minReplicaCount: 1
+  # Capped at 2: the single minikube node only has CPU headroom for two
+  # plugin pods (each requests 1250m = plugin 750m + buildkitd 500m)
+  # alongside the rest of the namespace. A 3rd replica stays Pending with
+  # "Insufficient cpu", and the unschedulable scale-up churn kills
+  # in-flight builds (BullMQ marks them "stalled more than allowable
+  # limit"). Raise this only after growing the node's CPU
+  # (deploy/local/minikube/bin/setup.sh MK_CPUS).
+  maxReplicaCount: 2
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers:
+    # Queue-driven primary signal.
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.pipeline-builder.svc:9090
+        query: sum(plugin_queue_jobs{state=~"waiting|active"})
+        threshold: "2"
+    # CPU pressure — pod-level avg utilization across plugin + buildkitd
+    # sidecar. buildkitd saturates one core during a build pull/push, so
+    # avg crossing 80% means the pod is genuinely loaded and another
+    # replica would help. Computed against sum of container requests
+    # (plugin 750m + buildkitd 500m = 1250m): 80% = ~1000m sustained.
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "80"
+    # Memory pressure — backstop. buildkitd's local layer cache grows
+    # over time so a high threshold (85%) avoids scaling just on cache
+    # accumulation; this fires only when an active build's working set
+    # actually exceeds the pod's request envelope.
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: "85"
+
+---
+# =============================================================================
+# buildkitd sidecar ConfigMap
+# =============================================================================
+# Mirrors docker.io → registry:5000 so plugin Dockerfiles using bare
+# `FROM pipeline-plugin-base:24.04` resolve at the in-cluster registry
+# instead of Docker Hub. Mounted by the buildkitd sidecar in the plugin
+# pod (see initContainers above).
+#
+# Previously lived in buildkitd-per-tier.yaml; moved here when the stale
+# standalone buildkitd-developer/pro/unlimited Deployments were retired
+# and the in-pod sidecar became the sole buildkitd in the cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: buildkitd-config
+  namespace: pipeline-builder
+data:
+  buildkitd.toml: |
+    [registry."docker.io"]
+      mirrors = ["registry:5000"]
+
+    [registry."registry:5000"]
+      # Registry serves plain HTTP on the in-cluster ClusterIP service —
+      # nginx fronts it on HTTPS for external clients. Plain HTTP here
+      # avoids the buildkit-vs-crane scheme-mismatch deadlock on the
+      # token realm (see registry.yaml for the full rationale).
+      http = true
+
+---
+# =============================================================================
+# Plugin PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: plugin
+  labels:
+    app: plugin
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: plugin

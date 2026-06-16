@@ -1,0 +1,550 @@
+---
+# =============================================================================
+# Default Deny All Ingress
+# =============================================================================
+# NOTE: Requires a CNI that supports NetworkPolicy (e.g., Calico).
+# Without one, these policies are silently ignored (safe to apply).
+# Enable with: minikube start --cni=calico
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# =============================================================================
+# Nginx Gateway — ingress from anywhere (NodePort entry point)
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nginx-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: nginx
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8080
+
+---
+# =============================================================================
+# API Services — ingress from nginx only
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-from-nginx
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [platform, pipeline, plugin, message, quota, billing, frontend, compliance, reporting, image-registry]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nginx
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Compliance — ingress from pipeline + plugin (validate calls). Without this,
+# default-deny silently dropped pipeline→compliance, so the bulk pipeline
+# upload's compliance check returned non-2xx with no `data` field and the
+# caller crashed on `.blocked`.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-compliance-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: compliance
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [pipeline, plugin, platform]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Image-registry API — ingress from plugin (token issuance for buildkit push).
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-image-registry-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: image-registry
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [plugin, platform]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Message — ingress from platform + billing (notification fan-out).
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-message-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: message
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, billing, compliance, pipeline, plugin]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Reporting — ingress from platform (analytics rollups).
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-reporting-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: reporting
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Quota — ingress from platform, pipeline, plugin, billing
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-quota-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: quota
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin, message, billing]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
+# Postgres — ingress from platform, pipeline, plugin, message, pgadmin
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, pipeline, plugin, message, pgadmin]
+      ports:
+        - port: 5432
+
+---
+# =============================================================================
+# MongoDB — ingress from platform, quota, billing, mongo-express
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mongodb-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: mongodb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, quota, billing, mongo-express]
+      ports:
+        - port: 27017
+
+---
+# =============================================================================
+# Redis — ingress from plugin
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: plugin
+      ports:
+        - port: 6379
+
+---
+# =============================================================================
+# Registry — ingress from plugin, image-registry, nginx
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-registry-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: registry
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [plugin, image-registry, nginx]
+      ports:
+        - port: 5000
+
+---
+# =============================================================================
+# Loki — ingress from promtail (push) + platform (Audit Activity dashboard reads)
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-loki-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: loki
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                # `platform` reads Loki via /api/observability/logs for the
+                # native Audit Activity dashboard. Grafana removed from the
+                # value list — the iframe is deleted in this PR.
+                operator: In
+                values: [promtail, platform]
+      ports:
+        - port: 3100
+
+---
+# =============================================================================
+# Prometheus — ingress from platform (for native Observability dashboards)
+#                       and from KEDA (for the plugin ScaledObject trigger)
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: platform
+        # KEDA's metrics-adapter scrapes Prometheus on every polling
+        # cycle for the plugin ScaledObject's `type: prometheus` trigger.
+        # `kubernetes.io/metadata.name` is the auto-injected label on
+        # every Namespace (k8s 1.21+) so we don't depend on KEDA's own
+        # pod labels staying stable across upstream releases.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: keda
+      ports:
+        - port: 9090
+
+---
+# =============================================================================
+# Alertmanager — ingress from prometheus (alert forwarding) and platform
+# (proxied /api/observability/alerts read API)
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alertmanager-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: alertmanager
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 9093
+
+---
+# =============================================================================
+# Admin UIs — ingress from nginx
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-admin-uis-ingress
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [pgadmin, mongo-express]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nginx
+      ports:
+        - port: 80
+        - port: 8081
+
+---
+# =============================================================================
+# Prometheus Scraping — allow from prometheus to all pods on metrics ports
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scraping
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [platform, pipeline, plugin, message, quota, billing, frontend, nginx, loki]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 3000
+        - port: 3100
+        - port: 8080
+        - port: 9090
+
+---
+# =============================================================================
+# DNS Egress — all pods need DNS resolution
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# =============================================================================
+# Internal Egress — allow pods to communicate within the namespace
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-egress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+
+---
+# =============================================================================
+# Plugin External Egress — plugin pulls base images + dependency packages
+#
+# Hardening: this used to allow 443/80 to ANY destination. We still
+# allow public-internet 443/80 (builds legitimately fetch from pypi.org,
+# npmjs.org, ghcr.io, quay.io, public.ecr.aws, and arbitrary git hosts) but
+# explicitly block known exfil targets via `except` blocks:
+# - 169.254.0.0/16: link-local incl. cloud metadata (169.254.169.254 on
+#   AWS / GCP / Azure). A compromised build cannot exfil IAM credentials
+#   this way.
+# - 192.168.0.0/16: typical home / lab LAN ranges.
+# - 100.64.0.0/10: CGNAT range used by some cloud / VPN deployments.
+#
+# Cluster-internal traffic (registry, redis, postgres) is allowed by the
+# `allow-internal-egress` policy above (matches every pod in the namespace).
+#
+# True per-org allow-lists require either Cilium NetworkPolicy (CIDR + DNS-
+# aware) or kernel-level isolation via per-org buildkitd workers.
+# This rule is defense-in-depth on top of those — see docs/plans/follow-ups.md.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-plugin-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: plugin
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16 # link-local + cloud metadata
+              - 192.168.0.0/16 # private LAN
+              - 100.64.0.0/10 # CGNAT
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+
+---
+# =============================================================================
+# Billing External Egress — billing may call external payment providers
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-billing-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: billing
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP
+
+---
+# =============================================================================
+# Promtail & Prometheus Kube API Egress — service discovery needs API access
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kube-api-egress
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [promtail, prometheus]
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 6443
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+        - port: 10250
+          protocol: TCP
+
+# =============================================================================
+# Plugin egress — governed by the policies ABOVE (VPC CNI = standard NetworkPolicy)
+# =============================================================================
+# A former `plugin-build-isolation` policy was removed here. It tried to NARROW
+# plugin egress, but k8s NetworkPolicies are purely ADDITIVE — its `- to: []`
+# rule on 443/80 re-opened egress to ALL destinations (including 169.254.169.254
+# / IMDS on port 80), DEFEATING the link-local exception in
+# `allow-plugin-external-egress`. Plugin egress is now governed by:
+#   - allow-dns-egress           (DNS, all pods)
+#   - allow-internal-egress      (in-namespace pods: registry, postgres, redis, …)
+#   - allow-plugin-external-egress (public 443/80, EXCEPT link-local/LAN/CGNAT —
+#                                  so a compromised build can't reach cloud metadata)
+# True FQDN-level egress allow-listing (per-registry/per-package) is NOT
+# expressible in standard NetworkPolicy / the VPC CNI — it needs Cilium; see
+# cilium-network-policies.yaml (opt-in, not in this kustomization).

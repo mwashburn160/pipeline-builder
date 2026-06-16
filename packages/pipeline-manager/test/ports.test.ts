@@ -23,9 +23,9 @@ describe('discoverHostPorts — derived from the real (checked-in) deploy source
     expect(ports).not.toContain(8080);
   });
 
-  it('ec2 / fargate: no host ports (CloudFormation binds nothing locally)', () => {
+  it('ec2 / eks: no host ports (CloudFormation binds nothing locally)', () => {
     expect(discoverHostPorts('ec2', repoRoot, TARGETS.ec2)).toEqual([]);
-    expect(discoverHostPorts('fargate', repoRoot, TARGETS.fargate)).toEqual([]);
+    expect(discoverHostPorts('eks', repoRoot, TARGETS.eks)).toEqual([]);
   });
 
   it('falls back to the static hostPorts when the source file is missing', () => {

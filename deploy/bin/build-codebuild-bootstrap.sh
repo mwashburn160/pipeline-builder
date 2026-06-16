@@ -16,7 +16,7 @@
 #      already in the docker cache and `--force` was not passed).
 #   2. Publish to the registry library via the multi-target pusher
 #      (`push-base-images.sh`) so the same transport works across local /
-#      minikube / ec2 / fargate targets.
+#      minikube / ec2 / eks targets.
 #
 # Why this lives outside build-plugin-images.sh: the bootstrap image is a
 # CodeBuild runtime, not a plugin or plugin base. Coupling its lifecycle
@@ -29,7 +29,7 @@
 #   build-codebuild-bootstrap.sh                # build (if missing) + publish (if missing)
 #   build-codebuild-bootstrap.sh --force        # rebuild even if local image cache has it
 #   FORCE_PUSH=true build-codebuild-bootstrap.sh # republish even if remote tag exists
-#   DEPLOY_TARGET=ec2 build-codebuild-bootstrap.sh  # pick push transport (local|minikube|ec2|fargate)
+#   DEPLOY_TARGET=ec2 build-codebuild-bootstrap.sh  # pick push transport (local|minikube|ec2|eks)
 
 set -euo pipefail
 
@@ -56,7 +56,7 @@ while [ $# -gt 0 ]; do
       echo "  --force   Rebuild the local image even when it already exists in docker cache"
       echo ""
       echo "Env:"
-      echo "  DEPLOY_TARGET   local | minikube | ec2 | fargate (default: local)"
+      echo "  DEPLOY_TARGET   local | minikube | ec2 | eks (default: local)"
       echo "  FORCE_PUSH      true to republish even when remote tag exists"
       echo "  PIPELINE_MANAGER_VERSION  npm dist-tag or version (default: latest)"
       exit 0
@@ -85,7 +85,7 @@ fi
 
 # ---- Publish ----
 # Reuse push-base-images.sh — it owns the per-target transport (docker
-# sidecar for local/fargate, kubectl-run crane pod for minikube/ec2) and
+# sidecar for local/eks, kubectl-run crane pod for minikube/ec2) and
 # the registry token exchange. PUSH_TAGS overrides its discovery so we
 # don't also re-walk the plugin-base set.
 echo ""

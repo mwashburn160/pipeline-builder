@@ -75,7 +75,6 @@ export function getConfig(): Config {
   config = loadConfigFile(projectConfigPath, config);
 
   // Layer 4: environment variable overrides
-  // Layer 4: environment variable overrides
   if (process.env.PLATFORM_BASE_URL) {
     config.api.baseUrl = process.env.PLATFORM_BASE_URL;
     printDebug('Using PLATFORM_BASE_URL from environment', { baseUrl: config.api.baseUrl });

@@ -19,28 +19,17 @@
 # verifies the JWT and mints a registry-scoped bearer token.
 #
 # Deploy targets:
-#   local        — push via crane in a docker sidecar on backend-network
-#                  (reads JWT_SECRET from deploy/local/.env)
-#   minikube|ec2 — push via crane in a one-shot kubectl-run pod inside
-#                  the cluster (reads JWT_SECRET from the jwt-secret
-#                  Secret in the pipeline-builder namespace)
-#   fargate      — push via crane in a docker sidecar to the in-cluster
-#                  registry at registry.pipeline-builder.local:5000.
-#                  REQUIRES the operator's host to have VPC connectivity
-#                  (Cloud9, in-VPC EC2, bastion, or VPN) — the registry
-#                  task runs in private subnets and ECS service-discovery
-#                  DNS only resolves from inside the VPC.
-#                  JWT_SECRET is read from AWS Secrets Manager
-#                  (default secret name: pipeline-builder/app-secrets;
-#                  override via APP_SECRETS_NAME env). Requires
-#                  AWS_REGION + AWS credentials with
-#                  secretsmanager:GetSecretValue on that secret.
+#   local            — push via crane in a docker sidecar on backend-network
+#                      (reads JWT_SECRET from deploy/local/docker/.env)
+#   minikube|ec2|eks — push via crane in a one-shot kubectl-run pod inside
+#                      the cluster (reads JWT_SECRET from the jwt-secret
+#                      Secret in the pipeline-builder namespace). All three
+#                      use the in-cluster registry at registry:5000.
 #
 # Selected via DEPLOY_TARGET env var (default: local). init-platform.sh
 # exports this when invoking build-plugin-images.sh.
 #
-# Requires: docker CLI, openssl. k8s targets need kubectl. fargate
-# needs aws CLI v2.
+# Requires: docker CLI, openssl. The k8s targets (minikube/ec2/eks) need kubectl.
 
 set -euo pipefail
 
@@ -71,7 +60,7 @@ kubectl_ctx() {
 # -----------------------------------------------------------------------
 case "$DEPLOY_TARGET" in
   local)
-    DEPLOY_DIR="$(cd "$SCRIPT_DIR/../local" && pwd)"
+    DEPLOY_DIR="$(cd "$SCRIPT_DIR/../local/docker" && pwd)"
     if [ ! -f "$DEPLOY_DIR/.env" ]; then
       echo "ERROR: $DEPLOY_DIR/.env not found" >&2
       exit 1
@@ -88,7 +77,7 @@ case "$DEPLOY_TARGET" in
       exit 1
     fi
     ;;
-  minikube|ec2)
+  minikube|ec2|eks)
     if ! command -v kubectl >/dev/null 2>&1; then
       echo "ERROR: kubectl not found in PATH (required for DEPLOY_TARGET=$DEPLOY_TARGET)" >&2
       exit 1
@@ -119,49 +108,8 @@ case "$DEPLOY_TARGET" in
     fi
     REGISTRY_HOST="${REGISTRY_HOST:-registry:5000}"
     ;;
-  fargate)
-    if ! command -v aws >/dev/null 2>&1; then
-      echo "ERROR: aws CLI not found in PATH (required for DEPLOY_TARGET=fargate)" >&2
-      exit 1
-    fi
-    AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
-    if [ -z "$AWS_REGION" ]; then
-      echo "ERROR: AWS_REGION (or AWS_DEFAULT_REGION) must be set for DEPLOY_TARGET=fargate" >&2
-      exit 1
-    fi
-    APP_SECRETS_NAME="${APP_SECRETS_NAME:-pipeline-builder/app-secrets}"
-    # JWT_SECRET lives in Secrets Manager (created by init-secrets.sh
-    # as a JSON blob). Same value the image-registry task reads from
-    # secretsmanager at runtime — both signing and verification agree.
-    JWT_SECRET="$(
-      aws secretsmanager get-secret-value \
-        --secret-id "$APP_SECRETS_NAME" \
-        --region "$AWS_REGION" \
-        --query 'SecretString' --output text 2>/dev/null \
-      | python3 -c 'import sys, json; print(json.load(sys.stdin).get("JWT_SECRET",""))' 2>/dev/null \
-      || true
-    )"
-    if [ -z "$JWT_SECRET" ]; then
-      echo "ERROR: JWT_SECRET not found in Secrets Manager secret '$APP_SECRETS_NAME' (region: $AWS_REGION)" >&2
-      echo "  Verify with: aws secretsmanager get-secret-value --secret-id $APP_SECRETS_NAME --region $AWS_REGION" >&2
-      exit 1
-    fi
-    # ECS service-discovery hostname for the in-cluster registry task.
-    # Only resolvable from inside the VPC — the operator's host MUST be
-    # in-VPC (Cloud9, bastion, in-VPC EC2, or VPN).
-    REGISTRY_HOST="${REGISTRY_HOST:-registry.pipeline-builder.local:5000}"
-    # No special docker network needed — the host's default bridge
-    # network already has VPC routing when the host is in-VPC. Override
-    # only if your environment requires a specific docker network.
-    BACKEND_NETWORK="${BACKEND_NETWORK:-bridge}"
-    if ! docker network inspect "$BACKEND_NETWORK" >/dev/null 2>&1; then
-      echo "ERROR: docker network '$BACKEND_NETWORK' not found." >&2
-      echo "  Set BACKEND_NETWORK=<name> to override." >&2
-      exit 1
-    fi
-    ;;
   *)
-    echo "ERROR: unsupported DEPLOY_TARGET='$DEPLOY_TARGET' (expected: local, minikube, ec2, fargate)" >&2
+    echo "ERROR: unsupported DEPLOY_TARGET='$DEPLOY_TARGET' (expected: local, minikube, ec2, eks)" >&2
     exit 1
     ;;
 esac
@@ -375,7 +323,7 @@ _discover_existing() {
   local _jwt
   _jwt="$(_sign_platform_jwt)"
   case "$DEPLOY_TARGET" in
-    local|fargate)
+    local)
       # `crane catalog`-style listing also works, but per-image digest
       # checks are simpler and don't depend on the registry exposing
       # the catalog API (Docker registry's catalog is admin-only in
@@ -390,7 +338,7 @@ _discover_existing() {
         "$CRANE_IMAGE" -c "$_login && $_check_cmd" 2>/dev/null \
         || true
       ;;
-    minikube|ec2)
+    minikube|ec2|eks)
       local _podname="crane-check-$(date +%s)-$$"
       # Inner shell command for the pod's `sh -c`. Must be JSON-escaped
       # before embedding in the override below — _check_cmd contains
@@ -446,11 +394,8 @@ for _tag in "${BASE_TAGS[@]}"; do
   _jwt="$(_sign_platform_jwt)"
 
   case "$DEPLOY_TARGET" in
-    # fargate reuses _push_local — same crane-via-docker-sidecar
-    # transport, just a different REGISTRY_HOST and BACKEND_NETWORK
-    # (set in the per-target setup block above).
-    local|fargate)  _push_fn=_push_local ;;
-    minikube|ec2)   _push_fn=_push_k8s ;;
+    local)            _push_fn=_push_local ;;   # crane in a docker sidecar on backend-network
+    minikube|ec2|eks) _push_fn=_push_k8s ;;     # crane in a one-shot kubectl-run pod in-cluster
   esac
 
   if "$_push_fn" "$_tag" "$_remote" "$_jwt"; then

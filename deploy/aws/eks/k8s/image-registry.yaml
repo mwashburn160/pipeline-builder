@@ -1,0 +1,253 @@
+---
+# =============================================================================
+# Pipeline Image Registry Service
+#
+# Hosts:
+#   - GET /token        Docker Distribution token-auth issuer
+#   - /api/images/*     JWT-authenticated catalog/delete/tag-copy API
+#
+# The underlying registry (registry.yaml) delegates auth to /token via its
+# REGISTRY_AUTH_TOKEN_REALM. The same JWT signing keypair (registry-token-secret)
+# is mounted here for issuing and on the registry for verifying.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: image-registry
+  labels:
+    app: image-registry
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: image-registry
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: image-registry
+  labels:
+    app: image-registry
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: image-registry
+  template:
+    metadata:
+      labels:
+        app: image-registry
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Stateless API server — no need for the default ServiceAccount token
+      # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
+      # radius if the container is compromised (no kubelet API access).
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: image-registry
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: wait-for-registry
+          image: busybox:1.38
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for registry..."
+              until nc -z registry 5000; do sleep 3; done
+              echo "Registry ready"
+      containers:
+        - name: image-registry
+          image: ghcr.io/mwashburn160/image-registry:3.4.95
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                # IMAGE_REGISTRY_USERNAME / IMAGE_REGISTRY_PASSWORD —
+                # Basic auth used when image-registry talks to the
+                # underlying registry's management API.
+                name: image-registry-build-svc-secret
+          env:
+            - name: SERVICE_NAME
+              value: "image-registry"
+            - name: PORT
+              value: "3000"
+            # Underlying registry the proxy + management API talks to.
+            - name: IMAGE_REGISTRY_HOST
+              value: "registry"
+            - name: IMAGE_REGISTRY_PORT
+              value: "5000"
+            # Registry serves plain HTTP on its in-cluster ClusterIP svc;
+            # nginx fronts it on HTTPS externally. See registry.yaml.
+            - name: IMAGE_REGISTRY_HTTP
+              value: "true"
+            - name: IMAGE_REGISTRY_INSECURE
+              value: "true"
+            # Token signing — keypair shared with registry. Files mounted
+            # below; xxx_FILE convention loads them via fs.readFile in config.
+            - name: REGISTRY_TOKEN_PRIVATE_KEY_FILE
+              value: "/etc/registry/jwt-private.pem"
+            - name: REGISTRY_TOKEN_CERTIFICATE_FILE
+              value: "/etc/registry/jwt-public.pem"
+            - name: REGISTRY_TOKEN_ISSUER
+              value: "platform"
+            - name: REGISTRY_TOKEN_SERVICE
+              value: "pipeline-image-registry"
+            - name: REGISTRY_TOKEN_EXPIRES_IN
+              value: "300"
+            # IMAGE_REGISTRY_USERNAME / IMAGE_REGISTRY_PASSWORD come from
+            # the image-registry-build-svc-secret envFrom above. Same creds
+            # as the registry container's htpasswd; startup.sh keeps them
+            # in sync.
+          volumeMounts:
+            - name: registry-token
+              mountPath: /etc/registry/jwt-private.pem
+              subPath: jwt-private.pem
+              readOnly: true
+            - name: registry-token
+              mountPath: /etc/registry/jwt-public.pem
+              subPath: jwt-public.pem
+              readOnly: true
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 384Mi
+            requests:
+              cpu: "250m"
+              memory: 192Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+      volumes:
+        - name: registry-token
+          secret:
+            # Same secret mounted into the registry; here we mount BOTH
+            # the public cert (for cross-checking the registry's bundle)
+            # and the private key (for signing).
+            secretName: registry-token-secret
+            items:
+              - key: jwt-public.pem
+                path: jwt-public.pem
+              - key: jwt-private.pem
+                path: jwt-private.pem
+---
+# =============================================================================
+# Image Registry HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: image-registry
+  labels:
+    app: image-registry
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: image-registry
+  # minReplicas: 1 on single-node minikube — two replicas pulling the
+  # same ~250MB image in parallel saturates gp3 EBS baseline throughput
+  # and blocks every other pod's image pull for 10+ minutes at boot.
+  # HPA scales up to 5 under real load, by which point the image is
+  # already cached in the kubelet and the second pod boots in seconds.
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+    # Memory metric — added alongside CPU so the HPA scales on whichever
+    # signal demands more replicas. 85% chosen to leave headroom for spikes
+    # (memory usually climbs slower than CPU; premature scale-up wastes
+    # resources). Matches the plugin ScaledObject's memory trigger.
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+---
+# =============================================================================
+# Image Registry PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: image-registry
+  labels:
+    app: image-registry
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: image-registry

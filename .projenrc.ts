@@ -118,13 +118,27 @@ const rules: Record<string, string> = {
   '@typescript-eslint/member-ordering': 'off',
 };
 
-// Shared npm keywords applied to every @pipeline-builder/* package for search discoverability
+// Shared npm keywords applied to every @pipeline-builder/* package. Ordered by
+// search intent: what the platform IS, the AWS stack it builds on, the pipelines
+// it produces, its governance/multi-tenancy differentiators, AI generation, and
+// the plugin/container model — so the metadata reflects core capabilities, not
+// just a generic tech list.
 const keywords = [
-  'aws', 'codepipeline', 'codebuild', 'cicd', 'ci-cd', 'devops',
-  'cdk', 'aws-cdk', 'cloudformation', 'pipeline', 'pipeline-as-code',
-  'containerized', 'docker', 'kubernetes', 'plugins', 'typescript',
-  'self-service', 'multi-team', 'compliance', 'automation',
-  'infrastructure-as-code', 'iac', 'cli',
+  // Category & positioning (highest-intent search terms)
+  'ci-cd', 'cicd', 'continuous-delivery', 'devops', 'self-service',
+  'platform-engineering', 'internal-developer-platform', 'developer-platform',
+  // AWS CodePipeline / CDK stack it generates
+  'aws', 'aws-cdk', 'cdk', 'codepipeline', 'codebuild', 'cloudformation',
+  // Pipelines as code
+  'pipeline', 'pipeline-as-code', 'infrastructure-as-code', 'iac',
+  // Governance & multi-tenancy (the differentiators)
+  'compliance', 'policy-as-code', 'governance', 'golden-paths', 'multi-tenant', 'rbac',
+  // AI pipeline generation
+  'ai', 'ai-pipeline-generation', 'llm', 'bedrock',
+  // Plugin catalog & containerized builds
+  'plugins', 'plugin-marketplace', 'containerized', 'docker', 'kubernetes',
+  // Implementation
+  'typescript', 'cli',
 ];
 const homepage = 'https://mwashburn160.github.io/pipeline-builder/';
 const bugs = { url: 'https://github.com/mwashburn160/pipeline-builder/issues' };

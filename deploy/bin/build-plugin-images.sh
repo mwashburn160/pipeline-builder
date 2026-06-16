@@ -39,8 +39,9 @@ RESET=false
 DRY_RUN=false
 BASES_ONLY=false
 # When true, trust that the base images are ALREADY in the in-cluster registry and
-# skip building+pushing them. Required on hosts with no Docker daemon (e.g. a Fargate
-# init task): the bases are prebuilt in CI and seeded into the registry out-of-band.
+# skip building+pushing them. Required on hosts with no Docker daemon (e.g. a
+# Docker-less host or CI runner): the bases are prebuilt in CI and seeded into
+# the registry out-of-band.
 # Default false — local/minikube/ec2 build the bases as before.
 BASES_PREBUILT="${BASES_PREBUILT:-false}"
 CATEGORY_FILTER=""
@@ -57,11 +58,11 @@ PUBLISH_PLATFORM="${PUBLISH_PLATFORM:-linux/amd64}"
 
 # Base-image builder. "docker" (default) = `docker build` (needs a Docker daemon, the
 # local/minikube/ec2 path). "buildkit" = build via `buildctl` against BUILDKIT_HOST and
-# push straight to the registry — NO Docker daemon (a Fargate init task with a buildkitd
+# push straight to the registry — NO Docker daemon (a Docker-less host with a buildkitd
 # sidecar). In buildkit mode push-base-images.sh is skipped (buildctl pushes directly).
 BASE_BUILDER="${BASE_BUILDER:-docker}"
 # In-cluster registry the buildkit builder pushes bases to (must match the buildkitd
-# mirror, e.g. registry.pipeline-builder.local:5000 on fargate).
+# mirror, e.g. registry:5000 on the k8s targets).
 REGISTRY_HOST="${REGISTRY_HOST:-registry:5000}"
 REGISTRY_INSECURE="${REGISTRY_INSECURE:-true}"
 BUILDKIT_HOST="${BUILDKIT_HOST:-}"
@@ -87,7 +88,7 @@ while [ $# -gt 0 ]; do
       echo "  --bases-only         Build + push base images only, skip per-plugin builds"
       echo "  --skip-bases         Trust prebuilt bases already in the registry; skip the base"
       echo "                       docker build+push (also: BASES_PREBUILT=true). For Docker-less"
-      echo "                       hosts (e.g. a Fargate init task)."
+      echo "                       hosts (e.g. a Docker-less host)."
       echo "  --category CATS      Comma-separated categories (e.g., language,security)"
       echo "  --max-image-size MB  Skip images larger than MB (default: 4096)"
       exit 0
@@ -258,7 +259,7 @@ _build_base() {
 
 build_base_images() {
   # Prebuilt: trust the registry already has the bases (no Docker daemon available,
-  # e.g. a Fargate init task). The bases must have been seeded out-of-band (CI →
+  # e.g. a Docker-less host). The bases must have been seeded out-of-band (CI →
   # registry); buildkitd resolves `FROM pipeline-plugin-base:24.04` from there.
   if [ "$BASES_PREBUILT" = true ]; then
     echo "=== Base images: PREBUILT — trusting the in-cluster registry (skipping docker build + push) ==="
@@ -301,7 +302,7 @@ build_base_images() {
 
   # Push the bases into the in-cluster registry so buildkitd (separate
   # image cache from the host docker daemon) can resolve them. The
-  # buildkitd.toml mirror at deploy/local/config/buildkitd/ maps
+  # buildkitd.toml mirror at deploy/local/docker/config/buildkitd/ maps
   # docker.io → registry:5000, so bare `FROM pipeline-plugin-base:24.04`
   # in plugin Dockerfiles resolves via that mirror.
   #

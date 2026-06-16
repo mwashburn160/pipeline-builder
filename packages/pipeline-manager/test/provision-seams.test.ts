@@ -210,7 +210,7 @@ describe('runTeardown — gating + execution', () => {
 
   it('runs the destroy for a destructive AWS target with --force (skips the typed gate)', async () => {
     runScript.mockResolvedValue({ code: 0, tail: '' });
-    await runTeardown(TARGETS.fargate, 'fargate', '/cwd', 'exec1', { force: true });
+    await runTeardown(TARGETS.eks, 'eks', '/cwd', 'exec1', { force: true });
     expect(runScript).toHaveBeenCalledTimes(1);
   });
 

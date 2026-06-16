@@ -4,10 +4,10 @@ set -euo pipefail
 # Run `pipeline-manager provision` inside an EPHEMERAL stock `node:24-slim`
 # container, installing ONLY the tools the chosen target needs. No custom image
 # to build or publish — the host's footprint stays just Docker (+ AWS creds for
-# ec2/fargate). Everything after the flags is passed straight to `provision`.
+# ec2/eks). Everything after the flags is passed straight to `provision`.
 #
 # Usage (args are forwarded verbatim to `pipeline-manager provision`):
-#   deploy/bin/provision-docker.sh --target fargate --repo --domain x.example.com \
+#   deploy/bin/provision-docker.sh --target eks --repo --domain x.example.com \
 #       --hosted-zone-id Z123 --execute --yes --admin-email a@x.com --admin-password "$PW"
 #   deploy/bin/provision-docker.sh --target local --repo --with-plugins --execute --yes
 #
@@ -15,7 +15,7 @@ set -euo pipefail
 # host) — this MUST cover every prerequisite `provision` checks for the target,
 # or provision would block inside the container the same way it does on a bare host.
 #   ec2           : git, curl, unzip, AWS CLI v2                       (mounts ~/.aws ro)
-#   fargate       : ec2 set + openssl (init-secrets.sh generates secrets)
+#   eks           : ec2 set + openssl + envsubst + eksctl + kubectl              (mounts ~/.aws + ~/.kube ro)
 #   local         : git, yq, openssl — Docker + Docker Compose are EXTERNAL (Docker
 #                   Desktop provides both); reached via the mounted socket + host docker CLI.
 #   minikube      : host-side cluster — run on the host instead.
@@ -32,7 +32,7 @@ for a in "$@"; do
 done
 
 # Mount the workdir at the SAME path inside the container so docker-compose bind
-# mounts (deploy/local/data, certs) resolve identically on the shared host daemon.
+# mounts (deploy/local/docker/data, certs) resolve identically on the shared host daemon.
 mounts=( -v "$PWD:$PWD" -w "$PWD" )
 # git is required by EVERY target (the `--repo` sparse clone); node:24-slim ships
 # git 2.39, which clears the >=2.27 floor for cone sparse-checkout. curl/TLS roots
@@ -41,13 +41,19 @@ apt="git ca-certificates curl"
 extra=""                         # non-apt installs (AWS CLI / yq), run via eval
 
 case "$TARGET" in
-  ec2|fargate)
+  ec2)
     apt="$apt unzip"
-    # fargate runs init-secrets.sh on the host, which generates the platform
-    # secrets (JWT/refresh, passwords, the registry RSA key) with openssl.
-    [ "$TARGET" = fargate ] && apt="$apt openssl"
     extra='curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/a.zip && unzip -q /tmp/a.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/a.zip /tmp/aws'
     [ -d "$HOME/.aws" ] && mounts+=( -v "$HOME/.aws:/root/.aws:ro" )
+    ;;
+  eks)
+    apt="$apt unzip openssl gettext-base"
+    # eks setup.sh needs aws (deploy), eksctl (create the Auto Mode cluster), kubectl
+    # (apply manifests), openssl (registry token keypair) and envsubst/gettext-base
+    # (cluster.yaml + manifest token expansion). Mount ~/.aws + ~/.kube.
+    extra='curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/a.zip && unzip -q /tmp/a.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/a.zip /tmp/aws && curl -fsSL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_$(dpkg --print-architecture).tar.gz" | tar -xz -C /usr/local/bin eksctl && curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl'
+    [ -d "$HOME/.aws" ] && mounts+=( -v "$HOME/.aws:/root/.aws:ro" )
+    [ -d "$HOME/.kube" ] && mounts+=( -v "$HOME/.kube:/root/.kube:ro" )
     ;;
   local)
     # Docker + Docker Compose are EXTERNAL (host) requirements — NOT installed in
@@ -69,7 +75,7 @@ case "$TARGET" in
     echo "minikube runs a host-side cluster; run provision directly on the host (with minikube + kubectl)." >&2
     exit 1 ;;
   "")
-    echo "Pass --target <local|ec2|fargate> so the right minimal tools are installed." >&2
+    echo "Pass --target <local|ec2|eks> so the right minimal tools are installed." >&2
     exit 1 ;;
 esac
 

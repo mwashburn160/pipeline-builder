@@ -32,10 +32,9 @@ import { printSection, printKeyValue, printInfo, printWarning, printError, print
 
 /**
  * Post-deploy initialization mode (the single `--init <mode>` flag):
- *   - `auto`   — the deploy self-runs init-platform once the platform is up (register admin
- *                + load plugins/compliance/samples). On ec2/fargate this happens on the
- *                deploy side (ec2: first boot; fargate: the 07-init ECS task); on local/
- *                minikube `provision` runs it for you. This is the DEFAULT.
+ *   - `auto`   — init-platform runs once the platform is up (register admin + load plugins/
+ *                compliance/samples). On ec2 the instance does it itself on first boot; on
+ *                local/minikube/eks `provision` runs it for you. This is the DEFAULT.
  *   - `manual` — don't self-init; surface the exact step for you to run yourself.
  *   - `skip`   — don't initialize at all (no register, no loads).
  */
@@ -48,14 +47,14 @@ const INIT_MODES: readonly InitMode[] = ['auto', 'manual', 'skip'];
  * default (`auto`). Returns `null` when `--init` was given an invalid value (caller errors).
  */
 export function resolveInitMode(options: { init?: unknown; autoInit?: unknown }): InitMode | null {
-  if (typeof options.init === 'string') {                      // --init <mode>
+  if (typeof options.init === 'string') { // --init <mode>
     const m = options.init.toLowerCase() as InitMode;
     return INIT_MODES.includes(m) ? m : null;
   }
-  if (options.init === false) return 'skip';                   // deprecated --no-init
-  if (options.autoInit === true) return 'auto';                // deprecated --auto-init
-  if (options.autoInit === false) return 'manual';             // deprecated --no-auto-init
-  return 'auto';                                               // default
+  if (options.init === false) return 'skip'; // deprecated --no-init
+  if (options.autoInit === true) return 'auto'; // deprecated --auto-init
+  if (options.autoInit === false) return 'manual'; // deprecated --no-auto-init
+  return 'auto'; // default
 }
 
 /**
@@ -92,7 +91,7 @@ function collectStep(value: string, acc: string[]): string[] {
  * gateway, a silent unreachable hang). Prints a ✓/✗ summary and returns false ONLY
  * when the caller must ABORT (a fatal local conflict). minikube ports are managed
  * forwards (setup.sh pkills/restarts them), so a conflict there warns but proceeds.
- * Remote targets (ec2/fargate) bind nothing locally → returns true.
+ * Remote targets (ec2/eks) bind nothing locally → returns true.
  */
 export async function preflightPorts(spec: TargetSpec, target: TargetId, cwd: string): Promise<boolean> {
   const ports = discoverHostPorts(target, cwd, spec);
@@ -134,13 +133,18 @@ export async function runTeardown(
   target: TargetId,
   cwd: string,
   executionId: string,
-  opts: { stackName?: string; region?: string; force?: boolean; yes?: boolean; json?: boolean },
+  opts: { stackName?: string; clusterName?: string; region?: string; domain?: string; hostedZoneId?: string; force?: boolean; yes?: boolean; json?: boolean },
 ): Promise<void> {
   const { command: downCommand, destructive } = teardownCommand(target, {
     stackName: opts.stackName,
+    clusterName: opts.clusterName,
     region: opts.region,
-    // Our typed gate IS the confirmation — forward --yes so the native script
-    // (Fargate) doesn't also block on stdin we're inheriting.
+    // eks teardown (bin/shutdown.sh) also cleans up the ACM cert + Route 53 alias for
+    // the domain, so forward them when present.
+    domain: opts.domain,
+    hostedZoneId: opts.hostedZoneId,
+    // Our typed gate IS the confirmation — assumeYes forwards a native `--yes` to any
+    // script-based teardown (ec2 delete-stack has no prompt; eks shutdown.sh skips its own).
     assumeYes: true,
   });
   if (opts.json) {
@@ -152,10 +156,12 @@ export async function runTeardown(
   printSection('Command to run');
   printInfo(downCommand);
   if (destructive && !opts.force) {
-    // Bind the confirmation to the resource actually destroyed: a custom --stack-name must
-    // be typed verbatim (so a wrong name can't be confirmed by habit); otherwise the target id.
-    const confirmToken = opts.stackName ?? target;
-    const noun = opts.stackName ? 'stack name' : 'target id';
+    // Bind the confirmation to the resource actually destroyed: a custom name (ec2
+    // --stack-name / eks --cluster-name) must be typed verbatim so a wrong name can't be
+    // confirmed by habit; otherwise the target id.
+    const resourceName = target === 'eks' ? opts.clusterName : opts.stackName;
+    const confirmToken = resourceName ?? target;
+    const noun = target === 'eks' ? (opts.clusterName ? 'cluster name' : 'target id') : (opts.stackName ? 'stack name' : 'target id');
     const token = await ask(`\nThis is IRREVERSIBLE. Type "${confirmToken}" to confirm teardown: `);
     if (token !== confirmToken) {
       printWarning(`That didn't match, so nothing was destroyed — you have to type the exact ${noun} to confirm.`);
@@ -232,7 +238,7 @@ export async function runDeployWithRetry(
 
 /**
  * Execute the post-install steps (register → loads → smoke → events → custom). On
- * EC2/Fargate, register + the events bundle (store-token → setup-events) need a
+ * EC2/EKS, register + the events bundle (store-token → setup-events) need a
  * reachable, REGISTERED platform that's only true inside the VPC, so those are
  * SURFACED as ordered manual next-steps instead of auto-run (they'd fail locally).
  * Sets exitCode on a step failure; the platform is already deployed by this point.
@@ -245,24 +251,19 @@ export async function runPostSteps(
   adminEnv: Record<string, string>,
   opts: { yes?: boolean; autoRun?: boolean; autoInit?: boolean },
 ): Promise<void> {
-  // AWS --auto-init: the deploy self-runs init-platform once the platform is up, so there's
-  // no register/loads step to surface here — confirm it and point at the right log.
+  // ec2 --auto-init: the instance self-runs init-platform on first boot, so there's no
+  // register/loads step to surface here — confirm it and point at the boot log.
   if (opts.autoInit && target === 'ec2') {
     printInfo('\n✓ Auto-init enabled — the instance runs init-platform itself on first boot');
     printInfo('  (register admin + build bootstrap image + load plugins/compliance/samples).');
     printInfo('  It takes ~30-60 min; watch progress:');
     printInfo('    aws ssm start-session --target <InstanceId>   # InstanceId stack output');
     printInfo('    sudo tail -f /var/log/user-data.log');
-  } else if (opts.autoInit && target === 'fargate') {
-    printInfo('\n✓ Auto-init enabled — a one-shot ECS task (07-init) runs init-platform once the');
-    printInfo('  platform is up (register admin + build base images + load plugins/compliance/samples).');
-    printInfo('  It takes ~30-60 min; watch progress:');
-    printInfo('    aws logs tail /ecs/<StackPrefix>-init --follow   # StackPrefix from the init stack');
   }
   if (postSteps.length === 0) return;
   for (const s of skippedSteps) printWarning(`Skipped post-step ${s.id}: ${s.reason}`);
   const isRemote = (id: string): boolean =>
-    (target === 'ec2' || target === 'fargate') && (id === 'register' || id === 'store-token' || id === 'events');
+    (target === 'ec2' || target === 'eks') && (id === 'register' || id === 'store-token' || id === 'events');
   const runnable = postSteps.filter((s) => !isRemote(s.id));
   const remote = postSteps.filter((s) => isRemote(s.id));
   if (remote.length > 0) {
@@ -460,7 +461,7 @@ function redactSecrets(text: string, spec: TargetSpec, params: Record<string, un
 
 /**
  * Registers the `provision` command — an AI-assisted installer for the Pipeline
- * Builder PLATFORM (local/minikube/EC2/Fargate). It prints the assembled plan
+ * Builder PLATFORM (local/minikube/EC2/EKS). It prints the assembled plan
  * (prereq checks, NL-goal parsing, command assembly) and then DEPLOYS, gated by
  * confirmation prompts (`--yes` to auto-accept; `--json` is the only non-executing
  * mode, printing the plan for tooling). With `--repo` it can bootstrap a fresh
@@ -473,13 +474,13 @@ function redactSecrets(text: string, spec: TargetSpec, params: Record<string, un
 export function provision(program: Command): void {
   program
     .command('provision')
-    .description('AI-assisted installer for the platform (local/minikube/EC2/Fargate): deploys it (gated by confirmation prompts), or --teardown to remove')
+    .description('AI-assisted installer for the platform (local/minikube/EC2/EKS): deploys it (gated by confirmation prompts), or --teardown to remove')
     .option('-t, --target <target>', `Deploy target: ${TARGET_IDS.join(' | ')}`)
     .option('-p, --prompt <text>', 'Natural-language goal (parsed into params when an AI key is set)')
-    .option('--region <region>', 'AWS region (EC2/Fargate)')
-    .option('--domain <domain>', 'Fully-qualified domain name (EC2/Fargate)')
-    .option('--hosted-zone-id <id>', 'Public Route 53 hosted zone ID (EC2/Fargate)')
-    .option('--deploy-mode <mode>', 'public | private (EC2/Fargate)')
+    .option('--region <region>', 'AWS region (EC2/EKS)')
+    .option('--domain <domain>', 'Fully-qualified domain name (EC2/EKS)')
+    .option('--hosted-zone-id <id>', 'Public Route 53 hosted zone ID (EC2/EKS)')
+    .option('--deploy-mode <mode>', 'public | private (EC2/EKS)')
     .option('--key-pair <name>', 'EC2 key pair (EC2)')
     .option('--instance-type <type>', 'EC2 instance type (EC2)')
     .option('--ghcr-token <token>', 'GitHub PAT (read:packages) — masked in output')
@@ -495,9 +496,10 @@ export function provision(program: Command): void {
     .option('-y, --yes', 'Auto-accept all confirmation prompts (for CI / non-interactive)', false)
     .option('--retries <n>', 'Auto-fix + retry attempts after a failure (deploy scripts are idempotent)', '1')
     .option('--teardown', 'Tear down an existing deployment instead of creating one (gated; AWS targets require a typed confirmation)', false)
-    .option('--stack-name <name>', 'Stack name (EC2) / stack prefix (Fargate) for the deploy AND teardown — defaults to the per-target default (set it to run a second environment)')
+    .option('--stack-name <name>', 'CloudFormation stack name (EC2) for the deploy AND teardown — defaults to pipeline-builder (set it to run a second environment)')
+    .option('--cluster-name <name>', 'EKS cluster name for the deploy AND teardown — defaults to pipeline-builder')
     .option('--force', 'Skip the teardown typed-confirmation (DANGEROUS — for CI/automation only)', false)
-    .option('--init <mode>', 'Post-deploy initialization: auto (DEFAULT — register admin + load plugins/compliance/samples; on ec2/fargate the deploy does it itself: ec2 on first boot, fargate via a one-shot ECS task), manual (don\'t self-init — surface the step for you to run, e.g. to set real admin creds), or skip (do nothing). local/minikube run init for you unless skip.')
+    .option('--init <mode>', 'Post-deploy initialization: auto (DEFAULT — register admin + load plugins/compliance/samples; on ec2 the instance does it itself on first boot), manual (don\'t self-init — surface the step for you to run, e.g. to set real admin creds), or skip (do nothing). local/minikube/eks run init via provision unless skip.')
     // Deprecated aliases — kept working for back-compat; --init is the documented form.
     .option('--no-init', '[deprecated] alias for --init skip')
     .option('--auto-init', '[deprecated] alias for --init auto')
@@ -531,8 +533,8 @@ export function provision(program: Command): void {
           process.exitCode = 1;
           return;
         }
-        const initEnabled = initMode !== 'skip';     // skip → no register/loads at all
-        const selfInit = initMode === 'auto';        // auto → the deploy initializes itself
+        const initEnabled = initMode !== 'skip'; // skip → no register/loads at all
+        const selfInit = initMode === 'auto'; // auto → the deploy initializes itself
 
         // 1. Assemble params from explicit flags (flags always win over NL parse).
         const params: Record<string, unknown> = {
@@ -542,9 +544,10 @@ export function provision(program: Command): void {
           deployMode: options.deployMode,
           keyPair: options.keyPair,
           instanceType: options.instanceType,
-          // Deploy-time stack identity (ec2 emits --stack-name, fargate --stack-prefix; both
-          // read this key). Same option drives teardown. Undefined → each script's default.
+          // Deploy-time resource identity: ec2 emits --stack-name (key stackName), eks emits
+          // --cluster-name (key clusterName). Both also drive teardown. Undefined → defaults.
           stackName: options.stackName,
+          clusterName: options.clusterName,
           ghcrToken: options.ghcrToken,
           // email/noEmail are coerced AFTER the NL merge below — parseGoal can return
           // `email`, so pre-coercing here (never-undefined) would let the merge's
@@ -554,10 +557,10 @@ export function provision(program: Command): void {
           emailFromName: options.emailFromName,
           alertEmail: options.alertEmail,
           noCreateSesIdentity: options.skipSesIdentity,
-          // The AWS deploy scripts (ec2/fargate setup.sh) self-init by default, so we only
-          // need to emit the load-bearing `--no-auto-init` when the mode is NOT auto (manual
-          // or skip both mean "don't let the deploy init itself"). `--auto-init` (a no-op
-          // reaffirm) is never emitted. Non-AWS targets ignore these (not in their specs).
+          // ec2's deploy self-inits on first boot, so we emit the load-bearing `--no-auto-init`
+          // when the mode is NOT auto (manual/skip = "don't let the instance init itself").
+          // `--auto-init` (a no-op reaffirm) is never emitted. Only ec2 has these flags in its
+          // spec; other targets ignore the param.
           noAutoInit: !selfInit,
         };
         const aiOpts = { provider: options.aiProvider, model: options.model };
@@ -574,9 +577,9 @@ export function provision(program: Command): void {
         let willPromptLoads = !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
         const postStepFlags = {
           init: initEnabled,
-          // selfInit (mode auto) drops the surfaced register step on ec2/fargate in
-          // resolvePostSteps, so a self-initializing AWS deploy doesn't also print a manual
-          // register step. For manual mode it's false → the step is surfaced.
+          // selfInit (mode auto) drops the surfaced register step on ec2 in resolvePostSteps,
+          // so a self-initializing EC2 deploy doesn't also print a manual register step. For
+          // manual mode (or any non-ec2 target) the register step is surfaced.
           autoInit: selfInit,
           buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
           smokeTest: options.withSmokeTest === true,
@@ -642,11 +645,11 @@ export function provision(program: Command): void {
           return;
         }
 
-        // In `auto` mode the AWS deploy loads plugins/compliance/samples itself (ec2: on the
-        // box; fargate: the 07-init task), so the local load picker — and the load-folder
-        // fetch it triggers — is pointless. Skip both (the deploy has its own checkout).
-        // `--init manual` restores the local loads/prompts.
-        if (selfInit && (target === 'ec2' || target === 'fargate')) {
+        // In `auto` mode the EC2 instance loads plugins/compliance/samples itself on the box,
+        // so the local load picker — and the load-folder fetch it triggers — is pointless.
+        // Skip both (the instance has its own checkout). `--init manual` restores them.
+        // (eks/minikube always run init via provision, so the picker stays for them.)
+        if (selfInit && target === 'ec2') {
           willPromptLoads = false;
           enabledLoadIds = [];
         }
@@ -759,24 +762,6 @@ export function provision(program: Command): void {
           }
         }
 
-        // The ECS service-linked role (fargate) is advisory, not a fetchable tool — offer to
-        // create it on confirm (mirrors the tool-fetch above). Creating it up front lets the
-        // FIRST ECS cluster create succeed instead of failing on the not-yet-ready-role race.
-        // Idempotent + safe; never blocks (advisory check; the deploy also self-heals on retry).
-        const slrMissing = prereqs.find((c) => c.name === 'ECS service-linked role' && !c.ok);
-        if (slrMissing) {
-          if (await confirm('\nECS service-linked role (AWSServiceRoleForECS) is missing — create it now? (lets the first ECS cluster create succeed cleanly)', options.yes)) {
-            printInfo('Creating AWSServiceRoleForECS…');
-            const { code } = await runScript('aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com', cwd, { quiet: true, capture: false });
-            if (code === 0) {
-              printSuccess('ECS service-linked role created.');
-              prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
-            } else {
-              printWarning('Could not create it (it may already exist, or you lack iam:CreateServiceLinkedRole) — the deploy still self-heals on retry if needed.');
-            }
-          }
-        }
-
         // 7b. Gated execution. Check prereqs / required inputs first — this also
         // catches a missing `git` when bootstrapping.
         const blocked = executionBlocked(prereqs, missing);
@@ -844,9 +829,9 @@ export function provision(program: Command): void {
         }
         // local/minikube's setup.sh REQUIRES a `.env` and aborts without it — create
         // it from .env.example with generated secrets so the deploy is non-interactive.
-        // ec2/fargate also ship a `.env.example`, but their setup.sh never reads a
-        // local `.env` (the instance handles its own; Fargate uses Secrets Manager via
-        // init-secrets.sh), so we must NOT generate one for them.
+        // ec2 and eks don't have provision generate a local `.env`: ec2 bootstraps its
+        // secrets on the instance, and eks's setup.sh creates the k8s secrets itself
+        // (a deploy/aws/eks/.env.example + secret step is a setup.sh TODO).
         if ((target === 'local' || target === 'minikube') && envFileMissing(cwd, spec.dir)) {
           if (await confirm(`\n${spec.dir}/.env not found — create it from .env.example (generates secrets; edit later for optional integrations like OAuth)?`, options.yes)) {
             const n = createEnvFile(cwd, spec.dir);
@@ -862,8 +847,8 @@ export function provision(program: Command): void {
 
         // 7d. SES post-deploy guidance (async DKIM + sandbox + bounce topic).
         // SES is provisioned BY DEFAULT on AWS deploys, so surface the guidance
-        // for ec2/fargate unless the operator opted out with --no-email.
-        const sesProvisioned = (target === 'ec2' || target === 'fargate') && runParams.noEmail !== true;
+        // for ec2/eks unless the operator opted out with --no-email.
+        const sesProvisioned = (target === 'ec2' || target === 'eks') && runParams.noEmail !== true;
         if (sesProvisioned) {
           printSection('SES — next steps');
           for (const line of sesPostDeployGuidance()) printInfo(`• ${line}`);
@@ -887,7 +872,7 @@ export function provision(program: Command): void {
 
         // 7f. Post-install steps (register + opt-in loads, smoke test, events, custom).
         // See runPostSteps — it surfaces register + the events bundle as manual in-VPC
-        // next-steps on EC2/Fargate instead of auto-running (and failing) them locally.
+        // next-steps on EC2/EKS instead of auto-running (and failing) them locally.
         // autoRun (skip the second confirm) only when the user actually PICKED a load in the
         // interactive prompt — declining every load shouldn't silently run register unprompted.
         const autoRanLoads = willPromptLoads && enabledLoadIds.length > 0;

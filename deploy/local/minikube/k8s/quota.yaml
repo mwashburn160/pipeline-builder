@@ -1,0 +1,192 @@
+---
+# =============================================================================
+# Quota Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: quota
+  labels:
+    app: quota
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: quota
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota
+  labels:
+    app: quota
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: quota
+  template:
+    metadata:
+      labels:
+        app: quota
+        app.kubernetes.io/component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Stateless API server — no need for the default ServiceAccount token
+      # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
+      # radius if the container is compromised (no kubelet API access).
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: quota
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: wait-for-mongodb
+          image: busybox:1.38
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for mongodb..."
+              until nc -z mongodb 27017; do sleep 3; done
+              echo "MongoDB ready"
+      containers:
+        - name: quota
+          image: ghcr.io/mwashburn160/quota:3.4.90
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            - secretRef:
+                name: jwt-secret
+            - secretRef:
+                name: mongodb-secret
+          env:
+            - name: SERVICE_NAME
+              value: "quota"
+            - name: PORT
+              value: "3000"
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 384Mi
+            requests:
+              cpu: "250m"
+              memory: 192Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+---
+# =============================================================================
+# Quota HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: quota
+  labels:
+    app: quota
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: quota
+  # minReplicas: 1 on single-node minikube — see image-registry.yaml HPA
+  # for the boot-time image-pull saturation rationale. HPA scales up
+  # under real load (and the image is cached by then).
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 40
+    # Memory metric — added alongside CPU so the HPA scales on whichever
+    # signal demands more replicas. 85% chosen to leave headroom for spikes
+    # (memory usually climbs slower than CPU; premature scale-up wastes
+    # resources). Matches the plugin ScaledObject's memory trigger.
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+---
+# =============================================================================
+# Quota PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: quota
+  labels:
+    app: quota
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: quota

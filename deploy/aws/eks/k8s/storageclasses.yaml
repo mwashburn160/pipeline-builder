@@ -1,0 +1,38 @@
+# =============================================================================
+# StorageClasses for the EKS Auto Mode target
+# =============================================================================
+# Multi-node EKS can't use the ec2 target's hostPath volumes (a pod may land on
+# any node), so workloads bind PVCs instead:
+#   - pb-ebs (RWO):  single-writer data — postgres, mongodb, prometheus,
+#                    alertmanager, pgadmin.
+#   - pb-efs (RWX):  shared across nodes — the in-cluster registry + loki.
+# (redis is ephemeral; the plugin build-temp + uploads use emptyDir, shared in-pod
+# with the buildkitd sidecar — neither needs a PVC.)
+# =============================================================================
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: pb-ebs
+# Auto Mode's managed EBS provisioner.
+provisioner: ebs.csi.eks.amazonaws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer   # provision in the pod's AZ
+reclaimPolicy: Retain                      # don't delete DB volumes on PVC delete
+allowVolumeExpansion: true
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: pb-efs
+provisioner: efs.csi.aws.com
+parameters:
+  provisioningMode: efs-ap                 # dynamic access points
+  fileSystemId: ${EFS_FILESYSTEM_ID}       # set by bin/setup.sh after EFS create
+  directoryPerms: "700"
+  uid: "1000"
+  gid: "1000"
+volumeBindingMode: Immediate
+reclaimPolicy: Retain

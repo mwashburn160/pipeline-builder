@@ -1,0 +1,52 @@
+# Prometheus scrape configuration for Pipeline Builder services
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Alert rules — Prometheus evaluates these every `evaluation_interval` and
+# forwards firing alerts to Alertmanager (configured below). See
+# alert-rules.yml for the actual rule definitions.
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+# Wire Prometheus to the Alertmanager Service. Resolved by kube-dns within
+# the namespace.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  # Auto-discover pods with prometheus.io/scrape annotation
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - pipeline-builder
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (.+)
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        target_label: service
+    tls_config:
+      insecure_skip_verify: true
+
+  # nginx is scraped via the kubernetes-pods job (it carries
+  # prometheus.io/scrape annotations on port 8080/http), so no static target
+  # is needed. (The old static https://nginx:8443 job was removed when nginx
+  # moved to plain HTTP behind the ALB.)

@@ -281,10 +281,10 @@ Many tool versions are 1+ year stale. From the May 2026 audit:
 
 - **`compute_image_tag` already hashes full plugin dir** (fixed) but the
   `parse_build_arg_flags` and `verify_versions` parsers now require yq —
-  bootstrap scripts (`deploy/aws/ec2/bin/bootstrap.sh`, `deploy/local/bin/setup.sh`)
+  bootstrap scripts (`deploy/aws/ec2/bin/bootstrap.sh`, `deploy/local/docker/bin/setup.sh`)
   may need a `yq` install step added.
-- **Replace four nginx configs** that have drifted (local/ec2/fargate) with
-  a single shared `nginx-common.conf` + per-env overrides. Out of plugin scope
+- **Replace the per-target nginx configs** that have drifted (local/ec2/eks/minikube)
+  with a single shared `nginx-common.conf` + per-env overrides. Out of plugin scope
   but adjacent.
 
 ### Documentation

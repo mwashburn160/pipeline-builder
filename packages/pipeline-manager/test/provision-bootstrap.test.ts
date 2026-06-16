@@ -12,11 +12,11 @@ import {
 
 describe('resolveBootstrap', () => {
   it('fills defaults when inputs are empty/absent', () => {
-    const spec = resolveBootstrap({}, ['deploy/bin', 'deploy/local']);
+    const spec = resolveBootstrap({}, ['deploy/bin', 'deploy/local/docker']);
     expect(spec.repo).toBe(DEFAULT_REPO);
     expect(spec.ref).toBe(DEFAULT_REF);
     expect(spec.workdir).toBe(DEFAULT_WORKDIR);
-    expect(spec.paths).toEqual(['deploy/bin', 'deploy/local']);
+    expect(spec.paths).toEqual(['deploy/bin', 'deploy/local/docker']);
     expect(spec.full).toBe(false);
   });
 
@@ -30,17 +30,17 @@ describe('resolveBootstrap', () => {
 });
 
 describe('bootstrapCommand (sparse, partial)', () => {
-  const spec = resolveBootstrap({ workdir: 'pb', ref: 'main' }, ['deploy/bin', 'deploy/local', 'deploy/plugins']);
+  const spec = resolveBootstrap({ workdir: 'pb', ref: 'main' }, ['deploy/bin', 'deploy/local/docker', 'deploy/plugins']);
   const cmd = bootstrapCommand(spec);
 
   it('partial-clones with blob filter + no-checkout + cone set on a fresh dir', () => {
     expect(cmd).toContain('git clone --filter=blob:none --no-checkout --depth 1');
-    expect(cmd).toContain("sparse-checkout set --cone 'deploy/bin' 'deploy/local' 'deploy/plugins'");
+    expect(cmd).toContain("sparse-checkout set --cone 'deploy/bin' 'deploy/local/docker' 'deploy/plugins'");
   });
 
   it('is additive on an existing checkout (add, not set, so prior targets persist)', () => {
     expect(cmd).toContain("[ -d 'pb'/.git ]");
-    expect(cmd).toContain("sparse-checkout add 'deploy/bin' 'deploy/local' 'deploy/plugins'");
+    expect(cmd).toContain("sparse-checkout add 'deploy/bin' 'deploy/local/docker' 'deploy/plugins'");
     expect(cmd).toContain('fetch --filter=blob:none --depth 1 origin');
   });
 

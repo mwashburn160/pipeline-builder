@@ -1,5 +1,5 @@
 title: Self-Service CI/CD for AWS
-description: Create compliant deployment pipelines in minutes while platform teams enforce security, governance, and organizational standards.
+description: Self-service AWS CodePipeline platform — developers ship compliant CI/CD pipelines in minutes via dashboard, CLI, CDK, or AI prompt, while platform teams enforce policy-as-code guardrails, governance, and per-team isolation.
 tagline: Self-service CI/CD for AWS
 
 url: "https://mwashburn160.github.io"
@@ -21,7 +21,7 @@ social:
     # Add more if available (LinkedIn, Twitter, etc.)
 
 # SEO Enhancements
-keywords: aws codepipeline, aws cicd, codepipeline builder, ai pipeline generator, self-service cicd, aws codebuild plugins, policy as code, cdk pipelines, devops automation
+keywords: aws codepipeline, aws cicd, self-service cicd, internal developer platform, platform engineering, ai pipeline generator, codepipeline builder, aws codebuild plugins, policy as code, compliance as code, golden paths, multi-tenant cicd, cdk pipelines, devops automation
 
 theme: jekyll-theme-minimal
 

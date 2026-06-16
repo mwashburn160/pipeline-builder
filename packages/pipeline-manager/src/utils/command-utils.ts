@@ -77,12 +77,14 @@ export async function resolveToken(options: {
     const secret = JSON.parse(secretJson) as Record<string, string>;
     printSuccess('Secret retrieved from Secrets Manager');
 
-    if (!secret.accessToken) {
-      throw new Error('Secret missing accessToken — run "pipeline-manager store-token" to generate');
+    // store-token writes the JWT to the `password` field (schema: { username: orgId,
+    // password: JWT } — satisfies CodeBuild's secretsManagerCredentials), not `accessToken`.
+    if (!secret.password) {
+      throw new Error('Secret missing password (JWT) — run "pipeline-manager store-token" to generate');
     }
 
     printInfo('Using stored JWT token');
-    return secret.accessToken;
+    return secret.password;
   }
 
   throw new Error(

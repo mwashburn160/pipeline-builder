@@ -23,7 +23,7 @@ Rather than hand-wiring AWS CodePipeline, CodeBuild, IAM roles, and deployment s
 
 | 125 | 5 | 4 | 12 | 18 |
 |:---:|:-:|:-:|:--:|:--:|
-| **plugins** ready to use | **interfaces** to create pipelines | **deploy targets** from laptop to Fargate | **AI models** for pipeline generation | **compliance operators** for guardrails |
+| **plugins** ready to use | **interfaces** to create pipelines | **deploy targets** from laptop to EKS | **AI models** for pipeline generation | **compliance operators** for guardrails |
 
 ## Why Pipeline Builder
 
@@ -68,7 +68,7 @@ Generate a complete pipeline — sources, stages, plugins, env vars — from a G
 
 Reusable build steps covering the full CI/CD lifecycle — language toolchains, security scanners, quality gates, test runners, artifact publishing, deployment, monitoring, and notifications. Every plugin runs as an isolated container step inside AWS CodePipeline, with secrets injected from AWS Secrets Manager at build time.
 
-Plugin images are built with **rootless BuildKit** (`buildkitd`) — the same daemonless path on every target (Fargate, EC2/k8s, minikube, local):
+Plugin images are built with **rootless BuildKit** (`buildkitd`) — the same daemonless path on every target (EKS, EC2, minikube, local):
 
 - **Rootless & unprivileged** — `moby/buildkit:rootless` runs as a non-root user with no `privileged: true`, **no Docker daemon, and no docker-socket mount**, eliminating the classic dind/socket attack surface.
 - **Builds and pushes directly** — parses the Dockerfile, builds with native **layer caching**, and pushes the OCI image **straight to the registry** — no intermediate `docker save`/`docker push`.
@@ -236,17 +236,17 @@ npm install -g @pipeline-builder/pipeline-manager
 pipeline-manager provision --target local              # deploy it (shows the plan, then asks to confirm)
 pipeline-manager provision --target local --yes        # non-interactive (auto-accept prompts; for CI)
 pipeline-manager provision --target local --json       # inspect the plan as JSON, run nothing
-# or describe the goal: pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email"
+# or describe the goal: pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email"
 ```
 
-> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — on EC2/Fargate the platform initializes itself (EC2 on first boot, Fargate via a one-shot ECS task: register admin + load plugins/compliance/samples); on `local`/`minikube`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself (e.g. to set real admin credentials) or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
+> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — on EC2 the platform initializes itself on first boot (register admin + load plugins/compliance/samples); on `local`/`minikube`/`eks`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself (e.g. to set real admin credentials) or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
 
 Prefer to run it directly? Every target ships a `bin/setup.sh`:
 
 ```bash
 git clone <repo-url> pipeline-builder && cd pipeline-builder
 
-cd deploy/local && chmod +x bin/setup.sh && ./bin/setup.sh   # 1. pull images + start the stack
+cd deploy/local/docker && chmod +x bin/setup.sh && ./bin/setup.sh   # 1. pull images + start the stack
 cd ../.. && ./deploy/bin/init-platform.sh local                  # 2. register admin + load plugins
 ```
 
@@ -257,7 +257,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 
 > First load uses a **self-signed cert** — if the page is blank with
 > `ERR_CERT_AUTHORITY_INVALID` for JS chunks in the console, trust
-> `deploy/local/certs/nginx-tls.crt` (see [deploy/local — Troubleshooting](deploy/local/README.md#troubleshooting)).
+> `deploy/local/docker/certs/nginx-tls.crt` (see [deploy/local/docker — Troubleshooting](deploy/local/docker/README.md#troubleshooting)).
 
 > **Prerequisites:** Docker only — the local stack pulls prebuilt **public** images,
 > so no registry login is needed. Node.js >= 24.14 + pnpm >= 10.33 are needed only
@@ -271,10 +271,10 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 
 | Target | Best for | Cost |
 |--------|----------|------|
-| **[Local](deploy/local/)** | Development | Free |
-| **[Minikube](deploy/minikube/)** | Local Kubernetes | Free |
+| **[Local](deploy/local/docker/)** | Development | Free |
+| **[Minikube](deploy/local/minikube/)** | Local Kubernetes | Free |
 | **[EC2](docs/aws-deployment.md#ec2)** | Dev/staging | ~$140-265/mo |
-| **[Fargate](docs/aws-deployment.md#fargate)** | Production | ~$100-300/mo |
+| **[EKS (Auto Mode)](docs/aws-deployment.md#eks)** | Production | ~$150-400/mo |
 
 ---
 
@@ -304,7 +304,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 
 | Document | Description |
 |----------|-------------|
-| [AWS Deployment](docs/aws-deployment.md) | EC2 and Fargate deployment guides |
+| [AWS Deployment](docs/aws-deployment.md) | EC2 and EKS deployment guides |
 | [Environment Variables](docs/environment-variables.md) | Full config reference for all services |
 | [Compliance](docs/compliance.md) | Rule engine, validation, audit trail |
 

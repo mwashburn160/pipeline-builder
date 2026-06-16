@@ -1,0 +1,179 @@
+---
+# =============================================================================
+# Alertmanager Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  labels:
+    app: alertmanager
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9093
+      targetPort: 9093
+      protocol: TCP
+      name: http
+  selector:
+    app: alertmanager
+
+---
+# =============================================================================
+# Alertmanager PersistentVolumeClaim (pb-ebs)
+# =============================================================================
+# Backs `/alertmanager` so silences and the notification log (nflog) survive
+# pod restarts. Sized small — silences are tiny JSON records and the nflog
+# is bounded by Alertmanager's retention (default 120h). 256Mi is generous.
+# =============================================================================
+# Alertmanager PersistentVolumeClaim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alertmanager-data
+  labels:
+    app: alertmanager
+spec:
+  storageClassName: pb-ebs
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 256Mi
+---
+# =============================================================================
+# Alertmanager Deployment
+# =============================================================================
+# Receives alerts from Prometheus (prometheus.yml `alerting.alertmanagers`
+# points here), routes them by `severity` label, and forwards to Slack.
+# Webhook URLs come from the optional `alertmanager-slack` Secret — if the
+# secret is absent the env vars are empty and Slack receivers no-op silently,
+# but the firing alerts still show in Alertmanager's UI / API.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  labels:
+    app: alertmanager
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # RWO PVC can't be mounted by two pods at once — Recreate avoids the
+  # rolling-update overlap that would otherwise stall on the second attach.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+        app.kubernetes.io/component: observability
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 65534
+        runAsUser: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.38
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "25m"
+              memory: 32Mi
+          command: ["sh", "-c", "chown -R 65534:65534 /alertmanager"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: alertmanager-storage
+              mountPath: /alertmanager
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.32.2
+          args:
+            - "--config.file=/etc/alertmanager/alertmanager.yml"
+            - "--storage.path=/alertmanager"
+          ports:
+            - containerPort: 9093
+              name: http
+          env:
+            - name: SLACK_WEBHOOK_URL_CRITICAL
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-slack
+                  key: SLACK_WEBHOOK_URL_CRITICAL
+                  optional: true
+            - name: SLACK_WEBHOOK_URL_WARNING
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-slack
+                  key: SLACK_WEBHOOK_URL_WARNING
+                  optional: true
+            # Multi-tenant relay: alertmanager POSTs org-labeled alerts to
+            # the platform service, which fans out per the org_alert_destinations
+            # table.
+            - name: PLATFORM_ALERT_WEBHOOK_URL
+              value: "http://nginx:8080/api/observability/alert-webhook"
+            - name: ALERT_WEBHOOK_INSTANCE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-relay
+                  key: ALERT_WEBHOOK_INSTANCE_ID
+                  optional: true
+            - name: ALERT_WEBHOOK_INSTANCE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-relay
+                  key: ALERT_WEBHOOK_INSTANCE_TOKEN
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              cpu: "200m"
+              memory: 128Mi
+            requests:
+              cpu: "25m"
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9093
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          volumeMounts:
+            - name: alertmanager-config
+              mountPath: /etc/alertmanager
+              readOnly: true
+            - name: alertmanager-storage
+              mountPath: /alertmanager
+      volumes:
+        - name: alertmanager-config
+          configMap:
+            name: alertmanager-config
+        - name: alertmanager-storage
+          persistentVolumeClaim:
+            claimName: alertmanager-data

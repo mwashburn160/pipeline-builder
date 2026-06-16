@@ -40,7 +40,7 @@ export interface PostStepOptions {
   readonly target: TargetId;
   /** Base URL of the deployed platform (from deriveHealthUrl), or null. */
   readonly url: string | null;
-  /** AWS region (ec2/fargate), if provided. */
+  /** AWS region (ec2/eks), if provided. */
   readonly region?: string;
   /** Load-step ids enabled via `--with-*` (drive init-platform's LOAD_* envs + sparse paths). */
   readonly enabledLoadIds: readonly string[];
@@ -48,9 +48,9 @@ export interface PostStepOptions {
   readonly buildBootstrap: boolean;
   /** False when `--no-init` — skips the register step entirely. */
   readonly init: boolean;
-  /** `--auto-init` (AWS): the deploy self-runs init-platform once the platform is up
-   *  (ec2: on first boot; fargate: a one-shot 07-init ECS task), so the register step is
-   *  NOT surfaced here — it would duplicate that managed run. */
+  /** `--auto-init` (ec2 only): the EC2 instance self-runs init-platform on first boot, so the
+   *  register step is NOT surfaced here — it would duplicate that on-box run. (eks/minikube run
+   *  init via provision, not a deploy-managed auto-init.) */
   readonly autoInit?: boolean;
   readonly smokeTest: boolean;
   /** `--with-events`: the AWS event-ingestion bundle (store-token → setup-events). */
@@ -76,20 +76,20 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   const steps: PostStep[] = [];
   const skipped: SkippedStep[] = [];
 
-  // --auto-init (AWS): the deploy runs init-platform itself once the platform is up
-  // (ec2: on first boot; fargate: the one-shot 07-init ECS task — both register + all
-  // loads), so DON'T add a register step here — it would duplicate that managed run.
+  // --auto-init (ec2 only): the EC2 instance runs init-platform itself on first boot (register +
+  // all loads), so DON'T add a register step here — it would duplicate the on-box run. (eks and
+  // minikube run init via provision, so they're not "managed".)
   // (The caller prints a positive "auto-init enabled" note instead of a skip warning.)
   const autoInitManaged =
-    opts.init && opts.autoInit === true && (opts.target === 'ec2' || opts.target === 'fargate');
+    opts.init && opts.autoInit === true && opts.target === 'ec2';
   if (opts.init && !autoInitManaged) {
     const enabled = LOAD_STEPS.filter((s) => opts.enabledLoadIds.includes(s.id)).map((s) => s.id);
     const loads = enabled.length > 0 ? ` (+ ${enabled.join(', ')})` : '';
-    // On AWS (ec2/fargate) register can't run from here — it builds + pushes images and
-    // reads the cluster's jwt-secret, so it runs ON the box and is surfaced as a manual
-    // next-step. Bake the resolved platform URL into the command so the operator copy-pastes
-    // a correct line (and a stale PLATFORM_BASE_URL in their shell can't misdirect it).
-    const isAws = opts.target === 'ec2' || opts.target === 'fargate';
+    // On AWS (ec2/eks) register can't reliably run from the operator's laptop — it builds +
+    // pushes images and reads the cluster's jwt-secret, so it's surfaced as a manual next-step.
+    // Bake the resolved platform URL into the command so the operator copy-pastes a correct line
+    // (and a stale PLATFORM_BASE_URL in their shell can't misdirect it).
+    const isAws = opts.target === 'ec2' || opts.target === 'eks';
     const registerCommand = isAws && opts.url
       ? `PLATFORM_BASE_URL=${opts.url} ./deploy/bin/init-platform.sh ${opts.target}`
       : `./deploy/bin/init-platform.sh ${opts.target}`;
@@ -118,7 +118,7 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   }
 
   if (opts.events) {
-    if (opts.target === 'ec2' || opts.target === 'fargate') {
+    if (opts.target === 'ec2' || opts.target === 'eks') {
       // Event ingestion needs a platform JWT in Secrets Manager BEFORE the Lambda
       // is wired up, so this is a two-step bundle: store-token writes the token,
       // then setup-events deploys the EventBridge → SQS → Lambda that reads it.
@@ -142,7 +142,7 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
         env,
       });
     } else {
-      skipped.push({ id: 'events', reason: `not applicable to target '${opts.target}' (ec2/fargate only)` });
+      skipped.push({ id: 'events', reason: `not applicable to target '${opts.target}' (ec2/eks only)` });
     }
   }
 

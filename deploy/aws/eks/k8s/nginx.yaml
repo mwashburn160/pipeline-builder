@@ -1,0 +1,267 @@
+---
+# =============================================================================
+# Nginx Service (ClusterIP — fronted by the ALB Ingress)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  # HTTP-only. The ALB (ingress.yaml, target-type: ip) terminates TLS and forwards
+  # plain HTTP straight to these pod IPs on 8080 — no NodePort/iptables bridge. No 8443.
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: nginx
+
+---
+# =============================================================================
+# Nginx Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+        app.kubernetes.io/component: gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+        prometheus.io/scheme: "http"
+    spec:
+      initContainers:
+        # Wait for upstream Service DNS to resolve before starting nginx.
+        #
+        # WHY: nginx with `upstream` blocks resolves hostnames at startup
+        # and crashes if any are missing. Waiting here prevents that.
+        #
+        # WHEN IT BLOCKS: if any of the 10 upstream Services aren't
+        # deployed (typical: incomplete `kubectl apply`, image pull
+        # failures, or insufficient node capacity to schedule them all).
+        #
+        # ESCAPE HATCHES (any of these unblock startup):
+        #   1. Skip entirely:
+        #      kubectl set env deployment/nginx SKIP_UPSTREAM_WAIT=true
+        #   2. Lower per-upstream timeout:
+        #      kubectl set env deployment/nginx WAIT_TIMEOUT_SEC=30
+        #   3. Read what's actually missing:
+        #      kubectl logs <nginx-pod> -c wait-for-upstreams --tail=30
+        #
+        # On TIMEOUT the init exits 1 → CrashLoopBackOff with the missing
+        # upstream names in the logs. Default 60s × 10 upstreams = ~10min
+        # worst-case if every upstream is missing.
+        - name: wait-for-upstreams
+          image: busybox:1.38
+          env:
+            - name: WAIT_TIMEOUT_SEC
+              value: "60"
+            - name: SKIP_UPSTREAM_WAIT
+              value: "false"
+          command:
+            - sh
+            - -c
+            - |
+              if [ "$SKIP_UPSTREAM_WAIT" = "true" ]; then
+                echo "SKIP_UPSTREAM_WAIT=true — bypassing upstream-readiness gate"
+                exit 0
+              fi
+              # Derive the cluster suffix from our own pod's resolv.conf
+              # rather than hard-coding `pipeline-builder.svc.cluster.local`
+              # — works whether the manifest is applied to the
+              # pipeline-builder namespace or a different one.
+              # Falls back to the bare name if extraction fails.
+              NS=$(awk '/^search/ { for (i=2;i<=NF;i++) if ($i ~ /\.svc\./) { sub(/\.svc\..*/, "", $i); print $i; exit } }' /etc/resolv.conf 2>/dev/null)
+              SUFFIX=""
+              if [ -n "$NS" ]; then
+                CLUSTER_DOMAIN=$(awk '/^search/ { for (i=2;i<=NF;i++) if ($i ~ /\.svc\./) { sub(/^[^.]+\.svc\./, "", $i); print $i; exit } }' /etc/resolv.conf 2>/dev/null)
+                CLUSTER_DOMAIN=${CLUSTER_DOMAIN:-cluster.local}
+                SUFFIX=".${NS}.svc.${CLUSTER_DOMAIN}"
+                echo "Resolving upstreams via FQDN suffix: ${SUFFIX}"
+              else
+                echo "Could not derive FQDN suffix from /etc/resolv.conf — falling back to bare hostnames"
+              fi
+
+              UPSTREAMS="billing compliance frontend image-registry message pipeline platform plugin quota reporting"
+              FAILED=""
+              for s in $UPSTREAMS; do
+                deadline=$(( $(date +%s) + WAIT_TIMEOUT_SEC ))
+                resolved=false
+                while [ "$(date +%s)" -lt "$deadline" ]; do
+                  # Try FQDN first (busybox nslookup ignores search domains
+                  # under some musl/glibc + CoreDNS combinations); fall back
+                  # to bare name in case SUFFIX was empty.
+                  if nslookup "${s}${SUFFIX}" >/dev/null 2>&1 || nslookup "$s" >/dev/null 2>&1; then
+                    echo "resolved: $s"
+                    resolved=true
+                    break
+                  fi
+                  echo "waiting for $s..."
+                  sleep 2
+                done
+                if [ "$resolved" = "false" ]; then
+                  echo "TIMEOUT: $s (no Service after ${WAIT_TIMEOUT_SEC}s)"
+                  FAILED="$FAILED $s"
+                fi
+              done
+              if [ -n "$FAILED" ]; then
+                echo "FAILED upstreams:$FAILED"
+                echo "Hint: 'kubectl get svc -n <ns>' — these Service objects are missing."
+                echo "Hint: 'kubectl set env deployment/nginx SKIP_UPSTREAM_WAIT=true' to bypass."
+                exit 1
+              fi
+              echo "all upstreams resolvable"
+      containers:
+        - name: nginx
+          # nginxinc/nginx-unprivileged variant: same nginx codebase, but the
+          # master process runs as UID 101 (nginx) instead of root, listens on
+          # 8080/8443 by default (no <1024 bind), and uses /tmp for the PID
+          # file. Lets us drop ALL caps and enable readOnlyRootFilesystem
+          # without the CHOWN / SETUID / SETGID dance the upstream image needs.
+          image: nginxinc/nginx-unprivileged:1.30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: JWT_SECRET
+          resources:
+            limits:
+              cpu: "300m"
+              memory: 256Mi
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "curl -sf http://localhost:8080/health || exit 1"
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "curl -sf http://localhost:8080/health || exit 1"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: nginx-njs
+              mountPath: /etc/nginx/njs
+              readOnly: true
+            # readOnlyRootFilesystem: true means nginx can't write anywhere
+            # under `/` unless we provide an emptyDir. Cache + temp dirs +
+            # PID file all need write access; mount them as ephemeral RAM.
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-tmp
+              mountPath: /tmp
+            # nginx writes its PID file to /run/nginx.pid by default; the
+            # rootfs is read-only so without this mount nginx crashes on
+            # startup with "open() /run/nginx.pid failed".
+            - name: nginx-run
+              mountPath: /run
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        - name: nginx-njs
+          configMap:
+            name: nginx-njs
+        - name: nginx-cache
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: nginx-tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: nginx-run
+          emptyDir:
+            sizeLimit: 8Mi
+
+---
+# =============================================================================
+# Nginx HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+---
+# =============================================================================
+# Nginx PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: nginx

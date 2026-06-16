@@ -8,11 +8,11 @@
 # Source of truth: each service's package.json `version` field.
 #
 # Targets:
-#   - deploy/minikube/k8s/*.yaml       (Kubernetes Deployment manifests)
+#   - deploy/local/minikube/k8s/*.yaml       (Kubernetes Deployment manifests)
 #   - deploy/aws/ec2/k8s/*.yaml        (EC2 single-node k8s manifests)
-#   - deploy/local/docker-compose.yml  (Docker Compose for local dev)
-#   - deploy/aws/fargate/.env.example  (Fargate env defaults)
-#   - deploy/aws/fargate/stacks/04-services.yaml
+#   - deploy/local/docker/docker-compose.yml  (Docker Compose for local dev)
+#   - deploy/aws/eks/.env.example  (EKS env defaults)
+#   - deploy/aws/eks/stacks/04-services.yaml
 #
 # Plugin image is a single target (no `-docker`/`-kaniko`/`-podman` suffix).
 # Builds run on a rootless buildkitd sidecar across every deploy target.
@@ -36,11 +36,11 @@ SERVICES=(
 )
 
 FILES=(
-  "$ROOT"/deploy/minikube/k8s/*.yaml
+  "$ROOT"/deploy/local/minikube/k8s/*.yaml
   "$ROOT"/deploy/aws/ec2/k8s/*.yaml
-  "$ROOT/deploy/local/docker-compose.yml"
-  "$ROOT/deploy/aws/fargate/.env.example"
-  "$ROOT/deploy/aws/fargate/stacks/04-services.yaml"
+  "$ROOT/deploy/local/docker/docker-compose.yml"
+  "$ROOT/deploy/aws/eks/.env.example"
+  "$ROOT/deploy/aws/eks/stacks/04-services.yaml"
 )
 
 # Cross-platform `sed -i` (BSD sed needs an explicit empty backup arg)

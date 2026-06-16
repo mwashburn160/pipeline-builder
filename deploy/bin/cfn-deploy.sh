@@ -2,7 +2,7 @@
 # =============================================================================
 # Shared CloudFormation deploy helper for the AWS targets.
 # =============================================================================
-# Sourced by deploy/aws/{ec2,fargate}/bin/setup.sh (deploy/bin is in every target's
+# Sourced by deploy/aws/ec2/bin/setup.sh (deploy/bin is in every target's
 # clone — COMMON_SPARSE_PATHS). Not meant to be executed directly.
 #
 #   cfn_deploy <full-stack-name> <template-file> [param ...]

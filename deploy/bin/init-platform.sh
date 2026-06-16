@@ -8,7 +8,7 @@ set -euo pipefail
 #   ./init-platform.sh local                                   # Docker Compose (https://localhost:8443)
 #   ./init-platform.sh minikube                                # Minikube (tunnels via kubectl port-forward)
 #   ./init-platform.sh ec2                                     # EC2 (requires PLATFORM_BASE_URL or stack name)
-#   ./init-platform.sh fargate                                 # Fargate (resolves URL from the <prefix>-foundation stack)
+#   ./init-platform.sh eks                                     # EKS (port-forwards to nginx via kubectl; or set PLATFORM_BASE_URL)
 #   ./init-platform.sh --cleanup ec2                           # Clean up plugin.zip + image.tar after upload
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -96,31 +96,32 @@ case "$TARGET" in
       echo "  Resolved: $PLATFORM_BASE_URL"
     fi
     ;;
-  fargate)
+  eks)
     if [ -n "${PLATFORM_BASE_URL:-}" ]; then
       echo "Using PLATFORM_BASE_URL=$PLATFORM_BASE_URL"
     else
-      # Resolve the domain from the foundation stack's DomainName output.
-      # Stack is "${STACK_PREFIX}-foundation" (setup.sh default prefix: pb).
-      STACK_PREFIX="${STACK_PREFIX:-pb}"
-      STACK_NAME="${STACK_NAME:-${STACK_PREFIX}-foundation}"
-      echo "=== Resolving URL from CloudFormation stack: $STACK_NAME ==="
-      DOMAIN=$(aws cloudformation describe-stacks \
-        --stack-name "$STACK_NAME" \
-        --query 'Stacks[0].Outputs[?OutputKey==`DomainName`].OutputValue' \
-        --output text 2>/dev/null || true)
-      if [ -z "$DOMAIN" ] || [ "$DOMAIN" = "None" ]; then
-        echo "ERROR: Could not resolve DomainName from stack '$STACK_NAME'." >&2
-        echo "  Set PLATFORM_BASE_URL, or STACK_PREFIX/STACK_NAME, manually." >&2
-        echo "  (For a private deployment, run this from inside the VPC so the domain resolves.)" >&2
-        exit 1
+      # EKS nginx serves plain HTTP on 8080 (TLS terminates at the ALB). Reach it via a
+      # kubectl port-forward so init works from anywhere with cluster access, independent of
+      # whether the ALB / Route 53 record is ready yet (mirrors minikube). Override with
+      # PLATFORM_BASE_URL to hit the public domain directly instead.
+      if curl -s -o /dev/null -w "" "http://localhost:8080/" 2>/dev/null; then
+        echo "=== Reusing existing port-forward on localhost:8080 ==="
+      else
+        echo "=== Setting up port-forward to nginx (8080) ==="
+        kubectl port-forward svc/nginx 8080:8080 -n "$NAMESPACE" > /dev/null 2>&1 &
+        TUNNEL_PID=$!
+        sleep 2
+        if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+          echo "ERROR: Port-forward failed. Is the EKS cluster reachable (kubectl) and nginx running?" >&2
+          exit 1
+        fi
+        echo "  Forwarding localhost:8080 -> nginx:8080"
       fi
-      PLATFORM_BASE_URL="https://$DOMAIN"
-      echo "  Resolved: $PLATFORM_BASE_URL"
+      PLATFORM_BASE_URL="http://localhost:8080"
     fi
     ;;
   *)
-    echo "Usage: $0 [local|minikube|ec2|fargate]" >&2
+    echo "Usage: $0 [local|minikube|ec2|eks]" >&2
     exit 1
     ;;
 esac
@@ -304,7 +305,7 @@ if _truthy "$LOAD_PLUGINS"; then
     # build_image strategy, bases PREBUILT — trust the in-cluster registry already holds
     # the `FROM` bases (seeded out-of-band). Per-plugin images are still built at upload
     # time by the plugin service's buildkitd, which resolves them from the registry.
-    # (The Fargate init task does NOT take this path: it builds bases via its buildkitd
+    # (No deploy target takes this path today; it is a manual escape hatch.)
     # sidecar — BASE_BUILDER=buildkit — and leaves BASES_PREBUILT unset.)
     echo ""
     echo "  Base images: PREBUILT (BASES_PREBUILT=true) — skipping the base build; trusting the registry."

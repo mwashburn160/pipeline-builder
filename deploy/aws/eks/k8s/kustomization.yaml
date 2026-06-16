@@ -1,0 +1,57 @@
+# =============================================================================
+# EKS Auto Mode — standalone manifests (kept separate from ec2/minikube).
+# =============================================================================
+# Self-contained: its own copy of every manifest, tuned for multi-node EKS
+# (PVC storage instead of hostPath; ALB Ingress instead of the ec2 ALB→NodePort).
+# Does NOT share a base with the ec2/minikube targets.
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pipeline-builder
+
+resources:
+  # EKS-specific
+  - storageclasses.yaml      # pb-ebs (RWO) + pb-efs (RWX)
+  # Core
+  - namespace.yaml
+  - networkpolicy.yaml
+  - resource-limits.yaml
+  # Data
+  - mongodb.yaml
+  - postgres.yaml
+  - pgbouncer.yaml
+  - redis.yaml
+  # Gateway + app
+  - nginx.yaml
+  - platform.yaml
+  - pipeline.yaml
+  - plugin.yaml
+  - message.yaml
+  - reporting.yaml
+  - quota.yaml
+  - billing.yaml
+  - compliance.yaml
+  - frontend.yaml
+  # Admin tools
+  - mongo-express.yaml
+  - pgadmin.yaml
+  # In-cluster registry
+  - registry.yaml
+  - image-registry.yaml
+  # Observability
+  - prometheus.yaml
+  - alertmanager.yaml
+  - loki.yaml
+  - promtail.yaml
+  - jaeger.yaml
+  # External entrypoint (ALB)
+  - ingress.yaml
+
+# Storage is PVC-based: postgres/mongodb/prometheus/alertmanager/pgadmin → pb-ebs
+# (RWO); registry/loki → pb-efs (RWX); plugin builds+uploads → emptyDir.
+#
+# NetworkPolicy: networkpolicy.yaml (standard k8s NetworkPolicy) is the active set —
+# VPC CNI (Auto Mode) enforces it. cilium-network-policies.yaml is intentionally NOT
+# included: its FQDN/per-org egress allow-listing needs Cilium as the CNI (inert under
+# VPC CNI). See those files' headers for the full VPC-CNI-vs-Cilium reconciliation.

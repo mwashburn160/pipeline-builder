@@ -7,7 +7,7 @@ title: Environment Variables
 
 Complete reference for all environment variables used across Pipeline Builder services. Each variable can be set in your `.env` file or passed directly via your deployment configuration (Docker Compose, Kubernetes ConfigMap, ECS task definition).
 
-**Quick setup:** Each deploy target ships its own template (`deploy/local/.env.example`, `deploy/minikube/.env.example`, `deploy/aws/fargate/.env.example`, `deploy/aws/ec2/.env.example`). Copy the one for your target to `.env` and fill in the required secrets.
+**Quick setup:** Each deploy target ships its own template (`deploy/local/docker/.env.example`, `deploy/local/minikube/.env.example`, `deploy/aws/ec2/.env.example`, `deploy/aws/eks/.env.example`). Copy the one for your target to `.env` and fill in the required secrets.
 
 > **Security:** Generate JWT secrets with `openssl rand -base64 32`. Never commit `.env` files to version control.
 
@@ -165,13 +165,13 @@ AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTIO
 | `IMAGE_REGISTRY_USER` | `admin` | Registry username |
 | `IMAGE_REGISTRY_TOKEN` | — | Registry password/token |
 | `IMAGE_REGISTRY_HTTP` | `true` | Plugin builds talk to the in-cluster registry over plain HTTP. Set `false` only if the registry is exposed via a TLS-terminating proxy with a publicly trusted cert. |
-| `IMAGE_REGISTRY_TOKEN_REALM` | `${PLATFORM_BASE_URL}/image-registry/token` | Bearer-token realm the plugin keys its registry credential under. **Must match the registry's `REGISTRY_AUTH_TOKEN_REALM`** (e.g. `http://image-registry:3000/token` in-cluster; `http://image-registry.pipeline-builder.local:3000/token` on Fargate) — when the registry redirects a push to a different host than the push target, the plugin only sends Basic auth if it has a credential keyed under that realm host. Set on every target's plugin so pushes don't 401 / `insufficient_scope`. |
+| `IMAGE_REGISTRY_TOKEN_REALM` | `${PLATFORM_BASE_URL}/image-registry/token` | Bearer-token realm the plugin keys its registry credential under. **Must match the registry's `REGISTRY_AUTH_TOKEN_REALM`** (e.g. `http://image-registry:3000/token` in-cluster) — when the registry redirects a push to a different host than the push target, the plugin only sends Basic auth if it has a credential keyed under that realm host. Set on every target's plugin so pushes don't 401 / `insufficient_scope`. |
 
 ---
 
 ## Plugin Builds
 
-Every deploy target (Fargate, EC2/k8s, minikube, local docker-compose) runs
+Every deploy target (EKS, EC2, minikube, local docker-compose) runs
 plugin builds against a **rootless `moby/buildkit` sidecar (`buildkitd`)**. The
 plugin service's `buildctl` connects via the Unix socket exposed by the sidecar —
 there is no docker daemon, no privileged build sidecar, and no strategy switch.
@@ -197,7 +197,7 @@ builder, one path, no per-builder target suffixes.
 - **Rootless, no privileged containers**: `moby/buildkit:rootless` runs as uid 1000 with no `SYS_ADMIN` and no `privileged: true` — it builds full OCI images from a Dockerfile **without a Docker daemon and without a docker socket mount**, removing the classic dind/socket attack surface.
 - **Builds and pushes directly**: buildkitd parses the Dockerfile, runs the build with native **layer caching**, and **pushes straight to the registry** (`--output type=image,push=true`) — no intermediate `docker save`/`docker push` round-trip.
 - **No CA-trust workarounds**: buildkitd carries the system CA bundle and follows realm-URL bearer challenges with the host's trust store — no per-container cert mounts, no `update-ca-certificates` shell wrappers.
-- **One code path everywhere**: the same `docker-build.ts` runs on Fargate, EC2, minikube, and local. Deploy target only changes the sidecar's hosting (ECS task / k8s pod / compose service).
+- **One code path everywhere**: the same `docker-build.ts` runs on EKS, EC2, minikube, and local. Deploy target only changes the sidecar's hosting (k8s pod / compose service).
 
 ### Build Queue
 

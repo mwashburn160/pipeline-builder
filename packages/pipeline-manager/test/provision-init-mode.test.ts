@@ -31,8 +31,8 @@ describe('resolveInitMode', () => {
   });
 
   it('maps the deprecated aliases', () => {
-    expect(resolveInitMode({ init: false })).toBe('skip');     // --no-init
-    expect(resolveInitMode({ autoInit: true })).toBe('auto');  // --auto-init
+    expect(resolveInitMode({ init: false })).toBe('skip'); // --no-init
+    expect(resolveInitMode({ autoInit: true })).toBe('auto'); // --auto-init
     expect(resolveInitMode({ autoInit: false })).toBe('manual'); // --no-auto-init
   });
 

@@ -300,7 +300,7 @@ wait_for_service_ready() {
 #   - Password is masked with `*` per keystroke (so input is visible as feedback
 #     without echoing the value); a piped/non-interactive stdin uses a silent read.
 #   - Default identifier (`admin@internal`) is shown in the prompt only on
-#     the `local` deploy target — for ec2/fargate/minikube, the operator is
+#     the `local` deploy target — for ec2/eks/minikube, the operator is
 #     forced to type a value to avoid accidentally creating a production
 #     admin with the local-dev default.
 #   - Default password is NEVER shown in the prompt. It's still accepted as

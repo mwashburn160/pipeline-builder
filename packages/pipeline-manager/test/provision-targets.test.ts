@@ -10,13 +10,13 @@ describe('sparsePathsFor', () => {
   });
 
   it('register-only local = common base + target folder', () => {
-    expect(sparsePathsFor('local', [])).toEqual(['deploy/bin', 'deploy/local']);
+    expect(sparsePathsFor('local', [])).toEqual(['deploy/bin', 'deploy/local/docker']);
   });
 
-  it('minikube is self-contained — no deploy/local', () => {
+  it('minikube is self-contained — no deploy/local/docker', () => {
     const paths = sparsePathsFor('minikube', []);
-    expect(paths).toEqual(['deploy/bin', 'deploy/minikube']);
-    expect(paths).not.toContain('deploy/local');
+    expect(paths).toEqual(['deploy/bin', 'deploy/local/minikube']);
+    expect(paths).not.toContain('deploy/local/docker');
   });
 
   it('adds the folders of enabled load steps (plugins pulls codebuild too)', () => {

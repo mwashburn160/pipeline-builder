@@ -7,7 +7,7 @@
 # Route53 private zone aliasing the domain to the internal ALB), gated on
 # DeployMode=private — there is no separate prereqs stack.
 #
-# Runs from YOUR machine with YOUR credentials (like Fargate's setup.sh), so
+# Runs from YOUR machine with YOUR credentials (like the eks target's setup.sh), so
 # the EC2 instance role needs NO CloudFormation permissions.
 #
 # TLS is terminated at the ALB with an ACM cert that the template REQUESTS and

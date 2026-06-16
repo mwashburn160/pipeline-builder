@@ -141,7 +141,7 @@ EventBridge captures every CodePipeline and CodeBuild state change. Reports incl
 | **Local** (Docker Compose) | Development, demos | Single machine, all services in containers |
 | **Minikube** (K8s) | Testing, small teams | Single node Kubernetes, KEDA auto-scaling |
 | **EC2** (Minikube on EC2) | Small-medium production | t3.2xlarge default (8 vCPU / 32 GiB), persistent storage, Let's Encrypt |
-| **Fargate** (ECS) | Large-scale production | Serverless containers, managed scaling, containerized PostgreSQL/MongoDB/Redis |
+| **EKS** (Auto Mode) | Large-scale production | Managed Kubernetes, Karpenter autoscaling, EBS/EFS-backed PostgreSQL/MongoDB/Redis |
 
 All deployment targets run the same services with the same configuration — `.env` files and K8s manifests are consistent across targets.
 
@@ -166,7 +166,7 @@ All deployment targets run the same services with the same configuration — `.e
 ```bash
 git clone <repo-url> pipeline-builder && cd pipeline-builder
 pnpm install && pnpm build
-cd deploy/local && chmod +x bin/setup.sh && ./bin/setup.sh
+cd deploy/local/docker && chmod +x bin/setup.sh && ./bin/setup.sh
 ```
 
 Open **https://localhost:8443** — register, create an org, and start building pipelines.

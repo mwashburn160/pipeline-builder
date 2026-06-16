@@ -1,0 +1,50 @@
+# =============================================================================
+# EKS Auto Mode cluster for Pipeline Builder
+# =============================================================================
+#   eksctl create cluster -f cluster.yaml
+#
+# Auto Mode = AWS manages the data plane: it provisions/scales EC2 nodes
+# (Karpenter), and bundles the AWS Load Balancer Controller, the EBS CSI driver,
+# and CoreDNS. There are no managed node groups to define here.
+#
+# NOTE: `${...}` tokens are substituted by bin/setup.sh (envsubst) before apply.
+# Schema validated against eksctl's Auto Mode ClusterConfig (autoModeConfig +
+# addons[].podIdentityAssociations). The one thing to confirm at deploy time is
+# `metadata.version` below — it must be an EKS version that is currently SUPPORTED
+# and ≥ 1.29 (Auto Mode's floor); bump it if 1.31 has aged out.
+# =============================================================================
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: ${CLUSTER_NAME}        # default: pipeline-builder
+  region: ${REGION}            # default: us-east-1
+  version: "1.31"              # Auto Mode requires ≥ 1.29; use a supported version
+  tags:
+    Project: pipeline-builder
+
+# IRSA / Pod Identity for the AWS integrations (SES, S3, the EFS CSI driver).
+iam:
+  withOIDC: true
+
+# AWS-managed data plane (nodes + core addons). general-purpose + system pools.
+autoModeConfig:
+  enabled: true
+
+# EFS CSI is NOT included in Auto Mode — added for the RWX volumes shared across
+# nodes (in-cluster registry, loki, plugin build-temp/uploads). EBS comes with
+# Auto Mode. eksctl wires the Pod Identity association when withOIDC is set.
+addons:
+  - name: aws-efs-csi-driver
+    podIdentityAssociations:
+      - namespace: kube-system
+        serviceAccountName: efs-csi-controller-sa
+        wellKnownPolicies:
+          efsCSIController: true
+
+# VPC: omit to let eksctl create a dedicated VPC, or pin an existing one here to
+# match the platform's networking (private subnets + NAT for image pulls).
+# vpc:
+#   id: vpc-xxxx
+#   subnets:
+#     private: { ... }

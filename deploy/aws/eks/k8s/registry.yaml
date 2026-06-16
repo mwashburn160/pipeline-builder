@@ -1,0 +1,173 @@
+---
+# =============================================================================
+# Docker Registry Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  labels:
+    app: registry
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5000
+      targetPort: 5000
+      protocol: TCP
+      name: registry
+  selector:
+    app: registry
+
+---
+# =============================================================================
+# Registry PersistentVolumeClaim
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  labels:
+    app: registry
+spec:
+  storageClassName: pb-efs
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 80Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  labels:
+    app: registry
+    app.kubernetes.io/component: registry
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+        app.kubernetes.io/component: registry
+    spec:
+      # Stateless API server — no need for the default ServiceAccount token
+      # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
+      # radius if the container is compromised (no kubelet API access).
+      automountServiceAccountToken: false
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.38
+          command: ["sh", "-c", "chown -R 1000:1000 /var/lib/registry"]
+          volumeMounts:
+            - name: registry-data
+              mountPath: /var/lib/registry
+          securityContext:
+            runAsUser: 0
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+      containers:
+        - name: registry
+          image: registry:3
+          ports:
+            - containerPort: 5000
+              name: registry
+          # `fix-permissions` init container chowns /var/lib/registry to
+          # 1000:1000 so the main container can run as a non-root UID.
+          # registry:3 writes only to /var/lib/registry (PVC) and reads
+          # TLS material + the JWT pubkey from mounted Secrets — both
+          # are compatible with a read-only root filesystem.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # Token-based auth — registry delegates to pipeline-image-registry's
+            # /token endpoint. Every pull/push requires a bearer JWT signed
+            # with the keypair in registry-token-secret. Anonymous reads are
+            # disabled; htpasswd has been removed.
+            - name: REGISTRY_AUTH
+              value: "token"
+            # Token realm advertised to clients in WWW-Authenticate. Kept as
+            # the in-cluster URL so in-cluster clients (buildkit) reach the
+            # token service directly. For OUT-OF-CLUSTER pulls (AWS CodeBuild),
+            # nginx's /v2/ location rewrites this realm in the response to the
+            # public gateway URL (see registry-auth.js / js_header_filter) —
+            # so the registry config stays internal and in-cluster auth is
+            # unaffected.
+            - name: REGISTRY_AUTH_TOKEN_REALM
+              value: "http://image-registry:3000/token"
+            - name: REGISTRY_AUTH_TOKEN_SERVICE
+              value: "pipeline-image-registry"
+            - name: REGISTRY_AUTH_TOKEN_ISSUER
+              value: "platform"
+            - name: REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE
+              value: "/etc/registry/jwt-public.pem"
+            - name: REGISTRY_HTTP_ADDR
+              value: "0.0.0.0:5000"
+            # TLS deliberately disabled — registry serves plain HTTP on
+            # its in-cluster ClusterIP service; nginx fronts it on HTTPS
+            # for external clients.
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+          resources:
+            limits:
+              cpu: "400m"
+              memory: 512Mi
+            requests:
+              cpu: "75m"
+              memory: 256Mi
+          # tcpSocket probes — /v2/ returns 401 (auth required) on a
+          # token-auth registry, and kubelet treats 4xx as unhealthy, so
+          # httpGet won't work here.
+          readinessProbe:
+            tcpSocket:
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          volumeMounts:
+            - name: registry-data
+              mountPath: /var/lib/registry
+            - name: registry-token-cert
+              mountPath: /etc/registry/jwt-public.pem
+              subPath: jwt-public.pem
+              readOnly: true
+      volumes:
+        - name: registry-data
+          persistentVolumeClaim:
+            claimName: registry-data
+        - name: registry-token-cert
+          secret:
+            # Same keypair pipeline-image-registry uses for signing.
+            # Operator creates this secret from openssl-generated cert via:
+            #   kubectl create secret generic registry-token-secret \
+            #     --from-file=jwt-public.pem=image-registry-jwt.crt \
+            #     --from-file=jwt-private.pem=image-registry-jwt.key \
+            #     -n pipeline-builder
+            secretName: registry-token-secret
+            items:
+              - key: jwt-public.pem
+                path: jwt-public.pem

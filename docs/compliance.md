@@ -344,9 +344,9 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 
 | Environment | Configuration |
 |-------------|---------------|
-| Local | `deploy/local/docker-compose.yml` — `compliance` service |
-| Minikube | `deploy/minikube/k8s/compliance.yaml` |
+| Local | `deploy/local/docker/docker-compose.yml` — `compliance` service |
+| Minikube | `deploy/local/minikube/k8s/compliance.yaml` |
 | AWS EC2 | `deploy/aws/ec2/k8s/compliance.yaml` |
-| AWS Fargate | `deploy/aws/fargate/stacks/04-services.yaml` |
+| AWS EKS | `deploy/aws/eks/k8s/compliance.yaml` |
 
 Nginx proxies `/api/compliance` to the compliance service in all environments.

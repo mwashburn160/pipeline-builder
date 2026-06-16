@@ -1,0 +1,147 @@
+---
+# =============================================================================
+# pgBouncer ConfigMap (per-tier pool partitioning)
+# =============================================================================
+# Same per-tier pool layout as `deploy/local/docker/config/pgbouncer/pgbouncer.ini`.
+# Each tier gets a logical database pointing at the same physical DB but
+# with its own pool budget — Developer-tier load can't saturate the pool
+# Pro/Unlimited workers share.
+#
+# Registered in kustomization.yaml and the default DB path: .env.example sets
+# DB_HOST=pgbouncer / DB_PORT=6432, so services connect through it out of the box.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-config
+  namespace: pipeline-builder
+data:
+  pgbouncer.ini: |
+    [databases]
+    pipeline_builder = host=postgres port=5432 dbname=pipeline_builder
+    pipeline_builder_developer = host=postgres port=5432 dbname=pipeline_builder pool_size=20
+    pipeline_builder_pro       = host=postgres port=5432 dbname=pipeline_builder pool_size=40
+    pipeline_builder_unlimited = host=postgres port=5432 dbname=pipeline_builder pool_size=80
+
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+    pool_mode = transaction
+    auth_type = scram-sha-256
+    auth_file = /etc/pgbouncer/userlist.txt
+    max_client_conn = 1000
+    default_pool_size = 25
+    reserve_pool_size = 5
+    reserve_pool_timeout = 5
+    server_idle_timeout = 600
+    admin_users = postgres
+    stats_users = postgres
+    logfile = /var/log/pgbouncer/pgbouncer.log
+    pidfile = /var/run/pgbouncer/pgbouncer.pid
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: pipeline-builder
+  labels:
+    app: pgbouncer
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6432
+      targetPort: 6432
+      protocol: TCP
+      name: pgbouncer
+  selector:
+    app: pgbouncer
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: pipeline-builder
+  labels:
+    app: pgbouncer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:v1.25.2-p0
+          ports:
+            - containerPort: 6432
+              name: pgbouncer
+          env:
+            # edoburu uses DB_*; userlist.txt is generated from these at startup.
+            # The mounted pgbouncer.ini overrides the auto-generated config.
+            - name: DB_HOST
+              value: "postgres"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            # DB name is not a secret — hardcoded to match POSTGRES_DB in
+            # the postgres deployment. Keep in sync with the platform
+            # init.sql / postgres ConfigMap if either changes.
+            - name: DB_NAME
+              value: "pipeline_builder"
+            - name: LISTEN_PORT
+              value: "6432"
+            - name: AUTH_TYPE
+              value: "scram-sha-256"
+            - name: POOL_MODE
+              value: "transaction"
+            - name: ADMIN_USERS
+              value: "postgres"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgbouncer/pgbouncer.ini
+              subPath: pgbouncer.ini
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 6432
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 6432
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            # readOnlyRootFilesystem deliberately not set — edoburu's
+            # entrypoint generates /etc/pgbouncer/userlist.txt at startup
+            # from DB_USER/DB_PASSWORD env vars, which needs the rootfs
+            # writable. Non-root + caps-dropped + seccomp default still
+            # apply; pgbouncer is a stateless proxy with no on-disk state.
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: config
+          configMap:
+            name: pgbouncer-config

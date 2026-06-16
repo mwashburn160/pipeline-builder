@@ -5,7 +5,7 @@ title: AWS Deployment
 
 # AWS Deployment
 
-Two deployment options: **EC2** (single instance, Kubernetes) or **Fargate** (serverless containers).
+Two deployment options: **EC2** (single Minikube instance) or **EKS** (managed Kubernetes — EKS Auto Mode).
 
 Both deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced via the native `/dashboard/observability` page), and admin tools. Both front the workload with an **ALB that terminates TLS using an ACM cert** (DNS-validated); the compute is always in private subnets. A domain + public Route 53 zone is required.
 
@@ -17,10 +17,10 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 - [AI-assisted install (`provision`)](#ai-assisted-install-provision) -- The recommended way to install the platform
 - [Deployment modes](#deployment-modes-public-vs-private) -- Public vs private, and what each changes
-- [Public deployment (quickstart)](#public-deployment-quickstart) -- Internet-facing install, EC2 or Fargate
-- [Private deployment (quickstart)](#private-deployment-quickstart) -- Inside-AWS-only install, EC2 or Fargate
+- [Public deployment (quickstart)](#public-deployment-quickstart) -- Internet-facing install, EC2 or EKS
+- [Private deployment (quickstart)](#private-deployment-quickstart) -- Inside-AWS-only install, EC2 or EKS
 - [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$140-265/mo)
-- [Fargate](#fargate) -- Serverless ECS containers (production, ~$100-300/mo)
+- [EKS](#eks) -- Managed Kubernetes, EKS Auto Mode (production, ~$150-400/mo)
 - [Email (SES)](#email-ses) -- Transactional email (provisioned by default; `--no-email` to skip)
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
 - [Drift Detection (`audit-stacks`)](#drift-detection-audit-stacks) -- Reconcile registry vs live CloudFormation
@@ -29,67 +29,67 @@ Observability is the native `/dashboard/observability` page across all deploymen
 - [File Structure](#file-structure) -- Deployment file layout
 - [Troubleshooting](#troubleshooting) -- Common issues and fixes
 
-| | EC2 | Fargate |
-|--|-----|---------|
-| Runtime | Minikube on EC2 | ECS Fargate |
-| Infra | 1 CloudFormation stack | 6 CloudFormation stacks |
-| TLS | ACM cert at the ALB | ACM cert at the ALB |
-| Public surface | ALB only (instance private) | ALB only (tasks private) |
-| Storage | hostPath PVCs on EBS | EFS access points |
-| Scaling | Vertical (instance resize) | Horizontal (task count) |
-| Cost | ~$140-265/mo (t3.xlarge–t3.2xlarge, 24/7) | ~$100-300/mo |
+| | EC2 | EKS |
+|--|-----|-----|
+| Runtime | Minikube on EC2 | EKS Auto Mode (Karpenter-scaled EC2 nodes) |
+| Infra | 1 CloudFormation stack | eksctl cluster + Kubernetes manifests |
+| TLS | ACM cert at the ALB | ACM cert at the ALB Ingress |
+| Public surface | ALB only (instance private) | ALB Ingress only (nodes private) |
+| Storage | hostPath PVCs on EBS | EBS (RWO) + EFS (RWX) via CSI |
+| Scaling | Vertical (instance resize) | Horizontal (Karpenter nodes + pod autoscaling) |
+| Cost | ~$140-265/mo (t3.xlarge–t3.2xlarge, 24/7) | ~$150-400/mo |
 | Best for | Dev/staging | Production |
 
 ---
 
 ## AI-assisted install (`provision`)
 
-The **recommended** way to install the platform is `pipeline-manager provision`. It picks the target, runs prerequisite checks (AWS CLI + working credentials for EC2/Fargate — and **`openssl`** for Fargate, whose `init-secrets.sh` generates the platform secrets on the host; Docker etc. for local), assembles the **exact, validated `setup.sh` command** (secrets masked, missing inputs reported rather than guessed), prints the plan, and then **deploys it — gated by confirmation prompts** (`--yes` to auto-accept for CI; `--json` prints the plan and runs nothing). With an AI key configured it also parses a natural-language goal and diagnoses CloudFormation failures.
+The **recommended** way to install the platform is `pipeline-manager provision`. It picks the target, runs prerequisite checks (AWS CLI + working credentials for EC2/EKS — plus `eksctl` (or Docker, for the `public.ecr.aws/eksctl/eksctl` image), `kubectl`, `openssl`, and `envsubst` for EKS; Docker etc. for local), assembles the **exact, validated `setup.sh` command** (secrets masked, missing inputs reported rather than guessed), prints the plan, and then **deploys it — gated by confirmation prompts** (`--yes` to auto-accept for CI; `--json` prints the plan and runs nothing). With an AI key configured it also parses a natural-language goal and diagnoses CloudFormation failures.
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
 
 # Deploy (shows the plan, then confirms; add --yes for non-interactive CI):
-pipeline-manager provision --target fargate \
+pipeline-manager provision --target eks \
   --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
 
 # Inspect the plan as JSON without running anything:
-pipeline-manager provision --target fargate --json \
+pipeline-manager provision --target eks --json \
   --domain pipeline.example.com --hosted-zone-id Z123 --ghcr-token ghp_xxx --email
 
 # Or describe the goal (needs an AI key — see Environment Variables):
-pipeline-manager provision --prompt "deploy to Fargate in us-east-1 with email enabled"
+pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email enabled"
 
 # Diagnose a failed deploy:
-pipeline-manager provision --target fargate --diagnose ./stack-events.txt
+pipeline-manager provision --target eks --diagnose ./stack-events.txt
 ```
 
-> **Always deploys (gated).** `provision` checks, assembles, prints the plan, and runs the deploy — it **refuses** on failed prerequisites or missing inputs, asks for confirmation before deploying (**`--yes`** auto-accepts for CI), streams the deploy to your terminal, then verifies `/health` + `/ready` on the application URL. On **EC2/Fargate, init runs automatically by default** (auto-init — EC2 on first boot, Fargate via a one-shot ECS task), so `provision` surfaces it rather than running it locally; on **local/minikube** it runs `init-platform` for you. **`--json`** is the only non-executing mode — it prints the plan and exits (for tooling).
+> **Always deploys (gated).** `provision` checks, assembles, prints the plan, and runs the deploy — it **refuses** on failed prerequisites or missing inputs, asks for confirmation before deploying (**`--yes`** auto-accepts for CI), streams the deploy to your terminal, then verifies `/health` + `/ready` on the application URL. On **EC2, init runs automatically on first boot** (auto-init), so `provision` surfaces it rather than running it locally; on **local/minikube/EKS** `provision` runs `init-platform` for you. **`--json`** is the only non-executing mode — it prints the plan and exits (for tooling).
 >
 > **On failure it troubleshoots.** It matches known CloudFormation signatures and prints the likely cause + fix — and for a few it can **auto-fix and retry** (e.g. an existing SES identity → re-run with `--skip-ses-identity`; an ACM/DNS-propagation timeout → resume). Retries are gated and bounded by **`--retries <n>`** (default 1; the scripts are idempotent so a re-run resumes). With an AI key it adds a free-form diagnosis on top. When SES is enabled, a successful deploy prints DKIM/sandbox next-steps.
 >
-> Flags: **`--yes`** auto-approves (CI), **`--retries <n>`** auto-fix/retry budget, **`--init <mode>`** controls post-deploy initialization (`auto` default / `manual` / `skip` — see below), **`--skip-ses-identity`** for an already-verified SES domain, **`--stack-name <name>`** to deploy/manage a second environment (EC2 stack name / Fargate stack prefix).
+> Flags: **`--yes`** auto-approves (CI), **`--retries <n>`** auto-fix/retry budget, **`--init <mode>`** controls post-deploy initialization (`auto` default / `manual` / `skip` — see below), **`--skip-ses-identity`** for an already-verified SES domain, **`--stack-name <name>`** (EC2) / **`--cluster-name <name>`** (EKS) to deploy/manage a second environment.
 >
 > **Init mode (`--init <mode>`).** One flag controls how the platform initializes after deploy:
-> - **`auto`** (default) — the deploy self-runs `init-platform` once the platform is up: **EC2** on first boot (UserData → on the box as the `minikube` user), **Fargate** via a one-shot `07-init` ECS task — registering the admin (with the **default** password) and loading plugins/compliance/samples. Watch it with `aws ssm start-session … && sudo tail -f /var/log/user-data.log` (EC2) or `aws logs tail /ecs/<prefix>-init --follow` (Fargate). On local/minikube, `provision` runs init for you.
-> - **`manual`** — don't self-init; `provision` surfaces the exact step for you to run yourself (do this to set real admin credentials `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD` instead of the default).
+> - **`auto`** (default) — `init-platform` runs once the platform is up, registering the admin (with the **default** password) and loading plugins/compliance/samples. **EC2** self-runs it on first boot (UserData → on the box as the `minikube` user — watch with `aws ssm start-session … && sudo tail -f /var/log/user-data.log`); **local/minikube/EKS** run it from `provision` (EKS reaches the cluster over a `kubectl port-forward`).
+> - **`manual`** — don't init; `provision` surfaces the exact step for you to run yourself (do this to set real admin credentials `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD` instead of the default).
 > - **`skip`** — don't initialize at all (no register, no loads).
 >
 > The old `--auto-init` / `--no-auto-init` / `--no-init` flags still work as **deprecated aliases** for `--init auto` / `--init manual` / `--init skip`.
 >
-> **Teardown.** Add **`--teardown`** to remove a deployment. `local`/`minikube` stop the stack (on-disk / PVC data persists). **EC2/Fargate DELETE their CloudFormation stacks and are irreversible** — so the destructive path is gated harder than deploy: you must **type the target id** to confirm (a y/N is too easy to fat-finger), and **`--yes` alone does *not* bypass it** — only **`--force`** does (for CI). When you pass a custom **`--stack-name <name>`** (the same flag drives the deploy and teardown stack name/prefix), the confirmation binds to that name — you type the **stack name**, not the target id, so a wrong name can't be confirmed by habit. The region comes from **`--region`** / `AWS_REGION`. As always, `bin/shutdown.sh` (local/minikube/EC2) and `deploy/aws/fargate/bin/teardown.sh` can be run directly.
+> **Teardown.** Add **`--teardown`** to remove a deployment. `local`/`minikube` stop the stack (on-disk / PVC data persists). **EC2 DELETEs its CloudFormation stack and EKS runs `bin/shutdown.sh` (deletes the cluster, EFS, ACM cert + Route 53 alias) — both irreversible** — so the destructive path is gated harder than deploy: you must **type the resource id** to confirm (a y/N is too easy to fat-finger), and **`--yes` alone does *not* bypass it** — only **`--force`** does (for CI). When you pass a custom **`--stack-name <name>`** (EC2) or **`--cluster-name <name>`** (EKS), the confirmation binds to that name — you type the **stack/cluster name**, not the target id, so a wrong name can't be confirmed by habit. The region comes from **`--region`** / `AWS_REGION`. As always, `bin/shutdown.sh` (local/minikube/EKS) and `aws cloudformation delete-stack` (EC2) can be run directly.
 >
 > ```bash
-> # Teardown — prints the destroy plan, then prompts (type "fargate" to confirm):
-> pipeline-manager provision --target fargate --teardown
+> # Teardown — prints the destroy plan, then prompts (type "eks" to confirm):
+> pipeline-manager provision --target eks --teardown
 > ```
 >
-> **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first and runs from it. The clone is **sparse + partial** — `git clone --filter=blob:none --no-checkout` + cone `sparse-checkout` (git ≥ 2.27; older git falls back to a full clone) — so it materializes **only the deploy folders the selected target + options need**, not the whole repo (`packages/`, `api/`, `frontend/`, … are never downloaded). The common base is just `deploy/bin`; each target adds its own folder (`deploy/local`, `deploy/minikube` — self-contained — `deploy/aws/ec2`, `deploy/aws/fargate`), and each post-install load adds its folder. Re-syncs are **additive** (`sparse-checkout add`), so one `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`. (`--ref` is a branch/tag; arbitrary SHAs may not fetch under the shallow clone.)
+> **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first and runs from it. The clone is **sparse + partial** — `git clone --filter=blob:none --no-checkout` + cone `sparse-checkout` (git ≥ 2.27; older git falls back to a full clone) — so it materializes **only the deploy folders the selected target + options need**, not the whole repo (`packages/`, `api/`, `frontend/`, … are never downloaded). The common base is just `deploy/bin`; each target adds its own folder (`deploy/local/docker`, `deploy/local/minikube` — self-contained — `deploy/aws/ec2`, `deploy/aws/eks`), and each post-install load adds its folder. Re-syncs are **additive** (`sparse-checkout add`), so one `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`. (`--ref` is a branch/tag; arbitrary SHAs may not fetch under the shallow clone.)
 >
-> **Post-install steps.** After deploy + health, `provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EC2/Fargate event ingestion — a two-step bundle: **`store-token`** writes a platform JWT to Secrets Manager at the `pipeline-builder/{orgId}/platform` pattern, then **`setup-events`** deploys the EventBridge → SQS → Lambda that reads it; both pull AWS creds from the standard env / `~/.aws` chain), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On EC2/Fargate these loads run **deploy-side via auto-init by default** (so `provision` doesn't prompt for them locally); pass `--init manual` to drive the register + loads manually from inside the VPC instead.
+> **Post-install steps.** After deploy + health, `provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EC2/EKS event ingestion — a two-step bundle: **`store-token`** writes a platform JWT to Secrets Manager at the `pipeline-builder/{orgId}/platform` pattern, then **`setup-events`** deploys the EventBridge → SQS → Lambda that reads it; both pull AWS creds from the standard env / `~/.aws` chain), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On EC2 these loads run **deploy-side via auto-init by default** (so `provision` doesn't prompt for them locally); on EKS `provision` runs the register + loads for you over a `kubectl port-forward`. Pass `--init manual` to drive them yourself.
 >
 > ```bash
-> # Fresh box → sparse-clone just deploy/bin + deploy/local, deploy, register, load samples:
+> # Fresh box → sparse-clone just deploy/bin + deploy/local/docker, deploy, register, load samples:
 > pipeline-manager provision --target local --repo --with-samples --yes \
 >   --admin-email admin@acme.com --admin-password 's3cret'
 > ```
@@ -100,7 +100,7 @@ The underlying `bin/setup.sh` scripts remain the source of truth and can always 
 
 ## Deployment modes (public vs private)
 
-Either target (EC2 or Fargate) deploys in one of two modes. **Both** put the compute in **private subnets** and terminate TLS at an ALB with a publicly-trusted, **DNS-validated ACM cert** — so both **require `--domain` + `--hosted-zone-id`** (the public Route 53 zone is where ACM validates the cert). The mode flips only the **ALB scheme** and the **DNS record**:
+Either target (EC2 or EKS) deploys in one of two modes. **Both** put the compute in **private subnets** and terminate TLS at an ALB with a publicly-trusted, **DNS-validated ACM cert** — so both **require `--domain` + `--hosted-zone-id`** (the public Route 53 zone is where ACM validates the cert). The mode flips only the **ALB scheme** and the **DNS record**:
 
 | | `private` (inside-AWS-only, **default**) | `public` |
 |---|---|---|
@@ -111,7 +111,7 @@ Either target (EC2 or Fargate) deploys in one of two modes. **Both** put the com
 | CodeBuild | **VPC-attached** (`PIPELINE_VPC_ID` / `SUBNET_IDS` / `SECURITY_GROUP_IDS`) | AWS-managed network, reaches the ALB over the internet |
 | Plugin pull | `https://<domain>/v2/` (resolves in-VPC) | `https://<domain>/v2/` (public) |
 
-In **`private`** mode the deploy creates everything in one shot — the same stack (EC2: the single stack; Fargate: `01-foundation`) **also** provisions the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR) **and** the Route 53 private-zone alias to the internal ALB, gated on `DeployMode=private`. **There is no separate prereqs stack.** EC2 and Fargate are structurally identical here: both request a DNS-validated ACM cert in-stack and alias the domain to the ALB (public alias or private zone), so CodeBuild plugin pulls work in either mode. You still supply build-dependency egress (NAT / internal mirrors).
+In **`private`** mode, **EC2** folds the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR) **and** the Route 53 private-zone alias to the internal ALB into its single stack, gated on `DeployMode=private` (no separate prereqs stack). **EKS** sets the ALB Ingress to `scheme: internal` and aliases the domain to it; eksctl provisions the cluster VPC (public + private subnets, NAT). Both request a DNS-validated ACM cert and alias the domain to the ALB (public alias or private zone). For VPC-attached CodeBuild plugin pulls, supply `PIPELINE_VPC_ID` / `SUBNET_IDS` and build-dependency egress (NAT / internal mirrors).
 
 Use the matching quickstart below: **[Public](#public-deployment-quickstart)** or **[Private](#private-deployment-quickstart)**.
 
@@ -141,15 +141,15 @@ bash bin/setup.sh --deploy-mode public \
   --hosted-zone-id Z1234567890 \
   --ghcr-token ghp_xxxxxxxxxxxx
 
-# Fargate — serverless tasks behind an internet-facing ALB
-cd deploy/aws/fargate
+# EKS — managed Kubernetes (Auto Mode) behind an internet-facing ALB Ingress
+cd deploy/aws/eks
 bash bin/setup.sh --deploy-mode public \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
   --ghcr-token ghp_xxxxxxxxxxxx
 ```
 
-The ACM cert DNS-validates **during** stack creation, so expect a few minutes in `CREATE_IN_PROGRESS` while CloudFormation waits for the cert to reach `ISSUED`. (`setup.sh` runs from your machine with your credentials. The EC2 [Deploy](#deploy) section also shows the raw-CloudFormation equivalent.)
+The ACM cert DNS-validates **during** the deploy, so expect `setup.sh` to wait a few minutes for the cert to reach `ISSUED` (EC2: while CloudFormation is `CREATE_IN_PROGRESS`; EKS: `aws acm wait certificate-validated`). `setup.sh` runs from your machine with your credentials. The EC2 [Deploy](#deploy) section also shows the raw-CloudFormation equivalent.
 
 ### 2. Get the URL
 
@@ -160,16 +160,17 @@ The URL is simply `https://<your-domain>` (the value you passed to `--domain`), 
 aws cloudformation describe-stacks --stack-name pipeline-builder \
   --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text
 
-# Fargate (default stack prefix "pb") — DomainName output is the hostname; prefix https://
-aws cloudformation describe-stacks --stack-name pb-foundation \
-  --query 'Stacks[0].Outputs[?OutputKey==`DomainName`].OutputValue' --output text
+# EKS — the URL is https://<your-domain> (the Route 53 alias setup.sh creates → the ALB Ingress).
+# Confirm the ALB hostname the Ingress was assigned:
+kubectl get ingress pb-ingress -n pipeline-builder \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
 ### 3. Initialize the platform
 
-Public install is otherwise identical to private — by default **auto-init** registers the admin user and loads plugins on the deploy side (EC2 on first boot, Fargate via the `07-init` task). To do it yourself, deploy with `--init manual` and follow [Post-Deploy Steps](#post-deploy-steps).
+Public install is otherwise identical to private — by default the admin user is registered and plugins loaded automatically (EC2 self-inits on first boot; EKS via `provision` over a `kubectl port-forward`). To do it yourself, deploy with `--init manual` and follow [Post-Deploy Steps](#post-deploy-steps).
 
-> **Note:** "public" exposes only the ALB. The instance/tasks have **no public IP and no inbound SSH**; admin access is still **SSM Session Manager** (EC2) or ECS Exec (Fargate). To make a deployment internal-only later, redeploy with `--deploy-mode private` (default). See [Deployment mode (`DEPLOY_MODE`)](#deployment-mode-deploy_mode) for the full mode comparison.
+> **Note:** "public" exposes only the ALB. The instance/nodes have **no public IP and no inbound SSH**; admin access is still **SSM Session Manager** (EC2) or `kubectl` (EKS). To make a deployment internal-only later, redeploy with `--deploy-mode private` (default). See [Deployment mode (`DEPLOY_MODE`)](#deployment-mode-deploy_mode) for the full mode comparison.
 
 ---
 
@@ -196,28 +197,28 @@ bash bin/setup.sh --deploy-mode private \
   --hosted-zone-id Z1234567890 \
   --ghcr-token ghp_xxxxxxxxxxxx
 
-# Fargate — serverless tasks behind an internal ALB
-cd deploy/aws/fargate
+# EKS — managed Kubernetes (Auto Mode) behind an internal ALB Ingress
+cd deploy/aws/eks
 bash bin/setup.sh --deploy-mode private \
   --domain pipeline.example.com \
   --hosted-zone-id Z1234567890 \
   --ghcr-token ghp_xxxxxxxxxxxx
 ```
 
-In private mode the same stack (EC2: the single stack; Fargate: `01-foundation`) **also** creates the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR) **and** the Route 53 private-zone alias to the internal ALB — gated on `DeployMode=private`, with **no separate prereqs stack**. The ACM cert still DNS-validates during stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`.
+In private mode, **EC2** also folds the VPC interface endpoints (S3, Logs, Secrets Manager, KMS, STS, CodeBuild, ECR) and the Route 53 private-zone alias to the internal ALB into its single stack (gated on `DeployMode=private`, no separate prereqs stack). **EKS** sets the ALB Ingress to `scheme: internal` and aliases the domain to it. Either way the ACM cert still DNS-validates during the deploy, so expect a few minutes of waiting for it to issue.
 
 ### 2. Get the URL
 
-The URL is the same `https://<your-domain>`, but it **resolves only from inside the VPC** (via the private hosted zone) — it will not resolve from your laptop or the public internet. Read it back from the stack outputs exactly as in the [public step 2](#2-get-the-url) (`ApplicationURL` for EC2, `DomainName` for `pb-foundation` on Fargate).
+The URL is the same `https://<your-domain>`, but it **resolves only from inside the VPC** (via the private hosted zone) — it will not resolve from your laptop or the public internet. For EC2, read it back from the stack output (`ApplicationURL`); for EKS the URL is `https://<your-domain>` from the Route 53 alias, and you can confirm the ALB hostname as in the [public step 2](#2-get-the-url).
 
 ### 3. Initialize the platform
 
-**By default this happens automatically (auto-init).** EC2 runs `init-platform.sh ec2` on first boot (as the `minikube` user, in-VPC); Fargate runs it via the one-shot `07-init` ECS task. Both register the admin (default password) and load plugins/compliance/samples — watch with `sudo tail -f /var/log/user-data.log` (EC2, after SSM) or `aws logs tail /ecs/<prefix>-init --follow` (Fargate).
+**By default this happens automatically.** EC2 runs `init-platform.sh ec2` on first boot (as the `minikube` user, in-VPC); EKS runs `init-platform.sh eks` from `provision` over a `kubectl port-forward` to `svc/nginx`. Both register the admin (default password) and load plugins/compliance/samples — watch EC2 with `sudo tail -f /var/log/user-data.log` (after SSM).
 
-If you deployed with **`--init manual`** (or want to re-run / set real admin creds), run the init **from inside the network** (the URL only resolves in-VPC):
+If you deployed with **`--init manual`** (or want to re-run / set real admin creds):
 
 - **EC2** — SSM into the instance (`aws ssm start-session --target <instance-id>`), `sudo -iu minikube`, `cd /opt/pipeline/pipeline-builder`, then run `./deploy/bin/init-platform.sh ec2`; it's already in-VPC.
-- **Fargate** — run from a VPC-attached host (bastion, ECS Exec, or a VPC-connected runner) so `https://<your-domain>` resolves.
+- **EKS** — run `./deploy/bin/init-platform.sh eks` with `kubectl` access to the cluster. It port-forwards `svc/nginx` (8080), so it works without the domain resolving — no VPC-attached host required.
 
 Then load plugins per [Post-Deploy Steps](#post-deploy-steps).
 
@@ -435,209 +436,169 @@ aws cloudformation wait stack-delete-complete --stack-name pipeline-builder
 
 ---
 
-## Fargate
+## EKS
 
-Serverless containers on ECS Fargate. 6 CloudFormation stacks deployed in dependency order.
+Managed Kubernetes on **Amazon EKS Auto Mode** — AWS-managed, Karpenter-scaled EC2 nodes with the AWS Load Balancer Controller, EBS CSI, and CoreDNS built in (EFS CSI added by the deploy). One orchestrator script stands up the cluster and applies the same Kubernetes workloads as the minikube/ec2 targets, tuned for multi-node (PVC storage, ALB Ingress).
+
+> **Why EKS Auto Mode?** Plugin/base images are built with **rootless BuildKit**, which needs an *unconfined seccomp profile* to create its user namespace — only possible on **EC2-backed** Kubernetes nodes (`securityContext.seccompProfile: Unconfined`). Auto Mode keeps node management hands-off while running on EC2, so BuildKit works and the proven k8s manifests are reused as-is.
 
 ### Prerequisites
 
-- AWS CLI configured
-- A registered domain + its **public Route 53 hosted zone** (required — the foundation requests a DNS-validated ACM cert against it; no IP-only mode)
+- **AWS CLI** + working credentials for the target account/region.
+- **`eksctl`** (creates/destroys the Auto Mode cluster) — or **Docker**, in which case the deploy runs the official `public.ecr.aws/eksctl/eksctl` image instead of a local binary.
+- **`kubectl`** (applies the manifests), **`openssl`** (registry token keypair), and **`envsubst`** (renders `cluster.yaml` + the manifests). `provision` checks all of these; `deploy/bin/provision-docker.sh --target eks` installs them in a throwaway container if you'd rather not put them on your host.
+- A registered domain + its **public Route 53 hosted zone** (required — the deploy requests a DNS-validated ACM cert against it).
 
 ### Deploy
 
-Use the [Public](#public-deployment-quickstart) or [Private](#private-deployment-quickstart) quickstart for the one-command path — `bin/setup.sh` deploys all 6 stacks in order. The `01-foundation` stack requests a **DNS-validated ACM cert** for `--domain` and terminates TLS at the ALB (no certbot, no self-signed cert), so `--domain` + `--hosted-zone-id` are required in both modes. The cert DNS-validates during foundation-stack creation, so expect a few minutes in `CREATE_IN_PROGRESS`.
+Use the [Public](#public-deployment-quickstart) or [Private](#private-deployment-quickstart) quickstart for the one-command path — `bin/setup.sh` runs all phases end to end. It requests a **DNS-validated ACM cert** for `--domain` and terminates TLS at the **ALB Ingress** (no certbot, no self-signed cert), so `--domain` + `--hosted-zone-id` are required in both modes. The cert validates mid-deploy (`aws acm wait certificate-validated`), so expect a few minutes of waiting there.
 
 ### Parameters
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `--domain` | **Yes** | — | FQDN — ACM cert + Route 53 alias to the ALB |
+| `--domain` | **Yes** | — | FQDN — ACM cert + Route 53 alias to the ALB Ingress |
 | `--hosted-zone-id` | **Yes** | — | Public Route 53 zone ID (ACM DNS validation + alias) |
-| `--ghcr-token` | Yes | — | GHCR token for pulling images |
+| `--ghcr-token` | Yes | — | GHCR token for pulling the service images |
 | `--deploy-mode` | No | `private` | `public` (internet-facing ALB) or `private` (internal) |
+| `--cluster-name` | No | `pipeline-builder` | EKS cluster name (set a second one to run multiple environments) |
 | `--no-email` | No | — | Skip SES (transactional email is provisioned **by default**) |
 | `--email-from` | No | `noreply@<domain>` | From address SES sends as |
 | `--email-from-name` | No | `pipeline-builder` | Display name on outbound email |
 | `--no-create-ses-identity` | No | — | Skip creating the SES identity (domain already verified in this account) |
 | `--alert-email` | No | — | Subscribe an address to the SES bounce/complaint SNS topic |
 | `--region` | No | `us-east-1` | AWS region |
-| `--stack-prefix` | No | `pb` | CloudFormation stack name prefix |
 
 ### Deployment mode (`DEPLOY_MODE`)
 
-See [Deployment modes](#deployment-modes-public-vs-private) for the public/private comparison. `DEPLOY_MODE` defaults to `private`; set it in the env before `setup.sh` (it's passed to the foundation + services stacks) or use `--deploy-mode public`. In `private` mode `01-foundation` folds in the VPC interface endpoints + the Route 53 private-zone alias (gated on `DeployMode=private`); CodeBuild is wired to the foundation VPC automatically (`PIPELINE_VPC_ID` / `SUBNET_IDS`).
+See [Deployment modes](#deployment-modes-public-vs-private) for the public/private comparison. `DEPLOY_MODE` defaults to `private`; set it in the env before `setup.sh` or use `--deploy-mode public`. On EKS it controls only the **ALB Ingress scheme** — `internal` (private) vs `internet-facing` (public) — and the Route 53 record. For VPC-attached CodeBuild plugin pulls in private mode, supply `PIPELINE_VPC_ID` / `SUBNET_IDS` (the eksctl cluster VPC).
 
-### Stacks
+### Phases
 
-Deployed in order. Each exports values consumed by downstream stacks.
+`bin/setup.sh` runs these in order — there are no per-component CloudFormation stacks (eksctl manages the cluster's own stacks under the hood):
 
-| Stack | Contents |
+| Phase | Contents |
 |-------|----------|
-| **01-foundation** | VPC, ALB, Route 53, EFS, S3 config bucket, Cloud Map |
-| **02-cluster** | ECS Cluster, IAM roles, security groups, log groups |
-| **03-databases** | PostgreSQL, MongoDB, Redis |
-| **04-services** | Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Reporting, Compliance, Frontend, plus the plugin image-registry service |
-| **05-observability** | Prometheus, Loki, Alertmanager (visualized via the native `/dashboard/observability` page) |
-| **06-admin** | Registry, PgAdmin, Mongo Express, Registry UI |
+| **1. Cluster** | `eksctl` creates the EKS Auto Mode cluster (`cluster/cluster.yaml`) + the `aws-efs-csi-driver` addon |
+| **2. EFS** | Encrypted EFS filesystem + security group (NFS from the nodes) + mount targets in the private subnets → the `pb-efs` (RWX) StorageClass |
+| **3. ACM** | DNS-validated ACM cert for `--domain` (publishes the validation record to Route 53, waits for `ISSUED`) |
+| **4. Secrets** | Namespace + the secret/ConfigMap set the manifests expect (JWT, DB creds, registry token keypair, app-env, DB init, observability configs) — same layout as the ec2 target |
+| **5. Pod Identity** | SES `ses:SendEmail` association for the platform ServiceAccount (when email is enabled) |
+| **6. KEDA** | Installs the KEDA operator (the plugin `ScaledObject` autoscaler — Auto Mode doesn't bundle it) |
+| **7. Workloads** | `kubectl kustomize k8s | kubectl apply` — all services: Nginx, Platform, Pipeline, Plugin, Quota, Billing, Message, Reporting, Compliance, Frontend, the in-cluster image-registry, observability (Prometheus, Loki, Alertmanager — surfaced via `/dashboard/observability`), admin tools (PgAdmin, Mongo Express), and the ALB Ingress |
+| **8. Route 53** | A-alias `--domain` → the ALB the Ingress provisions |
 
 ### Post-Deploy
 
-`setup.sh` returns once the stacks complete, but the ECS tasks need a minute or two to start and pass health checks. The ALB target group reports **unhealthy (503)** until the service tasks are up — expected; it self-heals.
+`setup.sh` applies the manifests, then the pods need a minute or two to pull, start, and pass readiness. The ALB target group reports **unhealthy (503)** until nginx and the platform are ready — expected; it self-heals.
 
 ```bash
-# Wait for the core services to reach a steady state
-aws ecs wait services-stable --cluster pipeline-builder \
-  --services nginx platform pipeline plugin --region us-east-1
+# Watch the rollout reach a steady state
+kubectl get pods -n pipeline-builder -w
 
-# Spot-check task health / why a task is stopping
-aws ecs describe-services --cluster pipeline-builder \
-  --services nginx platform --region us-east-1 \
-  --query 'services[].{name:serviceName,running:runningCount,desired:desiredCount}'
+# Wait on the gateway + core services
+kubectl rollout status deploy/nginx deploy/platform deploy/pipeline deploy/plugin -n pipeline-builder
 
-# Shell into a running task (Platform), if ECS Exec is enabled
-aws ecs execute-command --cluster pipeline-builder \
-  --task <task-id> --container platform --interactive --command "/bin/sh" --region us-east-1
+# Shell into a running pod (platform)
+kubectl exec -it deploy/platform -n pipeline-builder -- /bin/sh
 ```
 
-By default the platform initializes itself — the one-shot **`07-init` ECS task** runs `init-platform.sh fargate` (register admin + build base images + load plugins/compliance/samples) once the services are healthy; watch it with `aws logs tail /ecs/<prefix>-init --follow`. To do it yourself, deploy with `--init manual` (via `provision`) or `setup.sh --no-auto-init` (the raw script) and then run `init-platform.sh fargate` (it resolves the URL from the `<prefix>-foundation` stack) — see [Post-Deploy Steps](#post-deploy-steps). In a **private** deployment the domain only resolves inside the VPC, so run the manual init from a VPC-attached host (bastion / ECS Exec / VPC-connected runner).
+Plugin **base images** are seeded by `init-platform.sh eks` (the post-deploy step) — built by the in-cluster rootless buildkitd and pushed to the in-cluster registry; `setup.sh` itself doesn't build them. By default `provision` runs that init for you over a `kubectl port-forward`; with the raw script, run `./deploy/bin/init-platform.sh eks` once the registry is up (see [Post-Deploy Steps](#post-deploy-steps)). It works from anywhere with `kubectl` access — no VPC-attached host needed, even in private mode.
 
 ### Storage Requirements
 
-Fargate has no EBS volumes to manage — persistent state lives on EFS access points and managed AWS services. PostgreSQL, MongoDB, and Redis run as ECS Fargate containers (the `postgres`/`mongo`/`redis` images) backed by EFS, not as RDS/DocumentDB/ElastiCache. Plugin builds use `build_image` via a **rootless BuildKit sidecar** (`buildkitd`) — prebuilt is not supported on Fargate.
+Persistent state lives on **PVCs** provisioned by the EBS/EFS CSI drivers — no EBS volumes to hand-manage. PostgreSQL, MongoDB, Redis, and the rest run as Kubernetes workloads (the `postgres`/`mongo`/`redis` images), not as RDS/DocumentDB/ElastiCache. Plugin images are built by an in-cluster **rootless BuildKit** sidecar and pushed to the **in-cluster registry** (there is no ECR dependency).
 
-| Resource | Type | Size | Notes |
-|----------|------|------|-------|
-| Task ephemeral | Per-task | 20 GB (30 GB for plugin) | Non-persistent, cleared on task restart |
-| PostgreSQL (EFS) | ECS task on EFS | 5-15 GB | Pipelines, plugins, compliance, messages |
-| MongoDB (EFS) | ECS task on EFS | 10-20 GB | Quota + billing records |
-| Redis | ECS task | ephemeral | Caching / queues |
-| ECR | Managed | 40-60 GB | Plugin container images |
-| EFS | Managed | shared volume | DB data, shared config, TLS certs |
-| CloudWatch Logs | Managed | ~5 GB/month | 30-day retention recommended |
-| S3 | Managed | <1 GB | CDK assets, CloudFormation templates |
+| Resource | Storage class | Size | Notes |
+|----------|---------------|------|-------|
+| PostgreSQL | pb-ebs (RWO) | 5-15 GB | Pipelines, plugins, compliance, messages |
+| MongoDB | pb-ebs (RWO) | 10-20 GB | Quota + billing records |
+| Prometheus / Alertmanager / PgAdmin | pb-ebs (RWO) | 1-10 GB each | Metrics, alert state, admin UI |
+| In-cluster registry | pb-efs (RWX) | 40-60 GB | Plugin container images (shared across nodes) |
+| Loki | pb-efs (RWX) | grows with logs | Log storage (shared across nodes) |
+| Redis | ephemeral | — | Caching / queues |
+| Plugin builds / uploads | emptyDir | per-pod | BuildKit layer cache + upload staging (shared in-pod with the sidecar) |
 
 **Recommendations:**
 
 | Resource | Setting |
 |----------|---------|
-| EFS | Elastic — grows automatically with database/config data; no pre-provisioning |
-| ECR lifecycle | Keep last 10 tags per repository |
-| CloudWatch retention | 30 days |
-| Plugin task ephemeral | 30 GB (BuildKit needs temp space for layer cache) |
+| pb-ebs PVCs | gp3, `ReclaimPolicy: Retain` — data survives a PVC/pod delete (clean up orphans manually) |
+| pb-efs | Elastic — grows automatically; no pre-provisioning |
+| Registry growth | Prune old plugin image tags from the in-cluster registry periodically |
 
-**Task sizing:**
-
-| Service | CPU | Memory | Ephemeral |
-|---------|-----|--------|-----------|
-| Plugin | 2048 | 4096 | 30 GB |
-| Pipeline | 512 | 1024 | 20 GB |
-| Platform | 512 | 1024 | 20 GB |
-| Compliance | 512 | 1024 | 20 GB |
-| Frontend | 256 | 512 | 20 GB |
-| Reporting, Quota, Billing, Message | 256 | 512 | 20 GB |
-
-**Monthly cost estimate (storage only):**
+**Monthly cost estimate (infra):**
 
 | Resource | Cost |
 |----------|------|
-| ECR (60 GB) | ~$6 |
-| EFS (DB data + config) | ~$3-8 |
-| CloudWatch | ~$3 |
-| **Total** | **~$12-17/mo** |
+| EKS control plane | ~$73 |
+| EC2 nodes (Karpenter, on-demand) | ~$60-250 (scales with workload) |
+| EBS (gp3 PVCs) | ~$5-15 |
+| EFS (registry + loki) | ~$3-10 |
+| ALB + NAT gateway | ~$30-50 |
+| **Total** | **~$150-400/mo** |
 
-(Database storage is included in the EFS line, since PostgreSQL/MongoDB run as ECS tasks on EFS rather than as managed RDS/DocumentDB. This covers storage only — Fargate task vCPU/memory is the dominant Fargate cost and is not included here.)
+(EC2 node cost is the dominant, workload-dependent term — Karpenter scales nodes to fit scheduled pods.)
 
-### Expanding Fargate Storage
+### Expanding EKS Storage
 
-Unlike EC2, Fargate storage is per-service. Expand each independently:
-
-**PostgreSQL / MongoDB (EFS) — no manual expansion needed:**
-The databases run as ECS tasks on EFS access points. EFS is elastic and grows automatically as data is written, so there is no allocated-storage limit to raise. To cap growth, prune old data or set per-access-point quotas; to verify usage, check the EFS file system's metered size in the console or via `aws efs describe-file-systems`.
-
-**ECR — add lifecycle policy to prevent unbounded growth:**
+**pb-ebs PVCs (postgres / mongodb / prometheus / …):** the gp3 StorageClass allows volume expansion, so grow a volume by raising the PVC request and letting the EBS CSI driver expand it online:
 ```bash
-aws ecr put-lifecycle-policy \
-  --repository-name plugin \
-  --lifecycle-policy-text '{
-    "rules": [{
-      "rulePriority": 1,
-      "description": "Keep last 10 images",
-      "selection": {
-        "tagStatus": "any",
-        "countType": "imageCountMoreThan",
-        "countNumber": 10
-      },
-      "action": { "type": "expire" }
-    }]
-  }'
+kubectl patch pvc postgres-data -n pipeline-builder \
+  -p '{"spec":{"resources":{"requests":{"storage":"30Gi"}}}}'
+# the EBS CSI driver expands the volume + filesystem online (gp3) — no pod restart needed
 ```
 
-**CloudWatch Logs — set retention to control growth:**
-```bash
-# List log groups
-aws logs describe-log-groups --log-group-name-prefix /pipeline-builder/ --query 'logGroups[*].logGroupName' --output table
+**pb-efs (registry / loki) — no expansion needed:** EFS is elastic and grows automatically as data is written. To cap growth, prune old plugin image tags from the in-cluster registry; check usage via the EFS metered size (`aws efs describe-file-systems`).
 
-# Set 30-day retention on all
-for lg in $(aws logs describe-log-groups --log-group-name-prefix /pipeline-builder/ --query 'logGroups[*].logGroupName' --output text); do
-  aws logs put-retention-policy --log-group-name "$lg" --retention-in-days 30
-done
-```
+**Cluster capacity:** node capacity is managed by **Karpenter** (Auto Mode) — it provisions and removes EC2 nodes to fit scheduled pods, so there is no instance to resize.
 
-**Task ephemeral storage — increase in CloudFormation stack:**
+### EKS vs the other k8s targets
 
-Update `EphemeralStorage` in `04-services.yaml` and redeploy:
-```bash
-cd deploy/aws/fargate
-bash bin/setup.sh --stack-prefix pb --region us-east-1 --domain app.example.com
-```
+EKS reuses the same Kubernetes manifests as minikube/ec2, with these AWS-managed substitutions:
 
-### K8s → Fargate Translation
-
-| Kubernetes | Fargate |
-|------------|---------|
-| K8s DNS | Cloud Map (`*.pipeline-builder.local`) |
-| hostPath PVCs | EFS access points |
-| K8s Secrets | AWS Secrets Manager |
-| ConfigMaps | S3 bucket (downloaded at startup) |
-| NodePort + iptables | ALB + target groups |
-| buildkitd sidecar (pod) | buildkitd sidecar (ECS task) |
-| Promtail DaemonSet | Fluent Bit sidecar (FireLens) |
-| NetworkPolicies | Security groups |
-| Init containers | ECS container dependency ordering |
+| minikube / ec2 | EKS |
+|----------------|-----|
+| hostPath volumes | EBS (RWO) + EFS (RWX) PVCs via CSI |
+| NodePort + iptables bridge | ALB Ingress (`target-type: ip` → nginx:8080) |
+| Single node | Karpenter-scaled EC2 nodes (Auto Mode) |
+| EC2 instance role (SES) | EKS Pod Identity association |
+| Self-managed addons | Auto Mode: AWS LB Controller, EBS CSI, CoreDNS built in (EFS CSI added) |
 
 ### Scripts
 
-All in `deploy/aws/fargate/bin/`. Run from your local machine.
+All in `deploy/aws/eks/bin/`. Run from your local machine (or via `provision`).
 
 | Script | Purpose |
 |--------|---------|
-| `setup.sh` | Full deploy: secrets → 6 stacks (foundation requests the ACM cert) → config upload |
-| `teardown.sh` | Delete all stacks in reverse order |
-| `init-secrets.sh` | Generate random secrets → Secrets Manager |
+| `setup.sh` | Full deploy: cluster → EFS → ACM → secrets → KEDA → manifests → Route 53 |
+| `shutdown.sh` | Teardown: Ingress/ALB → Route 53 → EFS → cluster → ACM cert |
 
 ### Monitoring
 
 ```bash
-# Service status
-aws ecs describe-services --cluster pipeline-builder \
-  --services nginx platform pipeline plugin --region us-east-1
+# Pod / service status
+kubectl get pods,svc -n pipeline-builder
 
-# Tail logs
-aws logs tail /pipeline-builder/nginx --follow --region us-east-1
+# Tail logs for a service
+kubectl logs -f deploy/nginx -n pipeline-builder
 ```
 
 ### TLS Renewal
 
-The ACM cert is **DNS-validated and auto-renews** — nothing to do (ACM rotates it as long as the validation CNAME stays in the hosted zone).
+The ACM cert is **DNS-validated and auto-renews** — nothing to do (ACM rotates it as long as the validation CNAME stays in the hosted zone). The ALB Ingress picks up the renewed cert automatically.
 
 ### Teardown
 
 ```bash
-bash bin/teardown.sh --stack-prefix pb --region us-east-1
+cd deploy/aws/eks
+bash bin/shutdown.sh --cluster-name pipeline-builder --region us-east-1 \
+  --domain pipeline.example.com --hosted-zone-id Z123 --yes
 ```
 
-> Secrets Manager entries are **not** auto-deleted. Remove manually if needed.
+Deletes the Ingress/ALB, the Route 53 alias, the EFS filesystem, the cluster (`eksctl delete cluster`), and the ACM cert — in dependency order.
+
+> **EBS volumes on the `pb-ebs` (Retain) StorageClass are *not* auto-deleted** (they're reported at the end). Remove leftovers manually if you don't need the data.
 
 ---
 
@@ -652,7 +613,7 @@ it; pass `--no-email` to skip it:
 bash bin/setup.sh --key-pair my-keypair --domain pipeline.example.com \
   --hosted-zone-id Z123 --ghcr-token ghp_xxx
 
-# Fargate — pass --no-email to opt out
+# EKS — pass --no-email to opt out
 bash bin/setup.sh --domain pipeline.example.com \
   --hosted-zone-id Z123 --ghcr-token ghp_xxx --no-email
 ```
@@ -661,13 +622,16 @@ By default the deploy wires up everything in one shot:
 
 - **Identity (Easy DKIM):** creates an SES domain identity for `--domain` and
   publishes its 3 DKIM CNAMEs to your Route 53 zone, so the domain
-  **self-verifies** — no manual click. (EC2: in `template.yaml`; Fargate: in
-  `01-foundation`.) The CNAMEs always go to the **public** hosted zone, so this
-  works in private mode too.
-- **Permission:** grants the runtime role `ses:SendEmail`, scoped to the
-  identity and the From address — the EC2 **instance role** (the platform pod
-  reaches it over IMDS; metadata hop limit is already 2) or the Fargate **task
-  role**. No access keys are created or stored.
+  **self-verifies** — no manual click. (EC2: in `template.yaml`; EKS: `setup.sh`
+  Phase 5 via `aws sesv2`.) The CNAMEs always go to the **public** hosted zone,
+  so this works in private mode too. Pass `--no-create-ses-identity` if the
+  domain is already a verified SES identity in this account.
+- **Permission:** grants `ses:SendEmail`, scoped to the identity and the From
+  address — on **EC2** via the **instance role** (the platform pod reaches it
+  over IMDS; metadata hop limit is already 2); on **EKS** via an **EKS Pod
+  Identity** association for the platform ServiceAccount, carrying a policy
+  scoped to `ses:SendEmail` on that identity (not `AmazonSESFullAccess`). No
+  access keys are created or stored.
 - **App config:** sets `EMAIL_ENABLED=true`, `EMAIL_PROVIDER=ses`,
   `SES_REGION=<deploy region>`, `EMAIL_FROM=noreply@<domain>`,
   `EMAIL_FROM_NAME=pipeline-builder`. Override the sender with `--email-from` /
@@ -705,10 +669,10 @@ Two things happen **after** the stack completes, and both need your attention:
 SES enforces sender reputation at the **account level** — above ~5% bounce or
 ~0.1% complaint it puts the account *under review* and can **pause all sending**
 (including password resets). To make that visible instead of a silent outage,
-The deploy provisions a **configuration set** that every send routes through
-(`SES_CONFIGURATION_SET` on the platform), with an **SNS topic**
-(`<prefix>-email-events` on Fargate, `pipeline-builder-email-events` on EC2)
-receiving every bounce, complaint, and reject. The topic ARN is a stack output.
+the deploy provisions a **configuration set** that every send routes through
+(`SES_CONFIGURATION_SET` on the platform), with an **SNS topic** receiving every
+bounce, complaint, and reject (`pipeline-builder-email-events` on EC2;
+`<cluster-name>-email-events` on EKS).
 
 Pass `--alert-email you@example.com` to subscribe an address at deploy time
 (confirm the subscription email AWS sends), or subscribe the topic later from the
@@ -719,7 +683,7 @@ be alerted. Reputation rates are also on the SES console **Account dashboard**.
 
 ## Post-Deploy Steps
 
-After deploying (EC2 or Fargate), complete these steps to initialize the platform and enable reporting.
+After deploying (EC2 or EKS), complete these steps to initialize the platform and enable reporting.
 
 ### 1. Initialize the Platform
 
@@ -729,9 +693,9 @@ Register the admin user and load pre-built plugins and sample pipelines:
 cd deploy
 
 # Prompts for build strategy + categories. Admin creds come from PLATFORM_IDENTIFIER /
-# PLATFORM_PASSWORD (defaulting if unset — export real values on ec2/fargate)
+# PLATFORM_PASSWORD (defaulting if unset — export real values on ec2/eks)
 bash bin/init-platform.sh ec2         # EC2 (resolves URL from the pipeline-builder stack)
-bash bin/init-platform.sh fargate     # Fargate (resolves URL from the <prefix>-foundation stack)
+bash bin/init-platform.sh eks         # EKS (port-forwards svc/nginx via kubectl)
 bash bin/init-platform.sh local       # Docker Compose
 bash bin/init-platform.sh minikube    # Minikube
 
@@ -990,25 +954,25 @@ deploy/aws/ec2/
 </details>
 
 <details>
-<summary>Fargate deployment files</summary>
+<summary>EKS deployment files</summary>
 
 ```
-deploy/aws/fargate/
+deploy/aws/eks/
 ├── bin/
-│   ├── setup.sh          # Full deployment orchestrator
-│   ├── teardown.sh        # Delete all stacks
-│   └── init-secrets.sh    # Generate secrets
-├── stacks/
-│   ├── 01-foundation.yaml # VPC, ALB, EFS, S3, Cloud Map
-│   ├── 02-cluster.yaml    # ECS, IAM, security groups
-│   ├── 03-databases.yaml  # PostgreSQL, MongoDB, Redis
-│   ├── 04-services.yaml   # Nginx + app services (incl. Reporting, Compliance, image-registry)
-│   ├── 05-observability.yaml
-│   └── 06-admin.yaml
-├── config/                # Prometheus, Loki, Alertmanager, Fluent Bit, PgBouncer
-├── nginx/                 # nginx.conf, jwt.js, metrics.js
+│   ├── setup.sh           # Full deploy orchestrator (cluster → … → Route 53)
+│   └── shutdown.sh        # Teardown (Ingress/ALB → Route 53 → EFS → cluster → ACM)
+├── cluster/
+│   └── cluster.yaml       # eksctl ClusterConfig (Auto Mode + aws-efs-csi-driver)
+├── k8s/
+│   ├── kustomization.yaml # Standalone manifests (not shared with ec2/minikube)
+│   ├── storageclasses.yaml# pb-ebs (RWO) + pb-efs (RWX)
+│   ├── ingress.yaml       # ALB Ingress → nginx:8080 (ACM TLS at the ALB)
+│   └── *.yaml             # Full workload set, PVC-tuned for multi-node
+├── config/                # Prometheus, Loki, Alertmanager, Promtail
+├── nginx/                 # nginx.conf, jwt.js, metrics.js, registry-auth.js
 ├── .env.example
 ├── mongodb-init.js
+├── mongodb-keyfile
 └── postgres-init.sql
 ```
 
@@ -1045,11 +1009,11 @@ If you intentionally want to skip auth for a small test deploy, leave `GhcrToken
 **CrashLoopBackOff on observability pods (EC2):**
 Usually hostPath permission issues. Check pod logs. Init containers handle `chown` for loki (10001) and prometheus (65534).
 
-**ECS tasks stuck in PROVISIONING (Fargate):**
-Check CloudWatch logs: `aws logs tail /pipeline-builder/<service> --follow`
+**Pods stuck Pending / no nodes (EKS):**
+Karpenter provisions nodes on demand — a brief Pending is normal at cold start. If it persists, check `kubectl describe pod <name>` for scheduling reasons and `kubectl get events -n pipeline-builder`. A pb-ebs (RWO) PVC is AZ-pinned, so its pod must schedule in the volume's AZ.
 
-**ALB health checks failing (Fargate):**
-Verify nginx is running. Check target group health and port 8080 accessibility.
+**ALB Ingress has no address (EKS):**
+The AWS Load Balancer Controller provisions the ALB from `ingress.yaml`. Check `kubectl describe ingress pb-ingress -n pipeline-builder` for controller events, and that the ACM cert reached `ISSUED`. The Route 53 alias is only written once the Ingress reports a hostname.
 
 **Certificate / stack hangs in CREATE_IN_PROGRESS:**
 The ACM cert DNS-validates during stack creation (a few minutes). If it never issues, the `--hosted-zone-id` is wrong or not authoritative for `--domain`. Check ACM status: `aws acm describe-certificate --certificate-arn <arn>` (look for `DomainValidationOptions[].ValidationStatus`).

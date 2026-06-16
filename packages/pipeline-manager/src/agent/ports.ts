@@ -10,7 +10,7 @@
  *
  * The port list is DERIVED from each target's actual (cloned) deploy source — so it
  * can't drift from the deploy: local from `docker-compose.yml`'s published ports,
- * minikube from `setup.sh`'s kubectl port-forwards. ec2/fargate deploy via
+ * minikube from `setup.sh`'s kubectl port-forwards. ec2/eks deploy via
  * CloudFormation and bind NOTHING on the operator's machine (only the remote ALB),
  * so they yield no host ports. `targets.hostPorts` is only a fallback when the source
  * file can't be read.
@@ -102,7 +102,7 @@ function forwardHostPorts(file: string): HostPort[] {
 /**
  * Derive the host ports a target binds from its ACTUAL (cloned) deploy source, so the
  * list can't drift from the deploy. local → docker-compose.yml; minikube → setup.sh;
- * ec2/fargate → none (CloudFormation binds nothing on the operator's machine). Needs
+ * ec2/eks → none (CloudFormation binds nothing on the operator's machine). Needs
  * the deploy files on disk (run post-clone); falls back to the target's static
  * `hostPorts` if the source is missing/unreadable.
  */
@@ -110,7 +110,7 @@ export function discoverHostPorts(target: TargetId, cwd: string, spec: TargetSpe
   try {
     if (target === 'local') return composeHostPorts(path.join(cwd, spec.dir, 'docker-compose.yml'));
     if (target === 'minikube') return forwardHostPorts(path.join(cwd, spec.dir, 'bin', 'setup.sh'));
-    return []; // ec2/fargate deploy remotely — nothing binds locally
+    return []; // ec2/eks deploy remotely — nothing binds locally
   } catch {
     return spec.hostPorts.map((p) => ({ ...p }));
   }

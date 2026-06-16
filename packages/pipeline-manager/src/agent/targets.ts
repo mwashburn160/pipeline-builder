@@ -13,7 +13,7 @@
 
 import { assertShellSafe } from '../config/cli.constants.js';
 
-export type TargetId = 'local' | 'minikube' | 'ec2' | 'fargate';
+export type TargetId = 'local' | 'minikube' | 'ec2' | 'eks';
 
 /** A single input the underlying deploy script accepts. */
 export interface InputSpec {
@@ -60,7 +60,7 @@ export interface TargetSpec {
    * cloned deploy source at runtime (ports.ts `discoverHostPorts`): local from
    * docker-compose.yml's published ports, minikube from setup.sh's port-forwards. This
    * static copy is used only when that source can't be read. Empty for remote targets
-   * (ec2/fargate bind nothing on the operator's machine).
+   * (ec2/eks bind nothing on the operator's machine).
    */
   readonly hostPorts: readonly { service: string; port: number }[];
 }
@@ -74,20 +74,21 @@ const REGION: InputSpec = { flag: 'region', key: 'region', description: 'AWS reg
 const DEPLOY_MODE: InputSpec = { flag: 'deploy-mode', key: 'deployMode', description: 'public (internet-facing ALB) or private (internal, default)' };
 const KEY_PAIR: InputSpec = { flag: 'key-pair', key: 'keyPair', description: 'EC2 key pair in the region (break-glass serial console; routine access is SSM)' };
 const INSTANCE_TYPE: InputSpec = { flag: 'instance-type', key: 'instanceType', description: 'EC2 instance type (default t3.2xlarge)' };
-// Deploy-time stack identity (also reused as the teardown target). ec2 takes a full
-// --stack-name; fargate takes a --stack-prefix. Both read the same `stackName` param key,
-// so a single --stack-name CLI option drives the right flag per target.
+// ec2 deploy/teardown stack name (CloudFormation). The `stackName` param key is also reused
+// by the teardown path as the resource identifier (ec2 stack / eks cluster name).
 const STACK_NAME: InputSpec = { flag: 'stack-name', key: 'stackName', description: 'CloudFormation stack name (default pipeline-builder) — set to run a second ec2 environment' };
-const STACK_PREFIX: InputSpec = { flag: 'stack-prefix', key: 'stackName', description: 'CloudFormation stack prefix (default pb) — set to run a second fargate environment' };
-// Auto-init is ON BY DEFAULT on the AWS targets (ec2 + fargate setup.sh default true), so
-// `--no-auto-init` is the load-bearing opt-out and `--auto-init` is a no-op reaffirm —
-// mirrors --email/--no-email. NOTE: `--no-auto-init`'s key (noAutoInit) is NOT derivable
-// from its flag the way the other specs' keys are (commander folds --x/--no-x into a single
-// `x` option); provision.ts assembles both keys explicitly — see the param-assembly there.
-const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'Deploy self-runs init-platform once the platform is up — the DEFAULT on ec2/fargate (ec2: on first boot; fargate: a one-shot ECS task; register + all loads)', boolean: true };
-const NO_AUTO_INIT: InputSpec = { flag: 'no-auto-init', key: 'noAutoInit', description: 'Skip the deploy-managed auto-init; run init-platform manually (ec2: on the box; fargate: from a VPC-attached host)', boolean: true };
+// eks cluster name (eksctl). Set to run a second EKS environment in one account.
+const CLUSTER_NAME: InputSpec = { flag: 'cluster-name', key: 'clusterName', description: 'EKS cluster name (default pipeline-builder)' };
+// Auto-init is ON BY DEFAULT on ec2 (setup.sh/template default true), so `--no-auto-init`
+// is the load-bearing opt-out and `--auto-init` is a no-op reaffirm — mirrors --email/--no-email.
+// NOTE: `--no-auto-init`'s key (noAutoInit) is NOT derivable from its flag the way the other
+// specs' keys are (commander folds --x/--no-x into a single `x` option); provision.ts assembles
+// both keys explicitly — see the param-assembly there. (eks/minikube run init via provision, not
+// a deploy-managed auto-init, so they ignore these.)
+const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'ec2: the instance self-runs init-platform on first boot (register + all loads) — the DEFAULT on ec2', boolean: true };
+const NO_AUTO_INIT: InputSpec = { flag: 'no-auto-init', key: 'noAutoInit', description: 'ec2: skip the on-boot auto-init and run init-platform manually on the box instead', boolean: true };
 
-// SES / email family — shared by ec2 + fargate. SES is provisioned BY DEFAULT
+// SES / email family — shared by ec2 + eks. SES is provisioned BY DEFAULT
 // on AWS deploys; `--no-email` is the opt-out (`--email` is a harmless no-op kept
 // for back-compat).
 const EMAIL: readonly InputSpec[] = [
@@ -105,17 +106,17 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
   local: {
     id: 'local',
     label: 'Local (Docker Compose)',
-    dir: 'deploy/local',
+    dir: 'deploy/local/docker',
     entrypoint: 'bin/setup.sh',
-    sparsePaths: ['deploy/local'],
+    sparsePaths: ['deploy/local/docker'],
     required: [],
     optional: [],
     postDeploy: './deploy/bin/init-platform.sh local',
     cost: 'Free',
     bestFor: 'Development',
     deploys: 'the platform as a Docker Compose stack — an nginx TLS proxy, the API services (platform, plugin, pipeline, message, reporting, compliance, quota, billing, image-registry), the frontend, and postgres + mongo + redis. First run pulls the ghcr.io images and generates a local TLS cert (a few minutes).',
-    destroys: 'stops all containers — data under deploy/local/data persists on disk (delete it manually for a clean slate)',
-    // Mirrors the published ports in deploy/local/docker-compose.yml.
+    destroys: 'stops all containers — data under deploy/local/docker/data persists on disk (delete it manually for a clean slate)',
+    // Mirrors the published ports in deploy/local/docker/docker-compose.yml.
     hostPorts: [
       { service: 'nginx — HTTPS gateway (UI/API)', port: 8443 },
       { service: 'nginx — HTTP redirect', port: 8080 },
@@ -128,9 +129,9 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
   minikube: {
     id: 'minikube',
     label: 'Minikube (local Kubernetes)',
-    dir: 'deploy/minikube',
+    dir: 'deploy/local/minikube',
     entrypoint: 'bin/setup.sh',
-    sparsePaths: ['deploy/minikube'],
+    sparsePaths: ['deploy/local/minikube'],
     required: [],
     optional: [],
     postDeploy: './deploy/bin/init-platform.sh minikube',
@@ -138,7 +139,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     bestFor: 'Local Kubernetes',
     deploys: 'the platform onto a local Minikube cluster — the same services as Kubernetes Deployments/Services behind an ingress, plus in-cluster postgres + mongo + redis. First run pulls images, builds the cluster, and generates a TLS cert (several minutes).',
     destroys: 'stops the minikube stack — persistent volumes (PVC data) remain until the cluster is deleted',
-    // Mirrors the kubectl port-forwards started in deploy/minikube/bin/setup.sh.
+    // Mirrors the kubectl port-forwards started in deploy/local/minikube/bin/setup.sh.
     hostPorts: [
       { service: 'nginx — HTTPS gateway (UI/API)', port: 8443 },
       { service: 'Mongo Express (Mongo UI)', port: 8081 },
@@ -160,24 +161,24 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     destroys: 'DELETES the CloudFormation stack: the VPC, EC2 instance, and its EBS data volume (databases, registry, plugin builds). Irreversible.',
     hostPorts: [], // remote (AWS) — binds nothing on the operator's machine
   },
-  fargate: {
-    id: 'fargate',
-    label: 'AWS Fargate (serverless ECS, 6 CloudFormation stacks)',
-    dir: 'deploy/aws/fargate',
+  eks: {
+    id: 'eks',
+    label: 'AWS EKS Auto Mode (managed Kubernetes)',
+    dir: 'deploy/aws/eks',
     entrypoint: 'bin/setup.sh',
-    sparsePaths: ['deploy/aws/fargate'],
+    sparsePaths: ['deploy/aws/eks'],
     required: [DOMAIN, HOSTED_ZONE],
-    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, STACK_PREFIX, AUTO_INIT, NO_AUTO_INIT, ...EMAIL],
-    postDeploy: './deploy/bin/init-platform.sh fargate  # auto-runs as a one-shot ECS task by default; --no-auto-init to run it manually from a VPC host',
-    cost: '~$100-300/mo',
+    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, CLUSTER_NAME, ...EMAIL],
+    postDeploy: './deploy/bin/init-platform.sh eks  # register admin + load plugins (run with kubectl access to the cluster)',
+    cost: '~$150-400/mo',
     bestFor: 'Production',
-    deploys: 'the platform on serverless ECS Fargate via 6 CloudFormation stacks — a VPC, an ALB, the ECS services, EFS-backed databases + registry, Route 53 + ACM for the domain, and (by default) SES email. Secrets are generated into Secrets Manager first.',
-    destroys: 'DELETES all pb-* CloudFormation stacks: EFS data, databases, and registry. Secrets Manager entries are NOT auto-deleted. Irreversible.',
+    deploys: 'the platform on Amazon EKS Auto Mode — an AWS-managed Kubernetes cluster (Karpenter-scaled EC2 nodes, AWS Load Balancer Controller, EBS/EFS CSI), the same Kubernetes workloads as the other k8s targets, an ALB Ingress + ACM for the domain, and (by default) SES email. Plugin builds run on the in-cluster rootless buildkitd (EC2 nodes allow it).',
+    destroys: 'Runs bin/shutdown.sh: DELETES the EKS cluster + nodes (eksctl), the EFS filesystem, and — when --domain is set — the ACM cert + Route 53 alias. EBS volumes on the Retain StorageClass are NOT auto-deleted (reported at the end). Irreversible.',
     hostPorts: [], // remote (AWS) — binds nothing on the operator's machine
   },
 };
 
-export const TARGET_IDS: readonly TargetId[] = ['local', 'minikube', 'ec2', 'fargate'];
+export const TARGET_IDS: readonly TargetId[] = ['local', 'minikube', 'ec2', 'eks'];
 
 export function isTargetId(value: unknown): value is TargetId {
   return typeof value === 'string' && (TARGET_IDS as readonly string[]).includes(value);
@@ -276,32 +277,34 @@ export interface TeardownResult {
 
 /** CloudFormation stack name the EC2 setup.sh defaults to. */
 const DEFAULT_EC2_STACK = 'pipeline-builder';
-/** Stack prefix the Fargate teardown.sh defaults to. */
-const DEFAULT_FARGATE_PREFIX = 'pb';
+/** EKS cluster name eksctl defaults to. */
+const DEFAULT_EKS_CLUSTER = 'pipeline-builder';
 
 /**
  * Assemble the teardown command for a target. Pure and deterministic — mirrors
  * `assembleCommand` for the destroy path. local/minikube STOP the stack
- * (non-destructive — on-disk / PVC data survives); ec2/fargate DELETE their
- * CloudFormation stacks and are irreversible. For Fargate, `assumeYes` forwards
- * the native script's own `--yes` (the agent runs its own typed confirmation
- * first, so the script must not also block on stdin); EC2 `delete-stack` has no
- * native prompt, which is exactly why the agent gate is mandatory there.
+ * (non-destructive — on-disk / PVC data survives); ec2 DELETEs its CloudFormation
+ * stack and eks DELETEs its cluster (eksctl) — both irreversible. EC2 `delete-stack`
+ * and `eksctl delete cluster` have no native prompt, which is exactly why the agent's
+ * typed-confirmation gate is mandatory there.
  */
 export function teardownCommand(
   target: TargetId,
-  opts: { stackName?: string; region?: string; assumeYes?: boolean } = {},
+  opts: { stackName?: string; clusterName?: string; region?: string; domain?: string; hostedZoneId?: string; assumeYes?: boolean } = {},
 ): TeardownResult {
   const region = opts.region || process.env.AWS_REGION || 'us-east-1';
-  // stackName/region flow unquoted into a shell-executed teardown command —
-  // reject shell metacharacters (mirrors assembleCommand).
+  // Anything flowing unquoted into a shell-executed teardown command is rejected
+  // for shell metacharacters (mirrors assembleCommand).
   assertShellSafe(region, 'region');
   if (opts.stackName) assertShellSafe(opts.stackName, 'stack-name');
+  if (opts.clusterName) assertShellSafe(opts.clusterName, 'cluster-name');
+  if (opts.domain) assertShellSafe(opts.domain, 'domain');
+  if (opts.hostedZoneId) assertShellSafe(opts.hostedZoneId, 'hosted-zone-id');
   switch (target) {
     case 'local':
-      return { command: 'cd deploy/local && bash bin/shutdown.sh', destructive: false };
+      return { command: 'cd deploy/local/docker && bash bin/shutdown.sh', destructive: false };
     case 'minikube':
-      return { command: 'cd deploy/minikube && bash bin/shutdown.sh', destructive: false };
+      return { command: 'cd deploy/local/minikube && bash bin/shutdown.sh', destructive: false };
     case 'ec2': {
       const stack = opts.stackName || DEFAULT_EC2_STACK;
       return {
@@ -311,14 +314,18 @@ export function teardownCommand(
         destructive: true,
       };
     }
-    case 'fargate': {
-      const prefix = opts.stackName || DEFAULT_FARGATE_PREFIX;
-      return {
-        command:
-          `cd deploy/aws/fargate && bash bin/teardown.sh --stack-prefix ${prefix} --region ${region}` +
-          (opts.assumeYes ? ' --yes' : ''),
-        destructive: true,
-      };
+    case 'eks': {
+      // eks tears down via bin/shutdown.sh (like local/minikube use bin/shutdown.sh):
+      // it deletes the cluster AND the resources eksctl alone would orphan — the EFS
+      // filesystem and, when --domain is given, the ACM cert + Route 53 alias. The
+      // agent's typed-confirmation gate already ran, so pass --yes to skip the
+      // script's own prompt.
+      const cluster = opts.clusterName || DEFAULT_EKS_CLUSTER;
+      let command = `cd deploy/aws/eks && bash bin/shutdown.sh --cluster-name ${cluster} --region ${region}`;
+      if (opts.domain) command += ` --domain ${opts.domain}`;
+      if (opts.hostedZoneId) command += ` --hosted-zone-id ${opts.hostedZoneId}`;
+      if (opts.assumeYes) command += ' --yes';
+      return { command, destructive: true };
     }
   }
 }
