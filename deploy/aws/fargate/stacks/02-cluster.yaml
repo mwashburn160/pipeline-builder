@@ -399,8 +399,8 @@ Resources:
   # ---------------------------------------------------------------------------
   NginxLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/nginx
       RetentionInDays: !Ref LogRetentionDays
@@ -410,8 +410,8 @@ Resources:
 
   PlatformLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/platform
       RetentionInDays: !Ref LogRetentionDays
@@ -421,8 +421,8 @@ Resources:
 
   PipelineLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/pipeline
       RetentionInDays: !Ref LogRetentionDays
@@ -432,8 +432,8 @@ Resources:
 
   PluginLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/plugin
       RetentionInDays: !Ref LogRetentionDays
@@ -443,8 +443,8 @@ Resources:
 
   QuotaLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/quota
       RetentionInDays: !Ref LogRetentionDays
@@ -454,8 +454,8 @@ Resources:
 
   BillingLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/billing
       RetentionInDays: !Ref LogRetentionDays
@@ -465,8 +465,8 @@ Resources:
 
   MessageLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/message
       RetentionInDays: !Ref LogRetentionDays
@@ -476,8 +476,8 @@ Resources:
 
   ReportingLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/reporting
       RetentionInDays: !Ref LogRetentionDays
@@ -487,8 +487,8 @@ Resources:
 
   ComplianceLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/compliance
       RetentionInDays: !Ref LogRetentionDays
@@ -498,8 +498,8 @@ Resources:
 
   ImageRegistryLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/image-registry
       RetentionInDays: !Ref LogRetentionDays
@@ -509,8 +509,8 @@ Resources:
 
   FrontendLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/frontend
       RetentionInDays: !Ref LogRetentionDays
@@ -520,8 +520,8 @@ Resources:
 
   PostgresLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/postgres
       RetentionInDays: !Ref LogRetentionDays
@@ -531,8 +531,8 @@ Resources:
 
   MongodbLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/mongodb
       RetentionInDays: !Ref LogRetentionDays
@@ -542,8 +542,8 @@ Resources:
 
   RedisLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/redis
       RetentionInDays: !Ref LogRetentionDays
@@ -553,8 +553,8 @@ Resources:
 
   PrometheusLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/prometheus
       RetentionInDays: !Ref LogRetentionDays
@@ -564,8 +564,8 @@ Resources:
 
   AlertmanagerLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/alertmanager
       RetentionInDays: !Ref LogRetentionDays
@@ -575,8 +575,8 @@ Resources:
 
   LokiLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/loki
       RetentionInDays: !Ref LogRetentionDays
@@ -586,8 +586,8 @@ Resources:
 
   FluentBitLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/fluent-bit
       RetentionInDays: !Ref LogRetentionDays
@@ -597,8 +597,8 @@ Resources:
 
   RegistryLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/registry
       RetentionInDays: !Ref LogRetentionDays
@@ -608,8 +608,8 @@ Resources:
 
   PgadminLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/pgadmin
       RetentionInDays: !Ref LogRetentionDays
@@ -619,8 +619,8 @@ Resources:
 
   MongoExpressLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: /pipeline-builder/mongo-express
       RetentionInDays: !Ref LogRetentionDays
