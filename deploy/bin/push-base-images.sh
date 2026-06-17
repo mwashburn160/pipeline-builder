@@ -44,9 +44,15 @@ CRANE_IMAGE="${CRANE_IMAGE:-gcr.io/go-containerregistry/crane:debug}"
 # minikube profile (`pipeline-builder` per startup.sh). The minikube user
 # on EC2 has this configured, but the running user's *default* kubeconfig
 # context may not be set — bare `kubectl` then talks to the wrong cluster
-# (or no cluster) and looks like a missing secret. Default to the
-# pipeline-builder context for k8s targets; override via KUBECTL_CONTEXT.
-KUBECTL_CONTEXT="${KUBECTL_CONTEXT:-pipeline-builder}"
+# (or no cluster) and looks like a missing secret. So pin a context.
+#
+# Default to the operator's CURRENT context: for ec2/minikube that IS the
+# `pipeline-builder` minikube profile, and for eks it's whatever
+# `aws eks update-kubeconfig` / eksctl wrote (e.g. arn:aws:eks:...:cluster/pipeline-builder
+# or developer@pipeline-builder.<region>.eksctl.io) — NOT literally "pipeline-builder",
+# which is why the old hardcoded default failed on eks. Fall back to the legacy name
+# only when there's no current context. Override via KUBECTL_CONTEXT.
+KUBECTL_CONTEXT="${KUBECTL_CONTEXT:-$(kubectl config current-context 2>/dev/null || echo pipeline-builder)}"
 kubectl_ctx() {
   if [ "$DEPLOY_TARGET" = "local" ]; then
     kubectl "$@"
