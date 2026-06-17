@@ -12,6 +12,12 @@ set -euo pipefail
 #   ./init-platform.sh --cleanup ec2                           # Clean up plugin.zip + image.tar after upload
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Capture whether the caller EXPLICITLY set PLATFORM_BASE_URL *before* common.sh
+# defaults it to https://localhost:8443. The minikube/ec2/eks branches must
+# distinguish "caller gave a URL" (use it) from "unset" (auto-set up the
+# port-forward / resolve from the stack) — checking PLATFORM_BASE_URL after common.sh
+# always looks "set", which silently skipped the port-forward and pointed eks at :8443.
+PLATFORM_BASE_URL_PROVIDED="${PLATFORM_BASE_URL:-}"
 . "$SCRIPT_DIR/common.sh"
 
 CLEANUP_AFTER_UPLOAD=false
@@ -57,7 +63,7 @@ case "$TARGET" in
     PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
     ;;
   minikube)
-    if [ -n "${PLATFORM_BASE_URL:-}" ]; then
+    if [ -n "$PLATFORM_BASE_URL_PROVIDED" ]; then
       echo "Using PLATFORM_BASE_URL=$PLATFORM_BASE_URL"
     else
       if curl -s -k -o /dev/null -w "" "https://localhost:8443/" 2>/dev/null; then
@@ -77,7 +83,7 @@ case "$TARGET" in
     fi
     ;;
   ec2)
-    if [ -n "${PLATFORM_BASE_URL:-}" ]; then
+    if [ -n "$PLATFORM_BASE_URL_PROVIDED" ]; then
       echo "Using PLATFORM_BASE_URL=$PLATFORM_BASE_URL"
     else
       # Try to resolve URL from CloudFormation stack outputs
@@ -97,7 +103,7 @@ case "$TARGET" in
     fi
     ;;
   eks)
-    if [ -n "${PLATFORM_BASE_URL:-}" ]; then
+    if [ -n "$PLATFORM_BASE_URL_PROVIDED" ]; then
       echo "Using PLATFORM_BASE_URL=$PLATFORM_BASE_URL"
     else
       # EKS nginx serves plain HTTP on 8080 (TLS terminates at the ALB). Reach it via a
