@@ -57,6 +57,25 @@ spec:
                     app: plugin
                 topologyKey: kubernetes.io/hostname
       initContainers:
+        # EKS Auto Mode runs Bottlerocket nodes with user.max_user_namespaces=0 (a hardening
+        # default), which blocks the rootless buildkitd sidecar below — rootlesskit can't
+        # clone(CLONE_NEWUSER) and dies with "no space left on device". Flip the node sysctl
+        # non-zero BEFORE buildkitd starts. Privileged + host user namespace, so the write
+        # lands on the node (verified Bottlerocket's SELinux permits it). Auto Mode's managed
+        # NodeClass exposes no Bottlerocket sysctl/user-data knob, so we do it here per-pod.
+        - name: enable-userns
+          image: busybox:1.38
+          command: ["sh", "-c", "sysctl -w user.max_user_namespaces=15000 || echo 15000 > /proc/sys/user/max_user_namespaces"]
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          resources:
+            limits:
+              cpu: "50m"
+              memory: 32Mi
+            requests:
+              cpu: "25m"
+              memory: 16Mi
         - name: wait-for-dependencies
           image: busybox:1.38
           resources:
