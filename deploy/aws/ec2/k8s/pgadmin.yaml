@@ -70,6 +70,11 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
+  # Single writer on a hostPath PV: on single-node minikube, RWO does NOT stop two pods on
+  # the same node mounting the same data dir, so the default RollingUpdate's surge pod would
+  # race the live data. Recreate terminates the old pod before starting the new one.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: pgadmin

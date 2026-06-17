@@ -72,6 +72,11 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
+  # Single writer on a hostPath PV: on single-node minikube, RWO does NOT stop two pods on
+  # the same node mounting the same data dir. loki's single-binary filesystem index isn't
+  # safe for concurrent writers, so Recreate (not RollingUpdate's surge) avoids the overlap.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: loki
