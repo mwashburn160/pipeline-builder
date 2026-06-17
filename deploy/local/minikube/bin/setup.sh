@@ -11,9 +11,8 @@ CONFIG_DIR="$DEPLOY_DIR/config"
 K8S_DIR="$DEPLOY_DIR/k8s"
 NGINX_DIR="$DEPLOY_DIR/nginx"
 CERT_DIR="$DEPLOY_DIR/certs"
-AUTH_DIR="$DEPLOY_DIR/auth"
 BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared cert/key helpers)
-NS="pipeline-builder"
+NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 DATA_DIR="$DEPLOY_DIR/data"
 # VM-side mount target. Laptop-style /data/* to mirror local docker-compose
@@ -29,13 +28,13 @@ log()  { echo ""; echo "=== $1 ==="; }
 
 secret() {
   local name="$1"; shift
-  kube create secret generic "$name" "$@" -n "$NS"
+  kube create secret generic "$name" "$@" -n "$NAMESPACE"
   echo "  $name"
 }
 
 configmap() {
   local name="$1"; shift
-  kube create configmap "$name" "$@" -n "$NS"
+  kube create configmap "$name" "$@" -n "$NAMESPACE"
   echo "  $name"
 }
 
@@ -47,7 +46,7 @@ cleanup_docker() {
 
 port_forward() {
   local name="$1" svc="$2" ports="$3"
-  kubectl port-forward "svc/$svc" $ports -n "$NS" >/dev/null 2>&1 &
+  kubectl port-forward "svc/$svc" "$ports" -n "$NAMESPACE" >/dev/null 2>&1 &
   local pid=$!; sleep 1
   if kill -0 "$pid" 2>/dev/null; then
     echo "  $name → $ports (PID $pid)"
@@ -179,7 +178,7 @@ echo "  Addons + KEDA installed"
 # -- Namespace + Secrets + ConfigMaps -----------------------------------------
 
 log "Creating namespace + secrets + configmaps"
-kube create namespace "$NS"
+kube create namespace "$NAMESPACE"
 
 # app-env ConfigMap from .env. The plugin service uses a rootless buildkitd
 # sidecar (single build path — no strategy switch).
@@ -201,18 +200,17 @@ GHCR_TOKEN="${GHCR_TOKEN:-}"
 [ -z "$GHCR_TOKEN" ] && [ -f "$HOME/.npmrc" ] && GHCR_TOKEN=$(grep '//npm.pkg.github.com/:_authToken=' "$HOME/.npmrc" 2>/dev/null | sed 's/.*_authToken=//' || true)
 if [ -n "$GHCR_TOKEN" ]; then
   GHCR_USER="${GHCR_USER:-mwashburn160}"
-  kube create secret docker-registry ghcr-secret --docker-server=ghcr.io --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" -n "$NS"
-  kubectl patch sa default -n "$NS" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
+  kube create secret docker-registry ghcr-secret --docker-server=ghcr.io --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" -n "$NAMESPACE"
+  kubectl patch sa default -n "$NAMESPACE" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
   echo "  ghcr-secret"
 fi
 
 # -- TLS certificates --------------------------------------------------------
 
 log "Creating TLS certificates"
-mkdir -p "$AUTH_DIR"
 # Shared, idempotent gateway-TLS generator (mkcert → self-signed fallback).
 bash "$BIN_DIR/nginx-tls.sh" "$CERT_DIR"
-kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NS"
+kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NAMESPACE"
 
 # JWT signing keypair for image-registry's token-auth endpoint (shared generator).
 bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
@@ -226,13 +224,8 @@ secret image-registry-build-svc-secret \
   --from-literal=IMAGE_REGISTRY_USERNAME="$IMAGE_REGISTRY_USER" \
   --from-literal=IMAGE_REGISTRY_PASSWORD="$IMAGE_REGISTRY_TOKEN"
 
-if command -v htpasswd >/dev/null 2>&1; then
-  htpasswd -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
-else
-  docker run --rm --entrypoint htpasswd httpd:2 -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
-fi
-secret registry-auth-secret --from-file=registry.passwd="$AUTH_DIR/registry.passwd"
-echo "  TLS + registry auth done"
+# (No registry htpasswd: the registry uses token auth — nothing mounts registry-auth-secret.)
+echo "  TLS + registry token-signing done"
 
 # -- ConfigMaps ---------------------------------------------------------------
 
@@ -258,7 +251,7 @@ log "Applying Kubernetes manifests"
 kubectl apply -k "$K8S_DIR"
 
 log "Post-deploy fixups"
-REGISTRY_IP=$(kubectl get svc registry -n "$NS" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+REGISTRY_IP=$(kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
 [ -n "$REGISTRY_IP" ] && minikube ssh --profile="$PROFILE" -- \
   "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$REGISTRY_IP registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"
 echo "  registry -> ${REGISTRY_IP:-unknown}"
@@ -266,18 +259,18 @@ echo "  registry -> ${REGISTRY_IP:-unknown}"
 # -- Wait for pods ------------------------------------------------------------
 
 log "Waiting for pods"
-kubectl wait --for=condition=Ready pod -l app=postgres -n "$NS" --timeout=180s 2>/dev/null || echo "  postgres not ready"
-kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NS" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
-kubectl wait --for=condition=Ready pod -l app -n "$NS" --timeout=300s 2>/dev/null || true
-kubectl wait --for=condition=Ready pod -l app=nginx -n "$NS" --timeout=180s 2>/dev/null || echo "  nginx not ready"
+kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
+kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
+kubectl wait --for=condition=Ready pod -l app -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
+kubectl wait --for=condition=Ready pod -l app=nginx -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  nginx not ready"
 
 echo ""
-kubectl get pods -n "$NS" -o wide
+kubectl get pods -n "$NAMESPACE" -o wide
 
 # -- Port-forwards ------------------------------------------------------------
 
 log "Starting port-forwards"
-pkill -f "kubectl port-forward.*-n $NS" 2>/dev/null || true
+pkill -f "kubectl port-forward.*-n $NAMESPACE" 2>/dev/null || true
 sleep 1
 
 # Gateway: forward 8443 (HTTPS) ONLY. Binding 8080 too made the WHOLE forward
@@ -316,4 +309,4 @@ echo "  Databases (postgres / mongodb / redis) run in-cluster — reach them via
 echo "  dev tools above. Credentials live in $ENV_FILE."
 echo ""
 echo "  Next : ./deploy/bin/init-platform.sh minikube   # register admin + (opt-in) load plugins/samples/compliance"
-echo "  Stop port-forwards : pkill -f 'kubectl port-forward.*-n $NS'"
+echo "  Stop port-forwards : pkill -f 'kubectl port-forward.*-n $NAMESPACE'"

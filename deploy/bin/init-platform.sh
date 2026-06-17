@@ -283,9 +283,8 @@ if _truthy "$LOAD_PLUGINS"; then
     # Non-interactive (env-driven) run: pick ALL categories EXPLICITLY so the downstream
     # build/load scripts receive a --category filter and don't fall back to their OWN TTY
     # category prompt (load-plugins.sh prompts when given no --category on a TTY). Set
-    # PLUGIN_CATEGORY to restrict. Same discovery as load-plugins.sh's all-categories path.
-    SELECTED_CATEGORIES=$(find -L "$DEPLOY_DIR/plugins" -mindepth 1 -maxdepth 1 -type d ! -name '_*' \
-      -exec basename {} \; | sort | tr '\n' ',' | sed 's/,$//')
+    # PLUGIN_CATEGORY to restrict.
+    SELECTED_CATEGORIES=$(list_categories "$DEPLOY_DIR/plugins" | tr '\n' ',' | sed 's/,$//')
   fi
 
   CATEGORY_ARG=""
@@ -331,7 +330,6 @@ if _truthy "$LOAD_PLUGINS"; then
     # the `FROM` bases (seeded out-of-band). Per-plugin images are still built at upload
     # time by the plugin service's buildkitd, which resolves them from the registry.
     # (No deploy target takes this path today; it is a manual escape hatch.)
-    # sidecar — BASE_BUILDER=buildkit — and leaves BASES_PREBUILT unset.)
     echo ""
     echo "  Base images: PREBUILT (BASES_PREBUILT=true) — skipping the base build; trusting the registry."
     echo ""
@@ -393,12 +391,7 @@ fi
 # Load pipelines
 echo ""
 # Env-overridable (LOAD_PIPELINES=y|n) for non-interactive runs; prompt on a TTY when unset.
-LOAD_PIPELINES="${LOAD_PIPELINES:-}"
-if [ -z "$LOAD_PIPELINES" ] && [ -t 0 ]; then
-  printf "Load sample pipelines? [y/N] "
-  read -r LOAD_PIPELINES
-fi
-LOAD_PIPELINES="${LOAD_PIPELINES:-n}"
+prompt_toggle LOAD_PIPELINES "Load sample pipelines? [y/N]"
 if _truthy "$LOAD_PIPELINES"; then
   # The pipeline bulk-create validates each item via compliance — wait for both
   # services so the load doesn't race a still-starting compliance service (the
@@ -412,12 +405,7 @@ fi
 # Load compliance rules and policy templates
 echo ""
 # Env-overridable (LOAD_COMPLIANCE=y|n) for non-interactive runs; prompt on a TTY when unset.
-LOAD_COMPLIANCE="${LOAD_COMPLIANCE:-}"
-if [ -z "$LOAD_COMPLIANCE" ] && [ -t 0 ]; then
-  printf "Load sample compliance rules and policy templates? [y/N] "
-  read -r LOAD_COMPLIANCE
-fi
-LOAD_COMPLIANCE="${LOAD_COMPLIANCE:-n}"
+prompt_toggle LOAD_COMPLIANCE "Load sample compliance rules and policy templates? [y/N]"
 if _truthy "$LOAD_COMPLIANCE"; then
   # load-compliance talks straight to the compliance service — wait for it.
   gate_services_ready compliance || exit 1

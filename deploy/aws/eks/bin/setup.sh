@@ -9,9 +9,9 @@ set -euo pipefail
 #
 #   ./bin/setup.sh --domain pipeline-builder.com --hosted-zone-id Z... --region us-east-1
 #
-# Prereqs (provision checks these): aws, eksctl, kubectl, openssl, envsubst.
-# The final auto-init phase (AUTO_INIT, default on) additionally needs docker + yq
-# for the plugin image builds — pass --no-auto-init to skip it on a host without them.
+# Prereqs (provision checks these): aws, kubectl, openssl, envsubst. eksctl is auto-installed
+# below if missing (latest binary). The final auto-init phase (AUTO_INIT, default on) additionally
+# needs docker + yq for the plugin image builds — pass --no-auto-init to skip it on a host without them.
 # NOTE: the AWS-infra phases (EFS, ACM, Pod Identity, Route 53) talk to LIVE AWS
 # and are idempotent where possible — review before running in a shared account.
 # =============================================================================
@@ -76,36 +76,23 @@ fi
 export CLUSTER_NAME REGION DOMAIN NAMESPACE EKS_VERSION
 ALB_SCHEME=$([ "$DEPLOY_MODE" = public ] && echo internet-facing || echo internal); export ALB_SCHEME
 
-# ---- Helpers (plain kubectl — no minikube wrapper) ----
+# ---- Helpers ----
 log() { echo ""; echo "=== $1 ==="; }
-# Idempotent create: render with --dry-run=client, then apply (create-or-update).
-kube()      { kubectl "$@" --dry-run=client -o yaml | kubectl apply -f - ; }
-secret()    { local n="$1"; shift; kube create secret generic "$n" "$@" -n "$NAMESPACE"; echo "  secret $n"; }
-configmap() { local n="$1"; shift; kube create configmap "$n" "$@" -n "$NAMESPACE"; echo "  configmap $n"; }
+# Shared Secret/ConfigMap creators (deploy/bin/k8s-resources.sh) — plain kubectl, this namespace.
+PB_KUBECTL="kubectl"; PB_NAMESPACE="$NAMESPACE"
+. "$SCRIPT_DIR/../../../bin/k8s-resources.sh"
 
 echo "=== EKS Auto Mode deploy: cluster=$CLUSTER_NAME region=$REGION mode=$DEPLOY_MODE k8s=$EKS_VERSION domain=$DOMAIN ==="
 
-# eksctl: prefer the binary; otherwise run the official image via Docker so a host
-# with Docker + AWS creds needs no eksctl install. Mounts ~/.aws (creds) + ~/.kube
-# (update-kubeconfig target) and forwards creds from the environment; -i so
-# `create cluster -f -` can read the ClusterConfig piped on stdin.
-if command -v eksctl >/dev/null 2>&1; then
-  eksctl() { command eksctl "$@"; }
-else
-  command -v docker >/dev/null 2>&1 || { echo "ERROR: need eksctl on PATH or Docker (for public.ecr.aws/eksctl/eksctl)" >&2; exit 1; }
-  # The official eksctl image bundles eksctl ONLY (no aws CLI), so eksctl can't self-verify
-  # the kubeconfig it writes ("could not find authenticator command: aws") — harmless here,
-  # since the host's aws/kubectl do the real work. To run the WHOLE deploy in one container
-  # that has aws + kubectl + eksctl (no host tools, no warning): bin/deploy-docker.sh.
-  echo "  eksctl not found — using public.ecr.aws/eksctl/eksctl via Docker"
-  mkdir -p "$HOME/.kube" "$HOME/.aws"
-  eksctl() {
-    docker run --rm -i \
-      -v "$HOME/.aws:/root/.aws" -v "$HOME/.kube:/root/.kube" \
-      -e AWS_PROFILE -e AWS_REGION -e AWS_DEFAULT_REGION \
-      -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
-      public.ecr.aws/eksctl/eksctl "$@"
-  }
+# eksctl: install the latest binary if it's not already on PATH (a prereq, like kubectl).
+if ! command -v eksctl >/dev/null 2>&1; then
+  echo "  eksctl not found — installing the latest binary..."
+  case "$(uname -m)" in x86_64|amd64) _arch=amd64 ;; aarch64|arm64) _arch=arm64 ;; *) _arch=amd64 ;; esac
+  _bindir=/usr/local/bin; [ -w "$_bindir" ] || _bindir="$HOME/.local/bin"; mkdir -p "$_bindir"
+  curl -fsSL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$(uname -s)_${_arch}.tar.gz" | tar xz -C "$_bindir" eksctl
+  chmod +x "$_bindir/eksctl"
+  case ":$PATH:" in *":$_bindir:"*) ;; *) PATH="$_bindir:$PATH"; export PATH ;; esac
+  echo "  installed eksctl to $_bindir"
 fi
 
 # ---- Phase 1: cluster (Auto Mode) ------------------------------------------
@@ -178,27 +165,17 @@ echo "  cert ready: $ACM_CERT_ARN"
 
 # ---- Phase 4: .env + namespace + secrets/configmaps ------------------------
 log "Phase 4: secrets + configmaps"
+# Shared .env secret generator (deploy/bin/gen-env-secrets.sh).
+. "$SCRIPT_DIR/../../../bin/gen-env-secrets.sh"
 # Generate .env from the template ONCE (regenerating would rotate DB passwords
 # out from under existing PVC data on a re-run). Mirrors ec2 bootstrap.sh Phase 7.
 if [ ! -f "$ENV_FILE" ]; then
   echo "  generating .env (with random secrets)"
   cp "$DEPLOY_DIR/.env.example" "$ENV_FILE"
-  gen() { openssl rand -base64 "$1" | tr -d '=+/'; }
-  JWT_SECRET=$(gen 32); REFRESH_SECRET=$(gen 32)
-  PG_PASSWORD=$(gen 24); MONGO_PASSWORD=$(gen 24); ME_PASSWORD=$(gen 16); PGADMIN_PASSWORD=$(gen 16); REGISTRY_TOKEN=$(gen 24)
+  # Generated secrets common to every target (shared helper); then the eks-specific keys.
+  pb_gen_env_secrets "$ENV_FILE" "$GHCR_USER"
   sed -i.bak "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" "$ENV_FILE"
-  sed -i.bak "s|JWT_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|JWT_SECRET=${JWT_SECRET}|" "$ENV_FILE"
-  sed -i.bak "s|REFRESH_TOKEN_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|REFRESH_TOKEN_SECRET=${REFRESH_SECRET}|" "$ENV_FILE"
-  sed -i.bak "s|POSTGRES_PASSWORD=CHANGE_ME|POSTGRES_PASSWORD=${PG_PASSWORD}|" "$ENV_FILE"
-  sed -i.bak "s|DB_PASSWORD=CHANGE_ME|DB_PASSWORD=${PG_PASSWORD}|" "$ENV_FILE"
-  sed -i.bak "s|MONGO_INITDB_ROOT_PASSWORD=CHANGE_ME|MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}|" "$ENV_FILE"
-  sed -i.bak "s|mongodb://mongo:CHANGE_ME@|mongodb://mongo:${MONGO_PASSWORD}@|g" "$ENV_FILE"
-  sed -i.bak "s|ME_CONFIG_MONGODB_ADMINPASSWORD=CHANGE_ME|ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGO_PASSWORD}|" "$ENV_FILE"
-  sed -i.bak "s|ME_CONFIG_BASICAUTH_PASSWORD=CHANGE_ME|ME_CONFIG_BASICAUTH_PASSWORD=${ME_PASSWORD}|" "$ENV_FILE"
-  sed -i.bak "s|PGADMIN_DEFAULT_PASSWORD=CHANGE_ME|PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD}|" "$ENV_FILE"
-  sed -i.bak "s|IMAGE_REGISTRY_TOKEN=CHANGE_ME|IMAGE_REGISTRY_TOKEN=${REGISTRY_TOKEN}|" "$ENV_FILE"
   [ -n "$GHCR_TOKEN" ] && sed -i.bak "s|GHCR_TOKEN=|GHCR_TOKEN=${GHCR_TOKEN}|" "$ENV_FILE"
-  sed -i.bak "s|GHCR_USER=mwashburn160|GHCR_USER=${GHCR_USER}|" "$ENV_FILE"
   # Region is account-specific; SES is regional, so pin both to the deploy region.
   sed -i.bak "s|^AWS_REGION=.*|AWS_REGION=${REGION}|" "$ENV_FILE"
   sed -i.bak "s|^SES_REGION=.*|SES_REGION=${REGION}|" "$ENV_FILE"
@@ -228,45 +205,23 @@ kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -
 CLEAN_ENV=$(mktemp); CERT_DIR=""
 trap 'rm -f "$CLEAN_ENV"; [ -n "$CERT_DIR" ] && rm -rf "$CERT_DIR"' EXIT
 grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | envsubst > "$CLEAN_ENV"
-configmap app-env --from-env-file="$CLEAN_ENV"
+pb_app_env_configmap "$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
-# Application secrets (names/keys must match the manifests in ../k8s).
-secret jwt-secret           --from-literal=JWT_SECRET="$JWT_SECRET" --from-literal=REFRESH_TOKEN_SECRET="$REFRESH_TOKEN_SECRET"
-secret postgres-secret      --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD"
-secret mongodb-secret       --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
-secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
-secret pgadmin-secret       --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
+# Application secrets + optional GHCR pull secret (shared creators).
+pb_create_app_secrets
+pb_create_ghcr_secret
 
-# Optional GHCR pull secret (attach to the default SA).
-if [ -n "$GHCR_TOKEN" ]; then
-  kubectl create secret docker-registry ghcr-secret --docker-server=ghcr.io \
-    --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" -n "$NAMESPACE" \
-    --dry-run=client -o yaml | kubectl apply -f -
-  kubectl patch sa default -n "$NAMESPACE" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
-  echo "  secret ghcr-secret"
-fi
-
-# image-registry token-signing keypair (no gateway TLS — the ALB terminates it).
+# image-registry token-signing keypair — ephemeral (no gateway TLS; the ALB terminates it).
 CERT_DIR=$(mktemp -d)
 openssl genrsa -out "$CERT_DIR/jwt.key" 2048 >/dev/null 2>&1
 openssl req -x509 -new -key "$CERT_DIR/jwt.key" -days 3650 \
   -subj "/CN=pipeline-image-registry-token-issuer" -out "$CERT_DIR/jwt.crt" >/dev/null 2>&1
-secret registry-token-secret --from-file=jwt-private.pem="$CERT_DIR/jwt.key" --from-file=jwt-public.pem="$CERT_DIR/jwt.crt"
-secret image-registry-build-svc-secret --from-literal=IMAGE_REGISTRY_USERNAME="$IMAGE_REGISTRY_USER" --from-literal=IMAGE_REGISTRY_PASSWORD="$IMAGE_REGISTRY_TOKEN"
-# (No htpasswd/registry-auth-secret: the registry uses token auth — no manifest mounts it.)
+pb_create_registry_secrets "$CERT_DIR/jwt.key" "$CERT_DIR/jwt.crt"
 rm -rf "$CERT_DIR"
 
 # Config-file ConfigMaps + MongoDB keyfile (same set the ec2 manifests expect).
-secret    mongodb-keyfile   --from-file=mongodb-keyfile="$DEPLOY_DIR/mongodb-keyfile"
-configmap postgres-init     --from-file=init.sql="$DEPLOY_DIR/postgres-init.sql"
-configmap mongodb-init      --from-file=mongo-init.js="$DEPLOY_DIR/mongodb-init.js"
-configmap nginx-config      --from-file=nginx.conf="$NGINX_DIR/nginx.conf"
-configmap nginx-njs         --from-file=jwt.js="$NGINX_DIR/jwt.js" --from-file=metrics.js="$NGINX_DIR/metrics.js" --from-file=registry-auth.js="$NGINX_DIR/registry-auth.js"
-configmap loki-config       --from-file=loki-config.yml="$CONFIG_DIR/loki/loki-config.yml"
-configmap prometheus-config --from-file=prometheus.yml="$CONFIG_DIR/prometheus/prometheus.yml" --from-file=alert-rules.yml="$CONFIG_DIR/prometheus/alert-rules.yml"
-configmap alertmanager-config --from-file=alertmanager.yml="$CONFIG_DIR/alertmanager/alertmanager.yml"
-configmap promtail-config   --from-file=promtail-config.yml="$CONFIG_DIR/promtail/promtail-config.yml"
+pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 
 # ---- Phase 5: SES email + Pod Identity -------------------------------------
 # Parity with the ec2 target's in-stack SES (template.yaml): Easy-DKIM identity +

@@ -54,4 +54,4 @@ SANEOF
     -keyout "$KEY" -out "$CRT" -config "$_sancnf"
   rm -f "$_sancnf"
 fi
-chmod 644 "$KEY"
+chmod 644 "$KEY" "$CRT"

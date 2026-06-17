@@ -260,44 +260,20 @@ echo "Phase 7: Generate .env configuration"
 echo "========================================"
 cd "$DEPLOY_DIR"
 
+# Shared .env secret generator (deploy/bin/gen-env-secrets.sh).
+. "$INSTALL_DIR/deploy/bin/gen-env-secrets.sh"
+
 cp .env.example .env
 
-# Generate secrets — strip base64 special chars (+/=) to avoid sed delimiter conflicts
-JWT_SECRET=$(openssl rand -base64 32 | tr -d '=+/')
-REFRESH_SECRET=$(openssl rand -base64 32 | tr -d '=+/')
-PG_PASSWORD=$(openssl rand -base64 24 | tr -d '=+/')
-MONGO_PASSWORD=$(openssl rand -base64 24 | tr -d '=+/')
-ME_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
-PGADMIN_PASSWORD=$(openssl rand -base64 16 | tr -d '=+/')
-REGISTRY_TOKEN=$(openssl rand -base64 24 | tr -d '=+/')
+# Generated secrets common to every target (shared helper); then the ec2-specific keys.
+pb_gen_env_secrets .env "$GHCR_USER"
 
 # Replace domain placeholder. A domain is always set now (the ALB needs an
 # ACM cert for it), so there's no IP fallback.
 sed -i "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" .env
 
-# Replace CHANGE_ME secrets
-sed -i "s|JWT_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|JWT_SECRET=${JWT_SECRET}|" .env
-sed -i "s|REFRESH_TOKEN_SECRET=CHANGE_ME_generate_with_openssl_rand_base64_32|REFRESH_TOKEN_SECRET=${REFRESH_SECRET}|" .env
-
-# PostgreSQL passwords
-sed -i "s|POSTGRES_PASSWORD=CHANGE_ME|POSTGRES_PASSWORD=${PG_PASSWORD}|" .env
-sed -i "s|DB_PASSWORD=CHANGE_ME|DB_PASSWORD=${PG_PASSWORD}|" .env
-
-# MongoDB passwords
-sed -i "s|MONGO_INITDB_ROOT_PASSWORD=CHANGE_ME|MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}|" .env
-sed -i "s|mongodb://mongo:CHANGE_ME@|mongodb://mongo:${MONGO_PASSWORD}@|g" .env
-sed -i "s|ME_CONFIG_MONGODB_ADMINPASSWORD=CHANGE_ME|ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGO_PASSWORD}|" .env
-
-# Admin UI passwords
-sed -i "s|ME_CONFIG_BASICAUTH_PASSWORD=CHANGE_ME|ME_CONFIG_BASICAUTH_PASSWORD=${ME_PASSWORD}|" .env
-sed -i "s|PGADMIN_DEFAULT_PASSWORD=CHANGE_ME|PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD}|" .env
-
-# Registry token
-sed -i "s|IMAGE_REGISTRY_TOKEN=CHANGE_ME|IMAGE_REGISTRY_TOKEN=${REGISTRY_TOKEN}|" .env
-
-# Inject GHCR credentials
+# Inject GHCR token (GHCR_USER is handled by pb_gen_env_secrets).
 sed -i "s|GHCR_TOKEN=|GHCR_TOKEN=${GHCR_TOKEN}|" .env
-sed -i "s|GHCR_USER=mwashburn160|GHCR_USER=${GHCR_USER}|" .env
 
 # Deploy mode + VPC identity (exported by template.yaml UserData). In PRIVATE mode the
 # pipeline service builds VPC-attached CodeBuild projects from PIPELINE_VPC_ID/SUBNET_IDS,

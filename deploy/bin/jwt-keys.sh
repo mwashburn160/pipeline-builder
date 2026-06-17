@@ -26,10 +26,13 @@ set -euo pipefail
 
 CERT_DIR=""
 FORCE=""
-for arg in "$@"; do
-  case "$arg" in
-    --force) FORCE=1 ;;
-    *) CERT_DIR="$arg" ;;
+# while/case (not a bare for-loop) so an unknown --flag errors instead of being
+# silently swallowed as the cert_dir — consistent with the other deploy/bin scripts.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1; shift ;;
+    -*) echo "Unknown option: $1" >&2; exit 1 ;;
+    *) CERT_DIR="$1"; shift ;;
   esac
 done
 CERT_DIR="${CERT_DIR:-$(cd "$(dirname "$0")/.." && pwd)/certs}"

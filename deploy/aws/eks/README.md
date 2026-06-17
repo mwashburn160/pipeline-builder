@@ -105,20 +105,10 @@ cd deploy/aws/eks
 or via the CLI (runs both in an ephemeral container):
 `pipeline-manager provision --target eks --domain … --hosted-zone-id … --execute --yes`
 
-### Zero host installs (Docker)
+### Prerequisites
 
-`setup.sh` needs eksctl + AWS CLI + kubectl + openssl + envsubst. Don't want them on
-your machine? Run the whole deploy in a container that has them all:
-
-```bash
-# builds Dockerfile (eksctl + aws + kubectl + openssl + envsubst) and runs setup.sh inside it
-deploy/aws/eks/bin/deploy-docker.sh --domain pipeline-builder.com --hosted-zone-id Z... --region us-east-1
-# teardown:
-PB_EKS_SCRIPT=shutdown.sh deploy/aws/eks/bin/deploy-docker.sh --domain pipeline-builder.com --hosted-zone-id Z... --yes
-```
-
-Only Docker + AWS creds (`~/.aws` or env) are required on the host. Because aws, kubectl and
-eksctl all live in the one container, this also avoids the *"could not find authenticator
-command: aws"* warning you get when a host without eksctl falls back to the official
-`public.ecr.aws/eksctl/eksctl` image (which bundles eksctl only). `provision-docker.sh
---target eks` does the same thing by installing the tools at runtime instead of from this image.
+`setup.sh` needs the AWS CLI (+ credentials), `kubectl`, `openssl`, and `envsubst` on the host.
+**`eksctl` is auto-installed** — when it isn't already on PATH, `setup.sh`/`shutdown.sh` download
+the latest binary (to `/usr/local/bin`, falling back to `~/.local/bin` if that isn't writable)
+before creating/deleting the cluster. `pipeline-manager provision --target eks` additionally
+installs the other tools at runtime.

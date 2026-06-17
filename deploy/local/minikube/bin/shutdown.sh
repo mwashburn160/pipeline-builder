@@ -8,13 +8,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 K8S_DIR="$DEPLOY_DIR/k8s"
-NS="pipeline-builder"
+NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 
 log() { echo ""; echo "=== $1 ==="; }
 
 log "Stopping port-forwards"
-pkill -f "kubectl port-forward.*-n $NS" 2>/dev/null || true
+pkill -f "kubectl port-forward.*-n $NAMESPACE" 2>/dev/null || true
 
 log "Removing Kubernetes resources"
 kubectl delete -k "$K8S_DIR" --ignore-not-found 2>/dev/null || true
@@ -22,15 +22,15 @@ kubectl delete -k "$K8S_DIR" --ignore-not-found 2>/dev/null || true
 # Dynamic resources not in kustomize
 kubectl delete configmap app-env postgres-init mongodb-init nginx-config nginx-njs \
   loki-config prometheus-config alertmanager-config promtail-config \
-  -n "$NS" --ignore-not-found 2>/dev/null || true
+  -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
 kubectl delete secret jwt-secret postgres-secret mongodb-secret mongodb-keyfile \
   mongo-express-secret pgadmin-secret ghcr-secret \
   nginx-tls-secret registry-auth-secret registry-token-secret \
   image-registry-build-svc-secret \
-  -n "$NS" --ignore-not-found 2>/dev/null || true
+  -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
 
 log "Removing namespace"
-kubectl delete namespace "$NS" --ignore-not-found 2>/dev/null || true
+kubectl delete namespace "$NAMESPACE" --ignore-not-found 2>/dev/null || true
 
 log "Stopping Minikube"
 minikube stop --profile="$PROFILE" || true

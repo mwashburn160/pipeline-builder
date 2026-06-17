@@ -50,26 +50,14 @@ fi
 # Ensure TLS certificates exist
 # -----------------------------------------------------------------------
 CERT_DIR="$DEPLOY_DIR/certs"
-AUTH_DIR="$DEPLOY_DIR/auth"
 BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared helpers)
 
 # nginx gateway TLS + image-registry token-signing keypair — shared, idempotent
 # generators (see deploy/bin/{nginx-tls,jwt-keys}.sh). Both skip when the files
 # already exist, so re-running setup is cheap and doesn't rotate keys.
 bash "$BIN_DIR/nginx-tls.sh" "$CERT_DIR"
-bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
-
-if [ ! -f "$AUTH_DIR/registry.passwd" ]; then
-  echo "=== Generating registry htpasswd ==="
-  mkdir -p "$AUTH_DIR"
-  # Load env vars for registry credentials
-  set -a; . "$DEPLOY_DIR/.env"; set +a
-  if command -v htpasswd >/dev/null 2>&1; then
-    htpasswd -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
-  else
-    docker run --rm --entrypoint htpasswd httpd:2 -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
-  fi
-fi
+# (No registry htpasswd: the registry uses token auth — REGISTRY_AUTH: token in
+# docker-compose.yml; nothing mounts registry.passwd.)
 
 # -----------------------------------------------------------------------
 # Ensure MongoDB keyfile has correct permissions

@@ -15,9 +15,8 @@ CONFIG_DIR="$DEPLOY_DIR/config"
 K8S_DIR="$DEPLOY_DIR/k8s"
 NGINX_DIR="$DEPLOY_DIR/nginx"
 CERT_DIR="$DEPLOY_DIR/certs"
-AUTH_DIR="$DEPLOY_DIR/auth"
 BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared cert/key helpers)
-NS="pipeline-builder"
+NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 # Persistent-storage layout. Honors PIPELINE_ROOT from the host (set by
 # UserData / bootstrap.sh) but defaults to /opt/pipeline for standalone
@@ -36,21 +35,12 @@ else
   mk() { "$@"; }
 fi
 
-kube() { mk kubectl "$@" --dry-run=client -o yaml | mk kubectl apply -f -; }
-
 log() { echo ""; echo "=== $1 ==="; }
 
-secret() {
-  local name="$1"; shift
-  kube create secret generic "$name" "$@" -n "$NS"
-  echo "  $name"
-}
-
-configmap() {
-  local name="$1"; shift
-  kube create configmap "$name" "$@" -n "$NS"
-  echo "  $name"
-}
+# Shared Secret/ConfigMap creators (deploy/bin/k8s-resources.sh). PB_KUBECTL runs kubectl as
+# the minikube user via the `mk` function above, so applies happen as the cluster owner.
+PB_KUBECTL="mk kubectl"; PB_NAMESPACE="$NAMESPACE"
+. "$BIN_DIR/k8s-resources.sh"
 
 cleanup_docker() {
   mk docker rm -f "$PROFILE" 2>/dev/null || true
@@ -151,7 +141,7 @@ echo "  Addons + KEDA installed"
 # -- Namespace + ConfigMap + Secrets ------------------------------------------
 
 log "Creating namespace + secrets + configmaps"
-kube create namespace "$NS"
+pb_kube_apply create namespace "$NAMESPACE"
 
 # app-env ConfigMap from .env. The plugin service uses a rootless buildkitd
 # sidecar (single build path — no strategy switch).
@@ -159,23 +149,12 @@ kube create namespace "$NS"
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
 grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | envsubst > "$CLEAN_ENV"
 chmod 644 "$CLEAN_ENV"
-configmap app-env --from-env-file="$CLEAN_ENV"
+pb_app_env_configmap "$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
 
-# Secrets
-secret jwt-secret        --from-literal=JWT_SECRET="$JWT_SECRET" --from-literal=REFRESH_TOKEN_SECRET="$REFRESH_TOKEN_SECRET"
-secret postgres-secret   --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD"
-secret mongodb-secret    --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
-secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
-secret pgadmin-secret    --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
-
-# GHCR pull secret (optional)
-if [ -n "${GHCR_TOKEN:-}" ]; then
-  GHCR_USER="${GHCR_USER:-mwashburn160}"
-  kube create secret docker-registry ghcr-secret --docker-server=ghcr.io --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" -n "$NS"
-  mk kubectl patch sa default -n "$NS" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
-  echo "  ghcr-secret"
-fi
+# Application secrets + optional GHCR pull secret (shared creators).
+pb_create_app_secrets
+pb_create_ghcr_secret
 
 # -- Registry token-signing keypair ------------------------------------------
 # The gateway no longer terminates TLS — the ALB does, with an ACM cert — so
@@ -184,44 +163,20 @@ fi
 # token-signing keypair (unrelated to gateway TLS) is created here.
 
 log "Creating registry token-signing keypair"
-mkdir -p "$CERT_DIR" "$AUTH_DIR"
+mkdir -p "$CERT_DIR"
 chown root:minikube "$CERT_DIR"
 
-# JWT signing keypair for image-registry's token-auth endpoint (shared generator).
+# JWT signing keypair for image-registry's token-auth endpoint (shared generator), then the
+# registry secrets (token keypair + build-svc Basic-auth creds). No htpasswd/registry-auth-secret
+# — the registry uses token auth (REGISTRY_AUTH=token); nothing mounts registry.passwd.
 bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
-secret registry-token-secret \
-  --from-file=jwt-private.pem="$CERT_DIR/image-registry-jwt.key" \
-  --from-file=jwt-public.pem="$CERT_DIR/image-registry-jwt.crt"
-
-# Build-side credentials consumed by the image-registry proxy:
-#   IMAGE_REGISTRY_*  — Basic auth used when talking to the underlying registry.
-secret image-registry-build-svc-secret \
-  --from-literal=IMAGE_REGISTRY_USERNAME="$IMAGE_REGISTRY_USER" \
-  --from-literal=IMAGE_REGISTRY_PASSWORD="$IMAGE_REGISTRY_TOKEN"
-
-if command -v htpasswd >/dev/null 2>&1; then
-  htpasswd -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
-else
-  mk docker run --rm --entrypoint htpasswd httpd:2 -Bbn "$IMAGE_REGISTRY_USER" "$IMAGE_REGISTRY_TOKEN" > "$AUTH_DIR/registry.passwd"
-fi
-chmod 644 "$AUTH_DIR/registry.passwd"
-secret registry-auth-secret --from-file=registry.passwd="$AUTH_DIR/registry.passwd"
-echo "  TLS + registry auth done"
+pb_create_registry_secrets "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt"
+echo "  registry token-signing keypair done"
 
 # -- ConfigMaps ---------------------------------------------------------------
 
 log "Creating ConfigMaps"
-configmap postgres-init   --from-file=init.sql="$DEPLOY_DIR/postgres-init.sql"
-configmap mongodb-init    --from-file=mongo-init.js="$DEPLOY_DIR/mongodb-init.js"
-secret   mongodb-keyfile  --from-file=mongodb-keyfile="$DEPLOY_DIR/mongodb-keyfile"
-configmap nginx-config    --from-file=nginx.conf="$NGINX_DIR/nginx.conf"
-configmap nginx-njs       --from-file=jwt.js="$NGINX_DIR/jwt.js" --from-file=metrics.js="$NGINX_DIR/metrics.js" --from-file=registry-auth.js="$NGINX_DIR/registry-auth.js"
-configmap loki-config     --from-file=loki-config.yml="$CONFIG_DIR/loki/loki-config.yml"
-configmap prometheus-config \
-  --from-file=prometheus.yml="$CONFIG_DIR/prometheus/prometheus.yml" \
-  --from-file=alert-rules.yml="$CONFIG_DIR/prometheus/alert-rules.yml"
-configmap alertmanager-config --from-file=alertmanager.yml="$CONFIG_DIR/alertmanager/alertmanager.yml"
-configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/promtail-config.yml"
+pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 
 # -- Deploy -------------------------------------------------------------------
 
@@ -236,7 +191,7 @@ mk kubectl apply -k "$K8S_DIR"
 
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/registry-data"
-REGISTRY_IP=$(mk kubectl get svc registry -n "$NS" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+REGISTRY_IP=$(mk kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
 [ -n "$REGISTRY_IP" ] && mk minikube ssh --profile="$PROFILE" -- \
   "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$REGISTRY_IP registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"
 echo "  registry -> ${REGISTRY_IP:-unknown}"
@@ -244,12 +199,12 @@ echo "  registry -> ${REGISTRY_IP:-unknown}"
 # -- Wait for pods ------------------------------------------------------------
 
 log "Waiting for pods"
-mk kubectl wait --for=condition=Ready pod -l app=postgres -n "$NS" --timeout=180s 2>/dev/null || echo "  postgres not ready"
-mk kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NS" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
-mk kubectl wait --for=condition=Ready pod -l app -n "$NS" --timeout=300s 2>/dev/null || true
+mk kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
+mk kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
+mk kubectl wait --for=condition=Ready pod -l app -n "$NAMESPACE" --timeout=300s 2>/dev/null || true
 
 echo ""
-mk kubectl get pods -n "$NS" -o wide
+mk kubectl get pods -n "$NAMESPACE" -o wide
 
 # -- iptables (root only) ----------------------------------------------------
 

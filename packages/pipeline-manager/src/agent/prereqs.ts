@@ -134,13 +134,13 @@ export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; with
   // host (openssl) before creating the k8s secret. ec2 bootstraps its secrets on the
   // instance, so it needs none of these.
   if (target === 'eks') {
-    // eksctl can run from PATH OR via the official image — setup.sh falls back to
-    // `docker run public.ecr.aws/eksctl/eksctl` when the binary is absent, so a host
-    // with Docker + AWS creds is sufficient.
+    // eksctl: setup.sh installs the latest binary automatically when it's not on PATH
+    // (downloaded from the eksctl-io GitHub release via curl), so it isn't a hard prereq —
+    // we just confirm curl is available to fetch it.
     const eksctlOnPath = has('eksctl');
-    checks.push(check('eksctl', eksctlOnPath || dockerRunning(),
-      eksctlOnPath ? 'on PATH' : 'via Docker image public.ecr.aws/eksctl/eksctl (binary not found)',
-      'install eksctl, or install + start Docker (setup.sh will run public.ecr.aws/eksctl/eksctl)'));
+    checks.push(check('eksctl', eksctlOnPath || has('curl'),
+      eksctlOnPath ? 'on PATH' : 'setup.sh will install the binary (via curl)',
+      'install eksctl, or ensure curl is available (setup.sh downloads the eksctl binary)'));
     checks.push(check('kubectl', has('kubectl'), 'on PATH', 'install kubectl — applies the manifests to the cluster'));
     checks.push(check('openssl', has('openssl'), 'on PATH', 'install openssl — setup.sh generates the registry token keypair'));
     checks.push(check('envsubst', has('envsubst'), 'on PATH', 'install gettext (macOS: `brew install gettext`) — setup.sh renders cluster.yaml + manifests with envsubst'));

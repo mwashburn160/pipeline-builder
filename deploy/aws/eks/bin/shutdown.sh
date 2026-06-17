@@ -58,20 +58,15 @@ if [ -n "$DOMAIN" ] && [ -z "$HOSTED_ZONE_ID" ]; then
   [ -n "$HOSTED_ZONE_ID" ] && echo "  resolved hosted zone $HOSTED_ZONE_ID for $DOMAIN"
 fi
 
-# eksctl: prefer the binary, else the official image via Docker (mirrors setup.sh).
-if command -v eksctl >/dev/null 2>&1; then
-  eksctl() { command eksctl "$@"; }
-else
-  command -v docker >/dev/null 2>&1 || { echo "ERROR: need eksctl on PATH or Docker (for public.ecr.aws/eksctl/eksctl)" >&2; exit 1; }
-  echo "  eksctl not found — using public.ecr.aws/eksctl/eksctl via Docker"
-  mkdir -p "$HOME/.kube" "$HOME/.aws"
-  eksctl() {
-    docker run --rm -i \
-      -v "$HOME/.aws:/root/.aws" -v "$HOME/.kube:/root/.kube" \
-      -e AWS_PROFILE -e AWS_REGION -e AWS_DEFAULT_REGION \
-      -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
-      public.ecr.aws/eksctl/eksctl "$@"
-  }
+# eksctl: install the latest binary if it's not already on PATH (a prereq, like kubectl).
+if ! command -v eksctl >/dev/null 2>&1; then
+  echo "  eksctl not found — installing the latest binary..."
+  case "$(uname -m)" in x86_64|amd64) _arch=amd64 ;; aarch64|arm64) _arch=arm64 ;; *) _arch=amd64 ;; esac
+  _bindir=/usr/local/bin; [ -w "$_bindir" ] || _bindir="$HOME/.local/bin"; mkdir -p "$_bindir"
+  curl -fsSL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$(uname -s)_${_arch}.tar.gz" | tar xz -C "$_bindir" eksctl
+  chmod +x "$_bindir/eksctl"
+  case ":$PATH:" in *":$_bindir:"*) ;; *) PATH="$_bindir:$PATH"; export PATH ;; esac
+  echo "  installed eksctl to $_bindir"
 fi
 
 echo "=== EKS teardown: cluster=$CLUSTER_NAME region=$REGION domain=${DOMAIN:-<none>} ==="
@@ -115,14 +110,14 @@ fi
 # ---- Phase 2: Route 53 alias -----------------------------------------------
 log "Phase 2: Route 53 alias for $DOMAIN"
 if [ -n "$DOMAIN" ] && [ -n "$HOSTED_ZONE_ID" ]; then
+  # `| [0]` returns the single matching record-set as a JSON OBJECT (or null), so it embeds
+  # directly in the change-batch — no array-bracket sed surgery and no fixed /tmp temp file.
   REC=$(aws route53 list-resource-record-sets --hosted-zone-id "$HOSTED_ZONE_ID" \
-    --query "ResourceRecordSets[?Name=='${DOMAIN}.' && Type=='A']" --output json 2>/dev/null || echo '[]')
-  if [ "$REC" != '[]' ] && [ -n "$REC" ]; then
-    echo "$REC" | sed 's/^\[//; s/\]$//' > /tmp/pb-eks-rr.json
+    --query "ResourceRecordSets[?Name=='${DOMAIN}.' && Type=='A'] | [0]" --output json 2>/dev/null || echo 'null')
+  if [ "$REC" != 'null' ] && [ -n "$REC" ]; then
     aws route53 change-resource-record-sets --hosted-zone-id "$HOSTED_ZONE_ID" \
-      --change-batch "{\"Changes\":[{\"Action\":\"DELETE\",\"ResourceRecordSet\":$(cat /tmp/pb-eks-rr.json)}]}" >/dev/null 2>&1 \
+      --change-batch "{\"Changes\":[{\"Action\":\"DELETE\",\"ResourceRecordSet\":${REC}}]}" >/dev/null 2>&1 \
       && echo "  deleted A-alias $DOMAIN" || echo "  WARNING: could not delete the $DOMAIN alias — remove it manually." >&2
-    rm -f /tmp/pb-eks-rr.json
   else
     echo "  no A-alias for $DOMAIN — skipping"
   fi

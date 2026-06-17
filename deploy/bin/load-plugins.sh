@@ -38,11 +38,11 @@ while [ $# -gt 0 ]; do
     --cleanup)   CLEANUP=true; shift ;;
     --serial)    SERIAL_MODE=true; shift ;;
     --parallel)  PARALLEL_JOBS="$2"
-                 [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || { echo "ERROR: --parallel requires a positive integer" >&2; exit 1; }
+                 [[ "$PARALLEL_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --parallel requires a positive integer" >&2; exit 1; }
                  shift 2 ;;
     --category)  CATEGORY_FILTER="$2"; shift 2 ;;
     --timeout)   UPLOAD_TIMEOUT="$2"
-                 [[ "$UPLOAD_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "ERROR: --timeout requires a positive integer" >&2; exit 1; }
+                 [[ "$UPLOAD_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --timeout requires a positive integer" >&2; exit 1; }
                  shift 2 ;;
     --help|-h)
       echo "Usage: $0 [options]"
@@ -90,8 +90,7 @@ elif [ -t 0 ]; then
   select_categories "$PLUGINS_DIR" || exit 0
   CATEGORIES=$(echo "$SELECTED_CATEGORIES" | tr ',' ' ')
 else
-  # Skip `_`-prefixed dirs (e.g. _base — shared base image, not a plugin).
-  CATEGORIES=$(find -L "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '_*' | sort | xargs -I{} basename {})
+  CATEGORIES=$(list_categories "$PLUGINS_DIR")
 fi
 
 # ---- Build plugin list + count ----

@@ -294,6 +294,30 @@ wait_for_service_ready() {
 }
 
 # ---------------------------------------------------------------------------
+# list_categories <plugins_dir> — print plugin category names (one per line,
+#   sorted), skipping `_`-prefixed dirs (e.g. _base — a shared base image, not a
+#   category). Shared by build-plugin-images.sh / load-plugins.sh / init-platform.sh.
+# ---------------------------------------------------------------------------
+list_categories() {
+  find -L "$1" -mindepth 1 -maxdepth 1 -type d ! -name '_*' | sort | xargs -I{} basename {}
+}
+
+# ---------------------------------------------------------------------------
+# prompt_toggle <varname> <prompt-text> — resolve a y/n toggle. An env-set value
+#   (automation) is honored as-is; otherwise prompt on a TTY; otherwise default "n".
+#   Sets the named variable in place — no eval (indirect read `${!var}` + printf -v).
+# ---------------------------------------------------------------------------
+prompt_toggle() {
+  local _var="$1" _prompt="$2" _val
+  _val="${!_var:-}"                       # bash indirect read (no eval)
+  if [ -z "$_val" ] && [ -t 0 ]; then
+    printf '%s ' "$_prompt"
+    read -r _val
+  fi
+  printf -v "$_var" '%s' "${_val:-n}"
+}
+
+# ---------------------------------------------------------------------------
 # prompt_credentials — prompt for identifier/password if not already set
 #   Sets PLATFORM_IDENTIFIER and PLATFORM_PASSWORD
 #
@@ -473,6 +497,7 @@ require_auth() {
 #   Uses/increments: PASSED, FAILED, ERRORS[], CHECK_TIMEOUT (default 15)
 # ---------------------------------------------------------------------------
 check_url() {
+  local _curl_code
   _curl_code=$(curl -sSL -o /dev/null -w "%{http_code}" --head --max-time "${CHECK_TIMEOUT:-15}" "$1" 2>/dev/null) || _curl_code="000"
   if [ "$_curl_code" = "200" ] || [ "$_curl_code" = "302" ] || [ "$_curl_code" = "301" ]; then
     echo -e "    ${GREEN}OK${NC}  $2"

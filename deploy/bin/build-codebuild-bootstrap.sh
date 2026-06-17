@@ -59,6 +59,7 @@ while [ $# -gt 0 ]; do
       echo "  DEPLOY_TARGET   local | minikube | ec2 | eks (default: local)"
       echo "  FORCE_PUSH      true to republish even when remote tag exists"
       echo "  PIPELINE_MANAGER_VERSION  npm dist-tag or version (default: latest)"
+      echo "  PUBLISH_PLATFORM          build/push platform, e.g. linux/arm64 (default: linux/amd64)"
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;

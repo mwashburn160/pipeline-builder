@@ -333,7 +333,7 @@ fi
 if [ -n "$CATEGORY_FILTER" ]; then
   CATEGORIES=$(echo "$CATEGORY_FILTER" | tr ',' ' ')
 else
-  CATEGORIES=$(find -L "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '_*' | sort | xargs -I{} basename {})
+  CATEGORIES=$(list_categories "$PLUGINS_DIR")
 fi
 
 # ---- Parse buildArgs from plugin-spec.yaml (delegates to yq) ----

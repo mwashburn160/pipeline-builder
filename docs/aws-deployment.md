@@ -44,7 +44,7 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 ## AI-assisted install (`provision`)
 
-The **recommended** way to install the platform is `pipeline-manager provision`. It picks the target, runs prerequisite checks (AWS CLI + working credentials for EC2/EKS — plus `eksctl` (or Docker, for the `public.ecr.aws/eksctl/eksctl` image), `kubectl`, `openssl`, and `envsubst` for EKS; Docker etc. for local), assembles the **exact, validated `setup.sh` command** (secrets masked, missing inputs reported rather than guessed), prints the plan, and then **deploys it — gated by confirmation prompts** (`--yes` to auto-accept for CI; `--json` prints the plan and runs nothing). With an AI key configured it also parses a natural-language goal and diagnoses CloudFormation failures.
+The **recommended** way to install the platform is `pipeline-manager provision`. It picks the target, runs prerequisite checks (AWS CLI + working credentials for EC2/EKS — plus `kubectl`, `openssl`, and `envsubst` for EKS (`eksctl` is auto-installed by `setup.sh`); Docker etc. for local), assembles the **exact, validated `setup.sh` command** (secrets masked, missing inputs reported rather than guessed), prints the plan, and then **deploys it — gated by confirmation prompts** (`--yes` to auto-accept for CI; `--json` prints the plan and runs nothing). With an AI key configured it also parses a natural-language goal and diagnoses CloudFormation failures.
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
@@ -443,7 +443,7 @@ Managed Kubernetes on **Amazon EKS Auto Mode** — AWS-managed, Karpenter-scaled
 ### Prerequisites
 
 - **AWS CLI** + working credentials for the target account/region.
-- **`eksctl`** (creates/destroys the Auto Mode cluster) — or **Docker**, in which case the deploy runs the official `public.ecr.aws/eksctl/eksctl` image instead of a local binary.
+- **`eksctl`** (creates/destroys the Auto Mode cluster) — **auto-installed** by `setup.sh`/`shutdown.sh` (latest binary) when it isn't already on PATH.
 - **`kubectl`** (applies the manifests), **`openssl`** (registry token keypair), and **`envsubst`** (renders `cluster.yaml` + the manifests). `provision` checks all of these; `deploy/bin/provision-docker.sh --target eks` installs them in a throwaway container if you'd rather not put them on your host.
 - A registered domain + its **public Route 53 hosted zone** (required — the deploy requests a DNS-validated ACM cert against it).
 
