@@ -354,12 +354,25 @@ _discover_existing() {
       local _full_cmd_json="${_full_cmd//\"/\\\"}"
       local _overrides
       _overrides=$(_pod_overrides "$_podname" "$_full_cmd_json" false "$_jwt" "$REGISTRY_HOST")
+      # Do NOT capture via `kubectl run --attach`: when the images already exist,
+      # `crane digest` returns almost instantly and the pod completes BEFORE the attach
+      # stream connects, so its stdout (the existing tags) is silently lost — the check
+      # then "finds" nothing and re-pushes every run. (It's racy: a slow run, e.g. an
+      # empty registry doing the full 401→token→404 dance, can connect in time, which is
+      # why it looked intermittent.) Run detached, wait for completion, then read logs —
+      # logs are reliable once the pod has terminated.
       kubectl_ctx -n "$NAMESPACE" run "$_podname" \
-        --rm --attach --quiet \
-        --restart=Never \
+        --restart=Never --quiet \
         --image="$CRANE_IMAGE" \
-        --overrides="$_overrides" 2>/dev/null \
-        || true
+        --overrides="$_overrides" >/dev/null 2>&1 || true
+      local _i=0 _phase=""
+      while [ "$_i" -lt 30 ]; do
+        _phase=$(kubectl_ctx -n "$NAMESPACE" get pod "$_podname" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        case "$_phase" in Succeeded|Failed) break ;; esac
+        sleep 2; _i=$((_i + 1))
+      done
+      kubectl_ctx -n "$NAMESPACE" logs "$_podname" 2>/dev/null || true
+      kubectl_ctx -n "$NAMESPACE" delete pod "$_podname" --ignore-not-found >/dev/null 2>&1 || true
       ;;
   esac
 }
