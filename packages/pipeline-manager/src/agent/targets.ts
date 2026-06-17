@@ -79,14 +79,15 @@ const INSTANCE_TYPE: InputSpec = { flag: 'instance-type', key: 'instanceType', d
 const STACK_NAME: InputSpec = { flag: 'stack-name', key: 'stackName', description: 'CloudFormation stack name (default pipeline-builder) — set to run a second ec2 environment' };
 // eks cluster name (eksctl). Set to run a second EKS environment in one account.
 const CLUSTER_NAME: InputSpec = { flag: 'cluster-name', key: 'clusterName', description: 'EKS cluster name (default pipeline-builder)' };
-// Auto-init is ON BY DEFAULT on ec2 (setup.sh/template default true), so `--no-auto-init`
-// is the load-bearing opt-out and `--auto-init` is a no-op reaffirm — mirrors --email/--no-email.
+// Auto-init is ON BY DEFAULT on the AWS targets (ec2 + eks setup.sh default AUTO_INIT=true),
+// so `--no-auto-init` is the load-bearing opt-out and `--auto-init` is a no-op reaffirm —
+// mirrors --email/--no-email. ec2 self-inits on the instance on first boot; eks self-inits in
+// setup.sh's final phase (over a kubectl port-forward). minikube/local run init via provision.
 // NOTE: `--no-auto-init`'s key (noAutoInit) is NOT derivable from its flag the way the other
 // specs' keys are (commander folds --x/--no-x into a single `x` option); provision.ts assembles
-// both keys explicitly — see the param-assembly there. (eks/minikube run init via provision, not
-// a deploy-managed auto-init, so they ignore these.)
-const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'ec2: the instance self-runs init-platform on first boot (register + all loads) — the DEFAULT on ec2', boolean: true };
-const NO_AUTO_INIT: InputSpec = { flag: 'no-auto-init', key: 'noAutoInit', description: 'ec2: skip the on-boot auto-init and run init-platform manually on the box instead', boolean: true };
+// both keys explicitly — see the param-assembly there.
+const AUTO_INIT: InputSpec = { flag: 'auto-init', key: 'autoInit', description: 'ec2/eks: the deploy self-runs init-platform (register + all loads) — the DEFAULT on AWS', boolean: true };
+const NO_AUTO_INIT: InputSpec = { flag: 'no-auto-init', key: 'noAutoInit', description: 'ec2/eks: skip the deploy-managed auto-init and run init-platform manually instead', boolean: true };
 
 // SES / email family — shared by ec2 + eks. SES is provisioned BY DEFAULT
 // on AWS deploys; `--no-email` is the opt-out (`--email` is a harmless no-op kept
@@ -168,8 +169,8 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
     entrypoint: 'bin/setup.sh',
     sparsePaths: ['deploy/aws/eks'],
     required: [DOMAIN, HOSTED_ZONE],
-    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, CLUSTER_NAME, ...EMAIL],
-    postDeploy: './deploy/bin/init-platform.sh eks  # register admin + load plugins (run with kubectl access to the cluster)',
+    optional: [REGION, DEPLOY_MODE, GHCR_TOKEN, CLUSTER_NAME, AUTO_INIT, NO_AUTO_INIT, ...EMAIL],
+    postDeploy: './deploy/bin/init-platform.sh eks  # auto-runs at the end of setup.sh by default; --no-auto-init to do it manually',
     cost: '~$150-400/mo',
     bestFor: 'Production',
     deploys: 'the platform on Amazon EKS Auto Mode — an AWS-managed Kubernetes cluster (Karpenter-scaled EC2 nodes, AWS Load Balancer Controller, EBS/EFS CSI), the same Kubernetes workloads as the other k8s targets, an ALB Ingress + ACM for the domain, and (by default) SES email. Plugin builds run on the in-cluster rootless buildkitd (EC2 nodes allow it).',

@@ -348,6 +348,13 @@ export function extractListResponse<T>(response: unknown, itemsKey: string): Lis
   if (response && typeof response === 'object') {
     const obj = unwrapEnvelope(response);
 
+    // A `{ success, data: [...] }` envelope unwraps to the bare array — return it directly
+    // (the `itemsKey in obj` / `'items' in obj` checks below are false for an array, so
+    // without this such list envelopes would silently yield zero items).
+    if (Array.isArray(obj)) {
+      return { items: obj as T[], total: undefined, hasMore: false };
+    }
+
     // Extract pagination metadata if present
     const pagination = obj.pagination as Record<string, unknown> | undefined;
     const total = (pagination?.total ?? obj.total) as number | undefined;

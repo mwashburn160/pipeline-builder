@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { CloudFormationClient, ListStacksCommand, DescribeStacksCommand, type StackStatus } from '@aws-sdk/client-cloudformation';
+import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { Command } from 'commander';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
@@ -86,38 +86,48 @@ export function auditStacks(program: Command): void {
           ?? (registryRes as { data?: { entries?: RegistryEntry[] } })?.data?.entries
           ?? [];
 
-        // Fetch stacks from CloudFormation.
+        // Fetch stacks from CloudFormation. DescribeStacks (no StackName) returns every
+        // active stack WITH its tags in one paginated sweep — avoiding the N+1
+        // DescribeStacks-per-stack the old ListStacks path needed (ListStacks omits tags)
+        // and the API throttling it caused on accounts with many stacks.
         printInfo('Listing CloudFormation stacks', { region });
         const cfn = new CloudFormationClient({ region });
         const stacks: StackInfo[] = [];
+        const activeStatuses = new Set(ACTIVE_STATUSES);
         let nextToken: string | undefined;
         let pages = 0;
+        // Backstop only (~20k stacks at ~100/page), not an expected limit. A FULL scan
+        // matters: truncating would diff the registry against an incomplete stack set and
+        // report live stacks as `missing-stack`. So if this is ever hit, warn LOUDLY rather
+        // than silently under-reporting (the previous code capped at 20 pages silently).
+        const MAX_PAGES = 200;
+        let truncated = false;
         do {
-          const listResp = await cfn.send(new ListStacksCommand({
-            StackStatusFilter: ACTIVE_STATUSES as StackStatus[],
-            NextToken: nextToken,
-          }));
-          for (const summary of listResp.StackSummaries ?? []) {
-            if (!summary.StackName) continue;
-            // Pull tags via DescribeStacks (ListStacks doesn't include them).
-            const desc = await cfn.send(new DescribeStacksCommand({ StackName: summary.StackName }));
-            const tags = desc.Stacks?.[0]?.Tags ?? [];
+          const resp = await cfn.send(new DescribeStacksCommand({ NextToken: nextToken }));
+          for (const stack of resp.Stacks ?? []) {
+            if (!stack.StackName) continue;
+            if (!activeStatuses.has(stack.StackStatus ?? '')) continue; // skip in-progress/rolled-back/deleted
+            const tags = stack.Tags ?? [];
             const pbTag = tags.find((t) => t.Key === 'pipeline-builder')?.Value;
             const orgTag = tags.find((t) => t.Key === 'OrgId' || t.Key === 'orgId')?.Value;
             if (!pbTag) continue; // Not a pipeline-builder stack.
             if (options.org && orgTag && orgTag !== options.org) continue; // Wrong org filter.
             stacks.push({
-              stackName: summary.StackName,
-              stackStatus: summary.StackStatus ?? 'UNKNOWN',
+              stackName: stack.StackName,
+              stackStatus: stack.StackStatus ?? 'UNKNOWN',
               region,
               pipelineBuilderTag: pbTag,
               orgIdTag: orgTag,
-              creationTime: summary.CreationTime,
+              creationTime: stack.CreationTime,
             });
           }
-          nextToken = listResp.NextToken;
+          nextToken = resp.NextToken;
           pages++;
-        } while (nextToken && pages < 20);
+          if (nextToken && pages >= MAX_PAGES) { truncated = true; break; }
+        } while (nextToken);
+        if (truncated) {
+          printWarning(`Stack scan hit the ${MAX_PAGES}-page safety cap — results may be INCOMPLETE and 'missing-stack' findings could be false. Narrow by --region/--org, or raise MAX_PAGES.`);
+        }
 
         // Diff.
         const registryStackNames = new Set(entries.map((e) => e.stackName).filter((n): n is string => !!n));

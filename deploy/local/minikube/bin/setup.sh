@@ -12,6 +12,7 @@ K8S_DIR="$DEPLOY_DIR/k8s"
 NGINX_DIR="$DEPLOY_DIR/nginx"
 CERT_DIR="$DEPLOY_DIR/certs"
 AUTH_DIR="$DEPLOY_DIR/auth"
+BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared cert/key helpers)
 NS="pipeline-builder"
 PROFILE="pipeline-builder"
 DATA_DIR="$DEPLOY_DIR/data"
@@ -208,48 +209,13 @@ fi
 # -- TLS certificates --------------------------------------------------------
 
 log "Creating TLS certificates"
-mkdir -p "$CERT_DIR" "$AUTH_DIR"
-
-# Prefer mkcert: it issues a browser-trusted leaf via a local CA it installs
-# into the OS/browser trust stores, so https on localhost has no cert warnings
-# (no ERR_CERT_AUTHORITY_INVALID on the JS chunks). Falls back to a hardened
-# self-signed cert — `extendedKeyUsage=serverAuth` + `basicConstraints` let it
-# be trusted once imported. See deploy/local/docker/README Troubleshooting.
-if command -v mkcert >/dev/null 2>&1; then
-  mkcert -install >/dev/null 2>&1 || true
-  mkcert -cert-file "$CERT_DIR/nginx-tls.crt" -key-file "$CERT_DIR/nginx-tls.key" \
-    localhost 127.0.0.1 ::1 2>&1
-else
-  # SAN/EKU via a temp config so this works on both OpenSSL and the LibreSSL
-  # shipped by older macOS (which lacks `req -addext`).
-  _sancnf=$(mktemp)
-  cat > "$_sancnf" <<'SANEOF'
-[req]
-distinguished_name = dn
-x509_extensions = v3ext
-prompt = no
-[dn]
-CN = localhost
-[v3ext]
-subjectAltName = DNS:localhost,IP:127.0.0.1
-basicConstraints = critical, CA:FALSE
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-SANEOF
-  openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "$CERT_DIR/nginx-tls.key" -out "$CERT_DIR/nginx-tls.crt" \
-    -config "$_sancnf" 2>&1
-  rm -f "$_sancnf"
-fi
-chmod 644 "$CERT_DIR/nginx-tls.key"
+mkdir -p "$AUTH_DIR"
+# Shared, idempotent gateway-TLS generator (mkcert → self-signed fallback).
+bash "$BIN_DIR/nginx-tls.sh" "$CERT_DIR"
 kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NS"
 
-# JWT signing keypair for image-registry's token-auth endpoint. Mounted by
-# both the underlying registry (as the trusted public cert) and the
-# image-registry proxy (which signs tokens with the private key).
-openssl genrsa -out "$CERT_DIR/image-registry-jwt.key" 2048 2>&1
-openssl req -x509 -new -key "$CERT_DIR/image-registry-jwt.key" -days 3650 \
-  -subj "/CN=pipeline-image-registry-token-issuer" -out "$CERT_DIR/image-registry-jwt.crt" 2>&1
-chmod 644 "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt"
+# JWT signing keypair for image-registry's token-auth endpoint (shared generator).
+bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 secret registry-token-secret \
   --from-file=jwt-private.pem="$CERT_DIR/image-registry-jwt.key" \
   --from-file=jwt-public.pem="$CERT_DIR/image-registry-jwt.crt"

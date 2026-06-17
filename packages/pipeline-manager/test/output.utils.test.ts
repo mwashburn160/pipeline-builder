@@ -116,4 +116,16 @@ describe('extractListResponse', () => {
     expect(result.total).toBe(10);
     expect(result.hasMore).toBe(true);
   });
+
+  it('should unwrap a { success, data: [...] } envelope whose data IS the array', () => {
+    // Regression: unwrapEnvelope returns the bare array here; without an Array.isArray
+    // branch in extractListResponse the `key in obj` checks are false for an array and
+    // the list silently came back empty.
+    const response = { success: true, statusCode: 200, data: [{ id: '1' }, { id: '2' }] };
+    const result = extractListResponse(response, 'pipelines');
+
+    expect(result.items).toEqual([{ id: '1' }, { id: '2' }]);
+    expect(result.total).toBeUndefined();
+    expect(result.hasMore).toBe(false);
+  });
 });

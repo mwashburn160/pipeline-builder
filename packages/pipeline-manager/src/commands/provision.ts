@@ -252,14 +252,18 @@ export async function runPostSteps(
   adminEnv: Record<string, string>,
   opts: { yes?: boolean; autoRun?: boolean; autoInit?: boolean },
 ): Promise<void> {
-  // ec2 with `--init auto`: the instance self-runs init-platform on first boot, so there's no
-  // register/loads step to surface here — confirm it and point at the boot log.
+  // AWS targets with `--init auto`: the deploy self-runs init-platform, so there's no
+  // register/loads step to surface here — confirm it and point at where to watch.
   if (opts.autoInit && target === 'ec2') {
     printInfo('\n✓ Init mode: auto — the instance runs init-platform itself on first boot');
     printInfo('  (register admin + build bootstrap image + load plugins/compliance/samples).');
     printInfo('  It takes ~30-60 min; watch progress:');
     printInfo('    aws ssm start-session --target <InstanceId>   # InstanceId stack output');
     printInfo('    sudo tail -f /var/log/user-data.log');
+  } else if (opts.autoInit && target === 'eks') {
+    printInfo('\n✓ Init mode: auto — setup.sh runs init-platform in its final phase');
+    printInfo('  (register admin + build bootstrap image + load plugins/compliance/samples,');
+    printInfo('  over a kubectl port-forward). Pass --init manual to run it yourself instead.');
   }
   if (postSteps.length === 0) return;
   for (const s of skippedSteps) printWarning(`Skipped post-step ${s.id}: ${s.reason}`);
@@ -561,10 +565,10 @@ export function provision(program: Command): void {
           emailFromName: options.emailFromName,
           alertEmail: options.alertEmail,
           noCreateSesIdentity: options.skipSesIdentity,
-          // ec2's deploy self-inits on first boot, so we emit the load-bearing `--no-auto-init`
-          // when the mode is NOT auto (manual/skip = "don't let the instance init itself").
-          // `--auto-init` (a no-op reaffirm) is never emitted. Only ec2 has these flags in its
-          // spec; other targets ignore the param.
+          // The AWS deploys self-init by default (ec2 on first boot, eks in setup.sh's final
+          // phase), so we emit the load-bearing `--no-auto-init` when the mode is NOT auto
+          // (manual/skip = "don't let the deploy init itself"). `--auto-init` (a no-op reaffirm)
+          // is never emitted. Only ec2/eks carry these flags in their spec; other targets ignore it.
           noAutoInit: !selfInit,
         };
         const aiOpts = { provider: options.aiProvider, model: options.model };
@@ -581,9 +585,9 @@ export function provision(program: Command): void {
         let willPromptLoads = !options.yes && !options.json && Boolean(process.stdin.isTTY) && !anyLoadFlag;
         const postStepFlags = {
           init: initEnabled,
-          // selfInit (mode auto) drops the surfaced register step on ec2 in resolvePostSteps,
-          // so a self-initializing EC2 deploy doesn't also print a manual register step. For
-          // manual mode (or any non-ec2 target) the register step is surfaced.
+          // selfInit (mode auto) drops the surfaced register step on the AWS targets in
+          // resolvePostSteps, so a self-initializing ec2/eks deploy doesn't also print a manual
+          // register step. For manual mode (or local/minikube) the register step is surfaced.
           autoInit: selfInit,
           buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
           smokeTest: options.withSmokeTest === true,
@@ -658,10 +662,10 @@ export function provision(program: Command): void {
           enabledLoadIds = [];
         } else if (selfInit && target === 'eks' && !anyLoadFlag) {
           // `--init auto` on eks initializes like ec2: NO interactive picker — default to
-          // loading ALL of plugins + compliance + samples (matching ec2's first-boot
-          // LOAD_*=y). Unlike ec2, eks runs init via provision over a kubectl port-forward,
-          // so the loads (and the sparse-clone folders they pull) ARE resolved here. Explicit
-          // `--with-*` flags override this default; `--init manual` / `--init skip` opt out.
+          // loading ALL of plugins + compliance + samples (setup.sh's final phase hardcodes
+          // LOAD_*=y). setup.sh runs the loads itself (over a kubectl port-forward), but we
+          // still resolve them here so the sparse clone fetches the folders setup.sh builds
+          // from. Explicit `--with-*` flags override; `--init manual` / `--init skip` opt out.
           willPromptLoads = false;
           enabledLoadIds = LOAD_STEPS.map((s) => s.id);
           postStepFlags.buildBootstrap = options.buildBootstrap === true || enabledLoadIds.includes('plugins');

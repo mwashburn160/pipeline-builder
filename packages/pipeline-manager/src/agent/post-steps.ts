@@ -48,9 +48,10 @@ export interface PostStepOptions {
   readonly buildBootstrap: boolean;
   /** False when `--no-init` — skips the register step entirely. */
   readonly init: boolean;
-  /** True for `--init auto` (the default mode). On ec2 the instance self-runs init-platform on
-   *  first boot, so the register step is NOT surfaced here — it would duplicate that on-box run.
-   *  (eks/minikube run init via provision, not a deploy-managed first-boot init.) */
+  /** True for `--init auto` (the default mode). On the AWS targets the deploy self-runs
+   *  init-platform (ec2 on first boot, eks in setup.sh's final phase), so the register step is
+   *  NOT surfaced here — it would duplicate that deploy-managed run. (minikube/local run init
+   *  via provision, not a deploy-managed init.) */
   readonly autoInit?: boolean;
   readonly smokeTest: boolean;
   /** `--with-events`: the AWS event-ingestion bundle (store-token → setup-events). */
@@ -76,11 +77,11 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   const steps: PostStep[] = [];
   const skipped: SkippedStep[] = [];
 
-  // `--init auto` on ec2: the EC2 instance runs init-platform itself on first boot (register +
-  // all loads), so DON'T add a register step here — it would duplicate the on-box run. (eks and
-  // minikube run init via provision, so they're not "managed".)
+  // `--init auto` (the default) on the AWS targets: the deploy runs init-platform itself —
+  // ec2 on the instance on first boot, eks in setup.sh's final phase — so DON'T add a register
+  // step here; it would duplicate the deploy-managed run. (minikube/local run init via provision.)
   const autoInitManaged =
-    opts.init && opts.autoInit === true && opts.target === 'ec2';
+    opts.init && opts.autoInit === true && (opts.target === 'ec2' || opts.target === 'eks');
   if (opts.init && !autoInitManaged) {
     const enabled = LOAD_STEPS.filter((s) => opts.enabledLoadIds.includes(s.id)).map((s) => s.id);
     const loads = enabled.length > 0 ? ` (+ ${enabled.join(', ')})` : '';

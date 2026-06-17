@@ -24,6 +24,14 @@ SCRIPT="${PB_EKS_SCRIPT:-setup.sh}"                 # setup.sh (default) | shutd
 
 command -v docker >/dev/null 2>&1 || { echo "ERROR: Docker is required (it runs the toolbox image)." >&2; exit 1; }
 
+# The toolbox image carries eksctl + aws + kubectl + openssl + envsubst, but NOT docker or
+# yq — which setup.sh's auto-init phase needs to BUILD the plugin/bootstrap images. So inside
+# this container default AUTO_INIT=false (the cluster + manifests still deploy; run
+# init-platform from the host afterward). Override by exporting AUTO_INIT=true. Only relevant
+# to setup.sh (shutdown ignores it).
+[ "$SCRIPT" = setup.sh ] && : "${AUTO_INIT:=false}"
+export AUTO_INIT="${AUTO_INIT:-}"
+
 echo "=== Building $IMAGE (eksctl + aws + kubectl + openssl + envsubst) ==="
 docker build -t "$IMAGE" "$EKS_DIR"
 
@@ -36,5 +44,5 @@ exec docker run --rm -it \
   -v "$HOME/.aws:/root/.aws" -v "$HOME/.kube:/root/.kube" \
   -e AWS_PROFILE -e AWS_REGION -e AWS_DEFAULT_REGION \
   -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
-  -e EKS_VERSION -e GHCR_TOKEN -e GHCR_USER \
+  -e EKS_VERSION -e GHCR_TOKEN -e GHCR_USER -e AUTO_INIT \
   "$IMAGE" bash "deploy/aws/eks/bin/$SCRIPT" "$@"

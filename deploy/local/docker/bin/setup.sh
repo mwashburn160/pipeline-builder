@@ -51,52 +51,13 @@ fi
 # -----------------------------------------------------------------------
 CERT_DIR="$DEPLOY_DIR/certs"
 AUTH_DIR="$DEPLOY_DIR/auth"
+BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared helpers)
 
-if [ ! -f "$CERT_DIR/nginx-tls.crt" ] || [ ! -f "$CERT_DIR/nginx-tls.key" ]; then
-  mkdir -p "$CERT_DIR"
-  if command -v mkcert >/dev/null 2>&1; then
-    # Best DX: mkcert issues a leaf signed by a local CA it installs into the
-    # OS/browser trust stores, so https://localhost:8443 is trusted with NO
-    # warnings (and no ERR_CERT_AUTHORITY_INVALID on the JS chunks). `-install`
-    # is idempotent.
-    echo "=== Generating browser-trusted nginx TLS certificate via mkcert ==="
-    mkcert -install >/dev/null 2>&1 || true
-    mkcert -cert-file "$CERT_DIR/nginx-tls.crt" -key-file "$CERT_DIR/nginx-tls.key" \
-      localhost 127.0.0.1 ::1
-  else
-    # Fallback: self-signed. Generate the SAN/EKU via a temp config so this works
-    # on both OpenSSL and the LibreSSL shipped by older macOS (which lacks
-    # `req -addext`). `extendedKeyUsage=serverAuth` + `basicConstraints` are what
-    # let the cert be reliably *trusted* once imported into the OS keychain —
-    # without them recent Chrome/macOS may keep rejecting the JS chunks even
-    # after `add-trusted-cert`. Install `mkcert` to skip the manual trust step.
-    echo "=== Generating self-signed nginx TLS certificate (install 'mkcert' for an auto-trusted cert) ==="
-    _sancnf=$(mktemp)
-    cat > "$_sancnf" <<'SANEOF'
-[req]
-distinguished_name = dn
-x509_extensions = v3ext
-prompt = no
-[dn]
-CN = localhost
-[v3ext]
-subjectAltName = DNS:localhost,IP:127.0.0.1
-basicConstraints = critical, CA:FALSE
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-SANEOF
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-      -keyout "$CERT_DIR/nginx-tls.key" -out "$CERT_DIR/nginx-tls.crt" \
-      -config "$_sancnf"
-    rm -f "$_sancnf"
-  fi
-  chmod 644 "$CERT_DIR/nginx-tls.key"
-fi
-
-if [ ! -f "$CERT_DIR/image-registry-jwt.key" ] || [ ! -f "$CERT_DIR/image-registry-jwt.crt" ]; then
-  echo "=== Generating image-registry JWT signing keypair ==="
-  "$SCRIPT_DIR/gen-image-registry-jwt-keys.sh"
-fi
+# nginx gateway TLS + image-registry token-signing keypair — shared, idempotent
+# generators (see deploy/bin/{nginx-tls,jwt-keys}.sh). Both skip when the files
+# already exist, so re-running setup is cheap and doesn't rotate keys.
+bash "$BIN_DIR/nginx-tls.sh" "$CERT_DIR"
+bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 
 if [ ! -f "$AUTH_DIR/registry.passwd" ]; then
   echo "=== Generating registry htpasswd ==="

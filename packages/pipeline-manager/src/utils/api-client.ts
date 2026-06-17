@@ -78,7 +78,10 @@ export class ApiClient {
       const { status, statusText, data } = error.response;
       const url = error.config?.url;
 
-      printError('API request failed', { status, statusText, url, data });
+      // The response body (`data`) can carry tokens/PII, and printError always writes
+      // (not gated on DEBUG) — keep it out of the always-on line; surface it only under DEBUG.
+      printError('API request failed', { status, statusText, url });
+      printDebug('API error response body', { data });
 
       let message = `API request failed with status ${status}`;
       if (data && typeof data === 'object' && 'message' in data) {

@@ -167,6 +167,13 @@ echo "=== Registering admin user ==="
 # override (always set them on a non-local/production target).
 PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-admin@internal}"
 PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-SecurePassword123!}"
+# A non-local target reaching this with the well-known dev password means an
+# internet-facing platform would ship with a public credential — warn loudly (don't fail,
+# so automated deploys still complete). Set PLATFORM_PASSWORD to silence, or change it post-login.
+if [ "$TARGET" != local ] && [ "$PLATFORM_PASSWORD" = 'SecurePassword123!' ]; then
+  echo "  WARNING: registering the admin with the DEFAULT dev password on target '$TARGET'." >&2
+  echo "           Set PLATFORM_PASSWORD (+ PLATFORM_IDENTIFIER) to a strong secret before exposing the platform, or change it immediately after first login." >&2
+fi
 REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
   -k -s -o /dev/null -w "%{http_code}" \
   -H 'Content-Type: application/json' \

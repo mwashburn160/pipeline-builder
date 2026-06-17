@@ -66,6 +66,13 @@ Route 53, and EKS Pod Identity for SES.
 6. **KEDA** — installs the operator (the plugin `ScaledObject` autoscaler).
 7. **Apply** — `kubectl kustomize k8s | envsubst | kubectl apply` (restricted token expansion).
 8. **Route 53** — upserts an A-alias `--domain → ALB` once the Ingress reports its address.
+9. **Init platform** (`AUTO_INIT`, default on — parity with the ec2 target) — runs
+   [../../bin/init-platform.sh](../../bin/init-platform.sh) `eks`: registers the admin user and loads plugins +
+   compliance rules + sample pipelines (building the CodeBuild bootstrap image and the
+   plugin images first). It port-forwards to nginx via kubectl, so it works in both
+   deploy modes without waiting on ALB/DNS. Pass `--no-auto-init` to skip and run it yourself.
+   Needs Docker + yq on the machine running `setup.sh` (the plugin image builds), and the
+   builds dominate the runtime.
 
 NetworkPolicy is standard k8s (`networkpolicy.yaml`), enforced by the VPC CNI;
 `cilium-network-policies.yaml` (FQDN egress) is opt-in and requires Cilium as the CNI.
@@ -90,8 +97,10 @@ check availability with `aws eks describe-cluster-versions --region <r>`.
 
 ```bash
 cd deploy/aws/eks
+# setup.sh runs init-platform automatically at the end (admin + plugins/compliance/pipelines):
 ./bin/setup.sh --domain pipeline-builder.com --hosted-zone-id Z... --region us-east-1
-../../bin/init-platform.sh eks      # register admin + (opt-in) load plugins/samples
+# add --no-auto-init to skip that and initialize by hand instead:
+../../bin/init-platform.sh eks      # register admin + load plugins/samples
 ```
 or via the CLI (runs both in an ephemeral container):
 `pipeline-manager provision --target eks --domain … --hosted-zone-id … --execute --yes`

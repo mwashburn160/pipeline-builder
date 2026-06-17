@@ -48,17 +48,18 @@ export function deploy(program: Command): void {
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .option('--show-resolved', 'Print the resolved pipeline config (with {{ ... }} templates expanded) and exit without deploying', false)
     .action(async (options) => {
-      // Mutually exclusive input sources
-      if (!options.id && !options.localSpec) {
-        throw new Error('Either --id <pipeline-id> or --local-spec <path> is required');
-      }
-      if (options.id && options.localSpec) {
-        throw new Error('--id and --local-spec are mutually exclusive');
-      }
-
       const executionId = printCommandHeader('Pipeline Deploy');
 
       try {
+        // Mutually exclusive input sources — validated INSIDE the try so failures route
+        // through handleError (consistent exit code/format) like every other command.
+        if (!options.id && !options.localSpec) {
+          throw new Error('Either --id <pipeline-id> or --local-spec <path> is required');
+        }
+        if (options.id && options.localSpec) {
+          throw new Error('--id and --local-spec are mutually exclusive');
+        }
+
         auditLog('deploy', { executionId, pipelineId: options.id, profile: options.profile });
 
         printInfo('Deployment parameters', {

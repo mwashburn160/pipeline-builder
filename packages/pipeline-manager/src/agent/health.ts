@@ -115,14 +115,16 @@ export async function ensureMinikubeGateway(
   const port = opts.port ?? 8443;
   if (await probe(`${url}/health`)) return; // forward already up — nothing to do
   opts.onInfo?.(`Gateway unreachable — (re)starting the nginx port-forward (svc/nginx ${port}:${port}, ns ${ns}) …`);
-  try {
-    spawn('kubectl', ['port-forward', '-n', ns, 'svc/nginx', `${port}:${port}`], {
-      detached: true,
-      stdio: 'ignore',
-    }).unref(); // detached + unref → survives this CLI so the user keeps the gateway
-  } catch {
+  // A missing kubectl surfaces as an async 'error' event (ENOENT), NOT a synchronous
+  // throw — a try/catch would miss it and the unhandled event would crash the CLI. Attach
+  // an 'error' listener so this stays best-effort (logs the manual command, never throws).
+  const child = spawn('kubectl', ['port-forward', '-n', ns, 'svc/nginx', `${port}:${port}`], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.on('error', () => {
     opts.onInfo?.(`Couldn't start it (is kubectl on PATH?). Start it manually: kubectl port-forward -n ${ns} svc/nginx ${port}:${port}`);
-    return;
-  }
+  });
+  child.unref(); // detached + unref → survives this CLI so the user keeps the gateway
   await delay(2000); // let it bind before the caller polls
 }

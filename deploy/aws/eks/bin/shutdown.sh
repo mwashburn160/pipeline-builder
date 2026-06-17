@@ -146,8 +146,16 @@ if [ -n "$EFS_ID" ] && [ "$EFS_ID" != None ]; then
   done
   aws efs delete-file-system --file-system-id "$EFS_ID" --region "$REGION" 2>/dev/null \
     && echo "  deleted EFS $EFS_ID" || echo "  WARNING: could not delete EFS $EFS_ID — remove it manually." >&2
+  # Scope the SG lookup to the cluster's VPC — group names are unique only within a VPC, so a
+  # same-named SG in another VPC (e.g. a 2nd cluster) must not be selected/deleted. Phase 3 runs
+  # BEFORE the cluster delete, so the VPC is still discoverable; fall back to name-only if it's
+  # already gone (the EFS itself is uniquely scoped by its pb-<cluster> creation token).
+  EFS_SG_FILTERS=("Name=group-name,Values=${CLUSTER_NAME}-efs")
+  CLUSTER_VPC=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" \
+    --query 'cluster.resourcesVpcConfig.vpcId' --output text 2>/dev/null || true)
+  case "$CLUSTER_VPC" in vpc-*) EFS_SG_FILTERS+=("Name=vpc-id,Values=$CLUSTER_VPC") ;; esac
   EFS_SG=$(aws ec2 describe-security-groups --region "$REGION" \
-    --filters "Name=group-name,Values=${CLUSTER_NAME}-efs" --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || true)
+    --filters "${EFS_SG_FILTERS[@]}" --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || true)
   if [ -n "$EFS_SG" ] && [ "$EFS_SG" != None ]; then
     aws ec2 delete-security-group --group-id "$EFS_SG" --region "$REGION" 2>/dev/null \
       && echo "  deleted EFS SG $EFS_SG" || echo "  (EFS SG $EFS_SG delete deferred — retry after the cluster is gone)" >&2

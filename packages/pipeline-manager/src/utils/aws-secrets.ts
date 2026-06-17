@@ -57,8 +57,12 @@ export async function upsertSecret(
     }));
     printSuccess('Secret created in Secrets Manager');
   } catch (error) {
-    const errMsg = error instanceof Error ? error.message : '';
-    if (errMsg.includes('ResourceExistsException') || errMsg.includes('already exists')) {
+    // AWS SDK v3 carries the modeled exception type on `error.name`; `message` does
+    // NOT reliably contain it, so a message-only check would mis-classify an
+    // already-exists error as fatal and rethrow instead of updating. Prefer name.
+    const err = error as { name?: string; message?: string };
+    const errMsg = err?.message ?? '';
+    if (err?.name === 'ResourceExistsException' || errMsg.includes('ResourceExistsException') || errMsg.includes('already exists')) {
       printInfo('Secret already exists, updating...');
       await client.send(new PutSecretValueCommand({
         SecretId: secretName,

@@ -10,6 +10,8 @@ set -euo pipefail
 #   ./bin/setup.sh --domain pipeline-builder.com --hosted-zone-id Z... --region us-east-1
 #
 # Prereqs (provision checks these): aws, eksctl, kubectl, openssl, envsubst.
+# The final auto-init phase (AUTO_INIT, default on) additionally needs docker + yq
+# for the plugin image builds — pass --no-auto-init to skip it on a host without them.
 # NOTE: the AWS-infra phases (EFS, ACM, Pod Identity, Route 53) talk to LIVE AWS
 # and are idempotent where possible — review before running in a shared account.
 # =============================================================================
@@ -30,6 +32,7 @@ NAMESPACE="${NAMESPACE:-pipeline-builder}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 EKS_VERSION="${EKS_VERSION:-1.36}"               # pinned default for fresh installs; `latest` tracks newest, or --eks-version X
+AUTO_INIT="${AUTO_INIT:-true}"                   # run init-platform at the end (parity with ec2 bootstrap Phase 10); --no-auto-init opts out
 # Email (SES) — provisioned by default (parity with ec2); --no-email opts out.
 EMAIL_ENABLED="${EMAIL_ENABLED:-true}"
 EMAIL_FROM="${EMAIL_FROM:-}"                     # default noreply@<domain> (set after parse)
@@ -52,6 +55,8 @@ while [ $# -gt 0 ]; do
     --email-from-name) EMAIL_FROM_NAME="$2"; shift 2 ;;
     --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
     --eks-version) EKS_VERSION="$2"; shift 2 ;;
+    --auto-init) AUTO_INIT=true; shift ;;
+    --no-auto-init) AUTO_INIT=false; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -218,7 +223,10 @@ set +a
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 # app-env ConfigMap from .env (non-comment, non-blank; ${VAR} refs expanded).
-CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
+# Cumulative cleanup trap: also removes the registry-JWT temp dir (set below), so the
+# private key can't leak in /tmp if `set -e` aborts between its mktemp and its rm.
+CLEAN_ENV=$(mktemp); CERT_DIR=""
+trap 'rm -f "$CLEAN_ENV"; [ -n "$CERT_DIR" ] && rm -rf "$CERT_DIR"' EXIT
 grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' | envsubst > "$CLEAN_ENV"
 configmap app-env --from-env-file="$CLEAN_ENV"
 rm -f "$CLEAN_ENV"
@@ -351,15 +359,52 @@ for _ in $(seq 1 60); do
   [ -n "$ALB_HOST" ] && break; sleep 10
 done
 if [ -n "$ALB_HOST" ]; then
-  ALB_ZONE=$(aws elbv2 describe-load-balancers --region "$REGION" \
-    --query "LoadBalancers[?DNSName=='$ALB_HOST'].CanonicalHostedZoneId | [0]" --output text)
-  aws route53 change-resource-record-sets --hosted-zone-id "$HOSTED_ZONE_ID" \
-    --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"$DOMAIN\",\"Type\":\"A\",\"AliasTarget\":{\"HostedZoneId\":\"$ALB_ZONE\",\"DNSName\":\"$ALB_HOST\",\"EvaluateTargetHealth\":false}}}]}" >/dev/null
-  echo "  $DOMAIN → $ALB_HOST"
+  # The ALB can be eventually-consistent in elbv2 the instant the Ingress publishes its
+  # hostname, so poll until its CanonicalHostedZoneId resolves to a real zone (Z...). Without
+  # this guard a transient `None` would be submitted as the alias HostedZoneId and `set -e`
+  # would abort the whole deploy at the very last step.
+  ALB_ZONE=""
+  for _ in $(seq 1 12); do
+    ALB_ZONE=$(aws elbv2 describe-load-balancers --region "$REGION" \
+      --query "LoadBalancers[?DNSName=='$ALB_HOST'].CanonicalHostedZoneId | [0]" --output text 2>/dev/null || true)
+    case "$ALB_ZONE" in Z*) break ;; *) ALB_ZONE=""; sleep 5 ;; esac
+  done
+  if [ -n "$ALB_ZONE" ]; then
+    aws route53 change-resource-record-sets --hosted-zone-id "$HOSTED_ZONE_ID" \
+      --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"$DOMAIN\",\"Type\":\"A\",\"AliasTarget\":{\"HostedZoneId\":\"$ALB_ZONE\",\"DNSName\":\"$ALB_HOST\",\"EvaluateTargetHealth\":false}}}]}" >/dev/null
+    echo "  $DOMAIN → $ALB_HOST"
+  else
+    echo "  WARNING: ALB $ALB_HOST not yet resolvable in elbv2 — create the Route 53 alias manually once it is." >&2
+  fi
 else
   echo "  WARNING: the ALB Ingress had no address yet — create the Route 53 alias once it provisions." >&2
 fi
 
+# ---- Phase 9: initialize the platform (parity with ec2 bootstrap Phase 10) -
+# AUTO_INIT (default true) runs init-platform.sh once the workloads are applied:
+# registers the admin user and loads plugins + compliance rules + sample pipelines
+# (building the CodeBuild bootstrap image and the plugin images first). Every prompt
+# is env-gated to "y" so it runs non-interactively, and it port-forwards to nginx via
+# kubectl — so this works in BOTH deploy modes (the internal ALB isn't reachable from
+# here in private mode) without waiting on ALB/DNS warm-up. init-platform self-waits on
+# platform health, so it's fine that Phase 7's pods may still be starting. Never fatal:
+# a non-zero exit is logged so the operator can re-run by hand. --no-auto-init skips it.
+# NOTE: the plugin image builds need Docker + yq on THIS machine and dominate the runtime.
+log "Phase 9: initialize platform (AUTO_INIT=$AUTO_INIT)"
+INIT_PLATFORM="$DEPLOY_DIR/../../bin/init-platform.sh"
+if [ "$AUTO_INIT" = true ]; then
+  BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y NAMESPACE="$NAMESPACE" \
+    bash "$INIT_PLATFORM" --continue-on-build-failure eks \
+    || echo "  WARNING: auto-init exited non-zero — re-run by hand: ./deploy/bin/init-platform.sh eks" >&2
+else
+  echo "  skipped (AUTO_INIT=false / --no-auto-init)"
+fi
+
 echo ""
-echo "=== EKS deploy complete. Initialize the platform: ==="
-echo "    ./deploy/bin/init-platform.sh eks   # register admin + load plugins (port-forwards nginx)"
+echo "=== EKS deploy complete. URL: https://${DOMAIN} ==="
+if [ "$AUTO_INIT" = true ]; then
+  echo "    Platform initialized (admin + plugins/compliance/pipelines)."
+  echo "    Re-run the loads any time: ./deploy/bin/init-platform.sh eks"
+else
+  echo "    Initialize the platform:   ./deploy/bin/init-platform.sh eks   # register admin + load plugins (port-forwards nginx)"
+fi

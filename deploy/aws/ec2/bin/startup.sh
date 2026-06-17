@@ -16,6 +16,7 @@ K8S_DIR="$DEPLOY_DIR/k8s"
 NGINX_DIR="$DEPLOY_DIR/nginx"
 CERT_DIR="$DEPLOY_DIR/certs"
 AUTH_DIR="$DEPLOY_DIR/auth"
+BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared cert/key helpers)
 NS="pipeline-builder"
 PROFILE="pipeline-builder"
 # Persistent-storage layout. Honors PIPELINE_ROOT from the host (set by
@@ -186,13 +187,8 @@ log "Creating registry token-signing keypair"
 mkdir -p "$CERT_DIR" "$AUTH_DIR"
 chown root:minikube "$CERT_DIR"
 
-# JWT signing keypair for image-registry's token-auth endpoint. Mounted by
-# both the underlying registry (as the trusted public cert) and the
-# image-registry proxy (which signs tokens with the private key).
-openssl genrsa -out "$CERT_DIR/image-registry-jwt.key" 2048 2>&1
-openssl req -x509 -new -key "$CERT_DIR/image-registry-jwt.key" -days 3650 \
-  -subj "/CN=pipeline-image-registry-token-issuer" -out "$CERT_DIR/image-registry-jwt.crt" 2>&1
-chmod 644 "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt"
+# JWT signing keypair for image-registry's token-auth endpoint (shared generator).
+bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 secret registry-token-secret \
   --from-file=jwt-private.pem="$CERT_DIR/image-registry-jwt.key" \
   --from-file=jwt-public.pem="$CERT_DIR/image-registry-jwt.crt"
