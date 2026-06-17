@@ -337,6 +337,25 @@ if _truthy "$LOAD_PLUGINS"; then
     echo ""
   fi
 
+  # The base-image build above can take minutes, during which an IDLE kubectl
+  # port-forward (the eks/minikube tunnel we set up) routinely drops — so the refresh
+  # login below would fail with "could not obtain JWT token" even though the platform is
+  # healthy (the base-image PUSHES still work because they go via kubectl, not this
+  # tunnel). Re-establish it if we own one (no explicit PLATFORM_BASE_URL) and it's down.
+  if [ -z "$PLATFORM_BASE_URL_PROVIDED" ]; then
+    case "$TARGET" in
+      eks)      _probe="http://localhost:8080/"; _ports="8080:8080" ;;
+      minikube) _probe="https://localhost:8443/"; _ports="8443:8443" ;;
+      *)        _probe=""; _ports="" ;;
+    esac
+    if [ -n "$_ports" ] && ! curl -s -k -o /dev/null --max-time 4 "$_probe" 2>/dev/null; then
+      echo "  port-forward dropped during the build — re-establishing (svc/nginx $_ports)…"
+      kubectl port-forward svc/nginx "$_ports" -n "$NAMESPACE" >/dev/null 2>&1 &
+      TUNNEL_PID=$!
+      sleep 3
+    fi
+  fi
+
   # Re-authenticate before upload (token may have expired during prebuilt image builds)
   echo ""
   echo "=== Refreshing auth token ==="
