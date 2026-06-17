@@ -244,6 +244,11 @@ echo ""
 # Env-overridable (LOAD_PLUGINS=y|n) for non-interactive / automated runs (e.g.
 # `pipeline-manager provision`); prompt only on a TTY when unset.
 LOAD_PLUGINS="${LOAD_PLUGINS:-}"
+# Did LOAD_PLUGINS come from the ENV (automation) rather than the prompt? If so the whole
+# plugin load is non-interactive, so the build-strategy + category selections below must ALSO
+# skip their prompts — otherwise an env-driven (`auto`) run still blocks on a TTY asking for
+# strategy/categories, which is the opposite of "automated".
+LOAD_PLUGINS_FROM_ENV="${LOAD_PLUGINS:+1}"
 if [ -z "$LOAD_PLUGINS" ] && [ -t 0 ]; then
   printf "Load plugins? [y/N] "
   read -r LOAD_PLUGINS
@@ -253,7 +258,7 @@ if _truthy "$LOAD_PLUGINS"; then
 
   # ---- Plugin build strategy ----
   BUILD_STRATEGY="${PLUGIN_BUILD_STRATEGY:-}"
-  if [ -z "$BUILD_STRATEGY" ] && [ -t 0 ]; then
+  if [ -z "$BUILD_STRATEGY" ] && [ -t 0 ] && [ -z "$LOAD_PLUGINS_FROM_ENV" ]; then
     echo ""
     echo "  Plugin build strategy:"
     echo "    1) prebuilt     — Use pre-built images bundled as image.tar"
@@ -272,8 +277,15 @@ if _truthy "$LOAD_PLUGINS"; then
   SELECTED_CATEGORIES=""
   if [ -n "${PLUGIN_CATEGORY:-}" ]; then
     SELECTED_CATEGORIES="$PLUGIN_CATEGORY"
-  elif [ -t 0 ]; then
+  elif [ -t 0 ] && [ -z "$LOAD_PLUGINS_FROM_ENV" ]; then
     select_categories "$DEPLOY_DIR/plugins" || exit 0
+  elif [ -n "$LOAD_PLUGINS_FROM_ENV" ]; then
+    # Non-interactive (env-driven) run: pick ALL categories EXPLICITLY so the downstream
+    # build/load scripts receive a --category filter and don't fall back to their OWN TTY
+    # category prompt (load-plugins.sh prompts when given no --category on a TTY). Set
+    # PLUGIN_CATEGORY to restrict. Same discovery as load-plugins.sh's all-categories path.
+    SELECTED_CATEGORIES=$(find -L "$DEPLOY_DIR/plugins" -mindepth 1 -maxdepth 1 -type d ! -name '_*' \
+      -exec basename {} \; | sort | tr '\n' ',' | sed 's/,$//')
   fi
 
   CATEGORY_ARG=""
