@@ -11,6 +11,14 @@ Kubernetes nodes (they allow `securityContext.seccompProfile: Unconfined`, alrea
 by the minikube/ec2 targets). EKS Auto Mode keeps node management hands-off *and* runs
 on EC2 nodes, so BuildKit works and we reuse the proven k8s manifests.
 
+> **Bottlerocket userns gotcha (handled in `k8s/plugin.yaml`).** Auto Mode nodes are
+> Bottlerocket, which ships with `user.max_user_namespaces = 0` — so rootless buildkitd
+> can't create its user namespace and dies with `rootlesskit … no space left on device`
+> (ENOSPC). Seccomp is *not* the issue here (Unconfined is honored). Auto Mode's managed
+> NodeClass exposes no sysctl/user-data knob, so the plugin pod runs a privileged
+> `enable-userns` init container (`sysctl -w user.max_user_namespaces=15000`) before
+> buildkitd. Without it, `plugin` is stuck `Init:CrashLoopBackOff`.
+
 ## Layout
 
 ```

@@ -1,5 +1,25 @@
 ---
 # =============================================================================
+# PriorityClass — lets the promtail DaemonSet schedule on every node
+# =============================================================================
+# promtail must run on each node to ship that node's logs to loki, but on a
+# CPU-saturated node a default-priority (0) pod can't fit and stays Pending —
+# and DaemonSet pods don't trigger Karpenter scale-up. A positive priority lets
+# the scheduler preempt a lower-priority workload to make room. Value is well
+# below the system classes (system-cluster-critical = 2000000000), so it never
+# competes with control-plane/addon pods; it only outranks default-priority app
+# pods (the scheduler picks the lowest-disruption victim, which reschedules onto
+# other/new nodes).
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: pipeline-builder-node-logging
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Node-level logging (promtail) — preempts default-priority workloads so log shipping runs on every node."
+---
+# =============================================================================
 # Promtail Service Account & RBAC
 # =============================================================================
 apiVersion: v1
@@ -53,6 +73,7 @@ spec:
         app.kubernetes.io/component: observability
     spec:
       serviceAccountName: promtail
+      priorityClassName: pipeline-builder-node-logging
       securityContext:
         runAsUser: 0
         fsGroup: 0
