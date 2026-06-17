@@ -393,9 +393,16 @@ fi
 log "Phase 9: initialize platform (AUTO_INIT=$AUTO_INIT)"
 INIT_PLATFORM="$DEPLOY_DIR/../../bin/init-platform.sh"
 if [ "$AUTO_INIT" = true ]; then
-  BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y NAMESPACE="$NAMESPACE" \
+  # Force the kubectl port-forward path: `env -u PLATFORM_BASE_URL` strips any value
+  # the operator exported (e.g. https://<domain>), which the eks init branch would
+  # otherwise honor — and the public URL almost never resolves THIS instant (the Route 53
+  # alias was created seconds ago in Phase 8, and DNS/negative-cache lags). Port-forward
+  # goes straight through the API server, so init works regardless of DNS/ALB warm-up and
+  # in both deploy modes (the internal ALB isn't reachable from here in private mode).
+  env -u PLATFORM_BASE_URL \
+    BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_PIPELINES=y NAMESPACE="$NAMESPACE" \
     bash "$INIT_PLATFORM" --continue-on-build-failure eks \
-    || echo "  WARNING: auto-init exited non-zero — re-run by hand: ./deploy/bin/init-platform.sh eks" >&2
+    || echo "  WARNING: auto-init exited non-zero — re-run by hand: env -u PLATFORM_BASE_URL ./deploy/bin/init-platform.sh eks" >&2
 else
   echo "  skipped (AUTO_INIT=false / --no-auto-init)"
 fi
