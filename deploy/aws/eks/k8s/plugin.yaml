@@ -19,6 +19,44 @@ spec:
     app: plugin
 
 ---
+# =============================================================================
+# Plugin build context + uploads — SHARED across plugin pods (pb-efs, RWX)
+# =============================================================================
+# Plugin builds are queue-based (BullMQ) and the Deployment autoscales (KEDA),
+# so the pod that RECEIVES an upload is frequently NOT the pod that later runs
+# the build job. With per-pod emptyDir the worker pod can't see the uploaded
+# Dockerfile/context → `ENOENT … builds/<uuid>/Dockerfile` and the job fails all
+# retries. Backing both dirs with one shared EFS filesystem (per-PVC access point,
+# uid/gid 1000 — matching the plugin's runAsUser, so no chown init is needed) lets
+# any pod read any upload's context. Build dirs are UUID-keyed, so concurrent
+# builds across pods don't collide.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: plugin-builds
+  labels:
+    app: plugin
+spec:
+  storageClassName: pb-efs
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: plugin-uploads
+  labels:
+    app: plugin
+spec:
+  storageClassName: pb-efs
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 10Gi
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -286,13 +324,17 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 30
       volumes:
-        # Build scratch + uploads: ephemeral per-pod, shared between the plugin and buildkitd
-        # containers in the same pod. emptyDir (not hostPath) so it works on multi-node EKS —
-        # builds don't need to persist or be shared across pods (each upload is handled by one).
+        # Build context + uploads on SHARED EFS (pb-efs, RWX) — NOT per-pod emptyDir.
+        # The build queue (BullMQ) + autoscaler (KEDA) decouple "pod that received the
+        # upload" from "pod that runs the build", so the context must be visible to all
+        # plugin pods (see the PVCs above). buildkitd doesn't mount these — buildctl in
+        # the plugin container reads the context and streams it over the socket.
         - name: tmp
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: plugin-builds
         - name: uploads
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: plugin-uploads
         # Shared socket between buildkitd sidecar and plugin container.
         - name: buildkit-socket
           emptyDir:
