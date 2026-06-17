@@ -180,7 +180,7 @@ pipeline-manager provision --target local --json       # inspect the plan as JSO
 # or: pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email"
 ```
 
-> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — on EC2 the platform initializes itself on first boot (register admin + load plugins/compliance/samples); on `local`/`minikube`/`eks`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
+> **`--init <mode>`** controls post-deploy initialization. The default is **`auto`** — the deploy initializes the platform itself — on EC2 on first boot, on EKS in `setup.sh`'s final phase (register admin + load plugins/compliance/samples, over a `kubectl` port-forward); on `local`/`minikube`, `provision` runs init for you. Use **`--init manual`** to run `init-platform` yourself or **`--init skip`** to do nothing. See the [AWS deployment guide](docs/aws-deployment.md#ai-assisted-install-provision).
 
 Prefer to run it directly? The full stack runs locally with Docker — prebuilt public images, no registry login:
 

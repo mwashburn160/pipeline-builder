@@ -182,7 +182,7 @@ See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy se
 
 ### Post-Deploy: Initialize Platform
 
-`init-platform.sh` registers the admin user and loads plugins. **On EC2 it runs automatically on first boot** (the `provision` default `--init auto`); on **local/minikube/EKS** `provision` runs it for you. You only run it by hand when you deployed with `--init manual`:
+`init-platform.sh` registers the admin user and loads plugins. **The AWS deploys self-init by default** (the `provision` default `--init auto`) — **EC2** on first boot, **EKS** in `setup.sh`'s final phase (over a `kubectl` port-forward); on **local/minikube** `provision` runs it for you. You only run it by hand when you deployed with `--init manual`:
 
 ```bash
 # Local / Minikube — interactive
@@ -191,6 +191,9 @@ See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy se
 
 # EC2 (only if --init manual) — requires the minikube user context, on the box
 sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2
+
+# EKS (only if --no-auto-init / --init manual) — run with kubectl access; it port-forwards to svc/nginx
+env -u PLATFORM_BASE_URL ./deploy/bin/init-platform.sh eks
 
 # Non-interactive with prebuilt images and controlled parallelism
 PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh local
