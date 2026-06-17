@@ -20,13 +20,14 @@ spec:
 
 ---
 # =============================================================================
-# Alertmanager PersistentVolumeClaim (pb-ebs)
+# Alertmanager PersistentVolumeClaim (pb-efs — shared EFS)
 # =============================================================================
 # Backs `/alertmanager` so silences and the notification log (nflog) survive
-# pod restarts. Sized small — silences are tiny JSON records and the nflog
-# is bounded by Alertmanager's retention (default 120h). 256Mi is generous.
-# =============================================================================
-# Alertmanager PersistentVolumeClaim
+# pod restarts. Uses pb-efs: the EFS CSI provisions a dedicated access point on
+# the SAME EFS filesystem as registry/loki (one EFS, per-PVC access points) —
+# chosen over EBS so the pod isn't AZ-pinned. Alertmanager state is tiny +
+# low-write, so NFS latency is a non-issue here (unlike the DBs/TSDB, which stay
+# on pb-ebs for block-device durability/locking). Sized small — 256Mi is generous.
 # =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -35,8 +36,8 @@ metadata:
   labels:
     app: alertmanager
 spec:
-  storageClassName: pb-ebs
-  accessModes: ["ReadWriteOnce"]
+  storageClassName: pb-efs
+  accessModes: ["ReadWriteMany"]
   resources:
     requests:
       storage: 256Mi
@@ -59,8 +60,9 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
-  # RWO PVC can't be mounted by two pods at once — Recreate avoids the
-  # rolling-update overlap that would otherwise stall on the second attach.
+  # Single writer: even though pb-efs is RWX, keep one alertmanager writing its
+  # nflog/silences at a time — Recreate avoids a rolling-update overlap where two
+  # pods write the same EFS directory.
   strategy:
     type: Recreate
   selector:
@@ -88,7 +90,11 @@ spec:
             requests:
               cpu: "25m"
               memory: 32Mi
-          command: ["sh", "-c", "chown -R 65534:65534 /alertmanager"]
+          # pb-efs access point POSIX-overrides ownership to uid/gid 1000, so a chown
+          # to any other id is DENIED (would crash this init, as it did for loki).
+          # chown to 1000; alertmanager's writes are squashed to 1000 regardless of
+          # its 65534 process uid.
+          command: ["sh", "-c", "chown -R 1000:1000 /alertmanager"]
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
