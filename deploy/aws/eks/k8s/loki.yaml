@@ -48,6 +48,11 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
+  # Single writer on shared EFS: loki's single-binary filesystem index/chunks are
+  # NOT safe for concurrent writers. Recreate (not the default RollingUpdate) avoids the
+  # maxSurge overlap where a new pod starts writing the same EFS before the old one exits.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: loki

@@ -45,6 +45,11 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
+  # Single writer on shared EFS: the registry's filesystem storage driver isn't safe for
+  # concurrent instances, so avoid the RollingUpdate maxSurge overlap (two registries on the
+  # same EFS). Recreate trades a brief rollout gap (pulls retry) for storage safety.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: registry
