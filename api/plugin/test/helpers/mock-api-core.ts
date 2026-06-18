@@ -36,6 +36,16 @@ class NotFoundError extends Error {
   }
 }
 
+/** Mirrors api-core's ValidationError (statusCode 400 / code VALIDATION_ERROR). */
+class ValidationError extends Error {
+  statusCode = 400;
+  code = 'VALIDATION_ERROR';
+  constructor(message?: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
 /**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
@@ -50,6 +60,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     NotFoundError,
+    ValidationError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
       invalidatePattern: () => Promise.resolve(0),

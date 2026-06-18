@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createWriteStream, existsSync } from 'fs';
+import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import path from 'path';
 import { pipeline } from 'stream/promises';
@@ -14,9 +14,11 @@ import YAML from 'yaml';
 import yauzl from 'yauzl';
 import { z } from 'zod';
 
+import { getBuildStrategy } from './build-strategy.js';
 import { BUILD_TEMP_ROOT } from './docker-build.js';
 import type { BuildType } from './docker-build.js';
 import type { PluginConfig } from './plugin-helpers.js';
+import { validateSafePath } from './safe-path.js';
 
 // -----------------------------------------------------------------------------
 // Types
@@ -33,25 +35,6 @@ export interface ParsedPlugin {
   dockerfileContent: string | null;
   /** Build type from config.yaml (defaults to 'build_image'). */
   buildType: BuildType;
-}
-
-// -----------------------------------------------------------------------------
-// Path validation
-// -----------------------------------------------------------------------------
-
-/** Validate a path from config/spec does not contain traversal or absolute references. */
-function validateSafePath(label: string, rawPath: string): string {
-  const normalized = path.normalize(rawPath);
-  if (
-    normalized.includes('\0') ||
-    normalized.includes('..') ||
-    path.isAbsolute(normalized) ||
-    normalized.includes(path.sep + path.sep) ||
-    normalized.startsWith(path.sep)
-  ) {
-    throw new ValidationError(`Invalid ${label} path: must not contain path traversal or be absolute`);
-  }
-  return normalized;
 }
 
 // -----------------------------------------------------------------------------
@@ -205,32 +188,9 @@ export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
     // --- Template validation: batch-check all {{ ... }} tokens ----------------
     validatePluginTemplates(pluginSpec);
 
-    // --- Dockerfile validation (build_image only) ---------------------------
-    let dockerfile = '';
-    let dockerfileContent: string | null = null;
-
-    if (buildType === 'build_image' && !isApprovalStep) {
-      const rawDockerfile = config.dockerfile ?? pluginSpec.dockerfile ?? 'Dockerfile';
-      dockerfile = validateSafePath('dockerfile', rawDockerfile);
-
-      const dockerfilePath = path.join(extractDir, dockerfile);
-      const realDockerfilePath = existsSync(dockerfilePath)
-        ? await fs.realpath(dockerfilePath)
-        : null;
-
-      if (realDockerfilePath && !realDockerfilePath.startsWith(extractDir + path.sep)) {
-        throw new ValidationError('Invalid dockerfile path: resolves outside extraction directory');
-      }
-
-      dockerfileContent = realDockerfilePath
-        ? await fs.readFile(realDockerfilePath, 'utf-8')
-        : null;
-    }
-
-    // --- Prebuilt validation: image.tar must exist in ZIP --------------------
-    if (buildType === 'prebuilt' && !existsSync(path.join(extractDir, 'image.tar'))) {
-      throw new ValidationError('image.tar is required in ZIP when buildType is prebuilt');
-    }
+    // --- Per-build-type validation + Dockerfile resolution ------------------
+    const { dockerfile, dockerfileContent } = await getBuildStrategy(buildType)
+      .validateAndResolve({ extractDir, config, pluginSpec, isApprovalStep });
 
     return { pluginSpec, extractDir, dockerfile, dockerfileContent, buildType };
   } catch (err) {

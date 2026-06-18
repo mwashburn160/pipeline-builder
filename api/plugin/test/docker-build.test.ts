@@ -44,9 +44,11 @@ class ValidationError extends Error {
   constructor(message: string) { super(message); this.name = 'ValidationError'; }
 }
 
+const mockSignServiceToken = jest.fn<(opts: { ttlSeconds?: number }) => string>(() => 'test-jwt-token');
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ValidationError,
-  signServiceToken: jest.fn(() => 'test-jwt-token'),
+  signServiceToken: mockSignServiceToken,
 }));
 
 const mockConfigGet = (section: string) => {
@@ -143,6 +145,17 @@ describe('buildAndPush', () => {
     expect(configWrite).toBeDefined();
     const parsed = JSON.parse(configWrite![1] as string);
     expect(parsed.auths['registry:5000'].auth).toBe(Buffer.from('_token:test-jwt-token').toString('base64'));
+  });
+
+  it('mints the registry-auth token with a TTL equal to the build window', async () => {
+    // Regression: the token is spent only at push time (end of the build).
+    // A short default TTL (5 min) expired before long builds (gcloud-deploy,
+    // playwright) finished pushing, yielding a 401 from image-registry/token.
+    // The whole build+push is bounded by timeoutMs, so TTL must equal it (900s).
+    await buildAndPush(makeRequest());
+    expect(mockSignServiceToken).toHaveBeenCalledWith(
+      expect.objectContaining({ ttlSeconds: 900 }),
+    );
   });
 
   it('also writes credentials for the PLATFORM_BASE_URL host (token realm)', async () => {
@@ -246,6 +259,14 @@ describe('loadAndPush', () => {
     const [binary, args] = mockSpawn.mock.calls[0];
     expect(binary).toBe('crane');
     expect(args).toEqual(expect.arrayContaining(['push', '/tmp/image.tar', 'registry:5000/org-acme/foo:1.0.0']));
+  });
+
+  it('mints the registry-auth token with a TTL equal to the push window', async () => {
+    // crane push is bounded by pushTimeoutMs (300s); the token TTL equals it.
+    await loadAndPush('/tmp/image.tar', 'foo', '1.0.0', makeRegistry(), 'acme');
+    expect(mockSignServiceToken).toHaveBeenCalledWith(
+      expect.objectContaining({ ttlSeconds: 300 }),
+    );
   });
 
   it('passes --insecure for http registry', async () => {

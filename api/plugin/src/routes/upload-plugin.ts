@@ -10,6 +10,7 @@ import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request, type Response, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
 
+import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, validateBuildArgs } from '../helpers/plugin-spec.js';
 import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
@@ -206,8 +207,8 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           buildType: plugin.buildType,
         };
 
-        // -- metadata_only: deploy directly (no Docker build needed) -----------
-        if (plugin.buildType === 'metadata_only') {
+        // -- No image to build (metadata_only): deploy directly ----------------
+        if (!getBuildStrategy(plugin.buildType).producesImage) {
           const result = await pluginService.deployVersion(pluginRecord, userId || 'system');
 
           ctx.log('INFO', 'Metadata-only plugin deployed', {

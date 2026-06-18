@@ -105,7 +105,13 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
   // single-buildkitd deploy keeps working.
   const buildkitAddr = opts?.buildkitAddr ?? cfg.buildkitAddr;
 
-  const dockerConfigDir = writeAuthConfig(req.contextDir, req.registry, req.orgId);
+  // The registry-auth token is minted now but only spent at the *end* of the
+  // build (buildctl does build+push in one shot, push last). The whole build+push
+  // is bounded by cfg.timeoutMs, so the token TTL must equal that build window —
+  // otherwise a long build (gcloud-deploy, playwright) outlives a short-TTL token
+  // and the push fails with a 401 from image-registry's /token endpoint.
+  const authTtlSeconds = Math.ceil(cfg.timeoutMs / 1000);
+  const dockerConfigDir = writeAuthConfig(req.contextDir, req.registry, req.orgId, authTtlSeconds);
   patchDockerfile(req.contextDir, req.dockerfile);
 
   logger.info('Building image', { image, buildkitAddr });
@@ -140,7 +146,10 @@ export async function loadAndPush( tarPath: string, name: string, version: strin
   const cfg = getConfig();
   const image = resolveImage(name, version, registry, orgId);
 
-  const dockerConfigDir = writeAuthConfig(path.dirname(tarPath), registry, orgId);
+  // crane push is bounded by pushTimeoutMs; the token TTL equals that window so
+  // the credential lives exactly as long as the operation that uses it.
+  const authTtlSeconds = Math.ceil(cfg.pushTimeoutMs / 1000);
+  const dockerConfigDir = writeAuthConfig(path.dirname(tarPath), registry, orgId, authTtlSeconds);
 
   logger.info('Pushing prebuilt image', { image, tarPath });
 
@@ -182,8 +191,11 @@ function outputSpec(image: string, registry: RegistryInfo): string {
 }
 
 /**
- * Mint a short-lived platform JWT and write it to ~/.docker/config.json as
- * Basic-auth credentials for the registry. buildctl and crane both read
+ * Mint a platform JWT (TTL = the operation's build window, passed by the caller)
+ * and write it to ~/.docker/config.json as Basic-auth credentials for the
+ * registry. The token is spent only at push time — the end of a build that may
+ * run for many minutes — so `ttlSeconds` matches the build timeout, not a single
+ * backend hop. buildctl and crane both read
  * $DOCKER_CONFIG/config.json  image-registry's /token endpoint verifies the
  * JWT and mints a scoped Bearer token in response to the registry's bearer
  * challenge. Username is informational; auth-resolver path 1 uses the
@@ -197,10 +209,10 @@ function outputSpec(image: string, registry: RegistryInfo): string {
  * to hosts present in `auths`, so without this second entry crane
  * hops to the public realm with no credentials and gets 401.
  */
-function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: string): string {
+function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: string, ttlSeconds: number): string {
   const dir = path.join(contextDir, '.docker');
   fs.mkdirSync(dir, { recursive: true });
-  const password = signServiceToken({ serviceName: 'platform', orgId, role: 'owner' });
+  const password = signServiceToken({ serviceName: 'platform', orgId, role: 'owner', ttlSeconds });
   const auth = Buffer.from(`_token:${password}`).toString('base64');
 
   const auths: Record<string, { auth: string }> = {

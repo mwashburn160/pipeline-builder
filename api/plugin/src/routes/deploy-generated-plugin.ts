@@ -57,7 +57,11 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
     requireAdmin as RequestHandler,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
-      const authHeader = req.headers.authorization || '';
+      // Service-minted auth for downstream calls (quota, tier, compliance). The
+      // caller's admin bearer may carry only end-user scopes that won't pass
+      // service-to-service authorization; mint a service token instead (matches
+      // the upload-plugin path).
+      const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
 
       const validation = validateBody(req, PluginDeployGeneratedSchema);
       if (!validation.ok) {
@@ -86,9 +90,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       // -- Compliance check (fail-closed) -----------------------------------
       // AI-generated plugins must satisfy the same org compliance rules as
       // uploaded ones (see upload-plugin.ts). Without this, the deploy-generated
-      // path was a bypass around org governance. Mint a service token for the
-      // downstream call — the caller's bearer may lack service-to-service scopes.
-      const complianceAuth = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
+      // path was a bypass around org governance.
       try {
         const complianceResult = await complianceClient.validatePlugin(orgId, {
           name,
@@ -102,7 +104,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           accessModifier,
           keywords: keywords || [],
           buildType: 'build_image',
-        }, complianceAuth, undefined, name, 'deploy-generated');
+        }, authHeader, undefined, name, 'deploy-generated');
 
         if (complianceResult.blocked) {
           ctx.log('WARN', 'AI-generated plugin blocked by compliance', {

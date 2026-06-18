@@ -49,7 +49,7 @@ export function createBulkPluginRoutes(): Router {
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length });
 
-    sendSuccess(res, 200, { deleted: deleted.length, ids: deleted.map(d => d.id) });
+    return sendSuccess(res, 200, { deleted: deleted.length, ids: deleted.map(d => d.id) });
   }));
 
   /** PUT /plugins/bulk/update — Update multiple plugins with the same data */
@@ -87,7 +87,7 @@ export function createBulkPluginRoutes(): Router {
 
     ctx.log('COMPLETED', 'Bulk update complete', { requested: ids.length, updated: updated.length });
 
-    sendSuccess(res, 200, { updated: updated.length });
+    return sendSuccess(res, 200, { updated: updated.length });
   }));
 
   return router;

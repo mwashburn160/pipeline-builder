@@ -15,7 +15,8 @@ import type { Job, ConnectionOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
-import { buildAndPush, getBuildkitAddrForTier, loadAndPush, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
+import { getBuildStrategy } from '../helpers/build-strategy.js';
+import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { pluginService } from '../services/plugin-service.js';
 
@@ -538,26 +539,15 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         const isApprovalStep = pluginRecord.pluginType === 'ManualApprovalStep';
         let fullImage = '';
 
-        if (!isApprovalStep && buildRequest.buildType !== 'metadata_only') {
-          const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
-          const buildkitAddr = getBuildkitAddrForTier(tier);
-          switch (buildRequest.buildType) {
-            case 'prebuilt': {
-              const tarPath = path.join(buildRequest.contextDir, 'image.tar');
-              if (!fs.existsSync(tarPath)) {
-                throw new Error('Prebuilt plugin is missing image.tar in ZIP archive');
-              }
-              const result = await loadAndPush(tarPath, buildRequest.name, buildRequest.version, buildRequest.registry, orgId);
-              fullImage = result.fullImage;
-              break;
-            }
-            case 'build_image':
-            default: {
-              const result = await buildAndPush(buildRequest, { buildkitAddr });
-              fullImage = result.fullImage;
-              break;
-            }
-          }
+        const strategy = getBuildStrategy(buildRequest.buildType);
+        // isApprovalStep is a second, orthogonal "skip build" axis (pluginType), kept here.
+        if (!isApprovalStep && strategy.producesImage) {
+          const result = await strategy.produceImage(buildRequest, {
+            // Lazy: only build_image awaits this, so prebuilt skips the tier/quota lookup.
+            getBuildkitAddr: async () => getBuildkitAddrForTier(
+              await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }))),
+          });
+          fullImage = result.fullImage;
           sseManager.send(requestId, 'INFO', 'Image pushed', { fullImage });
         }
 
