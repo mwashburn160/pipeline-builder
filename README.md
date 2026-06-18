@@ -286,6 +286,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 | Document | Description |
 |----------|-------------|
 | [Overview](docs/README.md) | Key concepts, usage guides, operational how-to |
+| [Pipeline Manager CLI](docs/pipeline-manager.md) | The `pipeline-manager` CLI — provision the platform, build/deploy pipelines, manage plugins, run audits |
 | [Developer Guide](docs/developer-guide.md) | Cut-and-paste pipeline examples for 7 languages |
 | [Samples](docs/samples.md) | Pipeline configs and CDK patterns |
 | [Organization Benefits](docs/organization-benefits.md) | What orgs gain from standardizing on the platform |

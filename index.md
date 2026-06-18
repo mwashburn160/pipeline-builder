@@ -213,6 +213,7 @@ From there:
 
 | Guide | Description |
 |-------|-------------|
+| [Pipeline Manager CLI]({{ '/docs/pipeline-manager.html' | relative_url }}) | The `pipeline-manager` CLI — provision the platform, build/deploy pipelines, manage plugins |
 | [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints for pipelines, plugins, compliance, reporting, and AI |
 | [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine with 18 operators, computed fields, audit trail |
