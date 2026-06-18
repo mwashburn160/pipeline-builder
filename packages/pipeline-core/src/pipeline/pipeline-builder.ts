@@ -19,6 +19,7 @@ import { SourceBuilder } from './source-builder.js';
 import { StageBuilder } from './stage-builder.js';
 import type { StageOptions, SynthOptions } from './step-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
+import type { RegistryConfig } from '../config/config-types.js';
 import { ArtifactManager } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
 import {
@@ -111,6 +112,15 @@ export interface BuilderProps {
    * who construct PipelineBuilder directly normally leave this unset.
    */
   readonly resolvedPlugins?: Record<string, Plugin>;
+
+  /**
+   * Platform-sourced registry overrides, applied over the env-loaded `registry`
+   * config at synth start. pipeline-manager populates this from the platform URL
+   * it deploys against so the CodeBuild image URIs use a pull host AWS CodeBuild
+   * can resolve (instead of the in-cluster `registry:5000` default). CDK
+   * consumers constructing PipelineBuilder directly normally leave this unset.
+   */
+  readonly registry?: Partial<RegistryConfig>;
 }
 
 /**
@@ -144,6 +154,15 @@ export class PipelineBuilder extends Construct {
 
   constructor(scope: Construct, id: string, props: BuilderProps) {
     super(scope, id);
+
+    // Apply platform-sourced registry overrides BEFORE any Config.get('registry')
+    // (plugin/default build-image resolution below) so the synth uses the pull
+    // host the platform deploys against, not the in-cluster env default. The CLI
+    // only sets props.registry when IMAGE_REGISTRY_PULL_HOST is unset, so an
+    // explicit operator pull host is never clobbered (see bakePlatformRegistry).
+    if (props.registry) {
+      Config.override('registry', props.registry);
+    }
 
     // Use PipelineConfiguration for all business logic (validation, sanitization, metadata merging)
     this.config = new PipelineConfiguration(props);

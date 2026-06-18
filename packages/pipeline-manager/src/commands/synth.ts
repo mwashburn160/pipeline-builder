@@ -12,6 +12,7 @@ import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } f
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { resolvePluginsForProps } from '../utils/plugin-resolver.js';
+import { bakePlatformRegistry } from '../utils/registry.js';
 
 // ESM has no __dirname; derive it from this module's URL.
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -54,14 +55,19 @@ async function fetchPipelineConfig(
     printInfo('Pre-resolved plugins', { count: Object.keys(resolvedPlugins).length });
   }
 
+  // Bake the registry pull target from the platform URL we synth against (the
+  // host serving the registry /v2/ data path) so CodeBuild image URIs use a host
+  // AWS CodeBuild can resolve, not the in-cluster `registry:5000` default. No-op
+  // when IMAGE_REGISTRY_PULL_HOST is set (explicit env wins).
+  bakePlatformRegistry(propsWithIds, config.api.baseUrl);
+
   process.env.PIPELINE_PROPS = Buffer.from(JSON.stringify(propsWithIds)).toString('base64');
 
   // Propagate the resolved platform base URL into the boilerplate synth (which
-  // inherits process.env). loadRegistryConfig() derives the registry PULL host
-  // from PLATFORM_BASE_URL / IMAGE_REGISTRY_PULL_HOST; it only reads the env, so
-  // without this a URL configured via ~/.pipeline-manager/config.yml is invisible
-  // to the synth and it bakes the in-cluster `registry:5000` into CodeBuild (which
-  // can't resolve it from the VPC). IMAGE_REGISTRY_PULL_HOST still wins if set.
+  // inherits process.env). The synth uses it for serverConfig.platformUrl (the
+  // PluginLookup Lambda endpoint) and as the loadRegistryConfig pull-host
+  // fallback. Without this, a URL configured via ~/.pipeline-manager/config.yml
+  // is invisible to the synth subprocess (it reads only the env).
   if (config.api.baseUrl) {
     process.env.PLATFORM_BASE_URL = config.api.baseUrl;
   }

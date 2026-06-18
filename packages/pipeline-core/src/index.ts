@@ -42,6 +42,7 @@
 export * from './config/app-config.js';
 export * from './config/config-types.js';
 export * from './config/service-client.js';
+export { parsePlatformBaseUrl } from './config/infrastructure-config.js';
 
 // Core types (public surface)
 export * from './core/pipeline-types.js';

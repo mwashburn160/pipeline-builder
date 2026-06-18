@@ -161,10 +161,42 @@ export class Config {
   }
 
   /**
-   * @internal Reset configuration (for testing only)
+   * Merge a partial override into a config section, taking precedence over the
+   * env-loaded values for all subsequent `Config.get(section)` calls.
+   *
+   * Used at CDK synth start to inject platform-sourced infrastructure config
+   * (e.g. the registry pull host derived from the platform's public URL) so the
+   * synth does not silently depend on the operator's local `process.env`.
+   * `undefined` fields in `partial` are ignored so they never clobber a loaded
+   * value. Loads (and validates) the section first so the override merges onto
+   * the real defaults.
+   */
+  static override<K extends keyof AppConfig>(section: K, partial: Partial<AppConfig[K]>): void {
+    const current = this.get(section);
+    const defined = Object.fromEntries(
+      Object.entries(partial).filter(([, v]) => v !== undefined),
+    ) as Partial<AppConfig[K]>;
+    this.cache.set(section, { ...current, ...defined });
+  }
+
+  /**
+   * Clear all cached config sections so the next `Config.get()` re-reads them
+   * from the current `process.env` (re-running each section's loader + validator).
+   *
+   * Use when env has been mutated in-process and the cache is now stale — e.g. a
+   * long-running CLI that reconfigures between operations. CDK synth runs in a
+   * fresh subprocess that already reads env on first access, so it does not need
+   * this. Note: this also drops any values set via {@link override}.
+   */
+  static reload(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * @internal Reset configuration (for testing only). Alias for {@link reload}.
    */
   static _resetForTesting(): void {
-    this.cache.clear();
+    this.reload();
   }
 
   /**

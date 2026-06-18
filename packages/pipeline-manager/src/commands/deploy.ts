@@ -14,7 +14,7 @@ import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } f
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { resolvePluginsForProps } from '../utils/plugin-resolver.js';
-import { buildRegistryPayload, writePendingIntent } from '../utils/registry.js';
+import { bakePlatformRegistry, buildRegistryPayload, writePendingIntent } from '../utils/registry.js';
 
 const { bold, cyan, dim } = pico;
 
@@ -168,6 +168,13 @@ export function deploy(program: Command): void {
             propsWithIds.resolvedPlugins = resolvedPlugins;
             printInfo('Pre-resolved plugins', { count: Object.keys(resolvedPlugins).length });
           }
+
+          // Bake the registry pull target into the synth from the platform URL we
+          // deploy against (the host that serves the registry /v2/ data path), so
+          // the CodeBuild image URIs use a host AWS CodeBuild can resolve — not the
+          // in-cluster `registry:5000` default. No-op when IMAGE_REGISTRY_PULL_HOST
+          // is set (explicit env wins).
+          bakePlatformRegistry(propsWithIds, platformConfig.api.baseUrl);
         }
 
         // --show-resolved: print resolved config and exit (no CDK deploy)
@@ -213,12 +220,11 @@ export function deploy(program: Command): void {
 
         // Forward the platform base URL the deploy actually resolved (from
         // ~/.pipeline-manager/config.yml or the PLATFORM_BASE_URL env var) into
-        // the CDK synth subprocess. The synth's loadRegistryConfig() derives the
-        // registry PULL host from PLATFORM_BASE_URL / IMAGE_REGISTRY_PULL_HOST; it
-        // only reads process.env, so without this it can't see a URL configured
-        // via the config file and silently bakes the in-cluster `registry:5000`
-        // into CodeBuild — which can't resolve it from the VPC. An explicit
-        // IMAGE_REGISTRY_PULL_HOST still wins (loadRegistryConfig checks it first).
+        // the CDK synth subprocess, which reads only process.env. The synth uses
+        // it for serverConfig.platformUrl (the PluginLookup Lambda's platform
+        // endpoint) and as the loadRegistryConfig pull-host fallback. The registry
+        // pull host itself is baked explicitly via props.registry above; this
+        // covers the Lambda URL and any direct Config.get('registry') reads.
         // --local-spec mode has no platformConfig, so this is remote-only.
         const cdkEnv: Record<string, string> = { PIPELINE_PROPS: encoded };
         if (platformConfig?.api.baseUrl) {

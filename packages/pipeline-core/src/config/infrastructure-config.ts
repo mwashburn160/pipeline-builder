@@ -47,11 +47,16 @@ export function loadRegistryConfig(): RegistryConfig {
 
 /** Extract host + port from PLATFORM_BASE_URL (e.g. `https://pipeline-builder.com`
  *  → `{ host: 'pipeline-builder.com', port: 443 }`). Returns null when the value
- *  is unset or not a valid URL. */
-function parsePlatformBaseUrl(raw?: string): { host: string; port: number } | null {
+ *  is unset or not a valid URL. Exported so the CLI (pipeline-manager) derives
+ *  the registry pull target with the SAME parsing, instead of duplicating it. */
+export function parsePlatformBaseUrl(raw?: string): { host: string; port: number } | null {
   if (!raw) return null;
   try {
     const u = new URL(raw);
+    // A scheme-less value like `host:8443` parses with a custom protocol and an
+    // EMPTY hostname — reject it so callers fall back rather than derive a
+    // host-less endpoint.
+    if (!u.hostname) return null;
     const port = u.port ? parseInt(u.port, 10) : (u.protocol === 'https:' ? 443 : 80);
     return { host: u.hostname, port };
   } catch {

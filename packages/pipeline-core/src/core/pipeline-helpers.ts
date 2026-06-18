@@ -186,6 +186,74 @@ function toSecretEnvVars(
  * `pipeline-builder/<orgId>/platform`, and `Secret.fromSecretNameV2()`
  * needs a Construct to anchor the imported secret to.
  */
+/**
+ * In-cluster / local registry hostnames that AWS CodeBuild (out-of-cluster)
+ * cannot resolve. Baking one of these into a CodeBuild image URI guarantees a
+ * `BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE` failure at build time, so we fail the
+ * synth fast instead — with a message that says how to fix it.
+ */
+const UNREACHABLE_PULL_HOSTS = new Set(['registry', 'localhost', '127.0.0.1', '::1', '0.0.0.0']);
+
+/** Kubernetes / mDNS suffixes that only resolve inside the cluster/LAN. */
+const UNREACHABLE_HOST_SUFFIXES = ['.svc', '.svc.cluster.local', '.local'];
+
+/**
+ * Reduce a registry host value to its bare hostname for the reachability check:
+ * strip IPv6 brackets and any `:port` suffix (an operator may put host+port in
+ * one field), so `registry:5000` / `[::1]:5000` are still recognized.
+ */
+function bareHostname(rawHost: string): string {
+  let h = rawHost.trim().toLowerCase();
+  if (h.startsWith('[')) {
+    const end = h.indexOf(']');
+    if (end !== -1) return h.slice(1, end);        // [::1]:5000 -> ::1
+  }
+  // Strip a trailing :port only for non-IPv6 values (IPv6 contains '::' or >1 ':').
+  if (h.includes(':') && (h.match(/:/g)?.length ?? 0) === 1) h = h.split(':')[0];
+  return h;
+}
+
+/** True when CodeBuild (out-of-cluster) could not resolve this registry host. */
+function isUnreachablePullHost(rawHost: string): boolean {
+  const h = bareHostname(rawHost);
+  if (h === '') return true;                         // no host → malformed URI
+  if (UNREACHABLE_PULL_HOSTS.has(h)) return true;
+  return UNREACHABLE_HOST_SUFFIXES.some((s) => h.endsWith(s));
+}
+
+/**
+ * Resolve the external (out-of-cluster) registry pull host + `:port` suffix for
+ * a CodeBuild image URI, and fail fast if it resolved to an in-cluster/local
+ * default that CodeBuild can't reach.
+ *
+ * Prefers `pullHost`/`pullPort` (the public endpoint CodeBuild can resolve) and
+ * falls back to `host`/`port` for single-host deploys. pipeline-manager bakes
+ * the right pull host into the synth automatically from the platform URL it
+ * deploys against (`props.registry`); this guard catches the case where neither
+ * that nor `IMAGE_REGISTRY_PULL_HOST`/`PLATFORM_BASE_URL` was supplied.
+ *
+ * Escape hatch: `ALLOW_INCLUSTER_PULL_HOST=true` (e.g. CodeBuild in a VPC whose
+ * private DNS genuinely resolves the in-cluster name).
+ */
+function resolveExternalPullTarget(
+  registry: { host?: string; port?: number; pullHost?: string; pullPort?: number },
+): { host: string; portPart: string } {
+  const host = registry.pullHost || registry.host || '';
+  const port = registry.pullPort ?? registry.port;
+  if (process.env.ALLOW_INCLUSTER_PULL_HOST !== 'true' && isUnreachablePullHost(host)) {
+    throw new Error(
+      `Registry pull host resolved to '${host}', which AWS CodeBuild cannot reach — it is the ` +
+      'in-cluster/local default. The synthesized pipeline would fail at build time with ' +
+      'BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE. Set the platform\'s public host via ' +
+      'IMAGE_REGISTRY_PULL_HOST or PLATFORM_BASE_URL before deploying — pipeline-manager bakes ' +
+      'this in automatically from the platform URL it deploys against. ' +
+      'Set ALLOW_INCLUSTER_PULL_HOST=true to bypass (in-VPC private DNS).',
+    );
+  }
+  const portPart = port && port !== 80 && port !== 443 ? `:${port}` : '';
+  return { host, portPart };
+}
+
 export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin, orgId?: string): IBuildImage | undefined {
   // `metadata_only` plugins legitimately have no image — their work runs
   // in the default CodeBuild image. Quiet skip.
@@ -249,11 +317,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   // CodeBuild (out-of-cluster), which can't resolve the in-cluster
   // `registry:5000` ClusterIP. Fall back to `host`/`port` for single-host /
   // in-cluster-only deploys where no separate pull host is configured.
-  const pullHost = registry.pullHost || registry.host;
-  const pullPort = registry.pullPort ?? registry.port;
-  const portPart = pullPort && pullPort !== 80 && pullPort !== 443
-    ? `:${pullPort}`
-    : '';
+  const { host: pullHost, portPart } = resolveExternalPullTarget(registry);
   const SYSTEM_ORG_ID = 'system';
   const namespace = plugin.orgId === SYSTEM_ORG_ID
     ? 'system'
@@ -374,10 +438,10 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
     return fallbackBuildImage();
   }
 
-  const portPart = registry.port && registry.port !== 80 && registry.port !== 443
-    ? `:${registry.port}`
-    : '';
-  const imageUri = `${registry.host}${portPart}/library/${configured}`;
+  // Use the external pull host/port (not the in-cluster host) — this URI is
+  // consumed by AWS CodeBuild, which can't resolve the `registry:5000` ClusterIP.
+  const { host: pullHost, portPart } = resolveExternalPullTarget(registry);
+  const imageUri = `${pullHost}${portPart}/library/${configured}`;
 
   // Same Secret as resolvePluginImage — per-org platform Secret, CodeBuild
   // sends it as Basic auth, image-registry verifies the JWT in `password`.

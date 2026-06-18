@@ -4,6 +4,8 @@
 import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { parsePlatformBaseUrl } from '@pipeline-builder/pipeline-core';
+import { printInfo } from './output-utils.js';
 
 /**
  * Helpers for registering a deployed pipeline ARN with the platform.
@@ -28,6 +30,40 @@ import { join } from 'path';
  * Auth is supplied by whichever command drains the intent (deploy or register),
  * so a stale intent file is never an authentication risk.
  */
+
+/**
+ * Platform-sourced registry pull target for the CDK synth, derived from the
+ * platform base URL the CLI deploys against (the same host that serves the
+ * registry `/v2/` data path via nginx). Reuses pipeline-core's
+ * `parsePlatformBaseUrl` so host/port parsing stays identical on both sides.
+ * Returns `undefined` for an unparseable/absent URL. (Only the pull host/port
+ * are returned — `registry.http` describes the in-cluster push hop, which the
+ * synth never reads, so deriving it from the public URL would be misleading.)
+ */
+export function registryOverrideFromBaseUrl(
+  baseUrl: string | undefined,
+): { pullHost: string; pullPort: number } | undefined {
+  const parsed = parsePlatformBaseUrl(baseUrl);
+  return parsed ? { pullHost: parsed.host, pullPort: parsed.port } : undefined;
+}
+
+/**
+ * Bake the platform-derived registry pull target into the synth props
+ * (`BuilderProps.registry`) so the CodeBuild image URIs use a host AWS CodeBuild
+ * can resolve — not the in-cluster `registry:5000` default. Shared by the
+ * `deploy` and `synth` commands.
+ *
+ * An explicit `IMAGE_REGISTRY_PULL_HOST` in the synth env takes precedence, so
+ * this is a no-op when it is set (the synth's `loadRegistryConfig` already
+ * honors it). Also a no-op for an unparseable/absent base URL.
+ */
+export function bakePlatformRegistry(props: Record<string, unknown>, baseUrl: string | undefined): void {
+  if (process.env.IMAGE_REGISTRY_PULL_HOST) return; // explicit env wins
+  const override = registryOverrideFromBaseUrl(baseUrl);
+  if (!override) return;
+  props.registry = override;
+  printInfo('Registry pull target', { host: override.pullHost, port: override.pullPort });
+}
 
 /** Shape of the body POSTed to /api/pipelines/registry. */
 export interface RegistryPayload {
