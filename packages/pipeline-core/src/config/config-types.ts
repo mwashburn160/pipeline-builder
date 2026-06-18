@@ -63,6 +63,8 @@ export interface ServerConfig {
     readonly pipelinePort: number;
     readonly messageHost: string;
     readonly messagePort: number;
+    readonly platformHost: string;
+    readonly platformPort: number;
     readonly complianceHost: string;
     readonly compliancePort: number;
     readonly billingHost: string;
@@ -184,6 +186,12 @@ export interface ComplianceConfig {
   readonly scanSchedulerIntervalMs: number;
   /** When false, the scheduler skips scans/schedules for the system org. Default: false. */
   readonly systemOrgScansEnabled: boolean;
+  /** Cross-pod leader-lock TTL for the scan scheduler (ms). Default: 300000. */
+  readonly scanLockTtlMs: number;
+  /** How often the digest scheduler checks for due digests (ms). Default: 3600000. */
+  readonly digestSchedulerIntervalMs: number;
+  /** Cross-pod leader-lock TTL for the digest scheduler (ms). Default: 300000. */
+  readonly digestLockTtlMs: number;
 }
 
 export interface AWSConfig {

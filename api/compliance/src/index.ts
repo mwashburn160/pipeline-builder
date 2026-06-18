@@ -14,6 +14,7 @@ import {
 } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { startAuditPruneCron } from './helpers/audit-logger.js';
+import { startDigestScheduler, stopDigestScheduler } from './helpers/digest-scheduler.js';
 import { evaluateEntityEvent } from './helpers/entity-event-handler.js';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler.js';
 import { enqueue, startComplianceWorker, stopComplianceWorker, getQueueRedis } from './queue/compliance-event-queue.js';
@@ -24,6 +25,7 @@ import { createDeletePolicyRoutes } from './routes/delete-policies.js';
 import { createDeleteRuleRoutes } from './routes/delete-rules.js';
 import { createEntityEventRoutes } from './routes/entity-events.js';
 import { createExemptionRoutes } from './routes/exemptions.js';
+import { createNotificationPreferenceRoutes } from './routes/notification-preferences.js';
 import { createReadPolicyRoutes } from './routes/read-policies.js';
 import { createReadRuleRoutes } from './routes/read-rules.js';
 import { createScanScheduleRoutes } from './routes/scan-schedules.js';
@@ -70,6 +72,9 @@ app.use('/compliance/audit', ...createProtectedRoute(quotaService, 'apiCalls'), 
 
 // Exemption management (auth + org)
 app.use('/compliance/exemptions', ...createAuthenticatedWithOrgRoute(), createExemptionRoutes());
+
+// Notification preferences (auth + org; PUT is gated to admins inside the router)
+app.use('/compliance/notification-preferences', ...createAuthenticatedWithOrgRoute(), createNotificationPreferenceRoutes());
 
 // Compliance scans (auth + org)
 app.use('/compliance/scans', ...createAuthenticatedWithOrgRoute(), createScanRoutes());
@@ -125,11 +130,13 @@ void runServer(app, {
   sseManager,
   onShutdown: async () => {
     stopScanScheduler();
+    stopDigestScheduler();
     auditPrune.stop();
     await stopComplianceWorker();
   },
 });
 
 startScanScheduler();
+startDigestScheduler();
 
 export { app };

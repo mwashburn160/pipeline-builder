@@ -257,6 +257,8 @@ Per-call increments to `/quotas/:orgId/increment` cap `amount` at 1000 — bound
 | `PIPELINE_SERVICE_PORT` | `3000` | Pipeline service port |
 | `MESSAGE_SERVICE_HOST` | `message` | Message service hostname |
 | `MESSAGE_SERVICE_PORT` | `3000` | Message service port |
+| `PLATFORM_SERVICE_HOST` | `platform` | Platform service hostname (compliance → email delivery) |
+| `PLATFORM_SERVICE_PORT` | `3000` | Platform service port |
 | `COMPLIANCE_SERVICE_HOST` | `compliance` | Compliance service hostname |
 | `COMPLIANCE_SERVICE_PORT` | `3000` | Compliance service port |
 | `BILLING_SERVICE_HOST` | `billing` | Billing service hostname |
@@ -273,6 +275,10 @@ Per-call increments to `/quotas/:orgId/increment` cap `amount` at 1000 — bound
 | `COMPLIANCE_BYPASS` | `false` | Bypass compliance checks when service is unavailable (dev/DR only) |
 | `COMPLIANCE_ENABLED` | `true` | Enable compliance enforcement |
 | `SCAN_SCHEDULER_INTERVAL_MS` | `60000` | Compliance scan scheduler interval (ms) |
+| `SYSTEM_ORG_SCANS_ENABLED` | `false` | Run scheduled scans for the system org too |
+| `SCAN_LOCK_TTL_MS` | `300000` | Scan scheduler cross-pod leader-lock TTL (ms); only one replica sweeps per tick |
+| `DIGEST_SCHEDULER_INTERVAL_MS` | `3600000` | How often the notification digest scheduler checks for due daily/weekly digests (ms) |
+| `DIGEST_LOCK_TTL_MS` | `300000` | Digest scheduler cross-pod leader-lock TTL (ms) |
 
 ---
 

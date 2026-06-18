@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 // lucide-react v1 removed brand icons (e.g. Slack); use a generic messaging glyph.
-import { Bell, Plus, Trash2, Edit2, MessageSquare, Webhook, Bell as BellIcon } from 'lucide-react';
+import { Bell, Plus, Trash2, Edit2, MessageSquare, Webhook, Mail, Bell as BellIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';
@@ -44,7 +44,7 @@ export default function AlertDestinationsPage() {
     if (router.isReady && router.query.all === '1' && isSuperAdmin) setAllOrgs(true);
   }, [router.isReady, router.query.all, isSuperAdmin]);
   const [search, setSearch] = useState('');
-  const [channelFilter, setChannelFilter] = useState<'all' | 'slack' | 'webhook' | 'in-app'>('all');
+  const [channelFilter, setChannelFilter] = useState<'all' | 'slack' | 'webhook' | 'in-app' | 'email'>('all');
 
   const { data, loading, error, refetch } = useFetch(
     async () => {
@@ -147,6 +147,7 @@ export default function AlertDestinationsPage() {
               <option value="slack">Slack</option>
               <option value="webhook">Webhook</option>
               <option value="in-app">In-app</option>
+              <option value="email">Email</option>
             </select>
           </div>
           {loading ? (
@@ -169,7 +170,7 @@ export default function AlertDestinationsPage() {
                   <ul className="divide-y divide-gray-100 dark:divide-gray-800">
                     {items.map((d) => (
                       <li key={d.id} className="py-2 flex flex-wrap items-baseline gap-2 text-sm">
-                        <Badge color={d.channel === 'slack' ? 'purple' : d.channel === 'webhook' ? 'blue' : 'gray'}>{d.channel}</Badge>
+                        <Badge color={d.channel === 'slack' ? 'purple' : d.channel === 'webhook' ? 'blue' : d.channel === 'email' ? 'green' : 'gray'}>{d.channel}</Badge>
                         <span className="font-medium text-gray-900 dark:text-gray-100">{d.label}</span>
                         <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>{d.minSeverity}</Badge>
                         {!d.enabled && <Badge color="gray">disabled</Badge>}
@@ -253,6 +254,7 @@ export default function AlertDestinationsPage() {
 function ChannelIcon({ channel }: { channel: AlertDestination['channel'] }) {
   if (channel === 'slack') return <MessageSquare className="w-5 h-5 text-purple-600" />;
   if (channel === 'webhook') return <Webhook className="w-5 h-5 text-blue-600" />;
+  if (channel === 'email') return <Mail className="w-5 h-5 text-green-600" />;
   return <BellIcon className="w-5 h-5 text-gray-600" />;
 }
 
@@ -274,7 +276,7 @@ function DestinationModal(props: {
   const onSubmit = async () => {
     if (!label.trim()) { toast.error('Label is required'); return; }
     if (channel !== 'in-app' && !existing && !target.trim()) {
-      toast.error('Target URL is required for new Slack / webhook destinations');
+      toast.error(channel === 'email' ? 'Email address is required' : 'Target URL is required for new Slack / webhook destinations');
       return;
     }
     setSaving(true);
@@ -316,6 +318,7 @@ function DestinationModal(props: {
           >
             <option value="slack">Slack incoming webhook</option>
             <option value="webhook">Generic HTTPS webhook</option>
+            <option value="email">Email recipient</option>
             <option value="in-app">In-app message (deferred — logs only for now)</option>
           </select>
         </div>
@@ -332,14 +335,15 @@ function DestinationModal(props: {
         {channel !== 'in-app' && (
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              {channel === 'slack' ? 'Slack incoming-webhook URL' : 'Webhook URL'}
+              {channel === 'slack' ? 'Slack incoming-webhook URL' : channel === 'email' ? 'Email address' : 'Webhook URL'}
             </label>
             <input
-              type="password"
+              // Email targets aren't secrets — show them; URLs are bearer-equivalent, so mask.
+              type={channel === 'email' ? 'text' : 'password'}
               autoComplete="off"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              placeholder={existing ? '(leave blank to keep existing)' : (channel === 'slack' ? 'https://hooks.slack.com/services/...' : 'https://...')}
+              placeholder={existing ? '(leave blank to keep existing)' : (channel === 'slack' ? 'https://hooks.slack.com/services/...' : channel === 'email' ? 'ops@example.com' : 'https://...')}
               className="w-full px-3 py-1.5 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
             />
             {existing && (

@@ -38,6 +38,7 @@ const mockEvaluateRules = jest.fn();
 const mockFindActiveByOrgAndTarget = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockLogComplianceCheck = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 const mockNotifyComplianceBlock = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
+const mockNotifyComplianceWarnings = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
@@ -74,6 +75,7 @@ jest.unstable_mockModule('../src/helpers/audit-logger.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/compliance-notifier.js', () => ({
   notifyComplianceBlock: mockNotifyComplianceBlock,
+  notifyComplianceWarnings: mockNotifyComplianceWarnings,
 }));
 
 const { executeScan } = await import('../src/helpers/scan-executor.js');
@@ -89,6 +91,7 @@ describe('executeScan', () => {
     mockFindActiveByOrgAndTarget.mockReset();
     mockLogComplianceCheck.mockClear();
     mockNotifyComplianceBlock.mockClear();
+    mockNotifyComplianceWarnings.mockClear();
   });
 
   it('exits early when scan does not exist', async () => {

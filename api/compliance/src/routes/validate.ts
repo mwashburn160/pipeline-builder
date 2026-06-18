@@ -15,7 +15,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
 import { logComplianceCheck } from '../helpers/audit-logger.js';
-import { notifyComplianceBlock } from '../helpers/compliance-notifier.js';
+import { notifyComplianceBlock, notifyComplianceWarnings } from '../helpers/compliance-notifier.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
@@ -117,6 +117,11 @@ async function validateEntity(
   if (result.blocked && !isDryRun) {
     notifyComplianceBlock(orgId, target, entityName ?? 'unknown', result.violations)
       .catch((err) => logger.warn('Compliance notification failed', { error: String(err) }));
+  } else if (!isDryRun && result.warnings.length > 0) {
+    // Non-blocking warnings: opt-in per org (notifyOnWarning). Only when not
+    // blocked — a block notification already carries the actionable signal.
+    notifyComplianceWarnings(orgId, target, entityName ?? 'unknown', result.warnings)
+      .catch((err) => logger.warn('Compliance warning notification failed', { error: String(err) }));
   }
 
   return result;

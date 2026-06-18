@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, withLeaderLock, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config, schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { eq, and, lte, sql } from 'drizzle-orm';
 import { executeScan } from './scan-executor.js';
+import { getLockRedis } from '../queue/compliance-event-queue.js';
 
 const logger = createLogger('scan-scheduler');
 
@@ -18,9 +19,15 @@ const logger = createLogger('scan-scheduler');
 const complianceConfig = (Config.getAny('compliance') ?? {}) as Partial<{
   scanSchedulerIntervalMs: number;
   systemOrgScansEnabled: boolean;
+  scanLockTtlMs: number;
 }>;
 const SCHEDULER_INTERVAL_MS = Number(complianceConfig.scanSchedulerIntervalMs ?? 60_000);
 const SYSTEM_ORG_SCANS_ENABLED = Boolean(complianceConfig.systemOrgScansEnabled ?? false);
+// Cross-pod single-runner lock so only one replica sweeps per tick (otherwise N
+// pods double-execute the same pending scans). TTL must outlast one cycle — a
+// cycle runs up to 10 scans, so default generously (5 min) and allow override.
+const LOCK_KEY = 'compliance:scan-scheduler:leader';
+const LOCK_TTL_MS = Number(complianceConfig.scanLockTtlMs ?? 300_000);
 
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -57,17 +64,28 @@ export function stopScanScheduler(): void {
 }
 
 /**
- * Run one scheduler cycle: process pending scans + check due schedules.
+ * The actual sweep: process pending scans + check due schedules.
  *
  * Scheduler is a privileged background tick that legitimately reads + writes
  * across every org; establish a sysadmin tenant context for the whole cycle
  * so the inner queries bypass per-org RLS once it's FORCE'd.
  */
-async function runSchedulerCycle(): Promise<void> {
+async function sweep(): Promise<void> {
   await runWithTenantContext({ isSuperAdmin: true }, async () => {
     await processPendingScans();
     await checkDueSchedules();
   });
+}
+
+/**
+ * One scheduler pass, guarded by a cross-pod leader lock so that with multiple
+ * compliance replicas only ONE pod sweeps per window (others no-op) — without
+ * it, every replica would re-execute the same pending scans.
+ */
+async function runSchedulerCycle(): Promise<void> {
+  const redis = await getLockRedis();
+  const ran = await withLeaderLock(redis, LOCK_KEY, LOCK_TTL_MS, sweep);
+  if (!ran) logger.debug('Scan cycle skipped — another pod holds the lock');
 }
 
 /** Find and execute all pending scans. */

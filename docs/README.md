@@ -36,6 +36,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | Document | Description |
 |----------|-------------|
 | [AWS Deployment](aws-deployment.md) | EC2 and EKS deployment, post-deploy setup, drift detection |
+| [Pipeline Manager (CLI)](pipeline-manager.md) | `pipeline-manager` CLI — install the platform (`provision`), build/deploy pipelines, manage plugins, run audits |
 | [CDK Usage](cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
 | [Audit Events](audit-events.md) | Cross-service audit event names + payload schemas (registry, etc.) |

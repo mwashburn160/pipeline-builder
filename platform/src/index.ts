@@ -18,7 +18,7 @@ import {
   IMPERSONATION_READ_ONLY_MESSAGE,
   IMPERSONATION_READ_ONLY_CODE,
 } from './middleware/require-write-access.js';
-import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes/index.js';
+import { authRoutes, oauthRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes, invitationRoutes, logRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes, orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes } from './routes/index.js';
 
 const logger = createLogger('platform-api');
 
@@ -341,6 +341,7 @@ app.use('/organizations', organizationsRoutes);
 app.use('/invitation', invitationRoutes);
 app.use('/logs', logRoutes);
 app.use('/audit', auditRoutes);
+app.use('/internal/notify-email', notifyEmailRoutes);
 app.use('/config', configRoutes);
 app.use('/observability', observabilityLimiter, observabilityRoutes);
 app.use('/dashboards', dashboardRoutes);

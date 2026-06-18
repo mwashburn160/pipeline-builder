@@ -340,7 +340,7 @@ CREATE TABLE IF NOT EXISTS org_alert_destinations (    id UUID PRIMARY KEY DEFAU
 
     -- Channel + target. Slack: webhook URL. Webhook: HTTPS URL. In-app: ignored.
     channel VARCHAR(20) NOT NULL
-                    CHECK (channel IN ('slack', 'webhook', 'in-app')),
+                    CHECK (channel IN ('slack', 'webhook', 'in-app', 'email')),
     target TEXT NOT NULL DEFAULT '',
     label VARCHAR(100) NOT NULL,
 
@@ -360,6 +360,22 @@ CREATE TRIGGER update_org_alert_destinations_modtime
     BEFORE UPDATE ON org_alert_destinations
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
+-- Allow the 'email' alert channel on databases created before email support.
+-- Idempotent: drop whatever channel CHECK exists and re-add the current set.
+-- Fresh databases already get the right constraint from CREATE TABLE above.
+DO $$
+DECLARE cname text;
+BEGIN
+    SELECT conname INTO cname FROM pg_constraint
+        WHERE conrelid = 'org_alert_destinations'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%channel%';
+    IF cname IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE org_alert_destinations DROP CONSTRAINT %I', cname);
+    END IF;
+    ALTER TABLE org_alert_destinations ADD CONSTRAINT org_alert_destinations_channel_check
+        CHECK (channel IN ('slack', 'webhook', 'in-app', 'email'));
+END $$;
 
 -- ============================================================================
 -- ADMIN AUDIT LOG TABLE  DROPPED (audit data lives in MongoDB instead)
@@ -864,6 +880,7 @@ CREATE TABLE IF NOT EXISTS compliance_notification_preferences (    id UUID PRIM
     org_id VARCHAR(255) NOT NULL UNIQUE,
     notify_on_block BOOLEAN NOT NULL DEFAULT true,
     notify_on_warning BOOLEAN NOT NULL DEFAULT false,
+    email_enabled BOOLEAN NOT NULL DEFAULT false,
     digest_mode VARCHAR(20) NOT NULL DEFAULT 'immediate', -- immediate | daily | weekly
     digest_schedule VARCHAR(100),
     last_digest_at TIMESTAMPTZ,
@@ -873,6 +890,10 @@ CREATE TABLE IF NOT EXISTS compliance_notification_preferences (    id UUID PRIM
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Opt-in compliance email delivery (added after initial release).
+ALTER TABLE compliance_notification_preferences
+    ADD COLUMN IF NOT EXISTS email_enabled BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TRIGGER trigger_compliance_notification_preferences_updated
     BEFORE UPDATE ON compliance_notification_preferences

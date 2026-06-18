@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter } from 'lucide-react';
+import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter, Bell } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { formatRelativeTime } from '@/lib/relative-time';
@@ -19,8 +19,9 @@ const PolicyManager = lazy(() => import('./PolicyManager'));
 const RuleHistory = lazy(() => import('./RuleHistory'));
 const ScanDetail = lazy(() => import('./ScanDetail'));
 const ScanScheduleManager = lazy(() => import('./ScanScheduleManager'));
+const NotificationPreferencesManager = lazy(() => import('./NotificationPreferencesManager'));
 
-type Tab = 'overview' | 'rules' | 'policies' | 'subscriptions' | 'enforced' | 'exemptions' | 'scans' | 'schedules' | 'templates';
+type Tab = 'overview' | 'rules' | 'policies' | 'subscriptions' | 'enforced' | 'exemptions' | 'scans' | 'schedules' | 'templates' | 'notifications';
 
 const TABS: { id: Tab; label: string; icon: typeof Shield }[] = [
   { id: 'overview', label: 'Overview', icon: Activity },
@@ -32,6 +33,7 @@ const TABS: { id: Tab; label: string; icon: typeof Shield }[] = [
   { id: 'scans', label: 'Scans', icon: Scan },
   { id: 'schedules', label: 'Schedules', icon: Clock },
   { id: 'templates', label: 'Templates', icon: Sparkles },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
 ];
 
 const STAT_COLORS: Record<string, string> = {
@@ -210,6 +212,7 @@ export default function ComplianceDashboard({ isAdmin = false }: ComplianceDashb
         )}
         {tab === 'schedules' && <ScanScheduleManager readOnly={!isAdmin} />}
         {tab === 'templates' && <TemplateOnboarding />}
+        {tab === 'notifications' && <NotificationPreferencesManager readOnly={!isAdmin} />}
       </Suspense>
     </div>
   );

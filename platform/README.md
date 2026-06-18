@@ -10,6 +10,7 @@ The identity, authentication, and organization service at the center of the plat
 - **RBAC / roles & write-access enforcement** — per-org roles (`owner` | `admin` | `member`) resolved from the `UserOrganization` junction, platform `superadmin`, and a read-only impersonation gate that blocks state-changing requests.
 - **Groups & memberships** — first-class permission groups (e.g. Administrators, Developers, the system org's Superadmins) whose membership drives the cached `UserOrganization.role`.
 - **Audit events** — tamper-resistant, org-scoped audit log (TTL-retained in MongoDB) with an internal service-token ingest endpoint for non-platform emitters.
+- **Email delivery** — owns the SMTP/SES transport (invitations, verification) and exposes an internal service-token endpoint (`POST /internal/notify-email`) so other services (e.g. compliance) can email an org's users without their own mail stack; resolves recipients (`targetUsers`, or all org admins) from the user directory.
 
 ## Endpoints
 
@@ -91,7 +92,7 @@ The API gateway strips the `/api` prefix before proxying; paths below are as mou
 | GET | `/audit` | List audit events (admin only; org-scoped for org admins) |
 | POST | `/audit/events` | Internal ingest for non-platform services (service-token auth) |
 
-> Additional operational routes are also mounted: `/invitation`, `/dashboards`, `/logs`, `/observability`, `/config`, and `/admin/*` (org IdP, KMS config, k8s namespace, user grants, summary, impersonate), plus `/health` and `/metrics`.
+> Additional operational routes are also mounted: `/invitation`, `/dashboards`, `/logs`, `/observability`, `/config`, `/internal/notify-email` (service-token email send), and `/admin/*` (org IdP, KMS config, k8s namespace, user grants, summary, impersonate), plus `/health` and `/metrics`.
 
 ## Configuration
 

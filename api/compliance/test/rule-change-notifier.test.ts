@@ -17,6 +17,12 @@ jest.unstable_mockModule('../src/helpers/message-client.js', () => ({
   },
 }));
 
+// rule-change is in-app only, but notification-channels imports email-client at
+// module load — stub it so its real InternalHttpClient import doesn't run.
+jest.unstable_mockModule('../src/helpers/email-client.js', () => ({
+  emailClient: { post: jest.fn(async () => undefined) },
+}));
+
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
   subscriptionService: {
     findSubscribers: (...args: unknown[]) => mockFindSubscribers(...args),

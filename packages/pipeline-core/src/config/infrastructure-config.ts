@@ -97,6 +97,9 @@ export function loadComplianceConfig(): ComplianceConfig {
   return {
     scanSchedulerIntervalMs: parseInt(process.env.SCAN_SCHEDULER_INTERVAL_MS || '60000', 10),
     systemOrgScansEnabled: process.env.SYSTEM_ORG_SCANS_ENABLED === 'true',
+    scanLockTtlMs: parseInt(process.env.SCAN_LOCK_TTL_MS || '300000', 10),
+    digestSchedulerIntervalMs: parseInt(process.env.DIGEST_SCHEDULER_INTERVAL_MS || '3600000', 10),
+    digestLockTtlMs: parseInt(process.env.DIGEST_LOCK_TTL_MS || '300000', 10),
   };
 }
 

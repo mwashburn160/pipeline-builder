@@ -38,9 +38,14 @@ const MAX_LABEL = parseInt(process.env.ALERT_DESTINATION_MAX_LABEL || '100', 10)
 const MAX_TARGET = parseInt(process.env.ALERT_DESTINATION_MAX_TARGET || '2048', 10);
 
 
+/** Single-address email check — intentionally loose (no RFC 5322 parsing);
+ *  catches typos, not every invalid address. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 /** Validate channel/target combos. Slack URLs must start with the canonical
  *  hooks.slack.com host so a misconfigured destination doesn't silently POST
- *  to an arbitrary URL. Webhook channel takes any HTTPS URL. */
+ *  to an arbitrary URL. Webhook channel takes any HTTPS URL. Email takes a
+ *  single address. */
 function validateChannelTarget(channel: string, target: string): string | null {
   if (channel === 'slack') {
     if (!/^https:\/\/hooks\.slack\.com\//.test(target)) {
@@ -54,10 +59,20 @@ function validateChannelTarget(channel: string, target: string): string | null {
     if (target.length > MAX_TARGET) return `Webhook URL exceeds ${MAX_TARGET} chars`;
     return null;
   }
+  if (channel === 'email') {
+    if (!EMAIL_RE.test(target)) return 'Email target must be a valid email address';
+    if (target.length > MAX_TARGET) return `Email address exceeds ${MAX_TARGET} chars`;
+    return null;
+  }
   if (channel === 'in-app') {
     return null;
   }
-  return 'channel must be slack, webhook, or in-app';
+  return 'channel must be slack, webhook, in-app, or email';
+}
+
+/** Accepted destination channels. `in-app` needs no target; the rest do. */
+function isValidChannel(c: unknown): c is 'slack' | 'webhook' | 'in-app' | 'email' {
+  return c === 'slack' || c === 'webhook' || c === 'in-app' || c === 'email';
 }
 
 /** GET /api/observability/alert-destinations — list this org's destinations. */
@@ -97,8 +112,8 @@ export const createAlertDestination = withController('Create alert destination',
 
   const body = req.body as { channel?: unknown; target?: unknown; label?: unknown; minSeverity?: unknown; enabled?: unknown };
 
-  if (body.channel !== 'slack' && body.channel !== 'webhook' && body.channel !== 'in-app') {
-    return sendError(res, 400, 'channel must be slack, webhook, or in-app');
+  if (!isValidChannel(body.channel)) {
+    return sendError(res, 400, 'channel must be slack, webhook, in-app, or email');
   }
   if (!isReasonableString(body.label, MAX_LABEL)) {
     return sendError(res, 400, `label is required (max ${MAX_LABEL} chars)`);
@@ -158,8 +173,8 @@ export const updateAlertDestination = withController('Update alert destination',
   const id = req.params.id as string;
   const body = req.body as { channel?: unknown; target?: unknown; label?: unknown; minSeverity?: unknown; enabled?: unknown };
 
-  if (body.channel !== undefined && body.channel !== 'slack' && body.channel !== 'webhook' && body.channel !== 'in-app') {
-    return sendError(res, 400, 'channel must be slack, webhook, or in-app');
+  if (body.channel !== undefined && !isValidChannel(body.channel)) {
+    return sendError(res, 400, 'channel must be slack, webhook, in-app, or email');
   }
   if (body.label !== undefined && !isReasonableString(body.label, MAX_LABEL)) {
     return sendError(res, 400, `label must be <= ${MAX_LABEL} chars`);
@@ -185,7 +200,7 @@ export const updateAlertDestination = withController('Update alert destination',
   const updated = await alertDestinationService.update(
     id,
     {
-      channel: body.channel as 'slack' | 'webhook' | 'in-app' | undefined,
+      channel: body.channel as 'slack' | 'webhook' | 'in-app' | 'email' | undefined,
       target: typeof body.target === 'string' ? body.target : undefined,
       label: typeof body.label === 'string' ? body.label : undefined,
       minSeverity: body.minSeverity as 'warning' | 'critical' | undefined,

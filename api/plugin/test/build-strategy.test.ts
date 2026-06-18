@@ -95,7 +95,7 @@ describe('prebuilt strategy', () => {
     if (!strat.producesImage) throw new Error('expected an image strategy');
     const getBuildkitAddr = jest.fn<() => Promise<string>>(async () => 'unix:///run/buildkit');
     await strat.produceImage(req(dir, 'prebuilt'), { getBuildkitAddr });
-    expect(getBuildkitAddr).not.toHaveBeenCalled();   // the lazy tier/quota win
+    expect(getBuildkitAddr).not.toHaveBeenCalled(); // the lazy tier/quota win
     expect(loadAndPush).toHaveBeenCalled();
     rmSync(dir, { recursive: true, force: true });
   });

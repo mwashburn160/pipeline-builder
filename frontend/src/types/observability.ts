@@ -116,8 +116,8 @@ export interface AlertDestination {
   createdAt: string;
   updatedBy: string;
   updatedAt: string;
-  channel: 'slack' | 'webhook' | 'in-app';
-  /** Masked URL (e.g. `••••XXXXXXXXXXXX`). Use `hasTarget` to know whether it's set. */
+  channel: 'slack' | 'webhook' | 'in-app' | 'email';
+  /** Masked URL/address (e.g. `••••XXXXXXXXXXXX`). Use `hasTarget` to know whether it's set. */
   target: string;
   hasTarget: boolean;
   label: string;
@@ -136,7 +136,7 @@ export interface AlertDestinationResponse {
 /** Body for POST/PUT on alert destinations. `target` is the raw secret URL
  *  on writes; empty string on update means "leave existing value". */
 export interface AlertDestinationWrite {
-  channel?: 'slack' | 'webhook' | 'in-app';
+  channel?: 'slack' | 'webhook' | 'in-app' | 'email';
   target?: string;
   label?: string;
   minSeverity?: 'warning' | 'critical';

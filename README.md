@@ -139,6 +139,7 @@ Validate plugins and pipelines **before** they're created — not in a quarterly
 - **Published rule catalog** — the platform organization publishes recommended rules; each organization subscribes and opts in per rule
 - **Per-entity exemptions** — temporarily bypass a subscribed rule for a specific pipeline or plugin with audit
 - **Bulk scans + audit trail** — sweep existing resources, generate evidence for compliance reviews
+- **Notifications** — alert on blocks (and, opt-in, warnings) via the in-app inbox, email, or an HMAC-signed webhook; choose immediate delivery or daily/weekly digests, scoped to chosen recipients or all org admins
 - **10 sample rules** included — security scanning required, privileged plugins blocked, naming conventions, timeout caps
 
 ### Organizations & Teams

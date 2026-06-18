@@ -77,6 +77,8 @@ Access tokens expire after 2 hours by default (configurable via `JWT_EXPIRES_IN`
 | `POST` | `/compliance/scan-schedules` | Create a cron-driven scan schedule (cron validated at insert time) |
 | `POST` | `/compliance/validate/{plugin\|pipeline}` | Live compliance check (5s timeout, fail-closed) |
 | `POST` | `/compliance/validate/{plugin\|pipeline}/dry-run` | Same evaluation, no audit/notify side-effects |
+| `GET` | `/compliance/notification-preferences` | Read the org's notification preference (defaults when unset) |
+| `PUT` | `/compliance/notification-preferences` | Update notification preference (org admin; webhook secret never returned) |
 
 ### Quota Service
 

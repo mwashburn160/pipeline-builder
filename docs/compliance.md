@@ -130,6 +130,15 @@ Exemptions waive a specific rule for a specific entity, with an approval workflo
 | `POST` | `/compliance/templates/apply` | Instantiate a template as an org rule |
 | `GET` | `/compliance/audit` | Query the audit log (filterable by target, result, entity) |
 
+### Notification Preferences
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/compliance/notification-preferences` | The calling org's notification preference (column defaults when unset) |
+| `PUT` | `/compliance/notification-preferences` | Upsert the preference (org admin / owner only) |
+
+The webhook signing secret is never returned — reads expose only a `hasWebhookSecret` flag. On `PUT`, omit `webhookSecret` to keep the existing one; send `""` to clear it.
+
 ---
 
 ## Rule Schema
@@ -222,6 +231,27 @@ Warnings are logged and returned but do not block. Blocked responses include vio
   }
 }
 ```
+
+---
+
+## Notifications
+
+When a check **blocks** an operation (and, opt-in, when it raises non-blocking **warnings**), the org is notified. Delivery is governed by the per-org `compliance_notification_preferences` row (see [Notification Preferences](#notification-preferences)); an org with no row uses the column defaults.
+
+**Severity gating**
+
+- `notifyOnBlock` (default **on**) — notify when an operation is blocked.
+- `notifyOnWarning` (default **off**, opt-in) — also notify on warnings. Warnings only fire when an operation was *not* blocked (a block notification already carries the actionable signal).
+
+**Channels** (each delivered through the same fan-out, every attempt recorded in `compliance_notification_log`):
+
+| Channel | When | Notes |
+|---------|------|-------|
+| In-app inbox | Always (when the severity gate passes) | Posted to the org's message inbox |
+| Email | When `emailEnabled` | Sent to `targetUsers`, or all org admins when unset. The platform service owns delivery + recipient resolution (compliance has no mail transport) |
+| Webhook | When `webhookUrl` is set | `POST`s the notification JSON; signed `X-PB-Signature: sha256=<hmac>` when `webhookSecret` is set |
+
+**Digest batching** — `digestMode` is `immediate` (default), `daily`, or `weekly`. Under `daily`/`weekly`, notifications are parked and a background scheduler aggregates them into a single digest per window. The scheduler uses a Redis leader lock so that with multiple compliance replicas only one pod flushes per window (the scan scheduler is guarded the same way). Tune via `DIGEST_SCHEDULER_INTERVAL_MS`, `DIGEST_LOCK_TTL_MS`, and `SCAN_LOCK_TTL_MS` (see [Environment Variables](#environment-variables)).
 
 ---
 
@@ -332,9 +362,14 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 | `COMPLIANCE_MAX_ATTRIBUTE_KEYS` | `100` | Max number of attribute keys evaluated |
 | `COMPLIANCE_SCAN_CONCURRENCY` | `10` | Concurrent entities evaluated per bulk scan |
 | `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE` | `10` | Scan progress flush batch size |
-| `REDIS_HOST` | `redis` | Redis host (BullMQ async re-validation queue) |
+| `SCAN_SCHEDULER_INTERVAL_MS` | `60000` | Scan scheduler interval (ms) |
+| `SCAN_LOCK_TTL_MS` | `300000` | Scan scheduler cross-pod leader-lock TTL (ms) |
+| `DIGEST_SCHEDULER_INTERVAL_MS` | `3600000` | Notification digest scheduler interval (ms) |
+| `DIGEST_LOCK_TTL_MS` | `300000` | Digest scheduler cross-pod leader-lock TTL (ms) |
+| `REDIS_HOST` | `redis` | Redis host (BullMQ queue + scheduler leader locks) |
 | `REDIS_PORT` | `6379` | Redis port |
-| `MESSAGE_SERVICE_HOST` | `message` | Message service (notifications) |
+| `MESSAGE_SERVICE_HOST` | `message` | Message service (in-app notifications) |
+| `PLATFORM_SERVICE_HOST` | `platform` | Platform service (email delivery + recipient resolution) |
 | `PLUGIN_SERVICE_HOST` | `plugin` | Plugin service (bulk scans) |
 | `PIPELINE_SERVICE_HOST` | `pipeline` | Pipeline service (bulk scans) |
 

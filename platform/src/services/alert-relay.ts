@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { schema } from '@pipeline-builder/pipeline-core';
 import { alertDestinationService } from './alert-destination-service.js';
+import { getNotificationChannel, type NotificationMessage, type Severity } from './notification-channels.js';
+import { incCounter } from '../observability/metrics.js';
 
 type OrgAlertDestination = typeof schema.orgAlertDestination.$inferSelect;
+type Alert = AlertmanagerWebhook['alerts'][number];
+type DeliveryOutcome = 'delivered' | 'failed' | 'skipped';
 
 const logger = createLogger('alert-relay');
 
@@ -88,138 +92,87 @@ export async function relayWebhook(payload: AlertmanagerWebhook): Promise<{
     // so a single org with N destinations doesn't burst N requests at once;
     // the per-destination timeout is the only latency bound.
     for (const d of destinations) {
-      const ok = await deliverOne(d, alert).catch((err) => {
+      const outcome = await deliverOne(d, alert).catch((err) => {
         logger.warn('Destination delivery threw', {
           destinationId: d.id, channel: d.channel, error: errorMessage(err),
         });
-        return false;
+        return 'failed' as DeliveryOutcome;
       });
-      if (ok) delivered++; else failed++;
+      if (outcome === 'delivered') delivered++;
+      else if (outcome === 'skipped') skipped++;
+      else failed++;
     }
   }
 
   return { delivered, skipped, failed };
 }
 
+/** Normalize the alert's raw `severity` label to the three rendered tiers. */
+function alertSeverity(alert: Alert): Severity {
+  return alert.labels.severity === 'critical' ? 'critical'
+    : alert.labels.severity === 'warning' ? 'warning'
+      : 'info';
+}
+
+/** Map an Alertmanager alert + destination onto the transport-agnostic message. */
+function toNotificationMessage(d: OrgAlertDestination, alert: Alert): NotificationMessage {
+  return {
+    severity: alertSeverity(alert),
+    status: alert.status,
+    timestamp: alert.startsAt,
+    title: alert.labels.alertname ?? 'Alert',
+    summary: alert.annotations.summary ?? '',
+    detail: alert.annotations.description,
+    labels: alert.labels,
+    recipientOrgId: d.orgId,
+    raw: alert, // generic `webhook` channel forwards this unchanged
+    dedupeKey: alert.fingerprint,
+  };
+}
+
 /**
- * Deliver one alert to one destination. Channel-specific * - `slack`  POST a Slack-shaped block payload to the webhook URL
- * - `webhook`  POST the Alertmanager-style alert payload as-is
- * - `in-app`  append a row to the `messages` table; the org's inbox UI
- * surfaces it via the platform message service..
+ * Deliver one alert to one destination via its channel adapter. Owns the
+ * cross-cutting concerns — the bounded-timeout AbortController and outcome
+ * logging — and delegates the transport to the channel. Returns the outcome
+ * so the relay can tally delivered / skipped / failed.
  */
-async function deliverOne(d: OrgAlertDestination, alert: AlertmanagerWebhook['alerts'][number]): Promise<boolean> {
+async function deliverOne(d: OrgAlertDestination, alert: Alert): Promise<DeliveryOutcome> {
+  const channel = getNotificationChannel(d.channel);
+  if (!channel) {
+    logger.warn('Unknown alert destination channel', { destinationId: d.id, channel: d.channel });
+    incCounter('alert_notification_delivery', { channel: d.channel, result: 'failed' });
+    return 'failed';
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
-
   try {
-    if (d.channel === 'slack') {
-      const body = JSON.stringify(slackPayload(alert));
-      const resp = await fetch(d.target, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
-        body,
+    const res = await channel.deliver(
+      toNotificationMessage(d, alert),
+      { value: d.target, orgId: d.orgId },
+      controller.signal,
+    );
+    const result: DeliveryOutcome = res.skipped ? 'skipped' : res.ok ? 'delivered' : 'failed';
+    if (result === 'failed') {
+      logger.warn('Destination delivery non-ok', {
+        destinationId: d.id, channel: d.channel, code: res.code, error: res.error,
       });
-      if (!resp.ok) {
-        logger.warn('Slack delivery non-2xx', { destinationId: d.id, status: resp.status });
-        return false;
-      }
-      return true;
-    }
-    if (d.channel === 'webhook') {
-      const resp = await fetch(d.target, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(alert),
+    } else if (result === 'skipped') {
+      logger.debug('Destination delivery skipped', {
+        destinationId: d.id, channel: d.channel, reason: res.error,
       });
-      if (!resp.ok) {
-        logger.warn('Webhook delivery non-2xx', { destinationId: d.id, status: resp.status });
-        return false;
-      }
-      return true;
     }
-    if (d.channel === 'in-app') {
-      // in-app alerts get an entry in the org's `messages` inbox.
-      // Authored by the system org so the recipient sees a clear sender;
-      // priority maps from alert severity (critical → urgent, warning → high).
-      // We're already inside `runWithTenantContext({ isSuperAdmin: true })`
-      // (set by the alertWebhook controller) so withTenantTx can write across
-      // orgs under FORCE'd RLS on the `messages` table.
-      const sev = alert.labels.severity ?? 'info';
-      const priority = sev === 'critical' ? 'urgent': sev === 'warning' ? 'high': 'normal';
-      const subject = `[${sev.toUpperCase()}] ${alert.labels.alertname ?? 'Alert'}`;
-      const content = inAppContent(alert);
-      try {
-        await withTenantTx(async (tx) => tx.insert(schema.message).values({
-          orgId: 'system',
-          recipientOrgId: d.orgId,
-          createdBy: 'alert-relay',
-          updatedBy: 'alert-relay',
-          messageType: 'announcement',
-          subject,
-          content,
-          priority,
-        }));
-        return true;
-      } catch (err) {
-        logger.warn('In-app alert insert failed', {
-          destinationId: d.id, orgId: d.orgId, error: errorMessage(err),
-        });
-        return false;
-      }
-    }
-    return false;
+    incCounter('alert_notification_delivery', { channel: d.channel, result });
+    return result;
   } catch (err) {
     if ((err as { name?: string }).name === 'AbortError') {
       logger.warn('Destination delivery timed out', { destinationId: d.id, timeoutMs: DELIVERY_TIMEOUT_MS });
     } else {
       logger.warn('Destination delivery failed', { destinationId: d.id, error: errorMessage(err) });
     }
-    return false;
+    incCounter('alert_notification_delivery', { channel: d.channel, result: 'failed' });
+    return 'failed';
   } finally {
     clearTimeout(timer);
   }
-}
-
-/**
- * Build the plain-text content of an in-app `messages` row from an alert.
- * Kept short  the inbox UI is a single message body, not a dashboard.
- * Labels other than `alertname`/`severity`/`tenancy` are appended as
- * `key=value` pairs so operators can correlate without leaving the inbox.
- */
-function inAppContent(alert: AlertmanagerWebhook['alerts'][number]): string {
-  const lines: string[] = [];
-  if (alert.annotations.summary) lines.push(alert.annotations.summary);
-  if (alert.annotations.description) lines.push('', alert.annotations.description);
-  const extraLabels = Object.entries(alert.labels)
-    .filter(([k]) => !['alertname', 'severity', 'tenancy', 'org_id'].includes(k))
-    .map(([k, v]) => `${k}=${v}`);
-  if (extraLabels.length > 0) lines.push('', extraLabels.join(' '));
-  lines.push('', `Status: ${alert.status} · Started: ${alert.startsAt}`);
-  return lines.join('\n');
-}
-
-/** Build a Slack incoming-webhook payload from an alert. Color matches
- * severity so on-call eyeballs find critical alerts faster. */
-function slackPayload(alert: AlertmanagerWebhook['alerts'][number]): Record<string, unknown> {
-  const sev = alert.labels.severity ?? 'info';
-  const color = sev === 'critical' ? '#dc2626': sev === 'warning' ? '#eab308': '#3b82f6';
-  const titleEmoji = alert.status === 'resolved' ? '✅': sev === 'critical' ? '🚨': '⚠️';
-  return {
-    attachments: [{
-      color,
-      title: `${titleEmoji} [${sev.toUpperCase()}] ${alert.labels.alertname ?? 'Alert'}`,
-      text: alert.annotations.summary ?? '',
-      fields: [
-        ...(alert.annotations.description ? [{ title: 'Detail', value: alert.annotations.description, short: false }]: []),
-        ...Object.entries(alert.labels)
-          .filter(([k]) => !['alertname', 'severity', 'tenancy'].includes(k))
-          .map(([k, v]) => ({ title: k, value: v, short: true })),
-        { title: 'Status', value: alert.status, short: true },
-        { title: 'Started', value: alert.startsAt, short: true },
-      ],
-      footer: 'Pipeline Builder alerts',
-    }],
-  };
 }

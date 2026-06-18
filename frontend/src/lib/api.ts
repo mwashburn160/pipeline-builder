@@ -1448,6 +1448,26 @@ class ApiClient {
   }
 
   // ==========================================================================
+  // Compliance notification preferences (per-org; read for members, write for admins)
+  // ==========================================================================
+
+  /** Read the calling org's compliance notification preference (defaults when unset). */
+  async getComplianceNotificationPreference() {
+    return this.request<ApiResponse<{ preference: import('@/types/compliance-notifications').ComplianceNotificationPreference }>>(
+      '/api/compliance/notification-preferences',
+    );
+  }
+
+  /** Upsert the calling org's preference (org-admin server-side gate). Omit
+   *  `webhookSecret` to keep the existing secret. */
+  async updateComplianceNotificationPreference(body: import('@/types/compliance-notifications').ComplianceNotificationPreferenceWrite) {
+    return this.request<ApiResponse<{ preference: import('@/types/compliance-notifications').ComplianceNotificationPreference }>>(
+      '/api/compliance/notification-preferences',
+      { method: 'PUT', body: JSON.stringify(body) },
+    );
+  }
+
+  // ==========================================================================
   // Image Registry (sysadmin-only; consumed by /dashboard/registry)
   // ==========================================================================
 

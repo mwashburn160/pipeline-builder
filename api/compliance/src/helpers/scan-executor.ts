@@ -5,7 +5,7 @@ import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-core';
 import { eq, and, or, isNull, gt, inArray } from 'drizzle-orm';
 import { logComplianceCheck } from './audit-logger.js';
-import { notifyComplianceBlock } from './compliance-notifier.js';
+import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
@@ -147,6 +147,9 @@ async function executeScanInternal(scanId: string): Promise<void> {
             if (result.blocked) {
               notifyComplianceBlock(scan.orgId, target, entity.name ?? entity.id, result.violations)
                 .catch((err) => logger.warn('Notification failed', { error: errorMessage(err) }));
+            } else if (result.warnings.length > 0) {
+              notifyComplianceWarnings(scan.orgId, target, entity.name ?? entity.id, result.warnings)
+                .catch((err) => logger.warn('Warning notification failed', { error: errorMessage(err) }));
             }
           }
           return result;

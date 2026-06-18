@@ -4,7 +4,15 @@
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+// withLeaderLock runs the guarded fn through (single-pod behaviour under test).
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  withLeaderLock: async (_redis: unknown, _key: string, _ttl: number, fn: () => Promise<void>) => { await fn(); return true; },
+}));
+
+// Stub the BullMQ-backed lock client so importing the scheduler doesn't connect to Redis.
+jest.unstable_mockModule('../src/queue/compliance-event-queue.js', () => ({
+  getLockRedis: jest.fn(async () => ({})),
+}));
 
 // Provide minimal Config + db + schema so the module loads.
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({

@@ -786,6 +786,8 @@ export const complianceNotificationPreference = pgTable('compliance_notification
   orgId: varchar('org_id', { length: 255 }).notNull().unique(),
   notifyOnBlock: boolean('notify_on_block').default(true).notNull(),
   notifyOnWarning: boolean('notify_on_warning').default(false).notNull(),
+  // Opt-in email delivery (to `targetUsers`, or all org admins when null).
+  emailEnabled: boolean('email_enabled').default(false).notNull(),
   digestMode: varchar('digest_mode', { length: 20 }).default('immediate').notNull(), // immediate | daily | weekly
   digestSchedule: varchar('digest_schedule', { length: 100 }),
   lastDigestAt: timestamp('last_digest_at', { withTimezone: true }),
@@ -1046,12 +1048,12 @@ export const orgAlertDestination = pgTable('org_alert_destinations', {
     .defaultNow()
     .notNull(),
 
-  /** 'slack' | 'webhook' | 'in-app'  kept stringly so future channels (PD,
-   * email) can be added without a schema migration. */
+  /** 'slack' | 'webhook' | 'in-app' | 'email'  kept stringly so future channels
+   * (PagerDuty, …) can be added without a schema migration. */
   channel: varchar('channel', { length: 20 })
-    .$type<'slack' | 'webhook' | 'in-app'>()
+    .$type<'slack' | 'webhook' | 'in-app' | 'email'>()
     .notNull(),
-  /** Channel-specific target. Slack: webhook URL. Webhook: HTTPS URL. In-app: ignored. */
+  /** Channel-specific target. Slack/webhook: URL. Email: address. In-app: ignored. */
   target: text('target').default('').notNull(),
   /** Friendly label shown in the settings UI. */
   label: varchar('label', { length: 100 }).notNull(),

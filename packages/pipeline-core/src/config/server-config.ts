@@ -51,6 +51,8 @@ export function loadServerConfig(): ServerConfig {
       pipelinePort: parseInt(process.env.PIPELINE_SERVICE_PORT || '3000', 10),
       messageHost: process.env.MESSAGE_SERVICE_HOST || 'message',
       messagePort: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
+      platformHost: process.env.PLATFORM_SERVICE_HOST || 'platform',
+      platformPort: parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
       complianceHost: process.env.COMPLIANCE_SERVICE_HOST || 'compliance',
       compliancePort: parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3000', 10),
       billingHost: process.env.BILLING_SERVICE_HOST || 'billing',

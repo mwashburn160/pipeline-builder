@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import type { ComplianceEvent } from '@pipeline-builder/api-core';
+import type { ComplianceEvent, LockRedis } from '@pipeline-builder/api-core';
 import { Queue, Worker } from 'bullmq';
 
 const logger = createLogger('compliance-event-queue');
@@ -39,6 +39,14 @@ export async function enqueue(event: ComplianceEvent): Promise<void> {
  */
 export function getQueueRedis(): Promise<{ ping(): Promise<string> }> {
   return queue.client as unknown as Promise<{ ping(): Promise<string> }>;
+}
+
+/**
+ * The same ioredis client, typed for `withLeaderLock` (SET NX PX). Used by the
+ * digest scheduler so only one pod flushes per window across replicas.
+ */
+export function getLockRedis(): Promise<LockRedis> {
+  return queue.client as unknown as Promise<LockRedis>;
 }
 
 /**

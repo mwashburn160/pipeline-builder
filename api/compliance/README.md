@@ -10,6 +10,7 @@ Per-organization compliance rule enforcement for pipelines and plugins — autho
 - **Exemptions** — per-entity rule exemptions with an approval workflow.
 - **Scans & schedules** — re-evaluate existing entities against current rules on demand or on a cron schedule, with concurrency control, progress tracking, and cancellation.
 - **Audit log** — records every compliance check; pruned daily on a retention window.
+- **Notifications** — alerts orgs on blocks (and, opt-in, warnings) via the in-app inbox, email (delegated to the platform service, which resolves recipients), and HMAC-signed webhooks; per-org preferences gate severity/channels, with immediate or daily/weekly digests flushed by a Redis-leader-locked scheduler (so only one replica delivers).
 - **Async re-validation** — consumes entity lifecycle events (from the plugin/pipeline services) off a BullMQ/Redis queue and re-evaluates affected entities under each event's tenant scope.
 
 Built on the shared core packages: `@pipeline-builder/api-core` (auth, quota, response helpers), `@pipeline-builder/api-server` (app factory, request context), and `@pipeline-builder/pipeline-core` (config, tenant context). Requires Redis for the event queue.
@@ -52,6 +53,7 @@ The service listens on port `3000`. The API gateway (nginx) routes `/api/complia
 | GET | `/compliance/templates` | List rule templates |
 | POST | `/compliance/templates/apply` | Apply a template to bootstrap rules |
 | GET | `/compliance/audit` | Query the compliance audit log |
+| GET/PUT | `/compliance/notification-preferences` | Read / upsert the org's notification preference (PUT is org-admin; webhook secret never returned) |
 | POST | `/compliance/events/entity` | Internal entity-event receiver (service-principal JWT only) |
 
 ## Configuration
@@ -68,6 +70,12 @@ Shared server/auth/DB/Redis settings (`PORT`, `JWT_SECRET`, `DB_*`, `REDIS_HOST`
 | `COMPLIANCE_MAX_REGEX_LENGTH` | Cap on user-supplied regex length in rule conditions | unset (no cap) |
 | `COMPLIANCE_SCAN_CONCURRENCY` | Concurrent entity evaluations per scan | `10` |
 | `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE` | Entities per scan-progress update | `10` |
+| `SCAN_SCHEDULER_INTERVAL_MS` | Scan scheduler tick interval (ms) | `60000` |
+| `SCAN_LOCK_TTL_MS` | Scan scheduler cross-pod leader-lock TTL (ms) | `300000` |
+| `DIGEST_SCHEDULER_INTERVAL_MS` | Notification digest scheduler tick interval (ms) | `3600000` |
+| `DIGEST_LOCK_TTL_MS` | Digest scheduler cross-pod leader-lock TTL (ms) | `300000` |
+| `PLATFORM_SERVICE_HOST` | Platform service host for email delivery | `platform` |
+| `PLATFORM_SERVICE_PORT` | Platform service port | `3000` |
 
 ## Development
 

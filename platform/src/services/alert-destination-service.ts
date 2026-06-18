@@ -11,7 +11,7 @@ type OrgAlertDestination = typeof schema.orgAlertDestination.$inferSelect;
 type OrgAlertDestinationInsert = typeof schema.orgAlertDestination.$inferInsert;
 
 export interface DestinationCreate {
-  channel: 'slack' | 'webhook' | 'in-app';
+  channel: 'slack' | 'webhook' | 'in-app' | 'email';
   target: string;
   label: string;
   minSeverity?: 'warning' | 'critical';
@@ -19,7 +19,7 @@ export interface DestinationCreate {
 }
 
 export interface DestinationUpdate {
-  channel?: 'slack' | 'webhook' | 'in-app';
+  channel?: 'slack' | 'webhook' | 'in-app' | 'email';
   target?: string;
   label?: string;
   minSeverity?: 'warning' | 'critical';
