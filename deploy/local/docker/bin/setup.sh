@@ -56,6 +56,12 @@ BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared helpers
 # generators (see deploy/bin/{nginx-tls,jwt-keys}.sh). Both skip when the files
 # already exist, so re-running setup is cheap and doesn't rotate keys.
 bash "$BIN_DIR/nginx-tls.sh" "$CERT_DIR"
+# image-registry token-signing keypair → certs/image-registry-jwt.{key,crt},
+# bind-mounted as /etc/registry/jwt-{private,public}.pem by the registry +
+# image-registry containers. MUST exist before `compose up`, otherwise Docker
+# creates the mount paths as empty DIRECTORIES and both containers crash-loop
+# ("is a directory" / EISDIR reading the PEM). Idempotent (skips if present).
+bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 # (No registry htpasswd: the registry uses token auth — REGISTRY_AUTH: token in
 # docker-compose.yml; nothing mounts registry.passwd.)
 
