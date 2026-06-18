@@ -1,3 +1,9 @@
+---
+layout: default
+title: Testing Plugins
+description: 14 testing plugins — unit, integration, API contract, load/performance, E2E browser, and smoke testing.
+---
+
 # Testing Plugins
 
 Unit, integration, API contract, load/performance, E2E browser, and smoke testing.

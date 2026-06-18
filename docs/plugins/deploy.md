@@ -1,3 +1,9 @@
+---
+layout: default
+title: Deploy Plugins
+description: 13 deploy plugins — cloud provisioning, Kubernetes, serverless, and database migration.
+---
+
 # Deploy Plugins
 
 Cloud provisioning, Kubernetes, serverless, and database migration plugins.

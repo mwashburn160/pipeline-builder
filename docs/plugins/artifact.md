@@ -1,3 +1,9 @@
+---
+layout: default
+title: Artifact & Registry Plugins
+description: 16 artifact & registry plugins — package publishing, container image push, and binary compilation.
+---
+
 # Artifact & Registry Plugins
 
 Build container images, push to registries, and publish packages.

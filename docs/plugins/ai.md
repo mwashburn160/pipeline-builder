@@ -1,3 +1,9 @@
+---
+layout: default
+title: AI Plugins
+description: AI-powered plugins for Pipeline Builder — pipeline generation and AI-assisted build steps in AWS CodePipeline.
+---
+
 # AI Plugins
 
 AI-powered Dockerfile generation using cloud AI models. A single multi-provider plugin scans your project's build and dependency files, then asks the AI provider of your choice to produce an optimized, production-ready Dockerfile — no per-language Dockerfile templates to maintain.

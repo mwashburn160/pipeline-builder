@@ -1,3 +1,9 @@
+---
+layout: default
+title: Notification Plugins
+description: Notification plugins — pipeline status alerts via Slack, Teams, PagerDuty, email, and GitHub.
+---
+
 # Notification Plugins
 
 Pipeline status alerts and incident management integrations. All five plugins run as `SMALL` CodeBuildSteps with `failureBehavior: warn`, so a notification or alerting outage never fails your pipeline. Slack and Teams also support arbitrary `custom` messages, and PagerDuty supports both `trigger` and `resolve` events for auto-closing incidents.

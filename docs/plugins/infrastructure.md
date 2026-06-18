@@ -1,3 +1,9 @@
+---
+layout: default
+title: Infrastructure Plugins
+description: Infrastructure plugins — AWS CDK synth and pipeline utilities (approval gates, S3 cache, raw shell step).
+---
+
 # Infrastructure Plugins
 
 AWS CDK synthesis/deployment and pipeline utility plugins.

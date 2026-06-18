@@ -1,3 +1,9 @@
+---
+layout: default
+title: Code Quality Plugins
+description: 17 code-quality plugins — linting, formatting, static analysis, and code-coverage reporting.
+---
+
 # Code Quality Plugins
 
 Linting, formatting, static analysis, and code coverage reporting. Plugins auto-detect the project's package manager or build tool (for example npm/yarn/pnpm for ESLint, Gradle/Maven for JaCoCo), so a single plugin works across repos without per-project setup. Most run with no secrets; report uploaders supply the relevant token.

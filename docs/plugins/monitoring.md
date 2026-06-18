@@ -1,3 +1,9 @@
+---
+layout: default
+title: Monitoring Plugins
+description: Monitoring plugins — APM and release tracking for pipeline observability.
+---
+
 # Monitoring Plugins
 
 APM and release tracking integrations.

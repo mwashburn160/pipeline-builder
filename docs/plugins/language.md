@@ -1,3 +1,9 @@
+---
+layout: default
+title: Language Plugins
+description: 11 plugins to build, test, and compile across major languages in AWS CodePipeline.
+---
+
 # Language Plugins
 
 Build, test, and compile plugins for major programming languages. Most auto-detect the project's build tool or package manager, so a single plugin works across repos without per-project configuration. Runtime versions are selected via the version env vars below, with common versions pre-staged in each image for fast startup, and test runs emit standard reports (JUnit XML, coverage) where the toolchain supports them.
