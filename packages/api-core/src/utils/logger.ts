@@ -9,7 +9,11 @@ const { combine, timestamp, printf, colorize, errors, json } = winston.format;
 // ESM has no global `require`; createRequire enables the synchronous, OPTIONAL
 // lazy-load of @opentelemetry/api in getCurrentTraceId() below — a winston
 // format callback must stay synchronous, so a dynamic import() won't work there.
-const require = createRequire(import.meta.url);
+// `import.meta.url` is undefined when this ESM source is bundled to CJS (e.g. the
+// CDK Lambda bundle), where createRequire(undefined) would throw at load — fall
+// back to the process entry path so it always has a valid base.
+const moduleBase = (import.meta as { url?: string }).url ?? process.argv[1] ?? `${process.cwd()}/index.js`;
+const require = createRequire(moduleBase);
 
 /**
  * Custom log format for human-readable console output.

@@ -272,7 +272,10 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       try {
         // ESM has no global `require`; createRequire loads the optional redis
         // deps synchronously here (only when a redisUrl is configured).
-        const require = createRequire(import.meta.url);
+        // `import.meta.url` is undefined under CJS bundling — fall back to the
+        // process entry path so createRequire always has a valid base.
+        const moduleBase = (import.meta as { url?: string }).url ?? process.argv[1] ?? `${process.cwd()}/index.js`;
+        const require = createRequire(moduleBase);
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { RedisStore } = require('rate-limit-redis');
         // eslint-disable-next-line @typescript-eslint/no-require-imports
