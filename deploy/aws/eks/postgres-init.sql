@@ -158,9 +158,7 @@ CREATE TABLE IF NOT EXISTS messages (    -- Identity & Audit Fields
 CREATE TABLE IF NOT EXISTS pipeline_registry (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     pipeline_id UUID NOT NULL,
     org_id VARCHAR(255) NOT NULL,
-    pipeline_arn VARCHAR(512) NOT NULL UNIQUE,
     pipeline_name VARCHAR(255) NOT NULL,
-    account_id VARCHAR(12),
     region VARCHAR(30),
     project VARCHAR(255),
     organization VARCHAR(255),
@@ -182,7 +180,6 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
     event_type VARCHAR(50) NOT NULL
                         CHECK (event_type IN ('PIPELINE', 'STAGE', 'ACTION', 'BUILD')),
     status VARCHAR(20) NOT NULL,
-    pipeline_arn VARCHAR(512),
     execution_id VARCHAR(255),
     stage_name VARCHAR(255),
     action_name VARCHAR(255),
@@ -498,6 +495,16 @@ CREATE INDEX IF NOT EXISTS idx_pipelines_org_created
 CREATE UNIQUE INDEX IF NOT EXISTS pipeline_project_org_unique
     ON pipelines(project, organization, org_id);
 
+-- Schema drift cleanup: the ARN->pipeline_id refactor removed pipeline_arn /
+-- account_id from the app (drizzle) schema, but older deploys still have them.
+-- pipeline_registry.pipeline_arn was NOT NULL with no app-supplied value, so the
+-- registry upsert failed on every register. Drop the obsolete columns (idempotent;
+-- DROP COLUMN also removes pipeline_arn's UNIQUE constraint and the dependent
+-- event_pipeline_arn_idx). pipeline_id is now the sole registry/event join key.
+ALTER TABLE pipeline_registry DROP COLUMN IF EXISTS pipeline_arn;
+ALTER TABLE pipeline_registry DROP COLUMN IF EXISTS account_id;
+ALTER TABLE pipeline_events   DROP COLUMN IF EXISTS pipeline_arn;
+
 -- Pipeline Registry indexes
 -- pipeline_id is UNIQUE — the registry upsert uses ON CONFLICT (pipeline_id),
 -- which requires a unique index to match against. Older deploys created this
@@ -525,9 +532,6 @@ CREATE INDEX IF NOT EXISTS event_type_idx
 
 CREATE INDEX IF NOT EXISTS event_status_idx
     ON pipeline_events(status);
-
-CREATE INDEX IF NOT EXISTS event_pipeline_arn_idx
-    ON pipeline_events(pipeline_arn);
 
 CREATE INDEX IF NOT EXISTS event_execution_id_idx
     ON pipeline_events(execution_id);

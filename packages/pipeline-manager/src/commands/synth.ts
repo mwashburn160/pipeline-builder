@@ -55,6 +55,17 @@ async function fetchPipelineConfig(
   }
 
   process.env.PIPELINE_PROPS = Buffer.from(JSON.stringify(propsWithIds)).toString('base64');
+
+  // Propagate the resolved platform base URL into the boilerplate synth (which
+  // inherits process.env). loadRegistryConfig() derives the registry PULL host
+  // from PLATFORM_BASE_URL / IMAGE_REGISTRY_PULL_HOST; it only reads the env, so
+  // without this a URL configured via ~/.pipeline-manager/config.yml is invisible
+  // to the synth and it bakes the in-cluster `registry:5000` into CodeBuild (which
+  // can't resolve it from the VPC). IMAGE_REGISTRY_PULL_HOST still wins if set.
+  if (config.api.baseUrl) {
+    process.env.PLATFORM_BASE_URL = config.api.baseUrl;
+  }
+
   printSuccess('Pipeline configuration loaded');
 }
 

@@ -85,7 +85,7 @@ export function deploy(program: Command): void {
         let propsWithIds: Record<string, unknown>;
         // Remote-mode registry-post handles — null in --local-spec mode.
         let platformClient: Awaited<ReturnType<typeof createAuthenticatedClientAsync>> | undefined;
-        let platformConfig: { api: { pipelineUrl: string } } | undefined;
+        let platformConfig: { api: { pipelineUrl: string; baseUrl: string } } | undefined;
 
         if (options.localSpec) {
           // --local-spec: read pipeline.json from disk; no platform contact.
@@ -124,7 +124,7 @@ export function deploy(program: Command): void {
         } else {
           // Remote path: fetch config from platform API
           platformClient = await createAuthenticatedClientAsync(options);
-          platformConfig = platformClient.getConfig() as { api: { pipelineUrl: string } };
+          platformConfig = platformClient.getConfig() as { api: { pipelineUrl: string; baseUrl: string } };
 
           printInfo('Fetching pipeline configuration', { id: options.id });
           const response = await platformClient.get<PipelineResponse>(
@@ -211,11 +211,25 @@ export function deploy(program: Command): void {
         console.log(cyan(bold('Command:')), dim(command.split(' --')[0] + ' ...'));
         console.log(''); // Empty line
 
+        // Forward the platform base URL the deploy actually resolved (from
+        // ~/.pipeline-manager/config.yml or the PLATFORM_BASE_URL env var) into
+        // the CDK synth subprocess. The synth's loadRegistryConfig() derives the
+        // registry PULL host from PLATFORM_BASE_URL / IMAGE_REGISTRY_PULL_HOST; it
+        // only reads process.env, so without this it can't see a URL configured
+        // via the config file and silently bakes the in-cluster `registry:5000`
+        // into CodeBuild — which can't resolve it from the VPC. An explicit
+        // IMAGE_REGISTRY_PULL_HOST still wins (loadRegistryConfig checks it first).
+        // --local-spec mode has no platformConfig, so this is remote-only.
+        const cdkEnv: Record<string, string> = { PIPELINE_PROPS: encoded };
+        if (platformConfig?.api.baseUrl) {
+          cdkEnv.PLATFORM_BASE_URL = platformConfig.api.baseUrl;
+        }
+
         // Execute CDK command
         const result = executeCdkShellCommand(command, {
           debug: program.opts().debug,
           showOutput: true,
-          env: { PIPELINE_PROPS: encoded },
+          env: cdkEnv,
         });
 
         console.log(''); // Empty line
