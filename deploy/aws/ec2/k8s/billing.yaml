@@ -148,7 +148,10 @@ spec:
     kind: Deployment
     name: billing
   minReplicas: 1
-  maxReplicas: 3
+  # Pinned to 1 on the single-node EC2 box: billing is low-traffic and its
+  # spurious memory-util scale-ups (small request → high %) crowd the node,
+  # starving the plugin build pod of CPU. Raise on a larger/multi-node target.
+  maxReplicas: 1
   metrics:
     - type: Resource
       resource:
