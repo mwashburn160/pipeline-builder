@@ -12,7 +12,7 @@ spec:
   type: NodePort
   ports:
     - port: 80
-      targetPort: 80
+      targetPort: 8080
       nodePort: 30480
       protocol: TCP
       name: http
@@ -98,8 +98,14 @@ spec:
         - name: pgadmin
           image: dpage/pgadmin4:9
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
+          env:
+            # The image auto-switches to 8080 under a restricted (non-root,
+            # no-new-privileges) security context; set it explicitly so the
+            # listen port, containerPort, Service targetPort, and probes agree.
+            - name: PGADMIN_LISTEN_PORT
+              value: "8080"
           envFrom:
             - secretRef:
                 name: pgadmin-secret
@@ -117,7 +123,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /misc/ping
-              port: 80
+              port: 8080
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
@@ -125,7 +131,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /misc/ping
-              port: 80
+              port: 8080
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 5

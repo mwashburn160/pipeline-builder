@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, createScheduler, type Scheduler, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { config } from '../config.js';
 import { createBillingEvent, syncTierToQuotaService } from './billing-helpers.js';
@@ -19,47 +19,22 @@ const logger = createLogger('subscription-lifecycle');
  * 3. **Renewal reminders**: Notify orgs approaching their billing period end
  */
 
-let lifecycleTimer: ReturnType<typeof setInterval> | null = null;
+// Defensive tenant scope: today this cron only touches Mongo (Subscription,
+// Plan), so no RLS GUCs are needed. But if a future change adds a Postgres read
+// here, it would silently get an RLS denial without an active tenant scope. Wrap
+// the whole cron in a sysadmin scope to match the other multi-org crons
+// (compliance scan-scheduler, audit-prune).
+const scheduler: Scheduler = createScheduler({
+  name: 'subscription-lifecycle',
+  intervalMs: config.lifecycleCheckIntervalMs,
+  run: () => runWithTenantContext({ isSuperAdmin: true }, runLifecycleCheck),
+});
 
-/**
- * Start the periodic subscription lifecycle checker.
- * Safe to call multiple times — only starts one timer.
- */
-export function startSubscriptionLifecycleChecker(): void {
-  if (lifecycleTimer) return;
-
-  const intervalMs = config.lifecycleCheckIntervalMs;
-
-  // Defensive tenant scope: today this cron only touches Mongo (Subscription,
-  // Plan), so no RLS GUCs are needed. But if a future change adds a Postgres
-  // read here (e.g. cross-checking against pipeline data), it would silently
-  // get a RLS denial without an active tenant scope. Wrap the whole cron in
-  // a sysadmin scope to match the pattern used by other multi-org crons
-  // (compliance scan-scheduler, audit-prune).
-  const runWithSysAdmin = () => runWithTenantContext({ isSuperAdmin: true }, runLifecycleCheck);
-
-  // Run immediately on startup, then on interval
-  runWithSysAdmin().catch((err) =>
-    logger.error('Initial lifecycle check failed', { error: errorMessage(err) }),
-  );
-
-  lifecycleTimer = setInterval(() => {
-    runWithSysAdmin().catch((err) =>
-      logger.error('Lifecycle check failed', { error: errorMessage(err) }),
-    );
-  }, intervalMs);
-  lifecycleTimer.unref();
-
-  logger.info('Subscription lifecycle checker started', { intervalMs });
-}
+/** Start the periodic subscription lifecycle checker. Safe to call multiple times. */
+export function startSubscriptionLifecycleChecker(): void { scheduler.start(); }
 
 /** Stop the lifecycle checker (for graceful shutdown). */
-export function stopSubscriptionLifecycleChecker(): void {
-  if (lifecycleTimer) {
-    clearInterval(lifecycleTimer);
-    lifecycleTimer = null;
-  }
-}
+export function stopSubscriptionLifecycleChecker(): void { scheduler.stop(); }
 
 /** Run all lifecycle checks. */
 async function runLifecycleCheck(): Promise<void> {

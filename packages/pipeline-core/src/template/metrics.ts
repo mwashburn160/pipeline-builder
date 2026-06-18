@@ -9,15 +9,12 @@
  * server contexts.
  */
 
-import { createRequire } from 'node:module';
+import { safeCreateRequire } from '@pipeline-builder/api-core';
 
-// ESM has no global `require`; createRequire enables the synchronous, OPTIONAL
-// lazy-load of prom-client below (no-op stubs when it isn't installed).
-// `import.meta.url` is undefined when this ESM source is bundled to CJS (e.g. the
-// CDK Lambda bundle), where createRequire(undefined) would throw at load — fall
-// back to the process entry path so it always has a valid base.
-const moduleBase = (import.meta as { url?: string }).url ?? process.argv[1] ?? `${process.cwd()}/index.js`;
-const require = createRequire(moduleBase);
+// ESM has no global `require`; safeCreateRequire enables the synchronous,
+// OPTIONAL lazy-load of prom-client below (no-op stubs when it isn't installed).
+// (CJS-bundle safe — see api-core's safe-require.ts.)
+const require = safeCreateRequire(import.meta.url);
 
 interface Counter { inc(labels?: Record<string, string>, value?: number): void }
 interface Histogram { observe(labels: Record<string, string>, value: number): void }

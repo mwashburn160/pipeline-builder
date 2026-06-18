@@ -33,7 +33,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   // CoreConstants.CACHE_TTL_COMPLIANCE_RULES at module load. Provide a stub.
   CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60_000 },
   // Transitive import chain (policy-service → compliance-rule-service →
-  // rule-change-notifier → message-client) reads Config.getAny('server').
+  // rule-change-notifier → message-client) builds its client via createServiceClient.
+  createServiceClient: () => ({ post: jest.fn(), get: jest.fn() }),
   Config: {
     getAny: (key: string) => key === 'server'
       ? { services: { messageHost: 'localhost', messagePort: 0 } }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export * from './logger.js';
+export * from './safe-require.js';
 export * from './crash-handlers.js';
 export * from './response.js';
 export * from './params.js';

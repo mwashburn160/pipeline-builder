@@ -13,7 +13,7 @@
  * context for the cross-org sweep, started/stopped from index.ts.
  */
 
-import { createLogger, errorMessage, withLeaderLock } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
 import { Config, runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { dispatchImmediate } from './compliance-notifier.js';
 import type { ComplianceNotification } from './notification-channels.js';
@@ -40,8 +40,6 @@ const LOCK_TTL_MS = Number(complianceConfig.digestLockTtlMs ?? 300_000);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
-
-let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Whether an org's digest is due to flush now. */
 export function isDigestDue(preference: ComplianceNotificationPreference | null, now: Date): boolean {
@@ -102,32 +100,17 @@ async function sweep(): Promise<void> {
   });
 }
 
-/**
- * One scheduler pass, guarded by a cross-pod leader lock so that with multiple
- * compliance replicas only ONE pod flushes per window (others no-op).
- */
-async function runDigestCycle(): Promise<void> {
-  const redis = await getLockRedis();
-  const ran = await withLeaderLock(redis, LOCK_KEY, LOCK_TTL_MS, sweep);
-  if (!ran) logger.debug('Digest cycle skipped — another pod holds the lock');
-}
+// Cross-pod leader lock so that with multiple compliance replicas only ONE pod
+// flushes per window (others no-op).
+const scheduler: Scheduler = createScheduler({
+  name: 'digest-scheduler',
+  intervalMs: SCHEDULER_INTERVAL_MS,
+  lock: { redis: getLockRedis, key: LOCK_KEY, ttlMs: LOCK_TTL_MS },
+  run: sweep,
+});
 
 /** Start the background digest scheduler. Safe to call multiple times. */
-export function startDigestScheduler(): void {
-  if (schedulerTimer) return;
-  runDigestCycle().catch((err) => logger.error('Initial digest cycle failed', { error: errorMessage(err) }));
-  schedulerTimer = setInterval(() => {
-    runDigestCycle().catch((err) => logger.error('Digest cycle failed', { error: errorMessage(err) }));
-  }, SCHEDULER_INTERVAL_MS);
-  schedulerTimer.unref();
-  logger.info('Digest scheduler started', { intervalMs: SCHEDULER_INTERVAL_MS });
-}
+export function startDigestScheduler(): void { scheduler.start(); }
 
 /** Stop the digest scheduler (graceful shutdown). */
-export function stopDigestScheduler(): void {
-  if (schedulerTimer) {
-    clearInterval(schedulerTimer);
-    schedulerTimer = null;
-    logger.info('Digest scheduler stopped');
-  }
-}
+export function stopDigestScheduler(): void { scheduler.stop(); }

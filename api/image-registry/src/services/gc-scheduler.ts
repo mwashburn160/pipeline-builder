@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
 import { listRepositories } from './registry-client.js';
 import { runRegistryGc } from './registry-gc.js';
 import { invalidateStorageCache } from './storage-usage.js';
@@ -10,9 +10,7 @@ const logger = createLogger('gc-scheduler');
 
 const ORG_PREFIX = 'org-';
 
-let timer: ReturnType<typeof setInterval> | null = null;
-let startupTimer: ReturnType<typeof setTimeout> | null = null;
-let stopped = false;
+let scheduler: Scheduler | null = null;
 
 interface SchedulerOptions {
   /** Whether the scheduler should be active. Defaults to false; opt in via env. */
@@ -119,7 +117,7 @@ export function startGcScheduler(): void {
     logger.info('Registry GC scheduler disabled (set REGISTRY_GC_ENABLED=true to opt in)');
     return;
   }
-  if (timer || startupTimer) return;
+  if (scheduler) return;
 
   logger.info('Registry GC scheduler starting', {
     intervalHours: cfg.intervalMs / 3_600_000,
@@ -127,31 +125,23 @@ export function startGcScheduler(): void {
     startupDelayMs: cfg.startupDelayMs,
   });
 
-  stopped = false;
   // First sweep after a short delay so the registry has had time to start
-  // accepting connections. Subsequent sweeps run on the cadence.
-  startupTimer = setTimeout(() => {
-    startupTimer = null;
-    if (stopped) return;
-    void sweepOnce(cfg.maxAgeDays);
-    timer = setInterval(() => void sweepOnce(cfg.maxAgeDays), cfg.intervalMs);
-    timer.unref();
-  }, cfg.startupDelayMs);
-  startupTimer.unref();
+  // accepting connections; subsequent sweeps run on the cadence.
+  scheduler = createScheduler({
+    name: 'gc-scheduler',
+    intervalMs: cfg.intervalMs,
+    startupDelayMs: cfg.startupDelayMs,
+    run: () => sweepOnce(cfg.maxAgeDays),
+  });
+  scheduler.start();
 
   process.once('SIGTERM', stopGcScheduler);
 }
 
 /** Stop the scheduler. Exported mainly for tests / clean shutdown. */
 export function stopGcScheduler(): void {
-  stopped = true;
-  if (startupTimer) {
-    clearTimeout(startupTimer);
-    startupTimer = null;
-  }
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-    logger.info('Registry GC scheduler stopped');
+  if (scheduler) {
+    scheduler.stop();
+    scheduler = null;
   }
 }

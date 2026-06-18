@@ -9,7 +9,7 @@
 import { describe, it, expect, jest } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ withLeaderLock: jest.fn() }));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ createScheduler: () => ({ start: jest.fn(), stop: jest.fn() }) }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: { getAny: () => ({}) },
   runWithTenantContext: (_c: unknown, fn: () => unknown) => fn(),

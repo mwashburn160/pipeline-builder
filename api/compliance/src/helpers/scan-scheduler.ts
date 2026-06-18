@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, withLeaderLock, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, type Scheduler, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config, schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { eq, and, lte, sql } from 'drizzle-orm';
 import { executeScan } from './scan-executor.js';
@@ -29,40 +29,6 @@ const SYSTEM_ORG_SCANS_ENABLED = Boolean(complianceConfig.systemOrgScansEnabled 
 const LOCK_KEY = 'compliance:scan-scheduler:leader';
 const LOCK_TTL_MS = Number(complianceConfig.scanLockTtlMs ?? 300_000);
 
-let schedulerTimer: ReturnType<typeof setInterval> | null = null;
-
-/**
- * Start the background scan scheduler.
- * Periodically processes pending scans and creates scans from active schedules.
- * Safe to call multiple times — only starts one timer.
- */
-export function startScanScheduler(): void {
-  if (schedulerTimer) return;
-
-  // Run immediately on startup
-  runSchedulerCycle().catch((err) =>
-    logger.error('Initial scheduler cycle failed', { error: errorMessage(err) }),
-  );
-
-  schedulerTimer = setInterval(() => {
-    runSchedulerCycle().catch((err) =>
-      logger.error('Scheduler cycle failed', { error: errorMessage(err) }),
-    );
-  }, SCHEDULER_INTERVAL_MS);
-  schedulerTimer.unref();
-
-  logger.info('Scan scheduler started', { intervalMs: SCHEDULER_INTERVAL_MS });
-}
-
-/** Stop the scan scheduler (for graceful shutdown). */
-export function stopScanScheduler(): void {
-  if (schedulerTimer) {
-    clearInterval(schedulerTimer);
-    schedulerTimer = null;
-    logger.info('Scan scheduler stopped');
-  }
-}
-
 /**
  * The actual sweep: process pending scans + check due schedules.
  *
@@ -77,16 +43,20 @@ async function sweep(): Promise<void> {
   });
 }
 
-/**
- * One scheduler pass, guarded by a cross-pod leader lock so that with multiple
- * compliance replicas only ONE pod sweeps per window (others no-op) — without
- * it, every replica would re-execute the same pending scans.
- */
-async function runSchedulerCycle(): Promise<void> {
-  const redis = await getLockRedis();
-  const ran = await withLeaderLock(redis, LOCK_KEY, LOCK_TTL_MS, sweep);
-  if (!ran) logger.debug('Scan cycle skipped — another pod holds the lock');
-}
+// Cross-pod leader lock so that with multiple compliance replicas only ONE pod
+// sweeps per window — without it, every replica would re-execute pending scans.
+const scheduler: Scheduler = createScheduler({
+  name: 'scan-scheduler',
+  intervalMs: SCHEDULER_INTERVAL_MS,
+  lock: { redis: getLockRedis, key: LOCK_KEY, ttlMs: LOCK_TTL_MS },
+  run: sweep,
+});
+
+/** Start the background scan scheduler. Safe to call multiple times. */
+export function startScanScheduler(): void { scheduler.start(); }
+
+/** Stop the scan scheduler (for graceful shutdown). */
+export function stopScanScheduler(): void { scheduler.stop(); }
 
 /** Find and execute all pending scans. */
 async function processPendingScans(): Promise<void> {

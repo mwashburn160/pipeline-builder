@@ -41,6 +41,7 @@
 // Configuration
 export * from './config/app-config.js';
 export * from './config/config-types.js';
+export * from './config/service-client.js';
 
 // Core types (public surface)
 export * from './core/pipeline-types.js';

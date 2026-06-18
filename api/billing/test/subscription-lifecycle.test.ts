@@ -16,6 +16,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     post: jest.fn().mockResolvedValue({ statusCode: 201 }),
   }),
   getServiceAuthHeader: () => 'Bearer test-service-token',
+  // Stub the scheduler but preserve run-on-start: these tests call
+  // startSubscriptionLifecycleChecker() and assert the cycle's effects, so
+  // start() must invoke the configured run() (the interval itself is api-core's
+  // concern, tested there).
+  createScheduler: (opts: { run: () => Promise<void> }) => ({
+    start: () => { void opts.run(); },
+    stop: () => undefined,
+  }),
 }));
 
 // Pass-through tenant-context wrapper. Real runWithTenantContext lives in

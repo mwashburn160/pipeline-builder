@@ -43,6 +43,12 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    // Optional-dep require shim → always "unavailable" so callers fall back to no-ops.
+    safeCreateRequire: () => ((_id: string) => { throw new Error('require unavailable in tests'); }),
+    // Scheduler factory stub — no-op start/stop (real behaviour tested in api-core).
+    createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+    // pipeline-core's barrel imports this (createServiceClient); link-time stub.
+    InternalHttpClient: class {},
     SYSTEM_ORG_ID: 'system',
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },

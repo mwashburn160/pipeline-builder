@@ -1,19 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createRequire } from 'node:module';
+import { safeCreateRequire } from './safe-require.js';
 import winston from 'winston';
 
 const { combine, timestamp, printf, colorize, errors, json } = winston.format;
 
-// ESM has no global `require`; createRequire enables the synchronous, OPTIONAL
-// lazy-load of @opentelemetry/api in getCurrentTraceId() below — a winston
-// format callback must stay synchronous, so a dynamic import() won't work there.
-// `import.meta.url` is undefined when this ESM source is bundled to CJS (e.g. the
-// CDK Lambda bundle), where createRequire(undefined) would throw at load — fall
-// back to the process entry path so it always has a valid base.
-const moduleBase = (import.meta as { url?: string }).url ?? process.argv[1] ?? `${process.cwd()}/index.js`;
-const require = createRequire(moduleBase);
+// ESM has no global `require`; safeCreateRequire enables the synchronous,
+// OPTIONAL lazy-load of @opentelemetry/api in getCurrentTraceId() below — a
+// winston format callback must stay synchronous, so a dynamic import() won't
+// work there. (CJS-bundle safe — see safe-require.ts.)
+const require = safeCreateRequire(import.meta.url);
 
 /**
  * Custom log format for human-readable console output.

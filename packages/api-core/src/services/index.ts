@@ -3,6 +3,7 @@
 
 export * from './cache-service.js';
 export * from './leader-lock.js';
+export * from './scheduler.js';
 export * from './compliance-client.js';
 export * from './compliance-event-subscriber.js';
 export * from './entity-events.js';
