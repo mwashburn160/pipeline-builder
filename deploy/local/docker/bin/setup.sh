@@ -104,6 +104,13 @@ chmod 1777 "$PLUGIN_BUILDS_HOST" "$PLUGIN_UPLOADS_HOST"
 # Plugin builds run via a rootless buildkitd sidecar — no strategy choice,
 # no dind, no certs to generate. See deploy/local/docker/docker-compose.yml.
 
+# Register QEMU/binfmt when the build target arch differs from the host (e.g.
+# building linux/amd64 plugin images on an arm64 box) — rootless buildkit can't
+# do it itself. No-op on Docker Desktop (QEMU pre-registered) and on same-arch.
+# PUBLISH_PLATFORM is read from .env (compose's default is linux/amd64).
+PUBLISH_PLATFORM="$(grep -E '^PUBLISH_PLATFORM=' "$DEPLOY_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+bash "$BIN_DIR/ensure-binfmt.sh" "${PUBLISH_PLATFORM:-linux/amd64}"
+
 # -----------------------------------------------------------------------
 # Start services
 # -----------------------------------------------------------------------

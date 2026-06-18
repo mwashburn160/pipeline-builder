@@ -251,6 +251,11 @@ configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/
 # Ensure plugin hostPath directories exist on data volume.
 minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/plugins-data/builds ${VM_DATA_DIR}/plugins-data/uploads && sudo chown -R 1000:1000 ${VM_DATA_DIR}/plugins-data"
 
+# Register QEMU/binfmt for cross-arch plugin builds (e.g. amd64 on an arm64 box).
+# No-op on Docker Desktop / same-arch. The minikube node shares the host (VM)
+# kernel's binfmt_misc, so registering it via host docker reaches the node too.
+bash "$BIN_DIR/ensure-binfmt.sh" "${PUBLISH_PLATFORM:-linux/amd64}"
+
 log "Applying Kubernetes manifests"
 # Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
 # shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
