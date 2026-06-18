@@ -15,9 +15,10 @@ import { getComputeType } from '../core/pipeline-helpers.js';
  * - `IMAGE_REGISTRY_HOST` — Registry hostname (default: `'registry'`)
  * - `IMAGE_REGISTRY_PORT` — Registry port (default: `5000`)
  * - `IMAGE_REGISTRY_PULL_HOST` — Host an out-of-cluster client (CodeBuild)
- *   uses to pull plugin images (default: `IMAGE_REGISTRY_HOST`).
- * - `IMAGE_REGISTRY_PULL_PORT` — Port for the above (default:
- *   `IMAGE_REGISTRY_PORT`).
+ *   uses to pull plugin images. When unset, derived from `PLATFORM_BASE_URL`'s
+ *   host (the public endpoint CodeBuild can resolve), then `IMAGE_REGISTRY_HOST`.
+ * - `IMAGE_REGISTRY_PULL_PORT` — Port for the above. When unset, derived from
+ *   `PLATFORM_BASE_URL`'s port, then `IMAGE_REGISTRY_PORT`.
  * - `DOCKER_NETWORK` — Docker network for build/push (default: `''`)
  * - `IMAGE_REGISTRY_HTTP` — Use plain HTTP instead of HTTPS (default: `true`,
  *   the in-cluster registry has no TLS).
@@ -27,15 +28,35 @@ import { getComputeType } from '../core/pipeline-helpers.js';
 export function loadRegistryConfig(): RegistryConfig {
   const host = process.env.IMAGE_REGISTRY_HOST || 'registry';
   const port = parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10);
+  // When no explicit pull host is set, derive it from PLATFORM_BASE_URL — the
+  // public platform endpoint an out-of-cluster client (AWS CodeBuild) can
+  // resolve, unlike the in-cluster `registry` ClusterIP. Only falls back to the
+  // in-cluster host when PLATFORM_BASE_URL is unset/unparseable (e.g. local).
+  const platform = parsePlatformBaseUrl(process.env.PLATFORM_BASE_URL);
   return {
     host,
     port,
-    // Fall back to the in-cluster host/port when no external pull host is set.
-    pullHost: process.env.IMAGE_REGISTRY_PULL_HOST || host,
-    pullPort: parseInt(process.env.IMAGE_REGISTRY_PULL_PORT || String(port), 10),
+    pullHost: process.env.IMAGE_REGISTRY_PULL_HOST || platform?.host || host,
+    pullPort: process.env.IMAGE_REGISTRY_PULL_PORT
+      ? parseInt(process.env.IMAGE_REGISTRY_PULL_PORT, 10)
+      : (platform?.port ?? port),
     network: process.env.DOCKER_NETWORK || '',
     http: process.env.IMAGE_REGISTRY_HTTP !== 'false',
   };
+}
+
+/** Extract host + port from PLATFORM_BASE_URL (e.g. `https://pipeline-builder.com`
+ *  → `{ host: 'pipeline-builder.com', port: 443 }`). Returns null when the value
+ *  is unset or not a valid URL. */
+function parsePlatformBaseUrl(raw?: string): { host: string; port: number } | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    const port = u.port ? parseInt(u.port, 10) : (u.protocol === 'https:' ? 443 : 80);
+    return { host: u.hostname, port };
+  } catch {
+    return null;
+  }
 }
 
 export function loadRedisConfig(): RedisConfig {

@@ -499,7 +499,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS pipeline_project_org_unique
     ON pipelines(project, organization, org_id);
 
 -- Pipeline Registry indexes
-CREATE INDEX IF NOT EXISTS registry_pipeline_id_idx
+-- pipeline_id is UNIQUE — the registry upsert uses ON CONFLICT (pipeline_id),
+-- which requires a unique index to match against. Older deploys created this
+-- index non-unique; DROP + recreate it as UNIQUE (idempotent; the upsert never
+-- succeeded before this, so there are no duplicate pipeline_id rows to block it).
+DROP INDEX IF EXISTS registry_pipeline_id_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS registry_pipeline_id_idx
     ON pipeline_registry(pipeline_id);
 
 CREATE INDEX IF NOT EXISTS registry_org_id_idx
