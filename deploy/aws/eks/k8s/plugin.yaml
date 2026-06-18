@@ -187,7 +187,9 @@ spec:
               # BUILDKIT_MEMORY_LIMIT (setup.sh default 6144Mi); bound by node memory.
               memory: ${BUILDKIT_MEMORY_LIMIT}
             requests:
-              cpu: "500m"
+              # Modest CPU request — buildkitd bursts to its 1500m limit during
+              # builds, so a low reservation avoids over-reserving node CPU.
+              cpu: "300m"
               memory: 1024Mi
           startupProbe:
             exec:
@@ -301,7 +303,9 @@ spec:
               cpu: "1500m"
               memory: 2048Mi
             requests:
-              cpu: "750m"
+              # Modest CPU request — the HTTP API is light at idle and bursts to
+              # its 1500m limit, so a low reservation avoids over-reserving CPU.
+              cpu: "300m"
               memory: 1024Mi
           readinessProbe:
             httpGet:

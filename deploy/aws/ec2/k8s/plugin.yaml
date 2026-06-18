@@ -130,7 +130,10 @@ spec:
               # BUILDKIT_MEMORY_LIMIT (startup.sh default 6144Mi); bound by node memory.
               memory: ${BUILDKIT_MEMORY_LIMIT}
             requests:
-              cpu: "500m"
+              # Low CPU request (bursts to the 1500m limit during builds) so the
+              # plugin pod fits the single-node CPU budget — the EC2 stack already
+              # requests ~6.9 of the 8 vCPU before this pod schedules.
+              cpu: "300m"
               memory: 1024Mi
           startupProbe:
             exec:
@@ -244,7 +247,9 @@ spec:
               cpu: "1500m"
               memory: 2048Mi
             requests:
-              cpu: "750m"
+              # Low CPU request (HTTP API is light at idle; bursts to the 1500m
+              # limit) so the pod fits the single-node CPU budget.
+              cpu: "300m"
               memory: 1024Mi
           readinessProbe:
             httpGet:
