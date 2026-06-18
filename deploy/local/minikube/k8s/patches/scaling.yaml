@@ -33,4 +33,6 @@ spec:
     - type: Pod
       max:
         cpu: "4"
-        memory: 4Gi
+        # Plugin pod = buildkitd sidecar (BUILDKIT_MEMORY_LIMIT, 3Gi default) +
+        # plugin app (2Gi) ≈ 5Gi, so a 4Gi pod cap forbids it. Keep >= that sum.
+        memory: 10Gi

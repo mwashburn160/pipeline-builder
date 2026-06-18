@@ -56,7 +56,12 @@ spec:
         memory: 128Mi
       max:
         cpu: "2"
-        memory: 2Gi
+        # Tracks the buildkitd sidecar limit (the largest container in the
+        # plugin pod) so raising BUILDKIT_MEMORY_LIMIT can't get the plugin pod
+        # forbidden by this per-container cap. Substituted by the same envsubst
+        # that sets the sidecar limit. Keep BUILDKIT_MEMORY_LIMIT >= 2Gi (the
+        # plugin app container's limit).
+        memory: ${BUILDKIT_MEMORY_LIMIT}
     - type: Pod
       max:
         cpu: "6"
