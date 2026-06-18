@@ -124,10 +124,14 @@ spec:
           resources:
             limits:
               cpu: "1500m"
-              memory: 2048Mi
+              # Rootless buildkit runs the plugin's RUN steps inside this sidecar's
+              # cgroup; too low OOM-kills heavy builds (gradle/npm/dotnet) →
+              # "buildkit-runc … container not running". Tunable via
+              # BUILDKIT_MEMORY_LIMIT (startup.sh default 6144Mi); bound by node memory.
+              memory: ${BUILDKIT_MEMORY_LIMIT}
             requests:
               cpu: "500m"
-              memory: 512Mi
+              memory: 1024Mi
           startupProbe:
             exec:
               command: ["buildctl", "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock", "debug", "workers"]

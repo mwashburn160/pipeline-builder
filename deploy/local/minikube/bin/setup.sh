@@ -64,6 +64,10 @@ ENV_FILE=""
 
 log "Loading environment from $ENV_FILE"
 set -a; . "$ENV_FILE"; set +a
+# buildkitd sidecar memory limit (the build cgroup). Set in .env to override;
+# default 3072Mi — lower than the AWS tiers since this runs on a laptop.
+# envsubst has no `:-default`, so the fallback lives here.
+: "${BUILDKIT_MEMORY_LIMIT:=3072Mi}"; export BUILDKIT_MEMORY_LIMIT
 
 [ -f "$DEPLOY_DIR/mongodb-keyfile" ] && chmod 400 "$DEPLOY_DIR/mongodb-keyfile"
 mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,loki,prometheus},registry-data,pgadmin-data,tmp} 2>/dev/null || true
@@ -248,7 +252,9 @@ configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/
 minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/plugins-data/builds ${VM_DATA_DIR}/plugins-data/uploads && sudo chown -R 1000:1000 ${VM_DATA_DIR}/plugins-data"
 
 log "Applying Kubernetes manifests"
-kubectl apply -k "$K8S_DIR"
+# Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
+# shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
+kubectl kustomize "$K8S_DIR" | envsubst '${BUILDKIT_MEMORY_LIMIT}' | kubectl apply -f -
 
 log "Post-deploy fixups"
 REGISTRY_IP=$(kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)

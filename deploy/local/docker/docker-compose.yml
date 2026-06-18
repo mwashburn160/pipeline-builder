@@ -485,7 +485,12 @@ services:
       resources:
         limits:
           cpus: '2.0'
-          memory: 2048M
+          # Rootless buildkit runs the plugin's RUN steps in this container; too
+          # low OOM-kills heavy builds → "buildkit-runc … container not running".
+          # Tunable via BUILDKIT_MEMORY_LIMIT in .env (compose expands it; default
+          # 3072M — same 3Gi tier as minikube). Use M/G, NOT Mi (so the value is
+          # also valid if minikube falls back to this .env).
+          memory: ${BUILDKIT_MEMORY_LIMIT:-3072M}
         reservations:
           cpus: '0.5'
           memory: 512M

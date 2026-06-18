@@ -121,7 +121,11 @@ spec:
           resources:
             limits:
               cpu: "1500m"
-              memory: 2048Mi
+              # Rootless buildkit runs the plugin's RUN steps in this sidecar's
+              # cgroup; too low OOM-kills heavy builds → "buildkit-runc … container
+              # not running". Tunable via BUILDKIT_MEMORY_LIMIT (setup.sh default
+              # 3072Mi — lower than the AWS tiers since this runs on a laptop).
+              memory: ${BUILDKIT_MEMORY_LIMIT}
             requests:
               cpu: "500m"
               memory: 512Mi

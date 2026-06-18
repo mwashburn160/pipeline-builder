@@ -33,6 +33,7 @@ GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 EKS_VERSION="${EKS_VERSION:-1.36}"               # pinned default for fresh installs; `latest` tracks newest, or --eks-version X
 AUTO_INIT="${AUTO_INIT:-true}"                   # run init-platform at the end (parity with ec2 bootstrap Phase 10); --no-auto-init opts out
+BUILDKIT_MEMORY_LIMIT="${BUILDKIT_MEMORY_LIMIT:-6144Mi}"  # buildkitd sidecar memory limit (build cgroup); raise for heavy builds, bound by node memory
 # Email (SES) — provisioned by default (parity with ec2); --no-email opts out.
 EMAIL_ENABLED="${EMAIL_ENABLED:-true}"
 EMAIL_FROM="${EMAIL_FROM:-}"                     # default noreply@<domain> (set after parse)
@@ -73,7 +74,7 @@ if [ "$EKS_VERSION" = latest ]; then
     --query 'sort_by(clusterVersions, &to_number(clusterVersion))[-1].clusterVersion' --output text 2>/dev/null || true)
   case "$EKS_VERSION" in 1.*) ;; *) EKS_VERSION=1.36 ;; esac   # fallback (older aws CLI / no API)
 fi
-export CLUSTER_NAME REGION DOMAIN NAMESPACE EKS_VERSION
+export CLUSTER_NAME REGION DOMAIN NAMESPACE EKS_VERSION BUILDKIT_MEMORY_LIMIT
 ALB_SCHEME=$([ "$DEPLOY_MODE" = public ] && echo internet-facing || echo internal); export ALB_SCHEME
 
 # ---- Helpers ----
@@ -299,7 +300,7 @@ log "Phase 7: apply workloads"
 # Restricted envsubst: ONLY our deploy tokens are expanded, so $host / $1$... in
 # the inline nginx/pgbouncer configmaps are left intact.
 kubectl kustomize "$K8S_DIR" \
-  | envsubst '${EFS_FILESYSTEM_ID} ${ACM_CERT_ARN} ${DOMAIN} ${ALB_SCHEME}' \
+  | envsubst '${EFS_FILESYSTEM_ID} ${ACM_CERT_ARN} ${DOMAIN} ${ALB_SCHEME} ${BUILDKIT_MEMORY_LIMIT}' \
   | kubectl apply -f -
 
 # Base plugin images are seeded by init-platform.sh (the post-deploy step),

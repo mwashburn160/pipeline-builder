@@ -54,6 +54,11 @@ cleanup_docker() {
 ENV_FILE="$DEPLOY_DIR/.env"
 log "Loading environment"
 set -a; . "$ENV_FILE"; set +a
+# buildkitd sidecar memory limit (the build cgroup). Set in .env to override;
+# default 3Gi — fits every allowed instance (t3.xlarge 16G/~12G minikube up to
+# m5.4xlarge), leaving room for the rest of the single-node stack. envsubst has
+# no `:-default`, so the fallback lives here.
+: "${BUILDKIT_MEMORY_LIMIT:=3072Mi}"; export BUILDKIT_MEMORY_LIMIT
 
 # Grant minikube user read access to deploy assets (manifests, configs, nginx)
 # Exclude .env and auth dirs which contain secrets
@@ -187,7 +192,9 @@ pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 mk minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${DATA_DIR}/plugins-data/builds ${DATA_DIR}/plugins-data/uploads && sudo chown -R 1000:1000 ${DATA_DIR}/plugins-data"
 
 log "Applying Kubernetes manifests"
-mk kubectl apply -k "$K8S_DIR"
+# Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
+# shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
+mk kubectl kustomize "$K8S_DIR" | envsubst '${BUILDKIT_MEMORY_LIMIT}' | mk kubectl apply -f -
 
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/registry-data"
