@@ -46,6 +46,18 @@ fi
 
 mkdir -p "$CERT_DIR"
 
+# Self-heal: a prior `docker compose up` that ran before these files existed makes
+# Docker auto-create the bind-mount sources as empty DIRECTORIES. openssl can't
+# write over a directory ("genrsa: Can't open … Is a directory"), so clear any
+# non-regular-file at the target paths first — lets a re-run recover instead of
+# failing. (Harmless on the k8s targets, where these are never bind-mounted.)
+for f in "$KEY_FILE" "$CERT_FILE"; do
+  if [ -e "$f" ] && [ ! -f "$f" ]; then
+    echo "  clearing stale non-file at $f (likely a leftover Docker bind-mount dir)"
+    rm -rf "$f"
+  fi
+done
+
 # 4096-bit RSA — matches the registry's expected RS256 verification. The cert is
 # self-signed with 10-year validity (rotate by regenerating with --force); the
 # subject is informational only — the registry uses just the embedded public key.
