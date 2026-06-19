@@ -74,12 +74,18 @@ export async function resolvePluginsForProps(
   const refs = collectPluginRefs(props);
   if (refs.length === 0) return {};
 
-  const defaultFilter = (name: string) => ({ name, isActive: true, isDefault: true });
   const resolved: Record<string, unknown> = {};
 
   await Promise.all(refs.map(async (ref) => {
     const key = cacheKey(ref);
-    const filter = ref.filter ?? defaultFilter(ref.name);
+    // The plugin NAME lives on the ref (a sibling of `filter`), NOT inside the
+    // filter object — but the lookup matches on the filter. A filter without
+    // `name` (e.g. `{version, accessModifier, isActive, isDefault}`) matches ANY
+    // plugin with those attributes, and the endpoint returns an arbitrary one
+    // (seen: `dockerfile-multi-provider`). That made the synth and every step
+    // resolve to the WRONG plugin. So when the filter omits `name`, fall back to
+    // the ref's plugin name; an explicit filter `name` still takes precedence.
+    const filter = { name: ref.name, ...(ref.filter ?? { isActive: true, isDefault: true }) };
     try {
       const res = await client.post<unknown>('/api/plugins/lookup', { filter });
       // Unwrap the plugin record from whatever envelope the response middleware
