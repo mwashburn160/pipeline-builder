@@ -46,6 +46,7 @@
     "stages": [
       {
         "stageName": "Build",
+        "alias": "Build-and-Package",
         "steps": [
           {
             "plugin": {
@@ -72,6 +73,7 @@
       },
       {
         "stageName": "Test",
+        "alias": "Unit-Tests",
         "steps": [
           {
             "plugin": {
@@ -118,6 +120,7 @@
       },
       {
         "stageName": "Lint",
+        "alias": "Code-Quality",
         "steps": [
           {
             "plugin": {
@@ -161,6 +164,7 @@
       },
       {
         "stageName": "Security",
+        "alias": "Security-Scan",
         "steps": [
           {
             "plugin": {
