@@ -447,7 +447,9 @@ describe('PluginLookup', () => {
             minify: true,
             sourceMap: false,
             target: 'es2022',
-            externalModules: ['@aws-sdk/*'],
+            // Runtime-provided (@aws-sdk) + synth-only libs guarded out of the
+            // Lambda bundle so a stray transitive import can't drag aws-cdk-lib in.
+            externalModules: ['@aws-sdk/*', 'aws-cdk-lib', 'aws-cdk-lib/*', 'constructs'],
           }),
         }),
       );
