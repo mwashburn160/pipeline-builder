@@ -10,6 +10,11 @@ function propsWithPlugin(name: string, filter?: Record<string, unknown>) {
   return { stages: [{ steps: [{ plugin: { name, ...(filter ? { filter } : {}) } }] }] };
 }
 
+/** Props with a synth plugin ref (the path the cdk-synth bug bit). */
+function propsWithSynth(name: string, filter?: Record<string, unknown>) {
+  return { synth: { plugin: { name, alias: 'BuildSynth', ...(filter ? { filter } : {}) } } };
+}
+
 /** Stub ApiClient whose POST returns a fixed body. */
 function clientReturning(body: unknown): ApiClient {
   return { post: async () => body } as unknown as ApiClient;
@@ -71,5 +76,61 @@ describe('resolvePluginsForProps — lookup response unwrapping', () => {
     const client = clientReturning({ success: true, statusCode: 200, data: { plugin: null } });
     const resolved = await resolvePluginsForProps(client, propsWithPlugin('missing-plugin'));
     expect(resolved['missing-plugin-alias']).toBeUndefined();
+  });
+});
+
+describe('resolvePluginsForProps — lookup filter carries the plugin name', () => {
+  // A name-less filter matches ANY plugin with those attributes; the endpoint
+  // returns an arbitrary one (seen: dockerfile-multi-provider). So every lookup
+  // MUST be pinned to the ref's plugin name. Bug symptom: cdk-synth resolved to
+  // the AI Dockerfile generator and the synth stage ran the AI script.
+
+  it('fills name from the ref when the filter omits it (preserving the rest)', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
+    await resolvePluginsForProps(client, propsWithPlugin('checkstyle', {
+      version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true,
+    }));
+    expect(sent[0]).toEqual({
+      name: 'checkstyle', version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true,
+    });
+  });
+
+  it('defaults to {name, isActive, isDefault} when there is no filter at all', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
+    await resolvePluginsForProps(client, propsWithPlugin('jacoco'));
+    expect(sent[0]).toEqual({ name: 'jacoco', isActive: true, isDefault: true });
+  });
+
+  it('pins the SYNTH lookup to cdk-synth (the exact bug) instead of a name-less match', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const client = clientCapturing({ data: { plugin: { name: 'cdk-synth' } } }, sent);
+    await resolvePluginsForProps(client, propsWithSynth('cdk-synth', {
+      version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true,
+    }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].name).toBe('cdk-synth');
+  });
+
+  it('an explicit filter name takes precedence over the ref name (fill only when missing)', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
+    await resolvePluginsForProps(client, propsWithPlugin('alias-name', { name: 'real-plugin', version: '2.0.0' }));
+    expect(sent[0].name).toBe('real-plugin');
+  });
+
+  it('sends each plugin its own name when several refs are present', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
+    await resolvePluginsForProps(client, {
+      synth: { plugin: { name: 'cdk-synth', alias: 'BuildSynth' } },
+      stages: [{ steps: [
+        { plugin: { name: 'java-corretto', filter: { isActive: true, isDefault: true } } },
+        { plugin: { name: 'semgrep', filter: { isActive: true, isDefault: true } } },
+      ] }],
+    });
+    expect(new Set(sent.map(f => f.name))).toEqual(new Set(['cdk-synth', 'java-corretto', 'semgrep']));
+    expect(sent.every(f => typeof f.name === 'string' && f.name.length > 0)).toBe(true);
   });
 });
