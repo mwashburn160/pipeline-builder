@@ -170,8 +170,10 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   if (enableCompression) {
     app.use(compression({
       filter: (req: Request, res: Response) => {
-        // Don't compress SSE streams
-        if (req.headers.accept === 'text/event-stream') return false;
+        // Don't compress SSE streams. Match by inclusion: the Accept header is
+        // often a list (e.g. "text/event-stream, */*"), so exact equality missed
+        // those and compressed/buffered the stream.
+        if ((req.headers.accept || '').includes('text/event-stream')) return false;
         return compression.filter(req, res);
       },
       threshold: CoreConstants.COMPRESSION_THRESHOLD_BYTES,
@@ -278,6 +280,11 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const Redis = require('ioredis');
         const redisClient = new Redis(options.redisUrl);
+        // ioredis emits 'error' on connection loss; without a listener Node
+        // treats it as an unhandled 'error' event and CRASHES the process. Log
+        // and let ioredis auto-reconnect (rate limiting falls back per-store).
+        redisClient.on('error', (e: unknown) =>
+          createLogger('rate-limit').warn('Redis rate-limit store error', { error: e instanceof Error ? e.message : String(e) }));
         rateLimitOptions.store = new RedisStore({
           sendCommand: (...args: string[]) => redisClient.call(...args),
         });

@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { safeCreateRequire } from './safe-require.js';
 import winston from 'winston';
+import { safeCreateRequire } from './safe-require.js';
 
 const { combine, timestamp, printf, colorize, errors, json } = winston.format;
 

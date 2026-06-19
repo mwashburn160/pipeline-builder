@@ -20,7 +20,8 @@
 #
 # Why a slim base instead of the AWS CodeBuild standard image:
 #
-# Cold-start synth only needs Node + AWS CLI + git on PATH. The full
+# Cold-start synth only needs Node + AWS CLI + git + the AWS CDK CLI on PATH
+# (`pipeline-manager synth` shells out to `cdk synth`). The full
 # `aws/codebuild/standard:7.0` (and its public-ECR Amazon Linux variants)
 # bundles every language runtime AWS CodeBuild supports — Node, Python,
 # Ruby, Go, multiple JDKs, .NET, PHP, etc. — and weighs ~18 GB. Pushing
@@ -33,7 +34,8 @@
 # its own Dockerfile FROM pipeline-aws-cli-base with CDK + Node baked
 # in; per-language plugins have their own runtime). The bootstrap path
 # only fires when pre-resolution fails and falls back to running
-# `pipeline-manager synth` itself — which only needs Node + AWS CLI.
+# `pipeline-manager synth` itself — which needs Node + AWS CLI + the
+# AWS CDK CLI (`cdk synth`), all baked in below.
 #
 # This image lives under deploy/codebuild/ (not deploy/plugins/_base/)
 # because it's a CodeBuild runtime, not a plugin base — it doesn't
@@ -45,6 +47,11 @@ FROM node:24-slim
 # pipeline-manager. node:24-slim already has Node + npm + ca-certs.
 # Matches the runtime baseline in projen (minNodeVersion: 24.14.0).
 ARG PIPELINE_MANAGER_VERSION="latest"
+# AWS CDK CLI — `pipeline-manager synth` shells out to `cdk synth`, so the
+# `cdk` binary must be on PATH. Pinned to match the cdk-synth plugin image
+# (deploy/plugins/infrastructure/cdk-synth/Dockerfile) and the version note
+# in deploy/plugins/README.md; compatible with aws-cdk-lib 2.258.x.
+ARG AWS_CDK_VERSION="2.1126.0"
 
 RUN set -eux; \
     apt-get update; \
@@ -67,7 +74,8 @@ RUN set -eux; \
     # frequent versions and the catalog drifts faster than we'd refresh
     # a pinned tag. Pin via --build-arg if you need reproducibility.
     npm config set @pipeline-builder:registry=https://registry.npmjs.org/; \
-    npm install -g "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
+    npm install -g "aws-cdk@${AWS_CDK_VERSION}" "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
+    cdk --version; \
     pipeline-manager --version 2>&1 | tail -1
 
 WORKDIR /app

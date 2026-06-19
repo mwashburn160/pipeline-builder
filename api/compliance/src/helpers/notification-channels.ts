@@ -18,6 +18,8 @@
  */
 
 import { createHmac } from 'crypto';
+import { lookup } from 'dns/promises';
+import { isIP } from 'net';
 
 import { errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 
@@ -83,10 +85,50 @@ const inAppChannel: NotificationChannel = {
   },
 };
 
+/** True for loopback / private / link-local / CGNAT / cloud-metadata addresses. */
+function isPrivateAddress(ip: string): boolean {
+  const addr = ip.replace(/^\[|\]$/g, '').toLowerCase();
+  const v4 = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const a = Number(v4[1]), b = Number(v4[2]);
+    return a === 0 || a === 10 || a === 127
+      || (a === 169 && b === 254) // link-local incl. 169.254.169.254 metadata
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || (a === 100 && b >= 64 && b <= 127); // CGNAT
+  }
+  if (addr === '::1' || addr === '::') return true;
+  if (addr.startsWith('::ffff:')) return isPrivateAddress(addr.slice(7)); // v4-mapped v6
+  return addr.startsWith('fc') || addr.startsWith('fd') // unique-local
+    || addr.startsWith('fe80'); // link-local
+}
+
+/**
+ * SSRF guard for org-supplied webhook URLs: require https and reject any host
+ * that is — or resolves to — a private/loopback/link-local/metadata address, so
+ * a tenant can't aim a webhook at the cloud metadata endpoint or internal
+ * services. DNS is resolved here to also catch rebinding to internal IPs.
+ */
+async function assertSafeWebhookUrl(rawUrl: string): Promise<void> {
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { throw new Error('invalid webhook url'); }
+  if (u.protocol !== 'https:') throw new Error('webhook url must use https');
+  const host = u.hostname;
+  if (isIP(host) && isPrivateAddress(host)) throw new Error('webhook url targets a private address');
+  let addrs: { address: string }[];
+  try { addrs = await lookup(host, { all: true }); } catch { throw new Error('webhook host did not resolve'); }
+  if (addrs.some((a) => isPrivateAddress(a.address))) throw new Error('webhook url resolves to a private address');
+}
+
 const webhookChannel: NotificationChannel = {
   channel: 'webhook',
   async deliver(n, target, signal) {
     if (!target.url) return { ok: false, error: 'no webhook url' };
+    try {
+      await assertSafeWebhookUrl(target.url);
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) };
+    }
     const body = JSON.stringify(n.payload);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     // Sign when a secret is configured so the receiver can verify authenticity.

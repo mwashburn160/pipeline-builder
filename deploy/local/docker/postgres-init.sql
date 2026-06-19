@@ -545,6 +545,25 @@ CREATE INDEX IF NOT EXISTS event_org_type_created_idx
 CREATE INDEX IF NOT EXISTS event_org_source_status_idx
     ON pipeline_events(org_id, event_source, status);
 
+-- Idempotency dedup for at-least-once EventBridge/SQS re-deliveries (and BullMQ
+-- plugin-build re-runs): the partial UNIQUE index used as the ON CONFLICT DO
+-- NOTHING arbiter in reporting-service.ingestEvents and recordBuildEvent. Without
+-- it, ON CONFLICT DO NOTHING has no constraint to match and silently inserts
+-- duplicates. COALESCE the nullable parts because Postgres treats NULLs as
+-- DISTINCT in a unique index — PIPELINE/STAGE/BUILD events leave stage_name/
+-- action_name (and plugin-build, pipeline_id) NULL, so a plain unique index never
+-- dedups them. Must match the drizzle `event_dedup_idx` expression index.
+CREATE UNIQUE INDEX IF NOT EXISTS event_dedup_idx
+    ON pipeline_events (
+        coalesce(pipeline_id::text, ''),
+        execution_id,
+        event_type,
+        status,
+        coalesce(stage_name, ''),
+        coalesce(action_name, '')
+    )
+    WHERE execution_id IS NOT NULL;
+
 -- Messages indexes
 CREATE INDEX IF NOT EXISTS message_org_id_idx
     ON messages(org_id);

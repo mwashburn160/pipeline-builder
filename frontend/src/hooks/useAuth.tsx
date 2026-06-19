@@ -205,6 +205,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   const switchOrganization = useCallback(async (orgId: string) => {
     await api.switchOrganization(orgId);
+    // Drop the previous org's cached plugins before loading the new org's
+    // profile — the module-level plugin cache would otherwise leak Org A's
+    // plugins into the Org B session.
+    clearPluginCache();
     await refreshUser();
   }, [refreshUser]);
 

@@ -20,6 +20,32 @@ import { Organization } from '../models/organization.js';
 
 const logger = createLogger('quota-service');
 
+/**
+ * Build a {@link QuotaReserveResult} from raw usage figures. Centralizes the
+ * unlimited (`limit === -1` ⇒ remaining `-1`) logic and resetAt serialization
+ * so the read-back blocks across increment/decrement can't drift (they
+ * previously hand-rolled this with subtly inconsistent `-1` handling).
+ * `resetAt` accepts a Date or ISO string; `undefined` ⇒ omitted.
+ */
+function buildReserveResult(
+  quotaType: QuotaType,
+  limit: number,
+  used: number,
+  resetAt: Date | string | undefined,
+  exceeded: boolean,
+): QuotaReserveResult {
+  return {
+    exceeded,
+    quota: {
+      type: quotaType,
+      limit,
+      used,
+      remaining: limit === -1 ? -1 : Math.max(0, limit - used),
+      resetAt: resetAt ? new Date(resetAt).toISOString() : undefined,
+    },
+  };
+}
+
 // Error class
 
 /** Thrown when an organization document is not found in MongoDB. */
@@ -240,16 +266,7 @@ export class QuotaService {
     if (aggregateUsed + amount <= rootLimit) return null; // within shared cap
 
     const resetAt = root?.usage?.[quotaType]?.resetAt;
-    return {
-      exceeded: true,
-      quota: {
-        type: quotaType,
-        limit: rootLimit,
-        used: aggregateUsed,
-        remaining: Math.max(0, rootLimit - aggregateUsed),
-        resetAt: resetAt ? new Date(resetAt).toISOString() : undefined,
-      },
-    };
+    return buildReserveResult(quotaType, rootLimit, aggregateUsed, resetAt, true);
   }
 
   /**
@@ -286,16 +303,7 @@ export class QuotaService {
         used: 0,
         resetAt: getNextResetDate(config.quota.resetDays),
       };
-      return {
-        exceeded: false,
-        quota: {
-          type: quotaType,
-          limit,
-          used: usage.used,
-          remaining: limit === -1 ? -1 : Math.max(0, limit - usage.used),
-          resetAt: usage.resetAt?.toISOString(),
-        },
-      };
+      return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, false);
     }
 
     // ----- Org → team hierarchy: shared root cap -----
@@ -382,30 +390,12 @@ export class QuotaService {
         used: 0,
         resetAt: getNextResetDate(config.quota.resetDays),
       };
-      return {
-        exceeded: true,
-        quota: {
-          type: quotaType,
-          limit,
-          used: currentUsage.used,
-          remaining: Math.max(0, limit - currentUsage.used),
-          resetAt: currentUsage.resetAt.toISOString(),
-        },
-      };
+      return buildReserveResult(quotaType, limit, currentUsage.used, currentUsage.resetAt, true);
     }
 
     const limit = org.quotas[quotaType];
     const usage = org.usage[quotaType];
-    return {
-      exceeded: false,
-      quota: {
-        type: quotaType,
-        limit,
-        used: usage.used,
-        remaining: limit === -1 ? -1 : Math.max(0, limit - usage.used),
-        resetAt: usage.resetAt?.toISOString(),
-      },
-    };
+    return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, false);
   }
 
   /**
@@ -475,32 +465,14 @@ export class QuotaService {
           snapshot: resetAtSnapshot,
           currentResetAt: usage.resetAt?.toISOString(),
         });
-        return {
-          exceeded: false,
-          quota: {
-            type: quotaType,
-            limit,
-            used: usage.used,
-            remaining: limit === -1 ? -1 : Math.max(0, limit - usage.used),
-            resetAt: usage.resetAt?.toISOString(),
-          },
-        };
+        return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, false);
       }
       return null;
     }
 
     const limit = org.quotas[quotaType];
     const usage = org.usage[quotaType];
-    return {
-      exceeded: false,
-      quota: {
-        type: quotaType,
-        limit,
-        used: usage.used,
-        remaining: limit === -1 ? -1 : Math.max(0, limit - usage.used),
-        resetAt: usage.resetAt?.toISOString(),
-      },
-    };
+    return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, false);
   }
 }
 

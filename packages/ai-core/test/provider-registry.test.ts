@@ -50,6 +50,10 @@ describe('ai-core provider-registry', () => {
   beforeEach(() => {
     // Shallow clone env so tests can safely mutate it
     process.env = { ...originalEnv };
+    // Bedrock (keyless) registers when an AWS region is present — clear it so the
+    // "no key" cases are deterministic; the Bedrock-specific tests set it.
+    delete process.env.AWS_REGION;
+    delete process.env.AWS_DEFAULT_REGION;
     jest.clearAllMocks();
   });
 
@@ -116,6 +120,20 @@ describe('ai-core provider-registry', () => {
       const providers = getAvailableProviders();
 
       expect(providers).toHaveLength(5);
+    });
+
+    it('registers Bedrock (keyless / IAM role) when an AWS region is set, with no access key', async () => {
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+      delete process.env.XAI_API_KEY;
+      delete process.env.AWS_ACCESS_KEY_ID;
+      process.env.AWS_REGION = 'us-east-1';
+
+      const { getAvailableProviders } = await freshImport();
+      const providers = getAvailableProviders();
+
+      expect(providers.map((p) => p.id)).toEqual(['amazon-bedrock']);
     });
 
     it('should include models in each provider entry', async () => {

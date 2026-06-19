@@ -111,7 +111,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
             pluginName: name,
             violations: complianceResult.violations.length,
           });
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
           return sendError(res, 403, 'Plugin deploy blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
             violations: complianceResult.violations,
@@ -127,7 +127,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       } catch (err) {
         // Fail-closed: compliance unreachable → reject the deploy and release the slot.
         ctx.log('ERROR', 'Compliance service unavailable', { error: errorMessage(err) });
-        decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'));
+        decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         reserved = false;
         return sendError(res, 503, 'Compliance service unavailable — plugin deploy rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
       }
@@ -196,7 +196,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         // Roll back the reserved slot if anything between reserve and the
         // successful queue.add throws (fs operations, queue down).
         if (reserved) {
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
         }
         throw err;

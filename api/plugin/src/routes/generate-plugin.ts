@@ -81,7 +81,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
     } catch (error) {
       const message = errorMessage(error);
       logger.error('AI plugin generation failed', { requestId: ctx.requestId, error: message });
-      decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+      decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
       return handleAIError(res, message, 'Failed to generate plugin configuration');
     }
   }));
@@ -147,7 +147,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
         }
         res.write('data: [DONE]\n\n');
       } else {
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         reserved = false;
       }
 
@@ -156,7 +156,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
       const message = errorMessage(error);
       logger.error('AI plugin streaming generation failed', { requestId: ctx.requestId, error: message });
       if (reserved) {
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
       }
       handleAIError(res, message, 'Failed to stream plugin configuration');
     }

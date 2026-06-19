@@ -103,7 +103,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         }, authHeader, undefined, pipelineName, 'create');
 
         if (complianceResult.blocked) {
-          decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           results.failed++;
           results.errors.push({ index: i, error: `Compliance blocked: ${complianceResult.violations.map(v => v.message).join('; ')}` });
           continue;
@@ -130,7 +130,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         results.items.push({ index: i, accessModifier, id: pipeline.id });
       } catch (err) {
         // Roll back the slot we reserved — the action failed.
-        decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
+        decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         results.failed++;
         results.errors.push({ index: i, error: errorMessage(err) });
       }

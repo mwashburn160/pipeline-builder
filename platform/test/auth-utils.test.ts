@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, test } from '@jest/globals';
+import jwt from 'jsonwebtoken';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     auth: {
-      jwt: { secret: 'test-secret', expiresIn: 3600 },
+      jwt: { secret: 'test-secret', algorithm: 'HS256', expiresIn: 3600 },
       refreshToken: { secret: 'test-refresh-secret', expiresIn: 86400 },
       passwordMinLength: 8,
     },
@@ -33,10 +34,26 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: {},
 }));
 
-const { hashRefreshToken } = await import('../src/utils/token.js');
+const { hashRefreshToken, issueStepUpToken, verifyStepUpToken } = await import('../src/utils/token.js');
 const { validateBody, registerSchema, loginSchema, refreshSchema } = await import('../src/utils/validation.js');
 const { sendError: mockSendErrorFn } = await import('@pipeline-builder/api-core');
 const mockSendError = mockSendErrorFn as jest.MockedFunction<typeof mockSendErrorFn>;
+
+describe('step-up token (requireStepUp gate)', () => {
+  it('accepts a freshly issued step-up token', () => {
+    const { token } = issueStepUpToken('user-1', 60);
+    const payload = verifyStepUpToken(token);
+    expect(payload.type).toBe('step-up');
+    expect(payload.sub).toBe('user-1');
+  });
+
+  it('rejects a normal access token (same secret/sub, no step-up type) — the bypass', () => {
+    // A regular access token shares the JWT secret + sub; without the type check
+    // it would satisfy the password re-verification gate on destructive routes.
+    const access = jwt.sign({ sub: 'user-1' }, 'test-secret', { algorithm: 'HS256', expiresIn: 60 });
+    expect(() => verifyStepUpToken(access)).toThrow();
+  });
+});
 
 
 describe('auth-utils schemas', () => {

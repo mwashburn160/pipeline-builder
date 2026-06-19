@@ -84,6 +84,15 @@ function createGoogleProvider(): OAuthProvider {
       const res = await fetch(userinfoUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!res.ok) throw new Error('Failed to fetch Google user info');
       const data = await res.json() as Record<string, unknown>;
+      // Only trust the email for account lookup/linking when Google confirms it
+      // is verified — an unverified (attacker-controllable) Google email would
+      // otherwise auto-link to and take over a pre-existing local account.
+      // Mirrors the GitHub path, which only ever returns a verified email.
+      // (OIDC userinfo → `email_verified`; legacy oauth2/v2 → `verified_email`.)
+      const emailVerified = data.email_verified === true || data.verified_email === true;
+      if (!data.email || !emailVerified) {
+        throw new Error('Google did not return a verified email address');
+      }
       return { id: data.id as string, email: data.email as string, name: data.name as string | undefined, picture: data.picture as string | undefined };
     },
   };

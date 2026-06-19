@@ -246,7 +246,10 @@ export class Connection {
     // ensures the DB itself cancels long-running queries if the JS timeout fires
     // but the connection isn't cleaned up.
     const wrappedCallback: typeof callback = async (tx) => {
-      await tx.execute(sql`SET LOCAL statement_timeout = ${String(timeoutMs)}`);
+      // `SET LOCAL statement_timeout = ${n}` parameterizes to `= $1`, which
+      // Postgres rejects for SET — use set_config (accepts a bound value, is_local
+      // = true ⇒ transaction-scoped), matching tenancy.ts.
+      await tx.execute(sql`SELECT set_config('statement_timeout', ${String(timeoutMs)}, true)`);
       return callback(tx);
     };
     const txPromise = this.db.transaction(wrappedCallback) as Promise<T>;
@@ -469,6 +472,7 @@ export function getConnection(): Connection {
 export async function closeConnection(): Promise<void> {
   const connection = Connection.getInstance();
   await connection.close();
+  await closeReplicaPool(); // tear down the read-replica pool too (services only call this)
   _dbInstance = null; // Reset lazy instance
 }
 
@@ -605,10 +609,8 @@ async function closeReplicaPool(): Promise<void> {
   }
 }
 
-// Extend closeConnection to also tear down the replica pool. Monkey-patch
-// preserves the existing export signature without breaking callers.
-const _originalCloseConnection = closeConnection;
+// Back-compat alias: closeConnection() now tears down both pools itself, so this
+// just delegates. Prefer closeConnection().
 export async function closeAllConnections(): Promise<void> {
-  await _originalCloseConnection();
-  await closeReplicaPool();
+  await closeConnection();
 }

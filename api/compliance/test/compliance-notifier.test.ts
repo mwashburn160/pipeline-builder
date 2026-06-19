@@ -35,6 +35,12 @@ jest.unstable_mockModule('../src/services/notification-service.js', () => ({
   recordPendingDigest: (...args: unknown[]) => mockRecordPendingDigest(...args),
 }));
 
+// The webhook SSRF guard resolves the host and rejects private/internal IPs;
+// resolve the reserved test domain to a public address so delivery proceeds.
+jest.unstable_mockModule('dns/promises', () => ({
+  lookup: jest.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+}));
+
 import type { Violation } from '../src/engine/rule-engine.js';
 const { notifyComplianceBlock, notifyComplianceWarnings } = await import('../src/helpers/compliance-notifier.js');
 

@@ -26,7 +26,7 @@ import {
 } from '../helpers/marketplace-helpers.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
-import { claimWebhookEvent } from '../models/webhook-dedupe.js';
+import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
 import { AWSMarketplaceProvider } from '../providers/aws-marketplace-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
@@ -362,6 +362,9 @@ export function createMarketplaceRoutes(): Router {
   router.post(
     '/marketplace/sns',
     async (req: Request, res: Response) => {
+      // Set once we hold the dedup claim; released in catch so a transient
+      // processing failure doesn't permanently short-circuit SNS's retries.
+      let claimedMessageId: string | undefined;
       try {
         // SNS may send text/plain — parse if needed
         const snsMessage: SNSMessage = typeof req.body === 'string'
@@ -397,6 +400,7 @@ export function createMarketplaceRoutes(): Router {
           logger.info('Skipping duplicate SNS delivery', { messageId: snsMessage.MessageId, type: snsMessage.Type });
           return sendSuccess(res, 200, { message: 'Duplicate message acknowledged' });
         }
+        claimedMessageId = snsMessage.MessageId;
 
         switch (snsMessage.Type) {
           case 'SubscriptionConfirmation': {
@@ -424,6 +428,10 @@ export function createMarketplaceRoutes(): Router {
         }
       } catch (error) {
         logger.error('Failed to process SNS notification', { error: errorMessage(error) });
+        // Release the idempotency claim so SNS's retry of this MessageId
+        // re-processes instead of being short-circuited as a duplicate (which
+        // would silently drop the event on a transient failure).
+        if (claimedMessageId) await releaseWebhookEvent('sns', claimedMessageId).catch(() => {});
         return sendError(
           res, 500,
           'Failed to process notification',

@@ -49,6 +49,11 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     plugin: { id: 'col_pid', name: 'col_pname', isActive: 'col_pactive', orgId: 'col_porg' },
     pipeline: { id: 'col_plid', pipelineName: 'col_plname', isActive: 'col_plactive', orgId: 'col_plorg' },
   },
+  // Used by complianceExemptionService (loaded for real) to shape the exemption
+  // lookup; the actual filtering is asserted via the dbSelect spy, so a stub
+  // condition/count is sufficient here.
+  buildComplianceExemptionConditions: (_filter: unknown, _orgId: string) => ({ __op: 'exemptionConditions' }),
+  drizzleCount: () => ({ __op: 'count' }),
   // executeScan is wrapped in runWithTenantContext({ isSuperAdmin: true }) and
   // every DB op goes through withTenantTx — pass through to the spies above.
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),

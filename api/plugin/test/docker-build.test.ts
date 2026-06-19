@@ -30,12 +30,18 @@ const mockMkdirSync = jest.fn();
 const mockWriteFileSync = jest.fn();
 const mockReadFileSync = jest.fn<(...args: any[]) => any>().mockReturnValue('FROM node:24-slim\nRUN echo hello');
 const mockExistsSync = jest.fn<(...args: any[]) => any>().mockReturnValue(true);
+// The docker auth config is written to a fresh temp dir (outside the build
+// context) and removed after the build/push — mock both.
+const mockMkdtempSync = jest.fn<(...args: any[]) => any>().mockReturnValue('/tmp/pb-dockercfg-test');
+const mockRmSync = jest.fn();
 
 jest.unstable_mockModule('fs', () => ({
   mkdirSync: mockMkdirSync,
   writeFileSync: mockWriteFileSync,
   readFileSync: mockReadFileSync,
   existsSync: mockExistsSync,
+  mkdtempSync: mockMkdtempSync,
+  rmSync: mockRmSync,
 }));
 
 class ValidationError extends Error {

@@ -3,10 +3,11 @@
 
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-core';
-import { eq, and, or, isNull, gt, inArray } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { logComplianceCheck } from './audit-logger.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine.js';
+import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('scan-executor');
@@ -283,37 +284,12 @@ async function fetchExemptions(
   orgId: string,
   entityIds: string[],
 ): Promise<Map<string, ActiveExemption[]>> {
-  const map = new Map<string, ActiveExemption[]>();
-  if (entityIds.length === 0) return map;
-
+  if (entityIds.length === 0) return new Map();
   try {
-    const now = new Date();
-    const rows = await withTenantTx(async (tx) => tx
-      .select({
-        id: schema.complianceExemption.id,
-        ruleId: schema.complianceExemption.ruleId,
-        entityId: schema.complianceExemption.entityId,
-      })
-      .from(schema.complianceExemption)
-      .where(and(
-        eq(schema.complianceExemption.orgId, orgId),
-        inArray(schema.complianceExemption.entityId, entityIds),
-        eq(schema.complianceExemption.status, 'approved'),
-        or(
-          isNull(schema.complianceExemption.expiresAt),
-          gt(schema.complianceExemption.expiresAt, now),
-        ),
-      )));
-
-    for (const row of rows) {
-      const entityId = row.entityId ?? '';
-      const list = map.get(entityId) ?? [];
-      list.push({ id: row.id, ruleId: row.ruleId });
-      map.set(entityId, list);
-    }
+    // Single source of truth for the active-exemption predicate.
+    return await complianceExemptionService.getActiveExemptionsForEntities(orgId, entityIds);
   } catch (err) {
     logger.warn('Failed to fetch exemptions for scan', { orgId, error: errorMessage(err) });
+    return new Map();
   }
-
-  return map;
 }

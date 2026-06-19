@@ -206,7 +206,7 @@ function bareHostname(rawHost: string): string {
   let h = rawHost.trim().toLowerCase();
   if (h.startsWith('[')) {
     const end = h.indexOf(']');
-    if (end !== -1) return h.slice(1, end);        // [::1]:5000 -> ::1
+    if (end !== -1) return h.slice(1, end); // [::1]:5000 -> ::1
   }
   // Strip a trailing :port only for non-IPv6 values (IPv6 contains '::' or >1 ':').
   if (h.includes(':') && (h.match(/:/g)?.length ?? 0) === 1) h = h.split(':')[0];
@@ -216,7 +216,7 @@ function bareHostname(rawHost: string): string {
 /** True when CodeBuild (out-of-cluster) could not resolve this registry host. */
 function isUnreachablePullHost(rawHost: string): boolean {
   const h = bareHostname(rawHost);
-  if (h === '') return true;                         // no host → malformed URI
+  if (h === '') return true; // no host → malformed URI
   if (UNREACHABLE_PULL_HOSTS.has(h)) return true;
   return UNREACHABLE_HOST_SUFFIXES.some((s) => h.endsWith(s));
 }

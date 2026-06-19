@@ -66,6 +66,15 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    // Per-user overrides — explicit enable (true) / disable (false) that take
+    // precedence over the service + tier defaults. Previously stored on the user
+    // but never consumed, so a per-user DISABLE was silently ignored.
+    if (user?.featureOverrides) {
+      for (const [key, on] of Object.entries(user.featureOverrides)) {
+        if (on) enabled.add(key); else enabled.delete(key);
+      }
+    }
+
     const features = [...enabled];
     return {
       isEnabled: (feature: string) => enabled.has(feature),

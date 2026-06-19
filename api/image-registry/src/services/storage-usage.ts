@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import {
-  listRepositories,
+  listRepositoriesUnderPrefix,
   listTags,
   getManifest,
   headBlob,
@@ -68,26 +68,24 @@ export async function computeStorageUsage(
     };
   }
 
-  const reposBeingScanned: string[] = [];
-  let cursor: string | undefined;
-  // Walk the registry catalog and collect every repo whose name starts
-  // with `prefix`. Pagination cap on registry is 100 names per page.
-  do {
-    const page = await listRepositories({ n: 100, last: cursor });
-    for (const r of page.repositories) {
-      if (r.startsWith(prefix)) reposBeingScanned.push(r);
-    }
-    cursor = page.next;
-  } while (cursor);
+  // Walk the registry catalog and collect every repo whose name starts with `prefix`.
+  const reposBeingScanned = await listRepositoriesUnderPrefix(prefix);
 
-  const uniqueBlobs = new Set<string>();
+  // Map each unique blob digest → a repo known to reference it. Docker
+  // Distribution scopes blob access per-repo (`/v2/<repo>/blobs/<digest>`), so a
+  // blob must be HEAD'd against a repo that actually has it; HEADing every digest
+  // against a single repo 404s (and silently drops) blobs that live elsewhere,
+  // systematically undercounting multi-repo orgs.
+  const blobRepo = new Map<string, string>();
   for (const repo of reposBeingScanned) {
     try {
       const { tags } = await listTags(repo);
       for (const tag of tags) {
         try {
           const { body } = await getManifest(repo, tag);
-          collectBlobDigests(body, uniqueBlobs);
+          const digests = new Set<string>();
+          collectBlobDigests(body, digests);
+          for (const d of digests) if (!blobRepo.has(d)) blobRepo.set(d, repo);
         } catch (err) {
           if (!isNotFound(err)) {
             logger.warn('Manifest fetch failed during storage rollup', {
@@ -103,22 +101,18 @@ export async function computeStorageUsage(
     }
   }
 
-  // Sum bytes via HEAD per unique blob. The blob HEAD is cheap (no body
-  // transfer), but with hundreds of unique layers per org this can take a
-  // few seconds. The cache amortizes that cost across subsequent calls.
+  // Sum bytes via HEAD per unique blob, against a repo that references it. The
+  // HEAD is cheap (no body transfer), but with hundreds of unique layers per org
+  // this can take a few seconds; the cache amortizes that across subsequent calls.
   let totalBytes = 0;
-  for (const digest of uniqueBlobs) {
+  for (const [digest, repo] of blobRepo) {
     try {
-      // We don't know which repo a blob "belongs to" — pass any repo from
-      // the scanned set, the registry resolves by digest globally.
-      const repo = reposBeingScanned[0];
-      if (!repo) break;
       const head = await headBlob(repo, digest);
       if (typeof head.contentLength === 'number') totalBytes += head.contentLength;
     } catch (err) {
       if (!isNotFound(err)) {
         logger.warn('Blob HEAD failed during storage rollup', {
-          digest, error: err instanceof Error ? err.message : String(err),
+          digest, repo, error: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -128,14 +122,14 @@ export async function computeStorageUsage(
   cache.set(prefix, {
     bytes: totalBytes,
     repos: reposBeingScanned.length,
-    blobs: uniqueBlobs.size,
+    blobs: blobRepo.size,
     computedAt: now,
   });
   return {
     prefix,
     bytes: totalBytes,
     repos: reposBeingScanned.length,
-    blobs: uniqueBlobs.size,
+    blobs: blobRepo.size,
     computedAt: now,
   };
 }

@@ -26,31 +26,47 @@ export interface ProviderEntry {
 const registry = new Map<string, ProviderEntry>();
 let initialized = false;
 
+// Provider → model-factory map. `key` is optional so keyless providers (Bedrock,
+// via the runtime IAM role) and key-based providers share one signature. Declared
+// once and consumed by BOTH initRegistry and createModelWithKey.
+const PROVIDER_FACTORIES: Record<string, (key?: string) => (modelId: string) => LanguageModel> = {
+  'anthropic': (key) => createAnthropic({ apiKey: key }),
+  'openai': (key) => createOpenAI({ apiKey: key }),
+  'google': (key) => createGoogleGenerativeAI({ apiKey: key }),
+  'xai': (key) => createXai({ apiKey: key }),
+  'amazon-bedrock': () => createAmazonBedrock(),
+};
+
+/** Providers that authenticate WITHOUT an API key (Bedrock uses the IAM role). */
+const KEYLESS_PROVIDERS = new Set(['amazon-bedrock']);
+
 /**
- * Lazily initialize the provider registry from environment variables.
- * Only providers with configured API keys are registered.
+ * Whether a keyless provider (Bedrock) should be advertised. It auths via the
+ * runtime IAM role (no API key), so an AWS region — set by every AWS runtime — is
+ * the "running in / configured for AWS" signal. Gating it on AWS_ACCESS_KEY_ID
+ * (which it never uses) left it permanently unavailable despite valid IAM creds;
+ * advertising it with no AWS context at all would just fail at model-call time.
+ */
+function keylessProviderAvailable(): boolean {
+  return !!(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION);
+}
+
+/**
+ * Lazily initialize the provider registry from environment variables. Key-based
+ * providers register only when their key is set; keyless providers (Bedrock)
+ * register when an AWS region is configured.
  */
 function initRegistry(): void {
   if (initialized) return;
   initialized = true;
 
-  // Bedrock authenticates via the IAM role attached to the runtime (no key
-  // is passed); other providers take an API key. The factory signature
-  // accepts an optional key so both shapes share one type.
-  const factories: Record<string, (key?: string) => (modelId: string) => LanguageModel> = {
-    'anthropic': (key) => createAnthropic({ apiKey: key }),
-    'openai': (key) => createOpenAI({ apiKey: key }),
-    'google': (key) => createGoogleGenerativeAI({ apiKey: key }),
-    'xai': (key) => createXai({ apiKey: key }),
-    'amazon-bedrock': () => createAmazonBedrock(),
-  };
-
   for (const [id, info] of Object.entries(AI_PROVIDER_CATALOG)) {
+    const factory = PROVIDER_FACTORIES[id];
+    if (!factory) continue;
     const envVar = AI_PROVIDER_ENV_VARS[id];
     const apiKey = envVar ? process.env[envVar] : undefined;
-    if (apiKey && factories[id]) {
-      const provider = factories[id](apiKey);
-      registry.set(id, { info, createModel: provider });
+    if (apiKey || (KEYLESS_PROVIDERS.has(id) && keylessProviderAvailable())) {
+      registry.set(id, { info, createModel: factory(apiKey) });
     }
   }
 }
@@ -114,18 +130,8 @@ export function createModelWithKey(providerId: string, modelId: string, apiKey: 
     throw new Error(`Model "${modelId}" is not available for provider "${providerId}". Available: ${models.map((m) => m.id).join(', ')}`);
   }
 
-  switch (providerId) {
-    case 'anthropic':
-      return createAnthropic({ apiKey })(modelId);
-    case 'openai':
-      return createOpenAI({ apiKey })(modelId);
-    case 'google':
-      return createGoogleGenerativeAI({ apiKey })(modelId);
-    case 'xai':
-      return createXai({ apiKey })(modelId);
-    case 'amazon-bedrock':
-      return createAmazonBedrock()(modelId);
-    default:
-      throw new Error(`Unsupported AI provider "${providerId}"`);
-  }
+  const factory = PROVIDER_FACTORIES[providerId];
+  if (!factory) throw new Error(`Unsupported AI provider "${providerId}"`);
+  // Keyless providers (Bedrock) ignore the key and use the IAM role.
+  return factory(apiKey)(modelId);
 }

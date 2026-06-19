@@ -470,8 +470,10 @@ class ApiClient {
       }
     }
 
-    // Retry on 503 (server overloaded / request timeout) — up to 2 retries with backoff
-    if (statusCode === 503 && _retryCount < 2 && !options.method?.match(/POST|PUT|DELETE/i)) {
+    // Retry on 503 (server overloaded / request timeout) — up to 2 retries with
+    // backoff. Only for idempotent methods: PATCH is non-idempotent (e.g. a tier
+    // or role mutation), so auto-retrying its 503 could apply the change twice.
+    if (statusCode === 503 && _retryCount < 2 && !options.method?.match(/POST|PUT|PATCH|DELETE/i)) {
       await new Promise(r => setTimeout(r, 1000 * (_retryCount + 1)));
       return this.request<T>(endpoint, options, _retryCount + 1);
     }

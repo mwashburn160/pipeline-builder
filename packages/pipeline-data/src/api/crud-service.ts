@@ -138,6 +138,23 @@ export abstract class CrudService<
     return this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
   }
 
+  /**
+   * Conditions for a MUTATION (update/delete) of a single entity.
+   *
+   * `idConditions` reuses the READ access-control clause, which also matches
+   * system-org / other-org PUBLIC records — so without an extra ownership pin any
+   * tenant could update or soft-delete another org's (or the system org's) public
+   * records. AND a strict `orgId === caller` predicate: the read clause's
+   * public-OR branch requires `org_id = 'system'`, which then can't be satisfied,
+   * leaving only own-org rows. orgId-less (sysadmin) context keeps full access.
+   */
+  private writeConditions(id: string, orgId?: string): SQL[] {
+    const conditions = this.idConditions(id, orgId);
+    const orgCol = (this.schema as any).orgId as AnyColumn | undefined;
+    if (orgId && orgCol) conditions.push(eq(orgCol, orgId));
+    return conditions;
+  }
+
   // Lifecycle hooks — override in subclasses to react to mutations
   // These are fire-and-forget: errors are logged but never block the caller.
 
@@ -384,7 +401,7 @@ export abstract class CrudService<
     orgId: string,
     userId: string,
   ): Promise<TEntity | null> {
-    const conditions = this.idConditions(id, orgId);
+    const conditions = this.writeConditions(id, orgId);
 
     const [updated] = await withTenantTx(async (tx) => tx
       .update(this.schema)
@@ -411,7 +428,7 @@ export abstract class CrudService<
    * Delete an entity (soft delete by setting isActive = false)
    */
   async delete(id: string, orgId: string, userId: string): Promise<TEntity | null> {
-    const conditions = this.idConditions(id, orgId);
+    const conditions = this.writeConditions(id, orgId);
 
     const [deleted] = await withTenantTx(async (tx) => tx
       .update(this.schema)
@@ -596,9 +613,14 @@ export abstract class CrudService<
 
     const now = new Date();
     const user = userId || 'system';
+    // Owner-scope the bulk soft-delete: buildConditions also matches system/other
+    // -org PUBLIC rows, so without the strict orgId pin a tenant could delete
+    // shared records by id. (See writeConditions.)
+    const orgCol = (this.schema as any).orgId as AnyColumn | undefined;
     const conditions = [
       inArray((this.schema as any).id, ids),
       ...this.buildConditions({} as Partial<TFilter>, orgId),
+      ...(orgId && orgCol ? [eq(orgCol, orgId)] : []),
     ];
 
     const deleted = await withTenantTx(async (tx) => tx

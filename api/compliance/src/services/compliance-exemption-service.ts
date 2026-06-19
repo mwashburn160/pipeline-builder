@@ -7,7 +7,7 @@ import {
   schema,
   withTenantTx,
 } from '@pipeline-builder/pipeline-core';
-import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { ActiveExemption } from '../engine/rule-engine.js';
 
 export const CE_NOT_FOUND = 'CE_NOT_FOUND';
@@ -55,6 +55,41 @@ class ComplianceExemptionService {
       ));
 
     return rows.map(row => ({ id: row.id, ruleId: row.ruleId }));
+  }
+
+  /**
+   * Batch variant of {@link getActiveExemptionsForEntity}: active, approved,
+   * non-expired exemptions for many entities at once, keyed by entityId. The
+   * single source of truth for the active-exemption predicate (the bulk scan
+   * executor previously reimplemented this query).
+   */
+  async getActiveExemptionsForEntities(orgId: string, entityIds: string[]): Promise<Map<string, ActiveExemption[]>> {
+    const map = new Map<string, ActiveExemption[]>();
+    if (entityIds.length === 0) return map;
+    const now = new Date();
+    const rows = await withTenantTx(async (tx) => tx
+      .select({
+        id: schema.complianceExemption.id,
+        ruleId: schema.complianceExemption.ruleId,
+        entityId: schema.complianceExemption.entityId,
+      })
+      .from(schema.complianceExemption)
+      .where(and(
+        eq(schema.complianceExemption.orgId, orgId),
+        inArray(schema.complianceExemption.entityId, entityIds),
+        eq(schema.complianceExemption.status, 'approved'),
+        or(
+          isNull(schema.complianceExemption.expiresAt),
+          gt(schema.complianceExemption.expiresAt, now),
+        ),
+      )));
+    for (const row of rows) {
+      const entityId = row.entityId ?? '';
+      const list = map.get(entityId) ?? [];
+      list.push({ id: row.id, ruleId: row.ruleId });
+      map.set(entityId, list);
+    }
+    return map;
   }
 
   /** Paginated list of exemptions filtered by status/rule/entity. */

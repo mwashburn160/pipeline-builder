@@ -74,6 +74,7 @@ jest.unstable_mockModule('drizzle-orm', () => ({
   or: (...a: unknown[]) => ({ __op: 'or', a }),
   eq: (c: unknown, v: unknown) => ({ __op: 'eq', c, v }),
   gt: (c: unknown, v: unknown) => ({ __op: 'gt', c, v }),
+  inArray: (c: unknown, v: unknown) => ({ __op: 'inArray', c, v }),
   isNull: (c: unknown) => ({ __op: 'isNull', c }),
   desc: (c: unknown) => ({ __op: 'desc', c }),
   sql: jest.fn(),

@@ -57,7 +57,11 @@ const log = {
 
 const PIPELINE_EVENT_ID_TAG = 'PIPELINE_EVENT_ID';
 const clientsByRegion = new Map<string, CodePipelineClientLike>();
-const eventIdByArn = new Map<string, string | null>(); // null = resolved-but-untagged (negative cache)
+// tag=null is a negative cache (resolved-but-untagged); `ts` lets negatives
+// expire so a pipeline tagged AFTER its first event becomes resolvable without
+// recycling the warm container. Positive results stay cached for the lifetime.
+const eventIdByArn = new Map<string, { tag: string | null; ts: number }>();
+const NEG_CACHE_TTL_MS = 5 * 60 * 1000;
 
 async function pipelineClient(region: string): Promise<CodePipelineClientLike> {
   let client = clientsByRegion.get(region);
@@ -76,14 +80,19 @@ async function pipelineClient(region: string): Promise<CodePipelineClientLike> {
  * dropping every event.
  */
 async function resolvePipelineEventId(arn: string, region: string): Promise<string | null> {
-  if (eventIdByArn.has(arn)) return eventIdByArn.get(arn)!;
+  const cached = eventIdByArn.get(arn);
+  // Serve a positive hit for the container lifetime; serve a negative hit only
+  // until it expires (then re-resolve, in case the pipeline was since tagged).
+  if (cached && (cached.tag !== null || Date.now() - cached.ts < NEG_CACHE_TTL_MS)) {
+    return cached.tag;
+  }
   try {
     const client = await pipelineClient(region);
     const { ListTagsForResourceCommand } = await loadCodePipeline();
     const out = await client.send(new ListTagsForResourceCommand({ resourceArn: arn }));
     const tag = out.tags?.find(t => t.key === PIPELINE_EVENT_ID_TAG)?.value ?? null;
     if (!tag) log.warn('Pipeline missing PIPELINE_EVENT_ID tag — skipping (register it?)', { arn });
-    eventIdByArn.set(arn, tag);
+    eventIdByArn.set(arn, { tag, ts: Date.now() });
     return tag;
   } catch (err) {
     const name = (err as { name?: string })?.name;
@@ -160,13 +169,18 @@ function classifyEvent(detailType: string): { eventType: string; eventSource: st
   if (detailType.includes('Pipeline Execution')) return { eventType: 'PIPELINE', eventSource: 'codepipeline' };
   if (detailType.includes('Stage Execution')) return { eventType: 'STAGE', eventSource: 'codepipeline' };
   if (detailType.includes('Action Execution')) return { eventType: 'ACTION', eventSource: 'codepipeline' };
+  // CodeBuild "Build State" events identify a build *project*, not a pipeline, so
+  // parseRecord drops them on the `eventSource !== 'codepipeline'` check below —
+  // the 'BUILD' eventType is never persisted here (plugin BUILD events are
+  // recorded directly by the plugin service). The 'codebuild' source is what
+  // routes the drop; keep this branch only for that.
   if (detailType.includes('Build State')) return { eventType: 'BUILD', eventSource: 'codebuild' };
   return { eventType: 'PIPELINE', eventSource: 'codepipeline' };
 }
 
 /** Parse + resolve one record to a reportable event, or null to skip it. */
 async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null> {
-  const event = JSON.parse(record.body) as {
+  let event: {
     'detail-type': string;
     'source': string;
     'detail': Record<string, unknown>;
@@ -174,6 +188,15 @@ async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null> {
     'region': string;
     'account': string;
   };
+  // A malformed body is a dead message (retrying won't help) — log + skip it so
+  // it can't fail the whole batch. Resolution errors below (e.g. AccessDenied)
+  // are NOT caught here: those are transient/infra and must propagate to retry.
+  try {
+    event = JSON.parse(record.body);
+  } catch (err) {
+    log.warn('Skipping SQS record with unparseable body', { messageId: record.messageId, error: String(err) });
+    return null;
+  }
 
   const { eventType, eventSource } = classifyEvent(event['detail-type']);
   const detail = { ...event.detail };
@@ -246,7 +269,11 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   const baseUrl = process.env.PLATFORM_BASE_URL;
   if (!baseUrl) throw new Error('PLATFORM_BASE_URL environment variable is required');
 
-  // Parse + resolve all records (tag lookups run concurrently); drop skips.
+  // Parse + resolve all records (tag lookups run concurrently); drop intentional
+  // skips (null). A malformed record BODY is handled inside parseRecord (logged +
+  // skipped) so one bad message can't fail the whole batch — while genuine infra
+  // errors (e.g. AccessDenied on the tag lookup) still propagate so a missing IAM
+  // grant surfaces and SQS retries the batch.
   const events = (await Promise.all(event.Records.map(parseRecord)))
     .filter((e): e is ParsedEvent => e !== null);
   if (events.length === 0) {
@@ -254,18 +281,20 @@ export const handler = async (event: SQSEvent): Promise<void> => {
     return;
   }
 
-  // Authenticate
-  const token = await getAuthToken();
-
-  // POST batch to reporting service
-  const res = await fetch(`${baseUrl}/api/reports/events`, {
+  // POST batch to reporting service. On a 401/403 the cached JWT has likely
+  // expired — drop it, re-fetch, and retry ONCE so an expired token doesn't
+  // permanently brick a warm container.
+  const post = (token: string) => fetch(`${baseUrl}/api/reports/events`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ events }),
   });
+  let res = await post(await getAuthToken());
+  if (res.status === 401 || res.status === 403) {
+    log.warn('Reporting API auth failed; refreshing token and retrying once', { status: res.status });
+    cachedToken = null;
+    res = await post(await getAuthToken());
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');

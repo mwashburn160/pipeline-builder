@@ -155,6 +155,23 @@ export async function listRepositories(opts: { n?: number; last?: string } = {})
   };
 }
 
+/**
+ * Walk the FULL paginated `/v2/_catalog` and return every repository whose name
+ * starts with `prefix`. The single source of the catalog-pagination loop —
+ * registry-gc, storage-usage, and the gc-scheduler sweep all build on it (the
+ * scheduler then transforms the result into org namespaces).
+ */
+export async function listRepositoriesUnderPrefix(prefix: string): Promise<string[]> {
+  const repos: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await listRepositories({ n: 100, last: cursor });
+    for (const r of page.repositories) if (r.startsWith(prefix)) repos.push(r);
+    cursor = page.next;
+  } while (cursor);
+  return repos;
+}
+
 /** GET /v2/<name>/tags/list */
 export async function listTags(name: string): Promise<{ name: string; tags: string[] }> {
   const c = await authedClient([{ type: 'repository', name, actions: ['pull'] }]);

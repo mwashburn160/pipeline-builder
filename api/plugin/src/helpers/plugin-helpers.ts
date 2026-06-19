@@ -95,6 +95,12 @@ export interface PluginBuildJobData {
   lastError?: string;
   /** Total attempts across main queue + DLQ cycles. Prevents infinite retry loops. */
   totalAttempts?: number;
+  /**
+   * Set once the reserved plugins quota slot has been released for this job, so a
+   * later DLQ purge (enforceDlqMaxSize / purgeDlq) doesn't decrement it again
+   * (double-count) and an un-released job purged early still gets its slot back.
+   */
+  quotaReleased?: boolean;
 }
 
 /** Parameters for creating a plugin build job. */

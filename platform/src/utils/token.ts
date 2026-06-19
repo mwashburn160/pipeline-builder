@@ -292,7 +292,14 @@ export function issueStepUpToken(userId: string, ttlSeconds = 60): { token: stri
  *  additionally check that `payload.sub === req.user.sub` — `requireStepUp`
  *  middleware does this. */
 export function verifyStepUpToken(token: string): StepUpTokenPayload {
-  return jwt.verify(token, config.auth.jwt.secret, {
+  const payload = jwt.verify(token, config.auth.jwt.secret, {
     algorithms: [config.auth.jwt.algorithm],
   }) as StepUpTokenPayload;
+  // A normal access token shares the same JWT secret + `sub`, so without
+  // asserting the step-up type (and a jti) it would satisfy requireStepUp and
+  // bypass the password re-verification gate on destructive endpoints.
+  if (payload.type !== 'step-up' || !payload.jti) {
+    throw new Error('INVALID_STEP_UP_TOKEN');
+  }
+  return payload;
 }

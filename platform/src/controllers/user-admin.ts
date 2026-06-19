@@ -161,6 +161,12 @@ export const updateUserById = withController('Update user', async (req, res) => 
     if (body.organizationId !== undefined) {
       return sendError(res, 403, 'Forbidden: Only system admins can change user organization');
     }
+    // Org-admin can't grant org ownership — that must go through transferOwnership
+    // (which atomically demotes the current owner). Otherwise an org-admin could
+    // self-escalate to owner via PUT /users/:id { role: 'owner' }.
+    if (body.role === 'owner') {
+      return sendError(res, 403, 'Forbidden: Ownership can only be changed via organization transfer');
+    }
   }
 
   const { user, changes, organizationName, activeOrgRole } = await userAdminService.updateUserById(

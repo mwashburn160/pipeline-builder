@@ -398,7 +398,11 @@ function recordBuildEvent(orgId: string, status: 'completed' | 'failed', job: Jo
         attemptsMade: job.attemptsMade,
         maxAttempts: job.opts.attempts,
       },
-    }))
+    })
+    // BullMQ may re-run a job (retry/stalled-recovery) and re-record the same
+    // (execution_id=jobId) BUILD event; dedup on the event_dedup_idx instead of
+    // inserting duplicate rows that inflate build metrics.
+    .onConflictDoNothing())
     .then(
       () => reportingService.invalidateOrg(orgId).catch((invalidateErr: unknown) => {
         logger.warn('Reporting cache invalidation failed after build event', { orgId, error: errorMessage(invalidateErr) });
@@ -440,7 +444,29 @@ let lastDlqEnforceMs = 0;
  * total-check so the expensive scan only runs when the queue is close to its
  * cap.
  */
-async function enforceDlqMaxSize(): Promise<void> {
+/**
+ * Release the org's reserved `plugins` quota slot for a build job exactly once.
+ * Every terminal failure path (main worker + DLQ worker) and every DLQ purge
+ * funnels through here. The `quotaReleased` flag — mutated in-memory for same-tick
+ * idempotency and persisted via `updateData` so a freshly-fetched job in a later
+ * purge sees it — guarantees a job that already gave its slot back on exhaustion
+ * isn't decremented again when a purge removes it (double-count), while a job
+ * purged before it ever reached a terminal handler still gets its slot back.
+ */
+function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: QuotaService): void {
+  if (job.data.quotaReleased) return;
+  const { orgId } = job.data;
+  decrementQuota(quotaService, orgId, 'plugins',
+    getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
+    logger.warn.bind(logger),
+  );
+  job.data.quotaReleased = true;
+  void job.updateData(job.data).catch((err) =>
+    logger.debug('Failed to persist quotaReleased flag', { jobId: job.id, error: String(err) }),
+  );
+}
+
+async function enforceDlqMaxSize(quotaService: QuotaService): Promise<void> {
   const now = Date.now();
   if (now - lastDlqEnforceMs < DLQ_ENFORCE_SCAN_INTERVAL_MS) return;
   lastDlqEnforceMs = now;
@@ -463,16 +489,23 @@ async function enforceDlqMaxSize(): Promise<void> {
   const toPurge = terminalJobs.slice(0, purgeCount);
 
   for (const job of toPurge) {
+    // Give the slot back unless the job already released it on exhaustion
+    // (its terminal handler decremented + marked it) — purging is otherwise a
+    // silent quota leak for any not-yet-terminal job we evict for capacity.
+    releasePluginQuota(job, quotaService);
     cleanupContextDir(job.data.buildRequest.contextDir);
     try { await job.remove(); } catch { /* best-effort */ }
     logger.info('Purged oldest DLQ job', { jobId: job.id, pluginName: job.data.pluginRecord.name });
   }
 }
 
-export async function purgeDlq(): Promise<void> {
+export async function purgeDlq(quotaService: QuotaService): Promise<void> {
   const q = getDeadLetterQueue();
   const jobs = await q.getJobs(['waiting', 'delayed', 'completed', 'failed']);
   for (const job of jobs) {
+    // Release each still-reserved slot before obliterating — jobs that never
+    // reached a terminal handler would otherwise leak quota until period reset.
+    releasePluginQuota(job, quotaService);
     cleanupContextDir(job.data.buildRequest.contextDir);
   }
   await q.obliterate({ force: true });
@@ -559,7 +592,9 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           pluginId: result.id,
         });
 
-        const durationMs = job.processedOn && job.finishedOn ? job.finishedOn - job.processedOn : undefined;
+        // job.finishedOn isn't set until the processor returns, so it's always
+        // undefined here — use Date.now(), matching recordBuildEvent's fallback.
+        const durationMs = job.processedOn ? Date.now() - job.processedOn : undefined;
         logger.info('Plugin build event', {
           eventCategory: 'plugin-build',
           action: 'plugin.build.completed',
@@ -687,10 +722,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     // failure would double-count.
     if (category === 'permanent' || totalAttempts >= budget) {
       cleanupContextDir(buildRequest.contextDir);
-      decrementQuota(quotaService, orgId, 'plugins',
-        getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
-        logger.warn.bind(logger),
-      );
+      releasePluginQuota(job, quotaService);
       logger.warn('Permanent failure, cleaned up', {
         jobId: job.id,
         pluginName: pluginRecord.name,
@@ -709,7 +741,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       totalAttempts,
     };
 
-    enforceDlqMaxSize()
+    enforceDlqMaxSize(quotaService)
       .then(() => getDeadLetterQueue().add(`dlq-${job.id}`, dlqData, {
         jobId: `dlq-${job.id}`,
         attempts: cfg.dlqMaxAttempts,
@@ -790,10 +822,7 @@ function startDlqWorker(quotaService: QuotaService): void {
 
       if ((totalAttempts ?? 0) >= budget) {
         cleanupContextDir(buildRequest.contextDir);
-        decrementQuota(quotaService, orgId, 'plugins',
-          getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
-          logger.warn.bind(logger),
-        );
+        releasePluginQuota(job, quotaService);
         logger.warn('DLQ: max total attempts reached, giving up', {
           jobId: job.id,
           pluginName: pluginRecord.name,
@@ -841,11 +870,7 @@ function startDlqWorker(quotaService: QuotaService): void {
 
     if (isFinalAttempt) {
       cleanupContextDir(job.data.buildRequest.contextDir);
-      const { orgId } = job.data;
-      decrementQuota(quotaService, orgId, 'plugins',
-        getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
-        logger.warn.bind(logger),
-      );
+      releasePluginQuota(job, quotaService);
       logger.warn('DLQ exhausted all retries, cleaned up', {
         jobId: job.id,
         pluginName: job.data.pluginRecord.name,

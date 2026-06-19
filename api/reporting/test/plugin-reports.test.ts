@@ -22,6 +22,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: jest.fn(() => ({})),
   parseDateRange: jest.fn(() => ({ from: '2026-01-01T00:00:00Z', to: '2026-01-31T00:00:00Z' })),
   REPORT_INTERVALS: ['day', 'week', 'month'] as const,
+  parseReportInterval: jest.fn((query: any) => {
+    const interval = String(query?.interval ?? 'week');
+    return ['day', 'week', 'month'].includes(interval)
+      ? interval
+      : { error: 'interval must be one of: day, week, month' };
+  }),
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
   parseQueryIntClamped: jest.fn((val: any, def: number, max: number) =>
     Math.min(Math.max(1, parseInt(String(val ?? def), 10) || def), max)),

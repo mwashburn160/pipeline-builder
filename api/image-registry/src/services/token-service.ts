@@ -225,9 +225,12 @@ export async function authorizeAndIssue( identity: Identity,
     // 2. The scope is an `org-X/*` repo (system images are platform-managed),
     // 3. The identity is a JWT identity (management bypasses the cap).
     // `overBudget` is computed at most once per token-issuance call.
+    // NOTE: gated on `type === 'jwt'` alone — non-jwt management/service tokens
+    // already bypass here. Do NOT also exempt `identity.isAdmin`: an org
+    // owner/admin is a normal tenant for storage purposes and must not be able to
+    // push past their org's storageBytes quota.
     if ( granted.includes('push') &&
       identity.type === 'jwt' &&
-      !identity.isAdmin &&
       scope.name.startsWith(`${ORG_NAMESPACE_PREFIX}${identity.orgId}/`)
     ) {
       if (overBudget === null) overBudget = await isStorageOverBudget(identity.orgId);

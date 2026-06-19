@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
-import { listRepositories } from './registry-client.js';
+import { listRepositoriesUnderPrefix } from './registry-client.js';
 import { runRegistryGc } from './registry-gc.js';
 import { invalidateStorageCache } from './storage-usage.js';
 
@@ -49,25 +49,21 @@ function readConfig(): SchedulerOptions {
  */
 async function sweepOnce(maxAgeDays: number): Promise<void> {
   const startMs = Date.now();
-  const orgPrefixes = new Set<string>();
-  let cursor: string | undefined;
+  let repos: string[];
   try {
-    do {
-      const page = await listRepositories({ n: 100, last: cursor });
-      for (const r of page.repositories) {
-        if (!r.startsWith(ORG_PREFIX)) continue;
-        const slash = r.indexOf('/');
-        if (slash === -1) continue;
-        // Extract the namespace (e.g. `org-acme/`) so we run GC once per
-        // org rather than per-repo. `org-acme/foo` and `org-acme/bar`
-        // share the same prefix.
-        orgPrefixes.add(r.slice(0, slash + 1));
-      }
-      cursor = page.next;
-    } while (cursor);
+    repos = await listRepositoriesUnderPrefix(ORG_PREFIX);
   } catch (err) {
     logger.warn('GC sweep: catalog listing failed; skipping cycle', { error: errorMessage(err) });
     return;
+  }
+
+  // Extract the namespace (e.g. `org-acme/`) so we run GC once per org rather
+  // than per-repo — `org-acme/foo` and `org-acme/bar` share the same prefix.
+  const orgPrefixes = new Set<string>();
+  for (const r of repos) {
+    const slash = r.indexOf('/');
+    if (slash === -1) continue;
+    orgPrefixes.add(r.slice(0, slash + 1));
   }
 
   if (orgPrefixes.size === 0) {

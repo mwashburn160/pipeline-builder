@@ -57,16 +57,31 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
 
   // -- Cache invalidation on mutations --
 
+  /**
+   * Invalidate every cached view a message touches: BOTH the sender (`orgId`) and
+   * the recipient (`recipientOrgId`) sides. Keying only on the sender left
+   * recipients (and announcement audiences) serving stale inbox/unread lists for
+   * the full cache TTL. A broadcast (`recipientOrgId='*'`) invalidates every org's
+   * announcement view.
+   */
+  private async invalidateMessageCaches(orgId?: string, recipientOrgId?: string | null): Promise<void> {
+    const patterns = new Set<string>();
+    if (orgId) patterns.add(`${orgId}:*`);
+    if (recipientOrgId && recipientOrgId !== '*') patterns.add(`${recipientOrgId}:*`);
+    if (recipientOrgId === '*') patterns.add('*:announcements');
+    await Promise.all([...patterns].map((p) => messageCache.invalidatePattern(p)));
+  }
+
   protected async onAfterCreate(entity: Message): Promise<void> {
-    await messageCache.invalidatePattern(`${entity.orgId}:*`);
+    await this.invalidateMessageCaches(entity.orgId, entity.recipientOrgId);
   }
 
   protected async onAfterUpdate(_id: string, entity: Message): Promise<void> {
-    await messageCache.invalidatePattern(`${entity.orgId}:*`);
+    await this.invalidateMessageCaches(entity.orgId, entity.recipientOrgId);
   }
 
   protected async onAfterDelete(_id: string, entity: Message): Promise<void> {
-    await messageCache.invalidatePattern(`${entity.orgId}:*`);
+    await this.invalidateMessageCaches(entity.orgId, entity.recipientOrgId);
   }
 
   /**
@@ -153,6 +168,9 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         ),
       ))
       .returning());
+    // Direct tx bypasses the CrudService onAfter* hooks — invalidate the reader's
+    // cached inbox/unread views so the read state isn't stale for the TTL.
+    if (updated) await this.invalidateMessageCaches(orgId);
     return (updated as Message) ?? null;
   }
 
@@ -179,7 +197,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       .where(and(
         eq(schema.message.threadId, threadId),
         eq(schema.message.isActive, true),
-        sql`not (${schema.message.readBy} ? ${orgId})`,
+        sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
         or(
           eq(schema.message.orgId, orgId),
           eq(schema.message.recipientOrgId, orgId),
@@ -187,6 +205,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         ),
       ))
       .returning());
+    if (updated.length > 0) await this.invalidateMessageCaches(orgId);
     return updated as Message[];
   }
 
@@ -254,6 +273,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
           ),
         ),
       ));
+    // Direct tx bypasses the onAfter* hooks — invalidate the caller's cached
+    // inbox/conversation views (the preceding root-message delete already
+    // invalidated both participants via CrudService.delete's hook).
+    await this.invalidateMessageCaches(orgId);
   }
 }
 

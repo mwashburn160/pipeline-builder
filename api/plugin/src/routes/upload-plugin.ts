@@ -96,6 +96,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
 
       let zipPath: string | undefined;
       let reserved = false;
+      let reservedResetAt: string | undefined; // resetAt observed at reserve time (for conditional rollback)
 
       try {
         if (!req.file) {
@@ -117,6 +118,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           return sendQuotaExceeded(res, 'plugins', reservation.quota, reservation.quota.resetAt);
         }
         reserved = true;
+        reservedResetAt = reservation.quota.resetAt;
 
         zipPath = req.file.path;
         ctx.log('INFO', 'Upload received', {
@@ -160,7 +162,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
               pluginName: s.name,
               violations: complianceResult.violations.length,
             });
-            decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'));
+            decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
             reserved = false;
             return sendError(res, 403, 'Plugin upload blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
               violations: complianceResult.violations,
@@ -178,7 +180,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           ctx.log('ERROR', 'Compliance service unavailable', {
             error: errorMessage(err),
           });
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
           return sendError(res, 503, 'Compliance service unavailable  plugin upload rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
         }
@@ -252,7 +254,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           ctx.log('ERROR', 'Failed to enqueue build job', {
             error: queueErr instanceof Error ? queueErr.message: String(queueErr),
           });
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
           return sendError(res, 503, 'Build queue unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
         }
@@ -272,7 +274,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         // back the reserved slot before propagating, otherwise the slot
         // sticks until period reset.
         if (reserved) {
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservedResetAt);
         }
         throw err;
       } finally {

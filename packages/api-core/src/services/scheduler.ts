@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '../utils/logger.js';
 import { withLeaderLock, type LockRedis } from './leader-lock.js';
+import { createLogger } from '../utils/logger.js';
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 

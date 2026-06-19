@@ -207,6 +207,23 @@ export const REPORT_INTERVALS = ['day', 'week', 'month'] as const;
 export type ReportInterval = (typeof REPORT_INTERVALS)[number];
 
 /**
+ * Parse + validate a `?interval=` report bucket (defaults to 'week'). Returns the
+ * validated interval or `{ error }`. Shared by the timeseries report routes so the
+ * default + allow-list + error message live in one place.
+ *
+ * @example
+ * const interval = parseReportInterval(req.query);
+ * if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
+ */
+export function parseReportInterval(query: Record<string, unknown>): ReportInterval | { error: string } {
+  const interval = String(query.interval ?? 'week');
+  if (!REPORT_INTERVALS.includes(interval as ReportInterval)) {
+    return { error: `interval must be one of: ${REPORT_INTERVALS.join(', ')}` };
+  }
+  return interval as ReportInterval;
+}
+
+/**
  * Parse a `?from=&to=` date range with defaults of "30 days ago → now".
  * Rejects non-string inputs (Express's parser can produce string[] for
  * repeated keys), invalid ISO timestamps, and inverted ranges.

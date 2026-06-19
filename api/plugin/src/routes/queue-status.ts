@@ -146,7 +146,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       return sendError(res, 403, 'Only administrators can purge DLQ', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    await purgeDlq();
+    await purgeDlq(quotaService);
 
     return sendSuccess(res, 200, { message: 'DLQ purged' });
   }));

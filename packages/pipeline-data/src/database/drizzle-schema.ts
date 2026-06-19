@@ -466,8 +466,23 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // key; events without an executionId (rare) aren't deduped, which is safe.
   // Includes pipeline_id so a (theoretical) execution-id reuse across pipelines
   // can't collide now that the ARN is no longer part of the row.
+  //
+  // COALESCE the nullable parts to sentinels (expression index): PIPELINE/STAGE/
+  // BUILD events leave stage_name/action_name NULL (plugin-build also pipeline_id
+  // NULL), and Postgres treats NULLs as DISTINCT in a unique index — so the plain
+  // column index never matches for those types and onConflictDoNothing can't dedup
+  // their at-least-once re-deliveries. Collapsing NULL→'' makes equal events equal.
+  // (drizzle's uniqueIndex can't express NULLS NOT DISTINCT on a partial index, so
+  // we use the equivalent expression index.) MIGRATION REQUIRED: drizzle-kit generate.
   dedupIdx: uniqueIndex('event_dedup_idx')
-    .on(table.pipelineId, table.executionId, table.eventType, table.status, table.stageName, table.actionName)
+    .on(
+      sql`coalesce(${table.pipelineId}::text, '')`,
+      table.executionId,
+      table.eventType,
+      table.status,
+      sql`coalesce(${table.stageName}, '')`,
+      sql`coalesce(${table.actionName}, '')`,
+    )
     .where(sql`execution_id IS NOT NULL`),
 }));
 

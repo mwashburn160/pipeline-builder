@@ -3,6 +3,7 @@
 
 import { spawn } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import path from 'path';
 
 import { createLogger, signServiceToken, ValidationError } from '@pipeline-builder/api-core';
@@ -111,24 +112,28 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
   // otherwise a long build (gcloud-deploy, playwright) outlives a short-TTL token
   // and the push fails with a 401 from image-registry's /token endpoint.
   const authTtlSeconds = Math.ceil(cfg.timeoutMs / 1000);
-  const dockerConfigDir = writeAuthConfig(req.contextDir, req.registry, req.orgId, authTtlSeconds);
+  const dockerConfigDir = writeAuthConfig(req.registry, req.orgId, authTtlSeconds);
   patchDockerfile(req.contextDir, req.dockerfile);
 
   logger.info('Building image', { image, buildkitAddr });
 
-  await run('buildctl', [
-    '--addr', buildkitAddr,
-    'build',
-    '--frontend', 'dockerfile.v0',
-    '--local', `context=${req.contextDir}`,
-    '--local', `dockerfile=${path.dirname(path.join(req.contextDir, req.dockerfile))}`,
-    '--opt', `filename=${path.basename(req.dockerfile)}`,
-    // Pin the published plugin image platform (default linux/amd64 = the
-    // CodeBuild runtime). The `FROM` base image must have a matching variant.
-    '--opt', `platform=${PUBLISH_PLATFORM}`,
-    ...flagBuildArgs(req.buildArgs),
-    '--output', outputSpec(image, req.registry),
-  ], cfg.timeoutMs, { DOCKER_CONFIG: dockerConfigDir });
+  try {
+    await run('buildctl', [
+      '--addr', buildkitAddr,
+      'build',
+      '--frontend', 'dockerfile.v0',
+      '--local', `context=${req.contextDir}`,
+      '--local', `dockerfile=${path.dirname(path.join(req.contextDir, req.dockerfile))}`,
+      '--opt', `filename=${path.basename(req.dockerfile)}`,
+      // Pin the published plugin image platform (default linux/amd64 = the
+      // CodeBuild runtime). The `FROM` base image must have a matching variant.
+      '--opt', `platform=${PUBLISH_PLATFORM}`,
+      ...flagBuildArgs(req.buildArgs),
+      '--output', outputSpec(image, req.registry),
+    ], cfg.timeoutMs, { DOCKER_CONFIG: dockerConfigDir });
+  } finally {
+    fs.rmSync(dockerConfigDir, { recursive: true, force: true });
+  }
 
   return { fullImage: image };
 }
@@ -149,14 +154,18 @@ export async function loadAndPush( tarPath: string, name: string, version: strin
   // crane push is bounded by pushTimeoutMs; the token TTL equals that window so
   // the credential lives exactly as long as the operation that uses it.
   const authTtlSeconds = Math.ceil(cfg.pushTimeoutMs / 1000);
-  const dockerConfigDir = writeAuthConfig(path.dirname(tarPath), registry, orgId, authTtlSeconds);
+  const dockerConfigDir = writeAuthConfig(registry, orgId, authTtlSeconds);
 
   logger.info('Pushing prebuilt image', { image, tarPath });
 
-  await run('crane', [
-    ...(registry.http ? ['--insecure']: []),
-    'push', tarPath, image,
-  ], cfg.pushTimeoutMs, { DOCKER_CONFIG: dockerConfigDir });
+  try {
+    await run('crane', [
+      ...(registry.http ? ['--insecure']: []),
+      'push', tarPath, image,
+    ], cfg.pushTimeoutMs, { DOCKER_CONFIG: dockerConfigDir });
+  } finally {
+    fs.rmSync(dockerConfigDir, { recursive: true, force: true });
+  }
 
   return { fullImage: image };
 }
@@ -209,9 +218,13 @@ function outputSpec(image: string, registry: RegistryInfo): string {
  * to hosts present in `auths`, so without this second entry crane
  * hops to the public realm with no credentials and gets 401.
  */
-function writeAuthConfig(contextDir: string, registry: RegistryInfo, orgId: string, ttlSeconds: number): string {
-  const dir = path.join(contextDir, '.docker');
-  fs.mkdirSync(dir, { recursive: true });
+function writeAuthConfig(registry: RegistryInfo, orgId: string, ttlSeconds: number): string {
+  // Write OUTSIDE any build context. The previous in-context `.docker/config.json`
+  // was baked into published images by a plugin Dockerfile's `COPY . .`, leaking
+  // an owner-scoped platform JWT. buildctl/crane read it via the DOCKER_CONFIG
+  // env, so its location is independent of the build context. Caller removes it
+  // after the build/push completes.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-dockercfg-'));
   const password = signServiceToken({ serviceName: 'platform', orgId, role: 'owner', ttlSeconds });
   const auth = Buffer.from(`_token:${password}`).toString('base64');
 

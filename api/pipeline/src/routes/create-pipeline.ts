@@ -91,7 +91,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
             });
             // Roll back the quota slot we reserved above — the pipeline was
             // never created so the org shouldn't be charged for it.
-            decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
+            decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
             return sendError(res, 403, 'Pipeline creation blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
               violations: complianceResult.violations,
             });
@@ -100,7 +100,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
           ctx.log('ERROR', 'Compliance service unavailable', {
             error: errorMessage(err),
           });
-          decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           return sendError(res, 503, 'Compliance service unavailable — pipeline creation rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
         }
 
@@ -150,7 +150,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
 
         // Roll back the quota slot — the action failed so the org shouldn't
         // be charged for it.
-        decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'));
+        decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         return sendInternalError(res, 'Failed to save pipeline configuration', { details: message, ...dbDetails });
       }
     }),

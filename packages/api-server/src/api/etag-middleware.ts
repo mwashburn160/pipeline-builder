@@ -17,6 +17,18 @@ export function etagMiddleware() {
     res.json = (body: unknown) => {
       // Serialize once, hash, and send — avoids double JSON.stringify
       const serialized = JSON.stringify(body);
+
+      // Only ETag/304 SUCCESSFUL responses. For non-2xx (errors), skip the
+      // conditional logic entirely — otherwise an error response whose body
+      // happens to hash-match the client's If-None-Match would be turned into a
+      // 304 Not Modified, making the client serve a stale (possibly successful)
+      // cached body in place of the error.
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(serialized);
+        return res;
+      }
+
       const hash = createHash('md5').update(serialized).digest('hex').slice(0, 16);
       const etag = `W/"${hash}"`;
 

@@ -10,7 +10,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSSE } from './useSSE';
 import api from '@/lib/api';
-import { MESSAGE_SSE_MAX_RETRIES, MESSAGE_SSE_BASE_RETRY_DELAY_MS } from '@/lib/constants';
+import { MESSAGE_SSE_BASE_RETRY_DELAY_MS } from '@/lib/constants';
 
 /** Discriminator for message notification actions. */
 export type MessageNotificationAction = 'NEW_MESSAGE' | 'MESSAGE_DELETED' | 'UNREAD_COUNT';
@@ -70,10 +70,19 @@ export function useMessageNotifications(orgId: string | null) {
     return () => { cancelled = true; };
   }, [orgId, ticketKey]);
 
-  // When the SSE connection drops, fetch a fresh ticket for the next attempt
+  // Each SSE attempt needs a FRESH single-use ticket, so we do NO in-band retries
+  // (maxRetries: 0 below) — retrying the consumed ticket just 401s until the
+  // budget is exhausted. Instead, mint a fresh ticket per reconnect (bump
+  // ticketKey → the effect above refetches), with exponential backoff so a
+  // persistently-down server doesn't hot-loop. The counter resets on connect.
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const onRetriesExhausted = useCallback(() => {
-    setTicketKey((k) => k + 1);
+    const attempt = (reconnectAttemptRef.current += 1);
+    const delay = Math.min(MESSAGE_SSE_BASE_RETRY_DELAY_MS * 2 ** (attempt - 1), 30_000);
+    reconnectTimerRef.current = setTimeout(() => setTicketKey((k) => k + 1), delay);
   }, []);
+  useEffect(() => () => clearTimeout(reconnectTimerRef.current), []);
 
   const onMessage = useCallback((data: unknown) => {
     const parsed = data as MessageNotification;
@@ -89,11 +98,13 @@ export function useMessageNotifications(orgId: string | null) {
 
   const { connected } = useSSE({
     url,
-    maxRetries: MESSAGE_SSE_MAX_RETRIES,
-    baseRetryDelayMs: MESSAGE_SSE_BASE_RETRY_DELAY_MS,
+    maxRetries: 0, // fresh ticket per reconnect (see onRetriesExhausted), not stale in-band retries
     onMessage,
     onRetriesExhausted,
   });
+
+  // Reset the reconnect backoff once a connection succeeds.
+  useEffect(() => { if (connected) reconnectAttemptRef.current = 0; }, [connected]);
 
   return { unreadCount, setUnreadCount, connected, onNotification };
 }

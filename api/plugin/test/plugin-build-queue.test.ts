@@ -127,7 +127,7 @@ function registerMocks() {
     reportingService: { record: jest.fn(), invalidateOrg: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined) },
     runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
     withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
-      insert: () => ({ values: () => Promise.resolve() }),
+      insert: () => ({ values: () => Object.assign(Promise.resolve(), { onConflictDoNothing: () => Promise.resolve() }) }),
       select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
       update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
     }),

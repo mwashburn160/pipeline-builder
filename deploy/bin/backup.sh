@@ -108,19 +108,22 @@ if [ "${RETENTION_DAYS}" -gt 0 ]; then
   CUTOFF=$(date -u -v-"${RETENTION_DAYS}"d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
         || date -u -d "${RETENTION_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
   if [ "$DRY_RUN" != "1" ]; then
-    aws s3api list-objects-v2 \
+    # Capture the key list first, THEN iterate — don't put control flow on grep's
+    # exit status: `grep -v '^$'` exits 1 when there's nothing to prune, which
+    # under `set -o pipefail` falsely failed the whole step (spurious exit 3 /
+    # operator page). `|| true` keeps an empty result from failing the capture.
+    prune_keys=$(aws s3api list-objects-v2 \
       --bucket "${BACKUP_BUCKET}" \
       --prefix "${ENV_NAME}/" \
       --region "${AWS_REGION}" \
       --query "Contents[?LastModified<'${CUTOFF}'].Key" \
       --output text 2>/dev/null \
-      | tr '\t' '\n' \
-      | grep -v '^$' \
-      | while read -r key; do
-          echo "  pruning $key"
-          aws s3 rm "s3://${BACKUP_BUCKET}/${key}" --region "${AWS_REGION}" \
-            || { echo "WARN: failed to prune $key (continuing)" >&2; }
-        done || { echo "ERROR: prune step failed" >&2; exit 3; }
+      | tr '\t' '\n' | grep -v '^$' || true)
+    for key in $prune_keys; do
+      echo "  pruning $key"
+      aws s3 rm "s3://${BACKUP_BUCKET}/${key}" --region "${AWS_REGION}" \
+        || { echo "WARN: failed to prune $key (continuing)" >&2; }
+    done
   else
     echo "  [dry-run] would prune objects with LastModified < ${CUTOFF}"
   fi

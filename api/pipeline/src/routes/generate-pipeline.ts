@@ -151,7 +151,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         const message = errorMessage(error);
         logger.error('AI pipeline generation failed', { requestId: ctx.requestId, error: message });
         // Roll back the reserved slot — the LLM call never produced output.
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         handleAIError(res, message, 'Failed to generate pipeline configuration');
       }
     }),
@@ -225,7 +225,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         } else {
           // Aborted before completion — caller never consumed the LLM
           // output, so give the slot back.
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
         }
 
@@ -234,7 +234,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         const message = errorMessage(error);
         logger.error('AI pipeline streaming generation failed', { requestId: ctx.requestId, error: message });
         if (reserved) {
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         }
         handleAIError(res, message, 'Failed to stream pipeline configuration');
       }
@@ -299,7 +299,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           const msg = errorMessage(analyzeError);
           logger.warn('Repository analysis failed', { requestId: ctx.requestId, error: msg });
           // Repo analysis failed before any LLM call — roll back the slot.
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
           res.write(`data: ${JSON.stringify({ type: 'error', message: `Repository analysis failed: ${msg}` })}\n\n`);
           res.end();
@@ -307,7 +307,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         }
 
         if (sse.aborted()) {
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
           res.end();
           return;
@@ -377,7 +377,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           }
           res.write('data: [DONE]\n\n');
         } else {
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
         }
 
@@ -386,7 +386,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         const message = errorMessage(error);
         logger.error('AI pipeline generation from URL failed', { requestId: ctx.requestId, error: message });
         if (reserved) {
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'));
+          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         }
         handleAIError(res, message, 'Failed to generate pipeline from URL');
       }

@@ -6,7 +6,7 @@ import {
   sendBadRequest,
   sendError,
   ErrorCode,
-  REPORT_INTERVALS,
+  parseReportInterval,
   parseDateRange,
   parseQueryIntClamped,
   isSystemAdmin,
@@ -39,10 +39,8 @@ export function createExecutionReportRoutes(): Router {
   }));
 
   router.get('/success-rate', withRoute(async ({ req, res, orgId }) => {
-    const interval = String(req.query.interval || 'week');
-    if (!REPORT_INTERVALS.includes(interval as typeof REPORT_INTERVALS[number])) {
-      return sendBadRequest(res, `interval must be one of: ${REPORT_INTERVALS.join(', ')}`, ErrorCode.VALIDATION_ERROR);
-    }
+    const interval = parseReportInterval(req.query);
+    if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const orgIds = await rollupIds(req, orgId);

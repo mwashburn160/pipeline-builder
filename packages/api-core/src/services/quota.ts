@@ -60,8 +60,14 @@ export interface QuotaService {
    * outages (matches `check()`).
    */
   reserve(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, requestId?: string): Promise<QuotaReserveResult>;
-  /** Roll back a previously reserved slot. Fire-and-forget  never throws. */
-  decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, requestId?: string): Promise<void>;
+  /**
+   * Roll back a previously reserved slot. Fire-and-forget — never throws.
+   * Pass `resetAtSnapshot` (the `quota.resetAt` observed when the slot was
+   * reserved) to make the rollback conditional: if the period rolled over
+   * between reserve and rollback, the server skips the decrement so it doesn't
+   * steal capacity from the new period.
+   */
+  decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, resetAtSnapshot?: string, requestId?: string): Promise<void>;
   /** Update quota limits. Returns true on success. */
   updateLimits(orgId: string, limits: Partial<Record<QuotaType, number>>, authHeader: string, requestId?: string): Promise<boolean>;
   /** Reset quota usage. Returns true on success. */
@@ -232,10 +238,10 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       };
     },
 
-    async decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, requestId?: string): Promise<void> {
+    async decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, resetAtSnapshot?: string, requestId?: string): Promise<void> {
       const path = `/quotas/${encodeURIComponent(orgId)}/decrement`;
       const response = await client
-        .post(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
+        .post(path, { quotaType, amount, ...(resetAtSnapshot && { resetAtSnapshot }) }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response || response.statusCode !== 200) {
         // Rollback failure is logged but never propagated  the action's own
@@ -347,7 +353,8 @@ export function incrementQuota( quotaService: QuotaService,
  * try {
  * await doExpensiveThing();
  * } catch (err) {
- * await decrementQuota(quotaService, orgId, 'pipelines', authHeader);
+ * // Pass the reserved resetAt so a period rollover doesn't get double-charged.
+ * decrementQuota(quotaService, orgId, 'pipelines', authHeader, logWarn, 1, reservation.quota.resetAt);
  * throw err;
  * }
  * ```
@@ -373,8 +380,9 @@ export function decrementQuota( quotaService: QuotaService,
   authHeader: string,
   logWarn: (message: string, data?: unknown) => void,
   amount: number = 1,
+  resetAtSnapshot?: string,
 ): void {
-  quotaService.decrement(orgId, quotaType, authHeader, amount).catch((err: unknown) =>
+  quotaService.decrement(orgId, quotaType, authHeader, amount, resetAtSnapshot).catch((err: unknown) =>
     logWarn('Quota rollback failed', { error: err instanceof Error ? err.message: String(err) }),
   );
 }

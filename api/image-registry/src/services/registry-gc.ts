@@ -4,7 +4,7 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import {
-  listRepositories,
+  listRepositoriesUnderPrefix,
   listTags,
   getManifest,
   getBlobJson,
@@ -73,13 +73,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   let deleted = 0;
 
   // Walk the catalog and collect repos under `prefix`.
-  const repos: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await listRepositories({ n: 100, last: cursor });
-    for (const r of page.repositories) if (r.startsWith(prefix)) repos.push(r);
-    cursor = page.next;
-  } while (cursor);
+  const repos = await listRepositoriesUnderPrefix(prefix);
 
   for (const repo of repos) {
     let scanned = 0;
