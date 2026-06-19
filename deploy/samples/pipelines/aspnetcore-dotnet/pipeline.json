@@ -32,25 +32,23 @@
       },
       "plugin": {
         "name": "cdk-synth",
+        "alias": "BuildSynth",
         "filter": {
           "version": "1.0.0",
           "accessModifier": "public",
           "isActive": true,
           "isDefault": true
-        },
-        "metadata": {
-          "DOTNET_VERSION": "8.0"
         }
       }
     },
     "stages": [
       {
         "stageName": "Build",
-        "alias": "Build-and-Package",
+        "alias": "BuildAndPackage",
         "steps": [
           {
             "plugin": {
-              "name": "dotnet-test",
+              "name": "dotnet",
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
@@ -94,7 +92,7 @@
       },
       {
         "stageName": "Test",
-        "alias": "Unit-Tests",
+        "alias": "UnitTests",
         "steps": [
           {
             "plugin": {
@@ -120,7 +118,7 @@
       },
       {
         "stageName": "Lint",
-        "alias": "Code-Quality",
+        "alias": "CodeQuality",
         "steps": [
           {
             "plugin": {
@@ -163,7 +161,7 @@
       },
       {
         "stageName": "Security",
-        "alias": "Security-Scan",
+        "alias": "SecurityScan",
         "steps": [
           {
             "plugin": {

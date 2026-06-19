@@ -32,21 +32,19 @@
       },
       "plugin": {
         "name": "cdk-synth",
+        "alias": "BuildSynth",
         "filter": {
           "version": "1.0.0",
           "accessModifier": "public",
           "isActive": true,
           "isDefault": true
-        },
-        "metadata": {
-          "RUBY_VERSION": "3.3"
         }
       }
     },
     "stages": [
       {
         "stageName": "Test",
-        "alias": "Unit-Tests",
+        "alias": "UnitTests",
         "steps": [
           {
             "plugin": {
@@ -74,7 +72,7 @@
       },
       {
         "stageName": "Lint",
-        "alias": "Code-Quality",
+        "alias": "CodeQuality",
         "steps": [
           {
             "plugin": {
@@ -100,7 +98,7 @@
       },
       {
         "stageName": "Security",
-        "alias": "Security-Scan",
+        "alias": "SecurityScan",
         "steps": [
           {
             "plugin": {
