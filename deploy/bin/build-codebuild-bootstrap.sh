@@ -58,7 +58,8 @@ while [ $# -gt 0 ]; do
       echo "Env:"
       echo "  DEPLOY_TARGET   docker | minikube | ec2 | eks (default: docker)"
       echo "  FORCE_PUSH      true to republish even when remote tag exists"
-      echo "  PIPELINE_MANAGER_VERSION  npm dist-tag or version (default: latest)"
+      echo "  PIPELINE_MANAGER_VERSION  npm dist-tag or version (default: latest, auto-resolved"
+      echo "                            to a concrete version so the Docker layer cache is correct)"
       echo "  PUBLISH_PLATFORM          build/push platform, e.g. linux/arm64 (default: linux/amd64)"
       exit 0
       ;;
@@ -76,12 +77,40 @@ echo "=== Building $TAG ==="
 if [ "$FORCE_BUILD" = false ] && docker image inspect "$TAG" >/dev/null 2>&1; then
   echo "  = $TAG present in local docker cache (use --force to rebuild)"
 else
+  # Resolve the pipeline-manager version to bake in. The Dockerfile installs
+  # `@pipeline-builder/pipeline-manager@<this>`; baking a CONCRETE version (not
+  # the bare tag "latest") makes the `npm install -g` Docker layer cache-correct.
+  # The layer's cache key includes the build-arg, so it auto-busts the moment a
+  # new version is published and reuses the cache otherwise. Caching a bare
+  # `@latest` install is a footgun: `docker build` (no --no-cache) silently
+  # reuses a pre-publish layer, shipping stale pipeline-manager/pipeline-core
+  # code long after a release. Override by setting PIPELINE_MANAGER_VERSION.
+  _pm_version="${PIPELINE_MANAGER_VERSION:-}"
+  if [ -z "$_pm_version" ] || [ "$_pm_version" = "latest" ]; then
+    _resolved="$(npm view @pipeline-builder/pipeline-manager version 2>/dev/null || true)"
+    if [ -n "$_resolved" ]; then
+      _pm_version="$_resolved"
+      echo "  resolved pipeline-manager@latest -> $_pm_version (pins the npm-install layer cache key)"
+    fi
+  fi
+
   _build_args=()
-  [ -n "${PIPELINE_MANAGER_VERSION:-}" ] && \
-    _build_args+=(--build-arg "PIPELINE_MANAGER_VERSION=${PIPELINE_MANAGER_VERSION}")
+  _nocache=()
+  if [ -n "$_pm_version" ]; then
+    _build_args+=(--build-arg "PIPELINE_MANAGER_VERSION=${_pm_version}")
+  else
+    # Couldn't resolve a concrete version (e.g. npm unreachable) — fall back to
+    # --no-cache so a stale cached `npm install ...@latest` layer can't ship old code.
+    echo "  ⚠ could not resolve pipeline-manager@latest from npm — building with --no-cache" >&2
+    _nocache+=(--no-cache)
+  fi
+
   # "${arr[@]+"${arr[@]}"}" expands to nothing for an EMPTY array — plain
   # "${arr[@]}" throws "unbound variable" under `set -u` on bash 3.2 (macOS).
-  docker build --platform "$PUBLISH_PLATFORM" "${_build_args[@]+"${_build_args[@]}"}" -t "$TAG" "$BUILD_CTX"
+  docker build --platform "$PUBLISH_PLATFORM" \
+    "${_nocache[@]+"${_nocache[@]}"}" \
+    "${_build_args[@]+"${_build_args[@]}"}" \
+    -t "$TAG" "$BUILD_CTX"
 fi
 
 # ---- Publish ----
