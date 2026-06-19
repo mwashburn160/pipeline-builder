@@ -82,12 +82,19 @@ export async function resolvePluginsForProps(
     const filter = ref.filter ?? defaultFilter(ref.name);
     try {
       const res = await client.post<unknown>('/api/plugins/lookup', { filter });
-      // Lambda's handler calls `api.post<Plugin>(...)` and consumes the body
-      // directly; the platform may wrap it as `{ data: Plugin }` or
-      // `{ plugin: Plugin }` depending on the response middleware.
-      const plugin = (res as { plugin?: unknown }).plugin
-        ?? (res as { data?: unknown }).data
-        ?? res;
+      // Unwrap the plugin record from whatever envelope the response middleware
+      // applied. The platform's standard success envelope is
+      // `{ success, statusCode, data: { plugin: Plugin } }` (note the DOUBLE
+      // nesting: data.plugin), but tolerate `{ data: Plugin }`, `{ plugin }`,
+      // and a bare Plugin too. Only stopping at `res.data` (which is
+      // `{ plugin: ... }`) made `.name` undefined → every lookup fell back to
+      // deploy-time resolution even though the catalog had the plugin.
+      const data = (res as { data?: unknown }).data;
+      const plugin =
+        (data as { plugin?: unknown } | undefined)?.plugin   // { data: { plugin } }
+        ?? (res as { plugin?: unknown }).plugin              // { plugin }
+        ?? data                                              // { data: Plugin }
+        ?? res;                                              // bare Plugin
       if (plugin && typeof plugin === 'object' && (plugin as { name?: string }).name) {
         resolved[key] = plugin;
       } else {
