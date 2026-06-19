@@ -201,33 +201,6 @@
             ]
           }
         ]
-      },
-      {
-        "stageName": "Publish",
-        "alias": "Publish-Artifacts",
-        "steps": [
-          {
-            "plugin": {
-              "name": "npm-publish",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "NODE_VERSION": "20",
-                "NPM_REGISTRY": "https://registry.npmjs.org"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "yarn install --frozen-lockfile",
-              "yarn build",
-              "npm publish --access public"
-            ]
-          }
-        ]
       }
     ]
   }

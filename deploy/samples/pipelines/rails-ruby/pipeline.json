@@ -157,32 +157,6 @@
             ]
           }
         ]
-      },
-      {
-        "stageName": "Publish",
-        "alias": "Publish-Artifacts",
-        "steps": [
-          {
-            "plugin": {
-              "name": "gem-publish",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.3",
-                "GEM_HOST": "https://rubygems.org"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "gem build *.gemspec",
-              "gem push *.gem"
-            ]
-          }
-        ]
       }
     ]
   }

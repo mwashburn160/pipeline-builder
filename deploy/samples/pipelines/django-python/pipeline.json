@@ -180,33 +180,6 @@
             ]
           }
         ]
-      },
-      {
-        "stageName": "Publish",
-        "alias": "Publish-Artifacts",
-        "steps": [
-          {
-            "plugin": {
-              "name": "pypi-publish",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.12",
-                "PYPI_REPOSITORY": "https://upload.pypi.org/legacy/"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "pip install build twine",
-              "python -m build",
-              "twine upload dist/*"
-            ]
-          }
-        ]
       }
     ]
   }

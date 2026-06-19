@@ -489,9 +489,16 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     );
   }
 
-  // Resolve plugin secrets as SECRETS_MANAGER env vars
-  const secretEnvVars = (plugin.secrets?.length && orgId)
-    ? toSecretEnvVars(plugin.secrets, orgId)
+  // Resolve plugin secrets as SECRETS_MANAGER env vars — only REQUIRED ones.
+  // CodeBuild treats a SECRETS_MANAGER env var as MANDATORY: it fails the build
+  // at DOWNLOAD_SOURCE ("ResourceNotFoundException: can't find the specified
+  // secret") if the secret is absent. Auto-wiring an OPTIONAL secret
+  // (`required: false`, e.g. NVD_API_KEY / SEMGREP_APP_TOKEN) the operator hasn't
+  // created would therefore break every build — the exact opposite of "optional".
+  // Optional secrets are left for the plugin to read only where the operator has
+  // provisioned them (out-of-band env/secret), not force-injected here.
+  const secretEnvVars = (requiredSecrets.length && orgId)
+    ? toSecretEnvVars(requiredSecrets, orgId)
     : {};
 
   const env = buildEnv(plugin, merged, customEnv);

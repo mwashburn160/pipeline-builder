@@ -200,31 +200,6 @@
             ]
           }
         ]
-      },
-      {
-        "stageName": "Publish",
-        "alias": "Publish-Artifacts",
-        "steps": [
-          {
-            "plugin": {
-              "name": "cargo-publish",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "RUST_VERSION": "stable",
-                "CRATES_IO_TOKEN_SECRET": "crates-io-token"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "cargo publish --dry-run"
-            ]
-          }
-        ]
       }
     ]
   }

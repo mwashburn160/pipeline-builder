@@ -219,32 +219,6 @@
             ]
           }
         ]
-      },
-      {
-        "stageName": "Publish",
-        "alias": "Publish-Artifacts",
-        "steps": [
-          {
-            "plugin": {
-              "name": "nuget-publish",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "DOTNET_VERSION": "8.0",
-                "NUGET_SOURCE": "https://api.nuget.org/v3/index.json"
-              }
-            },
-            "position": "pre",
-            "commands": [
-              "dotnet pack --configuration Release --no-build --output ./nupkg",
-              "dotnet nuget push ./nupkg/*.nupkg --source https://api.nuget.org/v3/index.json --skip-duplicate"
-            ]
-          }
-        ]
       }
     ]
   }
