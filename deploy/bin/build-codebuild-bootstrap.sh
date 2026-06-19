@@ -37,7 +37,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 BUILD_CTX="$DEPLOY_DIR/codebuild/bootstrap"
-TAG="pipeline-bootstrap:1.0"
+# Image tag to build + publish. Override BOOTSTRAP_IMAGE_TAG to cut a NEW version
+# (e.g. pipeline-bootstrap:1.1) instead of refreshing 1.0 in place. The tag MUST
+# match the deployment's CODEBUILD_DEFAULT_IMAGE — that's what the synth pulls as
+# the default build image; a mismatch yields BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE.
+TAG="${BOOTSTRAP_IMAGE_TAG:-pipeline-bootstrap:1.0}"
 # Platform the bootstrap image is built for. Default linux/amd64 — the CodeBuild
 # runtime that runs it. Override PUBLISH_PLATFORM (e.g. linux/arm64) for an
 # all-Graviton stack. On an arm64 host docker emulates amd64; crane pushes the
@@ -58,6 +62,8 @@ while [ $# -gt 0 ]; do
       echo "Env:"
       echo "  DEPLOY_TARGET   docker | minikube | ec2 | eks (default: docker)"
       echo "  FORCE_PUSH      true to republish even when remote tag exists"
+      echo "  BOOTSTRAP_IMAGE_TAG       image tag to build/push (default: pipeline-bootstrap:1.0);"
+      echo "                            must match the deploy's CODEBUILD_DEFAULT_IMAGE"
       echo "  PIPELINE_MANAGER_VERSION  npm dist-tag or version (default: latest, auto-resolved"
       echo "                            to a concrete version so the Docker layer cache is correct)"
       echo "  PUBLISH_PLATFORM          build/push platform, e.g. linux/arm64 (default: linux/amd64)"

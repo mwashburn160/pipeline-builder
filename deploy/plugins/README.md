@@ -129,12 +129,30 @@ builds them in dependency order before any consumer plugin:
 | `pipeline-sonarcloud-base:1.0` | `_base/_sonarcloud-base/` | Node + corepack + 2× sonar-scanner-cli versions | 6 sonarcloud-* plugins |
 | `pipeline-trivy-base:1.0` | `_base/_trivy-base/` | 2× trivy versions (COPY from upstream image) | 6 trivy-* plugins |
 
-The CodeBuild bootstrap image (`pipeline-bootstrap:1.0`, built FROM
-`aws/codebuild/standard:7.0` + pipeline-manager) lives separately at
-`../codebuild/bootstrap/` and is built/published by its own script,
-`deploy/bin/build-codebuild-bootstrap.sh`. It backs `CODEBUILD_DEFAULT_IMAGE`,
-the fallback used by cold-start synth. `init-platform.sh` builds and
-publishes it before plugin loading.
+The CodeBuild bootstrap image (`pipeline-bootstrap:1.0`, built `FROM node:24-slim`
+with AWS CLI v2 + the AWS CDK CLI + esbuild + pnpm + pipeline-manager baked in)
+lives separately at `../codebuild/bootstrap/` and is built/published by its own
+script, `deploy/bin/build-codebuild-bootstrap.sh`. It backs `CODEBUILD_DEFAULT_IMAGE`,
+the image cold-start synth runs `pipeline-manager synth` on (which shells out to
+`cdk synth` and bundles the PluginLookup Lambda locally via esbuild — hence those
+tools). `init-platform.sh` builds and publishes it before plugin loading.
+
+**Changing the version.** The tag lives in two places that must match: the
+script's tag (override `BOOTSTRAP_IMAGE_TAG`, default `pipeline-bootstrap:1.0`)
+and the deploy's `CODEBUILD_DEFAULT_IMAGE` (what synth pulls). To cut a new
+version without editing the script:
+
+```bash
+BOOTSTRAP_IMAGE_TAG=pipeline-bootstrap:1.1 FORCE_PUSH=true DEPLOY_TARGET=ec2 \
+  deploy/bin/build-codebuild-bootstrap.sh --force
+# then set CODEBUILD_DEFAULT_IMAGE=pipeline-bootstrap:1.1 in the deploy env and restart
+```
+
+A mismatch between the pushed tag and `CODEBUILD_DEFAULT_IMAGE` yields
+`BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE` at synth. To refresh contents in place,
+keep the tag and rebuild with `--force FORCE_PUSH=true` (no env change needed).
+`PIPELINE_MANAGER_VERSION` auto-resolves `@latest` to a concrete version so the
+`npm install` layer cache can't ship a stale pipeline-manager.
 
 **Combined savings:** ~80 MB per plugin from the root base + ~250 MB per
 plugin in each family from the family bases ≈ **~12 GB across the fleet**.
