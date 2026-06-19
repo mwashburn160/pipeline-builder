@@ -60,7 +60,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.99",
+  "version": "3.4.100",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
