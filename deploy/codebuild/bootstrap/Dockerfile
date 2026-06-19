@@ -52,6 +52,12 @@ ARG PIPELINE_MANAGER_VERSION="latest"
 # (deploy/plugins/infrastructure/cdk-synth/Dockerfile) and the version note
 # in deploy/plugins/README.md; compatible with aws-cdk-lib 2.258.x.
 ARG AWS_CDK_VERSION="2.1126.0"
+# esbuild — synth bundles the PluginLookup Lambda via `aws-lambda-nodejs`
+# (NodejsFunction). When esbuild isn't detected it falls back to DOCKER
+# bundling, which a slim no-docker CodeBuild image can't do (`spawnSync docker
+# ENOENT`). With esbuild on PATH, aws-cdk-lib bundles the Lambda locally — no
+# docker. Any 0.x satisfies aws-cdk-lib's major-version guard.
+ARG ESBUILD_VERSION="0.28.1"
 
 RUN set -eux; \
     apt-get update; \
@@ -74,8 +80,9 @@ RUN set -eux; \
     # frequent versions and the catalog drifts faster than we'd refresh
     # a pinned tag. Pin via --build-arg if you need reproducibility.
     npm config set @pipeline-builder:registry=https://registry.npmjs.org/; \
-    npm install -g "aws-cdk@${AWS_CDK_VERSION}" "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
+    npm install -g "aws-cdk@${AWS_CDK_VERSION}" "esbuild@${ESBUILD_VERSION}" "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
     cdk --version; \
+    esbuild --version; \
     pipeline-manager --version 2>&1 | tail -1
 
 WORKDIR /app
