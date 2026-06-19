@@ -1,0 +1,103 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Pipeline Builder platform-token renewal — a scheduled Lambda that re-mints the platform JWT in Secrets Manager before it expires, so CodeBuild/Lambda credentials never lapse. Lambda code is deployed separately via pipeline-manager store-token.",
+  "Parameters": {
+    "PlatformBaseUrl": {
+      "Type": "String",
+      "Description": "Base URL of the platform (e.g. https://app.example.com)"
+    },
+    "PlatformSecretName": {
+      "Type": "String",
+      "Description": "Secrets Manager secret name holding the platform JWT (e.g. pipeline-builder/{orgId}/platform)"
+    },
+    "RenewDays": {
+      "Type": "Number",
+      "Default": 30,
+      "MinValue": 1,
+      "MaxValue": 365,
+      "Description": "Lifetime in days requested for each renewed token"
+    },
+    "ScheduleExpression": {
+      "Type": "String",
+      "Default": "cron(0 0 * * ? *)",
+      "Description": "EventBridge schedule expression for the renewal (default: daily at 00:00 UTC)"
+    }
+  },
+  "Resources": {
+    "LambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "pipeline-builder-token-renew",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "Service": "lambda.amazonaws.com" },
+            "Action": "sts:AssumeRole"
+          }]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [{
+          "PolicyName": "token-renew",
+          "PolicyDocument": {
+            "Statement": [{
+              "Effect": "Allow",
+              "Action": ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"],
+              "Resource": { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/platform-*" }
+            }]
+          }
+        }]
+      }
+    },
+    "TokenRenewHandler": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "pipeline-builder-token-renew",
+        "Runtime": "nodejs24.x",
+        "Handler": "index.handler",
+        "Code": {
+          "ZipFile": "exports.handler=async()=>{console.log('Placeholder handler — run pipeline-manager store-token to deploy real code');return{statusCode:200}}"
+        },
+        "Role": { "Fn::GetAtt": ["LambdaRole", "Arn"] },
+        "Timeout": 60,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "PLATFORM_BASE_URL": { "Ref": "PlatformBaseUrl" },
+            "PLATFORM_SECRET_NAME": { "Ref": "PlatformSecretName" },
+            "RENEW_DAYS": { "Ref": "RenewDays" }
+          }
+        }
+      }
+    },
+    "ScheduleRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": "pipeline-builder-token-renew",
+        "Description": "Scheduled platform-token renewal",
+        "State": "ENABLED",
+        "ScheduleExpression": { "Ref": "ScheduleExpression" },
+        "Targets": [{
+          "Id": "token-renew-lambda",
+          "Arn": { "Fn::GetAtt": ["TokenRenewHandler", "Arn"] }
+        }]
+      }
+    },
+    "InvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "TokenRenewHandler" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "events.amazonaws.com",
+        "SourceArn": { "Fn::GetAtt": ["ScheduleRule", "Arn"] }
+      }
+    }
+  },
+  "Outputs": {
+    "LambdaFunctionArn": { "Value": { "Fn::GetAtt": ["TokenRenewHandler", "Arn"] } },
+    "ScheduleRuleName": { "Value": { "Ref": "ScheduleRule" } },
+    "ScheduleExpression": { "Value": { "Ref": "ScheduleExpression" } }
+  }
+}

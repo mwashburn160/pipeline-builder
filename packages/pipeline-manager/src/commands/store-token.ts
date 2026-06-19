@@ -1,15 +1,98 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import { fileURLToPath } from 'node:url';
+import * as os from 'os';
+import path from 'path';
+import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
 import { Command } from 'commander';
 import { validateNumber } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
 import { decodeTokenPayload } from '../utils/auth-guard.js';
 import { upsertSecret, getSecretArn } from '../utils/aws-secrets.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
+import { toEventBridgeCron } from '../utils/cron.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
 import { ensurePlatformToken, resolveSecretName } from '../utils/platform-secret.js';
+
+// ESM has no __dirname; derive it from this module's URL.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const RENEW_STACK_NAME = 'pipeline-builder-token-renew';
+// CFN-managed Lambda function name — keep in sync with token-renew-stack.json.
+const RENEW_LAMBDA_NAME = 'pipeline-builder-token-renew';
+// Default 5-field cron (daily at midnight) when neither --cron nor TOKEN_RENEW_SCHEDULE is set.
+const DEFAULT_RENEW_CRON = '0 0 * * *';
+
+/**
+ * Deploy (or update) the once-a-day token-renewal stack: a scheduled Lambda that
+ * re-mints the platform JWT in this same secret before it expires. Mirrors
+ * setup-events — `aws cloudformation deploy` for the infra, then a direct
+ * UpdateFunctionCode with the self-contained handler compiled alongside this CLI.
+ */
+async function deployRenewSchedule(opts: {
+  platformUrl: string;
+  secretName: string;
+  days: number;
+  fiveFieldCron: string;
+  region: string;
+  profile?: string;
+}): Promise<string> {
+  const scheduleExpression = toEventBridgeCron(opts.fiveFieldCron); // validates + 15-min guard
+
+  printSection('Schedule Renewal');
+  printInfo('Parameters', {
+    stack: RENEW_STACK_NAME,
+    schedule: opts.fiveFieldCron,
+    eventbridge: scheduleExpression,
+    renewDays: opts.days,
+  });
+
+  // Step 1: infra (Lambda gets placeholder code on first create).
+  const templatePath = path.join(__dirname, '../templates/token-renew-stack.json');
+  const cfnArgs = [
+    'cloudformation', 'deploy',
+    '--stack-name', RENEW_STACK_NAME,
+    '--template-file', templatePath,
+    '--parameter-overrides',
+    `PlatformBaseUrl=${opts.platformUrl}`,
+    `PlatformSecretName=${opts.secretName}`,
+    `RenewDays=${opts.days}`,
+    `ScheduleExpression=${scheduleExpression}`,
+    '--capabilities', 'CAPABILITY_NAMED_IAM',
+    '--no-fail-on-empty-changeset',
+    '--region', opts.region,
+  ];
+  if (opts.profile) cfnArgs.push('--profile', opts.profile);
+  execFileSync('aws', cfnArgs, { stdio: 'inherit' });
+
+  // Step 2: upload the real handler. It's ESM, so the zip entry must be index.mjs
+  // (Handler stays index.handler — nodejs24.x resolves the .mjs extension).
+  const handlerSrc = path.join(__dirname, '../lambda/token-renew-handler.js');
+  if (!fs.existsSync(handlerSrc)) {
+    throw new Error(`Token-renew handler not found at ${handlerSrc} — was the package built?`);
+  }
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'token-renew-'));
+  try {
+    fs.copyFileSync(handlerSrc, path.join(tmpDir, 'index.mjs'));
+    const zipPath = path.join(tmpDir, 'index.zip');
+    execFileSync('zip', ['-j', zipPath, 'index.mjs'], { cwd: tmpDir, stdio: 'pipe' });
+
+    const lambdaClient = new LambdaClient({ region: opts.region });
+    await lambdaClient.send(new UpdateFunctionCodeCommand({
+      FunctionName: RENEW_LAMBDA_NAME,
+      ZipFile: fs.readFileSync(zipPath),
+    }));
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  printSuccess(`Renewal scheduled (${scheduleExpression})`);
+  return scheduleExpression;
+}
 
 /**
  * Registers the `store-token` command with the CLI program.
@@ -39,6 +122,8 @@ export function storeToken(program: Command): void {
     .option('--secret-name <name>', 'Secrets Manager secret name (default: derived from token org)')
     .option('--region <region>', 'AWS region (defaults to AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
+    .option('--cron <expr>', 'Renewal schedule as a 5-field cron (default: TOKEN_RENEW_SCHEDULE env or "0 0 * * *"; min every 15 minutes)')
+    .option('--no-schedule', 'Skip deploying the daily token-renewal stack (it is installed by default)')
     .option('--json', 'Output result as JSON', false)
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
@@ -161,6 +246,22 @@ export function storeToken(program: Command): void {
 
         const arn = await getSecretArn(secretName, { region, profile: options.profile });
 
+        // Install the once-a-day renewal stack so this token never lapses (default
+        // on; opt out with --no-schedule). commander sets options.schedule=false for
+        // --no-schedule, true otherwise.
+        let scheduleExpression: string | undefined;
+        if (options.schedule !== false) {
+          const fiveFieldCron = options.cron || process.env.TOKEN_RENEW_SCHEDULE || DEFAULT_RENEW_CRON;
+          scheduleExpression = await deployRenewSchedule({
+            platformUrl: client.getBaseUrl(),
+            secretName,
+            days,
+            fiveFieldCron,
+            region,
+            profile: options.profile,
+          });
+        }
+
         if (options.json) {
           console.log(JSON.stringify({
             success: true,
@@ -169,6 +270,7 @@ export function storeToken(program: Command): void {
             region,
             expiresInDays: days,
             expiresAt,
+            schedule: scheduleExpression ?? null,
           }, null, 2));
         } else {
           console.log('');
@@ -180,6 +282,7 @@ export function storeToken(program: Command): void {
             'Region': region,
             'Expires In': `${days} days`,
             'Renew By': expiresAt,
+            'Auto-Renew': scheduleExpression ? `✓ ${scheduleExpression}` : 'disabled (--no-schedule)',
             'Status': '✓ Stored',
           });
 
@@ -188,7 +291,11 @@ export function storeToken(program: Command): void {
           printInfo(`  export PLATFORM_SECRET_NAME=${secretName}`);
           printInfo('  pipeline-manager synth --id <pipeline-id> --store-tokens');
           console.log('');
-          printInfo(`Renew before ${expiresAt} with: pipeline-manager store-token --days ${days}`);
+          if (scheduleExpression) {
+            printInfo(`Auto-renewal is active (${scheduleExpression}); the secret refreshes before ${expiresAt}.`);
+          } else {
+            printInfo(`Renew before ${expiresAt} with: pipeline-manager store-token --days ${days}`);
+          }
         }
 
       } catch (error) {
