@@ -124,7 +124,8 @@
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               },
               "metadata": {
                 "RUBY_VERSION": "3.3"
@@ -143,7 +144,8 @@
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               }
             },
             "position": "post",

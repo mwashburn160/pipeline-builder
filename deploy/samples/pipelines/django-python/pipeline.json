@@ -122,7 +122,8 @@
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               },
               "metadata": {
                 "PYTHON_VERSION": "3.12"
@@ -166,7 +167,8 @@
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               }
             },
             "position": "post",

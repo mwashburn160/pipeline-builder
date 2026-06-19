@@ -74,7 +74,8 @@
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               },
               "metadata": {
                 "NODE_VERSION": "20"
@@ -143,7 +144,8 @@
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               },
               "metadata": {
                 "NODE_VERSION": "20"
@@ -185,7 +187,8 @@
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               }
             },
             "position": "post",

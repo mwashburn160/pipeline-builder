@@ -205,7 +205,8 @@
               "filter": {
                 "version": "1.0.0",
                 "accessModifier": "public",
-                "isActive": true
+                "isActive": true,
+                "isDefault": true
               }
             },
             "position": "post",
