@@ -326,11 +326,27 @@ export class PluginLookup extends Construct {
     };
   }
 
-  /** Fallback for unresolved plugin lookup tokens during synthesis. */
+  /**
+   * Fallback for a plugin whose lookup returned no record (not in the platform
+   * catalog for this org) and so could not be pre-resolved at synth.
+   *
+   * This step FAILS the build (exit 1) on purpose. The previous behaviour —
+   * `echo "…" && exit 0` — was a false positive: an unresolved security/quality
+   * step (dependency-check, semgrep, spotbugs, …) reported the stage green while
+   * running nothing, giving false assurance that scans/builds had passed. A
+   * plugin step that can't run its plugin must go red, consistent with
+   * `basePlugin().failureBehavior === 'fail'`. The message is actionable so the
+   * operator knows the catalog is empty/incomplete, not that the tool crashed.
+   */
   private fallback(): Plugin {
     return {
       ...PluginLookup.basePlugin(),
-      commands: ['echo "FALLBACK: Plugin lookup unresolved — will be resolved at deployment time"'],
+      commands: [
+        'echo "ERROR: plugin lookup returned no record — this plugin is not in the platform catalog for this org, so the step cannot run." >&2',
+        'echo "This step fails instead of passing as a no-op (an unresolved plugin reporting success would be a false-positive green)." >&2',
+        'echo "Fix: load the plugin into the platform (deploy/bin/load-plugins.sh), then re-run the pipeline." >&2',
+        'exit 1',
+      ],
     };
   }
 

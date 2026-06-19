@@ -181,8 +181,10 @@ describe('PluginLookup', () => {
 
       expect(result.name).toBe('fallback');
       expect(result.primaryOutputDirectory).toBe('cdk.out');
-      expect(result.commands).toHaveLength(1);
-      expect(result.commands[0]).toContain('FALLBACK');
+      // An unresolved plugin step must FAIL, not pass as a no-op — otherwise a
+      // missing security/quality plugin reports the stage green (false positive).
+      expect(result.commands[result.commands.length - 1]).toBe('exit 1');
+      expect(result.commands.some(c => c.includes('no record'))).toBe(true);
     });
 
     it('should normalize string plugin to PluginOptions', () => {
