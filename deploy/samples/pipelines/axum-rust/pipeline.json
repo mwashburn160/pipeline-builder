@@ -67,26 +67,6 @@
             "commands": [
               "cargo build --release --all-features"
             ]
-          },
-          {
-            "plugin": {
-              "name": "docker-build",
-              "filter": {
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "DOCKERFILE": "Dockerfile",
-                "IMAGE_TAG": "latest",
-                "aws:cdk:codebuild:buildenvironment:privileged": true
-              }
-            },
-            "position": "post",
-            "commands": [
-              "docker build -t tokio-rs/axum:latest ."
-            ]
           }
         ]
       },
