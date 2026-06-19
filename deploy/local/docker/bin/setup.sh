@@ -147,7 +147,7 @@ echo "  Databases (postgres / mongodb / redis) run inside the compose network â€
 echo "  reach them via the dev tools above, not a host port. Credentials live in"
 echo "  ${DEPLOY_DIR}/.env."
 echo ""
-echo "  Next : ./deploy/bin/init-platform.sh local        # register admin + (opt-in) load plugins/samples/compliance"
+echo "  Next : ./deploy/bin/init-platform.sh docker        # register admin + (opt-in) load plugins/samples/compliance"
 echo "  Stop : ${DC[*]} down                              # data persists in ${DEPLOY_DIR}/data"
 echo "  Reset: ${DC[*]} down && rm -rf ${DEPLOY_DIR}/data  # wipe DBs for a clean re-init"
 echo ""

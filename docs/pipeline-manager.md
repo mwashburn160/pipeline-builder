@@ -54,10 +54,10 @@ pipeline-manager deploy
 
 ```bash
 # Deploy local — show the plan, confirm, deploy, verify /health + /ready, init-platform:
-pipeline-manager provision --target local
+pipeline-manager provision --target docker
 
 # Inspect the plan as JSON, run nothing (the only non-executing mode):
-pipeline-manager provision --target local --json
+pipeline-manager provision --target docker --json
 
 # Deploy to EKS Auto Mode (add --yes for non-interactive CI):
 pipeline-manager provision --target eks \
@@ -68,11 +68,11 @@ pipeline-manager provision --target eks --teardown
 
 # Bootstrap a fresh machine — sparse-clone only the deploy folders this target needs,
 # then deploy + register the admin:
-pipeline-manager provision --target local --repo --yes \
+pipeline-manager provision --target docker --repo --yes \
   --admin-email admin@acme.com --admin-password 's3cret'
 
 # Add post-install loads (each also adds its folder to the sparse clone):
-pipeline-manager provision --target local --repo --with-all --with-smoke-test
+pipeline-manager provision --target docker --repo --with-all --with-smoke-test
 ```
 
 ### What `provision` handles

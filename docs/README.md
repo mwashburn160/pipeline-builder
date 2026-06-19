@@ -61,7 +61,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 
 The web UI at `https://localhost:8443` provides visual pipeline and plugin management. The AI builder analyzes a Git repository (or a natural-language prompt) and generates the right stages and plugins automatically, streaming results over SSE. It works across five providers — Anthropic, OpenAI, Google, xAI, and Amazon Bedrock — and can fall back to a secondary provider if the primary one is unavailable.
 
-**Default credentials** (created by `init-platform.sh local` on a fresh install):
+**Default credentials** (created by `init-platform.sh docker` on a fresh install):
 
 | Field | Value |
 |---|---|
@@ -187,7 +187,7 @@ See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy se
 
 ```bash
 # Local / Minikube — interactive
-./deploy/bin/init-platform.sh local
+./deploy/bin/init-platform.sh docker
 ./deploy/bin/init-platform.sh minikube
 
 # EC2 (only if --init manual) — requires the minikube user context, on the box
@@ -197,7 +197,7 @@ sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-b
 env -u PLATFORM_BASE_URL ./deploy/bin/init-platform.sh eks
 
 # Non-interactive with prebuilt images and controlled parallelism
-PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh local
+PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh docker
 ```
 
 Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGORY` (comma-separated filter), `PARALLEL_JOBS` (upload concurrency, auto-lowered to 1 for prebuilt), `FORCE_REBUILD` (rebuild existing image.tar files).

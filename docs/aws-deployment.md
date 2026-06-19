@@ -88,7 +88,7 @@ pipeline-manager provision --target eks --diagnose ./stack-events.txt
 >
 > ```bash
 > # Fresh box → sparse-clone just deploy/bin + deploy/local/docker, deploy, register, load samples:
-> pipeline-manager provision --target local --repo --with-samples --yes \
+> pipeline-manager provision --target docker --repo --with-samples --yes \
 >   --admin-email admin@acme.com --admin-password 's3cret'
 > ```
 
@@ -694,7 +694,7 @@ cd deploy
 # PLATFORM_PASSWORD (defaulting if unset — export real values on ec2/eks)
 bash bin/init-platform.sh ec2         # EC2 (resolves URL from the pipeline-builder stack)
 bash bin/init-platform.sh eks         # EKS (port-forwards svc/nginx via kubectl)
-bash bin/init-platform.sh local       # Docker Compose
+bash bin/init-platform.sh docker       # Docker Compose
 bash bin/init-platform.sh minikube    # Minikube
 
 # Non-interactive
@@ -710,7 +710,7 @@ PLUGIN_BUILD_STRATEGY=prebuilt bash bin/init-platform.sh ec2
 PLUGIN_BUILD_STRATEGY=prebuilt PLUGIN_CATEGORY=infrastructure,language bash bin/init-platform.sh ec2
 
 # Control upload parallelism (default: 4, auto-lowered to 1 for prebuilt)
-PARALLEL_JOBS=2 bash bin/init-platform.sh local
+PARALLEL_JOBS=2 bash bin/init-platform.sh docker
 
 # Force rebuild all prebuilt images even if image.tar exists
 PLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2

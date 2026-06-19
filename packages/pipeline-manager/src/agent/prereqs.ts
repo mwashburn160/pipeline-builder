@@ -88,7 +88,7 @@ function check(name: string, present: boolean, presentDetail: string, missingDet
  */
 export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; withPlugins?: boolean } = {}): PrereqCheck[] {
   const checks: PrereqCheck[] = [];
-  // setup.sh (local) + setup.sh (minikube) both generate the TLS cert + registry JWT key with openssl.
+  // setup.sh (docker) + setup.sh (minikube) both generate the TLS cert + registry JWT key with openssl.
   const OPENSSL_TLS = 'install openssl — setup.sh generates the TLS cert + registry JWT key with it';
 
   // `--repo` bootstrap git-clones the platform repo first → git is required. A
@@ -101,7 +101,7 @@ export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; with
     }
   }
 
-  if (target === 'local') {
+  if (target === 'docker') {
     // deploy/local/docker/bin/setup.sh hard-checks all of these at startup and aborts if
     // any is missing — mirror them here so provision blocks up front instead of
     // failing mid-deploy (e.g. the classic "yq is not installed").

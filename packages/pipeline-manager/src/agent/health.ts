@@ -31,7 +31,7 @@ export interface HealthResult {
  * it can't be determined (caller surfaces a "verify manually" note).
  */
 export function deriveHealthUrl(target: TargetId, params: Record<string, unknown>): string | null {
-  if (target === 'local' || target === 'minikube') return 'https://localhost:8443';
+  if (target === 'docker' || target === 'minikube') return 'https://localhost:8443';
   const domain = params.domain;
   return typeof domain === 'string' && domain ? `https://${domain}` : null;
 }

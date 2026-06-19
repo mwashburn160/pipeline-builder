@@ -234,9 +234,9 @@ For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, 
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
-pipeline-manager provision --target local              # deploy it (shows the plan, then asks to confirm)
-pipeline-manager provision --target local --yes        # non-interactive (auto-accept prompts; for CI)
-pipeline-manager provision --target local --json       # inspect the plan as JSON, run nothing
+pipeline-manager provision --target docker              # deploy it (shows the plan, then asks to confirm)
+pipeline-manager provision --target docker --yes        # non-interactive (auto-accept prompts; for CI)
+pipeline-manager provision --target docker --json       # inspect the plan as JSON, run nothing
 # or describe the goal: pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email"
 ```
 
@@ -248,7 +248,7 @@ Prefer to run it directly? Every target ships a `bin/setup.sh`:
 git clone <repo-url> pipeline-builder && cd pipeline-builder
 
 cd deploy/local/docker && chmod +x bin/setup.sh && ./bin/setup.sh   # 1. pull images + start the stack
-cd ../.. && ./deploy/bin/init-platform.sh local                  # 2. register admin + load plugins
+cd ../.. && ./deploy/bin/init-platform.sh docker                  # 2. register admin + load plugins
 ```
 
 Then open **https://localhost:8443** and log in with the default local admin

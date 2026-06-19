@@ -26,7 +26,7 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)}"
 # shellcheck disable=SC2034
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
 PLATFORM_BASE_URL="${PLATFORM_BASE_URL:-https://localhost:8443}"
-DEPLOY_TARGET="${DEPLOY_TARGET:-local}"
+DEPLOY_TARGET="${DEPLOY_TARGET:-docker}"
 
 # Move out of any cwd we might not be able to restore. When the script is
 # invoked via `sudo -u minikube ...` from `/home/ec2-user`, every `find`
@@ -333,7 +333,7 @@ prompt_toggle() {
 # ---------------------------------------------------------------------------
 prompt_credentials() {
   local _is_local
-  [ "${DEPLOY_TARGET:-local}" = "local" ] && _is_local=true || _is_local=false
+  [ "${DEPLOY_TARGET:-docker}" = "docker" ] && _is_local=true || _is_local=false
 
   if [ -z "${PLATFORM_IDENTIFIER:-}" ]; then
     if [ "$_is_local" = true ]; then
@@ -372,7 +372,7 @@ prompt_credentials() {
     printf "\n"
     if [ -z "$PLATFORM_PASSWORD" ]; then
       if [ "$_is_local" = true ]; then
-        # Local-only convenience fallback so `init-platform.sh local` can
+        # Local-only convenience fallback so `init-platform.sh docker` can
         # still be hit-enter through. Never shown in the prompt, never
         # accepted on non-local targets.
         PLATFORM_PASSWORD="SecurePassword123!"

@@ -5,7 +5,7 @@ import { describe, it, expect } from '@jest/globals';
 import { resolvePostSteps, type PostStepOptions } from '../src/agent/post-steps.js';
 
 const base: PostStepOptions = {
-  target: 'local',
+  target: 'docker',
   url: 'https://localhost:8443',
   enabledLoadIds: [],
   buildBootstrap: false,
@@ -20,7 +20,7 @@ describe('resolvePostSteps', () => {
     const { steps } = resolvePostSteps(base);
     expect(steps.map((s) => s.id)).toEqual(['register']);
     const reg = steps[0]!;
-    expect(reg.command).toBe('./deploy/bin/init-platform.sh local');
+    expect(reg.command).toBe('./deploy/bin/init-platform.sh docker');
     expect(reg.env).toMatchObject({ BUILD_BOOTSTRAP: 'n', LOAD_PLUGINS: 'n', LOAD_PIPELINES: 'n', LOAD_COMPLIANCE: 'n' });
   });
 
@@ -53,8 +53,8 @@ describe('resolvePostSteps', () => {
     expect(steps.find((s) => s.id === 'register')!.command).toBe('./deploy/bin/init-platform.sh eks');
   });
 
-  it('--auto-init on a non-AWS target (local/minikube) is ignored (register stays)', () => {
-    const { steps } = resolvePostSteps({ ...base, target: 'local', autoInit: true });
+  it('--auto-init on a non-AWS target (docker/minikube) is ignored (register stays)', () => {
+    const { steps } = resolvePostSteps({ ...base, target: 'docker', autoInit: true });
     expect(steps.map((s) => s.id)).toEqual(['register']);
   });
 

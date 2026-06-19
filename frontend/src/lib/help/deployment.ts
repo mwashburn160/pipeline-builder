@@ -25,10 +25,10 @@ export const deploymentTopic: HelpTopic = {
           content: `npm install -g @pipeline-builder/pipeline-manager
 
 # Advisor (default) — prints the exact command + prereq results, runs nothing:
-pipeline-manager provision --target local
+pipeline-manager provision --target docker
 
 # Run it (gated: confirm → deploy → verify health → init-platform):
-pipeline-manager provision --target local --execute
+pipeline-manager provision --target docker --execute
 
 # Fargate, executed (SES email is provisioned by default):
 pipeline-manager provision --target fargate \\
@@ -44,7 +44,7 @@ pipeline-manager provision --target fargate --teardown --execute`,
         {
           type: 'note',
           content:
-            'On failure it matches known CloudFormation issues (cause + fix) and can auto-fix + retry a few (e.g. an existing SES identity → re-run with --skip-ses-identity); retries are gated and bounded by --retries (default 1, scripts are idempotent). Flags: --execute runs the deploy (refuses on failed prerequisites or missing inputs), --yes auto-approves for CI, --retries <n> sets the retry budget, --no-init skips the post-deploy init step, --skip-ses-identity for an already-verified SES domain. Set ANTHROPIC_API_KEY (or AI_PROVIDER + its key) to add free-form diagnosis; without a key it falls back to the deterministic advisor + issue matcher. To remove a deployment, add --teardown: local/minikube stop the stack (on-disk data persists), while EC2/Fargate DELETE their CloudFormation stacks (irreversible) and require you to TYPE the target id to confirm (--force skips it for CI). The underlying bin/setup.sh / bin/shutdown.sh / bin/teardown.sh scripts can always be run directly.',
+            'On failure it matches known CloudFormation issues (cause + fix) and can auto-fix + retry a few (e.g. an existing SES identity → re-run with --skip-ses-identity); retries are gated and bounded by --retries (default 1, scripts are idempotent). Flags: --execute runs the deploy (refuses on failed prerequisites or missing inputs), --yes auto-approves for CI, --retries <n> sets the retry budget, --no-init skips the post-deploy init step, --skip-ses-identity for an already-verified SES domain. Set ANTHROPIC_API_KEY (or AI_PROVIDER + its key) to add free-form diagnosis; without a key it falls back to the deterministic advisor + issue matcher. To remove a deployment, add --teardown: docker/minikube stop the stack (on-disk data persists), while EC2/Fargate DELETE their CloudFormation stacks (irreversible) and require you to TYPE the target id to confirm (--force skips it for CI). The underlying bin/setup.sh / bin/shutdown.sh / bin/teardown.sh scripts can always be run directly.',
         },
       ],
     },

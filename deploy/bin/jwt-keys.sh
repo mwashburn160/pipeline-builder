@@ -7,7 +7,7 @@
 # (mounted as REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE); the service signs tokens with
 # the matching private key (loaded via REGISTRY_TOKEN_PRIVATE_KEY).
 #
-# Shared by every deploy target (local/docker, local/minikube, aws/ec2) — was
+# Shared by every deploy target (docker, minikube, ec2) — was
 # `deploy/local/docker/bin/gen-image-registry-jwt-keys.sh`, lifted into deploy/bin
 # (always in the provision sparse-checkout) so the targets stop hand-rolling
 # near-identical openssl blocks. eks generates an ephemeral pair inline (it goes

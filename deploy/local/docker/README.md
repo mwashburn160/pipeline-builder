@@ -12,7 +12,7 @@ cp .env.example .env
 docker compose up -d
 
 # 3. Initialize platform (register admin, load plugins/pipelines)
-../../bin/init-platform.sh local
+../../bin/init-platform.sh docker
 ```
 
 ## AI Providers

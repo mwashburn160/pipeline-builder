@@ -11,7 +11,7 @@ const repoRoot = path.resolve(process.cwd(), '..', '..');
 
 describe('discoverHostPorts — derived from the real (checked-in) deploy source', () => {
   it('local: parses the published ports out of docker-compose.yml', () => {
-    const ports = discoverHostPorts('local', repoRoot, TARGETS.local).map((p) => p.port).sort((a, b) => a - b);
+    const ports = discoverHostPorts('docker', repoRoot, TARGETS.docker).map((p) => p.port).sort((a, b) => a - b);
     // The host (left-side) ports docker-compose.yml actually publishes.
     expect(ports).toEqual(expect.arrayContaining([5000, 5480, 8080, 8443, 16686, 27081]));
   });
@@ -29,7 +29,7 @@ describe('discoverHostPorts — derived from the real (checked-in) deploy source
   });
 
   it('falls back to the static hostPorts when the source file is missing', () => {
-    expect(discoverHostPorts('local', '/no/such/dir', TARGETS.local))
-      .toEqual(TARGETS.local.hostPorts.map((p) => ({ ...p })));
+    expect(discoverHostPorts('docker', '/no/such/dir', TARGETS.docker))
+      .toEqual(TARGETS.docker.hostPorts.map((p) => ({ ...p })));
   });
 });

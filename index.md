@@ -175,9 +175,9 @@ See [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) for
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
-pipeline-manager provision --target local              # deploy it (shows the plan, then asks to confirm)
-pipeline-manager provision --target local --yes        # non-interactive (auto-accept prompts; for CI)
-pipeline-manager provision --target local --json       # inspect the plan as JSON, run nothing
+pipeline-manager provision --target docker              # deploy it (shows the plan, then asks to confirm)
+pipeline-manager provision --target docker --yes        # non-interactive (auto-accept prompts; for CI)
+pipeline-manager provision --target docker --json       # inspect the plan as JSON, run nothing
 # or: pipeline-manager provision --prompt "deploy to EKS in us-east-1 with email"
 ```
 
@@ -188,7 +188,7 @@ Prefer to run it directly? The full stack runs locally with Docker — prebuilt 
 ```bash
 git clone https://github.com/mwashburn160/pipeline-builder.git && cd pipeline-builder
 cd deploy/local/docker && ./bin/setup.sh          # 1. pull images + start the stack
-cd ../.. && ./deploy/bin/init-platform.sh local   # 2. register admin + load plugins
+cd ../.. && ./deploy/bin/init-platform.sh docker   # 2. register admin + load plugins
 ```
 
 Then open **https://localhost:8443** (default admin `admin@internal` / `SecurePassword123!` — change it immediately on anything beyond your laptop).

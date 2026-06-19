@@ -106,7 +106,7 @@ export async function diagnoseFailure(failureText: string, opts: AiOptions = {})
  * wrong deploy — it just yields a partial fill).
  */
 const GoalSchema = z.object({
-  target: z.enum(['local', 'minikube', 'ec2', 'eks']).optional(),
+  target: z.enum(['docker', 'minikube', 'ec2', 'eks']).optional(),
   region: z.string().optional(),
   domain: z.string().optional(),
   hostedZoneId: z.string().optional(),

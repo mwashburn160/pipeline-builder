@@ -104,7 +104,7 @@ export async function preflightPorts(spec: TargetSpec, target: TargetId, cwd: st
   // local PUBLISHES these ports at `docker compose up` time, so a conflict is fatal.
   // minikube's are kubectl port-forwards setup.sh pkills + restarts (and
   // ensureMinikubeGateway recovers), so a stale forward must NOT block a re-run.
-  const fatal = target === 'local';
+  const fatal = target === 'docker';
   // …UNLESS the local stack is already running: those ports are held by YOUR OWN
   // stack, and `docker compose up` no-ops them — this is exactly how you re-run to
   // add loads/options. Don't block (the would-be conflict is a self-conflict).
@@ -850,7 +850,7 @@ export function provision(program: Command): void {
         // ec2 and eks don't have provision generate a local `.env`: ec2 bootstraps its
         // secrets on the instance, and eks's setup.sh creates the k8s secrets itself
         // (a deploy/aws/eks/.env.example + secret step is a setup.sh TODO).
-        if ((target === 'local' || target === 'minikube') && envFileMissing(cwd, spec.dir)) {
+        if ((target === 'docker' || target === 'minikube') && envFileMissing(cwd, spec.dir)) {
           if (await confirm(`\n${spec.dir}/.env not found — create it from .env.example (generates secrets; edit later for optional integrations like OAuth)?`, options.yes)) {
             const n = createEnvFile(cwd, spec.dir);
             printSuccess(`Created ${spec.dir}/.env — ${n} secret(s) generated.`);

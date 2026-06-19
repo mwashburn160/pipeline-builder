@@ -60,7 +60,7 @@ describe('runPostSteps — local execution vs AWS surfacing', () => {
   it('runs register locally (local target)', async () => {
     runScript.mockResolvedValue({ code: 0, tail: '' });
     await runPostSteps([step('register', './init-platform.sh'), step('smoke-test', 'curl /health')],
-      [], 'local', '/cwd', {}, { yes: true });
+      [], 'docker', '/cwd', {}, { yes: true });
     const ran = runScript.mock.calls.map((c) => c[0]);
     expect(ran).toContain('./init-platform.sh');
     expect(ran).toContain('curl /health');
@@ -82,19 +82,19 @@ describe('runPostSteps — local execution vs AWS surfacing', () => {
   it('sets exitCode=1 when a step fails (and stops)', async () => {
     runScript.mockResolvedValue({ code: 1, tail: 'boom' });
     await runPostSteps([step('register', './a.sh'), step('smoke-test', './b.sh')],
-      [], 'local', '/cwd', {}, { yes: true });
+      [], 'docker', '/cwd', {}, { yes: true });
     expect(process.exitCode).toBe(1);
     expect(runScript).toHaveBeenCalledTimes(1); // breaks on first failure
   });
 
   it('is a no-op for an empty step list', async () => {
-    await runPostSteps([], [], 'local', '/cwd', {}, { yes: true });
+    await runPostSteps([], [], 'docker', '/cwd', {}, { yes: true });
     expect(runScript).not.toHaveBeenCalled();
   });
 });
 
 describe('bootstrapAndLocate — cwd / bootstrapped / ok contract', () => {
-  const spec = TARGETS.local;
+  const spec = TARGETS.docker;
   const bootstrap = { repo: 'https://x/y.git', ref: 'main', workdir: 'pb', paths: [], full: false };
 
   it('--repo success: ok, bootstrapped, cwd repointed into the clone', async () => {
@@ -132,7 +132,7 @@ describe('bootstrapAndLocate — cwd / bootstrapped / ok contract', () => {
 });
 
 describe('runDeployWithRetry — retry + auto-fix', () => {
-  const spec = TARGETS.local;
+  const spec = TARGETS.docker;
 
   it('succeeds on the first attempt (one run)', async () => {
     runScript.mockResolvedValue({ code: 0, tail: '' });
@@ -164,28 +164,28 @@ describe('runDeployWithRetry — retry + auto-fix', () => {
 });
 
 describe('preflightPorts — fatal / warn / skip / re-run', () => {
-  const portsOf = (t: 'local' | 'minikube') => TARGETS[t].hostPorts.map((p) => ({ ...p }));
+  const portsOf = (t: 'docker' | 'minikube') => TARGETS[t].hostPorts.map((p) => ({ ...p }));
   const withAvail = (ports: ReadonlyArray<{ service: string; port: number }>, takenIdx = -1) =>
     ports.map((p, i) => ({ ...p, available: i !== takenIdx }));
 
   it('all ports free → true', async () => {
-    discoverHostPorts.mockReturnValue(portsOf('local'));
-    checkHostPorts.mockResolvedValue(withAvail(portsOf('local')));
-    expect(await preflightPorts(TARGETS.local, 'local', '/cwd')).toBe(true);
+    discoverHostPorts.mockReturnValue(portsOf('docker'));
+    checkHostPorts.mockResolvedValue(withAvail(portsOf('docker')));
+    expect(await preflightPorts(TARGETS.docker, 'docker', '/cwd')).toBe(true);
   });
 
   it('a conflict on local (stack NOT running) is FATAL → false (abort)', async () => {
-    discoverHostPorts.mockReturnValue(portsOf('local'));
-    checkHostPorts.mockResolvedValue(withAvail(portsOf('local'), 0));
+    discoverHostPorts.mockReturnValue(portsOf('docker'));
+    checkHostPorts.mockResolvedValue(withAvail(portsOf('docker'), 0));
     stackRunning.mockReturnValue(false);
-    expect(await preflightPorts(TARGETS.local, 'local', '/cwd')).toBe(false);
+    expect(await preflightPorts(TARGETS.docker, 'docker', '/cwd')).toBe(false);
   });
 
   it('a conflict on local but the OWN stack is already running → true (re-run is not blocked)', async () => {
-    discoverHostPorts.mockReturnValue(portsOf('local'));
-    checkHostPorts.mockResolvedValue(withAvail(portsOf('local'), 0));
+    discoverHostPorts.mockReturnValue(portsOf('docker'));
+    checkHostPorts.mockResolvedValue(withAvail(portsOf('docker'), 0));
     stackRunning.mockReturnValue(true);
-    expect(await preflightPorts(TARGETS.local, 'local', '/cwd')).toBe(true);
+    expect(await preflightPorts(TARGETS.docker, 'docker', '/cwd')).toBe(true);
   });
 
   it('a conflict on minikube WARNS but proceeds → true', async () => {
@@ -202,9 +202,9 @@ describe('preflightPorts — fatal / warn / skip / re-run', () => {
 });
 
 describe('runTeardown — gating + execution', () => {
-  it('runs the destroy for a non-destructive target (local, --yes)', async () => {
+  it('runs the destroy for a non-destructive target (docker, --yes)', async () => {
     runScript.mockResolvedValue({ code: 0, tail: '' });
-    await runTeardown(TARGETS.local, 'local', '/cwd', 'exec1', { yes: true });
+    await runTeardown(TARGETS.docker, 'docker', '/cwd', 'exec1', { yes: true });
     expect(runScript).toHaveBeenCalledTimes(1);
   });
 
@@ -215,13 +215,13 @@ describe('runTeardown — gating + execution', () => {
   });
 
   it('--json prints the plan and runs nothing', async () => {
-    await runTeardown(TARGETS.local, 'local', '/cwd', 'exec1', { json: true });
+    await runTeardown(TARGETS.docker, 'docker', '/cwd', 'exec1', { json: true });
     expect(runScript).not.toHaveBeenCalled();
   });
 
   it('sets exitCode=1 when the destroy fails', async () => {
     runScript.mockResolvedValue({ code: 1, tail: '' });
-    await runTeardown(TARGETS.local, 'local', '/cwd', 'exec1', { yes: true });
+    await runTeardown(TARGETS.docker, 'docker', '/cwd', 'exec1', { yes: true });
     expect(process.exitCode).toBe(1);
   });
 });
@@ -232,7 +232,7 @@ describe('resolveLoadsInteractively — prompts, re-sync, re-resolve', () => {
 
   it('declining every load → no selections, no re-sync', async () => {
     questionMock.mockResolvedValue('n');
-    const r = await resolveLoadsInteractively('local', 'url', undefined, '/cwd', false, bootstrap, flags);
+    const r = await resolveLoadsInteractively('docker', 'url', undefined, '/cwd', false, bootstrap, flags);
     expect(r.enabledLoadIds).toEqual([]);
     expect(runScript).not.toHaveBeenCalled();
   });
@@ -240,7 +240,7 @@ describe('resolveLoadsInteractively — prompts, re-sync, re-resolve', () => {
   it('choosing plugins → fetched via additive sparse re-sync', async () => {
     questionMock.mockImplementation((q) => Promise.resolve(/plugins/i.test(q) ? 'y' : 'n'));
     runScript.mockResolvedValue({ code: 0, tail: '' });
-    const r = await resolveLoadsInteractively('local', 'url', undefined, '/cwd', true, bootstrap, flags);
+    const r = await resolveLoadsInteractively('docker', 'url', undefined, '/cwd', true, bootstrap, flags);
     expect(r.enabledLoadIds).toEqual(['plugins']);
     expect(runScript).toHaveBeenCalledTimes(1);
     const cmd = runScript.mock.calls[0][0] as string;

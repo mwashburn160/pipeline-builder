@@ -9,14 +9,14 @@ set -euo pipefail
 # Usage (args are forwarded verbatim to `pipeline-manager provision`):
 #   deploy/bin/provision-docker.sh --target eks --repo --domain x.example.com \
 #       --hosted-zone-id Z123 --execute --yes --admin-email a@x.com --admin-password "$PW"
-#   deploy/bin/provision-docker.sh --target local --repo --with-plugins --execute --yes
+#   deploy/bin/provision-docker.sh --target docker --repo --with-plugins --execute --yes
 #
 # Per-target install fingerprint (installed in the throwaway container, not the
 # host) — this MUST cover every prerequisite `provision` checks for the target,
 # or provision would block inside the container the same way it does on a bare host.
 #   ec2           : git, curl, unzip, AWS CLI v2                       (mounts ~/.aws ro)
 #   eks           : ec2 set + openssl + envsubst + eksctl + kubectl              (mounts ~/.aws + ~/.kube ro)
-#   local         : git, yq, openssl — Docker + Docker Compose are EXTERNAL (Docker
+#   docker        : git, yq, openssl — Docker + Docker Compose are EXTERNAL (Docker
 #                   Desktop provides both); reached via the mounted socket + host docker CLI.
 #   minikube      : host-side cluster — run on the host instead.
 
@@ -55,7 +55,7 @@ case "$TARGET" in
     [ -d "$HOME/.aws" ] && mounts+=( -v "$HOME/.aws:/root/.aws:ro" )
     [ -d "$HOME/.kube" ] && mounts+=( -v "$HOME/.kube:/root/.kube:ro" )
     ;;
-  local)
+  docker)
     # Docker + Docker Compose are EXTERNAL (host) requirements — NOT installed in
     # the slim image (you already have Docker on the host; that's what runs this
     # container). The container reaches the host's Docker via the mounted socket +
@@ -75,7 +75,7 @@ case "$TARGET" in
     echo "minikube runs a host-side cluster; run provision directly on the host (with minikube + kubectl)." >&2
     exit 1 ;;
   "")
-    echo "Pass --target <local|ec2|eks> so the right minimal tools are installed." >&2
+    echo "Pass --target <docker|ec2|eks> so the right minimal tools are installed." >&2
     exit 1 ;;
 esac
 

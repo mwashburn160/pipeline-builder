@@ -13,7 +13,7 @@
 
 import { assertShellSafe } from '../config/cli.constants.js';
 
-export type TargetId = 'local' | 'minikube' | 'ec2' | 'eks';
+export type TargetId = 'docker' | 'minikube' | 'ec2' | 'eks';
 
 /** A single input the underlying deploy script accepts. */
 export interface InputSpec {
@@ -104,15 +104,15 @@ const EMAIL: readonly InputSpec[] = [
 // --- Targets ----------------------------------------------------------------
 
 export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
-  local: {
-    id: 'local',
+  docker: {
+    id: 'docker',
     label: 'Local (Docker Compose)',
     dir: 'deploy/local/docker',
     entrypoint: 'bin/setup.sh',
     sparsePaths: ['deploy/local/docker'],
     required: [],
     optional: [],
-    postDeploy: './deploy/bin/init-platform.sh local',
+    postDeploy: './deploy/bin/init-platform.sh docker',
     cost: 'Free',
     bestFor: 'Development',
     deploys: 'the platform as a Docker Compose stack — an nginx TLS proxy, the API services (platform, plugin, pipeline, message, reporting, compliance, quota, billing, image-registry), the frontend, and postgres + mongo + redis. First run pulls the ghcr.io images and generates a local TLS cert (a few minutes).',
@@ -179,7 +179,7 @@ export const TARGETS: Readonly<Record<TargetId, TargetSpec>> = {
   },
 };
 
-export const TARGET_IDS: readonly TargetId[] = ['local', 'minikube', 'ec2', 'eks'];
+export const TARGET_IDS: readonly TargetId[] = ['docker', 'minikube', 'ec2', 'eks'];
 
 export function isTargetId(value: unknown): value is TargetId {
   return typeof value === 'string' && (TARGET_IDS as readonly string[]).includes(value);
@@ -302,7 +302,7 @@ export function teardownCommand(
   if (opts.domain) assertShellSafe(opts.domain, 'domain');
   if (opts.hostedZoneId) assertShellSafe(opts.hostedZoneId, 'hosted-zone-id');
   switch (target) {
-    case 'local':
+    case 'docker':
       return { command: 'cd deploy/local/docker && bash bin/shutdown.sh', destructive: false };
     case 'minikube':
       return { command: 'cd deploy/local/minikube && bash bin/shutdown.sh', destructive: false };

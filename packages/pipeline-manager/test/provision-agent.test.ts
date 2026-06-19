@@ -62,10 +62,10 @@ describe('assembleCommand', () => {
   });
 
   it('local needs no flags and carries a post-deploy init step', () => {
-    const { command, missing } = assembleCommand(TARGETS.local, {});
+    const { command, missing } = assembleCommand(TARGETS.docker, {});
     expect(missing).toHaveLength(0);
     expect(command).toBe('cd deploy/local/docker && bash bin/setup.sh');
-    expect(TARGETS.local.postDeploy).toContain('init-platform.sh local');
+    expect(TARGETS.docker.postDeploy).toContain('init-platform.sh docker');
   });
 
   it('reveals the real secret only with { mask: false } (for execution)', () => {
@@ -111,7 +111,7 @@ describe('assembleCommand', () => {
 
 describe('teardownCommand', () => {
   it('local/minikube stop the stack and are non-destructive', () => {
-    const local = teardownCommand('local');
+    const local = teardownCommand('docker');
     expect(local.destructive).toBe(false);
     expect(local.command).toBe('cd deploy/local/docker && bash bin/shutdown.sh');
     expect(teardownCommand('minikube').command).toContain('deploy/local/minikube && bash bin/shutdown.sh');
@@ -151,7 +151,7 @@ describe('teardownCommand', () => {
 
 describe('deriveHealthUrl', () => {
   it('uses localhost:8443 for local/minikube', () => {
-    expect(deriveHealthUrl('local', {})).toBe('https://localhost:8443');
+    expect(deriveHealthUrl('docker', {})).toBe('https://localhost:8443');
     expect(deriveHealthUrl('minikube', {})).toBe('https://localhost:8443');
   });
   it('uses the domain for ec2/eks, else null', () => {
@@ -219,7 +219,7 @@ describe('isTargetId', () => {
 
 describe('checkPrereqs / prereqsSatisfied', () => {
   it('local checks Docker, Docker Compose, yq, and openssl (all setup.sh hard-requires)', () => {
-    const checks = checkPrereqs('local');
+    const checks = checkPrereqs('docker');
     expect(checks.map((c) => c.name)).toEqual(['Docker', 'Docker Compose', 'yq', 'openssl']);
     expect(checks.every((c) => c.required)).toBe(true);
   });

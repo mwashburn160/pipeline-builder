@@ -108,7 +108,7 @@ function forwardHostPorts(file: string): HostPort[] {
  */
 export function discoverHostPorts(target: TargetId, cwd: string, spec: TargetSpec): HostPort[] {
   try {
-    if (target === 'local') return composeHostPorts(path.join(cwd, spec.dir, 'docker-compose.yml'));
+    if (target === 'docker') return composeHostPorts(path.join(cwd, spec.dir, 'docker-compose.yml'));
     if (target === 'minikube') return forwardHostPorts(path.join(cwd, spec.dir, 'bin', 'setup.sh'));
     return []; // ec2/eks deploy remotely — nothing binds locally
   } catch {
@@ -128,7 +128,7 @@ export async function checkHostPorts(ports: readonly HostPort[]): Promise<PortCh
  * not a conflict. Read-only `docker compose ps`; false on any error / non-local target.
  */
 export function stackRunning(target: TargetId, cwd: string, spec: TargetSpec): boolean {
-  if (target !== 'local') return false;
+  if (target !== 'docker') return false;
   try {
     const compose = path.join(cwd, spec.dir, 'docker-compose.yml');
     const out = execSync(`docker compose -f '${compose}' ps -q`, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000 })

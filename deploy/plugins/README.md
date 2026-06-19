@@ -72,7 +72,7 @@ End-to-end via [`deploy/bin/init-platform.sh`](../bin/init-platform.sh):
 
 ```bash
 # Default — abort on any plugin build failure
-./deploy/bin/init-platform.sh local
+./deploy/bin/init-platform.sh docker
 
 # Resilient — continue past per-plugin failures (e.g., flaky apt mirror).
 # Plugins that DID build still load; failed ones are skipped with a count.

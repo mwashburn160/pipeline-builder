@@ -34,10 +34,10 @@ pipeline-manager deploy
 
 ```bash
 # Deploy local — shows the plan, then confirms (confirm → deploy → /health + /ready → init-platform):
-pipeline-manager provision --target local
+pipeline-manager provision --target docker
 
 # Inspect the plan as JSON, run nothing:
-pipeline-manager provision --target local --json
+pipeline-manager provision --target docker --json
 
 # Deploy to EKS Auto Mode (add --yes for non-interactive CI):
 pipeline-manager provision --target eks \
@@ -48,11 +48,11 @@ pipeline-manager provision --target eks --teardown
 
 # Bootstrap a fresh machine — sparse-clones ONLY the deploy folders this target
 # + options need (here: deploy/bin + deploy/local/docker), then deploys + registers:
-pipeline-manager provision --target local --repo --yes \
+pipeline-manager provision --target docker --repo --yes \
   --admin-email admin@acme.com --admin-password 's3cret'
 
 # Add post-install loads (each also adds its folder to the sparse clone):
-pipeline-manager provision --target local --repo --with-all --with-smoke-test
+pipeline-manager provision --target docker --repo --with-all --with-smoke-test
 ```
 
 - **Deploy (gated) or teardown.** `provision` shows the plan, then deploys — refusing on failed prerequisites or missing inputs, confirming before it runs (`--yes` auto-accepts for CI), then verifying health and running `init-platform`. **`--json`** prints the plan and runs nothing (the only non-executing mode). `--teardown` removes a deployment (`local`/`minikube` stop the stack; **EC2 deletes its CloudFormation stack and EKS runs `bin/shutdown.sh` (cluster + EFS + ACM + Route 53), both irreversibly** and require typing the stack/cluster id to confirm — `--force` skips it for CI).

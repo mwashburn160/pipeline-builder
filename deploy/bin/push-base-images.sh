@@ -26,7 +26,7 @@
 #                      Secret in the pipeline-builder namespace). All three
 #                      use the in-cluster registry at registry:5000.
 #
-# Selected via DEPLOY_TARGET env var (default: local). init-platform.sh
+# Selected via DEPLOY_TARGET env var (default: docker). init-platform.sh
 # exports this when invoking build-plugin-images.sh.
 #
 # Requires: docker CLI, openssl. The k8s targets (minikube/ec2/eks) need kubectl.
@@ -36,7 +36,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
-DEPLOY_TARGET="${DEPLOY_TARGET:-local}"
+DEPLOY_TARGET="${DEPLOY_TARGET:-docker}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"
 CRANE_IMAGE="${CRANE_IMAGE:-gcr.io/go-containerregistry/crane:debug}"
 
@@ -54,7 +54,7 @@ CRANE_IMAGE="${CRANE_IMAGE:-gcr.io/go-containerregistry/crane:debug}"
 # only when there's no current context. Override via KUBECTL_CONTEXT.
 KUBECTL_CONTEXT="${KUBECTL_CONTEXT:-$(kubectl config current-context 2>/dev/null || echo pipeline-builder)}"
 kubectl_ctx() {
-  if [ "$DEPLOY_TARGET" = "local" ]; then
+  if [ "$DEPLOY_TARGET" = "docker" ]; then
     kubectl "$@"
   else
     kubectl --context="$KUBECTL_CONTEXT" "$@"
@@ -65,7 +65,7 @@ kubectl_ctx() {
 # Per-target setup: locate JWT_SECRET and the registry coordinates
 # -----------------------------------------------------------------------
 case "$DEPLOY_TARGET" in
-  local)
+  docker)
     DEPLOY_DIR="$(cd "$SCRIPT_DIR/../local/docker" && pwd)"
     if [ ! -f "$DEPLOY_DIR/.env" ]; then
       echo "ERROR: $DEPLOY_DIR/.env not found" >&2
@@ -115,7 +115,7 @@ case "$DEPLOY_TARGET" in
     REGISTRY_HOST="${REGISTRY_HOST:-registry:5000}"
     ;;
   *)
-    echo "ERROR: unsupported DEPLOY_TARGET='$DEPLOY_TARGET' (expected: local, minikube, ec2, eks)" >&2
+    echo "ERROR: unsupported DEPLOY_TARGET='$DEPLOY_TARGET' (expected: docker, minikube, ec2, eks)" >&2
     exit 1
     ;;
 esac
@@ -301,7 +301,7 @@ _push_k8s() {
 # Pre-push: discover which remote tags already exist
 # -----------------------------------------------------------------------
 # Batches all manifest-existence checks into one pod (or one docker
-# sidecar for local), so re-runs against an already-populated registry
+# sidecar for docker), so re-runs against an already-populated registry
 # skip the per-image push entirely. Set FORCE_PUSH=true to bypass the
 # check and re-push everything (useful after rebuilding a base image
 # without bumping its tag).
@@ -329,7 +329,7 @@ _discover_existing() {
   local _jwt
   _jwt="$(_sign_platform_jwt)"
   case "$DEPLOY_TARGET" in
-    local)
+    docker)
       # `crane catalog`-style listing also works, but per-image digest
       # checks are simpler and don't depend on the registry exposing
       # the catalog API (Docker registry's catalog is admin-only in
@@ -413,7 +413,7 @@ for _tag in "${BASE_TAGS[@]}"; do
   _jwt="$(_sign_platform_jwt)"
 
   case "$DEPLOY_TARGET" in
-    local)            _push_fn=_push_local ;;   # crane in a docker sidecar on backend-network
+    docker)            _push_fn=_push_local ;;   # crane in a docker sidecar on backend-network
     minikube|ec2|eks) _push_fn=_push_k8s ;;     # crane in a one-shot kubectl-run pod in-cluster
   esac
 

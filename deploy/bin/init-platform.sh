@@ -4,8 +4,8 @@ set -euo pipefail
 # Initialize the platform — register admin, optionally load plugins and pipelines.
 #
 # Usage:
-#   ./init-platform.sh                                         # defaults to "local"
-#   ./init-platform.sh local                                   # Docker Compose (https://localhost:8443)
+#   ./init-platform.sh                                         # defaults to "docker"
+#   ./init-platform.sh docker                                   # Docker Compose (https://localhost:8443)
 #   ./init-platform.sh minikube                                # Minikube (tunnels via kubectl port-forward)
 #   ./init-platform.sh ec2                                     # EC2 (requires PLATFORM_BASE_URL or stack name)
 #   ./init-platform.sh eks                                     # EKS (port-forwards to nginx via kubectl; or set PLATFORM_BASE_URL)
@@ -38,7 +38,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-TARGET="${1:-local}"
+TARGET="${1:-docker}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"   # env-overridable, matching push-base-images.sh
 TUNNEL_PID=""
 
@@ -59,7 +59,7 @@ trap cleanup EXIT
 # ---- Resolve platform URL ----
 
 case "$TARGET" in
-  local)
+  docker)
     PLATFORM_BASE_URL=${PLATFORM_BASE_URL:-https://localhost:8443}
     ;;
   minikube)
@@ -127,7 +127,7 @@ case "$TARGET" in
     fi
     ;;
   *)
-    echo "Usage: $0 [local|minikube|ec2|eks]" >&2
+    echo "Usage: $0 [docker|minikube|ec2|eks]" >&2
     exit 1
     ;;
 esac
@@ -170,13 +170,13 @@ echo ""
 echo "=== Registering admin user ==="
 # Non-interactive: take the admin credentials from the environment, falling back to
 # the dev defaults when unset. Export PLATFORM_IDENTIFIER / PLATFORM_PASSWORD to
-# override (always set them on a non-local/production target).
+# override (always set them on a non-docker/production target).
 PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-admin@internal}"
 PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-SecurePassword123!}"
-# A non-local target reaching this with the well-known dev password means an
+# A non-docker target reaching this with the well-known dev password means an
 # internet-facing platform would ship with a public credential — warn loudly (don't fail,
 # so automated deploys still complete). Set PLATFORM_PASSWORD to silence, or change it post-login.
-if [ "$TARGET" != local ] && [ "$PLATFORM_PASSWORD" = 'SecurePassword123!' ]; then
+if [ "$TARGET" != docker ] && [ "$PLATFORM_PASSWORD" = 'SecurePassword123!' ]; then
   echo "  WARNING: registering the admin with the DEFAULT dev password on target '$TARGET'." >&2
   echo "           Set PLATFORM_PASSWORD (+ PLATFORM_IDENTIFIER) to a strong secret before exposing the platform, or change it immediately after first login." >&2
 fi

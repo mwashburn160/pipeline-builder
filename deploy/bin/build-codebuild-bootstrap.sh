@@ -29,7 +29,7 @@
 #   build-codebuild-bootstrap.sh                # build (if missing) + publish (if missing)
 #   build-codebuild-bootstrap.sh --force        # rebuild even if local image cache has it
 #   FORCE_PUSH=true build-codebuild-bootstrap.sh # republish even if remote tag exists
-#   DEPLOY_TARGET=ec2 build-codebuild-bootstrap.sh  # pick push transport (local|minikube|ec2|eks)
+#   DEPLOY_TARGET=ec2 build-codebuild-bootstrap.sh  # pick push transport (docker|minikube|ec2|eks)
 
 set -euo pipefail
 
@@ -56,7 +56,7 @@ while [ $# -gt 0 ]; do
       echo "  --force   Rebuild the local image even when it already exists in docker cache"
       echo ""
       echo "Env:"
-      echo "  DEPLOY_TARGET   local | minikube | ec2 | eks (default: local)"
+      echo "  DEPLOY_TARGET   docker | minikube | ec2 | eks (default: docker)"
       echo "  FORCE_PUSH      true to republish even when remote tag exists"
       echo "  PIPELINE_MANAGER_VERSION  npm dist-tag or version (default: latest)"
       echo "  PUBLISH_PLATFORM          build/push platform, e.g. linux/arm64 (default: linux/amd64)"
@@ -92,5 +92,5 @@ fi
 echo ""
 echo "=== Publishing $TAG to registry library ==="
 PUSH_TAGS="$TAG" \
-  DEPLOY_TARGET="${DEPLOY_TARGET:-local}" \
+  DEPLOY_TARGET="${DEPLOY_TARGET:-docker}" \
   "$SCRIPT_DIR/push-base-images.sh"
