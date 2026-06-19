@@ -58,6 +58,13 @@ ARG AWS_CDK_VERSION="2.1126.0"
 # ENOENT`). With esbuild on PATH, aws-cdk-lib bundles the Lambda locally — no
 # docker. Any 0.x satisfies aws-cdk-lib's major-version guard.
 ARG ESBUILD_VERSION="0.28.1"
+# pnpm — the PluginLookup Lambda ships a `pnpm-lock.yaml`, so aws-cdk-lib picks
+# the pnpm package manager for bundling and runs esbuild as `pnpm exec -- esbuild`
+# (esbuild resolves as a global module, so it's treated as a workspace package).
+# No `pnpm install` runs during bundling (the Lambda sets no `nodeModules`), so
+# pnpm is only the bin-runner — but it must be on PATH or bundling dies with
+# `spawnSync pnpm ENOENT`. Pinned to the repo's packageManager (.projenrc.ts).
+ARG PNPM_VERSION="10.33.0"
 
 RUN set -eux; \
     apt-get update; \
@@ -80,9 +87,10 @@ RUN set -eux; \
     # frequent versions and the catalog drifts faster than we'd refresh
     # a pinned tag. Pin via --build-arg if you need reproducibility.
     npm config set @pipeline-builder:registry=https://registry.npmjs.org/; \
-    npm install -g "aws-cdk@${AWS_CDK_VERSION}" "esbuild@${ESBUILD_VERSION}" "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
+    npm install -g "aws-cdk@${AWS_CDK_VERSION}" "esbuild@${ESBUILD_VERSION}" "pnpm@${PNPM_VERSION}" "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
     cdk --version; \
     esbuild --version; \
+    pnpm --version; \
     pipeline-manager --version 2>&1 | tail -1
 
 WORKDIR /app
