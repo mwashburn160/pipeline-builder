@@ -5,7 +5,15 @@ import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-sec
 import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
 import type { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
 import axios, { type AxiosInstance, AxiosError } from 'axios';
-import { CoreConstants } from '../config/app-config.js';
+// Import the dependency-free leaf, NOT `app-config.js`/`CoreConstants`: the latter
+// transitively pulls infrastructure-config → aws-cdk-lib, which esbuild then tries
+// to bundle into this Lambda (hundreds of MB → OOM/SIGKILL during cold-start synth).
+import {
+  HANDLER_TIMEOUT_MS,
+  HANDLER_MAX_RETRIES,
+  HANDLER_RETRY_DELAY_MS,
+  HANDLER_DEFAULT_BASE_URL,
+} from '../config/handler-constants.js';
 
 /**
  * Structured logger for Lambda (outputs JSON to CloudWatch).
@@ -89,7 +97,7 @@ async function getToken(): Promise<string> {
 function create(baseURL: string, token: string): AxiosInstance {
   return axios.create({
     baseURL,
-    timeout: CoreConstants.HANDLER_TIMEOUT_MS,
+    timeout: HANDLER_TIMEOUT_MS,
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
@@ -112,10 +120,10 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
 
   let lastError: Error | undefined;
 
-  for (let attempt = 0; attempt <= CoreConstants.HANDLER_MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= HANDLER_MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      const delay = CoreConstants.HANDLER_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-      lambdaLog.info('RETRY', `Attempt ${attempt + 1}/${CoreConstants.HANDLER_MAX_RETRIES + 1} after ${delay}ms`);
+      const delay = HANDLER_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+      lambdaLog.info('RETRY', `Attempt ${attempt + 1}/${HANDLER_MAX_RETRIES + 1} after ${delay}ms`);
       await sleep(delay);
     }
 
@@ -139,8 +147,8 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
     } catch (error) {
       if (error instanceof AxiosError) {
         if (error.code === 'ECONNABORTED') {
-          lambdaLog.error('FETCH', `Plugin lookup timed out after ${CoreConstants.HANDLER_TIMEOUT_MS}ms`);
-          throw new Error(`Plugin lookup timed out after ${CoreConstants.HANDLER_TIMEOUT_MS}ms`);
+          lambdaLog.error('FETCH', `Plugin lookup timed out after ${HANDLER_TIMEOUT_MS}ms`);
+          throw new Error(`Plugin lookup timed out after ${HANDLER_TIMEOUT_MS}ms`);
         }
 
         const retryable = error.response
@@ -151,7 +159,7 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
           ? `API error ${error.response.status}: ${error.response.statusText}`
           : error.code || error.message;
 
-        if (retryable && attempt < CoreConstants.HANDLER_MAX_RETRIES) {
+        if (retryable && attempt < HANDLER_MAX_RETRIES) {
           lambdaLog.info('RETRY', `Retryable error: ${msg}`, { attempt: attempt + 1 });
           lastError = new Error(`Failed to fetch plugin: ${msg}`);
           continue;
@@ -253,7 +261,7 @@ export const handler = async (
 
     // Extract and validate properties
     const pluginFilter = event.ResourceProperties.pluginFilter;
-    const baseURL = event.ResourceProperties.baseURL || CoreConstants.HANDLER_DEFAULT_BASE_URL;
+    const baseURL = event.ResourceProperties.baseURL || HANDLER_DEFAULT_BASE_URL;
 
     if (!baseURL.startsWith('https://') && !baseURL.startsWith('http://')) {
       throw new Error(`Invalid baseURL: "${baseURL}" — must start with http:// or https://`);

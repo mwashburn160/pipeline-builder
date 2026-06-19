@@ -4,6 +4,7 @@
 import type { Algorithm } from 'jsonwebtoken';
 import { loadBillingConfig } from './billing-config.js';
 import type { AppConfig } from './config-types.js';
+import * as HandlerConstants from './handler-constants.js';
 import {
   loadRegistryConfig,
   loadRedisConfig,
@@ -31,14 +32,16 @@ export class CoreConstants {
   // Supported JWT algorithms
   static readonly ALLOWED_JWT_ALGORITHMS: Algorithm[] = ['HS256', 'RS256', 'ES256'];
 
-  // Custom Resource Handler configuration (must be less than Lambda timeout of 30s to allow response handling)
-  static readonly HANDLER_TIMEOUT_MS = parseInt(process.env.HANDLER_TIMEOUT_MS || '25000', 10); // 25s
+  // Custom Resource Handler configuration (must be less than Lambda timeout of 30s to allow response handling).
+  // Sourced from the dependency-free `handler-constants.ts` leaf — the Lambda handler imports that module
+  // directly (not this one) so its esbuild bundle never pulls in aws-cdk-lib via infrastructure-config.
+  static readonly HANDLER_TIMEOUT_MS = HandlerConstants.HANDLER_TIMEOUT_MS;
   /** Default platform URL fallback when PLATFORM_BASE_URL is not set. */
-  static readonly DEFAULT_PLATFORM_URL = 'https://localhost:8443';
+  static readonly DEFAULT_PLATFORM_URL = HandlerConstants.DEFAULT_PLATFORM_URL;
 
-  static readonly HANDLER_DEFAULT_BASE_URL = process.env.PLATFORM_BASE_URL || CoreConstants.DEFAULT_PLATFORM_URL;
-  static readonly HANDLER_MAX_RETRIES = parseInt(process.env.HANDLER_MAX_RETRIES || '2', 10);
-  static readonly HANDLER_RETRY_DELAY_MS = parseInt(process.env.HANDLER_RETRY_DELAY_MS || '1000', 10); // 1s
+  static readonly HANDLER_DEFAULT_BASE_URL = HandlerConstants.HANDLER_DEFAULT_BASE_URL;
+  static readonly HANDLER_MAX_RETRIES = HandlerConstants.HANDLER_MAX_RETRIES;
+  static readonly HANDLER_RETRY_DELAY_MS = HandlerConstants.HANDLER_RETRY_DELAY_MS;
 
   // Plugin build queue configuration
   static readonly PLUGIN_BUILD_QUEUE_NAME = process.env.PLUGIN_BUILD_QUEUE_NAME || 'plugin-build';

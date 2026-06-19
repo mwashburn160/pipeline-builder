@@ -215,7 +215,21 @@ export class PluginLookup extends Construct {
         minify: true,
         sourceMap: false,
         target: 'es2022',
-        externalModules: ['@aws-sdk/*'],
+        externalModules: [
+          // Provided by the Lambda Node.js runtime — never bundle.
+          '@aws-sdk/*',
+          // Synth-only libraries that must NEVER end up in a Lambda bundle.
+          // The handler doesn't use them; this is a guard so a stray transitive
+          // import (e.g. via a config module that pulls infrastructure-config →
+          // aws-cdk-lib) can't drag the entire ~hundreds-of-MB CDK into the
+          // bundle and OOM-kill esbuild during cold-start synth. If one of these
+          // is ever genuinely reached at runtime the Lambda will fail loudly at
+          // init (module not found) rather than silently OOM at synth — which is
+          // the correct signal, since CDK has no business running in this Lambda.
+          'aws-cdk-lib',
+          'aws-cdk-lib/*',
+          'constructs',
+        ],
       },
     });
 
