@@ -4,149 +4,82 @@
 /**
  * Lambda handler that re-mints the platform JWT in Secrets Manager so it never
  * lapses. Deployed + scheduled by `pipeline-manager store-token` (default once a
- * day). Self-contained on purpose — only `@aws-sdk/client-secrets-manager` (which
- * the Lambda Node runtime provides) and node built-ins — so it can be zipped and
- * uploaded as a single file with no bundling.
+ * day). Rather than re-implementing the token flow, it is a thin orchestrator
+ * that reuses the tested CLI — each run:
  *
- * Each run: read the secret's current JWT → ask the platform for a fresh
- * long-lived token (`/api/user/generate-token`, falling back to `/auth/refresh`
- * if the current token has expired) → write it back in store-token's schema.
- * The new token is validated before it overwrites the still-valid one.
+ *   1. Point the `@pipeline-builder` npm scope at public npm.
+ *   2. Download `@pipeline-builder/pipeline-manager` from npm into /tmp.
+ *   3. Read the current platform JWT from the secret.
+ *   4. Run `pipeline-manager store-token`, which mints a fresh long-lived token
+ *      via /api/user/generate-token and writes it back to the same secret.
  *
- * Env: PLATFORM_SECRET_NAME, PLATFORM_BASE_URL, RENEW_DAYS (default 30).
+ * `/tmp` is the only writable path in Lambda, so npm's HOME/cache/prefix all live
+ * there. `--no-schedule` is passed so store-token does NOT redeploy this stack
+ * (which would recurse).
+ *
+ * Env: PLATFORM_SECRET_NAME, PLATFORM_BASE_URL, RENEW_DAYS (default 30),
+ *      PIPELINE_MANAGER_VERSION (default "latest"), PLATFORM_VERIFY_SSL ("false"
+ *      to disable TLS verification).
  */
-import { request as httpsRequest } from 'node:https';
-import {
-  SecretsManagerClient,
-  GetSecretValueCommand,
-  PutSecretValueCommand,
-} from '@aws-sdk/client-secrets-manager';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 
-interface SecretPayload {
-  username?: string;
-  password?: string;       // the platform JWT
-  refreshToken?: string;
-  platformUrl?: string;
-  [k: string]: unknown;
-}
-
-interface TokenResponse {
-  accessToken?: string;
-  refreshToken?: string;
-  expiresIn?: number;
-}
-
-/** Minimal JSON POST. Honours NODE_TLS_REJECT_UNAUTHORIZED via the node runtime. */
-function postJson(url: string, body: unknown, bearer?: string): Promise<{ status: number; json: unknown }> {
-  const u = new URL(url);
-  const payload = JSON.stringify(body);
-  return new Promise((resolve, reject) => {
-    const req = httpsRequest(
-      {
-        method: 'POST',
-        hostname: u.hostname,
-        port: u.port || 443,
-        path: u.pathname + u.search,
-        headers: {
-          'content-type': 'application/json',
-          'content-length': Buffer.byteLength(payload),
-          ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
-        },
-        timeout: 20_000,
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (c) => (data += c));
-        res.on('end', () => {
-          let json: unknown = undefined;
-          try { json = data ? JSON.parse(data) : undefined; } catch { /* leave undefined */ }
-          resolve({ status: res.statusCode ?? 0, json });
-        });
-      },
-    );
-    req.on('error', reject);
-    req.on('timeout', () => req.destroy(new Error('request timed out')));
-    req.write(payload);
-    req.end();
-  });
-}
-
-/** Unwrap the platform's `{ success, data: {...} }` envelope (or a bare body). */
-function unwrap<T>(json: unknown): T {
-  const j = json as { data?: T } | T;
-  return ((j as { data?: T })?.data ?? j) as T;
-}
-
-/** Basic JWT sanity: decodes, must carry an org and a future `exp`. */
-function looksValid(jwt: string): boolean {
-  const parts = jwt.split('.');
-  if (parts.length !== 3) return false;
-  try {
-    const payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf-8')) as { exp?: number; organizationId?: string };
-    if (!payload.exp || payload.exp * 1000 <= Date.now()) return false;
-    return typeof payload.organizationId === 'string';
-  } catch {
-    return false;
-  }
-}
-
-export const handler = async (): Promise<void> => {
-  const secretName = required('PLATFORM_SECRET_NAME');
-  const platformUrl = required('PLATFORM_BASE_URL').replace(/\/$/, '');
-  const days = parseInt(process.env.RENEW_DAYS || '30', 10);
-  const expiresIn = days * 24 * 60 * 60;
-  const region = process.env.AWS_REGION;
-
-  const sm = new SecretsManagerClient({ region });
-  const current = await sm.send(new GetSecretValueCommand({ SecretId: secretName }));
-  if (!current.SecretString) throw new Error(`Secret "${secretName}" is empty`);
-  const secret = JSON.parse(current.SecretString) as SecretPayload;
-  if (!secret.password) throw new Error(`Secret "${secretName}" missing password (JWT)`);
-
-  // 1. Try generate-token with the current JWT.
-  let bearer = secret.password;
-  let res = await postJson(`${platformUrl}/api/user/generate-token`, { expiresIn }, bearer);
-
-  // 2. If unauthorized, refresh the access token first, then retry.
-  if (res.status === 401 && secret.refreshToken) {
-    const refreshed = unwrap<TokenResponse>(
-      (await postJson(`${platformUrl}/auth/refresh`, { refreshToken: secret.refreshToken })).json,
-    );
-    if (refreshed.accessToken) {
-      bearer = refreshed.accessToken;
-      res = await postJson(`${platformUrl}/api/user/generate-token`, { expiresIn }, bearer);
-    }
-  }
-
-  if (res.status < 200 || res.status >= 300) {
-    throw new Error(`generate-token failed (HTTP ${res.status})`);
-  }
-
-  const token = unwrap<TokenResponse>(res.json);
-  if (!token.accessToken || !looksValid(token.accessToken)) {
-    // Do NOT overwrite a still-valid secret with a bad response.
-    throw new Error('generate-token returned no usable access token; leaving existing secret untouched');
-  }
-
-  // 3. Write the renewed secret in store-token's schema.
-  const actualExpiresIn = token.expiresIn ?? expiresIn;
-  const next: SecretPayload = {
-    username: secret.username,
-    password: token.accessToken,
-    ...(token.refreshToken ? { refreshToken: token.refreshToken } : (secret.refreshToken ? { refreshToken: secret.refreshToken } : {})),
-    platformUrl: secret.platformUrl ?? platformUrl,
-    expiresIn: actualExpiresIn,
-    expiresAt: new Date(Date.now() + actualExpiresIn * 1000).toISOString(),
-    createdAt: new Date().toISOString(),
-  };
-  await sm.send(new PutSecretValueCommand({ SecretId: secretName, SecretString: JSON.stringify(next) }));
-
-  // eslint-disable-next-line no-console
-  console.log(JSON.stringify({ level: 'INFO', msg: 'platform token renewed', secretName, expiresAt: next.expiresAt }));
-};
+const PM_PACKAGE = '@pipeline-builder/pipeline-manager';
+const TMP = '/tmp';
+const PM_PREFIX = `${TMP}/pm`;
+const NPM_CACHE = `${TMP}/.npm`;
+const NPMRC = `${TMP}/.npmrc`;
+const CLI = `${PM_PREFIX}/node_modules/${PM_PACKAGE}/dist/cli.js`;
 
 function required(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`${name} environment variable is required`);
   return v;
 }
+
+export const handler = async (): Promise<void> => {
+  const secretName = required('PLATFORM_SECRET_NAME');
+  const platformUrl = required('PLATFORM_BASE_URL').replace(/\/$/, '');
+  const days = process.env.RENEW_DAYS || '30';
+  const version = process.env.PIPELINE_MANAGER_VERSION || 'latest';
+  const region = process.env.AWS_REGION || 'us-east-1';
+
+  // npm in Lambda can only write under /tmp; HOME/cache/userconfig point there.
+  const npmEnv = { ...process.env, HOME: TMP, npm_config_cache: NPM_CACHE };
+
+  // 1. Scope config: resolve @pipeline-builder from public npm regardless of any
+  //    inherited registry. Written as a userconfig file (env mapping of scoped
+  //    keys is unreliable).
+  writeFileSync(NPMRC, '@pipeline-builder:registry=https://registry.npmjs.org/\n');
+
+  // 2. Download pipeline-manager into /tmp.
+  mkdirSync(PM_PREFIX, { recursive: true });
+  // eslint-disable-next-line no-console
+  console.log(JSON.stringify({ level: 'INFO', msg: 'installing pipeline-manager', package: `${PM_PACKAGE}@${version}` }));
+  execFileSync(
+    'npm',
+    ['install', '--prefix', PM_PREFIX, '--no-audit', '--no-fund', '--userconfig', NPMRC, `${PM_PACKAGE}@${version}`],
+    { env: npmEnv, stdio: 'inherit' },
+  );
+
+  // 3. Read the current platform JWT — it authenticates the renewal request.
+  const sm = new SecretsManagerClient({ region });
+  const current = await sm.send(new GetSecretValueCommand({ SecretId: secretName }));
+  if (!current.SecretString) throw new Error(`Secret "${secretName}" is empty`);
+  const jwt = (JSON.parse(current.SecretString) as { password?: string }).password;
+  if (!jwt) throw new Error(`Secret "${secretName}" missing password (JWT)`);
+
+  // 4. Run store-token. --no-schedule: do NOT redeploy this stack (avoids
+  //    recursion). It writes the renewed secret via the Lambda role's creds.
+  const args = ['store-token', '--no-schedule', '--secret-name', secretName, '--region', region, '--days', days];
+  if (process.env.PLATFORM_VERIFY_SSL === 'false') args.push('--no-verify-ssl');
+
+  execFileSync('node', [CLI, ...args], {
+    env: { ...npmEnv, PLATFORM_TOKEN: jwt, PLATFORM_BASE_URL: platformUrl },
+    stdio: 'inherit',
+  });
+
+  // eslint-disable-next-line no-console
+  console.log(JSON.stringify({ level: 'INFO', msg: 'platform token renewed', secretName }));
+};

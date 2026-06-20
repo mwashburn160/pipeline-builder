@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import https from 'https';
 import axios from 'axios';
 import { Command } from 'commander';
 import { ENV_VARS, TIMEOUTS } from '../config/cli.constants.js';
@@ -9,6 +8,7 @@ import { checkCdkAvailable } from '../utils/cdk-utils.js';
 import { printCommandHeader } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printKeyValue, printSection } from '../utils/output-utils.js';
+import { httpsAgentForUrl } from '../utils/tls.js';
 
 /**
  * Registers the `status` command with the CLI program.
@@ -45,10 +45,10 @@ export function status(program: Command): void {
         results.PLATFORM_BASE_URL = baseUrl;
 
         try {
-          const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+          // Skip cert verification only for local/self-signed hosts; verify real domains.
           await axios.get(`${baseUrl}/health`, {
             timeout: TIMEOUTS.HEALTH_CHECK,
-            httpsAgent,
+            httpsAgent: httpsAgentForUrl(baseUrl),
           });
           results['Platform Health'] = 'reachable';
         } catch {

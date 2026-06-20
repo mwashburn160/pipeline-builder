@@ -9,8 +9,8 @@
  */
 
 import { spawn } from 'child_process';
-import https from 'https';
 import axios from 'axios';
+import { httpsAgentForUrl } from '../utils/tls.js';
 import type { TargetId } from './targets.js';
 
 export interface HealthResult {
@@ -36,11 +36,11 @@ export function deriveHealthUrl(target: TargetId, params: Record<string, unknown
   return typeof domain === 'string' && domain ? `https://${domain}` : null;
 }
 
-const agent = new https.Agent({ rejectUnauthorized: false }); // local uses a self-signed cert
-
 async function probe(url: string): Promise<boolean> {
   try {
-    const res = await axios.get(url, { timeout: 5000, httpsAgent: agent, validateStatus: () => true });
+    // Skip cert verification only for local/self-signed hosts (docker/minikube);
+    // a real ec2/eks domain presents a valid ACM cert and IS verified.
+    const res = await axios.get(url, { timeout: 5000, httpsAgent: httpsAgentForUrl(url), validateStatus: () => true });
     return res.status >= 200 && res.status < 300;
   } catch {
     return false;

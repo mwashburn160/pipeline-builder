@@ -5,6 +5,7 @@ import https from 'https';
 import axios, { type AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
 import { type Config } from './config-loader.js';
+import { decodeTokenPayload } from './auth-guard.js';
 import { NetworkError } from './error-handler.js';
 import { printDebug, printError, printWarning } from './output-utils.js';
 import { TIMEOUTS } from '../config/cli.constants.js';
@@ -116,7 +117,7 @@ export class ApiClient {
       const hint = hints[code] || 'Check network connectivity and server status';
       const message = `${code}: ${hint} (url: ${url})`;
 
-      return Promise.reject(new NetworkError(message, url, error));
+      return Promise.reject(new NetworkError(message, url, error, timeout));
     } else {
       printError('API request error', { error: error.message });
       return Promise.reject(error);
@@ -168,18 +169,12 @@ export class ApiClient {
    * Does NOT verify signature — server handles that.
    */
   private checkTokenExpiry(token: string): void {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3 || !parts[1]) return;
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
-      if (payload.exp && typeof payload.exp === 'number') {
-        const expiresAt = new Date(payload.exp * 1000);
-        if (expiresAt.getTime() < Date.now()) {
-          printWarning(`Token expired at ${expiresAt.toISOString()} — run "pipeline-manager login" to refresh`);
-        }
+    const payload = decodeTokenPayload(token);
+    if (payload && typeof payload.exp === 'number') {
+      const expiresAt = new Date(payload.exp * 1000);
+      if (expiresAt.getTime() < Date.now()) {
+        printWarning(`Token expired at ${expiresAt.toISOString()} — run "pipeline-manager login" to refresh`);
       }
-    } catch {
-      // Silently ignore decode errors — server will reject invalid tokens
     }
   }
 }

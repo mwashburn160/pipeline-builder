@@ -8,7 +8,7 @@ import * as os from 'os';
 import path from 'path';
 import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
 import { Command } from 'commander';
-import { validateNumber } from '../config/cli.constants.js';
+import { APP_VERSION, validateNumber } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
 import { decodeTokenPayload } from '../utils/auth-guard.js';
 import { upsertSecret, getSecretArn } from '../utils/aws-secrets.js';
@@ -31,7 +31,9 @@ const DEFAULT_RENEW_CRON = '0 0 * * *';
  * Deploy (or update) the once-a-day token-renewal stack: a scheduled Lambda that
  * re-mints the platform JWT in this same secret before it expires. Mirrors
  * setup-events — `aws cloudformation deploy` for the infra, then a direct
- * UpdateFunctionCode with the self-contained handler compiled alongside this CLI.
+ * UpdateFunctionCode with the thin orchestrator handler compiled alongside this
+ * CLI (the handler npm-installs pipeline-manager at runtime and re-runs
+ * store-token; see src/lambda/token-renew-handler.ts).
  */
 async function deployRenewSchedule(opts: {
   platformUrl: string;
@@ -62,6 +64,9 @@ async function deployRenewSchedule(opts: {
     `PlatformSecretName=${opts.secretName}`,
     `RenewDays=${opts.days}`,
     `ScheduleExpression=${scheduleExpression}`,
+    // Pin the handler's runtime npm install to THIS CLI's version (reproducible
+    // renewals instead of a floating "latest").
+    `PipelineManagerVersion=${APP_VERSION}`,
     '--capabilities', 'CAPABILITY_NAMED_IAM',
     '--no-fail-on-empty-changeset',
     '--region', opts.region,
@@ -153,7 +158,7 @@ export function storeToken(program: Command): void {
         // Resolve secret name from token's organizationId (unless --secret-name was explicitly set)
         const secretName = options.secretName || resolveSecretName(process.env.PLATFORM_TOKEN!);
 
-        auditLog('store-token', { executionId, secretName, days: options.days, dryRun: options.dryRun });
+        auditLog('store-token', { executionId, secretName, days, dryRun: options.dryRun });
 
         printInfo('Parameters', {
           secretName,

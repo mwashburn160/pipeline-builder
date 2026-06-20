@@ -10,7 +10,7 @@ import {
   GetSecretValueCommand,
   ListSecretsCommand,
 } from '@aws-sdk/client-secrets-manager';
-import { printInfo, printSuccess } from './output-utils.js';
+import { printInfo, printSuccess, printWarning } from './output-utils.js';
 
 /**
  * Options for Secrets Manager operations.
@@ -31,6 +31,13 @@ function createClient(options: SecretsOptions): SecretsManagerClient {
   // (flag → AWS_REGION / CDK_DEFAULT_REGION).
   if (options.profile && !process.env.AWS_ACCESS_KEY_ID && !process.env.AWS_PROFILE) {
     process.env.AWS_PROFILE = options.profile;
+  } else if (options.profile && options.profile !== 'default') {
+    // The flag was set to a non-default profile but ambient env creds win — surface
+    // it so an explicit --profile that silently has no effect isn't a surprise.
+    printWarning(
+      `--profile ${options.profile} ignored: existing AWS credentials in the environment ` +
+      `(${process.env.AWS_ACCESS_KEY_ID ? 'AWS_ACCESS_KEY_ID' : 'AWS_PROFILE'}) take precedence.`,
+    );
   }
   return new SecretsManagerClient({
     region: options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION,

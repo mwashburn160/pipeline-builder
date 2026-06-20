@@ -3,6 +3,7 @@
 
 import { Command } from 'commander';
 import pico from 'picocolors';
+import { formatFileSize } from '../config/cli.constants.js';
 import { type Plugin, type PluginResponse } from '../types/index.js';
 import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
@@ -69,7 +70,7 @@ export function getPlugin(program: Command): void {
           'Version': plugin.version,
           'Organization': plugin.organization,
           'Description': plugin.description || '(not set)',
-          'File Size': plugin.fileSize ? `${(plugin.fileSize / 1024).toFixed(2)} KB` : '(not available)',
+          'File Size': plugin.fileSize ? formatFileSize(plugin.fileSize) : '(not available)',
           'Public': plugin.isPublic ? 'Yes' : 'No',
           'Active': plugin.isActive ? 'Yes' : 'No',
           'Created At': plugin.createdAt || '(not available)',

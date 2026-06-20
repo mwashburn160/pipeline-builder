@@ -34,6 +34,7 @@ export function createPipeline(program: Command): void {
     .option('-a, --access <modifier>', 'Access modifier (public|private)', 'private')
     .option('--default', 'Set as default pipeline', false)
     .option('--active', 'Set pipeline as active', true)
+    .option('--no-active', 'Create the pipeline as inactive')
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .option('--dry-run', 'Validate inputs without creating pipeline', false)

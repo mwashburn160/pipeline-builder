@@ -7,14 +7,14 @@ import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { assertShellSafe } from '../config/cli.constants.js';
-import { type Pipeline, type PipelineResponse } from '../types/index.js';
+import { type Pipeline } from '../types/index.js';
 import { auditLog } from '../utils/audit-log.js';
 import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { ensureOutputDirectory, extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
-import { resolvePluginsForProps } from '../utils/plugin-resolver.js';
-import { bakePlatformRegistry, buildRegistryPayload, writePendingIntent } from '../utils/registry.js';
+import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
+import { buildRegistryPayload, writePendingIntent } from '../utils/registry.js';
 
 const { bold, cyan, dim } = pico;
 
@@ -122,26 +122,16 @@ export function deploy(program: Command): void {
             pipelineId: pipeline.id,
           };
         } else {
-          // Remote path: fetch config from platform API
+          // Remote path: fetch config from platform API. fetchPipelineProps does
+          // the fetch + plugin pre-resolution + registry pull-host bake — shared
+          // verbatim with `synth` so the two never drift.
           platformClient = await createAuthenticatedClientAsync(options);
           platformConfig = platformClient.getConfig() as { api: { pipelineUrl: string; baseUrl: string } };
 
           printInfo('Fetching pipeline configuration', { id: options.id });
-          const response = await platformClient.get<PipelineResponse>(
-            `${platformConfig.api.pipelineUrl}/${options.id}`,
-          );
-
-          const fetched = extractSingleResponse<Pipeline>(response, 'pipeline', 'props');
-
-          if (!fetched?.props) {
-            printError('Invalid pipeline response', {
-              id: options.id,
-              hasProps: !!fetched?.props,
-              responseKeys: response ? Object.keys(response) : '(null)',
-            });
-            throw new Error(`Failed to retrieve valid pipeline properties for ID: ${options.id}`);
-          }
-          pipeline = fetched;
+          const fetched = await fetchPipelineProps(platformClient, options.id);
+          pipeline = fetched.pipeline;
+          propsWithIds = fetched.propsWithIds;
 
           printSuccess('Pipeline configuration retrieved');
           printKeyValue({
@@ -151,45 +141,11 @@ export function deploy(program: Command): void {
             'Is Default': pipeline.isDefault,
             'Is Active': pipeline.isActive,
           });
-
-          propsWithIds = {
-            ...pipeline.props,
-            ...(pipeline.orgId && { orgId: pipeline.orgId }),
-            pipelineId: pipeline.id,
-          };
-
-          // Pre-resolve plugins from the platform API so the synthesized
-          // template ships with real CodeBuild image URIs baked in. Without
-          // this, CDK falls back to standard:7.0 (the deploy-time custom
-          // resource attribute is unresolvable at synth time). Skipped in
-          // --local-spec mode where there's no platform client.
-          const resolvedPlugins = await resolvePluginsForProps(platformClient, propsWithIds);
-          if (Object.keys(resolvedPlugins).length > 0) {
-            propsWithIds.resolvedPlugins = resolvedPlugins;
-            printInfo('Pre-resolved plugins', { count: Object.keys(resolvedPlugins).length });
-          }
-
-          // Bake the registry pull target into the synth from the platform URL we
-          // deploy against (the host that serves the registry /v2/ data path), so
-          // the CodeBuild image URIs use a host AWS CodeBuild can resolve — not the
-          // in-cluster `registry:5000` default. No-op when IMAGE_REGISTRY_PULL_HOST
-          // is set (explicit env wins).
-          bakePlatformRegistry(propsWithIds, platformConfig.api.baseUrl);
         }
 
         // --show-resolved: print resolved config and exit (no CDK deploy)
         if ((options as { showResolved?: boolean }).showResolved) {
-          const { resolveSelfReferencing } = await import('@pipeline-builder/pipeline-core');
-          const propsAny = propsWithIds as Record<string, unknown>;
-          const scope = { metadata: propsAny.metadata ?? {}, vars: propsAny.vars ?? {} };
-          const isTpl = (f: string) => f === 'projectName' || f.startsWith('metadata.') || f.startsWith('vars.');
-          const result = resolveSelfReferencing(propsAny, scope, isTpl, (f: string) => isTpl(f) ? f : null, 'pipeline');
-          if (result.errors.length) {
-            console.error('Resolution errors:');
-            for (const e of result.errors) console.error(`  [${e.field ?? '?'}] ${e.message}`);
-            process.exit(1);
-          }
-          console.log(JSON.stringify(propsWithIds, null, 2));
+          await printResolvedOrExit(propsWithIds);
           return;
         }
 

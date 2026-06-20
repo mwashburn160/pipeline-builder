@@ -13,7 +13,7 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import axios from 'axios';
 import { decodeTokenPayload } from './auth-guard.js';
 import { getConfigWithOptions } from './config-loader.js';
-import { printInfo, printSection, printSuccess } from './output-utils.js';
+import { printInfo, printSection, printSuccess, printWarning } from './output-utils.js';
 
 /** Login/secret options shared across the platform-secret helpers. */
 export interface PlatformSecretOptions {
@@ -48,6 +48,10 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
   const loginEmail = options.email || process.env.PLATFORM_IDENTIFIER;
   const loginPassword = options.password || process.env.PLATFORM_PASSWORD;
   if (!loginEmail || !loginPassword) return;
+
+  if (options.password) {
+    printWarning('Passing --password on the command line can expose it via shell history; prefer the PLATFORM_PASSWORD env var.');
+  }
 
   printSection('Login');
   printInfo('Authenticating with email/password...');

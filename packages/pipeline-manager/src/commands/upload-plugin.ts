@@ -43,6 +43,7 @@ export function uploadPlugin(program: Command): void {
     .option('-v, --version <version>', 'Plugin version (optional, extracted from package if not provided)')
     .option('--public', 'Make plugin publicly accessible', false)
     .option('--active', 'Set plugin as active', true)
+    .option('--no-active', 'Upload the plugin as inactive')
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
     .option('--dry-run', 'Validate file without uploading', false)

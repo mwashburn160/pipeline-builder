@@ -128,7 +128,12 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
       // the operator supplies it when running this bundle. provision surfaces (does not
       // auto-run) the bundle on AWS — it needs a registered, in-VPC platform.
       const region = opts.region ? ` --region ${opts.region}` : '';
-      const env = opts.url ? { PLATFORM_BASE_URL: opts.url } : undefined;
+      // Mirror the register branch's target rule: bake PLATFORM_BASE_URL only on
+      // ec2 (the in-VPC URL resolves on the box). On eks the public ALB/DNS isn't
+      // up yet, so baking it would point store-token/setup-events at an
+      // unresolvable host — the operator sets PLATFORM_BASE_URL when running the
+      // surfaced bundle, once the ALB is ready.
+      const env = opts.target === 'ec2' && opts.url ? { PLATFORM_BASE_URL: opts.url } : undefined;
       steps.push({
         id: 'store-token',
         label: 'Store platform token in AWS Secrets Manager',

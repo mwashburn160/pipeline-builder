@@ -33,11 +33,6 @@ export const BANNER_OPTIONS = {
 export type OutputFormat = 'table' | 'json' | 'yaml' | 'csv';
 
 /**
- * Valid CDK commands
- */
-export type CdkCommand = 'synth' | 'deploy' | 'bootstrap';
-
-/**
  * Default timeouts (in milliseconds)
  */
 export const TIMEOUTS = {
@@ -141,9 +136,14 @@ export function validateBoolean(value: string, fieldName: string): boolean {
  * Validate and parse a numeric CLI parameter within optional bounds.
  */
 export function validateNumber(value: string | number, fieldName: string, min?: number, max?: number): number {
-  const num = typeof value === 'number' ? value : parseInt(value, 10);
-  if (isNaN(num)) {
-    throw new Error(`Invalid ${fieldName}: must be a number`);
+  // Reject partial parses ("12abc" -> 12) and non-integers ("5.9" -> 5) that
+  // `parseInt` would otherwise accept silently.
+  if (typeof value === 'string' && !/^-?\d+$/.test(value.trim())) {
+    throw new Error(`Invalid ${fieldName}: must be a whole number`);
+  }
+  const num = typeof value === 'number' ? value : parseInt(value.trim(), 10);
+  if (!Number.isInteger(num)) {
+    throw new Error(`Invalid ${fieldName}: must be a whole number`);
   }
   if (min !== undefined && num < min) {
     throw new Error(`Invalid ${fieldName}: must be >= ${min}`);

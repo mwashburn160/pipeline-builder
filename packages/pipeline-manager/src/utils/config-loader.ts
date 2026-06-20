@@ -127,9 +127,10 @@ export function getConfig(): Config {
 }
 
 /**
- * Return a copy of `config` with SSL verification disabled.
+ * Return a copy of `config` with SSL verification disabled. Module-private — the
+ * only caller is `getConfigWithOptions` below.
  */
-export function withSSLDisabled(config: Config): Config {
+function withSSLDisabled(config: Config): Config {
   return {
     ...config,
     api: { ...config.api, rejectUnauthorized: false },

@@ -5,6 +5,7 @@
 import { PipelineBuilder, type BuilderProps } from '@pipeline-builder/pipeline-core';
 import { App, Stack } from 'aws-cdk-lib';
 import pico from 'picocolors';
+import { generateExecutionId } from './config/cli.constants.js';
 
 const { cyan, green, dim, bold, magenta, red } = pico;
 
@@ -35,7 +36,7 @@ function parse(): BuilderProps {
 }
 
 function main(): void {
-  const executionId = Math.random().toString(36).substring(7).toUpperCase();
+  const executionId = generateExecutionId().toUpperCase();
 
   console.log(
     `${magenta(`[CDK-APP-${executionId}]`)} ${cyan('Pipeline builder starting')}`,

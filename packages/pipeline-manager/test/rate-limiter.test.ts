@@ -55,8 +55,9 @@ describe('rate-limiter', () => {
       recordAuthFailure();
       expect(fs.existsSync(STATE_FILE)).toBe(true);
 
+      // State is now keyed per identifier; no-arg calls use the `_default` bucket.
       const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
-      expect(state.failures).toBe(1);
+      expect(state._default.failures).toBe(1);
     });
 
     it('should increment failure count', () => {
@@ -64,7 +65,13 @@ describe('rate-limiter', () => {
       recordAuthFailure();
 
       const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
-      expect(state.failures).toBe(2);
+      expect(state._default.failures).toBe(2);
+    });
+
+    it('keys lockout state per identifier (one account does not lock another)', () => {
+      for (let i = 0; i < 5; i++) recordAuthFailure('alice@example.com', 'https://x');
+      expect(checkAuthRateLimit('alice@example.com', 'https://x')).not.toBeNull();
+      expect(checkAuthRateLimit('bob@example.com', 'https://x')).toBeNull();
     });
   });
 });

@@ -229,6 +229,20 @@ export interface AssembleResult {
   readonly missing: readonly InputSpec[];
 }
 
+/** POSIX single-quote a value (with embedded-quote escaping) for safe shell use. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Quote only when the value would otherwise be word-split or mis-parsed by the
+ * shell (whitespace or embedded quotes). `assertShellSafe` already rejects the
+ * dangerous metacharacters, so simple tokens stay unquoted for readability.
+ */
+function maybeShellQuote(value: string): string {
+  return /[\s'"]/.test(value) ? shellQuote(value) : value;
+}
+
 /**
  * Assemble the deploy command for a target from the provided params. Pure and
  * deterministic — no shell, no LLM. Missing required inputs are reported (never
@@ -262,7 +276,10 @@ export function assembleCommand(
     // the REAL value even when masking for display — the executed command uses
     // the unmasked value. Redact secrets so the error never echoes a token.
     assertShellSafe(raw, `--${spec.flag}`, { redactValue: spec.secret });
-    const value = spec.secret && mask ? '***' : raw;
+    // assertShellSafe still permits spaces and quotes (e.g. --email-from-name
+    // "Pipeline Builder", or O'Brien), which would word-split when emitted bare;
+    // quote those so the value reaches the script as a single argument.
+    const value = spec.secret && mask ? '***' : maybeShellQuote(raw);
     parts.push(`--${spec.flag} ${value}`);
   }
 

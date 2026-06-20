@@ -7,7 +7,7 @@ import { Command } from 'commander';
 import pico from 'picocolors';
 import { generateExecutionId, TIMEOUTS } from '../config/cli.constants.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { printDebug, printError, printInfo, printSection, printSuccess } from '../utils/output-utils.js';
+import { printDebug, printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter.js';
 
 const { bold, cyan, green, magenta } = pico;
@@ -57,17 +57,25 @@ export function login(program: Command): void {
       const executionId = generateExecutionId();
       const isRefresh = !!options.refresh;
 
+      // Credentials may come from flags OR the PLATFORM_IDENTIFIER/PLATFORM_PASSWORD
+      // env vars (so the password need not appear in shell history / `ps`).
+      const identifier = options.identifier || process.env.PLATFORM_IDENTIFIER;
+      const password = options.password || process.env.PLATFORM_PASSWORD;
+
       try {
 
         // Validate required options
-        if (!isRefresh && (!options.identifier || !options.password)) {
-          printError('Login requires --identifier and --password, or --refresh <token>');
+        if (!isRefresh && (!identifier || !password)) {
+          printError('Login requires --identifier and --password (or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD env), or --refresh <token>');
           process.exit(ERROR_CODES.AUTHENTICATION);
+        }
+        if (!isRefresh && options.password) {
+          printWarning('Passing --password on the command line can expose it via shell history; prefer the PLATFORM_PASSWORD env var.');
         }
 
         // Rate limiting — prevent brute force (login only)
         if (!isRefresh) {
-          const rateLimitMsg = checkAuthRateLimit();
+          const rateLimitMsg = checkAuthRateLimit(identifier, options.url);
           if (rateLimitMsg) {
             printError(rateLimitMsg);
             process.exit(ERROR_CODES.AUTHENTICATION);
@@ -81,7 +89,7 @@ export function login(program: Command): void {
           console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold(isRefresh ? 'Token Refresh' : 'Platform Authentication'))}`);
           console.log('');
           printInfo(isRefresh ? 'Refreshing access token' : 'Authenticating', {
-            ...(options.identifier ? { identifier: options.identifier } : {}),
+            ...(identifier ? { identifier } : {}),
             url: options.url,
             verifySsl: options.verifySsl,
           });
@@ -115,8 +123,8 @@ export function login(program: Command): void {
           const response = await axios.post<LoginResponse>(
             loginUrl,
             {
-              identifier: options.identifier,
-              password: options.password,
+              identifier,
+              password,
             },
             {
               headers: { 'Content-Type': 'application/json' },
@@ -129,12 +137,12 @@ export function login(program: Command): void {
         }
 
         if (!token) {
-          if (!isRefresh) recordAuthFailure();
+          if (!isRefresh) recordAuthFailure(identifier, options.url);
           printError(`${isRefresh ? 'Token refresh' : 'Login'} failed: no access token in response`);
           process.exit(ERROR_CODES.AUTHENTICATION);
         }
 
-        if (!isRefresh) recordAuthSuccess();
+        if (!isRefresh) recordAuthSuccess(identifier, options.url);
 
         // Switch to a specific organization if --org is provided
         if (options.org) {
@@ -186,7 +194,7 @@ export function login(program: Command): void {
           if (isRefresh) {
             console.log(green(`  eval $(pipeline-manager login --refresh '<refresh-token>'${orgFlag} --quiet)`));
           } else {
-            console.log(green(`  eval $(pipeline-manager login -u ${options.identifier} -p '***'${orgFlag} --quiet)`));
+            console.log(green(`  eval $(pipeline-manager login -u ${identifier} -p '***'${orgFlag} --quiet)`));
           }
         }
       } catch (error) {

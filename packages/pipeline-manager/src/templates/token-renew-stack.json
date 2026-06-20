@@ -21,6 +21,11 @@
       "Type": "String",
       "Default": "cron(0 0 * * ? *)",
       "Description": "EventBridge schedule expression for the renewal (default: daily at 00:00 UTC)"
+    },
+    "PipelineManagerVersion": {
+      "Type": "String",
+      "Default": "latest",
+      "Description": "Version of @pipeline-builder/pipeline-manager the handler installs from npm at runtime (pin for reproducible renewals)"
     }
   },
   "Resources": {
@@ -44,7 +49,13 @@
           "PolicyDocument": {
             "Statement": [{
               "Effect": "Allow",
-              "Action": ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"],
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
+                "secretsmanager:UpdateSecret",
+                "secretsmanager:DescribeSecret",
+                "secretsmanager:CreateSecret"
+              ],
               "Resource": { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/platform-*" }
             }]
           }
@@ -61,13 +72,15 @@
           "ZipFile": "exports.handler=async()=>{console.log('Placeholder handler — run pipeline-manager store-token to deploy real code');return{statusCode:200}}"
         },
         "Role": { "Fn::GetAtt": ["LambdaRole", "Arn"] },
-        "Timeout": 60,
-        "MemorySize": 256,
+        "Timeout": 300,
+        "MemorySize": 1024,
+        "EphemeralStorage": { "Size": 1024 },
         "Environment": {
           "Variables": {
             "PLATFORM_BASE_URL": { "Ref": "PlatformBaseUrl" },
             "PLATFORM_SECRET_NAME": { "Ref": "PlatformSecretName" },
-            "RENEW_DAYS": { "Ref": "RenewDays" }
+            "RENEW_DAYS": { "Ref": "RenewDays" },
+            "PIPELINE_MANAGER_VERSION": { "Ref": "PipelineManagerVersion" }
           }
         }
       }

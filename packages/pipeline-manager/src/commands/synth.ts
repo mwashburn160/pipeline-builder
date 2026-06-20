@@ -5,14 +5,12 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { assertShellSafe } from '../config/cli.constants.js';
-import type { Pipeline } from '../types/pipeline.js';
 import { auditLog } from '../utils/audit-log.js';
 import { ensureCdkAvailable, executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { extractSingleResponse, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
-import { resolvePluginsForProps } from '../utils/plugin-resolver.js';
-import { bakePlatformRegistry } from '../utils/registry.js';
+import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
 
 // ESM has no __dirname; derive it from this module's URL.
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -26,40 +24,7 @@ async function fetchPipelineConfig(
   options: { storeTokens?: boolean; verifySsl?: boolean; region?: string; profile?: string },
 ): Promise<void> {
   const client = await createAuthenticatedClientAsync(options);
-  const config = client.getConfig();
-
-  const response = await client.get<Record<string, unknown>>(
-    `${config.api.pipelineUrl}/${pipelineId}`,
-  );
-
-  const pipeline = extractSingleResponse<Pipeline>(response, 'pipeline', 'props');
-
-  if (!pipeline?.props) {
-    printError('Pipeline has no props', { id: pipelineId });
-    throw new Error(`Failed to retrieve pipeline props for ID: ${pipelineId}`);
-  }
-
-  const propsWithIds: Record<string, unknown> = {
-    ...pipeline.props as Record<string, unknown>,
-    pipelineId: pipeline.id || pipelineId,
-  };
-  if (pipeline.orgId) propsWithIds.orgId = pipeline.orgId;
-
-  // Pre-resolve plugins from the platform API so the synthesized template
-  // ships with real CodeBuild image URIs baked in. Without this, CDK falls
-  // back to standard:7.0 because the deploy-time custom resource attribute
-  // is unresolvable at synth time.
-  const resolvedPlugins = await resolvePluginsForProps(client, propsWithIds);
-  if (Object.keys(resolvedPlugins).length > 0) {
-    propsWithIds.resolvedPlugins = resolvedPlugins;
-    printInfo('Pre-resolved plugins', { count: Object.keys(resolvedPlugins).length });
-  }
-
-  // Bake the registry pull target from the platform URL we synth against (the
-  // host serving the registry /v2/ data path) so CodeBuild image URIs use a host
-  // AWS CodeBuild can resolve, not the in-cluster `registry:5000` default. No-op
-  // when IMAGE_REGISTRY_PULL_HOST is set (explicit env wins).
-  bakePlatformRegistry(propsWithIds, config.api.baseUrl);
+  const { propsWithIds, baseUrl } = await fetchPipelineProps(client, pipelineId);
 
   process.env.PIPELINE_PROPS = Buffer.from(JSON.stringify(propsWithIds)).toString('base64');
 
@@ -68,8 +33,8 @@ async function fetchPipelineConfig(
   // PluginLookup Lambda endpoint) and as the loadRegistryConfig pull-host
   // fallback. Without this, a URL configured via ~/.pipeline-manager/config.yml
   // is invisible to the synth subprocess (it reads only the env).
-  if (config.api.baseUrl) {
-    process.env.PLATFORM_BASE_URL = config.api.baseUrl;
+  if (baseUrl) {
+    process.env.PLATFORM_BASE_URL = baseUrl;
   }
 
   printSuccess('Pipeline configuration loaded');
@@ -209,26 +174,7 @@ async function showResolvedPipeline(
   if (!pipelineId) {
     throw new Error('--show-resolved requires --id or PIPELINE_ID env var');
   }
-  await fetchPipelineConfig(pipelineId, options);
-  // fetchPipelineConfig writes PIPELINE_PROPS base64-encoded on success
-  const encoded = process.env.PIPELINE_PROPS;
-  if (!encoded) throw new Error('Failed to fetch pipeline configuration');
-  const decoded = JSON.parse(Buffer.from(encoded, 'base64').toString('utf-8'));
-
-  // Lazy import to avoid pulling pipeline-core into every CLI invocation
-  const { resolveSelfReferencing } = await import('@pipeline-builder/pipeline-core');
-  const scope = { metadata: decoded.metadata ?? {}, vars: decoded.vars ?? {} };
-  const isTemplatable = (f: string) =>
-    f === 'projectName' || f.startsWith('metadata.') || f.startsWith('vars.');
-  const fieldToScope = (f: string) => isTemplatable(f) ? f : null;
-  const result = resolveSelfReferencing(decoded, scope, isTemplatable, fieldToScope, 'pipeline');
-
-  if (result.errors.length) {
-    console.error('Resolution errors:');
-    for (const e of result.errors) {
-      console.error(`  [${e.field ?? '?'}] ${e.message}`);
-    }
-    process.exit(1);
-  }
-  console.log(JSON.stringify(decoded, null, 2));
+  const client = await createAuthenticatedClientAsync(options);
+  const { propsWithIds } = await fetchPipelineProps(client, pipelineId);
+  await printResolvedOrExit(propsWithIds);
 }
