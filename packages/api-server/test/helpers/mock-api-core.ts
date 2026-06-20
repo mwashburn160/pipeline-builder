@@ -55,6 +55,8 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    // Sanitized DB-error extractor: tests don't surface pg metadata, so default to {}.
+    extractDbError: () => ({}),
     NotFoundError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),

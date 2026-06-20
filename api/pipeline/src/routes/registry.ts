@@ -8,6 +8,7 @@ import {
   sendPaginatedNested,
   ErrorCode,
   errorMessage,
+  extractDbError,
   getParam,
   parsePaginationParams,
   validateBody,
@@ -83,7 +84,11 @@ export function createRegistryRoutes(): Router {
         ctx.log('WARN', 'Rejected registry claim for a pipeline owned by another org', { pipelineId: v.pipelineId });
         return sendError(res, 409, 'Pipeline is registered to a different organization', ErrorCode.CONFLICT);
       }
-      throw err;
+      // Unexpected DB error: return a generic message with only sanitized DB
+      // metadata (code/constraint/table) — never the driver message, which carries
+      // the SQL + bound params.
+      ctx.log('ERROR', 'Pipeline registration failed', { pipelineId: v.pipelineId, db: extractDbError(err) });
+      return sendError(res, 500, 'Failed to register pipeline', ErrorCode.DATABASE_ERROR, extractDbError(err));
     }
   }));
 

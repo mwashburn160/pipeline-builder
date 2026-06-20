@@ -169,7 +169,28 @@ describe('withRoute', () => {
       const res = mockRes();
       await middleware(mockReq(), res, jest.fn());
 
-      expect(sendInternalError).toHaveBeenCalledWith(res, 'Something broke');
+      // Generic message + requestId only — the raw error is never echoed to the client.
+      expect(sendInternalError).toHaveBeenCalledWith(res, 'Internal server error', { requestId: 'req-123' });
+    });
+
+    it('does NOT leak a DB driver error message (SQL + params) to the client', async () => {
+      const ctx = mockContext('org-1', 'user-1');
+      (getContext as jest.Mock).mockReturnValue(ctx);
+
+      // drizzle's DrizzleQueryError shape: SQL + bound parameter VALUES in .message.
+      const dbErr = new Error('Failed query: insert into "pipeline_registry" (...) values ($1, $2)\nparams: secret-pipeline,org-acme');
+      const handler = jest.fn().mockRejectedValue(dbErr);
+      const middleware = withRoute(handler);
+
+      const res = mockRes();
+      await middleware(mockReq(), res, jest.fn());
+
+      expect(sendInternalError).toHaveBeenCalledWith(res, 'Internal server error', { requestId: 'req-123' });
+      // The SQL / params must appear in NO argument passed to the client responder.
+      const leaked = (sendInternalError as jest.Mock).mock.calls.flat().some(
+        (arg) => typeof arg === 'string' && (arg.includes('Failed query') || arg.includes('insert into') || arg.includes('secret-pipeline')),
+      );
+      expect(leaked).toBe(false);
     });
 
     it('maps AppError to correct status code', async () => {
