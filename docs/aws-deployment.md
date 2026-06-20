@@ -761,6 +761,23 @@ eval $(pipeline-manager login -u admin@your-domain.com -p '***' --quiet --no-ver
 pipeline-manager store-token --days 30 --region us-east-1
 ```
 
+By default `store-token` **only writes the secret** — you must re-run it before the
+token expires (`audit-tokens` warns you in advance). To avoid that, add `--schedule`
+to also deploy a small **daily auto-renewal stack** (`pipeline-builder-token-renew`):
+
+```bash
+# Write the token AND install a Lambda that re-mints it daily, so it never lapses
+pipeline-manager store-token --days 30 --schedule --region us-east-1
+
+# Custom renewal time (5-field cron; minimum every 15 minutes):
+pipeline-manager store-token --schedule --cron '0 3 * * *' --region us-east-1
+```
+
+The renewal stack is a scheduled Lambda that reads the current JWT, mints a fresh
+one via the platform, and writes it back to the same secret. (The `--with-events`
+provision bundle opts into `--schedule` automatically, since the event-ingestion
+Lambda depends on this token.)
+
 ### 3. Deploy EventBridge Reporting Infrastructure
 
 Set up pipeline execution reporting to track success rates, stage performance, and build analytics:

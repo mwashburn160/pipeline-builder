@@ -3,9 +3,9 @@
 
 /**
  * Lambda handler that re-mints the platform JWT in Secrets Manager so it never
- * lapses. Deployed + scheduled by `pipeline-manager store-token` (default once a
- * day). Rather than re-implementing the token flow, it is a thin orchestrator
- * that reuses the tested CLI — each run:
+ * lapses. Deployed + scheduled (once a day) by `pipeline-manager store-token
+ * --schedule`. Rather than re-implementing the token flow, it is a thin
+ * orchestrator that reuses the tested CLI — each run:
  *
  *   1. Point the `@pipeline-builder` npm scope at public npm.
  *   2. Download `@pipeline-builder/pipeline-manager` from npm into /tmp.
@@ -14,8 +14,8 @@
  *      via /api/user/generate-token and writes it back to the same secret.
  *
  * `/tmp` is the only writable path in Lambda, so npm's HOME/cache/prefix all live
- * there. `--no-schedule` is passed so store-token does NOT redeploy this stack
- * (which would recurse).
+ * there. store-token does NOT deploy the renewal stack by default (no --schedule),
+ * so the renewal run never redeploys/recurses into its own stack.
  *
  * Env: PLATFORM_SECRET_NAME, PLATFORM_BASE_URL, RENEW_DAYS (default 30),
  *      PIPELINE_MANAGER_VERSION (default "latest"), PLATFORM_VERIFY_SSL ("false"
@@ -70,9 +70,10 @@ export const handler = async (): Promise<void> => {
   const jwt = (JSON.parse(current.SecretString) as { password?: string }).password;
   if (!jwt) throw new Error(`Secret "${secretName}" missing password (JWT)`);
 
-  // 4. Run store-token. --no-schedule: do NOT redeploy this stack (avoids
-  //    recursion). It writes the renewed secret via the Lambda role's creds.
-  const args = ['store-token', '--no-schedule', '--secret-name', secretName, '--region', region, '--days', days];
+  // 4. Run store-token (without --schedule, the default) so it ONLY re-mints and
+  //    writes the secret — it must not redeploy this stack (would recurse). The
+  //    write uses the Lambda role's creds.
+  const args = ['store-token', '--secret-name', secretName, '--region', region, '--days', days];
   if (process.env.PLATFORM_VERIFY_SSL === 'false') args.push('--no-verify-ssl');
 
   execFileSync('node', [CLI, ...args], {

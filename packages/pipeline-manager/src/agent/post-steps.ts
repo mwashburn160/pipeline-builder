@@ -136,8 +136,10 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
       const env = opts.target === 'ec2' && opts.url ? { PLATFORM_BASE_URL: opts.url } : undefined;
       steps.push({
         id: 'store-token',
-        label: 'Store platform token in AWS Secrets Manager',
-        command: `pipeline-manager store-token${region}`,
+        label: 'Store platform token in AWS Secrets Manager (+ daily auto-renewal)',
+        // --schedule: the event-ingestion Lambda reads this token, so install the
+        // renewal stack so it never lapses (store-token no longer deploys it by default).
+        command: `pipeline-manager store-token --schedule${region}`,
         env,
       });
       steps.push({

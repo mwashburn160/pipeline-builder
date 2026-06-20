@@ -25,8 +25,9 @@ source of truth for how a token is minted and stored.
   (Get/Put secret) + EventBridge schedule + invoke permission. Env:
   `PLATFORM_BASE_URL`, `PLATFORM_SECRET_NAME`, `RENEW_DAYS`.
 - `src/commands/store-token.ts` — the CLI: authenticates via `PLATFORM_TOKEN`,
-  `POST /api/user/generate-token`, writes the secret via `upsertSecret`; also
-  deploys this stack + uploads the handler (with `--no-schedule` opt-out).
+  `POST /api/user/generate-token`, writes the secret via `upsertSecret`; with
+  `--schedule` (opt-in, off by default) it also deploys this stack + uploads the
+  handler.
 
 ## New handler design — `src/lambda/token-renew-handler.ts`
 
@@ -55,9 +56,10 @@ ESM handler (uploaded as `index.mjs`, `Handler=index.handler`). Imports only
    parse `{ password: <current JWT> }`. This token authenticates the renewal.
 5. **Execute store-token** via `execFileSync('node', [cliPath, 'store-token', …])`
    with:
-   - args: `--no-schedule` (do NOT redeploy this stack — avoids recursion),
-     `--secret-name ${PLATFORM_SECRET_NAME}`, `--region ${AWS_REGION}`,
+   - args: `--secret-name ${PLATFORM_SECRET_NAME}`, `--region ${AWS_REGION}`,
      `--days ${RENEW_DAYS}`, `--no-verify-ssl` only if explicitly configured.
+     It does NOT pass `--schedule` (the default), so the renewal run never
+     redeploys its own stack (avoids recursion).
    - env: `PLATFORM_TOKEN=<current JWT>`, `PLATFORM_BASE_URL`, `HOME=/tmp`,
      `npm_config_cache=/tmp/.npm`, plus the inherited AWS creds (Lambda role).
    - `stdio: 'inherit'` so CLI output lands in CloudWatch.
@@ -100,7 +102,8 @@ token logic remains in the handler.
   floating `latest`). Read it from this package's `package.json` version.
 - Handler upload mechanism is unchanged, but the uploaded file is now the small
   orchestrator (no bundling of token logic).
-- No new flags; `--no-schedule` / `--cron` / `--days` stay as-is.
+- Stack deployment is opt-in via `--schedule` (off by default); `--cron` / `--days`
+  customize it when set.
 
 ## Tests — `test/`
 
@@ -110,8 +113,8 @@ token logic remains in the handler.
   `node:child_process`, and `node:fs`, then asserts the handler:
   - writes `/tmp/.npmrc` containing `@pipeline-builder:registry=https://registry.npmjs.org/`,
   - runs `npm install … @pipeline-builder/pipeline-manager@<version>`,
-  - invokes `store-token` with `--no-schedule --secret-name … --region … --days …`
-    and `PLATFORM_TOKEN` set to the secret's `password`,
+  - invokes `store-token` with `--secret-name … --region … --days …` (and NOT
+    `--schedule`) and `PLATFORM_TOKEN` set to the secret's `password`,
   - throws when npm or the CLI exits non-zero.
 - `cron.ts` tests unaffected.
 

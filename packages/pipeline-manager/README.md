@@ -99,7 +99,7 @@ The underlying `bin/setup.sh` / `bin/shutdown.sh` scripts (and `aws cloudformati
 | Command | Purpose |
 | --- | --- |
 | `login` | Authenticate against the platform and persist the access token (supports `--refresh <token>` and `--org <orgId>` to switch organizations) |
-| `store-token` | Generate a long-lived JWT and store it in AWS Secrets Manager (used by the events Lambda and CodePipeline synth steps) |
+| `store-token` | Generate a long-lived JWT and store it in AWS Secrets Manager (used by the events Lambda and CodePipeline synth steps). Add `--schedule` to also deploy a daily auto-renewal stack so the token never lapses |
 | `setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service |
 
 ### Operator audits (cron-friendly)

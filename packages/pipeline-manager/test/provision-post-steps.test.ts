@@ -73,9 +73,10 @@ describe('resolvePostSteps', () => {
     // operator copy-pastes a correct line regardless of their shell's PLATFORM_BASE_URL.
     const reg = steps.find((s) => s.id === 'register')!;
     expect(reg.command).toBe('PLATFORM_BASE_URL=https://x.example.com ./deploy/bin/init-platform.sh ec2');
-    // store-token must precede setup-events (the Lambda reads the secret it writes).
+    // store-token must precede setup-events (the Lambda reads the secret it writes),
+    // and opts into --schedule so the events token auto-renews.
     const storeToken = steps.find((s) => s.id === 'store-token')!;
-    expect(storeToken.command).toContain('store-token --region us-east-1');
+    expect(storeToken.command).toContain('store-token --schedule --region us-east-1');
     expect(storeToken.command).not.toContain('--secret-name'); // derives the pattern, never passed
     const events = steps.find((s) => s.id === 'events')!;
     expect(events.command).toContain('setup-events --region us-east-1');

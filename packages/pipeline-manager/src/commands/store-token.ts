@@ -107,10 +107,15 @@ async function deployRenewSchedule(opts: {
  *
  * Requires PLATFORM_TOKEN to be set, or use --email/--password to login inline.
  *
+ * By default it ONLY writes the secret. Pass --schedule to also deploy the daily
+ * token-renewal stack (a Lambda that auto-renews this token before it expires).
+ *
  * @example
  * ```bash
  * pipeline-manager store-token --region us-east-1
  * pipeline-manager store-token --days 90 --region us-east-1
+ * pipeline-manager store-token --schedule --region us-east-1          # + daily auto-renewal
+ * pipeline-manager store-token --schedule --cron '0 3 * * *'          # custom renewal time
  * pipeline-manager store-token --days 7 --secret-name my-custom-secret --no-verify-ssl
  * pipeline-manager store-token --dry-run
  * pipeline-manager store-token -e admin -p '***' --region us-east-1
@@ -127,8 +132,8 @@ export function storeToken(program: Command): void {
     .option('--secret-name <name>', 'Secrets Manager secret name (default: derived from token org)')
     .option('--region <region>', 'AWS region (defaults to AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
-    .option('--cron <expr>', 'Renewal schedule as a 5-field cron (default: TOKEN_RENEW_SCHEDULE env or "0 0 * * *"; min every 15 minutes)')
-    .option('--no-schedule', 'Skip deploying the daily token-renewal stack (it is installed by default)')
+    .option('--schedule', 'Also deploy the daily token-renewal stack that auto-renews this token (off by default)', false)
+    .option('--cron <expr>', 'Renewal schedule as a 5-field cron, used with --schedule (default: TOKEN_RENEW_SCHEDULE env or "0 0 * * *"; min every 15 minutes)')
     .option('--json', 'Output result as JSON', false)
     .option('--verify-ssl', 'Enable SSL certificate verification')
     .option('--no-verify-ssl', 'Disable SSL certificate verification')
@@ -251,11 +256,11 @@ export function storeToken(program: Command): void {
 
         const arn = await getSecretArn(secretName, { region, profile: options.profile });
 
-        // Install the once-a-day renewal stack so this token never lapses (default
-        // on; opt out with --no-schedule). commander sets options.schedule=false for
-        // --no-schedule, true otherwise.
+        // Optionally install the once-a-day renewal stack so this token never lapses.
+        // Off by default — opt in with --schedule (e.g. for the AWS event-ingestion
+        // bundle whose Lambda needs a non-expiring token).
         let scheduleExpression: string | undefined;
-        if (options.schedule !== false) {
+        if (options.schedule) {
           const fiveFieldCron = options.cron || process.env.TOKEN_RENEW_SCHEDULE || DEFAULT_RENEW_CRON;
           scheduleExpression = await deployRenewSchedule({
             platformUrl: client.getBaseUrl(),
@@ -287,7 +292,7 @@ export function storeToken(program: Command): void {
             'Region': region,
             'Expires In': `${days} days`,
             'Renew By': expiresAt,
-            'Auto-Renew': scheduleExpression ? `✓ ${scheduleExpression}` : 'disabled (--no-schedule)',
+            'Auto-Renew': scheduleExpression ? `✓ ${scheduleExpression}` : 'off (pass --schedule to enable)',
             'Status': '✓ Stored',
           });
 
@@ -300,6 +305,7 @@ export function storeToken(program: Command): void {
             printInfo(`Auto-renewal is active (${scheduleExpression}); the secret refreshes before ${expiresAt}.`);
           } else {
             printInfo(`Renew before ${expiresAt} with: pipeline-manager store-token --days ${days}`);
+            printInfo('  (or pass --schedule to install a daily auto-renewal stack)');
           }
         }
 

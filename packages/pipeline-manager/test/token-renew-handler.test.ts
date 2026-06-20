@@ -61,18 +61,20 @@ describe('token-renew-handler (orchestrator)', () => {
     expect(args).toContain('@pipeline-builder/pipeline-manager@1.2.3');
   });
 
-  it('runs store-token with --no-schedule and the current JWT as PLATFORM_TOKEN', async () => {
+  it('runs store-token (no --schedule, so it never redeploys the stack) with the current JWT as PLATFORM_TOKEN', async () => {
     await handler();
     const nodeCall = mockExecFileSync.mock.calls.find((c) => c[0] === 'node');
     expect(nodeCall).toBeDefined();
     const [, args, opts] = nodeCall as [string, string[], { env: Record<string, string> }];
     expect(args[0]).toBe('/tmp/pm/node_modules/@pipeline-builder/pipeline-manager/dist/cli.js');
     expect(args).toEqual(expect.arrayContaining([
-      'store-token', '--no-schedule',
+      'store-token',
       '--secret-name', 'pipeline-builder/acme/platform',
       '--region', 'us-east-1',
       '--days', '30',
     ]));
+    // Must NOT opt into the renewal stack (would recurse into its own deploy).
+    expect(args).not.toContain('--schedule');
     expect(opts.env.PLATFORM_TOKEN).toBe('current.jwt.token');
     expect(opts.env.PLATFORM_BASE_URL).toBe('https://pipeline-builder.com');
   });
