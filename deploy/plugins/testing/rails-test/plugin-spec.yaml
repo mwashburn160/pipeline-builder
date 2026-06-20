@@ -27,7 +27,10 @@ commands:
     set -e
     echo "Running Rails tests..."
     bundle exec rails test \
-      2>&1 | tee test-reports/rails-test.log || true
+      > test-reports/rails-test.log 2>&1 || _TEST_RC=$?
+    cat test-reports/rails-test.log
+    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
+    [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Rails test complete. Reports available in test-reports/\""
 env:
   RUBY_VERSION: "4.0.1"

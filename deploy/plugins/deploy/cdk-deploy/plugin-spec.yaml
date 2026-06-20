@@ -65,8 +65,10 @@ commands:
     fi
     CONTEXT_ARG=""
     if [ -n "${CDK_CONTEXT}" ]; then
-      IFS=',' read -ra CONTEXTS <<< "${CDK_CONTEXT}"
-      for ctx in "${CONTEXTS[@]}"; do
+      OLD_IFS=$IFS; IFS=','; set -f
+      set -- ${CDK_CONTEXT}
+      IFS=$OLD_IFS; set +f
+      for ctx in "$@"; do
         CONTEXT_ARG="${CONTEXT_ARG} -c ${ctx}"
       done
     fi
@@ -77,8 +79,10 @@ commands:
     if [ -n "${CDK_STACK}" ]; then STACK_ARG="${CDK_STACK}"; fi
     CONTEXT_ARG=""
     if [ -n "${CDK_CONTEXT}" ]; then
-      IFS=',' read -ra CONTEXTS <<< "${CDK_CONTEXT}"
-      for ctx in "${CONTEXTS[@]}"; do
+      OLD_IFS=$IFS; IFS=','; set -f
+      set -- ${CDK_CONTEXT}
+      IFS=$OLD_IFS; set +f
+      for ctx in "$@"; do
         CONTEXT_ARG="${CONTEXT_ARG} -c ${ctx}"
       done
     fi

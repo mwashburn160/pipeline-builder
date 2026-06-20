@@ -15,8 +15,7 @@ RUN apt-retry-install build-essential
 # ─── Go via goenv ───
 ENV GOENV_ROOT=/opt/goenv
 RUN git clone --depth 1 https://github.com/go-nv/goenv.git ${GOENV_ROOT}
-RUN ${GOENV_ROOT}/bin/goenv install 1.23.12 && \
-    ${GOENV_ROOT}/bin/goenv install 1.24.13 && \
+RUN ${GOENV_ROOT}/bin/goenv install 1.24.13 && \
     ${GOENV_ROOT}/bin/goenv global 1.24.13
 ENV PATH="${GOENV_ROOT}/shims:${GOENV_ROOT}/bin:${PATH}"
 

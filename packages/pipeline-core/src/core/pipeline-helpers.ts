@@ -4,7 +4,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { Duration, SecretValue, Stack } from 'aws-cdk-lib';
-import { BuildEnvironmentVariableType, ComputeType as CDKComputeType, LinuxBuildImage, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
+import { BuildEnvironmentVariableType, BuildSpec, ComputeType as CDKComputeType, LinuxBuildImage, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { CodeBuildStep, ManualApprovalStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import type { Construct } from 'constructs';
@@ -580,6 +580,13 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     ...(timeout && { timeout: Duration.minutes(timeout) }),
     env: actionEnv,
     primaryOutputDirectory: plugin.primaryOutputDirectory ?? undefined,
+    // Pin the buildspec shell to POSIX /bin/sh so execution is identical to
+    // CodeBuild's default and portable across minimal base images (no bash
+    // dependency). Plugin specs are authored POSIX-clean to match — no bash-only
+    // `[[ ]]`, arrays, `read -ra <<<`, or `source`/`nvm use`/`sdk use`. A
+    // plugin-supplied partialBuildSpec (none today) would override this via the
+    // metadata spread below and must then set `env.shell` itself.
+    partialBuildSpec: BuildSpec.fromObject({ env: { shell: '/bin/sh' } }),
     buildEnvironment: {
       computeType,
       buildImage: pluginBuildImage ?? resolveDefaultBuildImage(scope, orgId),

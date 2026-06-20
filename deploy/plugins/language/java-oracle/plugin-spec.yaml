@@ -15,12 +15,15 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Java and Kotlin version selection
-  - source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION} && sdk use kotlin ${KOTLIN_VERSION}
-  - java -version
-  - kotlin -version
+  # Java and Kotlin version selection. CodeBuild runs each command under /bin/sh
+  # (dash), where SDKMAN's bash-only `sdk` function and `source` are unavailable
+  # (exit 127), so put the requested versions on PATH directly. The image installs
+  # each version under ${SDKMAN_DIR}/candidates/<tool>/<version>/bin and already has
+  # the defaults' `current` symlink on PATH, so an unknown override falls back.
+  - export PATH="${SDKMAN_DIR}/candidates/java/${JAVA_VERSION}/bin:${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"; java -version; kotlin -version
   - |
     set -e
+    export PATH="${SDKMAN_DIR}/candidates/java/${JAVA_VERSION}/bin:${PATH}"
     if [ "${NATIVE_BUILD}" = "true" ]; then
       echo "GraalVM native-image enabled"
       native-image --version
@@ -28,6 +31,7 @@ installCommands:
   # Auto-detect or use explicit build tool, then install dependencies
   - |
     set -e
+    export PATH="${SDKMAN_DIR}/candidates/java/${JAVA_VERSION}/bin:${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"
     TOOL="${BUILD_TOOL}"
     if [ "${TOOL}" = "auto" ]; then
       if [ -f pom.xml ]; then
@@ -51,7 +55,7 @@ installCommands:
 commands:
   - |
     set -e
-    source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use java ${JAVA_VERSION} && sdk use kotlin ${KOTLIN_VERSION}
+    export PATH="${SDKMAN_DIR}/candidates/java/${JAVA_VERSION}/bin:${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"
     TOOL="${BUILD_TOOL}"
     if [ "${TOOL}" = "auto" ]; then
       if [ -f pom.xml ]; then TOOL="maven"; else TOOL="gradle"; fi

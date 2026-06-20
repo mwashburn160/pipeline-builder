@@ -33,8 +33,10 @@ commands:
     RESULTS="[]"
     FAILED=0
     TOTAL=0
-    IFS=',' read -ra ENDPOINTS <<< "${HEALTH_ENDPOINTS}"
-    for endpoint in "${ENDPOINTS[@]}"; do
+    OLD_IFS=$IFS; IFS=','; set -f
+    set -- ${HEALTH_ENDPOINTS}
+    IFS=$OLD_IFS; set +f
+    for endpoint in "$@"; do
       endpoint=$(echo "${endpoint}" | xargs)
       TOTAL=$((TOTAL + 1))
       echo "Checking: ${endpoint}"

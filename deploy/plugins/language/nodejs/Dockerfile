@@ -13,16 +13,23 @@ ENV NVM_DIR=/opt/nvm
 RUN mkdir -p ${NVM_DIR} \
     && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 
-# Pre-install current LTS Node.js version
+# Pre-install current + previous LTS Node.js versions (latest + previous, per
+# the language-plugin policy). A stable major-version symlink (v22/v24) lets the
+# plugin select a runtime by prepending ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin
+# to PATH — no `nvm`/`source` needed at build time (CodeBuild runs commands under
+# /bin/sh, where both are unavailable).
 RUN bash -c "source ${NVM_DIR}/nvm.sh && \
+    nvm install 22 && \
     nvm install 24 && \
     nvm alias default 24 && \
+    ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 22)\")\")\" ${NVM_DIR}/versions/node/v22 && \
     ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 24)\")\")\" ${NVM_DIR}/versions/node/v24"
 
-# Add nvm to PATH
+# Add the default (current) Node to PATH
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
-# Default Node.js version (overridden by NODE_VERSION env var at runtime)
+# Default Node.js version (overridden by NODE_VERSION env var at runtime; the
+# image pre-installs the latest + previous LTS only — 24 and 22)
 ENV NODE_VERSION=24
 
 # Package manager selection (auto = detect from project files)

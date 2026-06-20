@@ -24,7 +24,10 @@ commands:
     set -e
     echo "Running cargo test..."
     cargo test --all-features --workspace \
-      2>&1 | tee test-reports/cargo-test.log || true
+      > test-reports/cargo-test.log 2>&1 || _TEST_RC=$?
+    cat test-reports/cargo-test.log
+    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
+    [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Cargo test complete. Reports available in test-reports/\""
 env:
   RUST_VERSION: "stable"

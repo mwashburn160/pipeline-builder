@@ -16,8 +16,7 @@ RUN apt-retry-install build-essential libssl-dev zlib1g-dev libreadline-dev liby
 ENV RBENV_ROOT=/opt/rbenv
 RUN git clone --depth 1 https://github.com/rbenv/rbenv.git ${RBENV_ROOT} && \
     git clone --depth 1 https://github.com/rbenv/ruby-build.git ${RBENV_ROOT}/plugins/ruby-build
-RUN ${RBENV_ROOT}/bin/rbenv install 3.4.8 && \
-    ${RBENV_ROOT}/bin/rbenv install 4.0.1 && \
+RUN ${RBENV_ROOT}/bin/rbenv install 4.0.1 && \
     ${RBENV_ROOT}/bin/rbenv global 4.0.1
 ENV PATH="${RBENV_ROOT}/shims:${RBENV_ROOT}/bin:${PATH}"
 ENV RUBY_VERSION=4.0.1

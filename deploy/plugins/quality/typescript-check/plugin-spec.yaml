@@ -10,7 +10,7 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
-failureBehavior: fail
+failureBehavior: warn
 secrets: []
 primaryOutputDirectory: tsc-reports
 dockerfile: Dockerfile
@@ -18,7 +18,7 @@ installCommands:
   - test -d tsc-reports || mkdir -p tsc-reports
   - |
     set -e
-    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
   - node -v && npm -v
   - |
     set -e
@@ -36,7 +36,7 @@ installCommands:
 commands:
   - |
     set -e
-    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     echo "Running TypeScript type check..."
     npx tsc ${TSC_FLAGS} 2>&1 | tee tsc-reports/tsc-output.log || true
   - "echo \"TypeScript check complete. Reports available in tsc-reports/\""

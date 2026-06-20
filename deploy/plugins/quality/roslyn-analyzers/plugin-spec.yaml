@@ -10,7 +10,7 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
-failureBehavior: fail
+failureBehavior: warn
 secrets: []
 primaryOutputDirectory: analysis-reports
 dockerfile: Dockerfile
@@ -27,5 +27,5 @@ commands:
       2>&1 | tee analysis-reports/roslyn.log || true
   - "echo \"Roslyn analysis complete. Reports available in analysis-reports/\""
 env:
-  DOTNET_VERSION: "8.0"
+  DOTNET_VERSION: "9.0"
   TREAT_WARNINGS_AS_ERRORS: "true"

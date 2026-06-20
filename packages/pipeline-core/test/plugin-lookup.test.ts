@@ -22,6 +22,7 @@ jest.unstable_mockModule('aws-cdk-lib/aws-codebuild', () => ({
   BuildEnvironmentVariableType: { PLAINTEXT: 'PLAINTEXT', SECRETS_MANAGER: 'SECRETS_MANAGER', PARAMETER_STORE: 'PARAMETER_STORE' },
   ComputeType: { SMALL: 'BUILD_GENERAL1_SMALL', MEDIUM: 'BUILD_GENERAL1_MEDIUM', LARGE: 'BUILD_GENERAL1_LARGE', X2_LARGE: 'BUILD_GENERAL1_2XLARGE' },
   LinuxBuildImage: { STANDARD_8_0: 'aws/codebuild/standard:8.0' },
+  BuildSpec: { fromObject: (o) => ({ __buildSpec: o }) },
 }));
 
 jest.unstable_mockModule('aws-cdk-lib', () => ({

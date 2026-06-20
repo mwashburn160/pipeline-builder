@@ -23,6 +23,7 @@ jest.unstable_mockModule('aws-cdk-lib/aws-codebuild', () => ({
   ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE' },
   BuildEnvironmentVariableType: { PLAINTEXT: 'PLAINTEXT', SECRETS_MANAGER: 'SECRETS_MANAGER' },
   LinuxBuildImage: { STANDARD_8_0: 'aws/codebuild/standard:8.0' },
+  BuildSpec: { fromObject: jest.fn((o: unknown) => ({ __buildSpec: o })) },
 }));
 jest.unstable_mockModule('aws-cdk-lib/pipelines', () => ({
   CodeBuildStep: mockCodeBuildStep,

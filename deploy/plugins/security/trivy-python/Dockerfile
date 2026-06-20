@@ -23,7 +23,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV PYENV_ROOT=/opt/pyenv
 RUN curl -fsSL https://pyenv.run | bash \
-    && /opt/pyenv/bin/pyenv install 3.13 \
     && /opt/pyenv/bin/pyenv install 3.14 \
     && /opt/pyenv/bin/pyenv global 3.14 \
     && rm -rf /opt/pyenv/cache /tmp/python-build*

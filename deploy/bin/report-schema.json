@@ -145,6 +145,14 @@
       "type": "object",
       "description": "Execution environment metadata",
       "properties": {
+        "runtime": {
+          "type": "string",
+          "description": "Language/runtime the plugin executed on (e.g. 'node', 'java', 'python', 'go', 'dotnet', 'ruby', 'rust', 'php')"
+        },
+        "runtimeVersion": {
+          "type": "string",
+          "description": "Version of the runtime actually selected for this execution (e.g. '22', '21.0.10-tem', '3.14'). Language plugins offer the latest + previous release; all other plugins run the latest only."
+        },
         "computeType": {
           "type": "string",
           "enum": ["SMALL", "MEDIUM", "LARGE", "X2_LARGE"]

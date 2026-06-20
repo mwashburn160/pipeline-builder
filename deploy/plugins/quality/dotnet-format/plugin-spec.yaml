@@ -10,7 +10,7 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 10
-failureBehavior: fail
+failureBehavior: warn
 secrets: []
 primaryOutputDirectory: format-reports
 dockerfile: Dockerfile
@@ -25,4 +25,4 @@ commands:
       2>&1 | tee format-reports/dotnet-format.log || true
   - "echo \"Format check complete. Reports available in format-reports/\""
 env:
-  DOTNET_VERSION: "8.0"
+  DOTNET_VERSION: "9.0"

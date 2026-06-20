@@ -72,9 +72,11 @@ commands:
     save_cache() {
       echo "Saving cache to ${S3_PATH}..."
       # Build list of existing paths to cache
-      IFS=',' read -ra PATHS <<< "${CACHE_PATHS}"
+      OLD_IFS=$IFS; IFS=','; set -f
+      set -- ${CACHE_PATHS}
+      IFS=$OLD_IFS; set +f
       EXISTING_PATHS=""
-      for p in "${PATHS[@]}"; do
+      for p in "$@"; do
         p=$(echo "$p" | xargs)  # trim whitespace
         if [ -e "$p" ]; then
           EXISTING_PATHS="${EXISTING_PATHS} ${p}"

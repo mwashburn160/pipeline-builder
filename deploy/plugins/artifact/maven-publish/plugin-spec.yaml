@@ -25,7 +25,8 @@ primaryOutputDirectory: publish-output
 dockerfile: Dockerfile
 installCommands:
   - test -d publish-output || mkdir -p publish-output
-  - source ${SDKMAN_DIR}/bin/sdkman-init.sh
+  # java/mvn are already on PATH via the image's SDKMAN `current` symlinks; no need
+  # to `source` sdkman-init.sh (CodeBuild runs under /bin/sh where `source` fails).
   - java -version
   - mvn --version
   - gpg --version | head -1
@@ -40,7 +41,6 @@ installCommands:
 commands:
   - |
     set -e
-    source ${SDKMAN_DIR}/bin/sdkman-init.sh
     # Import GPG private key if provided
     if [ -n "${GPG_PRIVATE_KEY}" ]; then
       echo "Importing GPG private key..."
@@ -51,7 +51,6 @@ commands:
     fi
   - |
     set -e
-    source ${SDKMAN_DIR}/bin/sdkman-init.sh
     # Build repository URL arguments
     REPO_ARGS=""
     if [ -n "${MAVEN_REPOSITORY_URL}" ]; then

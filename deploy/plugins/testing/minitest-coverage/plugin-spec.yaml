@@ -24,7 +24,10 @@ commands:
     set -e
     echo "Running tests with coverage..."
     COVERAGE=true bundle exec rails test \
-      2>&1 | tee coverage-reports/coverage-run.log || true
+      > coverage-reports/coverage-run.log 2>&1 || _TEST_RC=$?
+    cat coverage-reports/coverage-run.log
+    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
+    [ "${_TEST_RC:-0}" -eq 0 ]
   - |
     set -e
     if [ -d coverage ]; then

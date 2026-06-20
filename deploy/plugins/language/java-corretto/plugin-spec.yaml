@@ -25,9 +25,12 @@ installCommands:
     fi
     export PATH="${JAVA_HOME}/bin:${PATH}"
   - java -version
-  # Kotlin version selection
-  - source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use kotlin ${KOTLIN_VERSION}
-  - kotlin -version
+  # Kotlin version selection. CodeBuild runs each command under /bin/sh (dash),
+  # where SDKMAN's bash-only `sdk` function and `source` are unavailable (exit 127),
+  # so put the requested version on PATH directly. The image installs kotlin under
+  # ${SDKMAN_DIR}/candidates/kotlin/<version>/bin and already has the default's
+  # `current` symlink on PATH, so an unknown override falls back.
+  - export PATH="${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"; kotlin -version
   # Auto-detect or use explicit build tool, then install dependencies
   - |
     set -e
@@ -55,8 +58,7 @@ commands:
   - |
     set -e
     export JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-amazon-corretto
-    export PATH="${JAVA_HOME}/bin:${PATH}"
-    source ${SDKMAN_DIR}/bin/sdkman-init.sh && sdk use kotlin ${KOTLIN_VERSION}
+    export PATH="${JAVA_HOME}/bin:${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"
     TOOL="${BUILD_TOOL}"
     if [ "${TOOL}" = "auto" ]; then
       if [ -f pom.xml ]; then TOOL="maven"; else TOOL="gradle"; fi

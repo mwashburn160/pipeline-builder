@@ -19,8 +19,7 @@ installCommands:
   - test -d playwright-reports || mkdir -p playwright-reports
   - |
     set -e
-    source ${NVM_DIR}/nvm.sh
-    nvm use ${NODE_VERSION}
+    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
   - node --version
   # Install project dependencies
   - |
@@ -43,7 +42,7 @@ installCommands:
 commands:
   - |
     set -e
-    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     PROJECT_ARG=""
     if [ -n "${PLAYWRIGHT_PROJECT}" ]; then
       PROJECT_ARG="--project=${PLAYWRIGHT_PROJECT}"
@@ -53,10 +52,12 @@ commands:
       --reporter=${PLAYWRIGHT_REPORTER} \
       --workers=${PLAYWRIGHT_WORKERS} \
       ${PROJECT_ARG} \
-      2>&1 | tee playwright-reports/playwright-output.txt || true
-    # Copy report artifacts
+      > playwright-reports/playwright-output.txt 2>&1 || _TEST_RC=$?
+    cat playwright-reports/playwright-output.txt
+    # Copy report artifacts (also on failure, for debugging)
     cp -r playwright-report/* playwright-reports/ 2>/dev/null || true
     cp -r test-results/* playwright-reports/ 2>/dev/null || true
+    [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Playwright tests complete. Reports available in playwright-reports/\""
 env:
   NODE_VERSION: "24"

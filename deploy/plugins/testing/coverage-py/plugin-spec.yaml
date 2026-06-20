@@ -26,10 +26,15 @@ commands:
   - |
     set -e
     echo "Running coverage..."
-    coverage run -m pytest 2>&1 | tee coverage-reports/coverage-run.log || true
-    coverage report --fail-under=${COVERAGE_THRESHOLD} 2>&1 | tee coverage-reports/coverage-report.log || true
+    _TEST_RC=0; _COV_RC=0
+    coverage run -m pytest > coverage-reports/coverage-run.log 2>&1 || _TEST_RC=$?
+    cat coverage-reports/coverage-run.log
+    coverage report --fail-under=${COVERAGE_THRESHOLD} > coverage-reports/coverage-report.log 2>&1 || _COV_RC=$?
+    cat coverage-reports/coverage-report.log
     coverage xml -o coverage-reports/coverage.xml || true
     coverage html -d coverage-reports/htmlcov || true
+    # Gate on test failures AND coverage threshold (POSIX /bin/sh, no pipefail).
+    [ "${_TEST_RC:-0}" -eq 0 ] && [ "${_COV_RC:-0}" -eq 0 ]
   - "echo \"Coverage complete. Reports available in coverage-reports/\""
 env:
   PYTHON_VERSION: "3.14"

@@ -9,7 +9,6 @@ FROM pipeline-plugin-base:24.04
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
-    sdk install java 17.0.18-tem && \
     sdk install java 21.0.10-tem && \
     sdk install maven 3.9.9 && \
     sdk install gradle 8.12 && \

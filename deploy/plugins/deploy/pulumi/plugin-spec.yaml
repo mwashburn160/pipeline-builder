@@ -26,7 +26,7 @@ installCommands:
     set -e
     case "${PULUMI_RUNTIME}" in
       nodejs)
-        source ${NVM_DIR}/nvm.sh && nvm use 24
+        export PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
         cd ${PULUMI_WORK_DIR} && npm ci
         ;;
       python)

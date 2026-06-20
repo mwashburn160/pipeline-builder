@@ -25,8 +25,10 @@ commands:
     set -e
     echo "Running go test..."
     go test -v -coverprofile=test-reports/coverage.out ./... \
-      2>&1 | tee test-reports/go-test.log
+      > test-reports/go-test.log 2>&1 || _TEST_RC=$?
+    cat test-reports/go-test.log
     cat test-reports/go-test.log | go-junit-report > test-reports/junit.xml 2>/dev/null || true
+    [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Go test complete. Reports available in test-reports/\""
 env:
   GO_VERSION: "1.24.13"

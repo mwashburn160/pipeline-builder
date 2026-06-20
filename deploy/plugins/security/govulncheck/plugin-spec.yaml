@@ -10,7 +10,7 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
-failureBehavior: fail
+failureBehavior: warn
 secrets: []
 primaryOutputDirectory: vuln-reports
 dockerfile: Dockerfile

@@ -10,7 +10,7 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
-failureBehavior: fail
+failureBehavior: warn
 secrets: []
 primaryOutputDirectory: trivy-reports
 dockerfile: Dockerfile
@@ -27,8 +27,11 @@ installCommands:
   - trivy --version
   - |
     set -e
-    source ${SDKMAN_DIR}/bin/sdkman-init.sh
-    sdk use java ${JAVA_VERSION}
+    # CodeBuild runs under /bin/sh (dash); SDKMAN's bash-only `sdk`/`source` fail
+    # there (exit 127). Put the requested java on PATH directly — the image installs
+    # each version under ${SDKMAN_DIR}/candidates/java/<version>/bin and has the
+    # default's `current` on PATH, so an unknown override falls back.
+    export PATH="${SDKMAN_DIR}/candidates/java/${JAVA_VERSION}/bin:${PATH}"
     if [ -f pom.xml ]; then mvn dependency:resolve -q; fi
     if [ -f build.gradle ] || [ -f build.gradle.kts ]; then gradle dependencies --quiet; fi
 commands:

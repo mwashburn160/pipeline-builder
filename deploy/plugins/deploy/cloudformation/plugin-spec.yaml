@@ -60,9 +60,11 @@ commands:
         if [ -n "${CFN_PARAMETERS}" ]; then
           PARAMS_ARG="--parameter-overrides ${CFN_PARAMETERS}"
         fi
-        IFS=',' read -ra CAPS <<< "${CFN_CAPABILITIES}"
+        OLD_IFS=$IFS; IFS=','; set -f
+        set -- ${CFN_CAPABILITIES}
+        IFS=$OLD_IFS; set +f
         CAPS_ARG=""
-        for cap in "${CAPS[@]}"; do
+        for cap in "$@"; do
           CAPS_ARG="${CAPS_ARG} ${cap}"
         done
         echo "Deploying stack: ${CFN_STACK_NAME}"

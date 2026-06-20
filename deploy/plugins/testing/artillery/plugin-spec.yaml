@@ -18,13 +18,12 @@ installCommands:
   - test -d artillery-reports || mkdir -p artillery-reports
   - |
     set -e
-    source ${NVM_DIR}/nvm.sh
-    nvm use ${NODE_VERSION}
+    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
   - artillery version
 commands:
   - |
     set -e
-    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     if [ -z "${ARTILLERY_CONFIG}" ]; then
       ARTILLERY_CONFIG=$(find . -name "artillery*.yml" -o -name "artillery*.yaml" -o -name "load-test*.yml" 2>/dev/null | head -1)
     fi
@@ -40,9 +39,11 @@ commands:
     artillery run "${ARTILLERY_CONFIG}" \
       ${TARGET_ARG} \
       --output artillery-reports/artillery-results.json \
-      2>&1 | tee artillery-reports/artillery-output.txt || true
+      > artillery-reports/artillery-output.txt 2>&1 || _TEST_RC=$?
+    cat artillery-reports/artillery-output.txt
     artillery report artillery-reports/artillery-results.json \
       --output artillery-reports/artillery-report.html 2>/dev/null || true
+    [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Artillery load test complete. Reports available in artillery-reports/\""
 env:
   NODE_VERSION: "24"

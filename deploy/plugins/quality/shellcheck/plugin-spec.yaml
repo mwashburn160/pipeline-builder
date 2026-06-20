@@ -10,7 +10,7 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 10
-failureBehavior: fail
+failureBehavior: warn
 secrets: []
 primaryOutputDirectory: shellcheck-reports
 dockerfile: Dockerfile

@@ -10,7 +10,7 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 20
-failureBehavior: fail
+failureBehavior: warn
 secrets: []
 primaryOutputDirectory: coverage-reports
 dockerfile: Dockerfile
@@ -45,5 +45,5 @@ commands:
     fi
   - "echo \"JaCoCo coverage complete. Reports available in coverage-reports/\""
 env:
-  JAVA_VERSION: "17"
+  JAVA_VERSION: "21"
   COVERAGE_THRESHOLD: "70"

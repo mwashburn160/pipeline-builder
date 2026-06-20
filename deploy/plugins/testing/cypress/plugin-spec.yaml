@@ -19,8 +19,7 @@ installCommands:
   - test -d cypress-reports || mkdir -p cypress-reports
   - |
     set -e
-    source ${NVM_DIR}/nvm.sh
-    nvm use ${NODE_VERSION}
+    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
   - node --version
   # Install project dependencies
   - |
@@ -38,7 +37,7 @@ installCommands:
 commands:
   - |
     set -e
-    source ${NVM_DIR}/nvm.sh && nvm use ${NODE_VERSION}
+    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     SPEC_ARG=""
     if [ -n "${CYPRESS_SPEC}" ]; then
       SPEC_ARG="--spec ${CYPRESS_SPEC}"
@@ -49,10 +48,12 @@ commands:
       ${SPEC_ARG} \
       --reporter json \
       --reporter-options "output=cypress-reports/cypress-results.json" \
-      2>&1 | tee cypress-reports/cypress-output.txt || true
-    # Copy videos and screenshots
+      > cypress-reports/cypress-output.txt 2>&1 || _TEST_RC=$?
+    cat cypress-reports/cypress-output.txt
+    # Copy videos and screenshots (also on failure, for debugging)
     cp -r cypress/videos cypress-reports/ 2>/dev/null || true
     cp -r cypress/screenshots cypress-reports/ 2>/dev/null || true
+    [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Cypress tests complete. Reports available in cypress-reports/\""
 env:
   NODE_VERSION: "24"

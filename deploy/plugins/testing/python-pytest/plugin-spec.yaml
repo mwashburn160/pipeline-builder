@@ -28,7 +28,10 @@ commands:
     echo "Running pytest..."
     python -m pytest ${PYTEST_ARGS} \
       --junitxml=test-reports/pytest-results.xml \
-      2>&1 | tee test-reports/pytest.log || true
+      > test-reports/pytest.log 2>&1 || _TEST_RC=$?
+    cat test-reports/pytest.log
+    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
+    [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"pytest complete. Reports available in test-reports/\""
 env:
   PYTHON_VERSION: "3.14"

@@ -58,7 +58,7 @@ commands:
       --duration ${K6_DURATION} \
       --out json=k6-reports/k6-results.json \
       --summary-export k6-reports/k6-summary.json \
-      ${THRESHOLD_ARG} || true
+      ${THRESHOLD_ARG}
   - "echo \"k6 load test complete. Reports available in k6-reports/\""
 env:
   K6_VERSION: "0.56.0"

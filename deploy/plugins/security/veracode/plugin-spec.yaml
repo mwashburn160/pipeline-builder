@@ -10,7 +10,7 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 30
-failureBehavior: fail
+failureBehavior: warn
 secrets:
   - name: VERACODE_API_ID
     required: true

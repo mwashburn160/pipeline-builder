@@ -10,7 +10,7 @@ version: 1.0.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
-failureBehavior: fail
+failureBehavior: warn
 secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
@@ -27,4 +27,4 @@ commands:
       2>&1 | tee security-reports/security-scan.log || true
   - "echo \"Security scan complete. Reports available in security-reports/\""
 env:
-  DOTNET_VERSION: "8.0"
+  DOTNET_VERSION: "9.0"

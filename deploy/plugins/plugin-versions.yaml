@@ -49,7 +49,7 @@ cargo_publish:
 cargo_release:
   plugin: artifact/cargo-release
   install_type: rustup
-  versions: ["stable", "1.84.0"]
+  versions: ["stable"]
   default: "stable"
   note: "Includes clippy and rustfmt components."
 
@@ -107,8 +107,8 @@ nuget_publish:
   plugin: artifact/nuget-publish
   install_type: script
   note: "dotnet-install.sh for .NET SDK."
-  versions: ["8.0"]
-  default: "8.0"
+  versions: ["9.0"]
+  default: "9.0"
 
 ecr_push:
   plugin: artifact/ecr-push
@@ -118,7 +118,7 @@ ecr_push:
 go_compile:
   plugin: artifact/go-compile
   install_type: goenv
-  versions: ["1.23.12", "1.24.13"]
+  versions: ["1.24.13"]
   default: "1.24.13"
 
 helm_push:
@@ -567,13 +567,13 @@ dotnet_format:
   plugin: quality/dotnet-format
   install_type: script
   note: "dotnet-install.sh for .NET SDK."
-  versions: ["8.0", "9.0"]
+  versions: ["9.0"]
   default: "9.0"
 
 clippy:
   plugin: quality/clippy
   install_type: rustup
-  versions: ["stable", "1.84.0"]
+  versions: ["stable"]
   default: "stable"
   note: "Includes clippy and rustfmt components."
 
@@ -605,32 +605,32 @@ jacoco:
 mypy:
   plugin: quality/mypy
   install_type: pyenv
-  versions: ["3.13", "3.14"]
+  versions: ["3.14"]
   default: "3.14"
 
 roslyn_analyzers:
   plugin: quality/roslyn-analyzers
   install_type: script
   note: "dotnet-install.sh for .NET SDK."
-  versions: ["8.0", "9.0"]
+  versions: ["9.0"]
   default: "9.0"
 
 rubocop:
   plugin: quality/rubocop
   install_type: rbenv
-  versions: ["3.4.8", "4.0.1"]
+  versions: ["4.0.1"]
   default: "4.0.1"
 
 ruff:
   plugin: quality/ruff
   install_type: pyenv
-  versions: ["3.13", "3.14"]
+  versions: ["3.14"]
   default: "3.14"
 
 rustfmt:
   plugin: quality/rustfmt
   install_type: rustup
-  versions: ["stable", "1.84.0"]
+  versions: ["stable"]
   default: "stable"
   note: "Includes clippy and rustfmt components."
 
@@ -674,28 +674,28 @@ typescript_check:
 bandit:
   plugin: security/bandit
   install_type: pyenv
-  versions: ["3.13", "3.14"]
+  versions: ["3.14"]
   default: "3.14"
   note: "Python via pyenv. Bandit installed per-project."
 
 brakeman:
   plugin: security/brakeman
   install_type: rbenv
-  versions: ["3.4.8", "4.0.1"]
+  versions: ["4.0.1"]
   default: "4.0.1"
   note: "Ruby via rbenv. Brakeman installed per-project."
 
 bundler_audit:
   plugin: security/bundler-audit
   install_type: rbenv
-  versions: ["3.4.8", "4.0.1"]
+  versions: ["4.0.1"]
   default: "4.0.1"
   note: "Ruby via rbenv. bundler-audit installed per-project."
 
 cargo_audit:
   plugin: security/cargo-audit
   install_type: rustup
-  versions: ["stable", "1.84.0"]
+  versions: ["stable"]
   default: "stable"
   note: "Includes clippy and rustfmt components."
 
@@ -721,7 +721,7 @@ dotnet_security_scan:
   plugin: security/dotnet-security-scan
   install_type: script
   note: "dotnet-install.sh for .NET SDK."
-  versions: ["8.0", "9.0"]
+  versions: ["9.0"]
   default: "9.0"
 
 gitleaks:
@@ -745,14 +745,14 @@ trufflehog:
 gosec:
   plugin: security/gosec
   install_type: goenv
-  versions: ["1.23.12", "1.24.13"]
+  versions: ["1.24.13"]
   default: "1.24.13"
   note: "Go via goenv. gosec installed per-project."
 
 govulncheck:
   plugin: security/govulncheck
   install_type: goenv
-  versions: ["1.23.12", "1.24.13"]
+  versions: ["1.24.13"]
   default: "1.24.13"
   note: "Go via goenv. govulncheck installed per-project."
 
@@ -1125,14 +1125,14 @@ artillery:
 cargo_test:
   plugin: testing/cargo-test
   install_type: rustup
-  versions: ["stable", "1.84.0"]
+  versions: ["stable"]
   default: "stable"
   note: "Includes clippy and rustfmt components."
 
 coverage_py:
   plugin: testing/coverage-py
   install_type: pyenv
-  versions: ["3.13", "3.14"]
+  versions: ["3.14"]
   default: "3.14"
 
 cypress:
@@ -1147,13 +1147,13 @@ dotnet_test:
   plugin: testing/dotnet-test
   install_type: script
   note: "dotnet-install.sh for .NET SDK."
-  versions: ["8.0", "9.0"]
+  versions: ["9.0"]
   default: "9.0"
 
 go_test:
   plugin: testing/go-test
   install_type: goenv
-  versions: ["1.23.12", "1.24.13"]
+  versions: ["1.24.13"]
   default: "1.24.13"
 
 jest:
@@ -1166,7 +1166,7 @@ jest:
 minitest_coverage:
   plugin: testing/minitest-coverage
   install_type: rbenv
-  versions: ["3.4.8", "4.0.1"]
+  versions: ["4.0.1"]
   default: "4.0.1"
 
 playwright:
@@ -1187,13 +1187,13 @@ playwright:
 python_pytest:
   plugin: testing/python-pytest
   install_type: pyenv
-  versions: ["3.13", "3.14"]
+  versions: ["3.14"]
   default: "3.14"
 
 rails_test:
   plugin: testing/rails-test
   install_type: rbenv
-  versions: ["3.4.8", "4.0.1"]
+  versions: ["4.0.1"]
   default: "4.0.1"
 
 health_check:
