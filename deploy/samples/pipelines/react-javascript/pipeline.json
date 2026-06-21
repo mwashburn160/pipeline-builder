@@ -31,9 +31,9 @@
         }
       },
       "plugin": {
-        "name": "cdk-synth",
-        "alias": "BuildSynth",
+        "name": "BuildSynth",
         "filter": {
+          "name": "cdk-synth",
           "version": "1.0.0",
           "accessModifier": "public",
           "isActive": true,
@@ -50,6 +50,7 @@
             "plugin": {
               "name": "nodejs-bundle",
               "filter": {
+                "name": "nodejs-bundle",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -71,6 +72,7 @@
             "plugin": {
               "name": "typescript-check",
               "filter": {
+                "name": "typescript-check",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -96,6 +98,7 @@
             "plugin": {
               "name": "jest",
               "filter": {
+                "name": "jest",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -123,6 +126,7 @@
             "plugin": {
               "name": "eslint",
               "filter": {
+                "name": "eslint",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -143,6 +147,7 @@
             "plugin": {
               "name": "prettier",
               "filter": {
+                "name": "prettier",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -168,6 +173,7 @@
             "plugin": {
               "name": "npm-audit",
               "filter": {
+                "name": "npm-audit",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -187,6 +193,7 @@
             "plugin": {
               "name": "git-secrets",
               "filter": {
+                "name": "git-secrets",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,

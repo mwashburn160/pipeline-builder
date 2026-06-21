@@ -31,9 +31,9 @@
         }
       },
       "plugin": {
-        "name": "cdk-synth",
-        "alias": "BuildSynth",
+        "name": "BuildSynth",
         "filter": {
+          "name": "cdk-synth",
           "version": "1.0.0",
           "accessModifier": "public",
           "isActive": true,
@@ -50,6 +50,7 @@
             "plugin": {
               "name": "go-compile",
               "filter": {
+                "name": "go-compile",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -77,6 +78,7 @@
             "plugin": {
               "name": "go-test",
               "filter": {
+                "name": "go-test",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -103,6 +105,7 @@
             "plugin": {
               "name": "golangci-lint",
               "filter": {
+                "name": "golangci-lint",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -129,6 +132,7 @@
             "plugin": {
               "name": "govulncheck",
               "filter": {
+                "name": "govulncheck",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -148,6 +152,7 @@
             "plugin": {
               "name": "gosec",
               "filter": {
+                "name": "gosec",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -167,6 +172,7 @@
             "plugin": {
               "name": "git-secrets",
               "filter": {
+                "name": "git-secrets",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,

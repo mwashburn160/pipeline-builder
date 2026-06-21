@@ -31,9 +31,9 @@
         }
       },
       "plugin": {
-        "name": "cdk-synth",
-        "alias": "BuildSynth",
+        "name": "BuildSynth",
         "filter": {
+          "name": "cdk-synth",
           "version": "1.0.0",
           "accessModifier": "public",
           "isActive": true,
@@ -50,6 +50,7 @@
             "plugin": {
               "name": "rails-test",
               "filter": {
+                "name": "rails-test",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -78,6 +79,7 @@
             "plugin": {
               "name": "rubocop",
               "filter": {
+                "name": "rubocop",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -104,6 +106,7 @@
             "plugin": {
               "name": "brakeman",
               "filter": {
+                "name": "brakeman",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -123,6 +126,7 @@
             "plugin": {
               "name": "bundler-audit",
               "filter": {
+                "name": "bundler-audit",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -143,6 +147,7 @@
             "plugin": {
               "name": "git-secrets",
               "filter": {
+                "name": "git-secrets",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,

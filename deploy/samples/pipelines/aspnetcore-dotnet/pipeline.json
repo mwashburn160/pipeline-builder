@@ -31,9 +31,9 @@
         }
       },
       "plugin": {
-        "name": "cdk-synth",
-        "alias": "BuildSynth",
+        "name": "BuildSynth",
         "filter": {
+          "name": "cdk-synth",
           "version": "1.0.0",
           "accessModifier": "public",
           "isActive": true,
@@ -50,6 +50,7 @@
             "plugin": {
               "name": "dotnet",
               "filter": {
+                "name": "dotnet",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -77,6 +78,7 @@
             "plugin": {
               "name": "dotnet-test",
               "filter": {
+                "name": "dotnet-test",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -103,6 +105,7 @@
             "plugin": {
               "name": "dotnet-format",
               "filter": {
+                "name": "dotnet-format",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -121,6 +124,7 @@
             "plugin": {
               "name": "roslyn-analyzers",
               "filter": {
+                "name": "roslyn-analyzers",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -146,6 +150,7 @@
             "plugin": {
               "name": "dotnet-security-scan",
               "filter": {
+                "name": "dotnet-security-scan",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -165,6 +170,7 @@
             "plugin": {
               "name": "trivy-dotnet",
               "filter": {
+                "name": "trivy-dotnet",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -184,6 +190,7 @@
             "plugin": {
               "name": "git-secrets",
               "filter": {
+                "name": "git-secrets",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,

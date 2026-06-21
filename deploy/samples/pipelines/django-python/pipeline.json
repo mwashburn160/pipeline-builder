@@ -31,9 +31,9 @@
         }
       },
       "plugin": {
-        "name": "cdk-synth",
-        "alias": "BuildSynth",
+        "name": "BuildSynth",
         "filter": {
+          "name": "cdk-synth",
           "version": "1.0.0",
           "accessModifier": "public",
           "isActive": true,
@@ -50,6 +50,7 @@
             "plugin": {
               "name": "python-pytest",
               "filter": {
+                "name": "python-pytest",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -71,6 +72,7 @@
             "plugin": {
               "name": "coverage-py",
               "filter": {
+                "name": "coverage-py",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -99,6 +101,7 @@
             "plugin": {
               "name": "ruff",
               "filter": {
+                "name": "ruff",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -120,6 +123,7 @@
             "plugin": {
               "name": "mypy",
               "filter": {
+                "name": "mypy",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -146,6 +150,7 @@
             "plugin": {
               "name": "bandit",
               "filter": {
+                "name": "bandit",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
@@ -166,6 +171,7 @@
             "plugin": {
               "name": "git-secrets",
               "filter": {
+                "name": "git-secrets",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,
