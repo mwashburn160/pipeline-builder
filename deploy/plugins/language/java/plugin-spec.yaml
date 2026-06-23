@@ -38,8 +38,8 @@ installCommands:
     fi
     echo "Build tool: ${TOOL}"
     case "${TOOL}" in
-      maven)  mvn dependency:resolve -q ;;
-      gradle) gradle dependencies --quiet ;;
+      maven)  if [ -f ./mvnw ]; then sh ./mvnw dependency:resolve -q; else mvn dependency:resolve -q; fi ;;
+      gradle) if [ -f ./gradlew ]; then sh ./gradlew dependencies --quiet; else gradle dependencies --quiet; fi ;;
       *)
         echo "ERROR: Unknown BUILD_TOOL '${TOOL}'. Supported: auto, maven, gradle"
         exit 1
@@ -54,8 +54,8 @@ commands:
       if [ -f pom.xml ]; then TOOL="maven"; else TOOL="gradle"; fi
     fi
     case "${TOOL}" in
-      maven)  mvn clean verify -B ;;
-      gradle) gradle clean build ;;
+      maven)  if [ -f ./mvnw ]; then sh ./mvnw clean verify -B; else mvn clean verify -B; fi ;;
+      gradle) if [ -f ./gradlew ]; then sh ./gradlew clean build; else gradle clean build; fi ;;
     esac
 env:
   JAVA_VERSION: 21.0.10-tem

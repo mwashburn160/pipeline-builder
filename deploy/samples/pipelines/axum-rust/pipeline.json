@@ -184,6 +184,40 @@
             ]
           }
         ]
+      },
+      {
+        "stageName": "Package",
+        "alias": "PackageImage",
+        "steps": [
+          {
+            "plugin": {
+              "name": "docker-build",
+              "filter": {
+                "name": "docker-build",
+                "version": "1.0.0",
+                "accessModifier": "public",
+                "isActive": true,
+                "isDefault": true
+              },
+              "metadata": {
+                "IMAGE_NAME": "axum-acmecorp",
+                "IMAGE_TAG": "latest",
+                "REGISTRY_TYPE": "none",
+                "aws:cdk:codebuild:buildenvironment:privileged": true,
+                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
+              }
+            },
+            "position": "pre",
+            "timeout": 20,
+            "inputArtifact": {
+              "stageName": "Build",
+              "stageAlias": "BuildAndPackage",
+              "pluginName": "rust",
+              "pluginAlias": "rust",
+              "outputDirectory": "**/*"
+            }
+          }
+        ]
       }
     ]
   }
