@@ -112,9 +112,16 @@ export function setupEvents(program: Command): void {
           const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
           const version = pkgJson.version || 'unknown';
 
-          // ZIP the handler
+          // pipeline-events is ESM ("type":"module"), so the Lambda entry must be
+          // index.mjs. A plain index.js with no package.json in the zip is loaded as
+          // CommonJS by nodejs24.x and fails at init with "Cannot use import statement
+          // outside a module". The .mjs extension forces ESM; Handler stays
+          // index.handler (the runtime resolves the .mjs file). lib/index.js is a
+          // self-contained bundle (no relative imports), so the single file suffices.
+          const mjsPath = path.join(tmpDir, 'index.mjs');
+          fs.copyFileSync(handlerSrc, mjsPath);
           const zipPath = path.join(tmpDir, 'index.zip');
-          execFileSync('zip', ['-j', zipPath, 'index.js'], { cwd: path.dirname(handlerSrc), stdio: 'pipe' });
+          execFileSync('zip', ['-j', zipPath, 'index.mjs'], { cwd: tmpDir, stdio: 'pipe' });
 
           // Upload directly to Lambda via SDK (no S3 needed)
           printInfo('Uploading code to Lambda', { function: LAMBDA_NAME, version });
