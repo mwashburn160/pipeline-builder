@@ -9,7 +9,7 @@ RUN curl -fsSL https://apt.corretto.aws/corretto.key | gpg --dearmor -o /usr/sha
     && echo "deb [signed-by=/usr/share/keyrings/corretto-keyring.gpg] https://apt.corretto.aws stable main" \
     > /etc/apt/sources.list.d/corretto.list
 
-RUN apt-retry-install java-21-amazon-corretto-jdk java-25-amazon-corretto-jdk
+RUN apt-retry-install java-25-amazon-corretto-jdk
 
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
@@ -19,9 +19,9 @@ RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
 ENV PATH="${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/bin:${PATH}"
 
 # JAVA_HOME must match JAVA_VERSION below — see spotbugs/Dockerfile.
-ENV JAVA_HOME=/usr/lib/jvm/java-21-amazon-corretto
+ENV JAVA_HOME=/usr/lib/jvm/java-25-amazon-corretto
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
-ENV JAVA_VERSION=21
+ENV JAVA_VERSION=25
 
 WORKDIR /app
 CMD ["bash"]

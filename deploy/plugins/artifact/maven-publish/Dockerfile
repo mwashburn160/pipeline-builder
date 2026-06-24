@@ -5,14 +5,13 @@
 
 FROM pipeline-plugin-base:24.04
 
-# ─── Java 21 + 25 (current + previous LTS) + Maven 3.9.9 via SDKMAN ───
+# ─── Java 25 (latest) + Maven 3.9.9 via SDKMAN ───
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
-    sdk install java 21.0.10-tem && \
     sdk install java 25.0.3-tem && \
     sdk install maven 3.9.9 && \
-    sdk default java 21.0.10-tem && \
+    sdk default java 25.0.3-tem && \
     sdk default maven 3.9.9"
 
 # Add SDKMAN candidates to PATH

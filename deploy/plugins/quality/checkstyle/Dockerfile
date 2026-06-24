@@ -9,10 +9,10 @@ FROM pipeline-plugin-base:24.04
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
-    sdk install java 21.0.10-tem && \
+    sdk install java 25.0.3-tem && \
     sdk install maven 3.9.9 && \
     sdk install gradle 9.6.0 && \
-    sdk default java 21.0.10-tem"
+    sdk default java 25.0.3-tem"
 ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/bin:${PATH}"
 
 # ─── Checkstyle CLI — multi-version ───
@@ -39,7 +39,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/checkstyle/checkstyle/checkstyl
 # ─── Runtime configuration defaults ───
 ENV CHECKSTYLE_VERSION=10.21.1
 ENV CHECKSTYLE_CONFIG=google
-ENV JAVA_VERSION=21.0.10-tem
+ENV JAVA_VERSION=25.0.3-tem
 
 # Working directory for pipeline source
 WORKDIR /app

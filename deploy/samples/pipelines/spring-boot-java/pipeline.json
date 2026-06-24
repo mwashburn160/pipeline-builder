@@ -58,7 +58,8 @@
               },
               "metadata": {
                 "JAVA_VERSION": "25",
-                "GRADLE_OPTS": "-Xmx8g -XX:MaxMetaspaceSize=1g"
+                "GRADLE_OPTS": "-Xmx8g -XX:MaxMetaspaceSize=1g",
+                "KOTLIN_VERSION": "2.2.21"
               }
             },
             "position": "pre",
@@ -84,7 +85,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "JAVA_VERSION": "17",
                 "COVERAGE_THRESHOLD": "70"
               }
             },
@@ -112,7 +112,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "JAVA_VERSION": "17",
                 "CHECKSTYLE_CONFIG": "src/checkstyle/checkstyle.xml"
               }
             },
@@ -132,7 +131,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "JAVA_VERSION": "17"
               }
             },
             "position": "post",
@@ -178,7 +176,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "JAVA_VERSION": "17",
                 "FAIL_ON_CVSS": "7"
               }
             },
