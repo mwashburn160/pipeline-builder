@@ -27,7 +27,7 @@ Source -> Synth -> BuildAndPackage -> UnitTests -> CodeQuality -> SecurityScan -
 ## Key Configuration
 
 - **Java 17** on Amazon Corretto
-- **MEDIUM compute** (7 GB / 4 vCPU) for Gradle builds
+- **LARGE compute** (15 GB / 8 vCPU) for the Gradle build step (`GRADLE_OPTS=-Xmx8g`)
 - **JaCoCo** with 70% coverage threshold
 - **OWASP Dependency Check** fails on CVSS score >= 7
 - **SpotBugs** runs with `warn` failure behavior for advisory reporting

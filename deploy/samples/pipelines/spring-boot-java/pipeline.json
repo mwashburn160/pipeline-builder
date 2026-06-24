@@ -58,8 +58,8 @@
               },
               "metadata": {
                 "JAVA_VERSION": "17",
-                "GRADLE_OPTS": "-Xmx4g -XX:MaxMetaspaceSize=512m",
-                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
+                "GRADLE_OPTS": "-Xmx8g -XX:MaxMetaspaceSize=1g",
+                "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
               }
             },
             "position": "pre",
