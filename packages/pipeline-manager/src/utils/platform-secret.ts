@@ -17,7 +17,6 @@ import { printInfo, printSection, printSuccess, printWarning } from './output-ut
 
 /** Login/secret options shared across the platform-secret helpers. */
 export interface PlatformSecretOptions {
-  readonly secretName?: string;
   readonly email?: string;
   readonly password?: string;
   readonly verifySsl?: boolean;
@@ -26,13 +25,13 @@ export interface PlatformSecretOptions {
 /**
  * Derive the platform secret path from a JWT's organizationId.
  * Pattern: `{SECRETS_PATH_PREFIX}/{orgId}/platform`.
- * @throws if the token carries no organizationId (caller should fall back to --secret-name).
+ * @throws if the token carries no organizationId (caller should fall back to PLATFORM_SECRET_NAME).
  */
 export function resolveSecretName(token: string): string {
   const payload = decodeTokenPayload(token);
   const orgId = payload?.organizationId;
   if (!orgId) {
-    throw new Error('Token does not contain organizationId — cannot derive secret name. Use --secret-name to specify explicitly.');
+    throw new Error('Token does not contain organizationId — cannot derive secret name. Set PLATFORM_SECRET_NAME to specify it explicitly.');
   }
   return `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/platform`;
 }
@@ -75,18 +74,18 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
 }
 
 /**
- * Resolve the platform secret name: an explicit `--secret-name` / `PLATFORM_SECRET_NAME`
- * wins; otherwise log in if needed and derive it from the platform token's org — the
+ * Resolve the platform secret name: an explicit `PLATFORM_SECRET_NAME` env wins;
+ * otherwise log in if needed and derive it from the platform token's org — the
  * same token `init-platform.sh` (register) mints, so writer and reader agree.
  */
 export async function resolvePlatformSecretName(options: PlatformSecretOptions): Promise<string> {
-  const explicit = options.secretName || process.env.PLATFORM_SECRET_NAME;
+  const explicit = process.env.PLATFORM_SECRET_NAME;
   if (explicit) return explicit;
   await ensurePlatformToken(options);
   if (!process.env.PLATFORM_TOKEN) {
     throw new Error(
       'Cannot derive the platform secret name: no PLATFORM_TOKEN and no login creds. '
-      + 'Pass --secret-name / set PLATFORM_SECRET_NAME, or provide login creds '
+      + 'Set PLATFORM_SECRET_NAME, or provide login creds '
       + '(--email/--password or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD).',
     );
   }

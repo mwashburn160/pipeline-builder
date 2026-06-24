@@ -39,20 +39,15 @@ export function setupEvents(program: Command): void {
     .command('setup-events')
     .description('Deploy EventBridge event ingestion infrastructure for pipeline reporting')
     .option('--package-version <version>', 'pipeline-events package version (default: latest)')
-    .option('--secret-name <name>', 'Platform secret name (default: derived from the platform token org, e.g. pipeline-builder/{orgId}/platform)')
-    .option('-e, --email <email>', 'Login email to mint a token when PLATFORM_TOKEN is unset (for deriving --secret-name)')
+    .option('-e, --email <email>', 'Login email to mint a token when PLATFORM_TOKEN is unset (for deriving the secret name)')
     .option('-p, --password <password>', 'Login password (used with --email)')
-    .option('--region <region>', 'AWS region')
+    .option('--region <region>', 'AWS region (default: us-east-1, or AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
     .action(async (options) => {
       const executionId = printCommandHeader('Setup Event Ingestion');
 
       try {
-        const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION;
-        if (!region) {
-          printError('AWS region is required');
-          throw new Error('AWS region not provided');
-        }
+        const region = options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';
 
         const platformUrl = process.env.PLATFORM_BASE_URL;
         if (!platformUrl) {
@@ -61,8 +56,8 @@ export function setupEvents(program: Command): void {
         }
 
         // Derive the secret path from the platform token (the one init-platform.sh
-        // minted) when --secret-name / PLATFORM_SECRET_NAME isn't given — matching
-        // store-token, which WROTE the secret at the same derived path. Logs in with
+        // minted) when PLATFORM_SECRET_NAME isn't set — matching store-token, which
+        // WROTE the secret at the same derived path. Logs in with
         // --email/--password or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD if no token yet.
         const secretName = await resolvePlatformSecretName(options);
 

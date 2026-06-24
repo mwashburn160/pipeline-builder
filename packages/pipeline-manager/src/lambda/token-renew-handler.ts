@@ -73,11 +73,13 @@ export const handler = async (): Promise<void> => {
   // 4. Run store-token (without --schedule, the default) so it ONLY re-mints and
   //    writes the secret — it must not redeploy this stack (would recurse). The
   //    write uses the Lambda role's creds.
-  const args = ['store-token', '--secret-name', secretName, '--region', region, '--days', days];
+  // store-token no longer takes --secret-name; it reads PLATFORM_SECRET_NAME from
+  // the environment (else derives it from the token's org).
+  const args = ['store-token', '--region', region, '--days', days];
   if (process.env.PLATFORM_VERIFY_SSL === 'false') args.push('--no-verify-ssl');
 
   execFileSync('node', [CLI, ...args], {
-    env: { ...npmEnv, PLATFORM_TOKEN: jwt, PLATFORM_BASE_URL: platformUrl },
+    env: { ...npmEnv, PLATFORM_TOKEN: jwt, PLATFORM_BASE_URL: platformUrl, PLATFORM_SECRET_NAME: secretName },
     stdio: 'inherit',
   });
 

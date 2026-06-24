@@ -40,7 +40,7 @@ function createClient(options: SecretsOptions): SecretsManagerClient {
     );
   }
   return new SecretsManagerClient({
-    region: options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION,
+    region: options.region || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1',
   });
 }
 

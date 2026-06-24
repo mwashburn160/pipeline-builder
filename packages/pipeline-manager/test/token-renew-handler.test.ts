@@ -69,13 +69,15 @@ describe('token-renew-handler (orchestrator)', () => {
     expect(args[0]).toBe('/tmp/pm/node_modules/@pipeline-builder/pipeline-manager/dist/cli.js');
     expect(args).toEqual(expect.arrayContaining([
       'store-token',
-      '--secret-name', 'pipeline-builder/acme/platform',
       '--region', 'us-east-1',
       '--days', '30',
     ]));
+    // Secret name is passed via PLATFORM_SECRET_NAME env, not a CLI flag.
+    expect(args).not.toContain('--secret-name');
     // Must NOT opt into the renewal stack (would recurse into its own deploy).
     expect(args).not.toContain('--schedule');
     expect(opts.env.PLATFORM_TOKEN).toBe('current.jwt.token');
+    expect(opts.env.PLATFORM_SECRET_NAME).toBe('pipeline-builder/acme/platform');
     expect(opts.env.PLATFORM_BASE_URL).toBe('https://pipeline-builder.com');
   });
 

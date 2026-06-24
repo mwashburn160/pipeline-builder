@@ -56,12 +56,13 @@ ESM handler (uploaded as `index.mjs`, `Handler=index.handler`). Imports only
    parse `{ password: <current JWT> }`. This token authenticates the renewal.
 5. **Execute store-token** via `execFileSync('node', [cliPath, 'store-token', …])`
    with:
-   - args: `--secret-name ${PLATFORM_SECRET_NAME}`, `--region ${AWS_REGION}`,
-     `--days ${RENEW_DAYS}`, `--no-verify-ssl` only if explicitly configured.
-     It does NOT pass `--schedule` (the default), so the renewal run never
-     redeploys its own stack (avoids recursion).
-   - env: `PLATFORM_TOKEN=<current JWT>`, `PLATFORM_BASE_URL`, `HOME=/tmp`,
-     `npm_config_cache=/tmp/.npm`, plus the inherited AWS creds (Lambda role).
+   - args: `--region ${AWS_REGION}`, `--days ${RENEW_DAYS}`, `--no-verify-ssl`
+     only if explicitly configured. It does NOT pass `--schedule` (the default),
+     so the renewal run never redeploys its own stack (avoids recursion).
+     (store-token no longer takes `--secret-name`; the secret is passed via the
+     `PLATFORM_SECRET_NAME` env below.)
+   - env: `PLATFORM_TOKEN=<current JWT>`, `PLATFORM_SECRET_NAME`, `PLATFORM_BASE_URL`,
+     `HOME=/tmp`, `npm_config_cache=/tmp/.npm`, plus the inherited AWS creds (Lambda role).
    - `stdio: 'inherit'` so CLI output lands in CloudWatch.
 6. On non-zero exit (npm or CLI), `throw` so the invocation is marked failed
    (surfaces in CloudWatch / can alarm). On success, log the renewed expiry.
@@ -113,8 +114,9 @@ token logic remains in the handler.
   `node:child_process`, and `node:fs`, then asserts the handler:
   - writes `/tmp/.npmrc` containing `@pipeline-builder:registry=https://registry.npmjs.org/`,
   - runs `npm install … @pipeline-builder/pipeline-manager@<version>`,
-  - invokes `store-token` with `--secret-name … --region … --days …` (and NOT
-    `--schedule`) and `PLATFORM_TOKEN` set to the secret's `password`,
+  - invokes `store-token` with `--region … --days …` (and NOT `--schedule`),
+    with `PLATFORM_TOKEN` set to the secret's `password` and `PLATFORM_SECRET_NAME`
+    in the child env,
   - throws when npm or the CLI exits non-zero.
 - `cron.ts` tests unaffected.
 

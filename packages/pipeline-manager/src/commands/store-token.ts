@@ -116,7 +116,8 @@ async function deployRenewSchedule(opts: {
  * pipeline-manager store-token --days 90 --region us-east-1
  * pipeline-manager store-token --schedule --region us-east-1          # + daily auto-renewal
  * pipeline-manager store-token --schedule --cron '0 3 * * *'          # custom renewal time
- * pipeline-manager store-token --days 7 --secret-name my-custom-secret --no-verify-ssl
+ * pipeline-manager store-token --days 7 --no-verify-ssl
+ * PLATFORM_SECRET_NAME=my-custom-secret pipeline-manager store-token   # override the derived name
  * pipeline-manager store-token --dry-run
  * pipeline-manager store-token -e admin -p '***' --region us-east-1
  * ```
@@ -129,8 +130,7 @@ export function storeToken(program: Command): void {
     .option('-p, --password <password>', 'Login password (used with --email)')
     .option('--days <days>', 'Token lifetime in days', '30')
     .option('--dry-run', 'Show what would be stored without writing to Secrets Manager', false)
-    .option('--secret-name <name>', 'Secrets Manager secret name (default: derived from token org)')
-    .option('--region <region>', 'AWS region (defaults to AWS_REGION env)')
+    .option('--region <region>', 'AWS region (default: us-east-1, or AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
     .option('--schedule', 'Also deploy the daily token-renewal stack that auto-renews this token (off by default)', false)
     .option('--cron <expr>', 'Renewal schedule as a 5-field cron, used with --schedule (default: TOKEN_RENEW_SCHEDULE env or "0 0 * * *"; min every 15 minutes)')
@@ -160,8 +160,10 @@ export function storeToken(program: Command): void {
 
         const client = await createAuthenticatedClientAsync(options);
 
-        // Resolve secret name from token's organizationId (unless --secret-name was explicitly set)
-        const secretName = options.secretName || resolveSecretName(process.env.PLATFORM_TOKEN!);
+        // Resolve secret name from the token's organizationId. An explicit
+        // PLATFORM_SECRET_NAME env wins (escape hatch for system/no-org tokens and
+        // the renewal Lambda); otherwise derive `{prefix}/{orgId}/platform`.
+        const secretName = process.env.PLATFORM_SECRET_NAME || resolveSecretName(process.env.PLATFORM_TOKEN!);
 
         auditLog('store-token', { executionId, secretName, days, dryRun: options.dryRun });
 
@@ -316,7 +318,7 @@ export function storeToken(program: Command): void {
           context: {
             command: 'store-token',
             executionId,
-            secretName: options.secretName || '(derived from token)',
+            secretName: process.env.PLATFORM_SECRET_NAME || '(derived from token)',
           },
         });
       }
