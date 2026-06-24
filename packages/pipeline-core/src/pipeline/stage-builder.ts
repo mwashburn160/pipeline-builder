@@ -111,7 +111,13 @@ export class StageBuilder {
 
   private resolveStep(stepConfig: StageOptions['steps'][number], stageName: string, stageAlias: string) {
     const plugin = this.pluginLookup.plugin(stepConfig.plugin);
-    const stepMetadata = merge(this.globalMetadata, stepConfig.metadata ?? {});
+    // Per-step plugin config lives on the plugin reference (`plugin.metadata` —
+    // e.g. JAVA_VERSION/KOTLIN_VERSION/computetype overrides). pluginLookup.plugin()
+    // returns the resolved CATALOG plugin and drops the reference metadata in the
+    // pre-resolved path, so merge it here too — otherwise per-step overrides are
+    // silently ignored and the build falls back to plugin defaults.
+    // Order (last wins): global < plugin-ref metadata < step-level metadata.
+    const stepMetadata = merge(this.globalMetadata, stepConfig.plugin.metadata ?? {}, stepConfig.metadata ?? {});
     const pluginAlias = stepConfig.plugin.alias ?? stepConfig.plugin.name;
 
     if (stepConfig.inputArtifact && !this.artifactManager) {
