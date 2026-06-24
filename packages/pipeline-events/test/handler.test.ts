@@ -9,7 +9,7 @@ import { jest, describe, it, expect, beforeEach, beforeAll } from '@jest/globals
 
 // Mock Secrets Manager — returns stored JWT token
 const mockSend = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({
-  SecretString: JSON.stringify({ accessToken: 'mock-jwt-token' }),
+  SecretString: JSON.stringify({ password: 'mock-jwt-token' }),
 });
 jest.unstable_mockModule('@aws-sdk/client-secrets-manager', () => ({
   SecretsManagerClient: jest.fn(() => ({ send: mockSend })),
@@ -85,7 +85,7 @@ describe('pipeline-events handler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSend.mockResolvedValue({
-      SecretString: JSON.stringify({ accessToken: 'mock-jwt-token' }),
+      SecretString: JSON.stringify({ password: 'mock-jwt-token' }),
     });
     mockTagsSend.mockImplementation(tagResolver);
 

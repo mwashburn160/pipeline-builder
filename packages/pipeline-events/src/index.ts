@@ -31,12 +31,12 @@ async function loadCodePipeline(): Promise<CodePipelineModule> {
  *
  * Authentication:
  * - PLATFORM_TOKEN env var (preferred — no Secrets Manager call)
- * - PLATFORM_SECRET_NAME env var → reads accessToken from Secrets Manager
+ * - PLATFORM_SECRET_NAME env var → reads the JWT (password) from Secrets Manager
  *
  * Environment variables:
  * - PLATFORM_BASE_URL — Base URL of the platform
  * - PLATFORM_TOKEN — JWT token (set directly, or)
- * - PLATFORM_SECRET_NAME — Secrets Manager secret containing { accessToken }
+ * - PLATFORM_SECRET_NAME — Secrets Manager secret containing { password: <JWT> }
  */
 
 const log = {
@@ -133,11 +133,15 @@ async function getAuthToken(): Promise<string> {
   if (!response.SecretString) throw new Error(`Secret "${secretName}" is empty`);
 
   const secret = JSON.parse(response.SecretString) as Record<string, string>;
-  if (!secret.accessToken) {
-    throw new Error('Secret missing accessToken — run "pipeline-manager store-token" to generate');
+  // store-token writes the JWT in `password` (the canonical field — also used by
+  // CodeBuild secretsManagerCredentials, the plugin-lookup Lambda, and token-renew).
+  // Accept legacy `accessToken` as a fallback.
+  const token = secret.password || secret.accessToken;
+  if (!token) {
+    throw new Error('Secret missing JWT (password) — run "pipeline-manager store-token" to generate');
   }
 
-  cachedToken = secret.accessToken;
+  cachedToken = token;
   log.info('Using stored JWT token from Secrets Manager');
   return cachedToken;
 }

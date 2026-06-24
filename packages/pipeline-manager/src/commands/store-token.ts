@@ -214,6 +214,11 @@ export function storeToken(program: Command): void {
         const secretValue = JSON.stringify({
           username: orgId,
           password: accessToken,
+          // `accessToken` duplicates the JWT under the name the event-ingestion
+          // Lambda reads, so an already-deployed events stack works after a plain
+          // store-token re-run (no pipeline-events republish needed). `password`
+          // remains canonical (CodeBuild creds, plugin-lookup, token-renew).
+          accessToken,
           ...(refreshToken && { refreshToken }),
           platformUrl: client.getBaseUrl(),
           expiresIn: actualExpiresIn,
