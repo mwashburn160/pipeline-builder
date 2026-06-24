@@ -12,15 +12,14 @@ A CI/CD pipeline for Ruby on Rails, the original convention-over-configuration w
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
-| **Test** | rails-test | Test suite with SQLite |
-| **Lint** | rubocop | Ruby style enforcement |
-| **Security** | brakeman, bundler-audit, git-secrets | Rails SAST, gem vulnerability scanning, secret detection |
-| **Publish** | gem-publish | Publish gems to RubyGems.org |
+| **UnitTests** | `rails-test` | Run the test suite |
+| **CodeQuality** | `rubocop` | Code style enforcement and static analysis |
+| **SecurityScan** | `brakeman`, `bundler-audit`, `git-secrets` | Security scanning (SAST, dependencies, secrets) |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Test → Lint → Security → Publish
+Source -> Synth -> UnitTests -> CodeQuality -> SecurityScan
 ```
 
 ## Key Configuration

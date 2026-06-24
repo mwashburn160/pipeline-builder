@@ -12,15 +12,14 @@ A CI/CD pipeline for Django, the popular Python web framework. Includes testing 
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
-| **Test** | python-pytest, coverage-py | Test execution and 75% coverage threshold |
-| **Lint** | ruff, mypy | Fast linting/formatting and static type checking |
-| **Security** | bandit, git-secrets | Python SAST and secret detection |
-| **Publish** | pypi-publish | PyPI publishing |
+| **UnitTests** | `python-pytest`, `coverage-py` | Run the test suite with coverage |
+| **CodeQuality** | `ruff`, `mypy` | Code style enforcement and static analysis |
+| **SecurityScan** | `bandit`, `git-secrets` | Security scanning (SAST, dependencies, secrets) |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Test → Lint → Security → Publish
+Source -> Synth -> UnitTests -> CodeQuality -> SecurityScan
 ```
 
 ## Key Configuration

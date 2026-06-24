@@ -12,15 +12,16 @@ A CI/CD pipeline for Gin, the fastest Go HTTP framework. Includes building with 
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
-| **Build** | go-compile, docker-build | Static binary compilation and container image creation |
-| **Test** | go-test | Unit tests with coverage |
-| **Lint** | golangci-lint | Comprehensive Go linting |
-| **Security** | govulncheck, gosec, git-secrets | Vulnerability detection, SAST, and secret detection |
+| **BuildAndPackage** | `go-compile` | Compile and package the application |
+| **UnitTests** | `go-test` | Run the test suite |
+| **CodeQuality** | `golangci-lint` | Code style enforcement and static analysis |
+| **SecurityScan** | `govulncheck`, `gosec`, `git-secrets` | Security scanning (SAST, dependencies, secrets) |
+| **PackageImage** | `docker-build` | Build the container image (repo source + BuildAndPackage artifact) |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Build → Test → Lint → Security
+Source -> Synth -> BuildAndPackage -> UnitTests -> CodeQuality -> SecurityScan -> PackageImage
 ```
 
 ## Key Configuration

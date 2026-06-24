@@ -12,16 +12,16 @@ A CI/CD pipeline for React, Meta's declarative UI library. Covers building, test
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
-| **Build** | nodejs-bundle, typescript-check | Production build and type checking |
-| **Test** | jest | Unit test execution |
-| **Lint** | eslint, prettier | Code style and formatting enforcement |
-| **Security** | npm-audit, git-secrets | Dependency scanning and secret detection |
-| **Publish** | npm-publish | Publish packages to npm registry |
+| **BuildAndPackage** | `nodejs-bundle`, `typescript-check` | Compile and package the application |
+| **UnitTests** | `jest` | Run the test suite |
+| **CodeQuality** | `eslint`, `prettier` | Code style enforcement and static analysis |
+| **SecurityScan** | `npm-audit`, `git-secrets` | Security scanning (SAST, dependencies, secrets) |
+| **PackageImage** | `docker-build` | Build the container image (repo source + BuildAndPackage artifact) |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Build → Test → Lint → Security → Publish
+Source -> Synth -> BuildAndPackage -> UnitTests -> CodeQuality -> SecurityScan -> PackageImage
 ```
 
 ## Key Configuration

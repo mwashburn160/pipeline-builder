@@ -12,16 +12,16 @@ A CI/CD pipeline for Spring Boot, the industry-standard Java application framewo
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
-| **Build** | java-corretto | Compile with Gradle on Java 17 |
-| **Test** | java-corretto, jacoco | Test execution and 70% coverage verification |
-| **Lint** | checkstyle, spotbugs | Code style enforcement and bug pattern detection |
-| **Security** | semgrep, dependency-check, git-secrets | SAST, dependency scanning, and secret detection |
-| **Publish** | maven-publish | Artifact publishing |
+| **BuildAndPackage** | `java-corretto` | Compile and package the application |
+| **UnitTests** | `jacoco` | Run the test suite with coverage |
+| **CodeQuality** | `checkstyle`, `spotbugs` | Code style enforcement and static analysis |
+| **SecurityScan** | `semgrep`, `dependency-check` | Security scanning (SAST, dependencies, secrets) |
+| **PackageImage** | `docker-build` | Build the container image (repo source + BuildAndPackage artifact) |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Build → Test → Lint → Security → Publish
+Source -> Synth -> BuildAndPackage -> UnitTests -> CodeQuality -> SecurityScan -> PackageImage
 ```
 
 ## Key Configuration

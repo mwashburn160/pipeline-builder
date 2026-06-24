@@ -12,16 +12,16 @@ A CI/CD pipeline for Axum, the ergonomic Rust web framework built on Tokio. Incl
 
 | Stage | Plugins | Purpose |
 |-------|---------|---------|
-| **Build** | cargo-release, docker-build | Release binary compilation and container packaging |
-| **Test** | cargo-test | Workspace test execution |
-| **Lint** | clippy, rustfmt | Lint warnings and formatting checks |
-| **Security** | cargo-audit, git-secrets | Dependency audit and secret detection |
-| **Publish** | cargo-publish | Dry-run publish to crates.io |
+| **BuildAndPackage** | `rust` | Compile and package the application |
+| **UnitTests** | `cargo-test` | Run the test suite |
+| **CodeQuality** | `clippy`, `rustfmt` | Code style enforcement and static analysis |
+| **SecurityScan** | `cargo-audit`, `git-secrets` | Security scanning (SAST, dependencies, secrets) |
+| **PackageImage** | `docker-build` | Build the container image (repo source + BuildAndPackage artifact) |
 
 ## Pipeline Flow
 
 ```
-Source (GitHub) → Synth → Build → Test → Lint → Security → Publish
+Source -> Synth -> BuildAndPackage -> UnitTests -> CodeQuality -> SecurityScan -> PackageImage
 ```
 
 ## Key Configuration
