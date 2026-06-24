@@ -215,13 +215,18 @@
             },
             "position": "pre",
             "timeout": 20,
-            "inputArtifact": {
-              "stageName": "Build",
-              "stageAlias": "BuildAndPackage",
-              "pluginName": "java-corretto",
-              "pluginAlias": "java",
-              "outputDirectory": "**/*"
-            }
+            "additionalInputArtifacts": [
+              {
+                "artifact": {
+                  "stageName": "Build",
+                  "stageAlias": "BuildAndPackage",
+                  "pluginName": "java-corretto",
+                  "pluginAlias": "java",
+                  "outputDirectory": "**/*"
+                },
+                "directory": "build-artifact"
+              }
+            ]
           }
         ]
       }

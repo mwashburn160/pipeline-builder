@@ -30,3 +30,21 @@ Source (GitHub) → Synth → Build → Test → Lint → Security → Publish
 - **Yarn** with frozen lockfile for reproducible installs
 - **npm audit** runs with `warn` failure behavior to avoid blocking on advisory-only vulnerabilities
 - **Auto-trigger** on pushes to `main` branch
+
+## Container Packaging
+
+The **PackageImage** stage (`docker-build`) builds a container image from the
+repository **source** (the `Dockerfile` and build context come from the repo,
+not from a prior stage). To avoid rebuilding the app inside the image, the
+compiled output from **BuildAndPackage** (`nodejs-bundle`) is attached as an
+additional input and mounted at **`build-artifact/`**.
+
+Your `Dockerfile` should `COPY` the production bundle (contents of build-output/) from that mount instead of recompiling:
+
+```dockerfile
+# build-artifact/ holds the BuildAndPackage output; the repo is the build context
+COPY build-artifact/ /usr/share/nginx/html/
+```
+
+> The mount path mirrors the producer's output layout (`nodejs-bundle`). Adjust the
+> `COPY` source to match your project's actual artifact path.

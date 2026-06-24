@@ -228,13 +228,18 @@
             },
             "position": "pre",
             "timeout": 20,
-            "inputArtifact": {
-              "stageName": "Build",
-              "stageAlias": "BuildAndPackage",
-              "pluginName": "dotnet",
-              "pluginAlias": "dotnet",
-              "outputDirectory": "**/*"
-            }
+            "additionalInputArtifacts": [
+              {
+                "artifact": {
+                  "stageName": "Build",
+                  "stageAlias": "BuildAndPackage",
+                  "pluginName": "dotnet",
+                  "pluginAlias": "dotnet",
+                  "outputDirectory": "**/*"
+                },
+                "directory": "build-artifact"
+              }
+            ]
           }
         ]
       }

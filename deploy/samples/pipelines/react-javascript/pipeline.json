@@ -231,13 +231,18 @@
             },
             "position": "pre",
             "timeout": 20,
-            "inputArtifact": {
-              "stageName": "Build",
-              "stageAlias": "BuildAndPackage",
-              "pluginName": "nodejs-bundle",
-              "pluginAlias": "nodejs-bundle",
-              "outputDirectory": "build-output"
-            }
+            "additionalInputArtifacts": [
+              {
+                "artifact": {
+                  "stageName": "Build",
+                  "stageAlias": "BuildAndPackage",
+                  "pluginName": "nodejs-bundle",
+                  "pluginAlias": "nodejs-bundle",
+                  "outputDirectory": "build-output"
+                },
+                "directory": "build-artifact"
+              }
+            ]
           }
         ]
       }
