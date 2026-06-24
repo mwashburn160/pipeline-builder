@@ -17,6 +17,7 @@ ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL https://get.sdkman.io | bash
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk install java 21.0.10-tem && \
+    sdk install java 25.0.3-tem && \
     sdk default java 21.0.10-tem"
 ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${PATH}"
 ENV JAVA_HOME="${SDKMAN_DIR}/candidates/java/current"

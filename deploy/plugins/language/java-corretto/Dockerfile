@@ -14,8 +14,8 @@ RUN curl -fsSL https://apt.corretto.aws/corretto.key | gpg --dearmor -o /usr/sha
     && echo "deb [signed-by=/usr/share/keyrings/corretto-keyring.gpg] https://apt.corretto.aws stable main" \
     > /etc/apt/sources.list.d/corretto.list
 
-# Pre-install current + previous Corretto LTS versions
-RUN apt-retry-install java-17-amazon-corretto-jdk java-21-amazon-corretto-jdk
+# Pre-install current + previous Corretto LTS versions (Java 25 is the Sept-2025 LTS)
+RUN apt-retry-install java-21-amazon-corretto-jdk java-25-amazon-corretto-jdk
 
 # Install Maven, Gradle, and Kotlin via SDKMAN
 ENV SDKMAN_DIR=/opt/sdkman

@@ -9,7 +9,7 @@ RUN curl -fsSL https://apt.corretto.aws/corretto.key | gpg --dearmor -o /usr/sha
     && echo "deb [signed-by=/usr/share/keyrings/corretto-keyring.gpg] https://apt.corretto.aws stable main" \
     > /etc/apt/sources.list.d/corretto.list
 
-RUN apt-retry-install java-21-amazon-corretto-jdk
+RUN apt-retry-install java-21-amazon-corretto-jdk java-25-amazon-corretto-jdk
 
 ENV SDKMAN_DIR=/opt/sdkman
 RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
@@ -18,8 +18,9 @@ RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk install gradle 8.12"
 ENV PATH="${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/bin:${PATH}"
 
-# JAVA_HOME must match JAVA_VERSION below. Per the non-language plugin policy
-# only the latest Corretto (21) is installed; the analyzer runs under it.
+# JAVA_HOME must match JAVA_VERSION below. Corretto 21 + 25 (current + previous
+# LTS) are installed so the analyzer can run against projects on either; it
+# defaults to 21 and Gradle toolchains auto-detect 25 when a project needs it.
 ENV JAVA_HOME=/usr/lib/jvm/java-21-amazon-corretto
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 ENV JAVA_VERSION=21

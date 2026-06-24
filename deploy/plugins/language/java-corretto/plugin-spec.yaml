@@ -20,7 +20,7 @@ installCommands:
     set -e
     export JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-amazon-corretto
     if [ ! -d "${JAVA_HOME}" ]; then
-      echo "ERROR: Corretto ${JAVA_VERSION} not installed. Available: 17, 21"
+      echo "ERROR: Corretto ${JAVA_VERSION} not installed. Available: 21, 25"
       exit 1
     fi
     export PATH="${JAVA_HOME}/bin:${PATH}"

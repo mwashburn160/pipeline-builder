@@ -83,8 +83,8 @@ maven_publish:
   install_type: sdkman
   tools:
     java:
-      versions: ["17.0.18-tem"]
-      default: "17.0.18-tem"
+      versions: ["21.0.10-tem", "25.0.3-tem"]
+      default: "21.0.10-tem"
     maven:
       versions: ["3.9.9"]
       default: "3.9.9"
@@ -371,7 +371,7 @@ java_temurin:
   install_type: sdkman
   tools:
     java:
-      versions: ["17.0.18-tem", "21.0.10-tem"]
+      versions: ["21.0.10-tem", "25.0.3-tem"]
       default: "21.0.10-tem"
     maven:
       versions: ["3.9.9"]
@@ -388,7 +388,7 @@ java_corretto:
   install_type: apt
   tools:
     java:
-      versions: ["17", "21"]
+      versions: ["21", "25"]
       default: "21"
     maven:
       install_type: sdkman
@@ -408,7 +408,7 @@ java_oracle:
   install_type: sdkman
   tools:
     java:
-      versions: ["17.0.12-graal", "21.0.10-graal"]
+      versions: ["21.0.10-graal", "25.0.3-graal"]
       default: "21.0.10-graal"
     maven:
       versions: ["3.9.9"]
@@ -590,7 +590,7 @@ jacoco:
   install_type: apt
   tools:
     java:
-      versions: ["17", "21"]
+      versions: ["21", "25"]
       default: "21"
     maven:
       install_type: sdkman
@@ -648,7 +648,7 @@ spotbugs:
   install_type: apt
   tools:
     java:
-      versions: ["17", "21"]
+      versions: ["21", "25"]
       default: "21"
     maven:
       install_type: sdkman
@@ -784,7 +784,7 @@ trivy_java:
   tools:
     java:
       install_type: sdkman
-      versions: ["17.0.18-tem", "21.0.10-tem"]
+      versions: ["21.0.10-tem", "25.0.3-tem"]
       default: "21.0.10-tem"
     maven:
       install_type: sdkman
@@ -866,7 +866,7 @@ snyk_java:
   tools:
     java:
       install_type: sdkman
-      versions: ["17.0.18-tem", "21.0.10-tem"]
+      versions: ["21.0.10-tem", "25.0.3-tem"]
       default: "21.0.10-tem"
     maven:
       install_type: sdkman
@@ -980,7 +980,7 @@ sonarcloud_java:
   tools:
     java:
       install_type: sdkman
-      versions: ["17.0.18-tem", "21.0.10-tem"]
+      versions: ["21.0.10-tem", "25.0.3-tem"]
       default: "21.0.10-tem"
     maven:
       install_type: sdkman
