@@ -100,7 +100,13 @@ export function setupEvents(program: Command): void {
           const versionSpec = options.packageVersion ? `${PACKAGE_NAME}@${options.packageVersion}` : PACKAGE_NAME;
           printInfo('Installing from registry', { package: versionSpec });
 
-          execFileSync('npm', ['install', '--prefix', tmpDir, versionSpec], { stdio: 'pipe' });
+          // Isolate the npm cache inside the temp dir so the deploy never depends on
+          // (or trips over) a misconfigured shared ~/.npm cache — e.g. EACCES/EEXIST
+          // left behind by a prior `sudo npm` run. Mirrors the token-renew handler.
+          execFileSync('npm', ['install', '--prefix', tmpDir, '--no-audit', '--no-fund', versionSpec], {
+            stdio: 'pipe',
+            env: { ...process.env, npm_config_cache: path.join(tmpDir, '.npm-cache') },
+          });
 
           const handlerSrc = path.join(tmpDir, 'node_modules', PACKAGE_NAME, 'lib', 'index.js');
           if (!fs.existsSync(handlerSrc)) {
