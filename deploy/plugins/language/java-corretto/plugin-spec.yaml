@@ -69,5 +69,5 @@ commands:
     esac
 env:
   JAVA_VERSION: "21"
-  KOTLIN_VERSION: 2.1.0
+  KOTLIN_VERSION: 2.2.21
   BUILD_TOOL: auto

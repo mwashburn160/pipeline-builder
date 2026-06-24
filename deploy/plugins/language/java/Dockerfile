@@ -18,10 +18,10 @@ RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk install java 21.0.10-tem && \
     sdk install java 25.0.3-tem && \
     sdk install maven 3.9.9 && \
-    sdk install gradle 8.12 && \
-    sdk install kotlin 2.1.0 && \
+    sdk install gradle 9.6.0 && \
+    sdk install kotlin 2.2.21 && \
     sdk default java 21.0.10-tem && \
-    sdk default kotlin 2.1.0"
+    sdk default kotlin 2.2.21"
 
 # Add SDKMAN candidates to PATH
 ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/candidates/kotlin/current/bin:${SDKMAN_DIR}/bin:${PATH}"
@@ -30,7 +30,7 @@ ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${SDKMAN_DIR}/candidates/mav
 ENV JAVA_VERSION=21.0.10-tem
 
 # Default Kotlin version (overridden by KOTLIN_VERSION env var at runtime)
-ENV KOTLIN_VERSION=2.1.0
+ENV KOTLIN_VERSION=2.2.21
 
 # Build tool selection (auto = detect from project files)
 ENV BUILD_TOOL=auto

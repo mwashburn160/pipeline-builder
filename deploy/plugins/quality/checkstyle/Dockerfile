@@ -11,7 +11,7 @@ RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk install java 21.0.10-tem && \
     sdk install maven 3.9.9 && \
-    sdk install gradle 8.12 && \
+    sdk install gradle 9.6.0 && \
     sdk default java 21.0.10-tem"
 ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/bin:${PATH}"
 

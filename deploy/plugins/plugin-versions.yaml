@@ -377,11 +377,11 @@ java_temurin:
       versions: ["3.9.9"]
       default: "3.9.9"
     gradle:
-      versions: ["8.12"]
-      default: "8.12"
+      versions: ["9.6.0"]
+      default: "9.6.0"
     kotlin:
-      versions: ["2.1.0"]
-      default: "2.1.0"
+      versions: ["2.2.21"]
+      default: "2.2.21"
 
 java_corretto:
   plugin: language/java-corretto
@@ -396,12 +396,12 @@ java_corretto:
       default: "3.9.9"
     gradle:
       install_type: sdkman
-      versions: ["8.12"]
-      default: "8.12"
+      versions: ["9.6.0"]
+      default: "9.6.0"
     kotlin:
       install_type: sdkman
-      versions: ["2.1.0"]
-      default: "2.1.0"
+      versions: ["2.2.21"]
+      default: "2.2.21"
 
 java_oracle:
   plugin: language/java-oracle
@@ -414,11 +414,11 @@ java_oracle:
       versions: ["3.9.9"]
       default: "3.9.9"
     gradle:
-      versions: ["8.12"]
-      default: "8.12"
+      versions: ["9.6.0"]
+      default: "9.6.0"
     kotlin:
-      versions: ["2.1.0"]
-      default: "2.1.0"
+      versions: ["2.2.21"]
+      default: "2.2.21"
 
 go:
   plugin: language/go
@@ -598,8 +598,8 @@ jacoco:
       default: "3.9.9"
     gradle:
       install_type: sdkman
-      versions: ["8.12"]
-      default: "8.12"
+      versions: ["9.6.0"]
+      default: "9.6.0"
   note: "Amazon Corretto JDK from apt. Maven + Gradle via SDKMAN."
 
 mypy:
@@ -656,8 +656,8 @@ spotbugs:
       default: "3.9.9"
     gradle:
       install_type: sdkman
-      versions: ["8.12"]
-      default: "8.12"
+      versions: ["9.6.0"]
+      default: "9.6.0"
   note: "Amazon Corretto JDK from apt. Maven + Gradle via SDKMAN."
 
 typescript_check:
@@ -792,8 +792,8 @@ trivy_java:
       default: "3.9.9"
     gradle:
       install_type: sdkman
-      versions: ["8.12"]
-      default: "8.12"
+      versions: ["9.6.0"]
+      default: "9.6.0"
   note: "Trivy + Java/Kotlin via SDKMAN."
 
 trivy_go:
@@ -874,8 +874,8 @@ snyk_java:
       default: "3.9.9"
     gradle:
       install_type: sdkman
-      versions: ["8.12"]
-      default: "8.12"
+      versions: ["9.6.0"]
+      default: "9.6.0"
   note: "Snyk + Java/Kotlin via SDKMAN."
 
 snyk_go:
@@ -988,8 +988,8 @@ sonarcloud_java:
       default: "3.9.9"
     gradle:
       install_type: sdkman
-      versions: ["8.12"]
-      default: "8.12"
+      versions: ["9.6.0"]
+      default: "9.6.0"
   note: "SonarCloud + Java/Kotlin via SDKMAN."
 
 sonarcloud_go:
