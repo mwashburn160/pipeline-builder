@@ -748,6 +748,55 @@ Use `--cleanup` flag on `init-platform.sh` or `load-plugins.sh` to remove `plugi
 | `load-plugins.sh` | Upload plugins from `deploy/plugins/` |
 | `load-pipelines.sh` | Upload pipelines from `deploy/samples/pipelines/` |
 | `test-plugins.sh` | Validate plugin specs and Dockerfiles |
+| `build-codebuild-bootstrap.sh` | Build + publish the CodeBuild bootstrap image (`CODEBUILD_DEFAULT_IMAGE` fallback runtime) |
+
+### Build the CodeBuild bootstrap image (`build-codebuild-bootstrap.sh`)
+
+The **bootstrap image** backs `CODEBUILD_DEFAULT_IMAGE` — the fallback runtime CodeBuild uses for the synth step and for any plugin step whose own image isn't resolved. `build-codebuild-bootstrap.sh` builds it with Docker and publishes it to the platform's registry. `provision --build-bootstrap` runs this for you; run it directly to refresh the image after a CLI/Dockerfile change.
+
+```bash
+cd deploy/bin
+
+# Build (if missing) + publish to the EC2 platform registry
+DEPLOY_TARGET=ec2 ./build-codebuild-bootstrap.sh
+
+# Force a rebuild even if the image is cached, and republish over an existing tag
+DEPLOY_TARGET=ec2 FORCE_PUSH=true ./build-codebuild-bootstrap.sh --force
+
+# Pin the pipeline-manager version baked into the image (avoids the @latest
+# layer-cache footgun that can ship stale CLI code)
+DEPLOY_TARGET=ec2 PIPELINE_MANAGER_VERSION=3.4.131 ./build-codebuild-bootstrap.sh --force
+
+# Cut a NEW image version instead of refreshing 1.0 in place
+DEPLOY_TARGET=ec2 BOOTSTRAP_IMAGE_TAG=pipeline-bootstrap:1.1 ./build-codebuild-bootstrap.sh
+```
+
+**Environment variables**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPLOY_TARGET` | `docker` | Push transport: `docker` \| `minikube` \| `ec2` \| `eks`. `ec2`/`minikube` push via a `kubectl run` crane pod. |
+| `FORCE_PUSH` | `false` | Republish even when the remote tag already exists. |
+| `BOOTSTRAP_IMAGE_TAG` | `pipeline-bootstrap:1.0` | Image tag to build/push. **Must match the deployment's `CODEBUILD_DEFAULT_IMAGE`** — a mismatch fails CodeBuild with `BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE`. |
+| `PIPELINE_MANAGER_VERSION` | `latest` | npm dist-tag/version baked in; auto-resolved to a concrete version so the Docker layer cache is correct. |
+| `PUBLISH_PLATFORM` | `linux/amd64` | Build/push platform; set `linux/arm64` for an all-Graviton stack. |
+
+`--force` rebuilds the local image; without it an already-cached image skips straight to publish.
+
+**Run it on the EC2 instance** — the `ec2` transport runs a `kubectl run` crane pod, so it needs both Docker **and** a kubeconfig that reaches the cluster. Two gotchas:
+
+- **Don't run the whole script under `sudo`.** `sudo` runs as root, whose `$HOME` has no kubeconfig, so the publish fails with *"JWT_SECRET not found … Available contexts: (none)"*. Instead grant your user Docker access and run without `sudo`:
+  ```bash
+  sudo usermod -aG docker "$(whoami)" && newgrp docker
+  DEPLOY_TARGET=ec2 ./build-codebuild-bootstrap.sh
+  ```
+  If you must use `sudo`, hand root the kubeconfig + context explicitly:
+  ```bash
+  sudo KUBECONFIG=/home/minikube/.kube/config KUBECTL_CONTEXT=pipeline-builder \
+    DEPLOY_TARGET=ec2 ./build-codebuild-bootstrap.sh
+  ```
+  (Find the context name with `kubectl config get-contexts`; default is `pipeline-builder`.)
+- **After a fresh deploy** (which rotates `JWT_SECRET`), re-run `store-token` before publishing — otherwise the crane push / CodeBuild image pull can 401.
 
 ### 2. Store Service Credentials
 
