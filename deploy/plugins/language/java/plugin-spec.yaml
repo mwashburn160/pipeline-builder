@@ -54,8 +54,8 @@ commands:
       if [ -f pom.xml ]; then TOOL="maven"; else TOOL="gradle"; fi
     fi
     case "${TOOL}" in
-      maven)  if [ -f ./mvnw ]; then sh ./mvnw clean verify -B; else mvn clean verify -B; fi ;;
-      gradle) if [ -f ./gradlew ]; then sh ./gradlew clean build; else gradle clean build; fi ;;
+      maven)  if [ -f ./mvnw ]; then sh ./mvnw ${MAVEN_GOAL:-clean verify} -B; else mvn ${MAVEN_GOAL:-clean verify} -B; fi ;;
+      gradle) if [ -f ./gradlew ]; then sh ./gradlew ${GRADLE_TASK:-clean build}; else gradle ${GRADLE_TASK:-clean build}; fi ;;
     esac
 env:
   JAVA_VERSION: 21.0.10-tem

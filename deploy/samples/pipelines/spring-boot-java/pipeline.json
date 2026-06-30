@@ -59,14 +59,12 @@
               "metadata": {
                 "JAVA_VERSION": "25",
                 "GRADLE_OPTS": "-Xmx8g -XX:MaxMetaspaceSize=1g",
-                "KOTLIN_VERSION": "2.2.21"
+                "KOTLIN_VERSION": "2.2.21",
+                "GRADLE_TASK": "assemble --no-daemon --parallel"
               }
             },
             "position": "pre",
-            "timeout": 30,
-            "commands": [
-              "./gradlew assemble --no-daemon --parallel"
-            ]
+            "timeout": 30
           }
         ]
       },

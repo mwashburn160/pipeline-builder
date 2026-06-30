@@ -27,13 +27,32 @@ const PluginOptionsSchema = z.object({
 
 /**
  * Stage step schema
+ *
+ * `passthrough()` keeps forward-compatible fields, but a few common mistakes are
+ * rejected loudly rather than silently ignored at synth — most notably a
+ * top-level `commands`, which is NOT a step field (the plugin's own commands run)
+ * and would otherwise do nothing.
  */
+const STEP_NON_FIELDS: Record<string, string> = {
+  commands:
+    '`commands` is not a step field — it is ignored at synth (the plugin\'s own commands run). '
+    + 'To change what a step runs, use a plugin env knob (e.g. `metadata.GRADLE_TASK`), '
+    + '`preCommands`/`postCommands` to add commands around the plugin\'s, or the '
+    + '`aws:cdk:pipelines:codebuildstep:commands` metadata key for a full override.',
+};
+
 const StageStepSchema = z.object({
   plugin: PluginOptionsSchema,
   metadata: z.record(z.string(), z.unknown()).optional(),
   network: z.record(z.string(), z.unknown()).optional(),
   position: z.enum(['pre', 'post']).optional(),
-}).passthrough();
+}).passthrough().superRefine((step, ctx) => {
+  for (const [key, message] of Object.entries(STEP_NON_FIELDS)) {
+    if (key in (step as Record<string, unknown>)) {
+      ctx.addIssue({ code: 'custom', path: [key], message });
+    }
+  }
+});
 
 /**
  * Stage schema
