@@ -573,6 +573,15 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   //   2. MetadataKeys.PARTIAL_BUILD_SPEC ('aws:cdk:pipelines:codebuildstep:partialbuildspec')
   //      — passed as `partialBuildSpec`, which can include a `cache:` section for
   //      S3 or local caching (e.g., BuildSpec.fromObject({ cache: { paths: [...] } })).
+  // Per-step buildEnvironment overrides from metadata (aws:cdk:codebuild:buildenvironment:*).
+  // A metadata-provided computeType is a raw passthrough, so normalize it through
+  // getComputeType — otherwise a friendly value like "LARGE" reaches CodeBuild verbatim
+  // and fails with "Invalid compute type provided" (it needs BUILD_GENERAL1_LARGE).
+  const rawMetaBuildEnv = metadataForBuildEnvironment(merged);
+  const metaBuildEnv = typeof rawMetaBuildEnv.computeType === 'string'
+    ? { ...rawMetaBuildEnv, computeType: getComputeType(rawMetaBuildEnv.computeType) }
+    : rawMetaBuildEnv;
+
   const step = new CodeBuildStep(id, {
     ...programmatic,
     ...networkProps,
@@ -594,7 +603,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
         ...toCodeBuildEnvVars(env),
         ...secretEnvVars,
       },
-      ...metadataForBuildEnvironment(merged),
+      ...metaBuildEnv,
     },
     ...metadataForCodeBuildStep(merged),
   });
@@ -621,6 +630,12 @@ export function getComputeType(input: string | CDKComputeType = 'SMALL'): CDKCom
   // If already a CDK ComputeType, return as-is
   if (typeof input !== 'string') {
     return input;
+  }
+
+  // Already a native CodeBuild ComputeType (e.g. "BUILD_GENERAL1_LARGE")? Accept as-is
+  // so both friendly (LARGE) and native values round-trip without falling back to SMALL.
+  if ((Object.values(CDKComputeType) as string[]).includes(input)) {
+    return input as CDKComputeType;
   }
 
   const normalized = input.toUpperCase() as ComputeType;
