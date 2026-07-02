@@ -150,8 +150,10 @@ function toSecretEnvVars(
  * Create a CodeBuild step or Shell step based on plugin configuration.
  *
  * Metadata merge order (last wins):
- *   1. Step-level metadata (from options.metadata)
- *   2. Plugin metadata (from plugin.metadata in database)
+ *   1. Plugin metadata (from plugin.metadata in database) — the plugin
+ *      author's baked-in defaults
+ *   2. Step-level metadata (from options.metadata) — the pipeline author's
+ *      per-step overrides, which are more specific and must win
  *
  * Environment merge order (last wins):
  *   1. Plugin env vars (from plugin.env)
@@ -469,7 +471,12 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   // a no-op fast path inside resolvePluginTemplates().
   const plugin = resolvePluginTemplates(options.plugin, pipelineScope);
 
-  const merged = merge(metadata ?? {}, plugin.metadata ?? {});
+  // Per-step metadata (the pipeline author's overrides, e.g. JAVA_VERSION=25)
+  // must win over the plugin's catalog `metadata` defaults, so it goes LAST.
+  // Reversing these silently dropped per-step overrides for any plugin that
+  // ships non-empty catalog metadata (plugins that carry defaults under `env`
+  // instead — like java-corretto — were unaffected, which masked this).
+  const merged = merge(plugin.metadata ?? {}, metadata ?? {});
 
   // ManualApprovalStep: no commands, env, compute, or network — just id + optional comment
   if (plugin.pluginType === PluginType.MANUAL_APPROVAL_STEP) {

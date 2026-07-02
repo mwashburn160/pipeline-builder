@@ -52,7 +52,7 @@ jest.unstable_mockModule('../src/core/network.js', () => ({
   resolveNetwork: jest.fn(() => ({})),
 }));
 
-const { merge, replaceNonAlphanumeric, extractMetadataEnv } = await import('../src/core/pipeline-helpers.js');
+const { merge, replaceNonAlphanumeric, extractMetadataEnv, createCodeBuildStep } = await import('../src/core/pipeline-helpers.js');
 
 describe('merge', () => {
   it('should merge multiple metadata objects', () => {
@@ -179,6 +179,81 @@ describe('extractMetadataEnv', () => {
       WORKDIR: './src',
       ENABLE_CACHE: 'true',
     });
+  });
+});
+
+describe('createCodeBuildStep — env var precedence', () => {
+  // Build a minimal Plugin. `buildType: 'metadata_only'` + `pluginType: 'ShellStep'`
+  // makes createCodeBuildStep take the ShellStep branch, which returns without
+  // resolving a CodeBuild image (no Config/CDK needed) — so we can capture the
+  // resolved env off the mocked ShellStep call. The env-merge logic is identical
+  // for the CodeBuildStep branch.
+  const basePlugin = (over: Record<string, unknown> = {}) => ({
+    id: '00000000-0000-0000-0000-000000000000',
+    orgId: 'system',
+    name: 'java-corretto',
+    version: '1.0.0',
+    description: null,
+    keywords: [],
+    category: 'language',
+    pluginType: 'ShellStep',
+    computeType: 'SMALL',
+    timeout: null,
+    failureBehavior: 'fail',
+    secrets: [],
+    primaryOutputDirectory: null,
+    env: {},
+    metadata: {},
+    buildArgs: {},
+    installCommands: [],
+    commands: ['echo build'],
+    dockerfile: null,
+    buildType: 'metadata_only',
+    accessModifier: 'public',
+    isDefault: true,
+    isActive: true,
+    createdBy: 'system',
+    createdAt: new Date(),
+    updatedBy: 'system',
+    updatedAt: new Date(),
+    deletedAt: null,
+    deletedBy: null,
+    ...over,
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resolvedEnv = (plugin: Record<string, unknown>, metadata: Record<string, unknown>): Record<string, string> => {
+    mockShellStep.mockClear();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    createCodeBuildStep({
+      id: 'step',
+      plugin,
+      metadata,
+      scope: undefined,
+      pipelineScope: { pipeline: {} },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (mockShellStep.mock.calls[0][1] as any).env as Record<string, string>;
+  };
+
+  it('lets per-step metadata override a plugin `env` default (JAVA_VERSION=25 wins over the plugin default of 21)', () => {
+    // Mirrors the spring-boot sample: java-corretto ships env.JAVA_VERSION="21",
+    // the pipeline step sets metadata.JAVA_VERSION="25".
+    const env = resolvedEnv(basePlugin({ env: { JAVA_VERSION: '21' } }), { JAVA_VERSION: '25' });
+    expect(env.JAVA_VERSION).toBe('25');
+  });
+
+  it('lets per-step metadata override a plugin catalog `metadata` default', () => {
+    // Regression: createCodeBuildStep previously did merge(metadata, plugin.metadata),
+    // so the catalog default silently won over the pipeline author's per-step override.
+    const env = resolvedEnv(basePlugin({ metadata: { BUILD_TOOL: 'gradle' } }), { BUILD_TOOL: 'maven' });
+    expect(env.BUILD_TOOL).toBe('maven');
+  });
+
+  it('falls back to the plugin default when the step does not override it', () => {
+    const env = resolvedEnv(basePlugin({ env: { JAVA_VERSION: '21' } }), {});
+    expect(env.JAVA_VERSION).toBe('21');
   });
 });
 
