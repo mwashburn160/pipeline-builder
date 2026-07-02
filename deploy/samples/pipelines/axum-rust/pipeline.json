@@ -64,10 +64,7 @@
               }
             },
             "position": "pre",
-            "timeout": 30,
-            "commands": [
-              "cargo build --release --all-features"
-            ]
+            "timeout": 30
           }
         ]
       },
@@ -91,10 +88,7 @@
               }
             },
             "position": "pre",
-            "timeout": 30,
-            "commands": [
-              "cargo test --all-features --workspace"
-            ]
+            "timeout": 30
           }
         ]
       },
@@ -117,10 +111,7 @@
                 "CLIPPY_FLAGS": "-D warnings"
               }
             },
-            "position": "pre",
-            "commands": [
-              "cargo clippy --all-targets --all-features -- -D warnings"
-            ]
+            "position": "pre"
           },
           {
             "plugin": {
@@ -136,10 +127,7 @@
                 "RUST_VERSION": "nightly"
               }
             },
-            "position": "post",
-            "commands": [
-              "cargo +nightly fmt --all -- --check"
-            ]
+            "position": "post"
           }
         ]
       },
@@ -161,11 +149,7 @@
                 "RUST_VERSION": "stable"
               }
             },
-            "position": "pre",
-            "commands": [
-              "cargo install cargo-audit",
-              "cargo audit"
-            ]
+            "position": "pre"
           },
           {
             "plugin": {
@@ -178,10 +162,7 @@
                 "isDefault": true
               }
             },
-            "position": "post",
-            "commands": [
-              "git secrets --scan"
-            ]
+            "position": "post"
           }
         ]
       },

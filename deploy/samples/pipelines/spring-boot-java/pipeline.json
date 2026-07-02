@@ -87,10 +87,6 @@
               }
             },
             "position": "pre",
-            "commands": [
-              "./gradlew test jacocoTestReport",
-              "./gradlew jacocoTestCoverageVerification"
-            ],
             "timeout": 45
           }
         ]
@@ -113,10 +109,7 @@
                 "CHECKSTYLE_CONFIG": "src/checkstyle/checkstyle.xml"
               }
             },
-            "position": "pre",
-            "commands": [
-              "./gradlew checkstyleMain checkstyleTest"
-            ]
+            "position": "pre"
           },
           {
             "plugin": {
@@ -128,14 +121,10 @@
                 "isActive": true,
                 "isDefault": true
               },
-              "metadata": {
-              }
+              "metadata": {}
             },
             "position": "post",
-            "failureBehavior": "warn",
-            "commands": [
-              "./gradlew spotbugsMain"
-            ]
+            "failureBehavior": "warn"
           }
         ]
       },
@@ -158,10 +147,7 @@
                 "SEMGREP_SEVERITY": "ERROR,WARNING"
               }
             },
-            "position": "pre",
-            "commands": [
-              "semgrep scan --config auto --severity ERROR,WARNING ."
-            ]
+            "position": "pre"
           },
           {
             "plugin": {
@@ -178,10 +164,7 @@
               }
             },
             "position": "pre",
-            "failureBehavior": "warn",
-            "commands": [
-              "./gradlew dependencyCheckAnalyze"
-            ]
+            "failureBehavior": "warn"
           }
         ]
       },

@@ -62,12 +62,7 @@
               }
             },
             "position": "pre",
-            "timeout": 30,
-            "commands": [
-              "bundle install",
-              "bundle exec rake db:create db:migrate",
-              "bundle exec rails test"
-            ]
+            "timeout": 30
           }
         ]
       },
@@ -90,11 +85,7 @@
                 "RUBOCOP_CONFIG": ".rubocop.yml"
               }
             },
-            "position": "pre",
-            "commands": [
-              "bundle install",
-              "bundle exec rubocop --parallel"
-            ]
+            "position": "pre"
           }
         ]
       },
@@ -116,11 +107,7 @@
                 "RUBY_VERSION": "3.3"
               }
             },
-            "position": "pre",
-            "commands": [
-              "gem install brakeman",
-              "brakeman --no-pager -w2"
-            ]
+            "position": "pre"
           },
           {
             "plugin": {
@@ -137,11 +124,7 @@
               }
             },
             "position": "pre",
-            "failureBehavior": "warn",
-            "commands": [
-              "gem install bundler-audit",
-              "bundle audit check --update"
-            ]
+            "failureBehavior": "warn"
           },
           {
             "plugin": {
@@ -154,10 +137,7 @@
                 "isDefault": true
               }
             },
-            "position": "post",
-            "commands": [
-              "git secrets --scan"
-            ]
+            "position": "post"
           }
         ]
       }

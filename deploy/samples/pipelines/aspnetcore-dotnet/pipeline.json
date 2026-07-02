@@ -62,11 +62,7 @@
               }
             },
             "position": "pre",
-            "timeout": 30,
-            "commands": [
-              "dotnet restore",
-              "dotnet build --no-restore --configuration Release"
-            ]
+            "timeout": 30
           }
         ]
       },
@@ -90,10 +86,7 @@
               }
             },
             "position": "pre",
-            "timeout": 45,
-            "commands": [
-              "dotnet test --no-build --configuration Release --logger trx --collect:\"XPlat Code Coverage\""
-            ]
+            "timeout": 45
           }
         ]
       },
@@ -115,10 +108,7 @@
                 "DOTNET_VERSION": "8.0"
               }
             },
-            "position": "pre",
-            "commands": [
-              "dotnet format --verify-no-changes --verbosity diagnostic"
-            ]
+            "position": "pre"
           },
           {
             "plugin": {
@@ -135,10 +125,7 @@
                 "TREAT_WARNINGS_AS_ERRORS": "true"
               }
             },
-            "position": "post",
-            "commands": [
-              "dotnet build /p:TreatWarningsAsErrors=true /p:EnforceCodeStyleInBuild=true"
-            ]
+            "position": "post"
           }
         ]
       },
@@ -160,11 +147,7 @@
                 "DOTNET_VERSION": "8.0"
               }
             },
-            "position": "pre",
-            "commands": [
-              "dotnet tool install --global security-scan",
-              "security-scan aspnetcore.sln --excl-proj=*test*"
-            ]
+            "position": "pre"
           },
           {
             "plugin": {
@@ -181,10 +164,7 @@
               }
             },
             "position": "pre",
-            "failureBehavior": "warn",
-            "commands": [
-              "trivy fs --severity HIGH,CRITICAL ."
-            ]
+            "failureBehavior": "warn"
           },
           {
             "plugin": {
@@ -197,10 +177,7 @@
                 "isDefault": true
               }
             },
-            "position": "post",
-            "commands": [
-              "git secrets --scan"
-            ]
+            "position": "post"
           }
         ]
       },

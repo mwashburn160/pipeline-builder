@@ -63,10 +63,7 @@
                 "GOARCH": "amd64"
               }
             },
-            "position": "pre",
-            "commands": [
-              "go build -ldflags='-s -w' -o bin/gin ./..."
-            ]
+            "position": "pre"
           }
         ]
       },
@@ -90,10 +87,7 @@
               }
             },
             "position": "pre",
-            "timeout": 20,
-            "commands": [
-              "go test -v -coverprofile=coverage.out ./..."
-            ]
+            "timeout": 20
           }
         ]
       },
@@ -116,11 +110,7 @@
                 "GOLANGCI_LINT_VERSION": "1.57.2"
               }
             },
-            "position": "pre",
-            "commands": [
-              "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.57.2",
-              "golangci-lint run ./..."
-            ]
+            "position": "pre"
           }
         ]
       },
@@ -142,11 +132,7 @@
                 "GO_VERSION": "1.22"
               }
             },
-            "position": "pre",
-            "commands": [
-              "go install golang.org/x/vuln/cmd/govulncheck@latest",
-              "govulncheck ./..."
-            ]
+            "position": "pre"
           },
           {
             "plugin": {
@@ -162,11 +148,7 @@
                 "GO_VERSION": "1.22"
               }
             },
-            "position": "pre",
-            "commands": [
-              "go install github.com/securego/gosec/v2/cmd/gosec@latest",
-              "gosec ./..."
-            ]
+            "position": "pre"
           },
           {
             "plugin": {
@@ -179,10 +161,7 @@
                 "isDefault": true
               }
             },
-            "position": "post",
-            "commands": [
-              "git secrets --scan"
-            ]
+            "position": "post"
           }
         ]
       },
