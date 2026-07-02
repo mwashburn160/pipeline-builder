@@ -496,7 +496,7 @@ async function autoCreateMissingPlugins( res: import('express').Response,
         computeType: 'MEDIUM',
         installCommands: [],
         commands: [`echo "Plugin ${name} — replace with real build commands"`],
-        dockerfile: `FROM public.ecr.aws/codebuild/amazonlinux2-x86_64-standard:5.0\nRUN echo "Plugin ${name}"`,
+        dockerfile: `FROM public.ecr.aws/codebuild/amazonlinux-x86_64-standard:6.0\nRUN echo "Plugin ${name}"`,
         accessModifier: AccessModifier.PRIVATE,
       }, {
         headers: {
