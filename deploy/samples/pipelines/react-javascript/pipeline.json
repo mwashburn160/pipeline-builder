@@ -121,7 +121,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "ESLINT_CONFIG": ".eslintrc.js",
                 "NODE_VERSION": "20"
               }
             },

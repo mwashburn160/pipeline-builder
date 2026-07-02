@@ -13,6 +13,11 @@ RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk install maven 3.9.9 && \
     sdk install gradle 9.6.0 && \
     sdk default java 25.0.3-tem"
+
+# Stable major-version alias so JAVA_VERSION is a plain major ("25"), consistent
+# with the Corretto plugins. The spec's `candidates/java/${JAVA_VERSION}` path
+# resolves through this symlink.
+RUN ln -s 25.0.3-tem "${SDKMAN_DIR}/candidates/java/25"
 ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/bin:${PATH}"
 
 # ─── Checkstyle CLI — multi-version ───
@@ -39,7 +44,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/checkstyle/checkstyle/checkstyl
 # ─── Runtime configuration defaults ───
 ENV CHECKSTYLE_VERSION=10.21.1
 ENV CHECKSTYLE_CONFIG=google
-ENV JAVA_VERSION=25.0.3-tem
+ENV JAVA_VERSION=25
 
 # Working directory for pipeline source
 WORKDIR /app

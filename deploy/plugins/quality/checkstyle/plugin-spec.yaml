@@ -60,4 +60,7 @@ commands:
 env:
   CHECKSTYLE_VERSION: "10.21.1"
   CHECKSTYLE_CONFIG: google
-  JAVA_VERSION: 21.0.10-tem
+  # Major-version knob (consistent with the Corretto plugins). The image installs
+  # Temurin 25.0.3 via SDKMAN, exposed as `candidates/java/25` by a Dockerfile
+  # symlink so the `candidates/java/${JAVA_VERSION}` path above resolves.
+  JAVA_VERSION: "25"

@@ -27,12 +27,12 @@ RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk default kotlin 2.2.21"
 ENV PATH="${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/candidates/gradle/current/bin:${SDKMAN_DIR}/candidates/kotlin/current/bin:${SDKMAN_DIR}/bin:${PATH}"
 
-# Default to Corretto 21
-ENV JAVA_HOME=/usr/lib/jvm/java-21-amazon-corretto
+# Default to Corretto 25
+ENV JAVA_HOME=/usr/lib/jvm/java-25-amazon-corretto
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Default Java version (overridden by JAVA_VERSION env var at runtime)
-ENV JAVA_VERSION=21
+ENV JAVA_VERSION=25
 
 # Default Kotlin version (overridden by KOTLIN_VERSION env var at runtime)
 ENV KOTLIN_VERSION=2.2.21

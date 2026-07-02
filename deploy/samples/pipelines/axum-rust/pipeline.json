@@ -58,8 +58,6 @@
               },
               "metadata": {
                 "RUST_VERSION": "stable",
-                "CARGO_PROFILE": "release",
-                "TARGET": "x86_64-unknown-linux-gnu",
                 "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
               }
             },

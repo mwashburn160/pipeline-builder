@@ -18,9 +18,14 @@ RUN curl -fsSL https://get.sdkman.io | bash
 RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
     sdk install java 25.0.3-tem && \
     sdk default java 25.0.3-tem"
+
+# Stable major-version alias so JAVA_VERSION is a plain major ("25"), consistent
+# with the Corretto plugins. The spec's `candidates/java/${JAVA_VERSION}` path
+# resolves through this symlink.
+RUN ln -s 25.0.3-tem "${SDKMAN_DIR}/candidates/java/25"
 ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${PATH}"
 ENV JAVA_HOME="${SDKMAN_DIR}/candidates/java/current"
-ENV JAVA_VERSION=25.0.3-tem
+ENV JAVA_VERSION=25
 
 WORKDIR /app
 CMD ["bash"]

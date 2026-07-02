@@ -36,4 +36,7 @@ commands:
     fi
   - "echo \"SpotBugs analysis complete. Reports available in spotbugs-reports/\""
 env:
-  JAVA_VERSION: "21"
+  # Match the Dockerfile, which installs ONLY Corretto 25 (JAVA_HOME points at
+  # java-25). The previous default of "21" reported a Java version the image
+  # doesn't even contain. Override per-step via metadata.JAVA_VERSION if needed.
+  JAVA_VERSION: "25"

@@ -57,7 +57,6 @@
                 "isDefault": true
               },
               "metadata": {
-                "JAVA_VERSION": "25",
                 "GRADLE_OPTS": "-Xmx8g -XX:MaxMetaspaceSize=1g",
                 "KOTLIN_VERSION": "2.2.21",
                 "GRADLE_TASK": "assemble --no-daemon --parallel"
@@ -160,7 +159,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "FAIL_ON_CVSS": "7"
+                "DC_FAIL_ON_CVSS": "7"
               }
             },
             "position": "pre",

@@ -73,7 +73,10 @@ commands:
       esac
     fi
 env:
-  JAVA_VERSION: 21.0.10-graal
+  # Major-version knob (consistent with the Corretto plugins). The image installs
+  # GraalVM 21 and 25 via SDKMAN, exposed as `candidates/java/21` and `/25` by
+  # Dockerfile symlinks; defaults to 25, override to "21" for Java 21.
+  JAVA_VERSION: "25"
   KOTLIN_VERSION: 2.2.21
   BUILD_TOOL: auto
   NATIVE_BUILD: "false"

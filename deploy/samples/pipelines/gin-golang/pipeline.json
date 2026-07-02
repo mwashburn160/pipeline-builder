@@ -106,8 +106,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "GO_VERSION": "1.22",
-                "GOLANGCI_LINT_VERSION": "1.57.2"
+                "GO_VERSION": "1.22"
               }
             },
             "position": "pre"

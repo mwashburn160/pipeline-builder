@@ -68,6 +68,7 @@ commands:
       gradle) if [ -f ./gradlew ]; then sh ./gradlew ${GRADLE_TASK:-clean build}; else gradle ${GRADLE_TASK:-clean build}; fi ;;
     esac
 env:
-  JAVA_VERSION: "21"
+  # Default Java 25; the image also installs Corretto 21 (override to "21").
+  JAVA_VERSION: "25"
   KOTLIN_VERSION: 2.2.21
   BUILD_TOOL: auto
