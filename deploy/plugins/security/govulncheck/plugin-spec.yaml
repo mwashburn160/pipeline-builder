@@ -15,17 +15,20 @@ secrets: []
 primaryOutputDirectory: vuln-reports
 dockerfile: Dockerfile
 installCommands:
+  # Go + govulncheck are baked into pipeline-go-base / this plugin's image.
   - test -d vuln-reports || mkdir -p vuln-reports
-  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
-  - go version
-  - go install golang.org/x/vuln/cmd/govulncheck@latest
+  - go version && govulncheck -version
+  # Download project dependencies (not tool setup).
   - if [ -f go.mod ]; then go mod download; fi
 commands:
   - |
     set -e
     echo "Running govulncheck..."
+    # Report-only JSON (always exits 0; never gates).
     govulncheck -json ./... > vuln-reports/govulncheck.json 2>&1 || true
-    govulncheck ./... 2>&1 | tee vuln-reports/govulncheck.log || true
+    # Plain-text run gates: run-logged streams to console + log and preserves
+    # govulncheck's real exit code (non-zero on findings).
+    run-logged vuln-reports/govulncheck.log -- govulncheck ./...
   - "echo \"govulncheck complete. Reports available in vuln-reports/\""
-env:
-  GO_VERSION: "1.24.13"
+# env: GO_VERSION is baked into pipeline-go-base (single-version model); nothing
+# reads it at runtime, so it is intentionally omitted.

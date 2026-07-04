@@ -98,6 +98,8 @@ commands:
           HOTSWAP_ARG="--hotswap-fallback"
           echo "Hotswap mode enabled (with fallback to full deploy)"
         fi
+        # Capture cdk's real exit (POSIX has no PIPESTATUS): redirect, then cat.
+        _rc=0
         cdk deploy ${STACK_ARG} \
           --require-approval ${CDK_REQUIRE_APPROVAL} \
           --outputs-file cdk-output/${CDK_OUTPUTS_FILE} \
@@ -105,17 +107,22 @@ commands:
           ${CONTEXT_ARG} \
           --no-notices \
           --ci \
-          2>&1 | tee cdk-output/cdk-deploy.log
+          > cdk-output/cdk-deploy.log 2>&1 || _rc=$?
+        cat cdk-output/cdk-deploy.log
+        [ "${_rc:-0}" -eq 0 ]
         echo "Stack outputs:"
         cat cdk-output/${CDK_OUTPUTS_FILE} 2>/dev/null || echo "No outputs"
         ;;
       destroy)
         echo "Running CDK destroy..."
+        _rc=0
         cdk destroy ${STACK_ARG} \
           --force \
           ${CONTEXT_ARG} \
           --no-notices \
-          2>&1 | tee cdk-output/cdk-destroy.log
+          > cdk-output/cdk-destroy.log 2>&1 || _rc=$?
+        cat cdk-output/cdk-destroy.log
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       synth)
         echo "Running CDK synth..."
@@ -133,7 +140,7 @@ commands:
   - "echo \"CDK ${CDK_DEPLOY_ACTION} complete. Output available in cdk-output/\""
 env:
   CDK_DEFAULT_REGION: ${AWS_REGION}
-  CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}
+  CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}  # NOTE: inert unless AWS_ACCOUNT_ID is exported in the build env; empty otherwise (CDK falls back to STS-resolved account)
   CDK_DEPLOY_ACTION: deploy
   CDK_STACK: ""
   CDK_CONTEXT: ""

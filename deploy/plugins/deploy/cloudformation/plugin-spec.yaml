@@ -34,16 +34,23 @@ commands:
       echo "Auto-detected template: ${CFN_TEMPLATE}"
     fi
     echo "Linting template: ${CFN_TEMPLATE}"
+    # First invocation only produces the JSON report artifact (|| true kept so the
+    # artifact is always written). The second invocation is the gate: lint failures
+    # must fail the build (default action is validate).
     cfn-lint ${CFN_TEMPLATE} --format json > cfn-output/cfn-lint-results.json 2>&1 || true
-    cfn-lint ${CFN_TEMPLATE} || true
+    cfn-lint ${CFN_TEMPLATE}
   # Validate with AWS API
   - |
     set -e
     echo "Validating template with AWS CloudFormation..."
+    # Gate on the AWS-side validation (POSIX has no PIPESTATUS): capture exit, cat, gate.
+    _rc=0
     aws cloudformation validate-template \
       --template-body file://${CFN_TEMPLATE} \
       --region ${CFN_REGION} \
-      > cfn-output/validate-result.json 2>&1 || true
+      > cfn-output/validate-result.json 2>&1 || _rc=$?
+    cat cfn-output/validate-result.json
+    [ "${_rc:-0}" -eq 0 ]
   # Deploy action
   - |
     set -e

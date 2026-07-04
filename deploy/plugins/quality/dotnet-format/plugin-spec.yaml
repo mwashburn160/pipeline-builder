@@ -15,14 +15,13 @@ secrets: []
 primaryOutputDirectory: format-reports
 dockerfile: Dockerfile
 installCommands:
+  # .NET SDK (with `dotnet format`) is baked into pipeline-dotnet-base.
   - test -d format-reports || mkdir -p format-reports
   - dotnet --version
 commands:
   - |
     set -e
     echo "Running dotnet format check..."
-    dotnet format --verify-no-changes --verbosity diagnostic \
-      2>&1 | tee format-reports/dotnet-format.log || true
+    run-logged format-reports/dotnet-format.log -- \
+      dotnet format --verify-no-changes --verbosity diagnostic
   - "echo \"Format check complete. Reports available in format-reports/\""
-env:
-  DOTNET_VERSION: "9.0"

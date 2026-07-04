@@ -15,19 +15,19 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
+  # Ruby + brakeman are baked into pipeline-ruby-base (single pinned version).
   - test -d security-reports || mkdir -p security-reports
-  - rbenv global ${RUBY_VERSION} && ruby --version
-  - gem install brakeman
+  - ruby --version && brakeman --version
 commands:
   - |
     set -e
     echo "Running Brakeman security scan..."
+    # Report-only JSON (always written; never gates).
     brakeman --no-pager -w${BRAKEMAN_CONFIDENCE} \
       -f json -o security-reports/brakeman-results.json \
       2>&1 || true
-    brakeman --no-pager -w${BRAKEMAN_CONFIDENCE} \
-      2>&1 | tee security-reports/brakeman.log || true
+    run-logged security-reports/brakeman.log -- brakeman --no-pager -w${BRAKEMAN_CONFIDENCE}
   - "echo \"Brakeman scan complete. Reports available in security-reports/\""
 env:
-  RUBY_VERSION: "4.0.1"
+  # RUBY_VERSION is baked into pipeline-ruby-base (single-version model).
   BRAKEMAN_CONFIDENCE: "2"

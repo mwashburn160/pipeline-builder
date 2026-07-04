@@ -39,9 +39,17 @@ commands:
       exit 1
     fi
     REGION="${GCP_REGION:-us-central1}"
-    # Authenticate with service account
+    # Authenticate with service account.
+    # GOOGLE_APPLICATION_CREDENTIALS is injected as the service-account JSON *value*
+    # (a CodeBuild secret), but gcloud --key-file and the ADC libraries expect a
+    # filesystem PATH. Materialize the JSON to a temp file, then repoint the env var
+    # at that path so both --key-file and any downstream ADC usage resolve correctly.
     echo "Authenticating with GCP..."
-    gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}" \
+    GCP_KEY_FILE=/tmp/gcp-key.json
+    printf '%s' "${GOOGLE_APPLICATION_CREDENTIALS}" > "${GCP_KEY_FILE}"
+    chmod 600 "${GCP_KEY_FILE}"
+    export GOOGLE_APPLICATION_CREDENTIALS="${GCP_KEY_FILE}"
+    gcloud auth activate-service-account --key-file="${GCP_KEY_FILE}" \
       2>&1 | tee gcloud-output/auth.log
     gcloud config set project "${GCP_PROJECT}"
     gcloud config set compute/region "${REGION}"
@@ -50,8 +58,12 @@ commands:
     case "${DEPLOY_TYPE}" in
       app-engine)
         echo "Deploying to App Engine..."
+        # Capture gcloud's real exit (POSIX has no PIPESTATUS): redirect, then cat + gate.
+        _rc=0
         gcloud app deploy --quiet \
-          2>&1 | tee gcloud-output/deploy.log || true
+          > gcloud-output/deploy.log 2>&1 || _rc=$?
+        cat gcloud-output/deploy.log
+        [ "${_rc:-0}" -eq 0 ]
         gcloud app describe --format=json > gcloud-output/app-info.json 2>/dev/null || true
         ;;
       cloud-run)
@@ -60,10 +72,13 @@ commands:
           exit 1
         fi
         echo "Deploying to Cloud Run: ${SERVICE_NAME}..."
+        _rc=0
         gcloud run deploy "${SERVICE_NAME}" \
           --region "${REGION}" \
           --quiet \
-          2>&1 | tee gcloud-output/deploy.log || true
+          > gcloud-output/deploy.log 2>&1 || _rc=$?
+        cat gcloud-output/deploy.log
+        [ "${_rc:-0}" -eq 0 ]
         gcloud run services describe "${SERVICE_NAME}" --region "${REGION}" --format=json \
           > gcloud-output/service-info.json 2>/dev/null || true
         ;;
@@ -78,8 +93,11 @@ commands:
           2>&1 | tee gcloud-output/cluster-auth.log
         echo "Applying Kubernetes manifests..."
         MANIFEST_PATH="${K8S_MANIFEST_PATH:-.}"
+        _rc=0
         kubectl apply -f "${MANIFEST_PATH}" \
-          2>&1 | tee gcloud-output/deploy.log || true
+          > gcloud-output/deploy.log 2>&1 || _rc=$?
+        cat gcloud-output/deploy.log
+        [ "${_rc:-0}" -eq 0 ]
         kubectl get pods --all-namespaces -o json > gcloud-output/pods.json 2>/dev/null || true
         ;;
       compute)

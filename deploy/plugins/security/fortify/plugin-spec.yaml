@@ -54,8 +54,7 @@ commands:
         fcli fod sast-scan start \
           --release "${FORTIFY_APP_NAME}:${FORTIFY_RELEASE}" \
           --file . \
-          --store scan_id \
-          || true
+          --store scan_id
         echo "Scan submitted. Use Fortify on Demand portal to view results."
         fcli fod session logout
         ;;
@@ -66,8 +65,7 @@ commands:
           --token "${FORTIFY_SSC_TOKEN}"
         fcli ssc artifact upload \
           --appversion "${FORTIFY_APP_NAME}:${FORTIFY_RELEASE}" \
-          --file . \
-          || true
+          --file .
         fcli ssc session logout
         ;;
     esac

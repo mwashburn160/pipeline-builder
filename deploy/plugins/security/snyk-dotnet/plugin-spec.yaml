@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
+  # .NET SDK is baked into pipeline-dotnet-base (single pinned version).
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - dotnet --version
@@ -25,10 +26,9 @@ installCommands:
     set -e
     if ls *.sln *.csproj 1>/dev/null 2>&1; then dotnet restore; fi
 commands:
-  - snyk auth ${SNYK_TOKEN}
-  - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
-  - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true
+  - run-logged snyk-reports/snyk-test.log -- snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json
+  - run-logged snyk-reports/snyk-code.log -- snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json
   - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
 env:
+  # DOTNET_VERSION is baked into pipeline-dotnet-base (single-version model).
   SNYK_SEVERITY_THRESHOLD: high
-  DOTNET_VERSION: "9.0"

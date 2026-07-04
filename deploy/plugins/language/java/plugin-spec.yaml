@@ -15,16 +15,12 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Java and Kotlin version selection. CodeBuild runs each command under /bin/sh
-  # (dash), where SDKMAN's bash-only `sdk` function and `source` are unavailable
-  # (exit 127), so put the requested versions on PATH directly. The image installs
-  # each version under ${SDKMAN_DIR}/candidates/<tool>/<version>/bin and already has
-  # the defaults' `current` symlink on PATH, so an unknown override falls back.
-  - export PATH="${SDKMAN_DIR}/candidates/java/${JAVA_VERSION}/bin:${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"; java -version; kotlin -version
+  # Single pinned Temurin JDK + Kotlin are baked into the image (SDKMAN `current`
+  # symlinks on PATH); nothing to switch at runtime.
+  - java -version; kotlin -version
   # Auto-detect or use explicit build tool, then install dependencies
   - |
     set -e
-    export PATH="${SDKMAN_DIR}/candidates/java/${JAVA_VERSION}/bin:${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"
     TOOL="${BUILD_TOOL}"
     if [ "${TOOL}" = "auto" ]; then
       if [ -f pom.xml ]; then
@@ -48,19 +44,17 @@ installCommands:
 commands:
   - |
     set -e
-    export PATH="${SDKMAN_DIR}/candidates/java/${JAVA_VERSION}/bin:${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"
     TOOL="${BUILD_TOOL}"
     if [ "${TOOL}" = "auto" ]; then
       if [ -f pom.xml ]; then TOOL="maven"; else TOOL="gradle"; fi
     fi
     case "${TOOL}" in
-      maven)  if [ -f ./mvnw ]; then sh ./mvnw ${MAVEN_GOAL:-clean verify} -B; else mvn ${MAVEN_GOAL:-clean verify} -B; fi ;;
-      gradle) if [ -f ./gradlew ]; then sh ./gradlew ${GRADLE_TASK:-clean build}; else gradle ${GRADLE_TASK:-clean build}; fi ;;
+      maven)  if [ -f ./mvnw ]; then run-logged build.log -- sh ./mvnw ${MAVEN_GOAL:-clean verify} -B; else run-logged build.log -- mvn ${MAVEN_GOAL:-clean verify} -B; fi ;;
+      gradle) if [ -f ./gradlew ]; then run-logged build.log -- sh ./gradlew ${GRADLE_TASK:-clean build}; else run-logged build.log -- gradle ${GRADLE_TASK:-clean build}; fi ;;
     esac
 env:
-  # Major-version knob (consistent with the Corretto plugins). The image installs
-  # Temurin 21 and 25 via SDKMAN, exposed as `candidates/java/21` and `/25` by
-  # Dockerfile symlinks; defaults to 25, override to "21" for Java 21.
-  JAVA_VERSION: "25"
-  KOTLIN_VERSION: 2.2.21
+  # JDK + Kotlin are single-versioned in the image (bump the Dockerfile build-args
+  # to change); the build-tool selection knobs remain plugin-level.
   BUILD_TOOL: auto
+  MAVEN_GOAL: "clean verify"
+  GRADLE_TASK: "clean build"

@@ -18,18 +18,17 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
+  # Ruby + bundler are baked into pipeline-ruby-base (single pinned version).
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
     set -e
-    rbenv install -s ${RUBY_VERSION} && rbenv global ${RUBY_VERSION}
     gem install bundler
     if [ -f Gemfile.lock ]; then bundle install; fi
 commands:
-  - snyk auth ${SNYK_TOKEN}
-  - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
-  - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true
+  - run-logged snyk-reports/snyk-test.log -- snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json
+  - run-logged snyk-reports/snyk-code.log -- snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json
   - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
 env:
+  # RUBY_VERSION is baked into pipeline-ruby-base (single-version model).
   SNYK_SEVERITY_THRESHOLD: high
-  RUBY_VERSION: "4.0.1"

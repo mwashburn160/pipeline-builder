@@ -10,6 +10,7 @@ set -euo pipefail
 #   ./init-platform.sh ec2                                     # EC2 (requires PLATFORM_BASE_URL or stack name)
 #   ./init-platform.sh eks                                     # EKS (port-forwards to nginx via kubectl; or set PLATFORM_BASE_URL)
 #   ./init-platform.sh --cleanup ec2                           # Clean up plugin.zip + image.tar after upload
+#   ./init-platform.sh --force ec2                             # Force rebuild of base images + CodeBuild bootstrap (ignore caches)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Capture whether the caller EXPLICITLY set PLATFORM_BASE_URL *before* common.sh
@@ -27,16 +28,26 @@ CLEANUP_AFTER_UPLOAD=false
 # still get loaded; the failed ones are skipped by load-plugins (no image.tar
 # = no upload, no spurious 500).
 CONTINUE_ON_BUILD_FAILURE=false
+# --force: rebuild the base images AND the CodeBuild bootstrap image from scratch,
+# ignoring the docker-cache / registry-tag idempotency skips. Base images honor this
+# via FORCE_REBUILD (already threaded to build-plugin-images.sh --force); the bootstrap
+# image gets --force + FORCE_PUSH so both the local build and the remote republish rerun.
+FORCE_REBUILD_ALL=false
 
 # Parse flags before the target argument
 while [ $# -gt 0 ]; do
   case "$1" in
     --cleanup) CLEANUP_AFTER_UPLOAD=true; shift ;;
     --continue-on-build-failure) CONTINUE_ON_BUILD_FAILURE=true; shift ;;
+    --force) FORCE_REBUILD_ALL=true; shift ;;
     -*) echo "Unknown flag: $1" >&2; exit 1 ;;
     *) break ;;
   esac
 done
+
+# --force implies base-image rebuild: reuse the existing FORCE_REBUILD plumbing that the
+# build_image / prebuilt branches already pass through to build-plugin-images.sh --force.
+[ "$FORCE_REBUILD_ALL" = true ] && FORCE_REBUILD=true
 
 TARGET="${1:-docker}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"   # env-overridable, matching push-base-images.sh
@@ -216,8 +227,18 @@ if [ -z "$BUILD_BOOTSTRAP" ] && [ -t 0 ]; then
   read -r BUILD_BOOTSTRAP
   BUILD_BOOTSTRAP="${BUILD_BOOTSTRAP:-y}"
 fi
+# With --force, rebuild the local bootstrap image (--force) and republish it even when
+# the remote tag already exists (FORCE_PUSH) — otherwise the idempotency skips would keep
+# a stale image.
+BOOTSTRAP_ARGS=""
+BOOTSTRAP_FORCE_PUSH="${FORCE_PUSH:-}"
+if [ "$FORCE_REBUILD_ALL" = true ]; then
+  BOOTSTRAP_ARGS="--force"
+  BOOTSTRAP_FORCE_PUSH=true
+fi
 case "$BUILD_BOOTSTRAP" in
-  y|Y|yes|true) DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-codebuild-bootstrap.sh" ;;
+  # shellcheck disable=SC2086
+  y|Y|yes|true) DEPLOY_TARGET="$TARGET" FORCE_PUSH="$BOOTSTRAP_FORCE_PUSH" "$SCRIPT_DIR/build-codebuild-bootstrap.sh" $BOOTSTRAP_ARGS ;;
   *)            echo "  Skipping CodeBuild bootstrap image." ;;
 esac
 

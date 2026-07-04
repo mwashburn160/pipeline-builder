@@ -2,12 +2,11 @@
 #
 # Built tag: pipeline-trivy-base:1.0
 #
-# Used as the FROM by 6 of 7 trivy language variants (trivy-nodejs, -go,
-# -java, -dotnet, -ruby, -rust). trivy-python opted into a multistage
-# build with pyenv, so it doesn't inherit this base.
+# Used as the FROM by the single language-agnostic `trivy` plugin.
+# `trivy fs`/`trivy config` scan lockfiles and IaC/config statically, so no
+# language runtime is layered on top — the plugin's Dockerfile is just
+# `FROM pipeline-trivy-base:1.0` + WORKDIR/CMD.
 # Bundles two pinned trivy versions for runtime selection.
-#
-# Each variant adds only its language toolchain in ~10 lines.
 
 ARG TRIVY_VERSION=0.69.3
 ARG TRIVY_PREV_VERSION=0.68.2

@@ -715,6 +715,11 @@ PARALLEL_JOBS=2 bash bin/init-platform.sh docker
 # Force rebuild all prebuilt images even if image.tar exists
 PLUGIN_BUILD_STRATEGY=prebuilt FORCE_REBUILD=true bash bin/init-platform.sh ec2
 
+# Force a from-scratch rebuild of the base images AND the CodeBuild bootstrap
+# image, bypassing the docker-cache / registry-tag skips (equivalent to
+# FORCE_REBUILD=true plus --force/FORCE_PUSH on the bootstrap build)
+bash bin/init-platform.sh --force ec2
+
 # Clean up plugin.zip and image.tar after upload (reclaim disk space)
 ./deploy/bin/init-platform.sh --cleanup local
 ./deploy/bin/load-plugins.sh --rebuild --cleanup
@@ -740,6 +745,8 @@ sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-b
 | `PLUGIN_S3_CLEAR` | `false` | Clear S3 bucket before upload (S3 strategy only) |
 
 Use `--cleanup` flag on `init-platform.sh` or `load-plugins.sh` to remove `plugin.zip` and `image.tar` files after upload. Useful on EC2 where prebuilt images can consume 25-75GB of disk.
+
+Use `--force` on `init-platform.sh` to rebuild the base images and the CodeBuild bootstrap image from scratch, ignoring the docker-cache / registry-tag idempotency skips (drives `FORCE_REBUILD` for the base images and `--force` + `FORCE_PUSH` for the bootstrap image). Use it after changing a base `Dockerfile` or the bootstrap image contents, when the cached tag would otherwise be reused.
 
 | Script | Purpose |
 |--------|---------|

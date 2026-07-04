@@ -93,6 +93,7 @@ env:
   LAMBDA_PACKAGE_TYPE: zip
   LAMBDA_SOURCE_DIR: "."
   LAMBDA_IMAGE_URI: ""
-  LAMBDA_HANDLER: ""
+  LAMBDA_HANDLER: ""  # NOTE: inert — declared but never referenced by any command; kept for forward compatibility / to avoid breaking pipelines that set it
+
   LAMBDA_ALIAS: ""
   LAMBDA_PUBLISH: "false"

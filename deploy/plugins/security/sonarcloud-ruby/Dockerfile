@@ -1,25 +1,19 @@
 # SonarCloud Security Plugin — Ruby scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Inherits from the sonarcloud family base image (pipeline-sonarcloud-base:1.0)
-# which provides sonarcloud CLI + (where applicable) Node.js. This file
-# only adds the Ruby toolchain.
+# Two ingredients, one image:
+#   • the Ruby runtime — from pipeline-ruby-base:1.0 (shared single-version base)
+#   • the sonar-scanner CLI — multistage COPY from the upstream sonarsource image
+# sonar-scanner analyses source directly (it ships its own bundled JRE); the
+# runtime is present so project dependencies resolve/build before the scan.
 
-FROM pipeline-sonarcloud-base:1.0
+FROM pipeline-ruby-base:1.0
 
-# ─── Ruby via rbenv ───
-# rbenv compiles Ruby (and its bundled openssl) from source — needs the
-# C build chain. Without these the install fails with "openssl-3.0.18
-# config" errors. Same dep list as language/ruby/Dockerfile.
-RUN apt-retry-install build-essential libssl-dev zlib1g-dev libreadline-dev libyaml-dev libffi-dev
-
-ENV RBENV_ROOT=/opt/rbenv
-RUN git clone --depth 1 https://github.com/rbenv/rbenv.git ${RBENV_ROOT} && \
-    git clone --depth 1 https://github.com/rbenv/ruby-build.git ${RBENV_ROOT}/plugins/ruby-build
-RUN ${RBENV_ROOT}/bin/rbenv install 4.0.1 && \
-    ${RBENV_ROOT}/bin/rbenv global 4.0.1
-ENV PATH="${RBENV_ROOT}/shims:${RBENV_ROOT}/bin:${PATH}"
-ENV RUBY_VERSION=4.0.1
+# Pinned sonar-scanner CLI from the upstream image (COPY source only). The
+# distribution bundles its own JRE, so it runs on any language base.
+ARG SONAR_SCANNER_VERSION=12.0
+COPY --from=sonarsource/sonar-scanner-cli:${SONAR_SCANNER_VERSION} /opt/sonar-scanner /opt/sonar-scanner
+ENV PATH="/opt/sonar-scanner/bin:${PATH}"
 
 WORKDIR /app
 CMD ["bash"]

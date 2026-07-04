@@ -1,5 +1,5 @@
 name: helm-push
-description: Helm chart packaging and push plugin for deploying charts to OCI registries, ChartMuseum, or S3 using AWS CDK CodeBuildStep
+description: Helm chart packaging and push plugin for deploying charts to OCI registries or ChartMuseum using AWS CDK CodeBuildStep
 keywords:
   - helm
   - chart
@@ -36,10 +36,23 @@ commands:
     case "${HELM_REGISTRY_TYPE}" in
       oci)
         echo "Pushing to OCI registry: ${HELM_REGISTRY}"
+        OCI_HOST=$(echo "${HELM_REGISTRY}" | sed -e 's#^oci://##' -e 's#/.*$##')
+        case "${OCI_HOST}" in
+          *.dkr.ecr.*.amazonaws.com)
+            echo "Authenticating with ECR OCI registry: ${OCI_HOST}"
+            ECR_REGION=$(echo "${OCI_HOST}" | cut -d. -f4)
+            aws ecr get-login-password --region "${ECR_REGION}" \
+              | helm registry login --username AWS --password-stdin "${OCI_HOST}"
+            ;;
+        esac
         helm push "${CHART_FILE}" "${HELM_REGISTRY}"
         ;;
       chartmuseum)
         echo "Pushing to ChartMuseum: ${HELM_REGISTRY}"
+        if ! helm cm-push --help >/dev/null 2>&1; then
+          echo "ERROR: helm cm-push plugin is not installed (required for chartmuseum pushes)"
+          exit 1
+        fi
         helm cm-push "${CHART_FILE}" "${HELM_REGISTRY}"
         ;;
       *)

@@ -18,7 +18,7 @@ flowchart LR
 
     SAST --> snyk-nodejs["snyk-nodejs (+ 6 lang variants)"]
     SAST --> sonarcloud-nodejs["sonarcloud-nodejs (+ 6 lang variants)"]
-    SAST --> trivy-nodejs["trivy-nodejs (+ 6 lang variants)"]
+    SAST --> trivy["trivy (filesystem + config, language-agnostic)"]
     SAST --> veracode & checkmarx & fortify
     SAST --> semgrep
 
@@ -33,7 +33,7 @@ flowchart LR
     LangSec --> brakeman & bundler-audit & cargo-audit
     LangSec --> dotnet-security-scan & npm-audit
 
-    snyk-nodejs & sonarcloud-nodejs & trivy-nodejs & veracode & checkmarx & fortify & semgrep --> Reports([Security Reports])
+    snyk-nodejs & sonarcloud-nodejs & trivy & veracode & checkmarx & fortify & semgrep --> Reports([Security Reports])
     git-secrets & gitguardian --> Reports
     dependency-check & mend & prisma-cloud & license-checker --> Reports
     docker-lint --> Reports
@@ -58,13 +58,7 @@ flowchart LR
 | sonarcloud-dotnet | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `DOTNET_VERSION` |
 | sonarcloud-ruby | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `RUBY_VERSION` |
 | sonarcloud-rust | SAST | SMALL | `SONAR_TOKEN` | `SONAR_SCANNER_VERSION`, `RUST_VERSION` |
-| trivy-nodejs | SAST/SCA/IaC | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `TRIVY_FORMAT` |
-| trivy-python | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `PYTHON_VERSION` |
-| trivy-java | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `JAVA_VERSION` |
-| trivy-go | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `GO_VERSION` |
-| trivy-dotnet | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `DOTNET_VERSION` |
-| trivy-ruby | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `RUBY_VERSION` |
-| trivy-rust | SAST/SCA | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `RUST_VERSION` |
+| trivy | SAST/SCA/IaC | SMALL | None | `TRIVY_VERSION`, `TRIVY_SEVERITY`, `TRIVY_FORMAT` |
 | dependency-check | SCA | MEDIUM | `NVD_API_KEY` (optional) | `DC_VERSION`, `DC_FAIL_ON_CVSS`, `DC_FORMAT` |
 | semgrep | SAST | MEDIUM | `SEMGREP_APP_TOKEN` (optional) | `SEMGREP_RULES`, `SEMGREP_SEVERITY`, `SEMGREP_FORMAT` |
 
@@ -107,13 +101,13 @@ flowchart LR
 
 ---
 
-Security plugins with multi-language support (snyk, trivy, sonarcloud) are split into language-specific variants. The base plugin (e.g., `snyk-nodejs`, `trivy-nodejs`, `sonarcloud-nodejs`) covers Node.js projects. Use the language-suffixed variant (e.g., `snyk-python`, `trivy-java`) for other languages — each variant includes the security tool plus the appropriate language runtime.
+Some security plugins with multi-language support (snyk, sonarcloud) are split into language-specific variants. The base plugin (e.g., `snyk-nodejs`, `sonarcloud-nodejs`) covers Node.js projects. Use the language-suffixed variant (e.g., `snyk-python`, `sonarcloud-java`) for other languages — each variant includes the security tool plus the appropriate language runtime. `trivy` is a single language-agnostic plugin: `trivy fs`/`trivy config` scan lockfiles and IaC/config statically, so no language runtime is required.
 
 Several plugins bundle more than one engine for broader coverage out of the box:
 
 - `git-secrets` runs both **Gitleaks** and **TruffleHog**, so leaked credentials are caught by two independent detectors.
 - `docker-lint` pairs **Hadolint** (Dockerfile best practices) with **Dockle** (CIS benchmark compliance).
 - `checkmarx` adds **KICS** for infrastructure-as-code scanning alongside its SAST/SCA engines; `prisma-cloud` bundles **Checkov** for IaC compliance.
-- `trivy-*` variants scan both dependencies (`trivy fs`) and IaC misconfigurations (`trivy config`) in a single run.
+- `trivy` scans both dependencies (`trivy fs`) and IaC misconfigurations (`trivy config`) in a single run.
 
 Each plugin writes its findings to a dedicated report directory (e.g., `snyk-reports/`, `trivy-reports/`), so results are preserved as build artifacts regardless of outcome.

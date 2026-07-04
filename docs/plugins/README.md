@@ -91,7 +91,7 @@ flowchart LR
         direction TB
         snyk-nodejs
         sonarcloud-nodejs
-        trivy-nodejs
+        trivy
         checkmarx
         veracode
         fortify
@@ -407,18 +407,11 @@ env:
 
 ## Version Management
 
-All tool versions are centralized in [`deploy/plugins/plugin-versions.yaml`](../../deploy/plugins/plugin-versions.yaml). This is the single source of truth for every tool version across all plugins.
-
-### Install Types (ranked by fragility, lowest to highest)
-
-| Type | Method | Example |
-|------|--------|---------|
-| `copy_from` | `COPY --from=image:tag` — no URLs, most resilient | hadolint, trivy, k6 |
-| `npm` / `pip` | Package manager install | snyk, codecov, checkov |
-| `curl_tar` | `curl \| tar` from GitHub release tarball | helm, checkmarx CLI |
-| `curl_bin` | `curl -o` single binary download | codacy, kubectl |
-| `curl_zip` | `curl` + `unzip` | rain, sonar-scanner |
-| `script` | Vendor install script (least resilient) | veracode |
+Runtime and tool versions are pinned **inline** as `ARG` in the Dockerfiles — the
+runtime in each ecosystem base (`deploy/plugins/_base/_<eco>-base/Dockerfile`) and
+each plugin's own tool in that plugin's `Dockerfile`. That is the single source of
+truth. (The former centralized `plugin-versions.yaml` matrix + `generate-plugins.sh`
+verifier were retired once plugins became thin `FROM pipeline-<eco>-base` layers.)
 
 ### Dockerfile Patterns
 
@@ -436,27 +429,18 @@ Key rules:
 - `ARG` before `FROM` for image tag parameterization
 - Re-declare `ARG` after `FROM` for use in the build stage
 - Use `curl` (not `wget`) for downloads
-- Version ARG defaults must match `plugin-versions.yaml` defaults
+- The `ARG <TOOL>_VERSION` default IS the pin — nothing else to keep in sync
 
-### Verification Scripts
+### Verification
 
 ```bash
-# Verify all tool versions are downloadable/pullable
-./deploy/bin/generate-plugins.sh --verify
-
-# Check a single tool
-./deploy/bin/generate-plugins.sh --check-one trivy
-
-# Dump the parsed version matrix
-./deploy/bin/generate-plugins.sh --dump
-
-# Verify URLs directly from Dockerfiles
-./deploy/bin/verify-plugin-urls.sh
+# Build a base or plugin — the build fails loudly if a pinned version doesn't resolve
+./deploy/bin/build-plugin-images.sh --bases-only
+./deploy/bin/verify-plugin-urls.sh          # sanity-check download URLs in Dockerfiles
 ```
 
 ### Updating a Version
 
-1. Edit the version in `deploy/plugins/plugin-versions.yaml`
-2. Update the corresponding Dockerfile `ARG` default
-3. Run `./deploy/bin/generate-plugins.sh --check-one <tool>` to verify
-4. Re-zip the plugin: `cd deploy/plugins/<category>/<plugin> && rm plugin.zip && zip -r plugin.zip . -x '*.zip'`
+1. Edit the `ARG` default — the runtime in the ecosystem base
+   (`_base/_<eco>-base/Dockerfile`), or a tool in that plugin's `Dockerfile`.
+2. Rebuild + test (`build-plugin-images.sh` / `test-plugins.sh --build`).

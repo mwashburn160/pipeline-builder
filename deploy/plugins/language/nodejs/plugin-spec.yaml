@@ -15,16 +15,11 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Node.js version selection. CodeBuild runs each command under /bin/sh (dash),
-  # where nvm's bash-only function and `source` are unavailable (exit 127), so put
-  # the requested version on PATH directly. The image pre-installs the latest +
-  # previous LTS under ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin (v22, v24) and
-  # has the default (v24) on PATH, so an unknown override falls back.
-  - export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"; node --version
-  # Auto-detect or use explicit package manager, then install dependencies
+  # Node + npm are baked into pipeline-node-base (single pinned version).
+  - node --version && npm --version
+  # Auto-detect or use explicit package manager, then install project deps.
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     PKG="${PACKAGE_MANAGER}"
     if [ "${PKG}" = "auto" ]; then
       if [ -f pnpm-lock.yaml ]; then
@@ -56,7 +51,6 @@ installCommands:
 commands:
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     PKG="${PACKAGE_MANAGER}"
     if [ "${PKG}" = "auto" ]; then
       if [ -f pnpm-lock.yaml ]; then PKG="pnpm"
@@ -69,5 +63,4 @@ commands:
       pnpm) pnpm build && pnpm test ;;
     esac
 env:
-  NODE_VERSION: "24"
   PACKAGE_MANAGER: auto

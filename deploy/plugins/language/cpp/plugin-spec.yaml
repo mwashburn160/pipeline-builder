@@ -42,7 +42,16 @@ installCommands:
         mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} ..
         ;;
       meson)
-        meson setup build --buildtype=$(echo ${BUILD_TYPE} | tr '[:upper:]' '[:lower:]')
+        # Map cmake-style BUILD_TYPE names to valid meson buildtypes
+        # (e.g. RelWithDebInfo -> debugoptimized, which meson accepts).
+        case "${BUILD_TYPE}" in
+          Debug) MESON_BUILDTYPE=debug ;;
+          Release) MESON_BUILDTYPE=release ;;
+          RelWithDebInfo) MESON_BUILDTYPE=debugoptimized ;;
+          MinSizeRel) MESON_BUILDTYPE=minsize ;;
+          *) MESON_BUILDTYPE=$(echo ${BUILD_TYPE} | tr '[:upper:]' '[:lower:]') ;;
+        esac
+        meson setup build --buildtype=${MESON_BUILDTYPE}
         ;;
       make)
         echo "Make project detected, no configure step needed."
@@ -72,7 +81,13 @@ commands:
         ;;
       make)
         make -j$(nproc)
-        make test 2>/dev/null || make check 2>/dev/null || echo "No test target found"
+        if make -n test >/dev/null 2>&1; then
+          make test
+        elif make -n check >/dev/null 2>&1; then
+          make check
+        else
+          echo "No test target found"
+        fi
         ;;
     esac
 env:

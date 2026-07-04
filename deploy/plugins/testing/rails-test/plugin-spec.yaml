@@ -1,5 +1,5 @@
 name: rails-test
-description: Rails test runner plugin for executing Minitest and RSpec test suites with multi-database support using AWS CDK CodeBuildStep
+description: Rails test runner plugin for executing Minitest and RSpec test suites using AWS CDK CodeBuildStep
 keywords:
   - ruby
   - rails
@@ -15,8 +15,10 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  # Ruby/gem/bundle are baked into pipeline-ruby-base (single pinned version);
+  # the test framework comes from the project's Gemfile via `bundle install`.
   - test -d test-reports || mkdir -p test-reports
-  - rbenv global ${RUBY_VERSION} && ruby --version
+  - ruby --version
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
   - |
@@ -26,13 +28,10 @@ commands:
   - |
     set -e
     echo "Running Rails tests..."
-    bundle exec rails test \
-      > test-reports/rails-test.log 2>&1 || _TEST_RC=$?
-    cat test-reports/rails-test.log
-    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
-    [ "${_TEST_RC:-0}" -eq 0 ]
+    # run-logged streams to console + log AND surfaces the test suite's real
+    # exit (POSIX /bin/sh has no pipefail), gating the build honestly.
+    run-logged test-reports/rails-test.log -- bundle exec rails test
   - "echo \"Rails test complete. Reports available in test-reports/\""
 env:
-  RUBY_VERSION: "4.0.1"
+  # RUBY_VERSION is baked into pipeline-ruby-base (single-version model).
   RAILS_ENV: "test"
-  DATABASE_ADAPTER: "sqlite3"

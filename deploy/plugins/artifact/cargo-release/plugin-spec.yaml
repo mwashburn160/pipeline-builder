@@ -15,9 +15,9 @@ secrets: []
 primaryOutputDirectory: target/release
 dockerfile: Dockerfile
 installCommands:
+  # Rust (cargo/rustc) is baked into pipeline-rust-base (single pinned version).
   - test -d target/release || mkdir -p target/release
-  - rustup default ${RUST_VERSION}
-  - rustc --version && cargo --version
+  - cargo --version
   - |
     set -e
     if [ -n "${TARGET}" ]; then
@@ -32,10 +32,8 @@ commands:
     if [ -n "${TARGET}" ]; then
       TARGET_ARG="--target ${TARGET}"
     fi
-    cargo build --profile ${CARGO_PROFILE} --all-features ${TARGET_ARG} \
-      2>&1 | tee target/release/cargo-build.log
+    run-logged target/release/cargo-build.log -- cargo build --profile ${CARGO_PROFILE} --all-features ${TARGET_ARG}
   - "echo \"Cargo build complete. Binaries available in target/release/\""
 env:
-  RUST_VERSION: stable
   CARGO_PROFILE: release
   TARGET: x86_64-unknown-linux-gnu

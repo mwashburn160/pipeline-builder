@@ -15,11 +15,10 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  # Node + npm are baked into pipeline-node-base; Jest + jest-junit pinned + baked.
   - test -d test-reports || mkdir -p test-reports
-  - |
-    set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
-  - node -v && npm -v
+  - node --version && jest --version
+  # Install project dependencies (a project-pinned Jest wins via npx).
   - |
     set -e
     if [ -f pnpm-lock.yaml ]; then
@@ -30,29 +29,17 @@ installCommands:
       npm ci
     elif [ -f package.json ]; then
       npm install
-    else
-      echo "No package.json found — installing Jest globally"
-      npm install -g jest
     fi
 commands:
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     CONFIG_ARG=""
     if [ -n "${JEST_CONFIG}" ] && [ -f "${JEST_CONFIG}" ]; then
       CONFIG_ARG="--config ${JEST_CONFIG}"
     fi
     echo "Running Jest..."
-    npx jest ${CONFIG_ARG} \
-      --ci \
-      --reporters=default \
-      --reporters=jest-junit \
-      > test-reports/jest-output.log 2>&1 || _TEST_RC=$?
-    cat test-reports/jest-output.log
-    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
-    [ "${_TEST_RC:-0}" -eq 0 ]
+    run-logged test-reports/jest.log -- npx jest ${CONFIG_ARG} --ci --reporters=default --reporters=jest-junit
   - "echo \"Jest complete. Reports available in test-reports/\""
 env:
-  NODE_VERSION: "24"
   JEST_CONFIG: ""
   JEST_JUNIT_OUTPUT_DIR: "test-reports"

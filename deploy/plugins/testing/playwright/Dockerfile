@@ -1,18 +1,17 @@
 # Playwright Plugin — Cross-Browser E2E Testing
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Supports Chromium, Firefox, and WebKit browsers
+#
+# Thin layer over pipeline-node-base (one pinned Node 24 + npm). Playwright
+# (@playwright/test) is pinned + baked at build time — no runtime
+# `npm install -g`. A project that pins its own Playwright still wins via
+# `npx`. The browsers + their system libraries are installed below.
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-node-base:1.0
 
-# ─── Node.js via nvm ───
-ENV NVM_DIR=/opt/nvm
-RUN mkdir -p ${NVM_DIR} \
-    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 24 && \
-    nvm alias default 24 && \
-    ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 24)\")\")\" ${NVM_DIR}/versions/node/v24"
-ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
+# TODO(confirm): pin the intended Playwright version at build time.
+ARG PLAYWRIGHT_VERSION=1.49.0
+RUN npm install -g "@playwright/test@${PLAYWRIGHT_VERSION}"
 
 # ─── Playwright browsers + system dependencies ───
 # `playwright install --with-deps` shells out to apt-get install for the
@@ -36,17 +35,11 @@ RUN _files="/etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list" \
            "$f"; \
        done \
     && apt-get update \
-    && npx playwright install --with-deps chromium firefox webkit \
+    && playwright install --with-deps chromium firefox webkit \
     && for f in $_files; do \
          [ -f "$f.regional" ] && mv "$f.regional" "$f"; \
        done \
     && rm -rf /var/lib/apt/lists/*
 
-# Default Node.js version
-ENV NODE_VERSION=24
-
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

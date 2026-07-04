@@ -151,9 +151,9 @@
           },
           {
             "plugin": {
-              "name": "trivy-dotnet",
+              "name": "trivy",
               "filter": {
-                "name": "trivy-dotnet",
+                "name": "trivy",
                 "version": "1.0.0",
                 "accessModifier": "public",
                 "isActive": true,

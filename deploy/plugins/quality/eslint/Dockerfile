@@ -1,29 +1,16 @@
 # ESLint Plugin — JavaScript/TypeScript Linting
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
-# Supports ESLint v8 and v9 (flat config)
-# Auto-detects project ESLint config or uses default rules
+#
+# Thin layer over pipeline-node-base (one pinned Node 24 + npm). ESLint is
+# pinned + baked at build time — no runtime `npm install -g` (deterministic,
+# no network dependency at pipeline time). A project that pins its own ESLint
+# still wins via `npx` (a local install resolves before this global fallback).
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-node-base:1.0
 
-# ─── Node.js via nvm ───
-ENV NVM_DIR=/opt/nvm
-RUN mkdir -p ${NVM_DIR} \
-    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 24 && \
-    nvm alias default 24 && \
-    ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 24)\")\")\" ${NVM_DIR}/versions/node/v24"
-ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
+# TODO(confirm): pin the intended ESLint version at build time.
+ARG ESLINT_VERSION=9.15.0
+RUN npm install -g "eslint@${ESLINT_VERSION}"
 
-# Default Node.js version
-ENV NODE_VERSION=24
-
-# ESLint output format
-ENV ESLINT_FORMAT=json
-ENV ESLINT_MAX_WARNINGS=-1
-
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

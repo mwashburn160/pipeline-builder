@@ -43,13 +43,13 @@ commands:
           --report-format ${REPORT_FORMAT} \
           --report-path secrets-reports/gitleaks-results.json \
           ${CONFIG_ARG} \
-          --no-git || true
+          --no-git
         ;;
       git)
         gitleaks detect --source . \
           --report-format ${REPORT_FORMAT} \
           --report-path secrets-reports/gitleaks-results.json \
-          ${CONFIG_ARG} || true
+          ${CONFIG_ARG}
         ;;
     esac
   # TruffleHog scan
@@ -59,7 +59,7 @@ commands:
     trufflehog filesystem . \
       --json \
       --no-update \
-      > secrets-reports/trufflehog-results.json 2>&1 || true
+      > secrets-reports/trufflehog-results.json 2>&1
   - "echo \"Secret scan complete. Reports available in secrets-reports/\""
 env:
   GITLEAKS_VERSION: "8.22.0"

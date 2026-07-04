@@ -15,10 +15,10 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Python version selection
-  - pyenv install -s ${PYTHON_VERSION} && pyenv global ${PYTHON_VERSION}
-  - python --version
-  # Auto-detect or use explicit package manager, then install dependencies
+  # Python + Poetry/Pipenv/pytest are baked into pipeline-python-base (single
+  # pinned version). Sanity-check the interpreter is on PATH.
+  - python3 --version
+  # Auto-detect or use explicit package manager, then install user PROJECT deps.
   - |
     set -e
     PKG="${PACKAGE_MANAGER}"
@@ -37,17 +37,13 @@ installCommands:
       pip)
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-        pip show pytest > /dev/null 2>&1 || pip install pytest pytest-cov
         ;;
       poetry)
-        pip install poetry
         poetry config virtualenvs.in-project true
         poetry install --no-interaction
         ;;
       pipenv)
-        pip install pipenv
         pipenv install --dev --system
-        pip show pytest > /dev/null 2>&1 || pip install pytest pytest-cov
         ;;
       *)
         echo "ERROR: Unknown PACKAGE_MANAGER '${PKG}'. Supported: auto, pip, poetry, pipenv"
@@ -69,12 +65,12 @@ commands:
     fi
     case "${PKG}" in
       poetry)
-        poetry run pytest --junitxml=junit/test-results.xml --cov --cov-report=xml --cov-report=html
+        run-logged pytest.log -- poetry run pytest --junitxml=junit/test-results.xml --cov --cov-report=xml --cov-report=html
         ;;
       *)
-        pytest --junitxml=junit/test-results.xml --cov --cov-report=xml --cov-report=html
+        run-logged pytest.log -- pytest --junitxml=junit/test-results.xml --cov --cov-report=xml --cov-report=html
         ;;
     esac
 env:
-  PYTHON_VERSION: "3.14"
+  # PYTHON_VERSION is baked into pipeline-python-base (single-version model).
   PACKAGE_MANAGER: auto

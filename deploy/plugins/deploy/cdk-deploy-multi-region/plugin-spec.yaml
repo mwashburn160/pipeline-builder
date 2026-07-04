@@ -266,7 +266,7 @@ commands:
   - "echo \"CDK multi-region deployment complete. Output available in cdk-output/\""
 env:
   CDK_DEFAULT_ACCOUNT: ${AWS_ACCOUNT_ID}
-  CDK_DEPLOY_ACTION: deploy
+  CDK_DEPLOY_ACTION: deploy  # NOTE: inert — never referenced; dispatch is driven by CDK_DEPLOY_STRATEGY (sequential|parallel). Kept for API symmetry with cdk-deploy.
   CDK_STACK: ""
   CDK_REGIONS: ""
   CDK_PRIMARY_REGION: ""

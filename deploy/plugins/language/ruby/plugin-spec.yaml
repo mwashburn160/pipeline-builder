@@ -15,11 +15,9 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Ruby version selection
-  - rbenv install -s ${RUBY_VERSION} && rbenv global ${RUBY_VERSION}
+  # Ruby + bundler are baked into pipeline-ruby-base (single pinned version).
   - ruby --version
-  # Install dependencies
-  - gem install bundler
+  # Install project dependencies (bundler is baked; deps come from the Gemfile).
   - if [ -f Gemfile.lock ]; then bundle install; elif [ -f Gemfile ]; then bundle install; fi
 commands:
   - |
@@ -36,5 +34,3 @@ commands:
     else
       echo "No test framework detected. Skipping tests."
     fi
-env:
-  RUBY_VERSION: "4.0.1"

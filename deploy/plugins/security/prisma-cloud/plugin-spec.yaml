@@ -13,11 +13,11 @@ timeout: 30
 failureBehavior: warn
 secrets:
   - name: PRISMA_ACCESS_KEY
-    required: true
-    description: "Prisma Cloud access key"
+    required: false
+    description: "Prisma Cloud access key (only needed for twistcli image scans)"
   - name: PRISMA_SECRET_KEY
-    required: true
-    description: "Prisma Cloud secret key"
+    required: false
+    description: "Prisma Cloud secret key (only needed for twistcli image scans)"
 primaryOutputDirectory: prisma-reports
 dockerfile: Dockerfile
 installCommands:
@@ -41,12 +41,12 @@ commands:
     case "${PRISMA_SCAN_TYPE}" in
       iac)
         echo "Running Checkov IaC scan..."
+        # Note: --check expects check IDs, not a severity name, so severity-based
+        # gating is not available through this flag; checkov gates on any failed check.
         checkov -d . \
           --output json \
           --output-file-path prisma-reports \
-          --check "${PRISMA_SEVERITY}" \
-          --compact \
-          || true
+          --compact
         ;;
       image)
         if [ -z "${DOCKER_IMAGE}" ]; then
@@ -64,15 +64,14 @@ commands:
           --password "${PRISMA_SECRET_KEY}" \
           --output-file prisma-reports/image-scan.json \
           --details \
-          "${DOCKER_IMAGE}" || true
+          "${DOCKER_IMAGE}"
         ;;
       all)
         echo "Running Checkov IaC scan..."
         checkov -d . \
           --output json \
           --output-file-path prisma-reports \
-          --compact \
-          || true
+          --compact
         if [ -n "${DOCKER_IMAGE}" ] && [ -f /usr/local/bin/twistcli ]; then
           echo "Running Prisma Cloud image scan: ${DOCKER_IMAGE}"
           twistcli images scan \
@@ -81,7 +80,7 @@ commands:
             --password "${PRISMA_SECRET_KEY}" \
             --output-file prisma-reports/image-scan.json \
             --details \
-            "${DOCKER_IMAGE}" || true
+            "${DOCKER_IMAGE}"
         fi
         ;;
     esac

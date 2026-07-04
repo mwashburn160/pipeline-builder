@@ -110,7 +110,7 @@ CodePipeline
 │   ├── snyk-nodejs step
 │   │   Action Role: AcmeCorp-Action-SecurityScan-Role
 │   │
-│   └── trivy-nodejs step
+│   └── trivy step
 │       Project Role: AcmeCorp-CodeBuild-ContainerScan-Role
 │       Action Role:  AcmeCorp-Action-ContainerScan-Role
 │

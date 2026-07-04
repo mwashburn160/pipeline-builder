@@ -15,15 +15,12 @@ secrets: []
 primaryOutputDirectory: artillery-reports
 dockerfile: Dockerfile
 installCommands:
+  # Node + npm are baked into pipeline-node-base; the Artillery CLI is pinned + baked.
   - test -d artillery-reports || mkdir -p artillery-reports
-  - |
-    set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
   - artillery version
 commands:
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     if [ -z "${ARTILLERY_CONFIG}" ]; then
       ARTILLERY_CONFIG=$(find . -name "artillery*.yml" -o -name "artillery*.yaml" -o -name "load-test*.yml" 2>/dev/null | head -1)
     fi
@@ -36,16 +33,11 @@ commands:
       TARGET_ARG="--target ${ARTILLERY_TARGET}"
     fi
     echo "Running Artillery: ${ARTILLERY_CONFIG}"
-    artillery run "${ARTILLERY_CONFIG}" \
-      ${TARGET_ARG} \
-      --output artillery-reports/artillery-results.json \
-      > artillery-reports/artillery-output.txt 2>&1 || _TEST_RC=$?
-    cat artillery-reports/artillery-output.txt
-    artillery report artillery-reports/artillery-results.json \
-      --output artillery-reports/artillery-report.html 2>/dev/null || true
-    [ "${_TEST_RC:-0}" -eq 0 ]
+    # NOTE: `artillery report` was removed in Artillery v2; HTML reports now
+    # require a v2-supported path (e.g. artillery-plugin-publish-metrics or an
+    # external converter). JSON results remain in artillery-results.json.
+    run-logged artillery-reports/artillery.log -- artillery run "${ARTILLERY_CONFIG}" ${TARGET_ARG} --output artillery-reports/artillery-results.json
   - "echo \"Artillery load test complete. Reports available in artillery-reports/\""
 env:
-  NODE_VERSION: "24"
   ARTILLERY_CONFIG: ""
   ARTILLERY_TARGET: ""

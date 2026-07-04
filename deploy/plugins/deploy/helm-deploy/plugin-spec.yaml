@@ -72,6 +72,8 @@ commands:
     case "${HELM_ACTION}" in
       install)
         echo "Installing Helm release: ${HELM_RELEASE} from chart: ${HELM_CHART}"
+        # Capture helm's real exit (POSIX has no PIPESTATUS): redirect, then cat.
+        _rc=0
         helm install "${HELM_RELEASE}" "${HELM_CHART}" \
           --namespace "${HELM_NAMESPACE}" \
           --create-namespace \
@@ -79,10 +81,13 @@ commands:
           ${ATOMIC_ARG} \
           ${VALUES_ARGS} \
           ${SET_ARGS} \
-          | tee helm-output/install-result.txt
+          > helm-output/install-result.txt 2>&1 || _rc=$?
+        cat helm-output/install-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       upgrade)
         echo "Upgrading Helm release: ${HELM_RELEASE} from chart: ${HELM_CHART}"
+        _rc=0
         helm upgrade "${HELM_RELEASE}" "${HELM_CHART}" \
           --install \
           --namespace "${HELM_NAMESPACE}" \
@@ -91,22 +96,30 @@ commands:
           ${ATOMIC_ARG} \
           ${VALUES_ARGS} \
           ${SET_ARGS} \
-          | tee helm-output/upgrade-result.txt
+          > helm-output/upgrade-result.txt 2>&1 || _rc=$?
+        cat helm-output/upgrade-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       uninstall)
         echo "Uninstalling Helm release: ${HELM_RELEASE}"
+        _rc=0
         helm uninstall "${HELM_RELEASE}" \
           --namespace "${HELM_NAMESPACE}" \
           --timeout "${HELM_TIMEOUT}" \
-          | tee helm-output/uninstall-result.txt
+          > helm-output/uninstall-result.txt 2>&1 || _rc=$?
+        cat helm-output/uninstall-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       template)
         echo "Rendering template for chart: ${HELM_CHART}"
+        _rc=0
         helm template "${HELM_RELEASE}" "${HELM_CHART}" \
           --namespace "${HELM_NAMESPACE}" \
           ${VALUES_ARGS} \
           ${SET_ARGS} \
-          | tee helm-output/template-result.yaml
+          > helm-output/template-result.yaml 2>&1 || _rc=$?
+        cat helm-output/template-result.yaml
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       *)
         echo "ERROR: Unknown HELM_ACTION '${HELM_ACTION}'. Supported: install, upgrade, uninstall, template"

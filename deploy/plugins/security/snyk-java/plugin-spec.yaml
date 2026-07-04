@@ -18,24 +18,17 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
+  # JDK + Maven/Gradle are baked into pipeline-jvm-base (single pinned version).
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
     set -e
-    # CodeBuild runs under /bin/sh (dash); SDKMAN's bash-only `sdk`/`source` fail
-    # there (exit 127). Put the requested java on PATH directly — the image installs
-    # each version under ${SDKMAN_DIR}/candidates/java/<version>/bin and has the
-    # default's `current` on PATH, so an unknown override falls back.
-    export PATH="${SDKMAN_DIR}/candidates/java/${JAVA_VERSION}/bin:${PATH}"
     if [ -f pom.xml ]; then mvn dependency:resolve -q; fi
     if [ -f build.gradle ] || [ -f build.gradle.kts ]; then gradle dependencies --quiet; fi
 commands:
-  - snyk auth ${SNYK_TOKEN}
-  - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
-  - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true
+  - run-logged snyk-reports/snyk-test.log -- snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json
+  - run-logged snyk-reports/snyk-code.log -- snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json
   - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
 env:
+  # JAVA_VERSION is baked into pipeline-jvm-base (single-version model).
   SNYK_SEVERITY_THRESHOLD: high
-  # Major-version knob (consistent with the Corretto plugins). The image installs
-  # Temurin 25.0.3 via SDKMAN, exposed as `candidates/java/25` by a Dockerfile symlink.
-  JAVA_VERSION: "25"

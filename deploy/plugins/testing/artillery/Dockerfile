@@ -1,27 +1,15 @@
 # Artillery Plugin — HTTP and WebSocket Load Testing
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Runs Artillery load tests with configurable scenarios
+#
+# Thin layer over pipeline-node-base (one pinned Node 24 + npm). The Artillery
+# CLI is pinned + baked at build time — no runtime `npm install -g`.
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-node-base:1.0
 
-# ─── Node.js via nvm ───
-ENV NVM_DIR=/opt/nvm
-RUN mkdir -p ${NVM_DIR} \
-    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 24 && \
-    nvm alias default 24 && \
-    ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 24)\")\")\" ${NVM_DIR}/versions/node/v24"
-ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
+# TODO(confirm): pin the intended Artillery version at build time.
+ARG ARTILLERY_VERSION=2.0.21
+RUN npm install -g "artillery@${ARTILLERY_VERSION}"
 
-# ─── Artillery CLI ───
-RUN npm install -g artillery
-
-# Default Node.js version
-ENV NODE_VERSION=24
-
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

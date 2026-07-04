@@ -15,16 +15,15 @@ secrets: []
 primaryOutputDirectory: audit-reports
 dockerfile: Dockerfile
 installCommands:
+  # Ruby + bundler-audit are baked into pipeline-ruby-base (single pinned version).
   - test -d audit-reports || mkdir -p audit-reports
-  - rbenv global ${RUBY_VERSION} && ruby --version
-  - gem install bundler-audit
+  - ruby --version && bundle-audit version
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
   - |
     set -e
     echo "Running bundler-audit..."
-    bundle audit check --update \
-      2>&1 | tee audit-reports/bundler-audit.log || true
+    # run-logged streams to console + log AND surfaces bundle-audit's real exit
+    # (POSIX sh has no pipefail, so a `| tee` would mask the gate's status).
+    run-logged audit-reports/bundler-audit.log -- bundle audit check --update
   - "echo \"Bundler audit complete. Reports available in audit-reports/\""
-env:
-  RUBY_VERSION: "4.0.1"

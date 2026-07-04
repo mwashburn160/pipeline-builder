@@ -57,24 +57,38 @@ commands:
     case "${DEPLOY_ACTION}" in
       apply)
         echo "Applying manifests from ${MANIFEST_PATH}..."
-        kubectl apply -f "${MANIFEST_PATH}" -n "${KUBE_NAMESPACE}" | tee deploy-output/apply-result.txt
+        # Capture kubectl's real exit (POSIX has no PIPESTATUS): redirect, then cat.
+        _rc=0
+        kubectl apply -f "${MANIFEST_PATH}" -n "${KUBE_NAMESPACE}" > deploy-output/apply-result.txt 2>&1 || _rc=$?
+        cat deploy-output/apply-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         echo "Waiting for rollout completion (timeout: ${ROLLOUT_TIMEOUT})..."
         for deploy in $(kubectl get deployments -n "${KUBE_NAMESPACE}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
           echo "Waiting for deployment/${deploy}..."
-          kubectl rollout status deployment/${deploy} -n "${KUBE_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}" || true
+          kubectl rollout status deployment/${deploy} -n "${KUBE_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}"
         done
         ;;
       delete)
         echo "Deleting manifests from ${MANIFEST_PATH}..."
-        kubectl delete -f "${MANIFEST_PATH}" -n "${KUBE_NAMESPACE}" --ignore-not-found | tee deploy-output/delete-result.txt
+        _rc=0
+        kubectl delete -f "${MANIFEST_PATH}" -n "${KUBE_NAMESPACE}" --ignore-not-found > deploy-output/delete-result.txt 2>&1 || _rc=$?
+        cat deploy-output/delete-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       rollout)
         echo "Performing rollout restart for deployments in ${KUBE_NAMESPACE}..."
-        for deploy in $(kubectl get deployments -n "${KUBE_NAMESPACE}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-          echo "Restarting deployment/${deploy}..."
-          kubectl rollout restart deployment/${deploy} -n "${KUBE_NAMESPACE}"
-          kubectl rollout status deployment/${deploy} -n "${KUBE_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}"
-        done | tee deploy-output/rollout-result.txt
+        # Redirect the whole loop (POSIX has no PIPESTATUS); run it in a subshell so
+        # set -e still aborts on a mid-loop failure instead of being masked by tee.
+        _rc=0
+        (
+          for deploy in $(kubectl get deployments -n "${KUBE_NAMESPACE}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+            echo "Restarting deployment/${deploy}..."
+            kubectl rollout restart deployment/${deploy} -n "${KUBE_NAMESPACE}"
+            kubectl rollout status deployment/${deploy} -n "${KUBE_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}"
+          done
+        ) > deploy-output/rollout-result.txt 2>&1 || _rc=$?
+        cat deploy-output/rollout-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       *)
         echo "ERROR: Unknown DEPLOY_ACTION '${DEPLOY_ACTION}'. Supported: apply, delete, rollout"

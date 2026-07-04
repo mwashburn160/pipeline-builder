@@ -2,27 +2,12 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Publishes Java/Kotlin artifacts to Maven Central via OSSRH or custom repository
 # Requires OSSRH_USERNAME + OSSRH_PASSWORD + GPG_PASSPHRASE injected at runtime via CodeBuild secrets
+#
+# Thin layer over pipeline-jvm-base (one pinned Corretto JDK + Maven; gpg comes
+# from the shared plugin base). Nothing to install here — MAVEN_REPOSITORY_URL
+# and the credentials are runtime config/secrets.
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-jvm-base:1.0
 
-# ─── Java 25 (latest) + Maven 3.9.9 via SDKMAN ───
-ENV SDKMAN_DIR=/opt/sdkman
-RUN curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash
-RUN bash -c "source ${SDKMAN_DIR}/bin/sdkman-init.sh && \
-    sdk install java 25.0.3-tem && \
-    sdk install maven 3.9.9 && \
-    sdk default java 25.0.3-tem && \
-    sdk default maven 3.9.9"
-
-# Add SDKMAN candidates to PATH
-ENV PATH="${SDKMAN_DIR}/candidates/java/current/bin:${SDKMAN_DIR}/candidates/maven/current/bin:${SDKMAN_DIR}/bin:${PATH}"
-
-# ─── Runtime configuration defaults ───
-# Non-sensitive config only — credentials injected at runtime via CodeBuild secrets
-ENV MAVEN_REPOSITORY_URL=""
-
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

@@ -159,7 +159,7 @@ sequenceDiagram
       "stageName": "Security",
       "steps": [
         { "plugin": { "name": "snyk-nodejs" } },
-        { "plugin": { "name": "trivy-nodejs" } }
+        { "plugin": { "name": "trivy" } }
       ]
     },
     {

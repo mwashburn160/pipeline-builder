@@ -2,27 +2,16 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Verifies code formatting across JS, TS, CSS, HTML, JSON, YAML, Markdown
 # Check-only mode (does not modify files in CI)
+#
+# Thin layer over pipeline-node-base (one pinned Node 24 + npm). Prettier is
+# pinned + baked at build time — no runtime `npm install -g`. A project that
+# pins its own Prettier still wins via `npx` (local resolves before global).
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-node-base:1.0
 
-# ─── Node.js via nvm ───
-ENV NVM_DIR=/opt/nvm
-RUN mkdir -p ${NVM_DIR} \
-    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 24 && \
-    nvm alias default 24 && \
-    ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 24)\")\")\" ${NVM_DIR}/versions/node/v24"
-ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
+# TODO(confirm): pin the intended Prettier version at build time.
+ARG PRETTIER_VERSION=3.4.2
+RUN npm install -g "prettier@${PRETTIER_VERSION}"
 
-# Default Node.js version
-ENV NODE_VERSION=24
-
-# Prettier glob pattern to check
-ENV PRETTIER_GLOB="."
-
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

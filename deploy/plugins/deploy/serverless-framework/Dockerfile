@@ -17,7 +17,9 @@ RUN bash -c "source ${NVM_DIR}/nvm.sh && \
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # ─── Serverless Framework ───
-RUN npm install -g serverless
+# Pinned to v3 deliberately: bare `serverless` now resolves to v4, which requires a
+# license/access key and breaks v3-style (open-source) deployments used here.
+RUN npm install -g serverless@3
 
 # Default Node.js version
 ENV NODE_VERSION=24

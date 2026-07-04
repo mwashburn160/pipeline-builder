@@ -15,17 +15,10 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # .NET version selection
-  - |
-    set -e
-    if ! dotnet --list-sdks | grep -q "^${DOTNET_VERSION}"; then
-      curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel ${DOTNET_VERSION} --install-dir /opt/dotnet
-    fi
+  # .NET SDK is baked into pipeline-dotnet-base (single pinned version).
   - dotnet --version
-  # Restore dependencies
+  # Restore dependencies (build/test run with --no-restore).
   - dotnet restore
 commands:
-  - dotnet build --no-restore --configuration Release
-  - dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"
-env:
-  DOTNET_VERSION: "9.0"
+  - run-logged dotnet-build.log -- dotnet build --no-restore --configuration Release
+  - run-logged dotnet-test.log -- dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"

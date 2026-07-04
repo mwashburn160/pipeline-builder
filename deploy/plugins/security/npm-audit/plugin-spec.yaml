@@ -15,27 +15,23 @@ secrets: []
 primaryOutputDirectory: audit-reports
 dockerfile: Dockerfile
 installCommands:
+  # Node + npm are baked into pipeline-node-base (single pinned version).
   - test -d audit-reports || mkdir -p audit-reports
-  - |
-    set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
-  - node -v && npm -v
+  - node --version && npm --version
 commands:
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     echo "Running dependency audit..."
     if [ -f yarn.lock ]; then
       yarn audit --level ${AUDIT_LEVEL} --json > audit-reports/audit-results.json 2>&1 || true
-      yarn audit --level ${AUDIT_LEVEL} || true
+      run-logged audit-reports/audit.log -- yarn audit --level ${AUDIT_LEVEL}
     elif [ -f pnpm-lock.yaml ]; then
       pnpm audit --severity ${AUDIT_LEVEL} --json > audit-reports/audit-results.json 2>&1 || true
-      pnpm audit --severity ${AUDIT_LEVEL} || true
+      run-logged audit-reports/audit.log -- pnpm audit --severity ${AUDIT_LEVEL}
     else
       npm audit --audit-level=${AUDIT_LEVEL} --json > audit-reports/audit-results.json 2>&1 || true
-      npm audit --audit-level=${AUDIT_LEVEL} || true
+      run-logged audit-reports/audit.log -- npm audit --audit-level=${AUDIT_LEVEL}
     fi
   - "echo \"Dependency audit complete. Reports available in audit-reports/\""
 env:
-  NODE_VERSION: "24"
   AUDIT_LEVEL: high

@@ -33,6 +33,7 @@ ENV KICS_QUERIES_PATH=/opt/kics/assets/queries
 ENV CX_BASE_URI=https://ast.checkmarx.net
 ENV CX_TENANT=""
 ENV CX_PROJECT_NAME=""
+ENV CX_CLIENT_ID=""
 ENV CX_SCAN_TYPE=sast
 ENV CX_SEVERITY_THRESHOLD=high
 

@@ -15,11 +15,10 @@ secrets: []
 primaryOutputDirectory: tsc-reports
 dockerfile: Dockerfile
 installCommands:
+  # Node + npm are baked into pipeline-node-base; TypeScript (tsc) pinned + baked.
   - test -d tsc-reports || mkdir -p tsc-reports
-  - |
-    set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
-  - node -v && npm -v
+  - node --version && tsc --version
+  # Install project dependencies (a project-pinned TypeScript wins via npx).
   - |
     set -e
     if [ -f pnpm-lock.yaml ]; then
@@ -30,16 +29,12 @@ installCommands:
       npm ci
     elif [ -f package.json ]; then
       npm install
-    else
-      npm install -g typescript
     fi
 commands:
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     echo "Running TypeScript type check..."
-    npx tsc ${TSC_FLAGS} 2>&1 | tee tsc-reports/tsc-output.log || true
+    run-logged tsc-reports/tsc.log -- npx tsc ${TSC_FLAGS}
   - "echo \"TypeScript check complete. Reports available in tsc-reports/\""
 env:
-  NODE_VERSION: "24"
   TSC_FLAGS: "--noEmit"

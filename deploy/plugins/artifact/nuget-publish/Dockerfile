@@ -1,26 +1,17 @@
-# NuGet Publish Plugin — Publish packages to NuGet Gallery
-# Used by CodeBuildStep in CodePipeline via pipeline-core Builder
-# Publishes .NET packages to NuGet Gallery or custom feeds
-# Requires NUGET_API_KEY injected at runtime via CodeBuild secrets
+# NuGet Publish Plugin — Publish packages to NuGet Gallery.
+# Used by CodeBuildStep in CodePipeline via pipeline-core Builder.
+#
+# Thin layer over pipeline-dotnet-base (one pinned .NET SDK, shared by all
+# .NET plugins). `dotnet pack` / `dotnet nuget push` ship inside the SDK — no
+# separate tool to install. No runtime dotnet-install — deterministic, no
+# network at pipeline time.
+#
+# NUGET_API_KEY is injected at runtime via CodeBuild secrets (never baked).
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-dotnet-base:1.0
 
-# ─── .NET SDK 8.0 via dotnet-install.sh ───
-RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
-    && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 9.0 --install-dir /opt/dotnet \
-    && rm /tmp/dotnet-install.sh
-
-# Add .NET to PATH
-ENV DOTNET_ROOT=/opt/dotnet
-ENV PATH="${DOTNET_ROOT}:${PATH}"
-
-# ─── Runtime configuration defaults ───
-# Non-sensitive config only — NUGET_API_KEY injected at runtime via CodeBuild secrets
+# Non-sensitive publish target default (overridable per-step via env).
 ENV NUGET_SOURCE=https://api.nuget.org/v3/index.json
 
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

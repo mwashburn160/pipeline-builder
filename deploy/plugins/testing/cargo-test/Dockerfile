@@ -1,19 +1,10 @@
 # Cargo Test Plugin — Rust Test Runner
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
+#
+# Thin layer over pipeline-rust-base — cargo/rustc are already on PATH from the
+# base (single pinned toolchain), so nothing extra is installed here.
 
-FROM pipeline-plugin-base:24.04
-
-RUN apt-retry-install build-essential libssl-dev pkg-config
-
-ENV RUSTUP_HOME=/opt/rustup
-ENV CARGO_HOME=/opt/cargo
-RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-modify-path
-
-RUN /opt/cargo/bin/rustup toolchain install stable && \
-    /opt/cargo/bin/rustup component add clippy rustfmt
-
-ENV PATH="${CARGO_HOME}/bin:${PATH}"
-ENV RUST_VERSION=stable
+FROM pipeline-rust-base:1.0
 
 WORKDIR /app
 CMD ["bash"]

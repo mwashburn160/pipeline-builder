@@ -18,6 +18,8 @@ secrets:
 primaryOutputDirectory: publish-output
 dockerfile: Dockerfile
 installCommands:
+  # .NET SDK (with `dotnet pack` / `dotnet nuget push`) is baked into
+  # pipeline-dotnet-base.
   - test -d publish-output || mkdir -p publish-output
   - dotnet --version
   - |
@@ -28,24 +30,27 @@ installCommands:
 commands:
   - |
     set -e
-    # Pack the project
     echo "Packing .NET project..."
-    dotnet pack --configuration Release --output publish-output/ \
-      2>&1 | tee publish-output/dotnet-pack.log
+    run-logged publish-output/dotnet-pack.log -- \
+      dotnet pack --configuration Release --output publish-output/
   - |
     set -e
-    # Push all .nupkg files to NuGet source
+    # Push all .nupkg files to NuGet source. Push every package (accumulate the
+    # failure) rather than aborting on the first, then gate at the end. Each
+    # push streams through run-logged so its real exit status surfaces the gate.
     echo "Publishing to ${NUGET_SOURCE}..."
+    _push_rc=0
     for PACKAGE in publish-output/*.nupkg; do
       if [ -f "${PACKAGE}" ]; then
         echo "Pushing ${PACKAGE}..."
-        dotnet nuget push "${PACKAGE}" \
-          --api-key "${NUGET_API_KEY}" \
-          --source "${NUGET_SOURCE}" \
-          --skip-duplicate \
-          2>&1 | tee -a publish-output/nuget-push.log
+        run-logged "publish-output/nuget-push-$(basename "${PACKAGE}").log" -- \
+          dotnet nuget push "${PACKAGE}" \
+            --api-key "${NUGET_API_KEY}" \
+            --source "${NUGET_SOURCE}" \
+            --skip-duplicate || _push_rc=$?
       fi
     done
+    [ "${_push_rc:-0}" -eq 0 ]
   - |
     set -e
     # Save publish metadata

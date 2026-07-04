@@ -99,11 +99,13 @@ done
 
 # ---- Build base images FIRST (dependency order) ----
 #
-# All base images live under `_base/`:
+# All base images live under `_base/` (the loop auto-detects every `_*-base`):
 #   _base/_plugin-base/    → pipeline-plugin-base:24.04 (root, built first)
-#   _base/_snyk-base/      → pipeline-snyk-base:1.0     (extends root)
-#   _base/_sonarcloud-base/ → pipeline-sonarcloud-base:1.0
-#   _base/_trivy-base/     → pipeline-trivy-base:1.0
+#   _base/_{python,node,go,jvm,dotnet,rust,ruby,php}-base/
+#                          → pipeline-<eco>-base:1.0 (one pinned runtime each,
+#                            consumed by every plugin in that ecosystem)
+#   _base/_trivy-base/     → pipeline-trivy-base:1.0 (language-agnostic trivy)
+#   _base/_aws-cli-base/   → pipeline-aws-cli-base:1.0
 #
 # `_plugin-base` is built before any family base (family bases inherit FROM
 # the root). Family bases are built alphabetically — they don't depend on

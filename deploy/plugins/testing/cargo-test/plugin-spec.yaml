@@ -15,19 +15,13 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  # Rust (cargo/rustc) is baked into pipeline-rust-base (single pinned version).
   - test -d test-reports || mkdir -p test-reports
-  - rustup default ${RUST_VERSION}
-  - rustc --version && cargo --version
+  - cargo --version
   - if [ -f Cargo.toml ]; then cargo fetch; fi
 commands:
   - |
     set -e
     echo "Running cargo test..."
-    cargo test --all-features --workspace \
-      > test-reports/cargo-test.log 2>&1 || _TEST_RC=$?
-    cat test-reports/cargo-test.log
-    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
-    [ "${_TEST_RC:-0}" -eq 0 ]
+    run-logged test-reports/cargo-test.log -- cargo test --all-features --workspace
   - "echo \"Cargo test complete. Reports available in test-reports/\""
-env:
-  RUST_VERSION: "stable"

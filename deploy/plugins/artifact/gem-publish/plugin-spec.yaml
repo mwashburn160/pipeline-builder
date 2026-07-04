@@ -18,6 +18,7 @@ secrets:
 primaryOutputDirectory: publish-output
 dockerfile: Dockerfile
 installCommands:
+  # Ruby/gem are baked into pipeline-ruby-base (single pinned version).
   - test -d publish-output || mkdir -p publish-output
   - ruby --version
   - gem --version
@@ -44,7 +45,8 @@ commands:
       echo "ERROR: No .gemspec file found in project root"
       exit 1
     fi
-    gem build "${GEMSPEC}" 2>&1 | tee publish-output/gem-build.log
+    # run-logged surfaces gem build's real exit (a `| tee` would mask it).
+    run-logged publish-output/gem-build.log -- gem build "${GEMSPEC}"
   - |
     set -e
     # Push the gem
@@ -59,7 +61,7 @@ commands:
       cp "${GEM_FILE}" publish-output/
     else
       echo "Publishing ${GEM_FILE} to RubyGems..."
-      gem push "${GEM_FILE}" 2>&1 | tee publish-output/gem-push.log
+      run-logged publish-output/gem-push.log -- gem push "${GEM_FILE}"
       cp "${GEM_FILE}" publish-output/
     fi
   - |

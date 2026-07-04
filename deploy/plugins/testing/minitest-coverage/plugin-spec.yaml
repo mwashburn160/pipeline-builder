@@ -1,5 +1,5 @@
 name: minitest-coverage
-description: Minitest with SimpleCov coverage reporting plugin for measuring Ruby test coverage with threshold enforcement using AWS CDK CodeBuildStep
+description: Minitest with SimpleCov coverage reporting plugin for measuring Ruby test coverage using AWS CDK CodeBuildStep
 keywords:
   - ruby
   - minitest
@@ -15,25 +15,21 @@ secrets: []
 primaryOutputDirectory: coverage-reports
 dockerfile: Dockerfile
 installCommands:
+  # Ruby + simplecov are baked into pipeline-ruby-base (single pinned version);
+  # the test suite comes from the project's Gemfile via `bundle install`.
   - test -d coverage-reports || mkdir -p coverage-reports
-  - rbenv global ${RUBY_VERSION} && ruby --version
-  - gem install simplecov
+  - ruby --version
   - if [ -f Gemfile ]; then bundle install; fi
 commands:
   - |
     set -e
     echo "Running tests with coverage..."
-    COVERAGE=true bundle exec rails test \
-      > coverage-reports/coverage-run.log 2>&1 || _TEST_RC=$?
-    cat coverage-reports/coverage-run.log
-    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
-    [ "${_TEST_RC:-0}" -eq 0 ]
+    # run-logged streams to console + log AND surfaces the test suite's real
+    # exit (POSIX /bin/sh has no pipefail), gating the build honestly.
+    COVERAGE=true run-logged coverage-reports/coverage-run.log -- bundle exec rails test
   - |
     set -e
     if [ -d coverage ]; then
       cp -r coverage/* coverage-reports/ 2>/dev/null || true
     fi
   - "echo \"Coverage complete. Reports available in coverage-reports/\""
-env:
-  RUBY_VERSION: "4.0.1"
-  COVERAGE_THRESHOLD: "70"

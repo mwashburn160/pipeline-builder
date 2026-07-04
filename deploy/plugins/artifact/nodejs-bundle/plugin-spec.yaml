@@ -15,11 +15,9 @@ secrets: []
 primaryOutputDirectory: build-output
 dockerfile: Dockerfile
 installCommands:
+  # Node + npm are baked into pipeline-node-base (single pinned version).
   - test -d build-output || mkdir -p build-output
-  - |
-    set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
-  - node -v && npm -v
+  - node --version && npm --version
   - |
     set -e
     if [ -f pnpm-lock.yaml ]; then
@@ -34,16 +32,18 @@ installCommands:
 commands:
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     echo "Running build script: ${BUILD_SCRIPT}"
+    set +e
     if [ -f pnpm-lock.yaml ]; then
-      pnpm run ${BUILD_SCRIPT} 2>&1 | tee build-output/build.log
+      run-logged build-output/build.log -- pnpm run ${BUILD_SCRIPT}
     elif [ -f yarn.lock ]; then
-      yarn ${BUILD_SCRIPT} 2>&1 | tee build-output/build.log
+      run-logged build-output/build.log -- yarn ${BUILD_SCRIPT}
     else
-      npm run ${BUILD_SCRIPT} 2>&1 | tee build-output/build.log
+      run-logged build-output/build.log -- npm run ${BUILD_SCRIPT}
     fi
+    _rc=$?
+    set -e
+    [ "${_rc:-0}" -eq 0 ]
   - "echo \"Build complete. Output available in build-output/\""
 env:
-  NODE_VERSION: "24"
   BUILD_SCRIPT: build

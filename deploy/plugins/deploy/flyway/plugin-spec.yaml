@@ -46,11 +46,18 @@ commands:
     case "${FLYWAY_ACTION}" in
       migrate)
         echo "Running Flyway migrate..."
-        flyway ${FLYWAY_ARGS} migrate | tee flyway-output/migrate-result.txt
+        # Capture flyway's real exit (POSIX has no PIPESTATUS): redirect, then cat.
+        _rc=0
+        flyway ${FLYWAY_ARGS} migrate > flyway-output/migrate-result.txt 2>&1 || _rc=$?
+        cat flyway-output/migrate-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       repair)
         echo "Running Flyway repair..."
-        flyway ${FLYWAY_ARGS} repair | tee flyway-output/repair-result.txt
+        _rc=0
+        flyway ${FLYWAY_ARGS} repair > flyway-output/repair-result.txt 2>&1 || _rc=$?
+        cat flyway-output/repair-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       info)
         echo "Running Flyway info..."
@@ -58,11 +65,17 @@ commands:
         ;;
       validate)
         echo "Running Flyway validate..."
-        flyway ${FLYWAY_ARGS} validate | tee flyway-output/validate-result.txt
+        _rc=0
+        flyway ${FLYWAY_ARGS} validate > flyway-output/validate-result.txt 2>&1 || _rc=$?
+        cat flyway-output/validate-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       clean)
         echo "WARNING: Running Flyway clean — this will drop all objects in the schemas!"
-        flyway ${FLYWAY_ARGS} -cleanDisabled=false clean | tee flyway-output/clean-result.txt
+        _rc=0
+        flyway ${FLYWAY_ARGS} -cleanDisabled=false clean > flyway-output/clean-result.txt 2>&1 || _rc=$?
+        cat flyway-output/clean-result.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       *)
         echo "ERROR: Unknown FLYWAY_ACTION '${FLYWAY_ACTION}'. Supported: migrate, repair, info, validate, clean"

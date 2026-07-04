@@ -25,18 +25,16 @@ commands:
   - |
     set -e
     echo "Running SpotBugs analysis..."
+    # run-logged streams each branch's output to the log AND exits with the
+    # tool's true status (no tee/pipe masking); the final test re-asserts it.
     if [ -f gradlew ]; then
-      ./gradlew spotbugsMain --no-daemon 2>&1 | tee spotbugs-reports/spotbugs.log || true
+      run-logged spotbugs-reports/spotbugs.log -- ./gradlew spotbugsMain --no-daemon || _rc=$?
     elif [ -f mvnw ]; then
-      ./mvnw spotbugs:check 2>&1 | tee spotbugs-reports/spotbugs.log || true
+      run-logged spotbugs-reports/spotbugs.log -- ./mvnw spotbugs:check || _rc=$?
     elif [ -f pom.xml ]; then
-      mvn spotbugs:check 2>&1 | tee spotbugs-reports/spotbugs.log || true
+      run-logged spotbugs-reports/spotbugs.log -- mvn spotbugs:check || _rc=$?
     else
-      gradle spotbugsMain --no-daemon 2>&1 | tee spotbugs-reports/spotbugs.log || true
+      run-logged spotbugs-reports/spotbugs.log -- gradle spotbugsMain --no-daemon || _rc=$?
     fi
+    [ "${_rc:-0}" -eq 0 ]
   - "echo \"SpotBugs analysis complete. Reports available in spotbugs-reports/\""
-env:
-  # Match the Dockerfile, which installs ONLY Corretto 25 (JAVA_HOME points at
-  # java-25). The previous default of "21" reported a Java version the image
-  # doesn't even contain. Override per-step via metadata.JAVA_VERSION if needed.
-  JAVA_VERSION: "25"

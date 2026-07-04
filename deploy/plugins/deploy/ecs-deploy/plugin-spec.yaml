@@ -79,4 +79,6 @@ env:
   ECS_SERVICE: "{{ pipeline.metadata.ecsService | default: '' }}"
   IMAGE_URI: "{{ pipeline.metadata.imageUri | default: '' }}"
   ECS_TASK_FAMILY: "{{ pipeline.metadata.ecsTaskFamily | default: '' }}"
-  ECS_WAIT: "true"
+  # Templated from pipeline.metadata.ecsWait (declared in metadataTypes) to honor the
+  # contract; defaults to 'true' so existing pipelines are unaffected.
+  ECS_WAIT: "{{ pipeline.metadata.ecsWait | default: 'true' }}"

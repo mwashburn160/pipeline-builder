@@ -27,7 +27,7 @@ installCommands:
     set -e
     if [ -n "${GITHUB_TOKEN}" ]; then
       echo "Logging into GitHub Container Registry (ghcr.io)..."
-      echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_USERNAME}" --password-stdin
+      echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_USERNAME:-$GITHUB_OWNER}" --password-stdin
     else
       echo "WARNING: GITHUB_TOKEN not set. Set GITHUB_TOKEN to authenticate with ghcr.io"
     fi

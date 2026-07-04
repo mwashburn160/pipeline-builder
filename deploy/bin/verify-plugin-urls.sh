@@ -37,8 +37,8 @@ verify_dockerfile() {
   # Check curl/wget download URLs.
   #
   # Strategy: grep every https:// URL out of `curl`/`wget` lines, then
-  # filter (1) URLs containing shell substitution (use generate-plugins.sh
-  # to verify those — versions live in plugin-versions.yaml), and (2)
+  # filter (1) URLs containing shell substitution (use the base/plugin Dockerfile ARG
+  # to verify those — versions are pinned inline as ARG in the Dockerfiles), and (2)
   # known-noisy hosts where a HEAD check isn't meaningful (apt repos that
   # 403 on /, package-manager registries that serve per-package endpoints
   # only, install-script entry points like pyenv.run / rustup / sdkman).

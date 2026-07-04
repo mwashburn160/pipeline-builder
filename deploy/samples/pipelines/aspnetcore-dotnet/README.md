@@ -15,7 +15,7 @@ A CI/CD pipeline for ASP.NET Core, Microsoft's cross-platform web framework. Inc
 | **BuildAndPackage** | `dotnet` | Compile and package the application |
 | **UnitTests** | `dotnet-test` | Run the test suite |
 | **CodeQuality** | `dotnet-format`, `roslyn-analyzers` | Code style enforcement and static analysis |
-| **SecurityScan** | `dotnet-security-scan`, `trivy-dotnet`, `git-secrets` | Security scanning (SAST, dependencies, secrets) |
+| **SecurityScan** | `dotnet-security-scan`, `trivy`, `git-secrets` | Security scanning (SAST, dependencies, secrets) |
 | **PackageImage** | `docker-build` | Build the container image (repo source + BuildAndPackage artifact) |
 
 ## Pipeline Flow

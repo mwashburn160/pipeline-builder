@@ -18,6 +18,12 @@ secrets:
   - name: DOCKER_PASSWORD
     required: false
     description: "Docker registry password"
+  - name: REGISTRY_USERNAME
+    required: false
+    description: "Custom registry username"
+  - name: REGISTRY_PASSWORD
+    required: false
+    description: "Custom registry password"
 primaryOutputDirectory: docker-output
 dockerfile: Dockerfile
 installCommands:
@@ -117,3 +123,5 @@ env:
   REGISTRY_TYPE: ecr
   IMAGE_NAME: ""
   IMAGE_TAG: latest
+  ECR_REGISTRY: ""
+  REGISTRY_URL: ""

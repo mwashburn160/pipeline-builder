@@ -15,13 +15,11 @@ secrets: []
 primaryOutputDirectory: playwright-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node.js version selection
+  # Node + npm + Playwright (@playwright/test) + browsers are baked into the
+  # image (single pinned version). A project-pinned Playwright wins via npx.
   - test -d playwright-reports || mkdir -p playwright-reports
-  - |
-    set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
-  - node --version
-  # Install project dependencies
+  - node --version && npx playwright --version
+  # Install project dependencies.
   - |
     set -e
     if [ -f pnpm-lock.yaml ]; then
@@ -42,25 +40,24 @@ installCommands:
 commands:
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     PROJECT_ARG=""
     if [ -n "${PLAYWRIGHT_PROJECT}" ]; then
       PROJECT_ARG="--project=${PLAYWRIGHT_PROJECT}"
     fi
     echo "Running Playwright tests (workers: ${PLAYWRIGHT_WORKERS})..."
-    npx playwright test \
+    set +e
+    run-logged playwright-reports/playwright.log -- npx playwright test \
       --reporter=${PLAYWRIGHT_REPORTER} \
       --workers=${PLAYWRIGHT_WORKERS} \
-      ${PROJECT_ARG} \
-      > playwright-reports/playwright-output.txt 2>&1 || _TEST_RC=$?
-    cat playwright-reports/playwright-output.txt
+      ${PROJECT_ARG}
+    _TEST_RC=$?
+    set -e
     # Copy report artifacts (also on failure, for debugging)
     cp -r playwright-report/* playwright-reports/ 2>/dev/null || true
     cp -r test-results/* playwright-reports/ 2>/dev/null || true
     [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Playwright tests complete. Reports available in playwright-reports/\""
 env:
-  NODE_VERSION: "24"
   PLAYWRIGHT_PROJECT: ""
   PLAYWRIGHT_WORKERS: "auto"
   PLAYWRIGHT_REPORTER: "html"

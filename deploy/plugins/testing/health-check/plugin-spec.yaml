@@ -72,10 +72,11 @@ commands:
     echo "=== Health Check Summary ==="
     echo "Total: ${TOTAL}, Passed: $((TOTAL - FAILED)), Failed: ${FAILED}"
     if [ "${FAILED}" -gt 0 ]; then
-      echo "WARNING: ${FAILED} endpoint(s) failed health check"
+      echo "ERROR: ${FAILED} endpoint(s) failed health check"
     else
       echo "All endpoints healthy"
     fi
+    if [ "${FAILED}" -gt 0 ]; then exit 1; fi
   - "echo \"Health check complete. Report available in health-reports/\""
 env:
   HEALTH_ENDPOINTS: ""

@@ -168,7 +168,7 @@ echo "  minikube installed"
 # conntrack + socat (required by minikube)
 dnf install -y conntrack-tools socat
 
-# yq — required by build-plugin-images.sh and generate-plugins.sh.
+# yq — required by build-plugin-images.sh.
 # Distro repos may have an old python-yq; install mikefarah's Go binary
 # directly to /usr/local/bin so the version matches what plugin scripts expect.
 echo "  Installing yq..."

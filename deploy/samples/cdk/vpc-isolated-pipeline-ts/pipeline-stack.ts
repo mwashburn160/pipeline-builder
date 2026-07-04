@@ -160,7 +160,7 @@ export class VpcIsolatedPipelineStack extends Stack {
             },
             {
               plugin: {
-                name: 'trivy-nodejs',
+                name: 'trivy',
                 filter: { version: '1.0.0', accessModifier: 'public', isActive: true, isDefault: true },
                 metadata: { TRIVY_SEVERITY: 'HIGH,CRITICAL' },
               },

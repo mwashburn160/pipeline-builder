@@ -31,7 +31,7 @@ else
   exit 1
 fi
 
-# yq — required by build-plugin-images.sh and generate-plugins.sh. Check
+# yq — required by build-plugin-images.sh. Check
 # only (don't auto-install) so we don't silently mutate the user's brew state.
 if ! command -v yq >/dev/null 2>&1; then
   echo "ERROR: yq is not installed (required for plugin builds)" >&2

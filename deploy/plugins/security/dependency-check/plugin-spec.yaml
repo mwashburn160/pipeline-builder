@@ -41,7 +41,7 @@ installCommands:
     if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
     if [ -f Pipfile.lock ]; then pip3 install pipenv && pipenv install --system; fi
     if [ -f go.mod ]; then go mod download; fi
-    if [ -f *.sln ] || [ -f *.csproj ]; then dotnet restore 2>/dev/null || true; fi
+    if ls *.sln >/dev/null 2>&1 || ls *.csproj >/dev/null 2>&1; then dotnet restore 2>/dev/null || true; fi
 commands:
   - |
     set -e
@@ -60,8 +60,7 @@ commands:
       --failOnCVSS ${DC_FAIL_ON_CVSS} \
       ${NVD_ARG} \
       ${SUPPRESSION_ARG} \
-      --enableExperimental \
-      || true
+      --enableExperimental
   - "echo \"Dependency-Check scan complete. Reports available in dc-reports/\""
 env:
   DC_VERSION: "12.2.0"

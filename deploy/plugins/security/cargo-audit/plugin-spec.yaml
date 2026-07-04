@@ -15,16 +15,13 @@ secrets: []
 primaryOutputDirectory: audit-reports
 dockerfile: Dockerfile
 installCommands:
+  # Rust + cargo-audit are baked into the image (single pinned version).
   - test -d audit-reports || mkdir -p audit-reports
-  - rustup default ${RUST_VERSION}
-  - rustc --version && cargo --version
-  - cargo install cargo-audit
+  - cargo --version
 commands:
   - |
     set -e
     echo "Running cargo audit..."
     cargo audit --json > audit-reports/cargo-audit.json 2>&1 || true
-    cargo audit 2>&1 | tee audit-reports/cargo-audit.log || true
+    run-logged audit-reports/cargo-audit.log -- cargo audit || true
   - "echo \"Cargo audit complete. Reports available in audit-reports/\""
-env:
-  RUST_VERSION: stable

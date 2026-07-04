@@ -27,13 +27,22 @@ commands:
     echo "Running JaCoCo coverage report..."
     if [ -f gradlew ]; then
       ./gradlew jacocoTestReport --no-daemon 2>&1 | tee coverage-reports/jacoco.log || true
-      ./gradlew jacocoTestCoverageVerification --no-daemon 2>&1 | tee -a coverage-reports/jacoco.log || true
+      # COVERAGE_THRESHOLD is surfaced as a Gradle project property; the project's
+      # build.gradle jacocoTestCoverageVerification violationRules must read
+      # project.coverageThreshold for it to take effect. This is the real gate —
+      # run-logged streams to the log AND exits with Gradle's true status.
+      run-logged coverage-reports/jacoco-verify.log -- ./gradlew jacocoTestCoverageVerification -PcoverageThreshold=${COVERAGE_THRESHOLD} --no-daemon || _rc=$?
     elif [ -f mvnw ]; then
       ./mvnw jacoco:report 2>&1 | tee coverage-reports/jacoco.log || true
     elif [ -f pom.xml ]; then
       mvn jacoco:report 2>&1 | tee coverage-reports/jacoco.log || true
     else
       gradle jacocoTestReport --no-daemon 2>&1 | tee coverage-reports/jacoco.log || true
+    fi
+    if [ "${_rc:-0}" -ne 0 ]; then
+      echo "JaCoCo coverage verification failed:" >&2
+      cat coverage-reports/jacoco-verify.log
+      exit "${_rc}"
     fi
   - |
     set -e
@@ -45,8 +54,5 @@ commands:
     fi
   - "echo \"JaCoCo coverage complete. Reports available in coverage-reports/\""
 env:
-  # Match the Dockerfile, which installs ONLY Corretto 25 (JAVA_HOME points at
-  # java-25). The previous default of "21" reported a Java version the image
-  # doesn't even contain. Override per-step via metadata.JAVA_VERSION if needed.
-  JAVA_VERSION: "25"
+  # JDK is single-versioned in pipeline-jvm-base (bump the base to change).
   COVERAGE_THRESHOLD: "70"

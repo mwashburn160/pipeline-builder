@@ -45,7 +45,7 @@ commands:
         --format=${SHELLCHECK_FORMAT} \
         --severity=${SHELLCHECK_SEVERITY} \
         --shell=${SHELLCHECK_SHELL} \
-        > shellcheck-reports/shellcheck-results.json 2>&1 || true
+        > shellcheck-reports/shellcheck-results.json 2>&1
     fi
   - "echo \"ShellCheck complete. Report available in shellcheck-reports/\""
 env:

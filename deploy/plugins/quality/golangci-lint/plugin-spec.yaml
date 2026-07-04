@@ -15,24 +15,23 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
+  # Go + golangci-lint are baked into pipeline-go-base / this plugin's image.
   - test -d lint-reports || mkdir -p lint-reports
-  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
-  - go version
-  - golangci-lint --version
+  - go version && golangci-lint --version
+  # Download project dependencies (not tool setup).
   - if [ -f go.mod ]; then go mod download; fi
 commands:
   - |
     set -e
     echo "Running golangci-lint..."
+    # Report-only JSON (always written; never gates).
     golangci-lint run \
       --timeout ${GOLANGCI_LINT_TIMEOUT} \
       --out-format ${GOLANGCI_LINT_FORMAT} \
       > lint-reports/golangci-lint-results.json 2>/dev/null || true
-    golangci-lint run \
-      --timeout ${GOLANGCI_LINT_TIMEOUT} \
-      2>&1 | tee lint-reports/golangci-lint-summary.txt || true
+    run-logged lint-reports/golangci-lint-summary.log -- golangci-lint run --timeout ${GOLANGCI_LINT_TIMEOUT}
   - "echo \"golangci-lint complete. Reports available in lint-reports/\""
 env:
-  GO_VERSION: "1.24.13"
+  # GO_VERSION is baked into pipeline-go-base (single-version model).
   GOLANGCI_LINT_TIMEOUT: 5m
   GOLANGCI_LINT_FORMAT: json

@@ -15,15 +15,12 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Rust version selection
-  - rustup default ${RUST_VERSION}
-  - rustc --version
-  # Fetch dependencies
+  # Rust (cargo/rustc/clippy/rustfmt) is baked into pipeline-rust-base.
+  - test -d build-reports || mkdir -p build-reports
+  - cargo --version
   - if [ -f Cargo.toml ]; then cargo fetch; fi
 commands:
-  - cargo build --release
-  - cargo test --release
-  - cargo clippy -- -D warnings
-  - cargo fmt -- --check
-env:
-  RUST_VERSION: stable
+  - run-logged build-reports/build.log -- cargo build --release
+  - run-logged build-reports/test.log -- cargo test --release
+  - run-logged build-reports/clippy.log -- cargo clippy -- -D warnings
+  - run-logged build-reports/fmt.log -- cargo fmt -- --check

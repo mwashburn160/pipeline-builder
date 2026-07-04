@@ -15,13 +15,11 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node.js version selection
+  # Node + npm are baked into pipeline-node-base; ESLint is pinned + baked.
   - test -d lint-reports || mkdir -p lint-reports
-  - |
-    set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
-  - node -v && npm -v
-  # Install project dependencies (includes ESLint from project)
+  - node --version && eslint --version
+  # Install project dependencies (a project-pinned ESLint + its plugins/config
+  # win via npx; the baked global is the fallback).
   - |
     set -e
     if [ -f pnpm-lock.yaml ]; then
@@ -32,14 +30,10 @@ installCommands:
       npm ci
     elif [ -f package.json ]; then
       npm install
-    else
-      echo "No package.json found — installing ESLint globally"
-      npm install -g eslint
     fi
 commands:
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     WARN_ARG=""
     if [ "${ESLINT_MAX_WARNINGS}" != "-1" ]; then
       WARN_ARG="--max-warnings ${ESLINT_MAX_WARNINGS}"
@@ -49,9 +43,8 @@ commands:
       --format ${ESLINT_FORMAT} \
       --output-file lint-reports/eslint-results.json \
       ${WARN_ARG} || true
-    npx eslint . ${WARN_ARG} || true
+    run-logged lint-reports/eslint.log -- npx eslint . ${WARN_ARG}
   - "echo \"ESLint complete. Report available in lint-reports/\""
 env:
-  NODE_VERSION: "24"
   ESLINT_FORMAT: json
   ESLINT_MAX_WARNINGS: "-1"

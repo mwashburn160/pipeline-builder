@@ -1,20 +1,16 @@
 # Jest Plugin — JavaScript/TypeScript Test Runner
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
+#
+# Thin layer over pipeline-node-base (one pinned Node 24 + npm). Jest and the
+# jest-junit reporter are pinned + baked at build time — no runtime
+# `npm install -g`. A project that pins its own Jest still wins via `npx`.
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-node-base:1.0
 
-RUN apt-retry-install build-essential
-
-ENV NVM_DIR=/opt/nvm
-RUN mkdir -p ${NVM_DIR} \
-    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 24 && \
-    nvm alias default 24 && \
-    ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 24)\")\")\" ${NVM_DIR}/versions/node/v24"
-ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
-
-ENV NODE_VERSION=24
+# TODO(confirm): pin the intended Jest / jest-junit versions at build time.
+ARG JEST_VERSION=29.7.0
+ARG JEST_JUNIT_VERSION=16.0.0
+RUN npm install -g "jest@${JEST_VERSION}" "jest-junit@${JEST_JUNIT_VERSION}"
 
 WORKDIR /app
 CMD ["bash"]

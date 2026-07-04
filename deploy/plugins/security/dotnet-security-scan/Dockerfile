@@ -1,20 +1,16 @@
-# dotnet security-scan Plugin — .NET Security Scanner
-# Used by CodeBuildStep in CodePipeline via pipeline-core Builder
+# dotnet security-scan Plugin — .NET Security Scanner.
+# Used by CodeBuildStep in CodePipeline via pipeline-core Builder.
+#
+# Thin layer over pipeline-dotnet-base (one pinned .NET SDK, shared by all
+# .NET plugins). This plugin's own tool — the `security-scan` global tool —
+# is pinned and baked here (no runtime `dotnet tool install`, so it is
+# deterministic with no network dependency at pipeline time).
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-dotnet-base:1.0
 
-RUN apt-retry-install build-essential libssl-dev libicu-dev
-
-RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
-    && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 9.0 --install-dir /opt/dotnet \
-    && rm /tmp/dotnet-install.sh
-
-ENV DOTNET_ROOT=/opt/dotnet
-ENV PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
-ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
-ENV DOTNET_NOLOGO=1
-ENV DOTNET_VERSION=9.0
+# TODO(confirm): pin the intended security-scan (Security Code Scan) version.
+ARG SECURITY_SCAN_VERSION=5.6.7
+RUN dotnet tool install --global security-scan --version "${SECURITY_SCAN_VERSION}"
 
 WORKDIR /app
 CMD ["bash"]

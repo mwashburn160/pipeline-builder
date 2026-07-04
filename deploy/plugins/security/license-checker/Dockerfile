@@ -28,8 +28,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends ruby ruby-dev \
 
 # ─── Runtime configuration defaults ───
 ENV LICENSE_DENY=""
-ENV LICENSE_ALLOW=""
-ENV REPORT_FORMAT=json
 
 # Working directory for pipeline source
 WORKDIR /app

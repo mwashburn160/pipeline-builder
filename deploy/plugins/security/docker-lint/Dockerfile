@@ -37,7 +37,6 @@ RUN ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /usr/local/bin/dockle
 # ─── Runtime configuration defaults ───
 ENV HADOLINT_VERSION=${HADOLINT_VERSION}
 ENV DOCKLE_VERSION=${DOCKLE_VERSION}
-ENV DOCKERFILE_PATH=Dockerfile
 ENV DOCKER_IMAGE=""
 ENV HADOLINT_FORMAT=json
 ENV DOCKLE_FORMAT=json

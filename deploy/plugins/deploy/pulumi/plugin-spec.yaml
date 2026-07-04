@@ -61,12 +61,20 @@ commands:
         ;;
       up)
         echo "Running Pulumi up..."
-        pulumi up --yes --json > ${OLDPWD}/pulumi-output/up.json 2>&1 || true
-        pulumi up --yes 2>&1 | tee ${OLDPWD}/pulumi-output/up.txt
+        # Run ONCE: capture JSON output and the real exit (POSIX has no PIPESTATUS),
+        # then gate. Previously this ran `up` twice (masking the first with || true
+        # and the second with tee), applying the stack twice and hiding failures.
+        _rc=0
+        pulumi up --yes --json > ${OLDPWD}/pulumi-output/up.json 2>&1 || _rc=$?
+        cat ${OLDPWD}/pulumi-output/up.json
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       destroy)
         echo "Running Pulumi destroy..."
-        pulumi destroy --yes 2>&1 | tee ${OLDPWD}/pulumi-output/destroy.txt
+        _rc=0
+        pulumi destroy --yes > ${OLDPWD}/pulumi-output/destroy.txt 2>&1 || _rc=$?
+        cat ${OLDPWD}/pulumi-output/destroy.txt
+        [ "${_rc:-0}" -eq 0 ]
         ;;
       *)
         echo "ERROR: Unknown PULUMI_ACTION '${PULUMI_ACTION}'. Supported: preview, up, destroy"

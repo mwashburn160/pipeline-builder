@@ -1,27 +1,19 @@
 # SonarCloud Security Plugin — .NET scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Inherits from the sonarcloud family base image (pipeline-sonarcloud-base:1.0)
-# which provides sonarcloud CLI + (where applicable) Node.js. This file
-# only adds the .NET toolchain.
+# Two ingredients, one image:
+#   • the .NET runtime — from pipeline-dotnet-base:1.0 (shared single-version base)
+#   • the sonar-scanner CLI — multistage COPY from the upstream sonarsource image
+# sonar-scanner analyses source directly (it ships its own bundled JRE); the
+# runtime is present so project dependencies restore/build before the scan.
 
-FROM pipeline-sonarcloud-base:1.0
+FROM pipeline-dotnet-base:1.0
 
-# Build deps required by the language toolchain. Without these, the
-# scanner fails when it needs to build user code with native deps
-# (cgo, JNI, native crates, native NuGet packages, etc.).
-RUN apt-retry-install build-essential libssl-dev libicu-dev
-
-# ─── .NET SDK ───
-RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
-    && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 9.0 --install-dir /opt/dotnet \
-    && rm /tmp/dotnet-install.sh
-ENV DOTNET_ROOT=/opt/dotnet
-ENV PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
-ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
-ENV DOTNET_NOLOGO=1
-ENV DOTNET_VERSION=9.0
+# Pinned sonar-scanner CLI from the upstream image (COPY source only). The
+# distribution bundles its own JRE, so it runs on any language base.
+ARG SONAR_SCANNER_VERSION=12.0
+COPY --from=sonarsource/sonar-scanner-cli:${SONAR_SCANNER_VERSION} /opt/sonar-scanner /opt/sonar-scanner
+ENV PATH="/opt/sonar-scanner/bin:${PATH}"
 
 WORKDIR /app
 CMD ["bash"]

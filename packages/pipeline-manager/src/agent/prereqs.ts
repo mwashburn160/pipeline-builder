@@ -118,7 +118,7 @@ export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; with
     checks.push(check('kubectl', has('kubectl'), 'on PATH', 'install kubectl'));
     checks.push(check('openssl', has('openssl'), 'on PATH', OPENSSL_TLS));
     // minikube's setup.sh doesn't need yq, but --with-plugins builds images
-    // (build-plugin-images.sh / generate-plugins.sh) which do.
+    // (build-plugin-images.sh) which does.
     if (opts.withPlugins) {
       checks.push(check('yq', has('yq'), 'on PATH', 'install yq (macOS: `brew install yq`) — required to build plugins'));
     }

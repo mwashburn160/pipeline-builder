@@ -1,25 +1,28 @@
 # Snyk Security Plugin — Ruby scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Inherits from the snyk family base image (pipeline-snyk-base:1.0)
-# which provides snyk CLI + (where applicable) Node.js. This file
-# only adds the Ruby toolchain.
+# Thin layer over pipeline-ruby-base (one pinned Ruby + bundler, shared by all
+# Ruby plugins). Snyk resolves Ruby dependencies at scan time, so it needs
+# that ecosystem's runtime + package manager present — hence a per-language
+# image (the snyk variants stay split by ecosystem).
+#
+# The Snyk CLI is installed as the pinned standalone Linux binary (no Node.js
+# required) and baked at build time: deterministic, no runtime install, no
+# network dependency at pipeline time.
 
-FROM pipeline-snyk-base:1.0
+FROM pipeline-ruby-base:1.0
 
-# ─── Ruby via rbenv ───
-# rbenv compiles Ruby (and its bundled openssl) from source — needs the
-# C build chain. Without these the install fails with "openssl-3.0.18
-# config" errors. Same dep list as language/ruby/Dockerfile.
-RUN apt-retry-install build-essential libssl-dev zlib1g-dev libreadline-dev libyaml-dev libffi-dev
-
-ENV RBENV_ROOT=/opt/rbenv
-RUN git clone --depth 1 https://github.com/rbenv/rbenv.git ${RBENV_ROOT} && \
-    git clone --depth 1 https://github.com/rbenv/ruby-build.git ${RBENV_ROOT}/plugins/ruby-build
-RUN ${RBENV_ROOT}/bin/rbenv install 4.0.1 && \
-    ${RBENV_ROOT}/bin/rbenv global 4.0.1
-ENV PATH="${RBENV_ROOT}/shims:${RBENV_ROOT}/bin:${PATH}"
-ENV RUBY_VERSION=4.0.1
+# TODO(confirm): confirm the intended pinned Snyk CLI version at build time.
+ARG SNYK_VERSION=1.1298.0
+RUN set -eux; \
+    case "$(uname -m)" in \
+      x86_64)  snyk_bin=snyk-linux ;; \
+      aarch64) snyk_bin=snyk-linux-arm64 ;; \
+      *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://static.snyk.io/cli/v${SNYK_VERSION}/${snyk_bin}" -o /usr/local/bin/snyk; \
+    chmod +x /usr/local/bin/snyk; \
+    snyk --version
 
 WORKDIR /app
 CMD ["bash"]

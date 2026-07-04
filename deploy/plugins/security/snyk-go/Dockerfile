@@ -1,25 +1,28 @@
 # Snyk Security Plugin — Go scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Inherits from the snyk family base image (pipeline-snyk-base:1.0)
-# which provides snyk CLI + (where applicable) Node.js. This file
-# only adds the Go toolchain.
+# Thin layer over pipeline-go-base (one pinned Go, shared by all Go plugins).
+# Snyk resolves Go dependencies at scan time, so it needs that ecosystem's
+# runtime + package manager present — hence a per-language image (the snyk
+# variants stay split by ecosystem).
+#
+# The Snyk CLI is installed as the pinned standalone Linux binary (no Node.js
+# required) and baked at build time: deterministic, no runtime install, no
+# network dependency at pipeline time.
 
-FROM pipeline-snyk-base:1.0
+FROM pipeline-go-base:1.0
 
-# Build deps required by the language toolchain. Without these, the
-# scanner fails when it needs to build user code with native deps
-# (cgo, JNI, native crates, native NuGet packages, etc.).
-RUN apt-retry-install build-essential
-
-# ─── Go via goenv ───
-ENV GOENV_ROOT=/opt/goenv
-RUN git clone --depth 1 https://github.com/go-nv/goenv.git ${GOENV_ROOT}
-RUN ${GOENV_ROOT}/bin/goenv install 1.24.13 && \
-    ${GOENV_ROOT}/bin/goenv global 1.24.13
-ENV PATH="${GOENV_ROOT}/shims:${GOENV_ROOT}/bin:${PATH}"
-
-ENV GO_VERSION=1.24.13
+# TODO(confirm): confirm the intended pinned Snyk CLI version at build time.
+ARG SNYK_VERSION=1.1298.0
+RUN set -eux; \
+    case "$(uname -m)" in \
+      x86_64)  snyk_bin=snyk-linux ;; \
+      aarch64) snyk_bin=snyk-linux-arm64 ;; \
+      *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://static.snyk.io/cli/v${SNYK_VERSION}/${snyk_bin}" -o /usr/local/bin/snyk; \
+    chmod +x /usr/local/bin/snyk; \
+    snyk --version
 
 WORKDIR /app
 CMD ["bash"]

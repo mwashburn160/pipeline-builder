@@ -29,6 +29,13 @@ installCommands:
 commands:
   - |
     set -e
+    # cx One requires tenant + project for the SAST/SCA/all paths (kics is local-only).
+    if [ "${CX_SCAN_TYPE}" != "kics" ]; then
+      if [ -z "${CX_TENANT}" ] || [ -z "${CX_PROJECT_NAME}" ]; then
+        echo "ERROR: CX_TENANT and CX_PROJECT_NAME must be set for ${CX_SCAN_TYPE} scans" >&2
+        exit 1
+      fi
+    fi
     case "${CX_SCAN_TYPE}" in
       sast)
         echo "Running Checkmarx SAST scan..."
@@ -36,12 +43,12 @@ commands:
           --project-name "${CX_PROJECT_NAME}" \
           --base-uri "${CX_BASE_URI}" \
           --tenant "${CX_TENANT}" \
+          --client-id "${CX_CLIENT_ID}" \
           --client-secret "${CX_CLIENT_SECRET}" \
           -s . \
           --scan-types sast \
           --report-format json \
-          --output-path checkmarx-reports \
-          || true
+          --output-path checkmarx-reports
         ;;
       sca)
         echo "Running Checkmarx SCA scan..."
@@ -49,20 +56,19 @@ commands:
           --project-name "${CX_PROJECT_NAME}" \
           --base-uri "${CX_BASE_URI}" \
           --tenant "${CX_TENANT}" \
+          --client-id "${CX_CLIENT_ID}" \
           --client-secret "${CX_CLIENT_SECRET}" \
           -s . \
           --scan-types sca \
           --report-format json \
-          --output-path checkmarx-reports \
-          || true
+          --output-path checkmarx-reports
         ;;
       kics)
         echo "Running KICS IaC scan..."
         kics scan -p . \
           --report-formats json,html \
           --output-path checkmarx-reports \
-          --fail-on "${CX_SEVERITY_THRESHOLD}" \
-          || true
+          --fail-on "${CX_SEVERITY_THRESHOLD}"
         ;;
       all)
         echo "Running full Checkmarx scan (SAST + SCA + KICS)..."
@@ -70,12 +76,12 @@ commands:
           --project-name "${CX_PROJECT_NAME}" \
           --base-uri "${CX_BASE_URI}" \
           --tenant "${CX_TENANT}" \
+          --client-id "${CX_CLIENT_ID}" \
           --client-secret "${CX_CLIENT_SECRET}" \
           -s . \
           --scan-types sast,sca,kics \
           --report-format json \
-          --output-path checkmarx-reports \
-          || true
+          --output-path checkmarx-reports
         ;;
     esac
   - "echo \"Checkmarx ${CX_SCAN_TYPE} scan complete. Reports available in checkmarx-reports/\""
@@ -83,6 +89,7 @@ env:
   CX_BASE_URI: https://ast.checkmarx.net
   CX_TENANT: ""
   CX_PROJECT_NAME: ""
+  CX_CLIENT_ID: ""
   CX_SCAN_TYPE: sast
   CX_SEVERITY_THRESHOLD: high
 

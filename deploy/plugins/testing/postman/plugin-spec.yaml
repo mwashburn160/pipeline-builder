@@ -15,10 +15,8 @@ secrets: []
 primaryOutputDirectory: postman-reports
 dockerfile: Dockerfile
 installCommands:
+  # Node + npm are baked into pipeline-node-base; Newman + reporters pinned + baked.
   - test -d postman-reports || mkdir -p postman-reports
-  - |
-    set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
   - newman --version
   - |
     set -e
@@ -54,7 +52,7 @@ commands:
       BAIL_ARG="--bail"
     fi
     echo "Running Newman with collection: ${COLLECTION_FILE}"
-    newman run "${COLLECTION_FILE}" \
+    run-logged postman-reports/newman.log -- newman run "${COLLECTION_FILE}" \
       ${ENV_ARG} \
       ${GLOBALS_ARG} \
       --iteration-count ${ITERATION_COUNT} \
@@ -66,7 +64,6 @@ commands:
       ${BAIL_ARG}
   - "echo \"Postman tests complete. Reports available in postman-reports/\""
 env:
-  NODE_VERSION: "24"
   COLLECTION_FILE: ""
   ENVIRONMENT_FILE: ""
   GLOBALS_FILE: ""

@@ -5,7 +5,7 @@
 
 FROM pipeline-plugin-base:24.04
 
-RUN apt-retry-install netcat-openbsd dnsutils
+RUN apt-retry-install netcat-openbsd dnsutils jq
 
 # ─── Runtime configuration defaults ───
 ENV HEALTH_ENDPOINTS=""

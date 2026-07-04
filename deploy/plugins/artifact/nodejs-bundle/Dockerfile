@@ -1,20 +1,11 @@
 # Node.js Build Plugin — Build Verification
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
+#
+# Thin layer over pipeline-node-base (one pinned Node 24 + npm, shared by all
+# Node plugins). No per-plugin tool is baked: this plugin runs the user
+# project's own build script via npm/yarn/pnpm.
 
-FROM pipeline-plugin-base:24.04
-
-RUN apt-retry-install build-essential
-
-ENV NVM_DIR=/opt/nvm
-RUN mkdir -p ${NVM_DIR} \
-    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 24 && \
-    nvm alias default 24 && \
-    ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 24)\")\")\" ${NVM_DIR}/versions/node/v24"
-ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
-
-ENV NODE_VERSION=24
+FROM pipeline-node-base:1.0
 
 WORKDIR /app
 CMD ["bash"]

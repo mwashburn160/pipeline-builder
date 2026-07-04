@@ -21,6 +21,9 @@ secrets:
   - name: GPG_PASSPHRASE
     required: false
     description: "GPG key passphrase for artifact signing"
+  - name: GPG_PRIVATE_KEY
+    required: false
+    description: "GPG private key for artifact signing"
 primaryOutputDirectory: publish-output
 dockerfile: Dockerfile
 installCommands:
@@ -59,13 +62,13 @@ commands:
     else
       echo "Publishing to Maven Central via OSSRH..."
     fi
-    # Deploy with release profile
+    # Deploy with release profile. run-logged streams to the log AND exits with
+    # mvn's true status (no redirect/pipe masking); set -e gates on the truth.
     echo "Running mvn deploy..."
-    mvn deploy -P release \
+    run-logged publish-output/maven-deploy.log -- mvn deploy -P release \
       -Dgpg.passphrase="${GPG_PASSPHRASE}" \
       ${REPO_ARGS} \
-      -B \
-      2>&1 | tee publish-output/maven-deploy.log
+      -B
   - |
     set -e
     # Save publish metadata

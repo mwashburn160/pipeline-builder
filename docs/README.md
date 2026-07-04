@@ -202,6 +202,8 @@ PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh doc
 
 Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGORY` (comma-separated filter), `PARALLEL_JOBS` (upload concurrency, auto-lowered to 1 for prebuilt), `FORCE_REBUILD` (rebuild existing image.tar files).
 
+Flags: `--cleanup` (remove `plugin.zip`/`image.tar` after upload), `--continue-on-build-failure` (proceed past per-plugin build failures), `--force` (rebuild the base images **and** the CodeBuild bootstrap image from scratch, ignoring the docker-cache / registry-tag skips — use after changing a base `Dockerfile` or the bootstrap image).
+
 **Admin credentials** — `init-platform.sh` is non-interactive and reads them from the environment, falling back to defaults when unset:
 
 | Env var | Default (used if unset) |

@@ -23,6 +23,7 @@ installCommands:
   - |
     set -e
     echo "Logging into Amazon ECR..."
+    AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
     aws ecr get-login-password --region ${AWS_REGION} \
       | docker login --username AWS --password-stdin \
       ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
@@ -33,6 +34,7 @@ commands:
       echo "ERROR: ECR_REPOSITORY must be set"
       exit 1
     fi
+    AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
     FULL_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
     echo "Building image: ${FULL_IMAGE}"
     docker build \
@@ -54,4 +56,4 @@ env:
   DOCKERFILE_PATH: Dockerfile
   DOCKER_CONTEXT: "."
   AWS_REGION: "${AWS_REGION}"
-  AWS_ACCOUNT_ID: "${AWS_ACCOUNT_ID}"
+  AWS_ACCOUNT_ID: ""

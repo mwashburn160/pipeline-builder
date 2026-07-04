@@ -15,9 +15,10 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  # Python + pytest/pytest-cov are baked into pipeline-python-base (single pinned version).
   - test -d test-reports || mkdir -p test-reports
-  - pyenv global ${PYTHON_VERSION} && python --version
-  - pip install pytest pytest-cov
+  - python3 --version && pytest --version
+  # Install user PROJECT deps so the tests can run (not tool setup).
   - |
     set -e
     if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -26,13 +27,8 @@ commands:
   - |
     set -e
     echo "Running pytest..."
-    python -m pytest ${PYTEST_ARGS} \
-      --junitxml=test-reports/pytest-results.xml \
-      > test-reports/pytest.log 2>&1 || _TEST_RC=$?
-    cat test-reports/pytest.log
-    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
-    [ "${_TEST_RC:-0}" -eq 0 ]
+    run-logged test-reports/pytest.log -- python -m pytest ${PYTEST_ARGS} --junitxml=test-reports/pytest-results.xml
   - "echo \"pytest complete. Reports available in test-reports/\""
 env:
-  PYTHON_VERSION: "3.14"
+  # PYTHON_VERSION is baked into pipeline-python-base (single-version model).
   PYTEST_ARGS: "-x --tb=short"

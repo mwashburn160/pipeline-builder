@@ -14,9 +14,9 @@ deploy/plugins/
 ├── _base/                      # SHARED PLUGIN BASE IMAGES (built first, in dep order)
 │   ├── _plugin-base/Dockerfile #   pipeline-plugin-base:24.04 (root)
 │   ├── _aws-cli-base/Dockerfile #  pipeline-aws-cli-base:1.0  (root + AWS CLI v2)
-│   ├── _snyk-base/Dockerfile   #   pipeline-snyk-base:1.0     (root + Node + snyk)
-│   ├── _sonarcloud-base/Dockerfile # pipeline-sonarcloud-base:1.0
-│   └── _trivy-base/Dockerfile  #   pipeline-trivy-base:1.0
+│   ├── _{python,node,go,jvm,dotnet,rust,ruby,php}-base/Dockerfile
+│   │                            #   pipeline-<eco>-base:1.0    (one pinned runtime each)
+│   └── _trivy-base/Dockerfile  #   pipeline-trivy-base:1.0    (language-agnostic trivy)
 │
 # CodeBuild bootstrap image (not a plugin) lives at:
 #   ../codebuild/bootstrap/Dockerfile → pipeline-bootstrap:1.0
@@ -31,7 +31,7 @@ deploy/plugins/
 ├── quality/                    # 17 plugins  (lint, format, coverage)
 ├── security/                   # 40 plugins  (SAST, SCA, secrets, container scanning)
 ├── testing/                    # 14 plugins  (unit, integration, load, E2E)
-└── plugin-versions.yaml        # Single source of truth for tool versions
+# (tool/runtime versions are pinned inline as ARG in each base + plugin Dockerfile)
 ```
 
 Each plugin directory contains:
@@ -98,14 +98,12 @@ End-to-end via [`deploy/bin/init-platform.sh`](../bin/init-platform.sh):
 2. **Update `plugin-spec.yaml`** — name, description, keywords, commands. See the
    [Plugin spec reference](#plugin-spec-reference) below.
 
-3. **Edit the `Dockerfile`** — start `FROM pipeline-plugin-base:24.04` (provides
-   git, curl, jq, ca-certificates, gnupg, wget, unzip). Add tool-specific deps
-   in your own RUN block.
+3. **Edit the `Dockerfile`** — for a language/tool plugin, start
+   `FROM pipeline-<eco>-base:1.0` (provides the pinned runtime) and add ONLY your
+   plugin's own tool, pinned via `ARG TOOL_VERSION=…`. Otherwise start
+   `FROM pipeline-plugin-base:24.04`. Gate commands run through `run-logged`.
 
-4. **Add an entry to [`plugin-versions.yaml`](plugin-versions.yaml)** — even if your
-   plugin doesn't pin a version (use `install_type: none` or `apt`).
-
-5. **Verify locally**:
+4. **Verify locally**:
    ```bash
    ./deploy/bin/build-plugin-images.sh --category quality
    ./deploy/bin/test-plugins.sh
@@ -118,16 +116,23 @@ End-to-end via [`deploy/bin/init-platform.sh`](../bin/init-platform.sh):
 
 ## Shared base images (`_base/`)
 
-Five plugin base images live under `deploy/plugins/_base/`. The build script
-builds them in dependency order before any consumer plugin:
+The plugin base images live under `deploy/plugins/_base/` (one root, one AWS-CLI,
+one per language ecosystem, and the trivy binary base). The build script builds
+them in dependency order before any consumer plugin:
 
 | Tag | Source | Provides | Consumed by |
 |---|---|---|---|
 | `pipeline-plugin-base:24.04` | `_base/_plugin-base/` | git, curl, jq, ca-certificates, gnupg, wget, unzip | ALL plugins |
 | `pipeline-aws-cli-base:1.0` | `_base/_aws-cli-base/` | AWS CLI v2 | 17 AWS-touching plugins (cdk-*, ecr-push, terraform, ...) |
-| `pipeline-snyk-base:1.0` | `_base/_snyk-base/` | Node + corepack + snyk CLI | 6 snyk-* plugins (excl. snyk-python which uses multistage) |
-| `pipeline-sonarcloud-base:1.0` | `_base/_sonarcloud-base/` | Node + corepack + 2× sonar-scanner-cli versions | 6 sonarcloud-* plugins |
-| `pipeline-trivy-base:1.0` | `_base/_trivy-base/` | 2× trivy versions (COPY from upstream image) | 6 trivy-* plugins |
+| `pipeline-python-base:1.0` | `_base/_python-base/` | one pinned CPython (python-build-standalone) | all Python plugins (mypy, ruff, bandit, pytest, snyk/sonarcloud-python, ...) |
+| `pipeline-node-base:1.0` | `_base/_node-base/` | one pinned Node.js | all Node plugins (eslint, jest, cypress, npm-*, snyk/sonarcloud-nodejs, ...) |
+| `pipeline-go-base:1.0` | `_base/_go-base/` | one pinned Go | all Go plugins (go-test, golangci-lint, gosec, snyk/sonarcloud-go, ...) |
+| `pipeline-jvm-base:1.0` | `_base/_jvm-base/` | Corretto JDK + Maven/Gradle/Kotlin | Corretto/JVM plugins (checkstyle, jacoco, spotbugs, snyk/sonarcloud-java, ...) |
+| `pipeline-dotnet-base:1.0` | `_base/_dotnet-base/` | one pinned .NET SDK | all .NET plugins |
+| `pipeline-rust-base:1.0` | `_base/_rust-base/` | one pinned Rust toolchain + clippy/rustfmt | all Rust plugins |
+| `pipeline-ruby-base:1.0` | `_base/_ruby-base/` | one pinned Ruby (ruby-builder) | all Ruby plugins |
+| `pipeline-php-base:1.0` | `_base/_php-base/` | one pinned PHP + Composer | PHP plugins |
+| `pipeline-trivy-base:1.0` | `_base/_trivy-base/` | trivy binary (COPY from upstream image) | the single language-agnostic `trivy` plugin |
 
 The CodeBuild bootstrap image (`pipeline-bootstrap:1.0`, built `FROM node:24-slim`
 with AWS CLI v2 + the AWS CDK CLI + esbuild + pnpm + pipeline-manager baked in)
@@ -171,7 +176,7 @@ runtime. Each is documented inline; the canonical examples:
 |---|---|---|---|
 | **pyenv-compiled Python (analysis-only tools)** | [`security/bandit/Dockerfile`](security/bandit/Dockerfile) | `build-essential` + 10 `*-dev` libs after Python compile | ~200 MB |
 | **Self-contained tool tarball** | [`deploy/flyway/Dockerfile`](deploy/flyway/Dockerfile) | docs/, source/, README.txt + duplicate JRE | ~200 MB |
-| **Upstream tool image as COPY source** | [`security/trivy-python/Dockerfile`](security/trivy-python/Dockerfile) | Whole upstream image except the binary | varies |
+| **Upstream tool image as COPY source** | [`security/docker-lint/Dockerfile`](security/docker-lint/Dockerfile) | Whole upstream image except the binary | varies |
 
 **When to use multistage:** your plugin's install step needs a heavy build
 toolchain (compilers, headers) that isn't needed when the plugin actually
@@ -226,17 +231,14 @@ for a fully-featured example.
 
 ## Version management
 
-[`plugin-versions.yaml`](plugin-versions.yaml) is the single source of truth for tool
-version pins across all plugins. To bump a tool version:
+Tool and runtime versions are pinned **inline** as `ARG` in the Dockerfiles —
+runtimes in each ecosystem base (`_base/_<eco>-base/Dockerfile`), per-plugin tools
+in that plugin's `Dockerfile`. That is the single source of truth. To bump a version:
 
-1. Edit the entry in `plugin-versions.yaml`.
-2. Run `./deploy/bin/generate-plugins.sh --verify` to confirm the new version is
-   resolvable upstream (downloads the URL, checks 200).
-3. Update the corresponding Dockerfile to use the new version.
-4. Rebuild + test the plugin.
-
-`generate-plugins.sh` requires `yq` (the Go-based YAML parser). On macOS:
-`brew install yq`.
+1. For a runtime → edit the `ARG` in the ecosystem base and rebuild it (every
+   consumer plugin picks it up). For a tool → edit the `ARG` in that plugin's Dockerfile.
+2. Rebuild + test (`build-plugin-images.sh` / `test-plugins.sh --build`) — the
+   build fails loudly if a pinned version doesn't resolve upstream.
 
 ---
 
@@ -293,7 +295,6 @@ Many tool versions are 1+ year stale. From the May 2026 audit:
 - **OWASP dep-check 12.2.0** → 12.2.2 (security-relevant)
 - **trufflehog 3.84** → 3.95
 - **gitleaks 8.22** → 8.30
-- See `plugin-versions.yaml` for the full list
 
 ### Build infrastructure
 
@@ -322,7 +323,7 @@ Many tool versions are 1+ year stale. From the May 2026 audit:
 | WORKDIR | `/app` (provided by base) |
 | CMD | `["bash"]` (provided by base) |
 | ENV section header | `# ─── Section Name ───` (Unicode box-dashes) |
-| Tool version pin | In `plugin-versions.yaml`, NOT inline in Dockerfile |
+| Tool version pin | Inline `ARG TOOL_VERSION=…` in the plugin/base Dockerfile |
 | Pip installs | `pip3 install --break-system-packages --no-cache-dir <pkg>==<version>` |
 | npm installs | `npm install -g <pkg>@<version>` |
 | Multistage builder name | `builder` (single) or `<thing>-builder` (multiple) |
@@ -337,6 +338,5 @@ Many tool versions are 1+ year stale. From the May 2026 audit:
 | [`deploy/bin/build-plugin-images.sh`](../bin/build-plugin-images.sh) | Builds `_base` + each plugin's Dockerfile, saves `image.tar` |
 | [`deploy/bin/load-plugins.sh`](../bin/load-plugins.sh) | Zips each plugin dir, POSTs to platform `/api/plugin/upload` |
 | [`deploy/bin/test-plugins.sh`](../bin/test-plugins.sh) | Validates spec schema + Dockerfile sanity; `--build` also builds and smoke-runs each image |
-| [`deploy/bin/generate-plugins.sh`](../bin/generate-plugins.sh) | Verifies all version pins resolve upstream |
 | [`deploy/bin/init-platform.sh`](../bin/init-platform.sh) | End-to-end bootstrap (build + load + register) |
 | [`deploy/bin/common.sh`](../bin/common.sh) | Shared helpers: `compute_image_tag`, `yq_buildargs`, `require_yq` |

@@ -23,7 +23,12 @@ installCommands:
       ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /usr/local/bin/hadolint
     else
       echo "Hadolint ${HADOLINT_VERSION} not pre-installed, downloading..."
-      curl -fsSL https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-Linux-x86_64 \
+      case "$(uname -m)" in
+        x86_64) _HL_ARCH=x86_64 ;;
+        aarch64|arm64) _HL_ARCH=arm64 ;;
+        *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+      esac
+      curl -fsSL https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-Linux-${_HL_ARCH} \
         -o /usr/local/bin/hadolint && chmod +x /usr/local/bin/hadolint
     fi
   - hadolint --version
@@ -34,7 +39,12 @@ installCommands:
       ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /usr/local/bin/dockle
     else
       echo "Dockle ${DOCKLE_VERSION} not pre-installed, downloading..."
-      curl -fsSL https://github.com/goodwithtech/dockle/releases/download/v${DOCKLE_VERSION}/dockle_${DOCKLE_VERSION}_Linux-64bit.tar.gz \
+      case "$(uname -m)" in
+        x86_64) _DK_ARCH=64bit ;;
+        aarch64|arm64) _DK_ARCH=ARM64 ;;
+        *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+      esac
+      curl -fsSL https://github.com/goodwithtech/dockle/releases/download/v${DOCKLE_VERSION}/dockle_${DOCKLE_VERSION}_Linux-${_DK_ARCH}.tar.gz \
         | tar -xz -C /tmp && mv /tmp/dockle /usr/local/bin/dockle
     fi
   - dockle --version
@@ -49,7 +59,7 @@ commands:
       echo "Linting: ${df}"
       hadolint --format ${HADOLINT_FORMAT} \
         --failure-threshold ${HADOLINT_SEVERITY} \
-        "${df}" > "docker-lint-reports/hadolint-$(echo ${df} | tr '/' '-' | sed 's/^.-//').json" 2>&1 || true
+        "${df}" > "docker-lint-reports/hadolint-$(echo ${df} | tr '/' '-' | sed 's/^.-//').json" 2>&1
     done
     if [ "${FOUND_DOCKERFILES}" = "false" ]; then
       echo "No Dockerfiles found to lint"
@@ -61,7 +71,7 @@ commands:
       echo "Running Dockle on image: ${DOCKER_IMAGE}..."
       dockle --format ${DOCKLE_FORMAT} \
         --output docker-lint-reports/dockle-results.json \
-        "${DOCKER_IMAGE}" || true
+        "${DOCKER_IMAGE}"
     else
       echo "DOCKER_IMAGE not set — skipping Dockle container image audit"
       echo "Set DOCKER_IMAGE=your-image:tag to enable container scanning"
@@ -70,7 +80,6 @@ commands:
 env:
   HADOLINT_VERSION: "2.12.0"
   DOCKLE_VERSION: "0.4.15"
-  DOCKERFILE_PATH: Dockerfile
   DOCKER_IMAGE: ""
   HADOLINT_FORMAT: json
   DOCKLE_FORMAT: json

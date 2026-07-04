@@ -1,23 +1,28 @@
 # Snyk Security Plugin — Rust scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Inherits from the snyk family base image (pipeline-snyk-base:1.0)
-# which provides snyk CLI + (where applicable) Node.js. This file
-# only adds the Rust toolchain.
+# Thin layer over pipeline-rust-base (one pinned Rust toolchain, shared by all
+# Rust plugins). Snyk resolves Rust dependencies at scan time, so it needs
+# that ecosystem's runtime + package manager present — hence a per-language
+# image (the snyk variants stay split by ecosystem).
+#
+# The Snyk CLI is installed as the pinned standalone Linux binary (no Node.js
+# required) and baked at build time: deterministic, no runtime install, no
+# network dependency at pipeline time.
 
-FROM pipeline-snyk-base:1.0
+FROM pipeline-rust-base:1.0
 
-# Build deps required by the language toolchain. Without these, the
-# scanner fails when it needs to build user code with native deps
-# (cgo, JNI, native crates, native NuGet packages, etc.).
-RUN apt-retry-install build-essential libssl-dev pkg-config
-
-# ─── Rust via rustup ───
-ENV RUSTUP_HOME=/opt/rustup
-ENV CARGO_HOME=/opt/cargo
-RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-modify-path
-ENV PATH="${CARGO_HOME}/bin:${PATH}"
-ENV RUST_VERSION=stable
+# TODO(confirm): confirm the intended pinned Snyk CLI version at build time.
+ARG SNYK_VERSION=1.1298.0
+RUN set -eux; \
+    case "$(uname -m)" in \
+      x86_64)  snyk_bin=snyk-linux ;; \
+      aarch64) snyk_bin=snyk-linux-arm64 ;; \
+      *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://static.snyk.io/cli/v${SNYK_VERSION}/${snyk_bin}" -o /usr/local/bin/snyk; \
+    chmod +x /usr/local/bin/snyk; \
+    snyk --version
 
 WORKDIR /app
 CMD ["bash"]

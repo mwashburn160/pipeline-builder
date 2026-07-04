@@ -15,13 +15,10 @@ secrets: []
 primaryOutputDirectory: cypress-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node.js version selection
+  # Node + npm are baked into pipeline-node-base; Cypress is pinned + baked.
   - test -d cypress-reports || mkdir -p cypress-reports
-  - |
-    set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
-  - node --version
-  # Install project dependencies
+  - node --version && cypress --version
+  # Install project dependencies (a project-pinned Cypress wins via npx).
   - |
     set -e
     if [ -f pnpm-lock.yaml ]; then
@@ -33,30 +30,35 @@ installCommands:
     elif [ -f package.json ]; then
       npm install
     fi
+  # Verify the Cypress browser binary is present and runnable.
   - npx cypress verify
 commands:
   - |
     set -e
-    export PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:${PATH}"
     SPEC_ARG=""
     if [ -n "${CYPRESS_SPEC}" ]; then
       SPEC_ARG="--spec ${CYPRESS_SPEC}"
     fi
+    RECORD_ARG=""
+    if [ -n "${CYPRESS_RECORD_KEY}" ]; then
+      RECORD_ARG="--record --key ${CYPRESS_RECORD_KEY}"
+    fi
     echo "Running Cypress E2E tests (browser: ${CYPRESS_BROWSER})..."
-    npx cypress run \
+    set +e
+    run-logged cypress-reports/cypress.log -- npx cypress run \
       --browser ${CYPRESS_BROWSER} \
       ${SPEC_ARG} \
+      ${RECORD_ARG} \
       --reporter json \
-      --reporter-options "output=cypress-reports/cypress-results.json" \
-      > cypress-reports/cypress-output.txt 2>&1 || _TEST_RC=$?
-    cat cypress-reports/cypress-output.txt
+      --reporter-options "output=cypress-reports/cypress-results.json"
+    _TEST_RC=$?
+    set -e
     # Copy videos and screenshots (also on failure, for debugging)
     cp -r cypress/videos cypress-reports/ 2>/dev/null || true
     cp -r cypress/screenshots cypress-reports/ 2>/dev/null || true
     [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Cypress tests complete. Reports available in cypress-reports/\""
 env:
-  NODE_VERSION: "24"
   CYPRESS_BROWSER: "electron"
   CYPRESS_SPEC: ""
   CYPRESS_RECORD_KEY: ""

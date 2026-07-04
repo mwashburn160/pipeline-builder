@@ -92,7 +92,7 @@ sha256_hash() {
 # require_yq — ensure `yq` (mikefarah's Go YAML parser) is on PATH.
 #
 # Replaced ~150 lines of brittle awk YAML state-machine code in
-# build-plugin-images.sh and generate-plugins.sh — those parsers broke on
+# build-plugin-images.sh — those parsers broke on
 # multi-line values, comments after value, single-quoted strings with
 # embedded commas, etc. Call this once at the top of any script that uses
 # the `yq_*` helpers below.

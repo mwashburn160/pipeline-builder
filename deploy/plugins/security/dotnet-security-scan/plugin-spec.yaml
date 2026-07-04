@@ -15,16 +15,14 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
+  # .NET SDK + the pinned security-scan tool are baked into the image
+  # (pipeline-dotnet-base + this plugin's Dockerfile).
   - test -d security-reports || mkdir -p security-reports
   - dotnet --version
-  - dotnet tool install --global security-scan
 commands:
   - |
     set -e
     echo "Running .NET security scan..."
-    security-scan . \
-      --excl-proj=*test* \
-      2>&1 | tee security-reports/security-scan.log || true
+    run-logged security-reports/security-scan.log -- \
+      security-scan . --excl-proj=*test*
   - "echo \"Security scan complete. Reports available in security-reports/\""
-env:
-  DOTNET_VERSION: "9.0"

@@ -15,9 +15,10 @@ secrets: []
 primaryOutputDirectory: coverage-reports
 dockerfile: Dockerfile
 installCommands:
+  # Python + coverage/pytest are baked into pipeline-python-base (single pinned version).
   - test -d coverage-reports || mkdir -p coverage-reports
-  - pyenv global ${PYTHON_VERSION} && python --version
-  - pip install coverage pytest
+  - python3 --version && coverage --version
+  # Install user PROJECT deps so the tests can run (not tool setup).
   - |
     set -e
     if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -27,15 +28,15 @@ commands:
     set -e
     echo "Running coverage..."
     _TEST_RC=0; _COV_RC=0
-    coverage run -m pytest > coverage-reports/coverage-run.log 2>&1 || _TEST_RC=$?
-    cat coverage-reports/coverage-run.log
-    coverage report --fail-under=${COVERAGE_THRESHOLD} > coverage-reports/coverage-report.log 2>&1 || _COV_RC=$?
-    cat coverage-reports/coverage-report.log
+    # run-logged streams to console + log and yields the tool's real exit; we
+    # capture it (don't abort) so the report/xml/html still run before gating.
+    run-logged coverage-reports/coverage-run.log -- coverage run -m pytest || _TEST_RC=$?
+    run-logged coverage-reports/coverage-report.log -- coverage report --fail-under=${COVERAGE_THRESHOLD} || _COV_RC=$?
     coverage xml -o coverage-reports/coverage.xml || true
     coverage html -d coverage-reports/htmlcov || true
     # Gate on test failures AND coverage threshold (POSIX /bin/sh, no pipefail).
     [ "${_TEST_RC:-0}" -eq 0 ] && [ "${_COV_RC:-0}" -eq 0 ]
   - "echo \"Coverage complete. Reports available in coverage-reports/\""
 env:
-  PYTHON_VERSION: "3.14"
+  # PYTHON_VERSION is baked into pipeline-python-base (single-version model).
   COVERAGE_THRESHOLD: "75"

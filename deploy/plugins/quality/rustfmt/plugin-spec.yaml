@@ -15,16 +15,12 @@ secrets: []
 primaryOutputDirectory: fmt-reports
 dockerfile: Dockerfile
 installCommands:
+  # Rust + rustfmt are baked into pipeline-rust-base (single pinned version).
   - test -d fmt-reports || mkdir -p fmt-reports
-  - rustup default ${RUST_VERSION}
-  - rustc --version
-  - rustup component add rustfmt
+  - cargo --version
 commands:
   - |
     set -e
     echo "Running rustfmt check..."
-    cargo fmt --all -- --check \
-      2>&1 | tee fmt-reports/rustfmt.log || true
+    run-logged fmt-reports/rustfmt.log -- cargo fmt --all -- --check
   - "echo \"rustfmt check complete. Reports available in fmt-reports/\""
-env:
-  RUST_VERSION: stable

@@ -15,20 +15,24 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
+  # Python + ruff are baked into pipeline-python-base (single pinned version).
   - test -d lint-reports || mkdir -p lint-reports
-  - pyenv global ${PYTHON_VERSION} && python --version
-  - pip install ruff
+  - python3 --version && ruff --version
 commands:
   - |
     set -e
     echo "Running Ruff linter..."
-    ruff check . --output-format json > lint-reports/ruff-check.json 2>&1 || true
-    ruff check . 2>&1 | tee lint-reports/ruff-check.log || true
+    RUFF_CFG=""
+    if [ -n "${RUFF_CONFIG}" ]; then RUFF_CFG="--config ${RUFF_CONFIG}"; fi
+    ruff check . ${RUFF_CFG} --output-format json > lint-reports/ruff-check.json 2>&1 || true
+    run-logged lint-reports/ruff-check.log -- ruff check . ${RUFF_CFG}
   - |
     set -e
     echo "Running Ruff formatter check..."
-    ruff format --check . 2>&1 | tee lint-reports/ruff-format.log || true
+    RUFF_CFG=""
+    if [ -n "${RUFF_CONFIG}" ]; then RUFF_CFG="--config ${RUFF_CONFIG}"; fi
+    run-logged lint-reports/ruff-format.log -- ruff format --check . ${RUFF_CFG}
   - "echo \"Ruff analysis complete. Reports available in lint-reports/\""
 env:
-  PYTHON_VERSION: "3.14"
+  # PYTHON_VERSION is baked into pipeline-python-base (single-version model).
   RUFF_CONFIG: pyproject.toml

@@ -1,30 +1,12 @@
-# .NET Plugin — Multi-version build environment using dotnet-install.sh
-# Used by CodeBuildStep in CodePipeline via pipeline-core Builder
-# .NET version is selected at runtime via DOTNET_VERSION env var
+# .NET Plugin — build/test C#/F# applications on the shared pinned .NET SDK.
+# Used by CodeBuildStep in CodePipeline via pipeline-core Builder.
+#
+# Thin layer over pipeline-dotnet-base (one pinned .NET SDK, shared by all
+# .NET plugins). No runtime dotnet-install — the SDK is baked into the base
+# (deterministic, no network dependency at pipeline time). `dotnet` is on PATH
+# and DOTNET_ROOT is set by the base.
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-dotnet-base:1.0
 
-# System dependencies for builds
-RUN apt-retry-install build-essential libssl-dev libicu-dev
-
-# Install current + previous .NET SDK versions
-RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
-    && chmod +x /tmp/dotnet-install.sh \
-    && /tmp/dotnet-install.sh --channel 8.0 --install-dir /opt/dotnet \
-    && /tmp/dotnet-install.sh --channel 9.0 --install-dir /opt/dotnet \
-    && rm /tmp/dotnet-install.sh
-
-# Add .NET to PATH
-ENV DOTNET_ROOT=/opt/dotnet
-ENV PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
-ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
-ENV DOTNET_NOLOGO=1
-
-# Default .NET version (overridden by DOTNET_VERSION env var at runtime)
-ENV DOTNET_VERSION=9.0
-
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

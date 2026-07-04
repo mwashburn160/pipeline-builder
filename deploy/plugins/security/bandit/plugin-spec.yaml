@@ -15,20 +15,29 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
+  # Python + bandit are baked into pipeline-python-base (single pinned version).
   - test -d security-reports || mkdir -p security-reports
-  - pyenv global ${PYTHON_VERSION} && python --version
-  - pip install bandit
+  - python3 --version && bandit --version
 commands:
   - |
     set -e
     echo "Running Bandit security scan..."
-    bandit -r . \
-      -ll -ii \
-      -f json -o security-reports/bandit-results.json \
-      2>&1 || true
-    bandit -r . -ll -ii 2>&1 | tee security-reports/bandit.log || true
+    # Map severity/confidence knobs to bandit's -l/-ll/-lll and -i/-ii/-iii flags.
+    case "${BANDIT_SEVERITY}" in
+      low) _SEV="-l" ;;
+      high) _SEV="-lll" ;;
+      *) _SEV="-ll" ;;
+    esac
+    case "${BANDIT_CONFIDENCE}" in
+      low) _CONF="-i" ;;
+      high) _CONF="-iii" ;;
+      *) _CONF="-ii" ;;
+    esac
+    # Report-only JSON (always written; never gates).
+    bandit -r . ${_SEV} ${_CONF} -f json -o security-reports/bandit-results.json 2>&1 || true
+    run-logged security-reports/bandit.log -- bandit -r . ${_SEV} ${_CONF}
   - "echo \"Bandit scan complete. Reports available in security-reports/\""
 env:
-  PYTHON_VERSION: "3.14"
+  # PYTHON_VERSION is baked into pipeline-python-base (single-version model).
   BANDIT_SEVERITY: medium
   BANDIT_CONFIDENCE: medium

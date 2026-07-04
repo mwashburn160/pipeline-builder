@@ -113,6 +113,38 @@ done
 rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
 SCRIPT
 
+# run-logged — shared helper that makes a plugin's gate command HONEST.
+#
+# CodeBuild runs every command under /bin/sh (dash), which has no
+# `set -o pipefail`. So the ubiquitous `tool ... 2>&1 | tee log` idiom exits
+# with tee's status (0) and MASKS the tool's real failure — the single most
+# common false-positive-green bug across the plugin catalog. This helper
+# streams combined output to BOTH the console and <logfile> AND exits with the
+# tool's real status, so the platform's `failureBehavior` (warn/ignore/fail)
+# gates on the truth.
+#
+# Usage in a plugin Dockerfile's commands (replaces `tool … 2>&1 | tee LOG`):
+#   run-logged LOG -- tool arg1 arg2
+# The `--` separates the logfile from the command; args after it (including a
+# tool's own `--`, e.g. `cargo clippy -- -D warnings`) pass through untouched.
+RUN cat > /usr/local/bin/run-logged <<'SCRIPT' && chmod +x /usr/local/bin/run-logged
+#!/bin/sh
+# run-logged <logfile> [--] <cmd> [args...]
+set -u
+if [ "$#" -lt 2 ]; then
+  echo "usage: run-logged <logfile> [--] <cmd> [args...]" >&2
+  exit 2
+fi
+_log=$1; shift
+[ "${1:-}" = "--" ] && shift
+_rcfile=$(mktemp)
+# Run cmd, stream stdout+stderr to console AND logfile, capture cmd's real exit
+# (POSIX has no PIPESTATUS/pipefail, so stash the status through a temp file).
+{ "$@" 2>&1; echo "$?" > "$_rcfile"; } | tee "$_log"
+_rc=$(cat "$_rcfile"); rm -f "$_rcfile"
+exit "$_rc"
+SCRIPT
+
 # Working directory for pipeline source — every plugin overrides commands
 # relative to this path.
 WORKDIR /app

@@ -17,6 +17,8 @@ RUN bash -c "source ${NVM_DIR}/nvm.sh && \
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # ─── Go via goenv ───
+# NOTE: goenv is cloned at HEAD (unpinned) — no release tag is pinned here. Pin to a
+# tag (e.g. --branch <tag>) for reproducible builds when a target version is chosen.
 ENV GOENV_ROOT=/opt/goenv
 RUN git clone https://github.com/go-nv/goenv.git ${GOENV_ROOT}
 RUN ${GOENV_ROOT}/bin/goenv install 1.24.13 && \
@@ -24,6 +26,8 @@ RUN ${GOENV_ROOT}/bin/goenv install 1.24.13 && \
 ENV PATH="${GOENV_ROOT}/shims:${GOENV_ROOT}/bin:${PATH}"
 
 # ─── Pulumi CLI ───
+# NOTE: installer is unpinned (installs latest). Add `--version <x.y.z>` for a
+# reproducible build once a target Pulumi version is chosen.
 RUN curl -fsSL https://get.pulumi.com | bash -s -- --install-root /opt/pulumi
 ENV PATH="/opt/pulumi/bin:${PATH}"
 

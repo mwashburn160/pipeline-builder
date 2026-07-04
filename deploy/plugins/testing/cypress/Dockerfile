@@ -1,27 +1,20 @@
 # Cypress Plugin — End-to-End Browser Testing
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Runs Cypress E2E tests with video recording and screenshot capture
+#
+# Thin layer over pipeline-node-base (one pinned Node 24 + npm). Cypress is
+# pinned + baked at build time (its browser binary is downloaded here) — no
+# runtime `npm install -g`. A project that pins its own Cypress still wins via
+# `npx`. Browser system libraries (below) are Cypress-specific and kept.
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-node-base:1.0
 
-# System dependencies + Cypress browser prerequisites
+# Cypress browser prerequisites (system libs for the bundled Electron/Chromium).
 RUN apt-retry-install libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libnss3 libxss1 libasound2t64 libxtst6 xauth xvfb fonts-liberation
 
-# ─── Node.js via nvm ───
-ENV NVM_DIR=/opt/nvm
-RUN mkdir -p ${NVM_DIR} \
-    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-RUN bash -c "source ${NVM_DIR}/nvm.sh && \
-    nvm install 24 && \
-    nvm alias default 24 && \
-    ln -sfT \"\$(dirname \"\$(dirname \"\$(nvm which 24)\")\")\" ${NVM_DIR}/versions/node/v24"
-ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
+# TODO(confirm): pin the intended Cypress version at build time.
+ARG CYPRESS_VERSION=13.17.0
+RUN npm install -g "cypress@${CYPRESS_VERSION}"
 
-# Default Node.js version
-ENV NODE_VERSION=24
-
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

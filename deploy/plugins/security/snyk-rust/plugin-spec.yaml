@@ -18,18 +18,17 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
+  # Rust toolchain is baked into pipeline-rust-base (single pinned version).
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
     set -e
-    rustup default ${RUST_VERSION}
     rustc --version
     if [ -f Cargo.toml ]; then cargo fetch; fi
 commands:
-  - snyk auth ${SNYK_TOKEN}
-  - snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json || true
-  - snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json || true
+  - run-logged snyk-reports/snyk-test.log -- snyk test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-test-results.json
+  - run-logged snyk-reports/snyk-code.log -- snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json
   - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
 env:
+  # RUST_VERSION is baked into pipeline-rust-base (single-version model).
   SNYK_SEVERITY_THRESHOLD: high
-  RUST_VERSION: stable

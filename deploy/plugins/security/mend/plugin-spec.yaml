@@ -42,8 +42,7 @@ commands:
           --project "${MEND_PROJECT_NAME}" \
           --dir . \
           --report \
-          --report-dir mend-reports \
-          || true
+          --report-dir mend-reports
         ;;
       image)
         mend image \
@@ -51,8 +50,7 @@ commands:
           --api-key "${MEND_API_KEY}" \
           --dir . \
           --report \
-          --report-dir mend-reports \
-          || true
+          --report-dir mend-reports
         ;;
     esac
   - "echo \"Mend scan complete. Reports available in mend-reports/\""
@@ -61,4 +59,3 @@ env:
   MEND_PRODUCT_NAME: ""
   MEND_PROJECT_NAME: ""
   MEND_SCAN_TYPE: sca
-  MEND_SEVERITY_THRESHOLD: medium

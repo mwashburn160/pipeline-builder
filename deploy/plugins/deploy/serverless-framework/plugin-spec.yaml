@@ -41,11 +41,15 @@ commands:
       REGION_ARG="--region ${SLS_REGION}"
     fi
     echo "Deploying with Serverless Framework (stage: ${SLS_STAGE})..."
+    # Capture serverless's real exit (POSIX has no PIPESTATUS): redirect, then cat.
+    _rc=0
     serverless deploy \
       --stage ${SLS_STAGE} \
       ${REGION_ARG} \
       --verbose \
-      2>&1 | tee ${OLDPWD}/serverless-output/deploy.txt
+      > ${OLDPWD}/serverless-output/deploy.txt 2>&1 || _rc=$?
+    cat ${OLDPWD}/serverless-output/deploy.txt
+    [ "${_rc:-0}" -eq 0 ]
     serverless info \
       --stage ${SLS_STAGE} \
       ${REGION_ARG} \

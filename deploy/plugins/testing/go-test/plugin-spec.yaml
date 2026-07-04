@@ -15,21 +15,22 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  # Go + go-junit-report are baked into pipeline-go-base / this plugin's image.
   - test -d test-reports || mkdir -p test-reports
-  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
-  - go version
-  - go install github.com/jstemmer/go-junit-report/v2@latest
+  - go version && go-junit-report --version
+  # Download project dependencies (not tool setup).
   - if [ -f go.mod ]; then go mod download; fi
 commands:
   - |
     set -e
     echo "Running go test..."
-    go test -v -coverprofile=test-reports/coverage.out ./... \
-      > test-reports/go-test.log 2>&1 || _TEST_RC=$?
-    cat test-reports/go-test.log
-    cat test-reports/go-test.log | go-junit-report > test-reports/junit.xml 2>/dev/null || true
+    # run-logged streams to console + log AND preserves go test's real exit code.
+    run-logged test-reports/go-test.log -- go test -v -coverprofile=test-reports/coverage.out ./... || _TEST_RC=$?
+    # JUnit is derived from the captured log regardless of pass/fail.
+    go-junit-report < test-reports/go-test.log > test-reports/junit.xml 2>/dev/null || true
+    # Gate on the real test exit code (after the report is written).
     [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Go test complete. Reports available in test-reports/\""
 env:
-  GO_VERSION: "1.24.13"
+  # GO_VERSION is baked into pipeline-go-base (single-version model).
   GOFLAGS: "-count=1"

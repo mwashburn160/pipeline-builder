@@ -50,8 +50,7 @@ commands:
           --file "${ARTIFACT}" \
           --issue_details true \
           --json_output_file veracode-reports/pipeline-results.json \
-          --fail_on_severity "${VERACODE_SEVERITY_THRESHOLD}" \
-          || true
+          --fail_on_severity "${VERACODE_SEVERITY_THRESHOLD}"
         ;;
       policy)
         echo "Running Veracode Policy Scan (upload)..."

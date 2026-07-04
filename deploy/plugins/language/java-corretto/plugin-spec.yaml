@@ -15,22 +15,9 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Java version selection (switch Corretto version via alternatives)
-  - |
-    set -e
-    export JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-amazon-corretto
-    if [ ! -d "${JAVA_HOME}" ]; then
-      echo "ERROR: Corretto ${JAVA_VERSION} not installed. Available: 21, 25"
-      exit 1
-    fi
-    export PATH="${JAVA_HOME}/bin:${PATH}"
+  # JDK/Maven/Gradle/Kotlin are baked into pipeline-jvm-base (single pinned
+  # Corretto; java/mvn/gradle/kotlin on PATH, JAVA_HOME set).
   - java -version
-  # Kotlin version selection. CodeBuild runs each command under /bin/sh (dash),
-  # where SDKMAN's bash-only `sdk` function and `source` are unavailable (exit 127),
-  # so put the requested version on PATH directly. The image installs kotlin under
-  # ${SDKMAN_DIR}/candidates/kotlin/<version>/bin and already has the default's
-  # `current` symlink on PATH, so an unknown override falls back.
-  - export PATH="${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"; kotlin -version
   # Auto-detect or use explicit build tool, then install dependencies
   - |
     set -e
@@ -57,18 +44,17 @@ installCommands:
 commands:
   - |
     set -e
-    export JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-amazon-corretto
-    export PATH="${JAVA_HOME}/bin:${SDKMAN_DIR}/candidates/kotlin/${KOTLIN_VERSION}/bin:${PATH}"
     TOOL="${BUILD_TOOL}"
     if [ "${TOOL}" = "auto" ]; then
       if [ -f pom.xml ]; then TOOL="maven"; else TOOL="gradle"; fi
     fi
     case "${TOOL}" in
-      maven)  if [ -f ./mvnw ]; then sh ./mvnw ${MAVEN_GOAL:-clean verify} -B; else mvn ${MAVEN_GOAL:-clean verify} -B; fi ;;
-      gradle) if [ -f ./gradlew ]; then sh ./gradlew ${GRADLE_TASK:-clean build}; else gradle ${GRADLE_TASK:-clean build}; fi ;;
+      maven)  if [ -f ./mvnw ]; then run-logged build.log -- sh ./mvnw ${MAVEN_GOAL:-clean verify} -B; else run-logged build.log -- mvn ${MAVEN_GOAL:-clean verify} -B; fi ;;
+      gradle) if [ -f ./gradlew ]; then run-logged build.log -- sh ./gradlew ${GRADLE_TASK:-clean build}; else run-logged build.log -- gradle ${GRADLE_TASK:-clean build}; fi ;;
     esac
 env:
-  # Default Java 25; the image also installs Corretto 21 (override to "21").
-  JAVA_VERSION: "25"
-  KOTLIN_VERSION: 2.2.21
+  # JDK + Kotlin are single-versioned in pipeline-jvm-base (bump the base to
+  # change); the build-tool selection knobs remain plugin-level.
   BUILD_TOOL: auto
+  MAVEN_GOAL: "clean verify"
+  GRADLE_TASK: "clean build"

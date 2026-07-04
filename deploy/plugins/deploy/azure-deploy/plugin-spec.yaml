@@ -65,10 +65,18 @@ commands:
           exit 1
         fi
         echo "Deploying to Web App: ${APP_NAME}..."
+        # Capture az's real exit (POSIX has no PIPESTATUS): redirect, then cat + gate.
+        # NOTE: az webapp deploy REQUIRES --src-path (the artifact to push). It is
+        # sourced from AZURE_SRC_PATH; if unset the deploy fails loudly (red) rather
+        # than reporting a false-green no-op.
+        _rc=0
         az webapp deploy \
           --resource-group "${RG}" \
           --name "${APP_NAME}" \
-          2>&1 | tee azure-output/deploy.log || true
+          --src-path "${AZURE_SRC_PATH}" \
+          > azure-output/deploy.log 2>&1 || _rc=$?
+        cat azure-output/deploy.log
+        [ "${_rc:-0}" -eq 0 ]
         az webapp show --resource-group "${RG}" --name "${APP_NAME}" -o json \
           > azure-output/app-info.json 2>/dev/null || true
         ;;
@@ -78,10 +86,16 @@ commands:
           exit 1
         fi
         echo "Deploying Container Instance: ${CONTAINER_NAME}..."
+        # NOTE: az container create REQUIRES --image (the container image to run),
+        # sourced from AZURE_IMAGE; if unset the deploy fails loudly (red).
+        _rc=0
         az container create \
           --resource-group "${RG}" \
           --name "${CONTAINER_NAME}" \
-          2>&1 | tee azure-output/deploy.log || true
+          --image "${AZURE_IMAGE}" \
+          > azure-output/deploy.log 2>&1 || _rc=$?
+        cat azure-output/deploy.log
+        [ "${_rc:-0}" -eq 0 ]
         az container show --resource-group "${RG}" --name "${CONTAINER_NAME}" -o json \
           > azure-output/container-info.json 2>/dev/null || true
         ;;
@@ -97,8 +111,11 @@ commands:
           2>&1 | tee azure-output/cluster-auth.log
         echo "Applying Kubernetes manifests..."
         MANIFEST_PATH="${K8S_MANIFEST_PATH:-.}"
+        _rc=0
         kubectl apply -f "${MANIFEST_PATH}" \
-          2>&1 | tee azure-output/deploy.log || true
+          > azure-output/deploy.log 2>&1 || _rc=$?
+        cat azure-output/deploy.log
+        [ "${_rc:-0}" -eq 0 ]
         kubectl get pods --all-namespaces -o json > azure-output/pods.json 2>/dev/null || true
         ;;
       function)
@@ -107,11 +124,14 @@ commands:
           exit 1
         fi
         echo "Deploying Function App: ${FUNCTION_APP_NAME}..."
+        _rc=0
         az functionapp deployment source config-zip \
           --resource-group "${RG}" \
           --name "${FUNCTION_APP_NAME}" \
           --src "${FUNCTION_PACKAGE:-function.zip}" \
-          2>&1 | tee azure-output/deploy.log || true
+          > azure-output/deploy.log 2>&1 || _rc=$?
+        cat azure-output/deploy.log
+        [ "${_rc:-0}" -eq 0 ]
         az functionapp show --resource-group "${RG}" --name "${FUNCTION_APP_NAME}" -o json \
           > azure-output/function-info.json 2>/dev/null || true
         ;;
@@ -125,3 +145,8 @@ env:
   AZURE_SUBSCRIPTION: ""
   AZURE_RESOURCE_GROUP: ""
   DEPLOY_TYPE: webapp
+  # NOTE: required deploy inputs added so webapp/container deploys actually deploy.
+  # AZURE_SRC_PATH  -> --src-path for `az webapp deploy` (artifact to push)
+  # AZURE_IMAGE     -> --image for `az container create` (image to run)
+  AZURE_SRC_PATH: ""
+  AZURE_IMAGE: ""

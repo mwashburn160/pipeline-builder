@@ -1,26 +1,12 @@
 # Cargo Publish Plugin — Publish crates to crates.io
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
-# Publishes Rust crates to crates.io with dry-run support
-# Requires CARGO_REGISTRY_TOKEN injected at runtime via CodeBuild secrets
+# Publishes Rust crates to crates.io with dry-run support.
+# Requires CARGO_REGISTRY_TOKEN injected at runtime via CodeBuild secrets.
+#
+# Thin layer over pipeline-rust-base — cargo is already on PATH from the base
+# (single pinned toolchain), so nothing extra is installed here.
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-rust-base:1.0
 
-RUN apt-retry-install build-essential libssl-dev pkg-config
-
-# ─── Rust via rustup (stable toolchain) ───
-ENV RUSTUP_HOME=/opt/rustup
-ENV CARGO_HOME=/opt/cargo
-RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-modify-path
-
-# Add Rust to PATH
-ENV PATH="${CARGO_HOME}/bin:${PATH}"
-
-# ─── Runtime configuration defaults ───
-# Non-sensitive config only — CARGO_REGISTRY_TOKEN injected at runtime via CodeBuild secrets
-ENV CARGO_DRY_RUN=false
-
-# Working directory for pipeline source
 WORKDIR /app
-
-# Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

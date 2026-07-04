@@ -15,9 +15,10 @@ secrets: []
 primaryOutputDirectory: mypy-reports
 dockerfile: Dockerfile
 installCommands:
+  # Python + mypy are baked into pipeline-python-base (single pinned version).
   - test -d mypy-reports || mkdir -p mypy-reports
-  - pyenv global ${PYTHON_VERSION} && python --version
-  - pip install mypy
+  - python3 --version && mypy --version
+  # Install user PROJECT deps so mypy can resolve imports (not tool setup).
   - |
     set -e
     if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -30,10 +31,8 @@ commands:
     if [ -n "${MYPY_CONFIG}" ] && [ -f "${MYPY_CONFIG}" ]; then
       CONFIG_ARG="--config-file ${MYPY_CONFIG}"
     fi
-    mypy . ${CONFIG_ARG} \
-      --junit-xml mypy-reports/mypy-results.xml \
-      2>&1 | tee mypy-reports/mypy.log || true
+    run-logged mypy-reports/mypy.log -- mypy . ${CONFIG_ARG} --junit-xml mypy-reports/mypy-results.xml
   - "echo \"mypy check complete. Reports available in mypy-reports/\""
 env:
-  PYTHON_VERSION: "3.14"
+  # PYTHON_VERSION is baked into pipeline-python-base (single-version model).
   MYPY_CONFIG: ""

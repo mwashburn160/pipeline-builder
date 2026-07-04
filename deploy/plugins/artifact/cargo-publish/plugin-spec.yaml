@@ -18,8 +18,8 @@ secrets:
 primaryOutputDirectory: publish-output
 dockerfile: Dockerfile
 installCommands:
+  # Rust (cargo) is baked into pipeline-rust-base (single pinned version).
   - test -d publish-output || mkdir -p publish-output
-  - rustc --version
   - cargo --version
   - |
     set -e
@@ -37,9 +37,7 @@ commands:
     fi
     # Publish to crates.io
     echo "Publishing crate to crates.io..."
-    cargo publish \
-      ${DRY_RUN_FLAG} \
-      2>&1 | tee publish-output/cargo-publish.log
+    run-logged publish-output/cargo-publish.log -- cargo publish ${DRY_RUN_FLAG}
   - |
     set -e
     # Save publish metadata

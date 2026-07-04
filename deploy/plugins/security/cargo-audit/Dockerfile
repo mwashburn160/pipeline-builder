@@ -1,19 +1,15 @@
 # Cargo Audit Plugin — Dependency Vulnerability Scanner
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
+#
+# Thin layer over pipeline-rust-base (one pinned Rust toolchain, shared by all
+# Rust plugins). cargo-audit is pinned + baked at build time — no runtime
+# `cargo install` (deterministic, no network dependency at pipeline time).
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-rust-base:1.0
 
-RUN apt-retry-install build-essential libssl-dev pkg-config
-
-ENV RUSTUP_HOME=/opt/rustup
-ENV CARGO_HOME=/opt/cargo
-RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-modify-path
-
-RUN /opt/cargo/bin/rustup toolchain install stable && \
-    /opt/cargo/bin/rustup component add clippy rustfmt
-
-ENV PATH="${CARGO_HOME}/bin:${PATH}"
-ENV RUST_VERSION=stable
+# TODO(confirm): verify the intended pinned cargo-audit version at build time.
+ARG CARGO_AUDIT_VERSION=0.21.2
+RUN cargo install cargo-audit --version "${CARGO_AUDIT_VERSION}"
 
 WORKDIR /app
 CMD ["bash"]

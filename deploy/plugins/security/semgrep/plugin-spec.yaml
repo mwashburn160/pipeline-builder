@@ -29,18 +29,27 @@ commands:
   - |
     set -e
     echo "Running Semgrep with rules: ${SEMGREP_RULES}"
+    # semgrep wants a repeated --severity flag per level; a comma list is invalid.
+    _SEV=""
+    for s in $(echo "${SEMGREP_SEVERITY}" | tr ',' ' '); do
+      _SEV="${_SEV} --severity ${s}"
+    done
     semgrep scan \
       --config ${SEMGREP_RULES} \
-      --severity ${SEMGREP_SEVERITY} \
+      ${_SEV} \
       --json --output semgrep-reports/semgrep-results.json \
-      . || true
-    # Also produce human-readable output
+      .
+    # Also produce human-readable output (non-gating; the scan above is the gate)
     semgrep scan \
       --config ${SEMGREP_RULES} \
-      --severity ${SEMGREP_SEVERITY} \
+      ${_SEV} \
       . 2>&1 | tee semgrep-reports/semgrep-summary.txt || true
   - "echo \"Semgrep scan complete. Reports available in semgrep-reports/\""
 env:
   SEMGREP_RULES: auto
   SEMGREP_SEVERITY: "ERROR,WARNING"
   SEMGREP_APP_TOKEN: ""
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+# Asserts the tool is on PATH and produces a deterministic version output.
+smokeTest: "semgrep --version"

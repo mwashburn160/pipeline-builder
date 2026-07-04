@@ -1,20 +1,11 @@
 # Go Build Plugin — Binary Compilation
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
+#
+# Thin layer over pipeline-go-base (one pinned Go, shared by all Go plugins).
+# Go 1.24.13 + GOPATH are baked into the base — no goenv, no runtime version
+# install. This plugin adds no tool of its own; it drives `go build` from base.
 
-FROM pipeline-plugin-base:24.04
-
-RUN apt-retry-install build-essential
-
-ENV GOENV_ROOT=/opt/goenv
-RUN git clone https://github.com/go-nv/goenv.git ${GOENV_ROOT}
-
-RUN ${GOENV_ROOT}/bin/goenv install 1.24.13 && \
-    ${GOENV_ROOT}/bin/goenv global 1.24.13
-
-ENV PATH="${GOENV_ROOT}/shims:${GOENV_ROOT}/bin:${PATH}"
-ENV GOPATH=/opt/go
-ENV PATH="${GOPATH}/bin:${PATH}"
-ENV GO_VERSION=1.24.13
+FROM pipeline-go-base:1.0
 
 WORKDIR /app
 CMD ["bash"]

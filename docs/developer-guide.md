@@ -84,7 +84,7 @@ new PipelineBuilder(stack, 'MyPipeline', {
   },
   stages: [
     { stageName: 'Test', steps: [{ plugin: { name: 'jest' } }] },
-    { stageName: 'Security', steps: [{ plugin: { name: 'trivy-nodejs' } }] },
+    { stageName: 'Security', steps: [{ plugin: { name: 'trivy' } }] },
   ],
 });
 ```
@@ -125,7 +125,7 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
       "stageName": "Security",
       "steps": [
         { "plugin": { "name": "snyk-java" } },
-        { "plugin": { "name": "trivy-java" } }
+        { "plugin": { "name": "trivy" } }
       ]
     }
   ]
@@ -162,7 +162,7 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
       "stageName": "Security",
       "steps": [
         { "plugin": { "name": "snyk-nodejs" } },
-        { "plugin": { "name": "trivy-nodejs" } }
+        { "plugin": { "name": "trivy" } }
       ]
     }
   ]
@@ -310,7 +310,7 @@ Every plugin is a reusable, containerized build step. Copy the `plugin` block in
       "stageName": "Security",
       "steps": [
         { "plugin": { "name": "snyk-dotnet" } },
-        { "plugin": { "name": "trivy-dotnet" } }
+        { "plugin": { "name": "trivy" } }
       ]
     }
   ]
@@ -486,7 +486,7 @@ A full pipeline definition for a Spring Boot application:
         "stageName": "Security",
         "steps": [
           { "plugin": { "name": "semgrep" } },
-          { "plugin": { "name": "trivy-java" } }
+          { "plugin": { "name": "trivy" } }
         ]
       },
       {

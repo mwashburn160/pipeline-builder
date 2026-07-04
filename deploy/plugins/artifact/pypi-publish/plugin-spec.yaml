@@ -12,9 +12,6 @@ computeType: SMALL
 timeout: 15
 failureBehavior: fail
 secrets:
-  - name: TWINE_USERNAME
-    required: true
-    description: "PyPI upload username"
   - name: TWINE_PASSWORD
     required: true
     description: "PyPI upload password"
@@ -51,7 +48,9 @@ commands:
       --username "${TWINE_USERNAME}" \
       ${REPO_FLAG} \
       dist/* \
-      2>&1 | tee publish-output/twine-upload.log
+      > publish-output/twine-upload.log 2>&1 || _rc=$?
+    cat publish-output/twine-upload.log
+    [ "${_rc:-0}" -eq 0 ]
   - |
     set -e
     # Save publish metadata

@@ -15,17 +15,18 @@ secrets: []
 primaryOutputDirectory: analysis-reports
 dockerfile: Dockerfile
 installCommands:
+  # .NET SDK (Roslyn analyzers run inside `dotnet build`) is baked into
+  # pipeline-dotnet-base.
   - test -d analysis-reports || mkdir -p analysis-reports
   - dotnet --version
 commands:
   - |
     set -e
     echo "Running Roslyn analyzers..."
-    dotnet build \
-      /p:TreatWarningsAsErrors=${TREAT_WARNINGS_AS_ERRORS} \
-      /p:EnforceCodeStyleInBuild=true \
-      2>&1 | tee analysis-reports/roslyn.log || true
+    run-logged analysis-reports/roslyn.log -- \
+      dotnet build \
+        /p:TreatWarningsAsErrors=${TREAT_WARNINGS_AS_ERRORS} \
+        /p:EnforceCodeStyleInBuild=true
   - "echo \"Roslyn analysis complete. Reports available in analysis-reports/\""
 env:
-  DOTNET_VERSION: "9.0"
   TREAT_WARNINGS_AS_ERRORS: "true"

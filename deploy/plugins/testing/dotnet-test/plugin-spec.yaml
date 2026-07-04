@@ -15,28 +15,26 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
+  # .NET SDK is baked into pipeline-dotnet-base (single pinned version).
   - test -d test-reports || mkdir -p test-reports
   - dotnet --version
 commands:
   - |
     set -e
     echo "Restoring packages..."
-    dotnet restore
+    run-logged test-reports/dotnet-restore.log -- dotnet restore
   - |
     set -e
     echo "Building project..."
-    dotnet build --no-restore --configuration ${CONFIGURATION}
+    run-logged test-reports/dotnet-build.log -- \
+      dotnet build --no-restore --configuration ${CONFIGURATION}
   - |
     set -e
     echo "Running tests..."
-    dotnet test --no-build --configuration ${CONFIGURATION} \
-      --logger trx --results-directory test-reports \
-      --collect:"XPlat Code Coverage" \
-      > test-reports/dotnet-test.log 2>&1 || _TEST_RC=$?
-    cat test-reports/dotnet-test.log
-    # Gate the build on the test exit (POSIX /bin/sh has no pipefail).
-    [ "${_TEST_RC:-0}" -eq 0 ]
+    run-logged test-reports/dotnet-test.log -- \
+      dotnet test --no-build --configuration ${CONFIGURATION} \
+        --logger trx --results-directory test-reports \
+        --collect:"XPlat Code Coverage"
   - "echo \"dotnet test complete. Reports available in test-reports/\""
 env:
-  DOTNET_VERSION: "9.0"
   CONFIGURATION: "Release"

@@ -15,20 +15,21 @@ secrets: []
 primaryOutputDirectory: bin
 dockerfile: Dockerfile
 installCommands:
+  # Go is baked into pipeline-go-base (single pinned version).
   - test -d bin || mkdir -p bin
-  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
   - go version
+  # Download project dependencies (not tool setup).
   - if [ -f go.mod ]; then go mod download; fi
 commands:
   - |
     set -e
     echo "Building Go binary..."
-    CGO_ENABLED=${CGO_ENABLED} GOOS=${GOOS} GOARCH=${GOARCH} \
-      go build -ldflags='-s -w' -o bin/ ./... \
-      2>&1 | tee bin/build.log
+    # env passes the cross-compile knobs through run-logged to `go build`, which
+    # streams to console + bin/build.log and preserves go build's real exit code.
+    run-logged bin/build.log -- env CGO_ENABLED="${CGO_ENABLED}" GOOS="${GOOS}" GOARCH="${GOARCH}" go build -ldflags='-s -w' -o bin/ ./...
   - "echo \"Go build complete. Binaries available in bin/\""
 env:
-  GO_VERSION: "1.24.13"
+  # GO_VERSION is baked into pipeline-go-base (single-version model).
   CGO_ENABLED: "0"
   GOOS: linux
   GOARCH: amd64

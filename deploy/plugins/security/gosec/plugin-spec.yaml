@@ -15,17 +15,18 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
+  # Go + gosec are baked into pipeline-go-base / this plugin's image.
   - test -d security-reports || mkdir -p security-reports
-  - goenv install -s ${GO_VERSION} && goenv global ${GO_VERSION}
-  - go version
-  - go install github.com/securego/gosec/v2/cmd/gosec@latest
+  - go version && gosec --version
+  # Download project dependencies (not tool setup).
   - if [ -f go.mod ]; then go mod download; fi
 commands:
   - |
     set -e
     echo "Running gosec security scan..."
-    gosec -fmt json -out security-reports/gosec-results.json ./... 2>&1 || true
-    gosec ./... 2>&1 | tee security-reports/gosec.log || true
+    # Report-only JSON (always written; never gates).
+    gosec -fmt json -out security-reports/gosec-results.json ./... 2>/dev/null || true
+    run-logged security-reports/gosec.log -- gosec ./...
   - "echo \"gosec scan complete. Reports available in security-reports/\""
-env:
-  GO_VERSION: "1.24.13"
+# env: GO_VERSION is baked into pipeline-go-base (single-version model); nothing
+# reads it at runtime, so it is intentionally omitted.
