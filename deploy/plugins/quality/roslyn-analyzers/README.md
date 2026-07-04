@@ -17,7 +17,6 @@ Roslyn analyzers plugin for enforcing code quality rules and treating warnings a
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOTNET_VERSION` | `8.0` | Dotnet Version |
 | `TREAT_WARNINGS_AS_ERRORS` | `true` | Treat Warnings As Errors |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "roslyn-analyzers",
   "plugin": "roslyn-analyzers",
   "env": {
-    "DOTNET_VERSION": "8.0",
     "TREAT_WARNINGS_AS_ERRORS": "true"
   }
 }

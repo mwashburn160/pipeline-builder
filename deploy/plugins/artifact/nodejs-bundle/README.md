@@ -17,7 +17,6 @@ Node.js bundle and build plugin for compiling and bundling JavaScript and TypeSc
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node Version |
 | `BUILD_SCRIPT` | `build` | Build Script |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "nodejs-bundle",
   "plugin": "nodejs-bundle",
   "env": {
-    "NODE_VERSION": "24",
     "BUILD_SCRIPT": "build"
   }
 }

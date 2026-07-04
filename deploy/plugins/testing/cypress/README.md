@@ -17,7 +17,6 @@ Cypress end-to-end testing plugin for running browser-based UI tests with video 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node Version |
 | `CYPRESS_BROWSER` | `electron` | Cypress Browser |
 | `CYPRESS_SPEC` | `` | Cypress Spec |
 | `CYPRESS_RECORD_KEY` | `` | Cypress Record Key |
@@ -35,7 +34,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "cypress",
   "plugin": "cypress",
   "env": {
-    "NODE_VERSION": "24",
     "CYPRESS_BROWSER": "electron",
     "CYPRESS_SPEC": "",
     "CYPRESS_RECORD_KEY": ""

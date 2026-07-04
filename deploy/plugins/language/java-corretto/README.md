@@ -21,8 +21,6 @@ Java and Kotlin plugin using Amazon Corretto JDK for building and testing JVM ap
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JAVA_VERSION` | `21` | Amazon Corretto JDK version to use (17 or 21) |
-| `KOTLIN_VERSION` | `2.1.0` | Kotlin Version |
 | `BUILD_TOOL` | `auto` | Build Tool |
 
 ## Output
@@ -38,8 +36,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "java-corretto",
   "plugin": "java-corretto",
   "env": {
-    "JAVA_VERSION": "21",
-    "KOTLIN_VERSION": "2.1.0",
     "BUILD_TOOL": "auto"
   }
 }

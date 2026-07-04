@@ -17,7 +17,6 @@ Go binary compile plugin for compiling static Go binaries with cross-compilation
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GO_VERSION` | `1.24.13` | Go Version |
 | `CGO_ENABLED` | `0` | Cgo Enabled |
 | `GOOS` | `linux` | Goos |
 | `GOARCH` | `amd64` | Goarch |
@@ -35,7 +34,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "go-compile",
   "plugin": "go-compile",
   "env": {
-    "GO_VERSION": "1.24.13",
     "CGO_ENABLED": "0",
     "GOOS": "linux",
     "GOARCH": "amd64"

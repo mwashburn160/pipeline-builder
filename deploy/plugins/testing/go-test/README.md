@@ -17,7 +17,6 @@ Go test runner plugin for executing unit and integration tests with coverage rep
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GO_VERSION` | `1.24.13` | Go Version |
 | `GOFLAGS` | `-count=1` | Goflags |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "go-test",
   "plugin": "go-test",
   "env": {
-    "GO_VERSION": "1.24.13",
     "GOFLAGS": "-count=1"
   }
 }

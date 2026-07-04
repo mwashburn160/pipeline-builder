@@ -17,7 +17,6 @@ Artillery load testing plugin for running HTTP and WebSocket performance tests w
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node Version |
 | `ARTILLERY_CONFIG` | `` | Artillery Config |
 | `ARTILLERY_TARGET` | `` | Artillery Target |
 
@@ -34,7 +33,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "artillery",
   "plugin": "artillery",
   "env": {
-    "NODE_VERSION": "24",
     "ARTILLERY_CONFIG": "",
     "ARTILLERY_TARGET": ""
   }

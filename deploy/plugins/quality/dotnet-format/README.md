@@ -13,12 +13,6 @@ dotnet format plugin for verifying consistent C# and .NET code formatting using 
 
 `dotnet`, `csharp`, `formatting`, `code-style`
 
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DOTNET_VERSION` | `8.0` | Dotnet Version |
-
 ## Output
 
 Primary output directory: `format-reports`
@@ -30,10 +24,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 ```json
 {
   "name": "dotnet-format",
-  "plugin": "dotnet-format",
-  "env": {
-    "DOTNET_VERSION": "8.0"
-  }
+  "plugin": "dotnet-format"
 }
 ```
 

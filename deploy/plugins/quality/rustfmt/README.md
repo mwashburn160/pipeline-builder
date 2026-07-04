@@ -13,12 +13,6 @@ rustfmt formatting check plugin for verifying consistent Rust code formatting us
 
 `rust`, `formatting`, `code-style`, `consistency`
 
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RUST_VERSION` | `stable` | Rust Version |
-
 ## Output
 
 Primary output directory: `fmt-reports`
@@ -30,10 +24,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 ```json
 {
   "name": "rustfmt",
-  "plugin": "rustfmt",
-  "env": {
-    "RUST_VERSION": "stable"
-  }
+  "plugin": "rustfmt"
 }
 ```
 

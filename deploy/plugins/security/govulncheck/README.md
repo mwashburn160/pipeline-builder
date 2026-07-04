@@ -17,7 +17,6 @@ govulncheck plugin for scanning Go modules for known vulnerabilities in dependen
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GO_VERSION` | `1.24.13` | Go Version |
 
 ## Output
 
@@ -31,9 +30,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 {
   "name": "govulncheck",
   "plugin": "govulncheck",
-  "env": {
-    "GO_VERSION": "1.24.13"
-  }
+  "env": {}
 }
 ```
 

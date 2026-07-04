@@ -17,7 +17,6 @@ pytest testing framework plugin for running Python unit and integration tests wi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PYTHON_VERSION` | `3.14` | Python Version |
 | `PYTEST_ARGS` | `-x --tb=short` | Pytest Args |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "python-pytest",
   "plugin": "python-pytest",
   "env": {
-    "PYTHON_VERSION": "3.14",
     "PYTEST_ARGS": "-x --tb=short"
   }
 }

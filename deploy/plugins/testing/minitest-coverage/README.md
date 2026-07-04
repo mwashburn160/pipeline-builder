@@ -17,7 +17,6 @@ Minitest with SimpleCov coverage reporting plugin for measuring Ruby test covera
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RUBY_VERSION` | `4.0.1` | Ruby Version |
 | `COVERAGE_THRESHOLD` | `70` | Coverage Threshold |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "minitest-coverage",
   "plugin": "minitest-coverage",
   "env": {
-    "RUBY_VERSION": "4.0.1",
     "COVERAGE_THRESHOLD": "70"
   }
 }

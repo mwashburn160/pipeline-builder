@@ -17,7 +17,6 @@ Cargo test runner plugin for executing Rust unit and integration tests across wo
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RUST_VERSION` | `stable` | Rust Version |
 
 ## Output
 
@@ -31,9 +30,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 {
   "name": "cargo-test",
   "plugin": "cargo-test",
-  "env": {
-    "RUST_VERSION": "stable"
-  }
+  "env": {}
 }
 ```
 

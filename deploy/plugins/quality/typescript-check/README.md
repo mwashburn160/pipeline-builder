@@ -17,7 +17,6 @@ TypeScript type checking plugin for verifying type correctness without emitting 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node Version |
 | `TSC_FLAGS` | `--noEmit` | Tsc Flags |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "typescript-check",
   "plugin": "typescript-check",
   "env": {
-    "NODE_VERSION": "24",
     "TSC_FLAGS": "--noEmit"
   }
 }

@@ -17,7 +17,6 @@ Ruff Python linter and formatter plugin for enforcing code quality and consisten
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PYTHON_VERSION` | `3.14` | Python Version |
 | `RUFF_CONFIG` | `pyproject.toml` | Ruff Config |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "ruff",
   "plugin": "ruff",
   "env": {
-    "PYTHON_VERSION": "3.14",
     "RUFF_CONFIG": "pyproject.toml"
   }
 }

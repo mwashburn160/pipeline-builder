@@ -17,7 +17,6 @@ Rails test runner plugin for executing Minitest and RSpec test suites with multi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RUBY_VERSION` | `4.0.1` | Ruby Version |
 | `RAILS_ENV` | `test` | Rails Env |
 | `DATABASE_ADAPTER` | `sqlite3` | Database Adapter |
 
@@ -34,7 +33,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "rails-test",
   "plugin": "rails-test",
   "env": {
-    "RUBY_VERSION": "4.0.1",
     "RAILS_ENV": "test",
     "DATABASE_ADAPTER": "sqlite3"
   }

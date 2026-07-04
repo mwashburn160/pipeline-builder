@@ -17,7 +17,6 @@ Jest testing framework plugin for running JavaScript and TypeScript unit tests w
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node Version |
 | `JEST_CONFIG` | `` | Jest Config |
 | `JEST_JUNIT_OUTPUT_DIR` | `test-reports` | Jest Junit Output Dir |
 
@@ -34,7 +33,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "jest",
   "plugin": "jest",
   "env": {
-    "NODE_VERSION": "24",
     "JEST_CONFIG": "",
     "JEST_JUNIT_OUTPUT_DIR": "test-reports"
   }

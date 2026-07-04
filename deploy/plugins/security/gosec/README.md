@@ -17,7 +17,6 @@ gosec security checker plugin for scanning Go source code for security vulnerabi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GO_VERSION` | `1.24.13` | Go Version |
 
 ## Output
 
@@ -31,9 +30,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 {
   "name": "gosec",
   "plugin": "gosec",
-  "env": {
-    "GO_VERSION": "1.24.13"
-  }
+  "env": {}
 }
 ```
 

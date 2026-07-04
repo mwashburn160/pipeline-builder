@@ -17,7 +17,6 @@ Brakeman static security analysis plugin for detecting vulnerabilities in Ruby o
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RUBY_VERSION` | `4.0.1` | Ruby Version |
 | `BRAKEMAN_CONFIDENCE` | `2` | Brakeman Confidence |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "brakeman",
   "plugin": "brakeman",
   "env": {
-    "RUBY_VERSION": "4.0.1",
     "BRAKEMAN_CONFIDENCE": "2"
   }
 }

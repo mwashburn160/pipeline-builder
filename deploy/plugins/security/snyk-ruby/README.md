@@ -18,7 +18,6 @@ Snyk security scanning for Ruby projects using AWS CDK with CodeBuildStep
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SNYK_SEVERITY_THRESHOLD` | `high` | Snyk Severity Threshold |
-| `RUBY_VERSION` | `4.0.1` | Ruby Version |
 
 ## Output
 
@@ -33,8 +32,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "snyk-ruby",
   "plugin": "snyk-ruby",
   "env": {
-    "SNYK_SEVERITY_THRESHOLD": "high",
-    "RUBY_VERSION": "4.0.1"
+    "SNYK_SEVERITY_THRESHOLD": "high"
   }
 }
 ```

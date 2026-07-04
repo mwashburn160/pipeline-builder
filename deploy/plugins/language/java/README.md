@@ -21,8 +21,6 @@ Java and Kotlin plugin for building and testing JVM applications using Maven or 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JAVA_VERSION` | `21.0.10-tem` | Java SDK version to use |
-| `KOTLIN_VERSION` | `2.1.0` | Kotlin Version |
 | `BUILD_TOOL` | `auto` | Build Tool |
 
 ## Output
@@ -38,8 +36,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "java",
   "plugin": "java",
   "env": {
-    "JAVA_VERSION": "21.0.10-tem",
-    "KOTLIN_VERSION": "2.1.0",
     "BUILD_TOOL": "auto"
   }
 }

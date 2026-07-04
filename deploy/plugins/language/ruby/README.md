@@ -17,12 +17,6 @@ Ruby plugin for building and testing Ruby applications using Bundler with AWS CD
 
 - Ruby 4.0.1
 
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RUBY_VERSION` | `4.0.1` | Ruby version to use |
-
 ## Output
 
 Primary output directory: `**/*`
@@ -34,10 +28,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 ```json
 {
   "name": "ruby",
-  "plugin": "ruby",
-  "env": {
-    "RUBY_VERSION": "4.0.1"
-  }
+  "plugin": "ruby"
 }
 ```
 

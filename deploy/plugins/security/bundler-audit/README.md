@@ -17,7 +17,6 @@ Bundler Audit plugin for scanning Ruby gem dependencies for known security vulne
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RUBY_VERSION` | `4.0.1` | Ruby Version |
 
 ## Output
 
@@ -31,9 +30,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 {
   "name": "bundler-audit",
   "plugin": "bundler-audit",
-  "env": {
-    "RUBY_VERSION": "4.0.1"
-  }
+  "env": {}
 }
 ```
 

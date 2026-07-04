@@ -17,12 +17,6 @@ Go plugin for building and testing Go applications with AWS CDK CodeBuildStep
 
 - Go 1.24.13
 
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GO_VERSION` | `1.24.13` | Go version to use |
-
 ## Output
 
 Primary output directory: `**/*`
@@ -34,10 +28,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 ```json
 {
   "name": "go",
-  "plugin": "go",
-  "env": {
-    "GO_VERSION": "1.24.13"
-  }
+  "plugin": "go"
 }
 ```
 

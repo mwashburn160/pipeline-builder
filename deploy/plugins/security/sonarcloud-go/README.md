@@ -20,7 +20,6 @@ SonarCloud code quality and security analysis for Go projects using AWS CDK with
 | `SONAR_SCANNER_VERSION` | `12.0` | Sonar Scanner Version |
 | `SONAR_ORGANIZATION` | `` | Sonar Organization |
 | `SONAR_PROJECT_KEY` | `` | Sonar Project Key |
-| `GO_VERSION` | `1.24.13` | Go Version |
 
 ## Output
 
@@ -37,8 +36,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "env": {
     "SONAR_SCANNER_VERSION": "12.0",
     "SONAR_ORGANIZATION": "",
-    "SONAR_PROJECT_KEY": "",
-    "GO_VERSION": "1.24.13"
+    "SONAR_PROJECT_KEY": ""
   }
 }
 ```

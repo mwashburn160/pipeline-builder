@@ -21,7 +21,6 @@ Python plugin for building and testing Python applications using pip, Poetry, or
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PYTHON_VERSION` | `3.14` | Python version to use |
 | `PACKAGE_MANAGER` | `auto` | Package manager (auto, pip, poetry, pipenv) |
 
 ## Output
@@ -37,7 +36,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "python",
   "plugin": "python",
   "env": {
-    "PYTHON_VERSION": "3.14",
     "PACKAGE_MANAGER": "auto"
   }
 }

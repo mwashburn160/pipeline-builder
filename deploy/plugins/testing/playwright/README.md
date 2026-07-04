@@ -17,7 +17,6 @@ Playwright end-to-end testing plugin for cross-browser UI testing with Chromium,
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node Version |
 | `PLAYWRIGHT_PROJECT` | `` | Playwright Project |
 | `PLAYWRIGHT_WORKERS` | `auto` | Playwright Workers |
 | `PLAYWRIGHT_REPORTER` | `html` | Playwright Reporter |
@@ -35,7 +34,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "playwright",
   "plugin": "playwright",
   "env": {
-    "NODE_VERSION": "24",
     "PLAYWRIGHT_PROJECT": "",
     "PLAYWRIGHT_WORKERS": "auto",
     "PLAYWRIGHT_REPORTER": "html"

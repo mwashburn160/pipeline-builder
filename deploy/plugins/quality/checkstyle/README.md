@@ -15,7 +15,7 @@ Checkstyle Java code style enforcement plugin supporting Google, Sun, and custom
 
 ## Requirements
 
-- Java (via SDKMAN, default 21.0.10-tem)
+- Java (baked into the shared base image `pipeline-jvm-base`; rebuild the base to change it)
 
 ## Configuration
 
@@ -23,7 +23,6 @@ Checkstyle Java code style enforcement plugin supporting Google, Sun, and custom
 |----------|---------|-------------|
 | `CHECKSTYLE_VERSION` | `10.21.1` | Checkstyle Version |
 | `CHECKSTYLE_CONFIG` | `google` | Checkstyle Config |
-| `JAVA_VERSION` | `21.0.10-tem` | Java SDK version to use |
 
 ## Output
 
@@ -39,8 +38,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "plugin": "checkstyle",
   "env": {
     "CHECKSTYLE_VERSION": "10.21.1",
-    "CHECKSTYLE_CONFIG": "google",
-    "JAVA_VERSION": "21.0.10-tem"
+    "CHECKSTYLE_CONFIG": "google"
   }
 }
 ```

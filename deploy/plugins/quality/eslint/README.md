@@ -21,7 +21,6 @@ ESLint JavaScript and TypeScript linting plugin for enforcing code quality and s
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node.js version to use |
 | `ESLINT_FORMAT` | `json` | ESLint output format |
 | `ESLINT_MAX_WARNINGS` | `-1` | Maximum allowed warnings before failure |
 
@@ -38,7 +37,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "eslint",
   "plugin": "eslint",
   "env": {
-    "NODE_VERSION": "24",
     "ESLINT_FORMAT": "json",
     "ESLINT_MAX_WARNINGS": "-1"
   }

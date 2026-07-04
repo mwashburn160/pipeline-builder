@@ -21,7 +21,6 @@ PHP plugin for building and testing PHP applications using Composer with AWS CDK
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PHP_VERSION` | `8.4` | PHP version to use (8.3 or 8.4) |
 | `COMPOSER_FLAGS` | `--no-interaction --prefer-dist` | Flags passed to composer install |
 
 ## Output
@@ -37,7 +36,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "php",
   "plugin": "php",
   "env": {
-    "PHP_VERSION": "8.4",
     "COMPOSER_FLAGS": "--no-interaction --prefer-dist"
   }
 }

@@ -17,7 +17,6 @@ npm and yarn dependency audit plugin for detecting known vulnerabilities in Java
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node Version |
 | `AUDIT_LEVEL` | `high` | Audit Level |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "npm-audit",
   "plugin": "npm-audit",
   "env": {
-    "NODE_VERSION": "24",
     "AUDIT_LEVEL": "high"
   }
 }

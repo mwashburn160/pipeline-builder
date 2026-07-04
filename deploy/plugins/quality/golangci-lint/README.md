@@ -17,7 +17,6 @@ golangci-lint Go code quality plugin for running multiple Go linters in parallel
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GO_VERSION` | `1.24.13` | Go Version |
 | `GOLANGCI_LINT_TIMEOUT` | `5m` | Golangci Lint Timeout |
 | `GOLANGCI_LINT_FORMAT` | `json` | Golangci Lint Format |
 
@@ -42,7 +41,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "golangci-lint",
   "plugin": "golangci-lint",
   "env": {
-    "GO_VERSION": "1.24.13",
     "GOLANGCI_LINT_TIMEOUT": "5m",
     "GOLANGCI_LINT_FORMAT": "json"
   }

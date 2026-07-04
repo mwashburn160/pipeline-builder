@@ -17,7 +17,6 @@ JaCoCo code coverage plugin for measuring and enforcing test coverage thresholds
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JAVA_VERSION` | `17` | Java Version |
 | `COVERAGE_THRESHOLD` | `70` | Coverage Threshold |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "jacoco",
   "plugin": "jacoco",
   "env": {
-    "JAVA_VERSION": "17",
     "COVERAGE_THRESHOLD": "70"
   }
 }

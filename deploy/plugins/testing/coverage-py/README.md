@@ -17,7 +17,6 @@ coverage.py code coverage plugin for measuring and enforcing test coverage thres
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PYTHON_VERSION` | `3.14` | Python Version |
 | `COVERAGE_THRESHOLD` | `75` | Coverage Threshold |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "coverage-py",
   "plugin": "coverage-py",
   "env": {
-    "PYTHON_VERSION": "3.14",
     "COVERAGE_THRESHOLD": "75"
   }
 }

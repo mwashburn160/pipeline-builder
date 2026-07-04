@@ -17,7 +17,6 @@ Cargo release binary build plugin for compiling optimized Rust binaries with cro
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RUST_VERSION` | `stable` | Rust Version |
 | `CARGO_PROFILE` | `release` | Cargo Profile |
 | `TARGET` | `x86_64-unknown-linux-gnu` | Target |
 
@@ -34,7 +33,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "cargo-release",
   "plugin": "cargo-release",
   "env": {
-    "RUST_VERSION": "stable",
     "CARGO_PROFILE": "release",
     "TARGET": "x86_64-unknown-linux-gnu"
   }

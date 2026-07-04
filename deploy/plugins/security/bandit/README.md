@@ -17,7 +17,6 @@ Bandit security linter plugin for finding common security vulnerabilities in Pyt
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PYTHON_VERSION` | `3.14` | Python Version |
 | `BANDIT_SEVERITY` | `medium` | Bandit Severity |
 | `BANDIT_CONFIDENCE` | `medium` | Bandit Confidence |
 
@@ -34,7 +33,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "bandit",
   "plugin": "bandit",
   "env": {
-    "PYTHON_VERSION": "3.14",
     "BANDIT_SEVERITY": "medium",
     "BANDIT_CONFIDENCE": "medium"
   }

@@ -17,7 +17,6 @@ dotnet test runner plugin for executing .NET unit and integration tests with TRX
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOTNET_VERSION` | `8.0` | Dotnet Version |
 | `CONFIGURATION` | `Release` | Configuration |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "dotnet-test",
   "plugin": "dotnet-test",
   "env": {
-    "DOTNET_VERSION": "8.0",
     "CONFIGURATION": "Release"
   }
 }

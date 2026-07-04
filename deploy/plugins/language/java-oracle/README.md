@@ -21,8 +21,6 @@ Java and Kotlin plugin using Oracle GraalVM JDK for building and testing JVM app
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JAVA_VERSION` | `21.0.10-graal` | Java SDK version to use |
-| `KOTLIN_VERSION` | `2.1.0` | Kotlin Version |
 | `BUILD_TOOL` | `auto` | Build Tool |
 | `NATIVE_BUILD` | `false` | Native Build |
 
@@ -39,8 +37,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "java-oracle",
   "plugin": "java-oracle",
   "env": {
-    "JAVA_VERSION": "21.0.10-graal",
-    "KOTLIN_VERSION": "2.1.0",
     "BUILD_TOOL": "auto",
     "NATIVE_BUILD": "false"
   }

@@ -17,7 +17,6 @@ dotnet security scan plugin for detecting security vulnerabilities in .NET proje
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOTNET_VERSION` | `8.0` | Dotnet Version |
 
 ## Output
 
@@ -31,9 +30,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 {
   "name": "dotnet-security-scan",
   "plugin": "dotnet-security-scan",
-  "env": {
-    "DOTNET_VERSION": "8.0"
-  }
+  "env": {}
 }
 ```
 

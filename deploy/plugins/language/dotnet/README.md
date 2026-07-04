@@ -17,12 +17,6 @@
 
 - .NET SDK 9.0
 
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DOTNET_VERSION` | `9.0` | .NET SDK version to use |
-
 ## Output
 
 Primary output directory: `**/*`
@@ -34,10 +28,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 ```json
 {
   "name": "dotnet",
-  "plugin": "dotnet",
-  "env": {
-    "DOTNET_VERSION": "9.0"
-  }
+  "plugin": "dotnet"
 }
 ```
 

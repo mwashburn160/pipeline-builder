@@ -17,12 +17,6 @@ Rust plugin for building and testing Rust applications using Cargo with AWS CDK 
 
 - Rust stable
 
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RUST_VERSION` | `stable` | Rust toolchain version |
-
 ## Output
 
 Primary output directory: `**/*`
@@ -34,10 +28,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 ```json
 {
   "name": "rust",
-  "plugin": "rust",
-  "env": {
-    "RUST_VERSION": "stable"
-  }
+  "plugin": "rust"
 }
 ```
 

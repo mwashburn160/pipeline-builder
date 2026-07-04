@@ -13,12 +13,6 @@ SpotBugs static analysis plugin for detecting bug patterns in Java bytecode usin
 
 `java`, `static-analysis`, `bug-detection`, `bytecode`
 
-## Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `JAVA_VERSION` | `17` | Java Version |
-
 ## Output
 
 Primary output directory: `spotbugs-reports`
@@ -30,10 +24,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
 ```json
 {
   "name": "spotbugs",
-  "plugin": "spotbugs",
-  "env": {
-    "JAVA_VERSION": "17"
-  }
+  "plugin": "spotbugs"
 }
 ```
 

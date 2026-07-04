@@ -22,7 +22,6 @@ Serverless Framework deployment plugin for deploying serverless applications to 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node.js version to use via nvm |
 | `SLS_STAGE` | `dev` | Serverless deployment stage |
 | `SLS_REGION` | _none_ | AWS region for deployment (uses Serverless config default if not set) |
 | `SLS_SERVICE_PATH` | `.` | Path to the Serverless service directory |

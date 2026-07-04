@@ -21,7 +21,6 @@ Node.js plugin for building and testing JavaScript/TypeScript applications using
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_VERSION` | `24` | Node.js version to use |
 | `PACKAGE_MANAGER` | `auto` | Package manager (auto, npm, yarn, pnpm) |
 
 ## Output
@@ -37,7 +36,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "nodejs",
   "plugin": "nodejs",
   "env": {
-    "NODE_VERSION": "24",
     "PACKAGE_MANAGER": "auto"
   }
 }

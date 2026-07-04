@@ -17,7 +17,6 @@ RuboCop linting and formatting plugin for enforcing Ruby code style and best pra
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RUBY_VERSION` | `4.0.1` | Ruby Version |
 | `RUBOCOP_CONFIG` | `.rubocop.yml` | Rubocop Config |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "rubocop",
   "plugin": "rubocop",
   "env": {
-    "RUBY_VERSION": "4.0.1",
     "RUBOCOP_CONFIG": ".rubocop.yml"
   }
 }

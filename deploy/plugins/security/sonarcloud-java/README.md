@@ -20,7 +20,6 @@ SonarCloud code quality and security analysis for Java/Kotlin projects using AWS
 | `SONAR_SCANNER_VERSION` | `12.0` | Sonar Scanner Version |
 | `SONAR_ORGANIZATION` | `` | Sonar Organization |
 | `SONAR_PROJECT_KEY` | `` | Sonar Project Key |
-| `JAVA_VERSION` | `21.0.10-tem` | Java Version |
 
 ## Output
 
@@ -37,8 +36,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "env": {
     "SONAR_SCANNER_VERSION": "12.0",
     "SONAR_ORGANIZATION": "",
-    "SONAR_PROJECT_KEY": "",
-    "JAVA_VERSION": "21.0.10-tem"
+    "SONAR_PROJECT_KEY": ""
   }
 }
 ```

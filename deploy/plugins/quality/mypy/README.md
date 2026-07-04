@@ -17,7 +17,6 @@ mypy static type checking plugin for verifying Python type annotations and detec
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PYTHON_VERSION` | `3.14` | Python Version |
 | `MYPY_CONFIG` | `` | Mypy Config |
 
 ## Output
@@ -33,7 +32,6 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "mypy",
   "plugin": "mypy",
   "env": {
-    "PYTHON_VERSION": "3.14",
     "MYPY_CONFIG": ""
   }
 }

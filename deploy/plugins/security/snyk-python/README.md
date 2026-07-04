@@ -18,7 +18,6 @@ Snyk security scanning for Python projects using AWS CDK with CodeBuildStep
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SNYK_SEVERITY_THRESHOLD` | `high` | Snyk Severity Threshold |
-| `PYTHON_VERSION` | `3.14` | Python Version |
 
 ## Output
 
@@ -33,8 +32,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "snyk-python",
   "plugin": "snyk-python",
   "env": {
-    "SNYK_SEVERITY_THRESHOLD": "high",
-    "PYTHON_VERSION": "3.14"
+    "SNYK_SEVERITY_THRESHOLD": "high"
   }
 }
 ```
