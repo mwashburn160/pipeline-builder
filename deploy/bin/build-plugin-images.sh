@@ -188,6 +188,11 @@ _build_base_quiet() {
     [ -n "$_mirror" ] && _build_extra="--build-arg APT_MIRROR=${_mirror}"
     [ -n "$_mirror" ] && echo "  → using apt mirror: ${_mirror}"
   fi
+  # --force ⇒ drop the Docker layer cache so a rebuild actually re-runs (apt
+  # installs, COPY --from, tool installs) instead of replaying cached layers.
+  # Without this an unchanged Dockerfile "builds" in 0s and --force is a silent
+  # no-op for base images.
+  [ "$FORCE" = true ] && _build_extra="$_build_extra --no-cache"
   _start=$(date +%s)
   if [ "${VERBOSE_BUILD:-0}" = "1" ]; then
     # shellcheck disable=SC2086
@@ -237,6 +242,10 @@ _build_base_buildkit() {
     local _mirror; _mirror=$(_detect_apt_mirror)
     [ -n "$_mirror" ] && _opt_args+=(--opt "build-arg:APT_MIRROR=${_mirror}")
   fi
+  # --force ⇒ bust buildkit's cache so the rebuild actually re-runs (parity
+  # with the docker path). buildkit pushes directly (push=true), so there's
+  # no separate FORCE_PUSH step here — --no-cache is the whole story.
+  [ "$FORCE" = true ] && _opt_args+=(--no-cache)
   local _start; _start=$(date +%s)
   DOCKER_CONFIG="$_BK_AUTH_DIR" buildctl --addr "$BUILDKIT_HOST" build \
     --frontend dockerfile.v0 \
@@ -314,7 +323,12 @@ build_base_images() {
   # actual-scope-denied). Better to abort here so the operator sees the
   # real cause (network, auth, realm misconfig).
   if [ -x "$SCRIPT_DIR/push-base-images.sh" ]; then
-    "$SCRIPT_DIR/push-base-images.sh"
+    # --force ⇒ re-push even when the tag already exists remotely, so a forced
+    # rebuild actually replaces the registry copy. push-base-images.sh otherwise
+    # skips any tag already present (its idempotency short-circuit), which made
+    # `--force` rebuild-then-skip the push. An explicit FORCE_PUSH env still wins.
+    FORCE_PUSH="${FORCE_PUSH:-$([ "$FORCE" = true ] && echo true || echo false)}" \
+      "$SCRIPT_DIR/push-base-images.sh"
   fi
   echo ""
 }
