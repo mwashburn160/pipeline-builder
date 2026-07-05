@@ -21,7 +21,7 @@ Rather than hand-wiring AWS CodePipeline, CodeBuild, IAM roles, and deployment s
 
 ## At a Glance
 
-| 125 | 5 | 4 | 12 | 18 |
+| 119 | 5 | 4 | 12 | 18 |
 |:---:|:-:|:-:|:--:|:--:|
 | **plugins** ready to use | **interfaces** to create pipelines | **deploy targets** from laptop to EKS | **AI models** for pipeline generation | **compliance operators** for guardrails |
 
@@ -31,7 +31,7 @@ Rather than hand-wiring AWS CodePipeline, CodeBuild, IAM roles, and deployment s
 |-----------|-------------------------------|
 | CI/CD set-up demands deep AWS expertise | Self-service creation via dashboard, CLI, REST API, CDK, or AI prompt — no CDK or buildspec knowledge required |
 | Governance happens after the fact | Per-team compliance rules **block** non-compliant pipelines and plugins at creation time (HTTP 403), with full audit trail |
-| Build steps get copy-pasted across teams | 125 versioned, containerized plugins shared from a central catalog — one source of truth, ten categories |
+| Build steps get copy-pasted across teams | 119 versioned, containerized plugins shared from a central catalog — one source of truth, ten categories |
 | Teams share infrastructure without isolation | Every pipeline, plugin, secret, quota, and bill scoped to its organization with RBAC and quota enforcement |
 | Vendor lock-in with SaaS CI/CD platforms | Pipelines deploy as **native AWS CodePipeline + CodeBuild** in the client's account — keep running even if Pipeline Builder is removed |
 | No visibility into CI/CD health or cost | EventBridge-fed analytics: success rates, duration percentiles, failure heatmaps, per-team cost attribution |

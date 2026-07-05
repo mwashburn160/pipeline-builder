@@ -136,7 +136,7 @@ Full reference: [Environment Variables](https://mwashburn160.github.io/pipeline-
 
 - [Getting started](https://mwashburn160.github.io/pipeline-builder/)
 - [CDK usage](https://mwashburn160.github.io/pipeline-builder/docs/cdk-usage)
-- [Plugin catalog (125 plugins)](https://mwashburn160.github.io/pipeline-builder/docs/plugins/)
+- [Plugin catalog (119 plugins)](https://mwashburn160.github.io/pipeline-builder/docs/plugins/)
 - [API reference](https://mwashburn160.github.io/pipeline-builder/docs/api-reference)
 - [AWS deployment](https://mwashburn160.github.io/pipeline-builder/docs/aws-deployment)
 
