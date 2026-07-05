@@ -143,6 +143,11 @@ spec:
           image: moby/buildkit:v0.30.0-rootless
           restartPolicy: Always
           args:
+            # TEMP DIAGNOSTIC: buildkitd execs (rootlesskit userns setup succeeds)
+            # then exits 1 on the v0.30 bump. --debug surfaces its full init trace
+            # so the fatal line (config parse / cache-dir perms / cgroup) is visible
+            # in `kubectl logs -c buildkitd --previous`. Remove once resolved.
+            - --debug
             - --addr
             - unix:///run/user/1000/buildkit/buildkitd.sock
             # rootless workers spawn their own subprocess sandbox; in unprivileged

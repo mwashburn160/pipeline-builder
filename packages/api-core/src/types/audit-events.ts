@@ -54,5 +54,21 @@ export interface RegistryTagDeleteAudit extends AuditCorrelation {
   digest: string;
 }
 
+/**
+ * Repository prune emitted from image-registry's DELETE /api/images/:name —
+ * deletes every manifest in a repo (used to remove empty/dead repos from the
+ * catalog). Unlike the tag-delete above, there's no single `ref`/`digest`:
+ * the counts summarize the whole repo.
+ */
+export interface RegistryRepoDeleteAudit extends AuditCorrelation {
+  event: 'registry.repo.delete';
+  actor: string;
+  repo: string;
+  /** Count of unique manifest digests actually deleted. */
+  deletedManifests: number;
+  /** Count of tags the repo held before the prune. */
+  deletedTags: number;
+}
+
 /** Union of every cross-service audit event currently emitted. */
-export type AuditEvent = RegistryTagCopyAudit | RegistryTagDeleteAudit;
+export type AuditEvent = RegistryTagCopyAudit | RegistryTagDeleteAudit | RegistryRepoDeleteAudit;

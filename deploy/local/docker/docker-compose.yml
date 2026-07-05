@@ -452,6 +452,10 @@ services:
       - seccomp:unconfined
       - apparmor:unconfined
     command:
+      # TEMP DIAGNOSTIC: buildkitd execs then exits 1 on the v0.30 bump.
+      # --debug surfaces its full init trace (config parse / cache-dir perms /
+      # cgroup) in `docker logs buildkitd`. Remove once resolved.
+      - --debug
       - --addr
       - tcp://0.0.0.0:1234
       - --oci-worker-no-process-sandbox
