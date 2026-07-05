@@ -124,8 +124,16 @@ esac
 # JWT signing — shared across targets via common.sh `sign_platform_jwt`.
 # Smoke-test once before the loop so a missing JWT_SECRET fails loudly
 # here rather than per-image.
+#
+# TTL default 900s (was the sign helper's 300s): the token is signed on the
+# host, but crane runs in a one-shot kubectl pod that must schedule + pull its
+# image before presenting the token. Under node memory pressure that startup
+# can eat a 300s window, so a fresh-but-slow-to-arrive token gets rejected as
+# expired (401 "Invalid credentials" at /token) mid-run — which previously
+# aborted the base push partway (e.g. after rust-base, before ruby-base).
+# Override with PUSH_JWT_TTL.
 # -----------------------------------------------------------------------
-_sign_platform_jwt() { sign_platform_jwt "$JWT_SECRET"; }
+_sign_platform_jwt() { sign_platform_jwt "$JWT_SECRET" "${PUSH_JWT_TTL:-900}"; }
 if [ -z "$(_sign_platform_jwt)" ]; then
   echo "ERROR: failed to sign platform JWT (JWT_SECRET missing?)" >&2
   exit 1
