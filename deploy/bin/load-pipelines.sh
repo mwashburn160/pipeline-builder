@@ -133,16 +133,23 @@ upload_pipelines_bulk() {
     -d @"$_payload_file" || _rc=$?
 
   if [ "$_rc" = 0 ]; then
-    local body created failed errors
+    local body created updated failed errors
     body="$(cat "$_body_file" 2>/dev/null)"
     # Empty input makes jq exit 0 with no output (not 0); coerce via :- to keep numeric arithmetic safe.
     created=$(echo "$body" | jq -r '(.data.created // 0) | tostring' 2>/dev/null)
+    updated=$(echo "$body" | jq -r '(.data.updated // 0) | tostring' 2>/dev/null)
     failed=$(echo "$body" | jq -r '(.data.failed // 0)  | tostring' 2>/dev/null)
     created="${created:-0}"
+    updated="${updated:-0}"
     failed="${failed:-0}"
-    SUCCEEDED=$((SUCCEEDED + created))
+    # The bulk endpoint upserts: an item matching an existing pipeline comes
+    # back as `updated`, not `created`. Both are successful outcomes. Counting
+    # only `created` made a re-run over already-loaded samples report
+    # "Succeeded: 0" (created:0/failed:0, nothing in any bucket) — a
+    # false-negative that hid whether the upload actually worked.
+    SUCCEEDED=$((SUCCEEDED + created + updated))
     FAILED=$((FAILED + failed))
-    echo "    created: ${created}, failed: ${failed}"
+    echo "    created: ${created}, updated: ${updated}, failed: ${failed}"
     if [ -z "$body" ]; then
       echo "    WARNING: empty response body — server returned HTTP 2xx but no JSON" >&2
     fi
