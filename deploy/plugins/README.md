@@ -3,7 +3,7 @@
 > **Public catalog:** [docs/plugins/](../../docs/plugins/README.md) — user-facing reference for what each plugin does, secrets it needs, and parameters it accepts.
 > **This README:** contributor guide for the source layout, build pipeline, and conventions.
 
-125 plugins across 10 categories. Each plugin builds into a Docker image that AWS CodeBuild executes as one stage of a pipeline. Plugin sources live here; the build orchestration lives in [`deploy/bin/`](../bin/).
+119 plugins across 10 categories, by execution type: 118 `CodeBuildStep` (each builds into a Docker image that AWS CodeBuild runs as one pipeline stage) and 1 `ManualApprovalStep` (`infrastructure/manual-approval`, a native CodePipeline approval gate). Plugin sources live here; the build orchestration lives in [`deploy/bin/`](../bin/).
 
 ---
 
@@ -29,7 +29,7 @@ deploy/plugins/
 ├── monitoring/                 # 3  plugins  (Datadog, NewRelic, Sentry)
 ├── notification/               # 5  plugins  (Slack, Teams, email, GitHub status, PagerDuty)
 ├── quality/                    # 17 plugins  (lint, format, coverage)
-├── security/                   # 40 plugins  (SAST, SCA, secrets, container scanning)
+├── security/                   # 34 plugins  (SAST, SCA, secrets, container scanning)
 ├── testing/                    # 14 plugins  (unit, integration, load, E2E)
 # (tool/runtime versions are pinned inline as ARG in each base + plugin Dockerfile)
 ```
@@ -169,7 +169,7 @@ the next build will rebuild from the new base. Bump deliberately.
 
 ## Multistage patterns
 
-15 plugins use multistage to drop build-time dependencies that aren't needed at
+16 plugins use multistage to drop build-time dependencies that aren't needed at
 runtime. Each is documented inline; the canonical examples:
 
 | Pattern | Reference plugin | What gets dropped | Saving |
@@ -258,11 +258,12 @@ needs a focused session to do safely.
   real `commands:` or assert that an output artifact appears, so a tool that
   builds and launches but produces nothing still passes. Adding a default
   `smokeTest:` to more specs would close most of the gap.
-- **Parameterize the snyk/sonarcloud/trivy clones** — 21 plugins (7 each ×
-  3 tool families) duplicate ~80% of their spec. Could collapse to 3 templates
-  with a `language` metadata key. Eliminates ~600 lines of duplicated YAML.
+- **Parameterize the snyk/sonarcloud clones** — 14 plugins (7 each × 2 tool
+  families) still duplicate ~80% of their spec. Could collapse to 2 templates
+  with a `language` metadata key. (`trivy` was already collapsed from 7
+  per-language variants to a single language-agnostic plugin.)
 - **Upgrade `set -e` to `set -euo pipefail` in multi-line `commands:` blocks** —
-  121 specs already use `set -e`, but none use the stricter `set -euo pipefail`,
+  113 specs already use `set -e`, but none use the stricter `set -euo pipefail`,
   so unset variables and mid-pipe failures can still slip through. Per-spec
   verification needed (some commands rely on partial failure).
 
@@ -270,15 +271,15 @@ needs a focused session to do safely.
 
 - **Typed contracts on more plugins** — several plugins interpolate `${VAR}`
   from env without declaring `metadataTypes`/`requiredMetadata`. Bring them to
-  `version: 1.1.0` parity with the 9 plugins that already declare typed
+  `version: 1.1.0` parity with the 8 plugins that already declare typed
   contracts.
 - **ARM (aarch64) support** — `deploy/flyway`, `security/checkmarx`,
   `security/fortify`, `quality/codacy` hardcode `_x64` in download URLs. Need
   `case "$(dpkg --print-architecture)"` blocks.
-- **SHA256 verification on binary downloads** — only 5 of the 124 plugin
+- **SHA256 verification on binary downloads** — only 5 of the 119 plugin
   Dockerfiles verify a `sha256`. AWS CLI, dotnet-install.sh, Terraform, kubectl,
   helm, flyway, fcli, ast-cli, mend, etc. all silently trust HTTPS-TLS.
-- **Drop `USER root` (currently implicit)** — none of the 124 plugin Dockerfiles
+- **Drop `USER root` (currently implicit)** — none of the 119 plugin Dockerfiles
   set a `USER`, so every build step runs as root. Adding `USER nobody` for the
   long-lived RUN stages reduces blast radius.
 

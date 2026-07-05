@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Security Plugins
-description: 40 security plugins — SAST, SCA, secret detection, container scanning, and license compliance.
+description: 34 security plugins — SAST, SCA, secret detection, container scanning, and license compliance.
 ---
 
 # Security Plugins

@@ -39,12 +39,12 @@ A Java team gets build, test, lint, security scan, and deploy stages in minutes 
 
 ### 2. Shared Plugin Catalog
 
-125 pre-built, containerized plugins covering the full CI/CD lifecycle:
+119 pre-built, containerized plugins covering the full CI/CD lifecycle:
 
 | Category | What It Covers |
 |----------|---------------|
 | **Language** (11) | Java (Corretto/Oracle), Python, Node.js, Go, Rust, .NET, C++, PHP, Ruby |
-| **Security** (40) | Snyk, SonarCloud, Trivy, Semgrep, Veracode, Checkmarx, Fortify |
+| **Security** (34) | Snyk, SonarCloud, Trivy, Semgrep, Veracode, Checkmarx, Fortify |
 | **Quality** (17) | ESLint, Prettier, Checkstyle, Clippy, Ruff, ShellCheck |
 | **Testing** (14) | Jest, Pytest, Cypress, Playwright, k6, Postman, Artillery |
 | **Artifact** (16) | Docker, ECR, GHCR, npm, PyPI, Maven, NuGet, Cargo |

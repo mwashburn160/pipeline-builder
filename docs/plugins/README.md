@@ -6,7 +6,7 @@ permalink: /docs/plugins/
 
 # Plugin Catalog
 
-Pipeline Builder ships with **125 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. Every plugin runs as an isolated container step inside AWS CodePipeline, so your build environment is reproducible and your secrets never leak into image layers.
+Pipeline Builder ships with **119 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. All but one run as an isolated containerized `CodeBuildStep` inside AWS CodePipeline (the exception is `infrastructure/manual-approval`, a native `ManualApprovalStep` gate), so your build environment is reproducible and your secrets never leak into image layers.
 
 **Related docs:** [Samples](../samples.md) | [Metadata Keys](../metadata-keys.md) | [API Reference](../api-reference.md) | [Environment Variables](../environment-variables.md)
 
@@ -27,7 +27,7 @@ Pipeline Builder ships with **125 plugins** across **10 categories**, covering t
 | Category | Plugins | Description | Doc |
 |----------|---------|-------------|-----|
 | Language | 11 | Build, test, and compile across major languages | [language.md](language.md) |
-| Security | 40 | SAST, SCA, secret detection, container scanning, license compliance | [security.md](security.md) |
+| Security | 34 | SAST, SCA, secret detection, container scanning, license compliance | [security.md](security.md) |
 | Quality | 17 | Linting, formatting, static analysis, code coverage reporting | [quality.md](quality.md) |
 | Monitoring | 3 | APM and release tracking | [monitoring.md](monitoring.md) |
 | Artifact & Registry | 16 | Package publishing, container image push, and binary compilation | [artifact.md](artifact.md) |

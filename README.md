@@ -64,7 +64,7 @@ Generate a complete pipeline — sources, stages, plugins, env vars — from a G
 | xAI | Grok 3, Grok 3 Fast, Grok 3 Mini |
 | Amazon Bedrock | Claude 3.5 Sonnet v2, Nova Pro, Nova Lite |
 
-### 125 Pre-Built Plugins, Ten Categories
+### 119 Pre-Built Plugins, Ten Categories
 
 Reusable build steps covering the full CI/CD lifecycle — language toolchains, security scanners, quality gates, test runners, artifact publishing, deployment, monitoring, and notifications. Every plugin runs as an isolated container step inside AWS CodePipeline, with secrets injected from AWS Secrets Manager at build time.
 
@@ -78,7 +78,7 @@ Plugin images are built with **rootless BuildKit** (`buildkitd`) — the same da
 | Category | Count | Examples |
 |----------|-------|----------|
 | Language | 11 | Java, Python, Node.js, Go, Rust, .NET, C++, PHP, Ruby |
-| Security | 40 | Snyk, SonarCloud, Trivy, Veracode, Semgrep, Checkmarx, Fortify |
+| Security | 34 | Snyk, SonarCloud, Trivy, Veracode, Semgrep, Checkmarx, Fortify |
 | Quality | 17 | ESLint, Prettier, Checkstyle, Clippy, Ruff, ShellCheck |
 | Testing | 14 | Jest, Pytest, Cypress, Playwright, k6, Postman, Artillery |
 | Artifact & Registry | 16 | Docker, ECR, GHCR, npm, PyPI, Maven, NuGet, Cargo |
@@ -300,7 +300,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys](docs/metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](docs/templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
-| [Plugin Catalog](docs/plugins/README.md) | 125 pre-built plugins across 10 categories |
+| [Plugin Catalog](docs/plugins/README.md) | 119 pre-built plugins across 10 categories |
 
 ### Operations
 

@@ -50,7 +50,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | [API Reference](api-reference.md) | REST endpoints for pipelines, plugins, compliance, reporting, AI |
 | [Metadata Keys](metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
-| [Plugin Catalog](plugins/README.md) | 125 pre-built plugins across 10 categories |
+| [Plugin Catalog](plugins/README.md) | 119 pre-built plugins across 10 categories |
 | [Org → Team Hierarchy](#teams-org--team-hierarchy) | Sub-organizations (teams) nested one level under a parent org — RBAC, visibility, quota, and compliance inheritance |
 
 ---
@@ -314,12 +314,12 @@ For end-to-end request → build → deploy flow diagrams, see [Architecture Flo
 
 ## Plugin Categories
 
-125 plugins across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list.
+119 plugins across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list.
 
 | Category | Count | Details |
 |----------|-------|---------|
 | [Language](plugins/language.md) | 11 | Java, Python, Node.js, Go, Rust, .NET |
-| [Security](plugins/security.md) | 40 | Snyk, SonarCloud, Trivy, Veracode, Semgrep |
+| [Security](plugins/security.md) | 34 | Snyk, SonarCloud, Trivy, Veracode, Semgrep |
 | [Quality](plugins/quality.md) | 17 | ESLint, Prettier, Checkstyle, Clippy, Ruff |
 | [Testing](plugins/testing.md) | 14 | Jest, Pytest, Cypress, Playwright, k6 |
 | [Artifact](plugins/artifact.md) | 16 | Docker, ECR, GHCR, npm, PyPI, Maven |
