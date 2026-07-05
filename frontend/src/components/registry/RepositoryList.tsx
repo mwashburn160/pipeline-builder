@@ -8,7 +8,7 @@
 // open items are tagged with `migrate to <ResourceList>` comments.
 
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronDown, Boxes } from 'lucide-react';
+import { ChevronRight, ChevronDown, Boxes, Trash2 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { ResourceList } from '@/components/ui/ResourceList';
 import type { RegistryRepoGroup } from '@/types';
@@ -25,6 +25,8 @@ interface RepositoryListProps {
   onSelect: (repoName: string) => void;
   onLoadMore: () => void;
   onRefresh: () => void;
+  /** Prune/delete the whole repo — opens the parent's confirm modal. */
+  onDelete: (repoName: string) => void;
 }
 
 /**
@@ -48,7 +50,7 @@ const NAMESPACE_TRUNCATE_AT = 24;
  * is reachable for inspection without relying on the native title attribute).
  */
 export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListProps>(function RepositoryList({
-  groups, selectedRepo, loading, error, hasMore, filter, onFilterChange, onSelect, onLoadMore, onRefresh,
+  groups, selectedRepo, loading, error, hasMore, filter, onFilterChange, onSelect, onLoadMore, onRefresh, onDelete,
 }, ref) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
@@ -152,18 +154,33 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
             {isOpen(g.namespace) && (
               <ul>
                 {g.repos.map((r) => (
-                  <li key={r.name}>
+                  <li
+                    key={r.name}
+                    className={`group/repo relative flex items-center ${
+                      selectedRepo === r.name
+                        ? 'bg-blue-50 dark:bg-blue-900/30'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                    }`}
+                  >
                     <button
                       data-repo={r.name}
                       onClick={() => onSelect(r.name)}
-                      className={`w-full text-left px-3 py-1.5 pl-8 text-sm truncate hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                      className={`flex-1 min-w-0 text-left px-3 py-1.5 pl-8 pr-8 text-sm truncate ${
                         selectedRepo === r.name
-                          ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                          ? 'text-blue-700 dark:text-blue-300 font-medium'
                           : 'text-gray-700 dark:text-gray-300'
                       }`}
                       title={r.name}
                     >
                       {r.name}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDelete(r.name); }}
+                      title={`Delete repository ${r.name}`}
+                      aria-label={`Delete repository ${r.name}`}
+                      className="absolute right-1.5 p-1 rounded text-gray-400 opacity-0 group-hover/repo:opacity-100 focus:opacity-100 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-opacity"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </li>
                 ))}

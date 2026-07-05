@@ -38,7 +38,12 @@ export function useRepositoryList() {
   const loadPage = useCallback(async (cursor: string | null, append: boolean) => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      const params: { limit: number; last?: string } = { limit: PAGE_LIMIT };
+      // nonEmpty: hide repos with no tags (empty shells the registry keeps
+      // after all tags are deleted) so the prune action makes them disappear.
+      const params: { limit: number; last?: string; nonEmpty: boolean } = {
+        limit: PAGE_LIMIT,
+        nonEmpty: true,
+      };
       if (cursor) params.last = cursor;
       const res = await api.listImages(params);
       const repositoriesRaw = res.data?.repositories ?? [];

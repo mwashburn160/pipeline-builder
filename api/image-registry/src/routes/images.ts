@@ -37,6 +37,7 @@ const RegistryMetrics = {
   TAG_DELETE: 'registry_tag_delete_total',
   TAG_COPY: 'registry_tag_copy_total',
   TAG_PROMOTE: 'registry_tag_promote_total',
+  REPO_DELETE: 'registry_repo_delete_total',
 } as const;
 
 // 5 MB cap for the blob proxy. The endpoint is for previewing config blobs
@@ -94,27 +95,56 @@ function tenantOf(repo: string): string | null {
  * registry directly through these routes.
  *
  * Routes:
- *  - GET    /api/images
+ *  - GET    /api/images                            (?nonEmpty=true hides zero-tag repos)
  *  - GET    /api/images/:name/tags
  *  - GET    /api/images/:name/manifests/:reference
  *  - DELETE /api/images/:name/manifests/:reference
+ *  - DELETE /api/images/:name                      (prune a whole repo — deletes all tags)
  *  - GET    /api/images/:name/blobs/:digest        (5MB cap; config blobs only)
  *  - POST   /api/images/copy                       (cross-repo; multi-arch aware)
+ *
+ * Note on repo names: the registry treats `library/pipeline-foo` as one repo.
+ * Multi-segment names are passed URL-ENCODED (`library%2Fpipeline-foo`) so a
+ * single `:name` param captures them — same convention as every route here.
  */
 export function createImageRoutes(): Router {
   const router = Router();
   router.use(requireSystemAdmin as RequestHandler);
 
   // GET /api/images — list all repositories (cursor-paginated via _catalog).
+  //
+  // `?nonEmpty=true` filters out repos with zero tags. The registry keeps a
+  // repo's directory in `/v2/_catalog` even after ALL its tags are deleted
+  // (v2/v3 don't remove empty repo dirs over HTTP), so pruned/empty repos keep
+  // showing as hollow shells. This flag hides them. It costs one `tags/list`
+  // call per repo on the page (bounded concurrency), so it's opt-in — the UI
+  // requests it; the default listing stays a single `_catalog` call.
   router.get('/', withRoute(async ({ req, res, ctx }) => {
     const { limit } = parsePaginationParams(req.query as Record<string, unknown>);
     const last = typeof req.query.last === 'string' ? req.query.last : undefined;
+    const nonEmpty = req.query.nonEmpty === 'true' || req.query.nonEmpty === '1';
 
     const result = await listRepositories({ n: limit, last });
-    ctx.log('COMPLETED', 'Listed repositories', { count: result.repositories.length });
+    let repositories = result.repositories;
+
+    if (nonEmpty && repositories.length > 0) {
+      const withTags = new Set<string>();
+      await runConcurrent(repositories, COPY_PARALLEL_BLOBS, async (repo) => {
+        try {
+          const { tags } = await listTags(repo);
+          if ((tags?.length ?? 0) > 0) withTags.add(repo);
+        } catch (err) {
+          // A repo that 404s on tags/list mid-list is treated as empty (skip).
+          if (!isNotFound(err)) throw err;
+        }
+      });
+      repositories = repositories.filter((r) => withTags.has(r)); // preserve order
+    }
+
+    ctx.log('COMPLETED', 'Listed repositories', { count: repositories.length, nonEmpty });
 
     return sendSuccess(res, 200, {
-      repositories: result.repositories,
+      repositories,
       ...(result.next && { next: result.next }),
     });
   }));
@@ -169,6 +199,68 @@ export function createImageRoutes(): Router {
       if (isNotFound(err)) return sendEntityNotFound(res, 'Manifest');
       throw err;
     }
+  }));
+
+  // DELETE /api/images/:name — prune an entire repository by deleting ALL its
+  // tags. The registry's v2/v3 HTTP API can only delete manifests, not remove
+  // the repo directory, so the repo goes to 0 tags but its now-hollow entry
+  // lingers in `/v2/_catalog` until on-disk GC/rm removes the dir. Pair with
+  // `GET /api/images?nonEmpty=true` so the UI stops showing the emptied repo.
+  // (Registered after the `/:name/manifests/:reference` route; `:name` only
+  // matches a single URL segment, so the two never collide.)
+  router.delete('/:name', withRoute(async ({ req, res, ctx }) => {
+    const name = getParam(req.params, 'name');
+    if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
+
+    let tags: string[];
+    try {
+      const result = await listTags(name);
+      tags = result.tags ?? [];
+    } catch (err) {
+      if (isNotFound(err)) return sendEntityNotFound(res, 'Image');
+      throw err;
+    }
+
+    if (tags.length === 0) {
+      ctx.log('COMPLETED', 'Repository already empty', { name });
+      return sendSuccess(res, 200, { name, deletedManifests: 0, deletedTags: 0, alreadyEmpty: true });
+    }
+
+    // Resolve every tag to its manifest digest, deduped: multiple tags can point
+    // at the same digest, and deleting a digest removes all tags referencing it.
+    const digests = new Set<string>();
+    await runConcurrent(tags, COPY_PARALLEL_BLOBS, async (tag) => {
+      try {
+        const { digest } = await getManifest(name, tag);
+        digests.add(digest);
+      } catch (err) {
+        if (isNotFound(err)) return; // tag raced away between list and resolve
+        throw err;
+      }
+    });
+
+    let deletedManifests = 0;
+    await runConcurrent([...digests], COPY_PARALLEL_BLOBS, async (digest) => {
+      try {
+        await deleteManifest(name, digest);
+        deletedManifests++; // safe: no `await` between read and write (single-threaded)
+      } catch (err) {
+        if (isNotFound(err)) return; // already gone — idempotent
+        throw err;
+      }
+    });
+
+    ctx.log('COMPLETED', 'Pruned repository', { name, deletedManifests, tags: tags.length });
+    emitAudit(logger, {
+      event: 'registry.repo.delete',
+      actor: req.user?.sub ?? 'unknown',
+      repo: name,
+      deletedManifests,
+      deletedTags: tags.length,
+    });
+    incCounter(RegistryMetrics.REPO_DELETE);
+
+    return sendSuccess(res, 200, { name, deletedManifests, deletedTags: tags.length });
   }));
 
   // GET /api/images/:name/blobs/:digest — proxy a config blob (5MB cap, streamed).

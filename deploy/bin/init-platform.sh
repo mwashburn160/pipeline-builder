@@ -34,14 +34,23 @@ CONTINUE_ON_BUILD_FAILURE=false
 # image gets --force + FORCE_PUSH so both the local build and the remote republish rerun.
 FORCE_REBUILD_ALL=false
 
-# Parse flags before the target argument
+# Parse the target and flags in ANY order — flags may come before OR after the
+# target (e.g. both `init-platform.sh --force ec2` and `init-platform.sh ec2
+# --force` work). The old loop `break`d on the first non-flag, so a trailing
+# `--force` was silently dropped (bootstrap never rebuilt/republished).
+TARGET=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --cleanup) CLEANUP_AFTER_UPLOAD=true; shift ;;
     --continue-on-build-failure) CONTINUE_ON_BUILD_FAILURE=true; shift ;;
     --force) FORCE_REBUILD_ALL=true; shift ;;
     -*) echo "Unknown flag: $1" >&2; exit 1 ;;
-    *) break ;;
+    *)
+      if [ -n "$TARGET" ]; then
+        echo "Unexpected argument: $1 (target already set to '$TARGET')" >&2
+        exit 1
+      fi
+      TARGET="$1"; shift ;;
   esac
 done
 
@@ -49,7 +58,7 @@ done
 # build_image / prebuilt branches already pass through to build-plugin-images.sh --force.
 [ "$FORCE_REBUILD_ALL" = true ] && FORCE_REBUILD=true
 
-TARGET="${1:-docker}"
+TARGET="${TARGET:-docker}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"   # env-overridable, matching push-base-images.sh
 TUNNEL_PID=""
 

@@ -1473,8 +1473,12 @@ class ApiClient {
   // Image Registry (sysadmin-only; consumed by /dashboard/registry)
   // ==========================================================================
 
-  /** List repositories from /v2/_catalog with cursor pagination. */
-  async listImages(params?: { limit?: number; last?: string }) {
+  /**
+   * List repositories from /v2/_catalog with cursor pagination.
+   * Pass `nonEmpty: true` to have the backend drop repos with no tags
+   * (empty shells left behind after all tags are deleted).
+   */
+  async listImages(params?: { limit?: number; last?: string; nonEmpty?: boolean }) {
     return this.request<ApiResponse<{ repositories: RegistryRepository[]; next?: string }>>(
       `/api/images${buildQuery(params as Record<string, unknown> | undefined)}`,
     );
@@ -1517,6 +1521,23 @@ class ApiClient {
   async deleteImageManifest(name: string, reference: string) {
     return this.request<ApiResponse<{ name: string; digest: string; deleted: true }>>(
       `/api/images/${encodeURIComponent(name)}/manifests/${encodeURIComponent(reference)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  /**
+   * Delete an entire repository — removes every tag/manifest so the repo drops
+   * out of `_catalog`. Idempotent: an already-empty repo returns
+   * `alreadyEmpty: true`. Used by the registry UI to prune empty repos.
+   */
+  async deleteRepository(name: string) {
+    return this.request<ApiResponse<{
+      name: string;
+      deletedManifests: number;
+      deletedTags: number;
+      alreadyEmpty?: boolean;
+    }>>(
+      `/api/images/${encodeURIComponent(name)}`,
       { method: 'DELETE' },
     );
   }

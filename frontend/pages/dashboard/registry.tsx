@@ -12,6 +12,7 @@ import { TagTable } from '@/components/registry/TagTable';
 import { ManifestDetail } from '@/components/registry/ManifestDetail';
 import { CopyTagModal } from '@/components/registry/CopyTagModal';
 import { DeleteTagConfirm } from '@/components/registry/DeleteTagConfirm';
+import { DeleteRepoConfirm } from '@/components/registry/DeleteRepoConfirm';
 import { BulkDeleteConfirm } from '@/components/registry/BulkDeleteConfirm';
 import { RecentActionsPanel, type RecentAction } from '@/components/registry/RecentActionsPanel';
 import { KeyboardShortcutsModal } from '@/components/registry/KeyboardShortcutsModal';
@@ -87,6 +88,7 @@ export default function RegistryPage() {
 
   const [copyTag, setCopyTag] = useState<string | null>(null);
   const [deleteTag, setDeleteTag] = useState<string | null>(null);
+  const [deleteRepo, setDeleteRepo] = useState<string | null>(null);
   const [bulkDelete, setBulkDelete] = useState<string[] | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [health, setHealth] = useState<HealthState>('checking');
@@ -208,6 +210,31 @@ export default function RegistryPage() {
       toast.success(`Deleted ${repo}:${ref}`);
       recordAction({ kind: 'delete', at: new Date().toISOString(), repo, ref, digest });
     }
+  };
+
+  /**
+   * Repo-prune callback from DeleteRepoConfirm — clears selection if the
+   * pruned repo was active, refreshes the (nonEmpty-filtered) list so the
+   * repo drops out, and records/toasts the outcome.
+   */
+  const onRepoDeleted = (
+    name: string,
+    result: { deletedManifests: number; deletedTags: number; alreadyEmpty?: boolean },
+  ) => {
+    setDeleteRepo(null);
+    if (repo === name) setQuery({ repo: null, tag: null, platform: null });
+    refresh();
+    if (result.alreadyEmpty) {
+      toast.success(`Pruned empty repository ${name}`);
+    } else {
+      toast.success(
+        `Deleted repository ${name} (${result.deletedTags} tag${result.deletedTags === 1 ? '' : 's'})`,
+      );
+    }
+    recordAction({
+      kind: 'delete', at: new Date().toISOString(),
+      repo: name, ref: '(entire repository)',
+    });
   };
 
   /**
@@ -351,6 +378,7 @@ export default function RegistryPage() {
               onSelect={onSelectRepo}
               onLoadMore={loadMore}
               onRefresh={refresh}
+              onDelete={(name) => setDeleteRepo(name)}
             />
           </div>
           <div className={`flex-shrink-0 ${tag ? 'w-[28rem]' : 'flex-1'} ${dim('tag')}`}>
@@ -408,6 +436,14 @@ export default function RegistryPage() {
           ref={deleteTag}
           onClose={() => setDeleteTag(null)}
           onDeleted={onDeleted}
+        />
+      )}
+
+      {deleteRepo && (
+        <DeleteRepoConfirm
+          repo={deleteRepo}
+          onClose={() => setDeleteRepo(null)}
+          onDeleted={(result) => onRepoDeleted(deleteRepo, result)}
         />
       )}
 
