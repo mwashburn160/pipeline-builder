@@ -57,7 +57,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "8.0",
+                "DOTNET_VERSION": "9.0",
                 "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
               }
             },
@@ -81,7 +81,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "8.0",
+                "DOTNET_VERSION": "9.0",
                 "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
               }
             },
@@ -105,7 +105,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "8.0"
+                "DOTNET_VERSION": "9.0"
               }
             },
             "position": "pre"
@@ -121,7 +121,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "8.0",
+                "DOTNET_VERSION": "9.0",
                 "TREAT_WARNINGS_AS_ERRORS": "true"
               }
             },
@@ -144,7 +144,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "8.0"
+                "DOTNET_VERSION": "9.0"
               }
             },
             "position": "pre"

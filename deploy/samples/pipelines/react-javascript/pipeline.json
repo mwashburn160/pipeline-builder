@@ -57,7 +57,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "NODE_VERSION": "20",
+                "NODE_VERSION": "24",
                 "BUILD_SCRIPT": "build"
               }
             },
@@ -75,7 +75,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "NODE_VERSION": "20"
+                "NODE_VERSION": "24"
               }
             },
             "position": "post"
@@ -97,7 +97,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "NODE_VERSION": "20",
+                "NODE_VERSION": "24",
                 "JEST_CONFIG": "scripts/jest/config.source.js"
               }
             },
@@ -121,7 +121,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "NODE_VERSION": "20"
+                "NODE_VERSION": "24"
               }
             },
             "position": "pre"
@@ -137,7 +137,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "NODE_VERSION": "20"
+                "NODE_VERSION": "24"
               }
             },
             "position": "post"
