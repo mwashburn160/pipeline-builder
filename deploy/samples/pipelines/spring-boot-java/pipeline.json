@@ -1,7 +1,7 @@
 {
   "project": "spring-boot",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for dstar55/docker-hello-world-spring-boot - a minimal Spring Boot (Java/Maven) hello-world app. Includes building, security scanning, and container packaging.",
+  "description": "CI/CD pipeline for dstar55/docker-hello-world-spring-boot - a minimal Spring Boot (Java/Maven) hello-world app. Includes building and container packaging.",
   "keywords": [
     "java",
     "spring-boot",
@@ -62,29 +62,6 @@
             },
             "position": "pre",
             "timeout": 30
-          }
-        ]
-      },
-      {
-        "stageName": "Security",
-        "alias": "SecurityScan",
-        "steps": [
-          {
-            "plugin": {
-              "name": "semgrep",
-              "filter": {
-                "name": "semgrep",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "SEMGREP_RULES": "auto",
-                "SEMGREP_SEVERITY": "ERROR,WARNING"
-              }
-            },
-            "position": "pre"
           }
         ]
       },

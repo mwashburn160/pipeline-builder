@@ -84,7 +84,8 @@
                 "DOTNET_VERSION": "10.0"
               }
             },
-            "position": "pre"
+            "position": "pre",
+            "failureBehavior": "warn"
           },
           {
             "plugin": {
@@ -114,7 +115,8 @@
                 "isDefault": true
               }
             },
-            "position": "post"
+            "position": "post",
+            "failureBehavior": "warn"
           }
         ]
       }

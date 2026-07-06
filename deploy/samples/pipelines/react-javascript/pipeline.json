@@ -98,7 +98,8 @@
                 "isDefault": true
               }
             },
-            "position": "post"
+            "position": "post",
+            "failureBehavior": "warn"
           }
         ]
       }

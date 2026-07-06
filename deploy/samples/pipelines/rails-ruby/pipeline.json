@@ -60,7 +60,8 @@
                 "RUBY_VERSION": "3.4.10"
               }
             },
-            "position": "pre"
+            "position": "pre",
+            "failureBehavior": "warn"
           },
           {
             "plugin": {
@@ -90,7 +91,8 @@
                 "isDefault": true
               }
             },
-            "position": "post"
+            "position": "post",
+            "failureBehavior": "warn"
           }
         ]
       }
