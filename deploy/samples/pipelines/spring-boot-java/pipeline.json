@@ -1,7 +1,7 @@
 {
   "project": "spring-boot",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for dstar55/docker-hello-world-spring-boot - a minimal Spring Boot (Java/Maven) hello-world app. Includes building and container packaging.",
+  "description": "CI/CD pipeline for dstar55/docker-hello-world-spring-boot - a minimal Spring Boot (Java/Maven) hello-world app. Includes building.",
   "keywords": [
     "java",
     "spring-boot",
@@ -62,45 +62,6 @@
             },
             "position": "pre",
             "timeout": 30
-          }
-        ]
-      },
-      {
-        "stageName": "Package",
-        "alias": "PackageImage",
-        "steps": [
-          {
-            "plugin": {
-              "name": "docker-build",
-              "filter": {
-                "name": "docker-build",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "IMAGE_NAME": "spring-boot-acmecorp",
-                "IMAGE_TAG": "latest",
-                "REGISTRY_TYPE": "none",
-                "aws:cdk:codebuild:buildenvironment:privileged": true,
-                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
-              }
-            },
-            "position": "pre",
-            "timeout": 20,
-            "additionalInputArtifacts": [
-              {
-                "artifact": {
-                  "stageName": "Build",
-                  "stageAlias": "BuildAndPackage",
-                  "pluginName": "java-corretto",
-                  "pluginAlias": "java",
-                  "outputDirectory": "**/*"
-                },
-                "directory": "build-artifact"
-              }
-            ]
           }
         ]
       }

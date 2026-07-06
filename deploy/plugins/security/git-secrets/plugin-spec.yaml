@@ -37,16 +37,18 @@ commands:
       CONFIG_ARG="--config ${GITLEAKS_CONFIG}"
     fi
     echo "Running Gitleaks ${SCAN_MODE} scan..."
+    # gitleaks v8.19+ deprecated `detect --source . [--no-git]` in favor of the
+    # `dir` (filesystem, no git history) and `git` (git history) subcommands —
+    # the old form errors on newer releases (we pin v8.22.0). Path is positional.
     case "${SCAN_MODE}" in
       directory)
-        gitleaks detect --source . \
+        gitleaks dir . \
           --report-format ${REPORT_FORMAT} \
           --report-path secrets-reports/gitleaks-results.json \
-          ${CONFIG_ARG} \
-          --no-git
+          ${CONFIG_ARG}
         ;;
       git)
-        gitleaks detect --source . \
+        gitleaks git . \
           --report-format ${REPORT_FORMAT} \
           --report-path secrets-reports/gitleaks-results.json \
           ${CONFIG_ARG}
