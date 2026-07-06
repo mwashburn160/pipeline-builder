@@ -1,7 +1,7 @@
 {
   "project": "rails",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for rails/rails - a full-stack web application framework written in Ruby. Includes testing, linting, security scanning with Brakeman, and gem publishing.",
+  "description": "CI/CD pipeline for m9rc1n/hello-world-rails - a minimal Rails (Ruby) hello-world app. Includes testing, linting, and security scanning with Brakeman.",
   "keywords": [
     "ruby",
     "rails",
@@ -25,9 +25,9 @@
       "source": {
         "type": "github",
         "options": {
-          "repo": "rails/rails",
+          "repo": "m9rc1n/hello-world-rails",
           "branch": "main",
-          "trigger": "AUTO"
+          "trigger": "NONE"
         }
       },
       "plugin": {
@@ -57,7 +57,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "RUBY_VERSION": "4.0.5",
+                "RUBY_VERSION": "3.4.10",
                 "DATABASE_ADAPTER": "sqlite3"
               }
             },
@@ -81,7 +81,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "RUBY_VERSION": "4.0.5",
+                "RUBY_VERSION": "3.4.10",
                 "RUBOCOP_CONFIG": ".rubocop.yml"
               }
             },
@@ -104,7 +104,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "RUBY_VERSION": "4.0.5"
+                "RUBY_VERSION": "3.4.10"
               }
             },
             "position": "pre"
@@ -120,7 +120,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "RUBY_VERSION": "4.0.5"
+                "RUBY_VERSION": "3.4.10"
               }
             },
             "position": "pre",

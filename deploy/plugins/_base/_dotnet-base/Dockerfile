@@ -12,7 +12,7 @@ FROM pipeline-plugin-base:24.04
 RUN apt-retry-install build-essential libssl-dev libicu-dev
 
 # Single .NET SDK channel via the official installer (bakes one version).
-ARG DOTNET_VERSION=9.0
+ARG DOTNET_VERSION=10.0
 ENV DOTNET_ROOT=/opt/dotnet
 RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && chmod +x /tmp/dotnet-install.sh \

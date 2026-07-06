@@ -29,8 +29,8 @@ RUN apt-retry-install build-essential libssl-dev zlib1g-dev libbz2-dev \
 
 # Single pinned CPython from astral-sh/python-build-standalone (precompiled,
 # relocatable — the same builds uv/rye use). Version is a build-arg knob.
-ARG PYTHON_VERSION=3.14
-ARG PYTHON_BUILD=3.14.5
+ARG PYTHON_VERSION=3.12
+ARG PYTHON_BUILD=3.12.13
 ARG PBS_RELEASE=20260510
 ARG PBS_BASE=https://github.com/astral-sh/python-build-standalone/releases/download
 ENV PYTHON_HOME=/opt/python

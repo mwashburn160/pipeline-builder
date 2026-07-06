@@ -1,7 +1,7 @@
 {
   "project": "react",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for facebook/react - a declarative, component-based JavaScript library for building user interfaces. Includes building, testing, linting, security scanning, and package publishing.",
+  "description": "CI/CD pipeline for Rhymond/product-compare-react - a React product-comparison example app (Create React App, JavaScript). Includes building, testing, linting, security scanning, and packaging.",
   "keywords": [
     "react",
     "javascript",
@@ -25,9 +25,9 @@
       "source": {
         "type": "github",
         "options": {
-          "repo": "facebook/react",
-          "branch": "main",
-          "trigger": "AUTO"
+          "repo": "Rhymond/product-compare-react",
+          "branch": "master",
+          "trigger": "NONE"
         }
       },
       "plugin": {
@@ -63,22 +63,6 @@
             },
             "position": "pre",
             "timeout": 20
-          },
-          {
-            "plugin": {
-              "name": "typescript-check",
-              "filter": {
-                "name": "typescript-check",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "NODE_VERSION": "24"
-              }
-            },
-            "position": "post"
           }
         ]
       },
@@ -97,8 +81,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "NODE_VERSION": "24",
-                "JEST_CONFIG": "scripts/jest/config.source.js"
+                "NODE_VERSION": "24"
               }
             },
             "position": "pre",
@@ -177,45 +160,6 @@
               }
             },
             "position": "post"
-          }
-        ]
-      },
-      {
-        "stageName": "Package",
-        "alias": "PackageImage",
-        "steps": [
-          {
-            "plugin": {
-              "name": "docker-build",
-              "filter": {
-                "name": "docker-build",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "IMAGE_NAME": "react-acmecorp",
-                "IMAGE_TAG": "latest",
-                "REGISTRY_TYPE": "none",
-                "aws:cdk:codebuild:buildenvironment:privileged": true,
-                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
-              }
-            },
-            "position": "pre",
-            "timeout": 20,
-            "additionalInputArtifacts": [
-              {
-                "artifact": {
-                  "stageName": "Build",
-                  "stageAlias": "BuildAndPackage",
-                  "pluginName": "nodejs-bundle",
-                  "pluginAlias": "nodejs-bundle",
-                  "outputDirectory": "build-output"
-                },
-                "directory": "build-artifact"
-              }
-            ]
           }
         ]
       }

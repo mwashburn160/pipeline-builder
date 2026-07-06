@@ -40,7 +40,11 @@ while [ $# -gt 0 ]; do
     --parallel)  PARALLEL_JOBS="$2"
                  [[ "$PARALLEL_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --parallel requires a positive integer" >&2; exit 1; }
                  shift 2 ;;
-    --category)  CATEGORY_FILTER="$2"; shift 2 ;;
+    # Accumulate across repeated flags AND accept a comma-separated value, so
+    # both `--category a,b` and `--category a --category b` load a+b. Plain
+    # assignment silently kept only the LAST flag — a footgun that looked like
+    # every category loaded when only one did.
+    --category)  CATEGORY_FILTER="${CATEGORY_FILTER:+$CATEGORY_FILTER,}$2"; shift 2 ;;
     --timeout)   UPLOAD_TIMEOUT="$2"
                  [[ "$UPLOAD_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --timeout requires a positive integer" >&2; exit 1; }
                  shift 2 ;;

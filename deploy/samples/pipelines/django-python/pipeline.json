@@ -1,7 +1,7 @@
 {
   "project": "django",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for django/django - a high-level Python web framework that encourages rapid development and clean design. Includes testing, linting, security scanning, and PyPI publishing.",
+  "description": "CI/CD pipeline for django-ve/django-helloworld - a minimal Django (Python) hello-world app. Includes testing, linting, and security scanning.",
   "keywords": [
     "python",
     "django",
@@ -25,9 +25,9 @@
       "source": {
         "type": "github",
         "options": {
-          "repo": "django/django",
-          "branch": "main",
-          "trigger": "AUTO"
+          "repo": "django-ve/django-helloworld",
+          "branch": "master",
+          "trigger": "NONE"
         }
       },
       "plugin": {
@@ -57,8 +57,8 @@
                 "isDefault": true
               },
               "metadata": {
-                "PYTHON_VERSION": "3.14",
-                "DJANGO_SETTINGS_MODULE": "tests.test_sqlite"
+                "PYTHON_VERSION": "3.12",
+                "DJANGO_SETTINGS_MODULE": "helloworld.settings"
               }
             },
             "position": "pre",
@@ -75,7 +75,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "PYTHON_VERSION": "3.14",
+                "PYTHON_VERSION": "3.12",
                 "COVERAGE_THRESHOLD": "75"
               }
             },
@@ -98,8 +98,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "PYTHON_VERSION": "3.14",
-                "RUFF_CONFIG": "pyproject.toml"
+                "PYTHON_VERSION": "3.12"
               }
             },
             "position": "pre"
@@ -115,7 +114,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "PYTHON_VERSION": "3.14"
+                "PYTHON_VERSION": "3.12"
               }
             },
             "position": "post",
@@ -138,7 +137,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "PYTHON_VERSION": "3.14",
+                "PYTHON_VERSION": "3.12",
                 "BANDIT_SEVERITY": "medium"
               }
             },

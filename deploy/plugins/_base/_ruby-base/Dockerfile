@@ -18,7 +18,7 @@
 # Global ARG (declared before the first FROM) so it can parameterize the
 # ruby-src stage's image tag — an ARG can't be interpolated in `COPY --from=`
 # directly, hence the named-stage pattern.
-ARG RUBY_VERSION=4.0.5
+ARG RUBY_VERSION=3.4.10
 FROM ruby:${RUBY_VERSION} AS ruby-src
 
 FROM pipeline-plugin-base:24.04

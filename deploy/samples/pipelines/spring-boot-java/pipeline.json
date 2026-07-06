@@ -1,7 +1,7 @@
 {
   "project": "spring-boot",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for spring-projects/spring-boot - an opinionated Java framework for building production-ready applications. Includes building, testing, code quality analysis, security scanning, and Maven artifact publishing.",
+  "description": "CI/CD pipeline for dstar55/docker-hello-world-spring-boot - a minimal Spring Boot (Java/Maven) hello-world app. Includes building, testing, code quality analysis, security scanning, and container packaging.",
   "keywords": [
     "java",
     "spring-boot",
@@ -25,9 +25,9 @@
       "source": {
         "type": "github",
         "options": {
-          "repo": "spring-projects/spring-boot",
-          "branch": "main",
-          "trigger": "AUTO"
+          "repo": "dstar55/docker-hello-world-spring-boot",
+          "branch": "master",
+          "trigger": "NONE"
         }
       },
       "plugin": {
@@ -57,9 +57,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "GRADLE_OPTS": "-Xmx8g -XX:MaxMetaspaceSize=1g",
-                "KOTLIN_VERSION": "2.2.21",
-                "GRADLE_TASK": "assemble --no-daemon --parallel"
+                "KOTLIN_VERSION": "2.2.21"
               }
             },
             "position": "pre",
@@ -104,9 +102,7 @@
                 "isActive": true,
                 "isDefault": true
               },
-              "metadata": {
-                "CHECKSTYLE_CONFIG": "src/checkstyle/checkstyle.xml"
-              }
+              "metadata": {}
             },
             "position": "pre"
           },

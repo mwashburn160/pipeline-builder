@@ -1,7 +1,7 @@
 {
   "project": "aspnetcore",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for dotnet/aspnetcore - a cross-platform, high-performance framework for building modern cloud-based web applications with .NET. Includes building, testing, code analysis, security scanning, and NuGet publishing.",
+  "description": "CI/CD pipeline for Azure-Samples/dotnetcore-docs-hello-world - a minimal ASP.NET Core (net10.0) hello-world web app. Includes building, testing, code analysis, and security scanning.",
   "keywords": [
     "dotnet",
     "csharp",
@@ -25,9 +25,9 @@
       "source": {
         "type": "github",
         "options": {
-          "repo": "dotnet/aspnetcore",
+          "repo": "Azure-Samples/dotnetcore-docs-hello-world",
           "branch": "main",
-          "trigger": "AUTO"
+          "trigger": "NONE"
         }
       },
       "plugin": {
@@ -57,7 +57,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "9.0",
+                "DOTNET_VERSION": "10.0",
                 "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
               }
             },
@@ -81,7 +81,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "9.0",
+                "DOTNET_VERSION": "10.0",
                 "aws:cdk:codebuild:buildenvironment:computetype": "LARGE"
               }
             },
@@ -105,7 +105,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "9.0"
+                "DOTNET_VERSION": "10.0"
               }
             },
             "position": "pre"
@@ -121,7 +121,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "9.0",
+                "DOTNET_VERSION": "10.0",
                 "TREAT_WARNINGS_AS_ERRORS": "true"
               }
             },
@@ -144,7 +144,7 @@
                 "isDefault": true
               },
               "metadata": {
-                "DOTNET_VERSION": "9.0"
+                "DOTNET_VERSION": "10.0"
               }
             },
             "position": "pre"
@@ -178,45 +178,6 @@
               }
             },
             "position": "post"
-          }
-        ]
-      },
-      {
-        "stageName": "Package",
-        "alias": "PackageImage",
-        "steps": [
-          {
-            "plugin": {
-              "name": "docker-build",
-              "filter": {
-                "name": "docker-build",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "IMAGE_NAME": "aspnetcore-acmecorp",
-                "IMAGE_TAG": "latest",
-                "REGISTRY_TYPE": "none",
-                "aws:cdk:codebuild:buildenvironment:privileged": true,
-                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
-              }
-            },
-            "position": "pre",
-            "timeout": 20,
-            "additionalInputArtifacts": [
-              {
-                "artifact": {
-                  "stageName": "Build",
-                  "stageAlias": "BuildAndPackage",
-                  "pluginName": "dotnet",
-                  "pluginAlias": "dotnet",
-                  "outputDirectory": "**/*"
-                },
-                "directory": "build-artifact"
-              }
-            ]
           }
         ]
       }

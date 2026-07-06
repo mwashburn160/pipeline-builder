@@ -1,7 +1,7 @@
 {
   "project": "gin",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for gin-gonic/gin - a high-performance HTTP web framework written in Go. Includes building, testing, linting, and security scanning.",
+  "description": "CI/CD pipeline for lamhotsimamora/Hello-World-Golang-Gin - a minimal Gin (Go) hello-world web app. Includes building, testing, linting, and security scanning.",
   "keywords": [
     "go",
     "gin",
@@ -25,9 +25,9 @@
       "source": {
         "type": "github",
         "options": {
-          "repo": "gin-gonic/gin",
-          "branch": "master",
-          "trigger": "AUTO"
+          "repo": "lamhotsimamora/Hello-World-Golang-Gin",
+          "branch": "main",
+          "trigger": "NONE"
         }
       },
       "plugin": {
@@ -161,45 +161,6 @@
               }
             },
             "position": "post"
-          }
-        ]
-      },
-      {
-        "stageName": "Package",
-        "alias": "PackageImage",
-        "steps": [
-          {
-            "plugin": {
-              "name": "docker-build",
-              "filter": {
-                "name": "docker-build",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "IMAGE_NAME": "gin-acmecorp",
-                "IMAGE_TAG": "latest",
-                "REGISTRY_TYPE": "none",
-                "aws:cdk:codebuild:buildenvironment:privileged": true,
-                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
-              }
-            },
-            "position": "pre",
-            "timeout": 20,
-            "additionalInputArtifacts": [
-              {
-                "artifact": {
-                  "stageName": "Build",
-                  "stageAlias": "BuildAndPackage",
-                  "pluginName": "go-compile",
-                  "pluginAlias": "go-compile",
-                  "outputDirectory": "bin"
-                },
-                "directory": "build-artifact"
-              }
-            ]
           }
         ]
       }
