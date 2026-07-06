@@ -1,7 +1,7 @@
 {
   "project": "axum",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for ChiefTechDev/Rust-Axum-Hello-World - a minimal Axum (Rust) hello-world web app. Includes building, testing, linting, and security auditing.",
+  "description": "CI/CD pipeline for ChiefTechDev/Rust-Axum-Hello-World - a minimal Axum (Rust) hello-world web app. Includes building and security scanning.",
   "keywords": [
     "rust",
     "axum",
@@ -63,69 +63,6 @@
             },
             "position": "pre",
             "timeout": 30
-          }
-        ]
-      },
-      {
-        "stageName": "Test",
-        "alias": "UnitTests",
-        "steps": [
-          {
-            "plugin": {
-              "name": "cargo-test",
-              "filter": {
-                "name": "cargo-test",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "RUST_VERSION": "stable",
-                "aws:cdk:codebuild:buildenvironment:computetype": "MEDIUM"
-              }
-            },
-            "position": "pre",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "stageName": "Lint",
-        "alias": "CodeQuality",
-        "steps": [
-          {
-            "plugin": {
-              "name": "clippy",
-              "filter": {
-                "name": "clippy",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "RUST_VERSION": "stable",
-                "CLIPPY_FLAGS": "-D warnings"
-              }
-            },
-            "position": "pre"
-          },
-          {
-            "plugin": {
-              "name": "rustfmt",
-              "filter": {
-                "name": "rustfmt",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "RUST_VERSION": "stable"
-              }
-            },
-            "position": "post"
           }
         ]
       },

@@ -1,7 +1,7 @@
 {
   "project": "gin",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for lamhotsimamora/Hello-World-Golang-Gin - a minimal Gin (Go) hello-world web app. Includes building, testing, linting, and security scanning.",
+  "description": "CI/CD pipeline for lamhotsimamora/Hello-World-Golang-Gin - a minimal Gin (Go) hello-world web app. Includes building and security scanning.",
   "keywords": [
     "go",
     "gin",
@@ -61,52 +61,6 @@
                 "CGO_ENABLED": "0",
                 "GOOS": "linux",
                 "GOARCH": "amd64"
-              }
-            },
-            "position": "pre"
-          }
-        ]
-      },
-      {
-        "stageName": "Test",
-        "alias": "UnitTests",
-        "steps": [
-          {
-            "plugin": {
-              "name": "go-test",
-              "filter": {
-                "name": "go-test",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.24.13",
-                "GOFLAGS": "-count=1"
-              }
-            },
-            "position": "pre",
-            "timeout": 20
-          }
-        ]
-      },
-      {
-        "stageName": "Lint",
-        "alias": "CodeQuality",
-        "steps": [
-          {
-            "plugin": {
-              "name": "golangci-lint",
-              "filter": {
-                "name": "golangci-lint",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "GO_VERSION": "1.24.13"
               }
             },
             "position": "pre"

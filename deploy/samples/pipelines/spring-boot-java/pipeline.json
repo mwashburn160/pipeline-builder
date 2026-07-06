@@ -1,7 +1,7 @@
 {
   "project": "spring-boot",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for dstar55/docker-hello-world-spring-boot - a minimal Spring Boot (Java/Maven) hello-world app. Includes building, testing, code quality analysis, security scanning, and container packaging.",
+  "description": "CI/CD pipeline for dstar55/docker-hello-world-spring-boot - a minimal Spring Boot (Java/Maven) hello-world app. Includes building, security scanning, and container packaging.",
   "keywords": [
     "java",
     "spring-boot",
@@ -66,64 +66,6 @@
         ]
       },
       {
-        "stageName": "Test",
-        "alias": "UnitTests",
-        "steps": [
-          {
-            "plugin": {
-              "name": "jacoco",
-              "filter": {
-                "name": "jacoco",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "COVERAGE_THRESHOLD": "70"
-              }
-            },
-            "position": "pre",
-            "timeout": 45
-          }
-        ]
-      },
-      {
-        "stageName": "Lint",
-        "alias": "CodeQuality",
-        "steps": [
-          {
-            "plugin": {
-              "name": "checkstyle",
-              "filter": {
-                "name": "checkstyle",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {}
-            },
-            "position": "pre"
-          },
-          {
-            "plugin": {
-              "name": "spotbugs",
-              "filter": {
-                "name": "spotbugs",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {}
-            },
-            "position": "post",
-            "failureBehavior": "warn"
-          }
-        ]
-      },
-      {
         "stageName": "Security",
         "alias": "SecurityScan",
         "steps": [
@@ -143,23 +85,6 @@
               }
             },
             "position": "pre"
-          },
-          {
-            "plugin": {
-              "name": "dependency-check",
-              "filter": {
-                "name": "dependency-check",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "DC_FAIL_ON_CVSS": "7"
-              }
-            },
-            "position": "pre",
-            "failureBehavior": "warn"
           }
         ]
       },

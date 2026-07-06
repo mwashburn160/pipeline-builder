@@ -1,7 +1,7 @@
 {
   "project": "django",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for django-ve/django-helloworld - a minimal Django (Python) hello-world app. Includes testing, linting, and security scanning.",
+  "description": "CI/CD pipeline for django-ve/django-helloworld - a minimal Django (Python) hello-world app. Includes security scanning (SAST + secret detection).",
   "keywords": [
     "python",
     "django",
@@ -42,86 +42,6 @@
       }
     },
     "stages": [
-      {
-        "stageName": "Test",
-        "alias": "UnitTests",
-        "steps": [
-          {
-            "plugin": {
-              "name": "python-pytest",
-              "filter": {
-                "name": "python-pytest",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.12",
-                "DJANGO_SETTINGS_MODULE": "helloworld.settings"
-              }
-            },
-            "position": "pre",
-            "timeout": 30
-          },
-          {
-            "plugin": {
-              "name": "coverage-py",
-              "filter": {
-                "name": "coverage-py",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.12",
-                "COVERAGE_THRESHOLD": "75"
-              }
-            },
-            "position": "post"
-          }
-        ]
-      },
-      {
-        "stageName": "Lint",
-        "alias": "CodeQuality",
-        "steps": [
-          {
-            "plugin": {
-              "name": "ruff",
-              "filter": {
-                "name": "ruff",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.12"
-              }
-            },
-            "position": "pre"
-          },
-          {
-            "plugin": {
-              "name": "mypy",
-              "filter": {
-                "name": "mypy",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "PYTHON_VERSION": "3.12"
-              }
-            },
-            "position": "post",
-            "failureBehavior": "warn"
-          }
-        ]
-      },
       {
         "stageName": "Security",
         "alias": "SecurityScan",

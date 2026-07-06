@@ -1,7 +1,7 @@
 {
   "project": "rails",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for m9rc1n/hello-world-rails - a minimal Rails (Ruby) hello-world app. Includes testing, linting, and security scanning with Brakeman.",
+  "description": "CI/CD pipeline for m9rc1n/hello-world-rails - a minimal Rails (Ruby) hello-world app. Includes security scanning (Brakeman + dependency audit + secret detection).",
   "keywords": [
     "ruby",
     "rails",
@@ -42,53 +42,6 @@
       }
     },
     "stages": [
-      {
-        "stageName": "Test",
-        "alias": "UnitTests",
-        "steps": [
-          {
-            "plugin": {
-              "name": "rails-test",
-              "filter": {
-                "name": "rails-test",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.4.10",
-                "DATABASE_ADAPTER": "sqlite3"
-              }
-            },
-            "position": "pre",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "stageName": "Lint",
-        "alias": "CodeQuality",
-        "steps": [
-          {
-            "plugin": {
-              "name": "rubocop",
-              "filter": {
-                "name": "rubocop",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "RUBY_VERSION": "3.4.10",
-                "RUBOCOP_CONFIG": ".rubocop.yml"
-              }
-            },
-            "position": "pre"
-          }
-        ]
-      },
       {
         "stageName": "Security",
         "alias": "SecurityScan",

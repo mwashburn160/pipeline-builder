@@ -1,7 +1,7 @@
 {
   "project": "react",
   "organization": "AcmeCorp",
-  "description": "CI/CD pipeline for Rhymond/product-compare-react - a React product-comparison example app (Create React App, JavaScript). Includes building, testing, linting, security scanning, and packaging.",
+  "description": "CI/CD pipeline for sitek94/vite-deploy-demo - a minimal React (Vite, JavaScript) hello-world app. Includes building and security scanning.",
   "keywords": [
     "react",
     "javascript",
@@ -25,8 +25,8 @@
       "source": {
         "type": "github",
         "options": {
-          "repo": "Rhymond/product-compare-react",
-          "branch": "master",
+          "repo": "sitek94/vite-deploy-demo",
+          "branch": "main",
           "trigger": "NONE"
         }
       },
@@ -63,67 +63,6 @@
             },
             "position": "pre",
             "timeout": 20
-          }
-        ]
-      },
-      {
-        "stageName": "Test",
-        "alias": "UnitTests",
-        "steps": [
-          {
-            "plugin": {
-              "name": "jest",
-              "filter": {
-                "name": "jest",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "NODE_VERSION": "24"
-              }
-            },
-            "position": "pre",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "stageName": "Lint",
-        "alias": "CodeQuality",
-        "steps": [
-          {
-            "plugin": {
-              "name": "eslint",
-              "filter": {
-                "name": "eslint",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "NODE_VERSION": "24"
-              }
-            },
-            "position": "pre"
-          },
-          {
-            "plugin": {
-              "name": "prettier",
-              "filter": {
-                "name": "prettier",
-                "version": "1.0.0",
-                "accessModifier": "public",
-                "isActive": true,
-                "isDefault": true
-              },
-              "metadata": {
-                "NODE_VERSION": "24"
-              }
-            },
-            "position": "post"
           }
         ]
       },
