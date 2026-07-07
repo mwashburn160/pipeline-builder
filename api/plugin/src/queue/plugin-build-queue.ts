@@ -141,7 +141,7 @@ const DLQ_NAME = `${QUEUE_NAME}-dlq`;
 // ---------------------------------------------------------------------------
 //
 // One BullMQ queue + Worker per quota tier; cross-tier scheduling is
-// isolated so a Developer-tier burst can't block Pro/Unlimited dispatch.
+// isolated so a Developer-tier burst can't block Pro/Team/Enterprise dispatch.
 // The per-org semaphore above still enforces intra-tier fairness.
 //
 // Each tier gets a name suffixed with the tier, so queues are symmetric and
@@ -149,7 +149,8 @@ const DLQ_NAME = `${QUEUE_NAME}-dlq`;
 const TIER_QUEUE_NAMES: Record<QuotaTier, string> = {
   developer: `${QUEUE_NAME}-developer`,
   pro: `${QUEUE_NAME}-pro`,
-  unlimited: `${QUEUE_NAME}-unlimited`,
+  team: `${QUEUE_NAME}-team`,
+  enterprise: `${QUEUE_NAME}-enterprise`,
 };
 
 /**
@@ -545,7 +546,8 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   const tierConcurrency: Record<QuotaTier, number> = {
     developer: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_DEVELOPER || String(concurrency), 10),
     pro: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_PRO || String(concurrency), 10),
-    unlimited: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_UNLIMITED || String(concurrency), 10),
+    team: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_TEAM || String(concurrency), 10),
+    enterprise: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_ENTERPRISE || String(concurrency), 10),
   };
 
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {

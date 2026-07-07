@@ -5,6 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
+import { seatCapacityAvailable } from '../helpers/seats.js';
 import { Organization, User, UserOrganization } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -25,6 +26,9 @@ export const OM_ALREADY_ACTIVE = 'OM_ALREADY_ACTIVE';
 /** A bulk-add target org is outside the context org's subtree (a parent admin
  *  may only place members on teams they administer, i.e. descendants). */
 export const OM_TARGETS_OUT_OF_SCOPE = 'OM_TARGETS_OUT_OF_SCOPE';
+/** The org is at its seat cap (`org.quotas.seats`); adding this member would
+ *  exceed it. Mirrors the seat check enforced at invite time. */
+export const OM_SEAT_LIMIT = 'OM_SEAT_LIMIT';
 
 /** One descendant team annotated with the target member's membership state. */
 export interface MemberTeam {
@@ -40,10 +44,12 @@ export interface MemberTeam {
   isActive?: boolean;
 }
 
-/** Outcome of a single team in a bulk-add operation. */
+/** Outcome of a single team in a bulk-add operation. `seat_limit` = the team
+ *  was at its seat cap and the member was NOT added (non-fatal; other teams
+ *  still process). */
 export interface BulkAddResult {
   orgId: string;
-  status: 'added' | 'already_member';
+  status: 'added' | 'already_member' | 'seat_limit';
 }
 
 /** A descendant team of a context org (roster, no per-member annotation). */
@@ -140,6 +146,13 @@ class OrgMembersService {
       }).session(session);
       if (existing) throw new Error(OM_ALREADY_MEMBER);
 
+      // Seat-cap enforcement — the same limit the invite path enforces. A
+      // direct add must not let an admin bypass the org's `quotas.seats`.
+      const seatLimit = org.quotas?.seats ?? -1;
+      if (!(await seatCapacityAvailable(orgId, seatLimit, 1, session))) {
+        throw new Error(OM_SEAT_LIMIT);
+      }
+
       await UserOrganization.create(
         [{ userId: user._id, organizationId: toOrgId(orgId), role: body.role || 'member' }],
         { session },
@@ -211,6 +224,13 @@ class OrgMembersService {
         : await User.findOne({ email: body.email!.toLowerCase() }).session(session);
       if (!user) throw new Error(OM_USER_NOT_FOUND);
 
+      // Per-team seat limits — load each target's `quotas.seats` up front.
+      const targetOrgs = await Organization.find({ _id: { $in: body.orgIds.map(toOrgId) } })
+        .select('_id quotas.seats').session(session);
+      const seatLimitByOrg = new Map(
+        targetOrgs.map((o) => [String(o._id), o.quotas?.seats ?? -1]),
+      );
+
       const results: BulkAddResult[] = [];
       for (const orgId of body.orgIds) {
         const existing = await UserOrganization.findOne({
@@ -218,6 +238,13 @@ class OrgMembersService {
         }).session(session);
         if (existing) {
           results.push({ orgId, status: 'already_member' });
+          continue;
+        }
+        // Enforce the team's seat cap (skip full teams rather than aborting the
+        // whole batch). The count reflects rows added earlier in this loop.
+        const seatLimit = seatLimitByOrg.get(orgId) ?? -1;
+        if (!(await seatCapacityAvailable(orgId, seatLimit, 1, session))) {
+          results.push({ orgId, status: 'seat_limit' });
           continue;
         }
         await UserOrganization.create(

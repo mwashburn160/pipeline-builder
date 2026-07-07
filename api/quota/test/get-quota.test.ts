@@ -53,8 +53,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
   QUOTA_TIERS: {},
-  VALID_TIERS: ['developer', 'pro', 'unlimited'],
-  isValidTier: (t: string) => ['developer', 'pro', 'unlimited'].includes(t),
+  VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+  isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
   // Org → team hierarchy traversal helpers. quota-service → org-hierarchy.ts
   // imports these from api-core; the GET routes never walk a hierarchy (every
   // org is flat), but the bindings must resolve for the module graph to load.

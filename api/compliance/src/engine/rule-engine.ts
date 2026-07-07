@@ -142,6 +142,24 @@ function evaluateCrossFieldRule(
       return { condition, fieldValue, passed };
     });
 
+  if (results.length === 0) {
+    // No evaluatable conditions (all dependency-only, or missing field/operator).
+    // Fail closed: a misconfigured cross-field rule must NOT silently pass
+    // (`every` over an empty set is vacuously true → would return null below).
+    return {
+      ruleId: rule.id,
+      ruleName: rule.name,
+      policyId: rule.policyId,
+      field: 'unknown',
+      operator: 'unknown',
+      expectedValue: undefined,
+      actualValue: undefined,
+      severity: rule.severity,
+      message: `Cross-field rule "${rule.name}" has no evaluatable conditions (misconfigured) — failing closed`,
+      suppressNotification: rule.suppressNotification,
+    };
+  }
+
   const allPassed = mode === 'all'
     ? results.every((r) => r.passed)
     : results.some((r) => r.passed);
@@ -176,9 +194,57 @@ function evaluateCrossFieldRule(
 }
 
 /**
+ * Order rules for evaluation so that a rule's dependencies (`dependsOnRule`)
+ * are always evaluated BEFORE it, breaking ties by priority DESC.
+ *
+ * `dependsOnRule` gates a rule on another rule having PASSED (recorded in
+ * `passedRuleIds` during evaluation). A plain priority sort could evaluate the
+ * dependent before its dependency, so `passedRuleIds` wouldn't yet contain the
+ * dependency and the dependent would be silently skipped. A topological sort
+ * (Kahn's, highest-priority-ready-first) fixes that. Dependencies on rules not
+ * in this set are ignored for ordering (they simply never pass → the dependent
+ * is skipped at evaluation time, as before). Dependency cycles are broken by
+ * taking the highest-priority remaining rule so ordering always terminates.
+ */
+function orderRulesForEvaluation(rules: EvaluableRule[]): EvaluableRule[] {
+  const byId = new Map(rules.map((r) => [r.id, r]));
+  const inDegree = new Map<string, number>(rules.map((r) => [r.id, 0]));
+  const dependents = new Map<string, string[]>(rules.map((r) => [r.id, []]));
+
+  for (const r of rules) {
+    const depIds = new Set(
+      (r.conditions ?? [])
+        .map((c) => c.dependsOnRule)
+        .filter((id): id is string => !!id && byId.has(id) && id !== r.id),
+    );
+    for (const depId of depIds) {
+      dependents.get(depId)!.push(r.id);
+      inDegree.set(r.id, inDegree.get(r.id)! + 1);
+    }
+  }
+
+  const byPriorityDesc = (a: EvaluableRule, b: EvaluableRule) => b.priority - a.priority;
+  const ordered: EvaluableRule[] = [];
+  const remaining = new Set(rules.map((r) => r.id));
+
+  while (remaining.size > 0) {
+    const readyOrCycleBreak =
+      [...remaining].filter((id) => inDegree.get(id)! === 0).map((id) => byId.get(id)!).sort(byPriorityDesc)[0]
+      ?? [...remaining].map((id) => byId.get(id)!).sort(byPriorityDesc)[0];
+    ordered.push(readyOrCycleBreak);
+    remaining.delete(readyOrCycleBreak.id);
+    for (const depId of dependents.get(readyOrCycleBreak.id)!) {
+      if (remaining.has(depId)) inDegree.set(depId, inDegree.get(depId)! - 1);
+    }
+  }
+
+  return ordered;
+}
+
+/**
  * Evaluate all rules against an entity.
  *
- * @param rules - Active rules for the entity's org+target, sorted by priority DESC
+ * @param rules - Active rules for the entity's org+target
  * @param entity - Entity attributes as key-value pairs
  * @param exemptions - Active exemptions for this entity (optional)
  * @returns ValidationResult with violations, warnings, and pass/block status
@@ -198,8 +264,10 @@ export function evaluateRules(
   // Track which rules passed (for dependent rule evaluation)
   const passedRuleIds = new Set<string>();
 
-  // Sort by priority DESC (highest first)
-  const sortedRules = [...rules].sort((a, b) => b.priority - a.priority);
+  // Order so each rule's dependencies (dependsOnRule) evaluate before it,
+  // priority DESC as the tiebreak. A plain priority sort skipped dependents
+  // whose dependency happened to sort after them.
+  const sortedRules = orderRulesForEvaluation(rules);
 
   for (const rule of sortedRules) {
     // Skip rules outside effective date range

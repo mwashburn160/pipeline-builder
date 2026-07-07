@@ -14,9 +14,9 @@
  * exercised exactly as in production.
  */
 
-import { jest } from '@jest/globals';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
+import { jest } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // --- registry-client mock (the backing registry HTTP calls) ---------------
@@ -124,7 +124,7 @@ describe('DELETE /api/images/:name', () => {
   it('dedupes digests: two tags sharing a digest delete one manifest, reports both tags', async () => {
     listTags.mockResolvedValue({ tags: ['1.0', 'latest', '2.0'] });
     // 1.0 and latest point at the same digest; 2.0 is distinct.
-    const digests: Record<string, string> = { '1.0': 'sha256:aaa', latest: 'sha256:aaa', '2.0': 'sha256:bbb' };
+    const digests: Record<string, string> = { '1.0': 'sha256:aaa', 'latest': 'sha256:aaa', '2.0': 'sha256:bbb' };
     getManifest.mockImplementation(async (_name, ref) => ({ digest: digests[ref] }));
     deleteManifest.mockResolvedValue(undefined);
 

@@ -235,9 +235,12 @@ describe('addMemberSchema', () => {
 
 describe('updateMemberRoleSchema', () => {
   it('should accept valid roles', () => {
-    expect(updateMemberRoleSchema.safeParse({ role: 'owner' }).success).toBe(true);
     expect(updateMemberRoleSchema.safeParse({ role: 'admin' }).success).toBe(true);
     expect(updateMemberRoleSchema.safeParse({ role: 'member' }).success).toBe(true);
+  });
+
+  it('should reject owner (ownership only moves via transferOwnership)', () => {
+    expect(updateMemberRoleSchema.safeParse({ role: 'owner' }).success).toBe(false);
   });
 
   it('should reject invalid role', () => {

@@ -40,7 +40,7 @@ export default function OrganizationsPage() {
       const tierParam = String(params.tier || 'all');
       const response = await api.listOrganizations({
         ...(params.search && { search: params.search }),
-        ...(tierParam !== 'all' && { tier: tierParam as 'developer' | 'pro' | 'unlimited' }),
+        ...(tierParam !== 'all' && { tier: tierParam as 'developer' | 'pro' | 'team' | 'enterprise' }),
         offset: Number(params.offset || 0),
         limit: Number(params.limit || 25),
       });
@@ -95,7 +95,7 @@ export default function OrganizationsPage() {
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
-  const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'unlimited'>('developer');
+  const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'team' | 'enterprise'>('developer');
   // New orgs default to sub-organizations (teams nested under a parent); uncheck
   // for a top-level organization. Parent candidates are the existing root orgs.
   const [createAsSubOrg, setCreateAsSubOrg] = useState(true);
@@ -172,7 +172,7 @@ export default function OrganizationsPage() {
                 {org.parentOrgName ? `Team of ${org.parentOrgName}` : 'Team'}
               </Badge>
             )}
-            {org.tier && <Badge color={org.tier === 'unlimited' ? 'red' : org.tier === 'pro' ? 'purple' : 'gray'}>{org.tier}</Badge>}
+            {org.tier && <Badge color={org.tier === 'enterprise' ? 'red' : org.tier === 'team' ? 'green' : org.tier === 'pro' ? 'purple' : 'gray'}>{org.tier}</Badge>}
             {org.kmsConfigured && <Badge color="blue">KMS</Badge>}
             {org.idpConfigured && <Badge color="green">SSO</Badge>}
           </div>
@@ -284,7 +284,8 @@ export default function OrganizationsPage() {
           <option value="all">All tiers</option>
           <option value="developer">Developer</option>
           <option value="pro">Pro</option>
-          <option value="unlimited">Unlimited</option>
+          <option value="team">Team</option>
+          <option value="enterprise">Enterprise</option>
         </select>
         <select
           value={list.filters.kms}
@@ -377,13 +378,14 @@ export default function OrganizationsPage() {
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Tier</label>
               <select
                 value={newOrgTier}
-                onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'unlimited')}
+                onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'team' | 'enterprise')}
                 className="input text-sm"
                 disabled={createForm.loading}
               >
                 <option value="developer">Developer</option>
                 <option value="pro">Pro</option>
-                <option value="unlimited">Unlimited</option>
+                <option value="team">Team</option>
+                <option value="enterprise">Enterprise</option>
               </select>
             </div>
 

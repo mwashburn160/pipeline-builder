@@ -45,8 +45,8 @@ export const listAllOrganizations = withController('List organizations', async (
   // Tier facet — passed through verbatim; service coerces invalid values
   // to "no filter" via the QuotaTier union (Mongo just no-ops on unknown enums).
   const tierRaw = typeof req.query.tier === 'string' ? req.query.tier: undefined;
-  const tier = tierRaw && ['developer', 'pro', 'unlimited'].includes(tierRaw)
-    ? (tierRaw as 'developer' | 'pro' | 'unlimited')
+  const tier = tierRaw && ['developer', 'pro', 'team', 'enterprise'].includes(tierRaw)
+    ? (tierRaw as 'developer' | 'pro' | 'team' | 'enterprise')
     : undefined;
   const { offset, limit } = parsePagination(req.query.offset, req.query.limit);
 
@@ -136,7 +136,7 @@ export const updateOrganization = withController('Update organization', async (r
 /**
  * PATCH /organization/:id/tier — sysadmin tier change.
  *
- * Body: `{ tier: 'developer' | 'pro' | 'unlimited' }`. Reseeds the
+ * Body: `{ tier: 'developer' | 'pro' | 'team' | 'enterprise' }`. Reseeds the
  * org's quota limits from the new tier's config. The audit event
  * carries the previous tier so the transition is reconstructable
  * even if the org doc has been rewritten since.
@@ -146,8 +146,8 @@ export const updateOrganizationTier = withController('Update organization tier',
 
   const id = getParam(req.params, 'id')!;
   const tier = (req.body as { tier?: unknown })?.tier;
-  if (tier !== 'developer' && tier !== 'pro' && tier !== 'unlimited') {
-    return sendError(res, 400, 'tier must be one of: developer, pro, unlimited');
+  if (tier !== 'developer' && tier !== 'pro' && tier !== 'team' && tier !== 'enterprise') {
+    return sendError(res, 400, 'tier must be one of: developer, pro, team, enterprise');
   }
 
   const result = await organizationService.setTier(id, tier);

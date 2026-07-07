@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS } from '@pipeline-builder/api-core';
 import { Schema, model, Document, Types, Model } from 'mongoose';
 import slugify from 'slugify';
 import { config } from '../config/index.js';
@@ -160,7 +160,7 @@ function getTierResetPeriod(tier: QuotaTier, type: 'plugins' | 'pipelines' | 'ap
 const quotaUsageSchema = new Schema<QuotaUsage>(
   {
     used: { type: Number, default: 0, min: 0 },
-    resetAt: { type: Date, default: () => getNextResetDate(getTierResetPeriod('developer', 'apiCalls')) },
+    resetAt: { type: Date, default: () => getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'apiCalls')) },
   },
   { _id: false },
 );
@@ -197,7 +197,10 @@ const organizationSchema = new Schema<OrganizationDocument>(
       // a tier in api-core surfaces here automatically (no string drift
       // between the type and the schema).
       enum: VALID_TIERS as unknown as string[],
-      default: 'developer',
+      // Default to the operator-configured DEFAULT_QUOTA_TIER (api-core resolves
+      // it from env; falls back to 'developer'). Quota defaults below track the
+      // same tier so a new org's tier and seeded limits stay consistent.
+      default: DEFAULT_TIER,
     },
     owner: {
       type: Schema.Types.ObjectId,
@@ -213,77 +216,85 @@ const organizationSchema = new Schema<OrganizationDocument>(
       default: null,
       index: true,
     },
-    // Defaults sourced directly from `QUOTA_TIERS.developer.limits` so
-    // every countable resource in `QuotaTierLimits` is represented here
+    // Defaults sourced from `QUOTA_TIERS[DEFAULT_TIER].limits` (the
+    // DEFAULT_QUOTA_TIER preset) so every countable resource in `QuotaTierLimits` is here
     // without hand-syncing values. Adding a new limit in api-core surfaces
     // a missing-field compile error on the `quotas: QuotaLimits` interface
     // (because `QuotaLimits = QuotaTierLimits`).
     quotas: {
       plugins: {
         type: Number,
-        default: () => QUOTA_TIERS.developer.limits.plugins,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.plugins,
         min: -1, // -1 means unlimited
       },
       pipelines: {
         type: Number,
-        default: () => QUOTA_TIERS.developer.limits.pipelines,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.pipelines,
         min: -1,
       },
       apiCalls: {
         type: Number,
-        default: () => QUOTA_TIERS.developer.limits.apiCalls,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.apiCalls,
         min: -1,
       },
       aiCalls: {
         type: Number,
-        default: () => QUOTA_TIERS.developer.limits.aiCalls,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.aiCalls,
         min: -1,
       },
       // Aggregate registry storage cap (bytes). Enforced by the
       // image-registry push-gate.
       storageBytes: {
         type: Number,
-        default: () => QUOTA_TIERS.developer.limits.storageBytes,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.storageBytes,
         min: -1,
       },
       // Per-org count caps on user-editable feature tables. -1 means unlimited.
       dashboards: {
         type: Number,
-        default: () => QUOTA_TIERS.developer.limits.dashboards,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.dashboards,
         min: -1,
       },
       alertRules: {
         type: Number,
-        default: () => QUOTA_TIERS.developer.limits.alertRules,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.alertRules,
         min: -1,
       },
       alertDestinations: {
         type: Number,
-        default: () => QUOTA_TIERS.developer.limits.alertDestinations,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.alertDestinations,
         min: -1,
       },
       idpConfigs: {
         type: Number,
-        default: () => QUOTA_TIERS.developer.limits.idpConfigs,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.idpConfigs,
+        min: -1,
+      },
+      // Max org members. NOT usage-tracked (no counter) — enforced live at
+      // invite time by counting members + pending invites. Stored as the org's
+      // limit so per-org overrides via the quota CRUD API work like any limit.
+      seats: {
+        type: Number,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.seats,
         min: -1,
       },
     },
     usage: {
       plugins: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'plugins')) }),
+        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'plugins')) }),
       },
       pipelines: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'pipelines')) }),
+        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'pipelines')) }),
       },
       apiCalls: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'apiCalls')) }),
+        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'apiCalls')) }),
       },
       aiCalls: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod('developer', 'aiCalls')) }),
+        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'aiCalls')) }),
       },
     },
     aiProviderKeys: {

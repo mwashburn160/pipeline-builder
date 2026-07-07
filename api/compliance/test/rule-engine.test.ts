@@ -218,6 +218,29 @@ describe('evaluateRules', () => {
     expect(result.violations[0].ruleName).toBe('rule-b');
   });
 
+  it('evaluates a dependent rule when its dependency has LOWER priority (topological order)', () => {
+    const rules = [
+      // Dependent has HIGHER priority than its dependency. A plain priority sort
+      // evaluated it FIRST — before the dependency landed in passedRuleIds — and
+      // wrongly skipped it. The topological order must evaluate rule-a first.
+      makeRule({
+        id: 'rule-b',
+        name: 'rule-b',
+        priority: 10,
+        conditions: [
+          { dependsOnRule: 'rule-a' },
+          { field: 'y', operator: 'eq', value: 'expected' },
+        ],
+      }),
+      makeRule({ id: 'rule-a', name: 'rule-a', priority: 1, field: 'x', operator: 'eq', value: 'match' }),
+    ];
+    // rule-a passes (x=match) → rule-b must actually evaluate and fail (y!=expected),
+    // not be skipped.
+    const result = evaluateRules(rules, { x: 'match', y: 'wrong' });
+    expect(result.violations.map((v) => v.ruleName)).toContain('rule-b');
+    expect(result.rulesSkipped).toBe(0);
+  });
+
   // ============================================
   // Multiple rules
   // ============================================

@@ -151,34 +151,40 @@ describe('PUT /plugins/:id (update)', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('returns 200 on successful update', async () => {
-    const updatedPlugin = { ...existingPlugin, name: 'updated-plugin' };
+  it('returns 200 and applies updatable fields, dropping name/version', async () => {
+    const updatedPlugin = { ...existingPlugin, description: 'updated description', category: 'security' };
     mockFindById.mockResolvedValue(existingPlugin);
     mockUpdate.mockResolvedValue(updatedPlugin);
 
-    const req = mockReq({ body: { name: 'updated-plugin' } });
+    // Client attempts to rename/re-version alongside legit field edits.
+    const req = mockReq({ body: { name: 'attempted-rename', version: '9.9.9', description: 'updated description', category: 'security' } });
     const res = mockRes();
     await handler(req, res);
 
     expect(mockFindById).toHaveBeenCalledWith('plugin-uuid-1', 'org-1');
     expect(mockUpdate).toHaveBeenCalledWith(
       'plugin-uuid-1',
-      expect.objectContaining({ name: 'updated-plugin' }),
+      expect.objectContaining({ description: 'updated description', category: 'security' }),
       'org-1',
       'user-1',
     );
+    // name/version must NOT be forwarded — they key the pushed registry image
+    // (`<namespace>/<name>:<version>`); allowing a rename desyncs the DB row.
+    const updateArg = mockUpdate.mock.calls[0][1];
+    expect(updateArg).not.toHaveProperty('name');
+    expect(updateArg).not.toHaveProperty('version');
     // shapePlugin attaches the computed `uri` field to the response.
     expect(sendSuccess).toHaveBeenCalledWith(
       res,
       200,
-      { plugin: expect.objectContaining({ ...updatedPlugin, uri: 'org-org-1/updated-plugin:1.0.0' }) },
+      { plugin: expect.objectContaining({ ...updatedPlugin, uri: 'org-org-1/test-plugin:1.0.0' }) },
     );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
       statusCode: 200,
       data: expect.objectContaining({
-        plugin: expect.objectContaining({ name: 'updated-plugin' }),
+        plugin: expect.objectContaining({ description: 'updated description' }),
       }),
     }));
   });

@@ -7,7 +7,7 @@ import { requireOrgMembership, withController } from '../helpers/controller-help
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import {
   invitationService,
-  INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED,
+  INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT,
   INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED,
   INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING,
 } from '../services/index.js';
@@ -28,6 +28,7 @@ const sendErrorMap = {
   [INV_ALREADY_MEMBER]: { status: 400, message: 'User is already a member of this organization' },
   [INV_ALREADY_SENT]: { status: 400, message: 'An invitation has already been sent to this email' },
   [INV_MAX_REACHED]: { status: 400, message: 'Maximum pending invitations reached' },
+  [INV_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for this plan — upgrade the plan or remove a member' },
   [INV_INVITER_NOT_FOUND]: { status: 404, message: 'Inviter not found' },
 };
 

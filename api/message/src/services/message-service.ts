@@ -224,7 +224,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       .from(schema.message)
       .where(and(
         eq(schema.message.isActive, true),
-        sql`not (${schema.message.readBy} ? ${orgId})`,
+        // coalesce so a NULL readBy (never-read message) is treated as `{}` and
+        // counted as unread — matching markAsRead/markThreadAsRead. Without it,
+        // `NULL ? orgId` → NULL → `not NULL` → NULL drops genuinely-unread rows.
+        sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
         or(
           eq(schema.message.orgId, orgId),
           eq(schema.message.recipientOrgId, orgId),

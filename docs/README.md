@@ -261,15 +261,16 @@ A user can belong to several organizations and teams at once and acts within one
 
 ### Feature Tiers
 
-| Feature | Developer | Pro | Unlimited |
-|---------|-----------|-----|-----------|
-| Pipeline / plugin CRUD | yes | yes | yes |
-| AI pipeline generation | - | yes | yes |
-| AI plugin generation | - | yes | yes |
-| Bulk operations | - | yes | yes |
-| Audit log | - | - | yes |
-| Custom integrations | - | - | yes |
-| Priority support | - | yes | yes |
+| Feature | Developer | Pro | Team | Enterprise |
+|---------|-----------|-----|------|------------|
+| Pipeline / plugin CRUD | yes | yes | yes | yes |
+| AI pipeline generation | - | yes | yes | yes |
+| AI plugin generation | - | yes | yes | yes |
+| Bulk operations | - | yes | yes | yes |
+| Audit log | - | - | yes | yes |
+| Custom integrations | - | - | - | yes |
+| Priority support | - | yes | yes | yes |
+| Seats (members) | 1 | 3 | 10 | unlimited |
 
 System org users always have access to all features.
 

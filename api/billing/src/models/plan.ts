@@ -32,7 +32,7 @@ const planSchema = new Schema<PlanDocument>(
     _id: { type: Schema.Types.Mixed },
     name: { type: String, required: true },
     description: { type: String, default: '' },
-    tier: { type: String, enum: ['developer', 'pro', 'unlimited'], required: true },
+    tier: { type: String, enum: ['developer', 'pro', 'team', 'enterprise'], required: true },
     prices: {
       monthly: { type: Number, required: true, default: 0 },
       annual: { type: Number, required: true, default: 0 },

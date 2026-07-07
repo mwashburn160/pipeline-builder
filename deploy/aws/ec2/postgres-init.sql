@@ -2,6 +2,13 @@
 -- Complete Updated Database Schema for pipeline_builder
 -- Includes ALL required columns for pipelines and plugins tables
 -- ============================================================================
+-- NOTE: Subscription tiers (developer | pro | team | enterprise), per-tier
+-- quota limits (incl. the `seats` limit), and billing plans are NOT stored in
+-- Postgres — they live in MongoDB (quota, billing, and platform services). Seat
+-- enforcement is applied live at invite time against org membership. See
+-- packages/api-core/src/types/quota-tiers.ts and mongodb-init.js. This file
+-- carries only the pipeline_builder relational schema (pipelines, plugins, …).
+-- ============================================================================
 
 \connect pipeline_builder
 

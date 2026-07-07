@@ -73,10 +73,10 @@ export interface QuotaService {
   /** Reset quota usage. Returns true on success. */
   reset(orgId: string, quotaType?: QuotaType, authHeader?: string, requestId?: string): Promise<boolean>;
   /**
-   * Get the org's quota tier ('developer' | 'pro' | 'unlimited'). Used by
+   * Get the org's quota tier ('developer' | 'pro' | 'team' | 'enterprise'). Used by
    * the plugin-build queue partitioning to route a build to the
    * right per-tier queue. Fail-open returns DEFAULT_TIER ('developer')
-   * a misclassified pro/unlimited org will land in the developer queue
+   * a misclassified pro/team/enterprise org will land in the developer queue
    * and still build, just without the tier-scoped scheduling boost.
    */
   getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier>;
@@ -105,6 +105,9 @@ function createFailOpenResult(): QuotaCheckResult {
     remaining: -1,
     resetAt: new Date().toISOString(),
     unlimited: true,
+    // Tag the sentinel so fail-closed callers can tell an outage apart from a
+    // real unlimited (-1) reading. Real quota results never set this.
+    failOpen: true,
   };
 }
 

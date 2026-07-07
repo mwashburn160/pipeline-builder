@@ -5,6 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
+import { seatCapacityAvailable } from '../helpers/seats.js';
 import { Invitation, type InvitationDocument, Organization, type OrganizationDocument, User, type UserDocument, UserOrganization } from '../models/index.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { emailService } from '../utils/email.js';
@@ -18,6 +19,7 @@ export const INV_UNAUTHORIZED = 'INV_UNAUTHORIZED';
 export const INV_ALREADY_MEMBER = 'INV_ALREADY_MEMBER';
 export const INV_ALREADY_SENT = 'INV_ALREADY_SENT';
 export const INV_MAX_REACHED = 'INV_MAX_REACHED';
+export const INV_SEAT_LIMIT = 'INV_SEAT_LIMIT';
 export const INV_INVITER_NOT_FOUND = 'INV_INVITER_NOT_FOUND';
 export const INV_NOT_FOUND = 'INV_NOT_FOUND';
 export const INV_ACCEPTED = 'INV_ACCEPTED';
@@ -131,6 +133,15 @@ class InvitationService {
         throw new Error(INV_ALREADY_SENT);
       }
 
+      // Expire a stale (expired-but-still-pending) invite for this email up
+      // front so it stops counting toward the pending / seat ceilings below
+      // (otherwise a re-invite over-counts its own prior invite by one). Any
+      // later throw rolls this back with the transaction.
+      if (existingInvitation) {
+        existingInvitation.status = 'expired';
+        await existingInvitation.save({ session });
+      }
+
       const pendingCount = await Invitation.countDocuments({
         organizationId: toOrgId(input.orgId), status: 'pending',
       }).session(session);
@@ -138,9 +149,12 @@ class InvitationService {
         throw new Error(INV_MAX_REACHED);
       }
 
-      if (existingInvitation) {
-        existingInvitation.status = 'expired';
-        await existingInvitation.save({ session });
+      // Seat-limit enforcement (Team caps at 10; Enterprise is unlimited = -1).
+      // A pending invite reserves a seat, so the ceiling is active members +
+      // pending + this new invite. `org.quotas.seats` is the effective limit.
+      const seatLimit = org.quotas?.seats ?? -1;
+      if (!(await seatCapacityAvailable(input.orgId, seatLimit, 1, session))) {
+        throw new Error(INV_SEAT_LIMIT);
       }
 
       const data: Record<string, unknown> = {

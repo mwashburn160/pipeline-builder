@@ -151,7 +151,11 @@ if [ "$SERIAL_MODE" = true ]; then
     done
   done
 else
-  printf '%b' "$PLUGIN_LIST" | xargs -P "$PARALLEL_JOBS" -I{} "$WORKER_SCRIPT" "{}"
+  # `|| true`: a worker exits 1 (fail) or 2 (skip/already-exists); xargs returns
+  # 123 for any 1-125 exit, which under `set -e` would abort before the summary.
+  # The real result lives in the counter files; the exit gate at the end of the
+  # script propagates any failure.
+  printf '%b' "$PLUGIN_LIST" | xargs -P "$PARALLEL_JOBS" -I{} "$WORKER_SCRIPT" "{}" || true
 fi
 
 # ---- Summary ----
@@ -182,3 +186,8 @@ fi
 
 echo ""
 echo "=== Done ==="
+
+# Propagate partial-failure to the exit code so CI / init-platform.sh catches it
+# instead of a masked green (matches load-pipelines.sh).
+[ "$FAILED" -gt 0 ] && exit 1
+exit 0

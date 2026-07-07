@@ -88,7 +88,7 @@ describe('AWSMarketplaceProvider', () => {
     productCode: 'test-product',
     region: 'us-east-1',
     snsTopicArn: 'arn:aws:sns:us-east-1:123456789:test-topic',
-    dimensionToPlanMap: { developer: 'developer', pro: 'pro', unlimited: 'unlimited' },
+    dimensionToPlanMap: { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },
   };
 
   let provider: AWSMarketplaceProvider;
@@ -252,8 +252,8 @@ describe('StripeProvider', () => {
     });
 
     it('throws when no price ID configured for plan/interval', async () => {
-      await expect(provider.createSubscription('cus_123', 'unlimited', 'monthly'))
-        .rejects.toThrow('No Stripe Price ID configured for plan "unlimited"');
+      await expect(provider.createSubscription('cus_123', 'enterprise', 'monthly'))
+        .rejects.toThrow('No Stripe Price ID configured for plan "enterprise"');
     });
   });
 

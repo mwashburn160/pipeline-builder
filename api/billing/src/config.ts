@@ -90,7 +90,7 @@ export const config: AppConfig = {
     snsTopicArn: process.env.AWS_MARKETPLACE_SNS_TOPIC_ARN || '',
     dimensionToPlanMap: safeJsonParse(
       process.env.AWS_MARKETPLACE_DIMENSION_MAP,
-      { developer: 'developer', pro: 'pro', unlimited: 'unlimited' },
+      { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },
       'AWS_MARKETPLACE_DIMENSION_MAP',
     ),
   },

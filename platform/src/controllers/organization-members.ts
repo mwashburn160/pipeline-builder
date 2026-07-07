@@ -16,7 +16,7 @@ import {
   OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER,
   OM_CANNOT_REMOVE_OWNER, OM_CANNOT_CHANGE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND,
   OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE,
-  OM_TARGETS_OUT_OF_SCOPE,
+  OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT,
 } from '../services/index.js';
 import {
   validateBody,
@@ -73,6 +73,7 @@ export const addMemberToOrganization = withController('Add member', async (req, 
   [OM_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
   [OM_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
   [OM_ALREADY_MEMBER]: { status: 400, message: 'User is already a member of this organization' },
+  [OM_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for this plan — upgrade the plan or remove a member' },
 });
 
 /** GET /organization/:id/member/:memberId/teams — descendant teams annotated

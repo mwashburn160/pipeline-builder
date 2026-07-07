@@ -83,7 +83,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   // GET /quotas/at-risk — orgs at >=80% on any quota (system admin only).
   // Powers the operations dashboard "orgs about to hit limits" panel and
   // is suitable for an alerting cron (call this hourly, page if response
-  // non-empty for tier=Pro/Unlimited).
+  // non-empty for tier=Pro/Team/Enterprise).
   //
   // The full at-risk scan is memoized for 60s per threshold so the alerting
   // cron and the dashboard can hammer this without re-scanning the org

@@ -106,7 +106,7 @@ export async function getFilteredPlugins(
 
   const terms = 'prompt' in context
     ? KNOWN_TECH_TERMS.filter(t => context.prompt.toLowerCase().includes(t))
-    : [...Object.keys(context.languages), ...context.frameworks, context.projectType].filter(Boolean);
+    : [...context.languages, ...context.frameworks, context.projectType].filter(Boolean);
 
   return terms.length > 0 ? filterPluginsByContext(allPlugins, terms) : allPlugins;
 }

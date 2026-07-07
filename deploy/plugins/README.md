@@ -20,7 +20,7 @@ deploy/plugins/
 │
 # CodeBuild bootstrap image (not a plugin) lives at:
 #   ../codebuild/bootstrap/Dockerfile → pipeline-bootstrap:1.0
-#   FROM aws/codebuild/standard:7.0 + pipeline-manager — backs CODEBUILD_DEFAULT_IMAGE
+#   FROM node:24-slim + pipeline-manager — backs CODEBUILD_DEFAULT_IMAGE
 ├── ai/                         # 1 plugin
 ├── artifact/                   # 16 plugins  (npm/pypi/maven/docker/ECR push)
 ├── deploy/                     # 13 plugins  (CDK/Terraform/k8s/Helm/Lambda)

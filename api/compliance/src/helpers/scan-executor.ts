@@ -156,7 +156,9 @@ async function executeScanInternal(scanId: string): Promise<void> {
           return result;
         }));
 
-        // Aggregate batch results — failed evaluations count as warnings, not crashes.
+        // Aggregate batch results. An entity whose rules could not be evaluated
+        // is NOT a pass — fail closed and count it as blocked so it surfaces,
+        // rather than a soft warning that reads as "mostly fine".
         for (const s of settled) {
           if (s.status === 'fulfilled') {
             const r = s.value;
@@ -164,8 +166,8 @@ async function executeScanInternal(scanId: string): Promise<void> {
             else if (r.warnings.length > 0) warnCount++;
             else passCount++;
           } else {
-            warnCount++;
-            logger.warn('Rule evaluation failed for entity', { error: errorMessage(s.reason) });
+            blockCount++;
+            logger.error('Rule evaluation failed for entity — counting as blocked', { error: errorMessage(s.reason) });
           }
           processedEntities++;
         }
@@ -271,8 +273,11 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
     }
     return rows;
   } catch (err) {
-    logger.warn(`Failed to fetch ${target} entities`, { orgId, error: errorMessage(err) });
-    return [];
+    // Do NOT swallow to `[]` — that made a failed entity load look like "0
+    // entities, all clear" and the scan completed green (false-positive pass).
+    // Rethrow so the caller marks the scan `failed` (honest gating).
+    logger.error(`Failed to fetch ${target} entities`, { orgId, error: errorMessage(err) });
+    throw err;
   }
 }
 

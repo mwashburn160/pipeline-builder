@@ -47,6 +47,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     find: (...a: unknown[]) => mockUserOrgFind(...a),
     findOne: (...a: unknown[]) => mockUserOrgFindOne(...a),
     create: (...a: unknown[]) => mockUserOrgCreate(...a),
+    // seatCapacityAvailable (helpers/seats.js) — only reached when a target
+    // team has a finite seat cap; the fixtures below use unlimited (-1) seats.
+    countDocuments: () => ({ session: () => Promise.resolve(0) }),
+  },
+  Invitation: {
+    countDocuments: () => ({ session: () => Promise.resolve(0) }),
   },
 }));
 
@@ -121,6 +127,11 @@ describe('orgMembersService.bulkAddMemberToTeams', () => {
   it('adds the user to new teams and reports existing ones as already_member', async () => {
     mockExpandOrgScope.mockResolvedValue(['ctx', 'teamA', 'teamB']);
     mockUserFindById.mockReturnValue(sessionReturns({ _id: 'u1' }));
+    // bulkAdd fetches each target team's seat cap first: find(...).select(...).session(...)
+    // (teams carry no quotas → unlimited seats → the cap never blocks).
+    mockOrgFind.mockReturnValue({
+      select: () => ({ session: () => Promise.resolve([{ _id: 'teamA' }, { _id: 'teamB' }]) }),
+    });
     mockUserOrgFindOne
       .mockReturnValueOnce(sessionReturns({ _id: 'existing' })) // teamA — already a member
       .mockReturnValueOnce(sessionReturns(null)); // teamB — not yet

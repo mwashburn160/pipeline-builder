@@ -62,7 +62,8 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `JWT_EXPIRES_IN` | `7200` | Token TTL in seconds (2h). Per-tier overrides take precedence. |
 | `JWT_EXPIRES_IN_DEVELOPER` | (inherits `JWT_EXPIRES_IN`) | Developer-tier access-token TTL override |
 | `JWT_EXPIRES_IN_PRO` | (inherits `JWT_EXPIRES_IN`) | Pro-tier override — commonly shorter for compliance |
-| `JWT_EXPIRES_IN_UNLIMITED` | (inherits `JWT_EXPIRES_IN`) | Enterprise-tier override (e.g. `1800` = 30 min) |
+| `JWT_EXPIRES_IN_TEAM` | (inherits `JWT_EXPIRES_IN`) | Team-tier override |
+| `JWT_EXPIRES_IN_ENTERPRISE` | (inherits `JWT_EXPIRES_IN`) | Enterprise-tier override (e.g. `1800` = 30 min) |
 | `JWT_ALGORITHM` | `HS256` | `HS256`, `HS384`, `HS512`, `RS256` |
 | `BCRYPT_SALT_ROUNDS` | `12` | bcrypt cost factor for password hashing (10-12 recommended). |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d) |
@@ -234,14 +235,23 @@ builder, one path, no per-builder target suffixes.
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Per-route rate limit window (1 min) |
 | `AUTH_LIMITER_MAX` | `20` | Auth endpoint rate limit |
 | `AUTH_LIMITER_WINDOWMS` | `900000` | Auth rate limit window (15 min) |
+| `LIMITER_MULT_DEVELOPER` | `1` | Developer-tier rate-limit multiplier (budget = `LIMITER_MAX` × mult) |
+| `LIMITER_MULT_PRO` | `10` | Pro-tier rate-limit multiplier |
+| `LIMITER_MULT_TEAM` | `25` | Team-tier rate-limit multiplier |
+| `LIMITER_MULT_ENTERPRISE` | `50` | Enterprise-tier rate-limit multiplier |
 
 Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers.ts`):
 
-| Tier | plugins | pipelines | apiCalls | aiCalls |
-|------|---------|-----------|----------|---------|
-| developer | 100 | 10 | unlimited | 100 |
-| pro | 1000 | 100 | unlimited | 5000 |
-| unlimited | unlimited | unlimited | unlimited | unlimited |
+| Tier | plugins | pipelines | apiCalls | aiCalls | seats |
+|------|---------|-----------|----------|---------|-------|
+| developer | 50 | 5 | 25,000 | 50 | 1 |
+| pro | 500 | 50 | 500,000 | 2,500 | 3 |
+| team | 2,000 | 200 | unlimited | 10,000 | 10 |
+| enterprise | 5,000 | 500 | unlimited | 25,000 | unlimited |
+
+Any preset can be overridden per-environment via `QUOTA_TIER_<DEVELOPER|PRO|TEAM|ENTERPRISE>_<LIMIT>` (e.g. `QUOTA_TIER_TEAM_SEATS=20`), and `DEFAULT_QUOTA_TIER` sets the tier assigned to newly created orgs (`developer` by default). `seats` is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership.
+
+Each tier's quota **reset period** is overridable via `QUOTA_TIER_<TIER>_RESET_PERIOD` (a single duration applied to every quota type). Defaults: `3days` for developer/pro, `30days` for team/enterprise.
 
 Per-call increments to `/quotas/:orgId/increment` cap `amount` at 1000 — bounds the per-request blast radius from a buggy or malicious caller.
 
@@ -312,7 +322,7 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `S
 | `PAYMENT_GRACE_PERIOD_DAYS` | `7` | Grace period for overdue payments |
 | `RENEWAL_REMINDER_DAYS` | `7` | Days before expiry to send renewal reminder |
 
-Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, or `UNLIMITED`) is in cents. Defaults: Developer free, Pro $7.99/mo ($79.90/yr), Unlimited $11.99/mo ($119.90/yr). Per-plan `_DESCRIPTION` (string) and `_FEATURES` (JSON array) can also be overridden.
+Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, `TEAM`, or `ENTERPRISE`) is in cents. Defaults: Developer free, Pro $19/mo ($190/yr), Team $49/mo ($490/yr), Enterprise $99/mo ($990/yr). Per-plan `_NAME` (display name), `_DESCRIPTION` (string), and `_FEATURES` (JSON array) can also be overridden.
 
 ---
 

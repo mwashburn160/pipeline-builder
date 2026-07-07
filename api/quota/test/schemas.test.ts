@@ -19,7 +19,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'] as const,
   QUOTA_TIERS: {},
-  VALID_TIERS: ['developer', 'pro', 'unlimited'],
+  VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
   isValidTier: jest.fn(),
   getTierLimits: jest.fn(),
   isValidQuotaType: jest.fn(),
@@ -63,7 +63,7 @@ describe('UpdateQuotaSchema', () => {
   });
 
   it('should reject invalid tier value', () => {
-    const result = UpdateQuotaSchema.safeParse({ tier: 'enterprise' });
+    const result = UpdateQuotaSchema.safeParse({ tier: 'basic' });
     expect(result.success).toBe(false);
   });
 
@@ -90,7 +90,7 @@ describe('UpdateQuotaSchema', () => {
   it('should accept combined update', () => {
     const result = UpdateQuotaSchema.safeParse({
       name: 'Updated Org',
-      tier: 'unlimited',
+      tier: 'enterprise',
       quotas: { plugins: -1 },
     });
     expect(result.success).toBe(true);

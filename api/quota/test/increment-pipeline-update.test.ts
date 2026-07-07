@@ -32,7 +32,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   // quota-helpers re-exports these from api-core, so the linker needs them too.
   QUOTA_TIERS: { developer: { limits: { plugins: 100, pipelines: 10, apiCalls: -1 } } },
-  VALID_TIERS: ['developer', 'pro', 'unlimited'],
+  VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
 }));
 

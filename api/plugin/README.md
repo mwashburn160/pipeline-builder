@@ -52,7 +52,8 @@ Shared server/auth/DB/Redis settings (`PORT`, `JWT_SECRET`, `DB_*`, `REDIS_HOST`
 | `PLUGIN_ORG_SLOT_TTL_SEC` | Per-org slot TTL (s) | `900` |
 | `PLUGIN_BUILD_CONCURRENCY_DEVELOPER` | Worker concurrency for the developer tier | (computed) |
 | `PLUGIN_BUILD_CONCURRENCY_PRO` | Worker concurrency for the pro tier | (computed) |
-| `PLUGIN_BUILD_CONCURRENCY_UNLIMITED` | Worker concurrency for the unlimited tier | (computed) |
+| `PLUGIN_BUILD_CONCURRENCY_TEAM` | Worker concurrency for the team tier | (computed) |
+| `PLUGIN_BUILD_CONCURRENCY_ENTERPRISE` | Worker concurrency for the enterprise tier | (computed) |
 | `PLUGIN_TIER_CACHE_TTL_MS` | TTL for the per-org tier cache (ms) | `300000` |
 | `PLUGIN_DLQ_SCAN_INTERVAL_MS` | Dead-letter-queue scan interval (ms) | `5000` |
 | `PLUGIN_QUEUE_METRICS_INTERVAL_MS` | Queue metrics scrape interval (ms) | `15000` |

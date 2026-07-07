@@ -5,7 +5,7 @@
 # Same per-tier pool layout as `deploy/local/docker/config/pgbouncer/pgbouncer.ini`.
 # Each tier gets a logical database pointing at the same physical DB but
 # with its own pool budget — Developer-tier load can't saturate the pool
-# Pro/Unlimited workers share.
+# Pro/Team/Enterprise workers share.
 #
 # Opt-in: not registered in `kustomization.yaml` by default. To enable:
 #   kubectl apply -f pgbouncer.yaml -n pipeline-builder

@@ -21,7 +21,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'] as const,
   QUOTA_TIERS: {},
-  VALID_TIERS: ['developer', 'pro', 'unlimited'],
+  VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
   isValidTier: jest.fn(),
   getTierLimits: jest.fn(),
   isValidQuotaType: jest.fn(),

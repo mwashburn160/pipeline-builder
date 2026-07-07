@@ -11,8 +11,9 @@ import {
   getTierLimits,
 } from '../src/types/quota-tiers.js';
 
-// storageBytes added. 5 GiB developer / 100 GiB pro / unlimited.
+// storageBytes sized per tier. Tiers: developer / pro / team / enterprise.
 const GB = 1024 * 1024 * 1024;
+const TB = 1024 * GB;
 
 describe('QUOTA_TIERS', () => {
   it('should define developer tier', () => {
@@ -23,15 +24,16 @@ describe('QUOTA_TIERS', () => {
       // Count caps on user-editable feature tables added to close per-org
       // DoS via spam (dashboards / alertRules / alertDestinations / idpConfigs).
       limits: {
-        plugins: 100,
-        pipelines: 10,
-        apiCalls: -1,
-        aiCalls: 100,
-        storageBytes: 5 * GB,
+        plugins: 50,
+        pipelines: 5,
+        apiCalls: 25_000,
+        aiCalls: 50,
+        storageBytes: 2 * GB,
         dashboards: 20,
         alertRules: 50,
         alertDestinations: 10,
         idpConfigs: 1,
+        seats: 1,
       },
     });
   });
@@ -40,32 +42,52 @@ describe('QUOTA_TIERS', () => {
     expect(QUOTA_TIERS.pro).toEqual({
       label: 'Pro',
       limits: {
-        plugins: 1000,
-        pipelines: 100,
-        apiCalls: -1,
-        aiCalls: 5000,
-        storageBytes: 100 * GB,
+        plugins: 500,
+        pipelines: 50,
+        apiCalls: 500_000,
+        aiCalls: 2_500,
+        storageBytes: 50 * GB,
         dashboards: 200,
         alertRules: 500,
         alertDestinations: 50,
         idpConfigs: 5,
+        seats: 3,
       },
     });
   });
 
-  it('should define unlimited tier', () => {
-    expect(QUOTA_TIERS.unlimited).toEqual({
-      label: 'Unlimited',
+  it('should define team tier', () => {
+    expect(QUOTA_TIERS.team).toEqual({
+      label: 'Team',
       limits: {
-        plugins: -1,
-        pipelines: -1,
+        plugins: 2_000,
+        pipelines: 200,
         apiCalls: -1,
-        aiCalls: -1,
-        storageBytes: -1,
+        aiCalls: 10_000,
+        storageBytes: 250 * GB,
+        dashboards: -1,
+        alertRules: -1,
+        alertDestinations: -1,
+        idpConfigs: 5,
+        seats: 10,
+      },
+    });
+  });
+
+  it('should define enterprise tier', () => {
+    expect(QUOTA_TIERS.enterprise).toEqual({
+      label: 'Enterprise',
+      limits: {
+        plugins: 5_000,
+        pipelines: 500,
+        apiCalls: -1,
+        aiCalls: 25_000,
+        storageBytes: TB,
         dashboards: -1,
         alertRules: -1,
         alertDestinations: -1,
         idpConfigs: -1,
+        seats: -1,
       },
     });
   });
@@ -75,8 +97,9 @@ describe('VALID_TIERS', () => {
   it('should contain all tier names', () => {
     expect(VALID_TIERS).toContain('developer');
     expect(VALID_TIERS).toContain('pro');
-    expect(VALID_TIERS).toContain('unlimited');
-    expect(VALID_TIERS).toHaveLength(3);
+    expect(VALID_TIERS).toContain('team');
+    expect(VALID_TIERS).toContain('enterprise');
+    expect(VALID_TIERS).toHaveLength(4);
   });
 });
 
@@ -90,12 +113,13 @@ describe('isValidTier', () => {
   it('should return true for valid tiers', () => {
     expect(isValidTier('developer')).toBe(true);
     expect(isValidTier('pro')).toBe(true);
-    expect(isValidTier('unlimited')).toBe(true);
+    expect(isValidTier('team')).toBe(true);
+    expect(isValidTier('enterprise')).toBe(true);
   });
 
   it('should return false for invalid tiers', () => {
     expect(isValidTier('free')).toBe(false);
-    expect(isValidTier('enterprise')).toBe(false);
+    expect(isValidTier('basic')).toBe(false);
     expect(isValidTier('')).toBe(false);
     expect(isValidTier('Developer')).toBe(false);
   });
@@ -103,39 +127,54 @@ describe('isValidTier', () => {
 
 describe('getTierLimits', () => {
   const developerLimits = {
-    plugins: 100,
-    pipelines: 10,
-    apiCalls: -1,
-    aiCalls: 100,
-    storageBytes: 5 * GB,
+    plugins: 50,
+    pipelines: 5,
+    apiCalls: 25_000,
+    aiCalls: 50,
+    storageBytes: 2 * GB,
     dashboards: 20,
     alertRules: 50,
     alertDestinations: 10,
     idpConfigs: 1,
+    seats: 1,
   };
   it('should return limits for valid tiers', () => {
     expect(getTierLimits('developer')).toEqual(developerLimits);
     expect(getTierLimits('pro')).toEqual({
-      plugins: 1000,
-      pipelines: 100,
-      apiCalls: -1,
-      aiCalls: 5000,
-      storageBytes: 100 * GB,
+      plugins: 500,
+      pipelines: 50,
+      apiCalls: 500_000,
+      aiCalls: 2_500,
+      storageBytes: 50 * GB,
       dashboards: 200,
       alertRules: 500,
       alertDestinations: 50,
       idpConfigs: 5,
+      seats: 3,
     });
-    expect(getTierLimits('unlimited')).toEqual({
-      plugins: -1,
-      pipelines: -1,
+    expect(getTierLimits('team')).toEqual({
+      plugins: 2_000,
+      pipelines: 200,
       apiCalls: -1,
-      aiCalls: -1,
-      storageBytes: -1,
+      aiCalls: 10_000,
+      storageBytes: 250 * GB,
+      dashboards: -1,
+      alertRules: -1,
+      alertDestinations: -1,
+      idpConfigs: 5,
+      seats: 10,
+    });
+    expect(getTierLimits('enterprise')).toEqual({
+      plugins: 5_000,
+      pipelines: 500,
+      apiCalls: -1,
+      aiCalls: 25_000,
+      storageBytes: TB,
       dashboards: -1,
       alertRules: -1,
       alertDestinations: -1,
       idpConfigs: -1,
+      seats: -1,
     });
   });
 

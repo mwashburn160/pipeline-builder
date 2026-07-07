@@ -44,6 +44,12 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
   return {
     createLogger: loggerMock,
     SYSTEM_ORG_ID: 'system',
+    // Tier identity — organization-service / validation import these at module
+    // load. A suite can override QUOTA_TIERS via `overrides` for shape-specific
+    // assertions; DEFAULT_TIER stays 'developer' unless a suite overrides it.
+    DEFAULT_TIER: 'developer',
+    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

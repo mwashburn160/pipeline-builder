@@ -17,3 +17,12 @@ db.getSiblingDB('platform').organizations.createIndex({ parentOrgId: 1 });
 db.getSiblingDB('platform').groups.createIndex({ organizationId: 1, name: 1 }, { unique: true });
 db.getSiblingDB('platform').group_memberships.createIndex({ userId: 1, groupId: 1 }, { unique: true });
 db.getSiblingDB('platform').group_memberships.createIndex({ organizationId: 1, userId: 1 });
+
+// Per-tier SEAT enforcement (tier restructure: developer/pro/team/enterprise).
+// Seats are a tier LIMIT (org.quotas.seats), not a tracked counter — the
+// platform service enforces them live at invite time by counting active org
+// members in `userorganizations` against the limit. Schema source of truth:
+// platform/src/models/user-organization.ts (declares the compound index whose
+// { organizationId } prefix backs the seat count); mirrored here so a fresh DB
+// has it before the platform service first connects. Idempotent.
+db.getSiblingDB('platform').userorganizations.createIndex({ organizationId: 1, isActive: 1, role: 1 });

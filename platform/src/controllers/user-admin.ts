@@ -16,6 +16,7 @@ import {
   UA_EMAIL_TAKEN,
   UA_OWNER_HAS_ORGS,
   UA_ORG_NOT_FOUND,
+  UA_SEAT_LIMIT,
 } from '../services/index.js';
 import { parsePagination } from '../utils/pagination.js';
 import { adminUpdateUserSchema, validateBody } from '../utils/validation.js';
@@ -28,6 +29,7 @@ const adminErrorMap = {
   [UA_EMAIL_TAKEN]: { status: 409, message: 'Email already in use' },
   [UA_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete user who is an organization owner. Transfer ownership first.' },
   [UA_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
+  [UA_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for the target organization — upgrade the plan or remove a member' },
 };
 
 /**

@@ -79,7 +79,7 @@ export type AuditAction =
   | 'admin.org.kms-config.upsert'
   | 'admin.org.kms-config.delete'
   // Org tier change. Emitted when a sysadmin moves an org between
-  // pricing tiers (developer/pro/unlimited); reseeds quota limits as a
+  // pricing tiers (developer/pro/team/enterprise); reseeds quota limits as a
   // side-effect. `details` carries the previousTier so the transition
   // is reconstructable from the audit log alone.
   | 'admin.org.tier.update'

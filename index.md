@@ -108,7 +108,7 @@ A minimal `{{ ... }}` template language for pipeline configs and plugin specs �
 An **organization** is the isolation boundary — every pipeline, plugin, secret, quota, and bill is scoped to it. A **team** is an organization optionally nested one level under a parent org (the org → team hierarchy); nesting is opt-in (orgs are flat roots by default), and a parent-org admin manages its teams while visibility, quotas, compliance, and analytics roll up across them.
 
 - **RBAC** — Owner / Admin / Member roles enforced per organization at the API layer; a parent-org admin inherits admin over its teams
-- **Per-organization quotas** — `plugins`, `pipelines`, `apiCalls`, `aiCalls`; **feature tiers** (Developer / Pro / Unlimited); a parent's cap can be shared across its teams
+- **Per-organization quotas** — `plugins`, `pipelines`, `apiCalls`, `aiCalls`, `seats`; **feature tiers** (Developer / Pro / Team / Enterprise); a parent's cap can be shared across its teams
 - **Isolated secrets** — AWS Secrets Manager per organization (`pipeline-builder/{orgId}/{secret}`), injected at build time, never stored in images
 - **Execution analytics** — EventBridge-fed success rates, duration percentiles (p50 / p90 / p99), stage-level failure heatmaps, and per-organization cost attribution (rolled up across child teams for parent orgs)
 - **Built for production** — zero-trust internal JWT auth, Kubernetes `health` / `ready` / `warmup` / `metrics` endpoints, graceful degradation

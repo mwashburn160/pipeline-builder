@@ -250,7 +250,7 @@ spec:
             # Builds run on the in-pod buildkitd sidecar via the shared
             # unix socket. Tier partitioning lives at the BullMQ queue
             # level inside the plugin service (developer / pro /
-            # unlimited queues); every tier's worker dispatches to the
+            # team / enterprise queues); every tier's worker dispatches to the
             # same sidecar — no standalone per-tier buildkitd Deployments.
             - name: BUILDKIT_HOST
               value: "unix:///run/buildkit/buildkitd.sock"

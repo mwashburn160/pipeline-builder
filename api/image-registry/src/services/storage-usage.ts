@@ -37,6 +37,13 @@ export interface StorageUsage {
   blobs: number;
   /** Epoch ms when this rollup was computed; helps callers reason about staleness. */
   computedAt: number;
+  /**
+   * True when the scan hit a non-404 error (a repo's tags, a manifest, or a
+   * blob HEAD failed) and the byte total may therefore UNDER-count real usage.
+   * A fail-closed caller (the push-gate) must treat an incomplete rollup as
+   * inconclusive rather than "under budget". Incomplete rollups are not cached.
+   */
+  incomplete: boolean;
 }
 
 /**
@@ -65,6 +72,7 @@ export async function computeStorageUsage(
       repos: cached.repos,
       blobs: cached.blobs,
       computedAt: cached.computedAt,
+      incomplete: false, // only complete rollups are cached
     };
   }
 
@@ -76,6 +84,9 @@ export async function computeStorageUsage(
   // blob must be HEAD'd against a repo that actually has it; HEADing every digest
   // against a single repo 404s (and silently drops) blobs that live elsewhere,
   // systematically undercounting multi-repo orgs.
+  // Any non-404 failure below means a repo/manifest/blob couldn't be read, so
+  // the byte total under-counts — track that so the push-gate can fail closed.
+  let incomplete = false;
   const blobRepo = new Map<string, string>();
   for (const repo of reposBeingScanned) {
     try {
@@ -88,6 +99,7 @@ export async function computeStorageUsage(
           for (const d of digests) if (!blobRepo.has(d)) blobRepo.set(d, repo);
         } catch (err) {
           if (!isNotFound(err)) {
+            incomplete = true;
             logger.warn('Manifest fetch failed during storage rollup', {
               repo, tag, error: err instanceof Error ? err.message : String(err),
             });
@@ -95,6 +107,7 @@ export async function computeStorageUsage(
         }
       }
     } catch (err) {
+      if (!isNotFound(err)) incomplete = true;
       logger.warn('Tag list failed during storage rollup', {
         repo, error: err instanceof Error ? err.message : String(err),
       });
@@ -111,6 +124,7 @@ export async function computeStorageUsage(
       if (typeof head.contentLength === 'number') totalBytes += head.contentLength;
     } catch (err) {
       if (!isNotFound(err)) {
+        incomplete = true;
         logger.warn('Blob HEAD failed during storage rollup', {
           digest, repo, error: err instanceof Error ? err.message : String(err),
         });
@@ -119,18 +133,23 @@ export async function computeStorageUsage(
   }
 
   const now = Date.now();
-  cache.set(prefix, {
-    bytes: totalBytes,
-    repos: reposBeingScanned.length,
-    blobs: blobRepo.size,
-    computedAt: now,
-  });
+  // Only cache a COMPLETE rollup — caching a partial (under-counted) total would
+  // serve a wrong "under budget" reading for the whole TTL.
+  if (!incomplete) {
+    cache.set(prefix, {
+      bytes: totalBytes,
+      repos: reposBeingScanned.length,
+      blobs: blobRepo.size,
+      computedAt: now,
+    });
+  }
   return {
     prefix,
     bytes: totalBytes,
     repos: reposBeingScanned.length,
     blobs: blobRepo.size,
     computedAt: now,
+    incomplete,
   };
 }
 

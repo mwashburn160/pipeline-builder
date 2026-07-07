@@ -139,7 +139,7 @@ function registerMocks() {
     decrementQuota: mockIncrementQuota,
     getServiceAuthHeader: () => 'Bearer test-service-token',
     createRemoteAuditClient: () => ({ record: jest.fn() }),
-    VALID_TIERS: ['developer', 'pro', 'unlimited'],
+    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     DEFAULT_TIER: 'developer',
   }));
 

@@ -78,12 +78,18 @@ async function readAndExtractZip(
                 // Capture text content AND write to disk
                 const chunks: Buffer[] = [];
                 const writeStream = createWriteStream(targetPath);
-                stream.on('data', (chunk: Buffer) => { chunks.push(chunk); writeStream.write(chunk); });
-                stream.on('end', () => {
-                  writeStream.end();
+                // A write failure (ENOSPC/EROFS on the upload volume) emits
+                // 'error' on the write stream; without a listener it becomes an
+                // unhandled exception and crashes the process. Gate the "done"
+                // side-effects on the write's 'finish' (fully flushed) rather
+                // than the read stream's 'end'.
+                writeStream.on('error', reject);
+                writeStream.on('finish', () => {
                   results.set(entry.fileName, Buffer.concat(chunks).toString('utf-8'));
                   zipfile.readEntry();
                 });
+                stream.on('data', (chunk: Buffer) => { chunks.push(chunk); writeStream.write(chunk); });
+                stream.on('end', () => { writeStream.end(); });
                 stream.on('error', reject);
               } else {
                 // Just write to disk

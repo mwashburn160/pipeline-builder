@@ -58,8 +58,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
         idpConfigs: 5,
       },
     },
-    unlimited: {
-      label: 'Unlimited',
+    enterprise: {
+      label: 'Enterprise',
       limits: {
         plugins: -1,
         pipelines: -1,
@@ -101,7 +101,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
       tier: {
         developer: { plugins: 10, pipelines: 5, apiCalls: 1000, aiCalls: 100 },
         pro: { plugins: 100, pipelines: 50, apiCalls: 10000, aiCalls: 1000 },
-        unlimited: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1 },
+        enterprise: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1 },
       },
     },
   },
@@ -172,13 +172,13 @@ describe('organizationService.list — tier filter + derived facets', () => {
     mockOrgFind.mockReturnValue(makeFindChain([]));
     mockOrgCount.mockResolvedValue(0);
 
-    await organizationService.list({ search: 'acme', tier: 'unlimited', offset: 0, limit: 10 });
+    await organizationService.list({ search: 'acme', tier: 'enterprise', offset: 0, limit: 10 });
     expect(mockOrgFind).toHaveBeenCalledWith({
       $or: [
         { name: { $regex: 'acme', $options: 'i' } },
         { slug: { $regex: 'acme', $options: 'i' } },
       ],
-      tier: 'unlimited',
+      tier: 'enterprise',
     });
   });
 
@@ -295,12 +295,12 @@ describe('organizationService.setTier', () => {
     const org = makeOrgDoc({ _id: 'o1' });
     mockOrgFindById.mockResolvedValue(org);
 
-    const result = await organizationService.setTier('o1', 'unlimited');
+    const result = await organizationService.setTier('o1', 'enterprise');
 
     expect(result?.previousTier).toBeUndefined();
-    expect(result?.tier).toBe('unlimited');
-    expect(org.tier).toBe('unlimited');
-    // QUOTA_TIERS.unlimited: every limit -1.
+    expect(result?.tier).toBe('enterprise');
+    expect(org.tier).toBe('enterprise');
+    // QUOTA_TIERS.enterprise (mock): every limit -1.
     expect(org.quotas).toEqual({
       plugins: -1,
       pipelines: -1,

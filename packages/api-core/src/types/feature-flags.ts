@@ -33,7 +33,10 @@ export function isValidFeatureFlag(value: string): value is FeatureFlag {
 export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   developer: [],
   pro: ['priority_support', 'ai_generation', 'bulk_operations'],
-  unlimited: [...ALL_FEATURE_FLAGS],
+  // Team adds audit_log (collaboration/governance); Enterprise unlocks all,
+  // including custom_integrations.
+  team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log'],
+  enterprise: [...ALL_FEATURE_FLAGS],
 };
 
 // Feature metadata (for display)

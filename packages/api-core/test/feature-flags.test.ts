@@ -44,9 +44,15 @@ describe('TIER_FEATURES', () => {
     expect(TIER_FEATURES.pro).not.toContain('audit_log');
   });
 
-  it('unlimited tier has all features', () => {
-    expect(TIER_FEATURES.unlimited).toEqual(expect.arrayContaining([...ALL_FEATURE_FLAGS]));
-    expect(TIER_FEATURES.unlimited).toHaveLength(ALL_FEATURE_FLAGS.length);
+  it('team tier includes audit_log but not custom_integrations', () => {
+    expect(TIER_FEATURES.team).toContain('audit_log');
+    expect(TIER_FEATURES.team).toContain('ai_generation');
+    expect(TIER_FEATURES.team).not.toContain('custom_integrations');
+  });
+
+  it('enterprise tier has all features', () => {
+    expect(TIER_FEATURES.enterprise).toEqual(expect.arrayContaining([...ALL_FEATURE_FLAGS]));
+    expect(TIER_FEATURES.enterprise).toHaveLength(ALL_FEATURE_FLAGS.length);
   });
 });
 
@@ -95,8 +101,8 @@ describe('resolveUserFeatures', () => {
     expect(features).toContain('bulk_operations');
   });
 
-  it('unlimited tier gets all features', () => {
-    const features = resolveUserFeatures('unlimited');
+  it('enterprise tier gets all features', () => {
+    const features = resolveUserFeatures('enterprise');
     expect(features).toHaveLength(ALL_FEATURE_FLAGS.length);
     expect(features).toEqual([...ALL_FEATURE_FLAGS]);
   });
@@ -170,7 +176,7 @@ describe('resolveUserFeatures', () => {
 describe('hasFeature', () => {
   it('returns true for tier-included features', () => {
     expect(hasFeature('pro', 'ai_generation')).toBe(true);
-    expect(hasFeature('unlimited', 'audit_log')).toBe(true);
+    expect(hasFeature('enterprise', 'audit_log')).toBe(true);
   });
 
   it('returns false for tier-excluded features', () => {

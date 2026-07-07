@@ -50,7 +50,7 @@ export default function OrgDetailPage() {
   // + tier change). KMS save/clear gate themselves inside OrgKmsConfigModal.
   const [pendingOp, setPendingOp] = useState<'delete' | 'yaml' | 'tier' | null>(null);
   // Tier the operator selected in the dropdown; only applied after step-up.
-  const [pendingTier, setPendingTier] = useState<'developer' | 'pro' | 'unlimited' | null>(null);
+  const [pendingTier, setPendingTier] = useState<'developer' | 'pro' | 'team' | 'enterprise' | null>(null);
 
   const reload = useCallback(async () => {
     if (!orgId) return;
@@ -188,7 +188,7 @@ export default function OrgDetailPage() {
               <select
                 value={org.tier ?? 'developer'}
                 onChange={(e) => {
-                  const newTier = e.target.value as 'developer' | 'pro' | 'unlimited';
+                  const newTier = e.target.value as 'developer' | 'pro' | 'team' | 'enterprise';
                   if (newTier === (org.tier ?? 'developer')) return;
                   setPendingTier(newTier);
                   setPendingOp('tier');

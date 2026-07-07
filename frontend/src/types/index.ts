@@ -140,7 +140,7 @@ export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls';
  * Quota tier identifiers.
  * Source of truth: packages/api-core/src/types/quota-tiers.ts
  */
-export type QuotaTier = 'developer' | 'pro' | 'unlimited';
+export type QuotaTier = 'developer' | 'pro' | 'team' | 'enterprise';
 
 /**
  * Unified org quota response (matches backend OrgQuotaResponse)
@@ -164,7 +164,7 @@ export interface Organization {
   description?: string;
   ownerId: string;
   memberCount: number;
-  /** Quota tier ('developer' | 'pro' | 'unlimited'). Optional because some
+  /** Quota tier ('developer' | 'pro' | 'team' | 'enterprise'). Optional because some
    *  list endpoints elide it to keep payloads small. */
   tier?: string;
   /** Sysadmin-facing facet flags set by the orgs list endpoint. Absent on
@@ -505,7 +505,7 @@ export interface UsageRollup {
   subscription: {
     planId: string;
     planName: string;
-    tier: 'developer' | 'pro' | 'unlimited';
+    tier: 'developer' | 'pro' | 'team' | 'enterprise';
     interval: 'monthly' | 'annual';
     priceCents: number;
   } | null;

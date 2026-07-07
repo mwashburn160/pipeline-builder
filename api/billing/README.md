@@ -52,7 +52,7 @@ Subscription management, plan catalog, usage rollups, and payment processing (St
 | `AWS_MARKETPLACE_PRODUCT_CODE` | AWS Marketplace product code | — |
 | `AWS_MARKETPLACE_REGION` | Marketplace region (falls back to `AWS_REGION`) | `us-east-1` |
 | `AWS_MARKETPLACE_SNS_TOPIC_ARN` | Marketplace SNS topic ARN | — |
-| `AWS_MARKETPLACE_DIMENSION_MAP` | JSON map of marketplace dimensions → plan IDs | developer/pro/unlimited |
+| `AWS_MARKETPLACE_DIMENSION_MAP` | JSON map of marketplace dimensions → plan IDs | developer/pro/team/enterprise |
 
 ## Development
 

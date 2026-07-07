@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── Mend CLI (direct binary download) ───
+# NOTE: Mend publishes only a rolling, versionless `mend` binary at this URL
+# (no per-version path), so it tracks upstream latest by design. Reproducibility
+# is enforced at scan time via the Mend policy/lockfile, not the binary version.
 RUN ARCH=$(dpkg --print-architecture) && curl -fsSL "https://downloads.mend.io/cli/linux_${ARCH}/mend" -o /usr/local/bin/mend \
     && chmod +x /usr/local/bin/mend
 

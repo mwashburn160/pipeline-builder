@@ -30,19 +30,22 @@ const TIER_KEYS: QuotaTier[] = [...SHARED_TIER_KEYS];
 const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
   developer: 'Starter tier',
   pro: 'Production use',
-  unlimited: 'No restrictions',
+  team: 'Team collaboration',
+  enterprise: 'No restrictions',
 };
 
 const TIER_LIMITS: Record<QuotaTier, Record<QuotaType, number>> = {
-  developer: { pipelines: 10, plugins: 100, apiCalls: -1, aiCalls: 100 },
-  pro: { pipelines: 100, plugins: 1000, apiCalls: -1, aiCalls: 5000 },
-  unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, aiCalls: -1 },
+  developer: { pipelines: 5, plugins: 50, apiCalls: 25000, aiCalls: 50 },
+  pro: { pipelines: 50, plugins: 500, apiCalls: 500000, aiCalls: 2500 },
+  team: { pipelines: 200, plugins: 2000, apiCalls: -1, aiCalls: 10000 },
+  enterprise: { pipelines: 500, plugins: 5000, apiCalls: -1, aiCalls: 25000 },
 };
 
 const TIER_PRESETS: Record<QuotaTier, { label: string; description: string; color: string; limits: Record<QuotaType, number> }> = {
-  developer: { label: TIER_META.developer.label, description: TIER_DESCRIPTIONS.developer, color: TIER_META.developer.dotClass, limits: TIER_LIMITS.developer },
-  pro:       { label: TIER_META.pro.label,       description: TIER_DESCRIPTIONS.pro,       color: TIER_META.pro.dotClass,       limits: TIER_LIMITS.pro },
-  unlimited: { label: TIER_META.unlimited.label, description: TIER_DESCRIPTIONS.unlimited, color: TIER_META.unlimited.dotClass, limits: TIER_LIMITS.unlimited },
+  developer:  { label: TIER_META.developer.label,  description: TIER_DESCRIPTIONS.developer,  color: TIER_META.developer.dotClass,  limits: TIER_LIMITS.developer },
+  pro:        { label: TIER_META.pro.label,        description: TIER_DESCRIPTIONS.pro,        color: TIER_META.pro.dotClass,        limits: TIER_LIMITS.pro },
+  team:       { label: TIER_META.team.label,       description: TIER_DESCRIPTIONS.team,       color: TIER_META.team.dotClass,       limits: TIER_LIMITS.team },
+  enterprise: { label: TIER_META.enterprise.label, description: TIER_DESCRIPTIONS.enterprise, color: TIER_META.enterprise.dotClass, limits: TIER_LIMITS.enterprise },
 };
 
 // ---------------------------------------------------------------------------
@@ -373,7 +376,7 @@ export default function QuotasPage() {
         subtitle="Usage limits and consumption"
         titleExtra={orgData ? (
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-            tier === 'unlimited'
+            tier === 'enterprise'
               ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
               : tier === 'pro'
                 ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
@@ -386,8 +389,8 @@ export default function QuotasPage() {
       >
         <div className="page-section max-w-4xl">
           {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[0, 1, 2].map((i) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[0, 1, 2, 3].map((i) => (
                 <div key={i} className="card">
                   <div className="h-4 skeleton w-1/2 mb-4" />
                   <div className="h-8 skeleton w-1/3 mb-3" />
@@ -397,7 +400,7 @@ export default function QuotasPage() {
               ))}
             </div>
           ) : orgData ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {QUOTA_KEYS.map((key) => (
                 <QuotaCard
                   key={key}
@@ -424,7 +427,7 @@ export default function QuotasPage() {
         {orgData.orgId}
       </span>
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-        editTier === 'unlimited'
+        editTier === 'enterprise'
           ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
           : editTier === 'pro'
             ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
@@ -546,7 +549,7 @@ export default function QuotasPage() {
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-3">
                   Plan Tier
                 </h2>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {TIER_KEYS.map((tier) => {
                     const preset = TIER_PRESETS[tier];
                     const isSelected = editTier === tier;
@@ -595,8 +598,8 @@ export default function QuotasPage() {
               </h2>
 
               {loading ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {[0, 1, 2].map((i) => (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[0, 1, 2, 3].map((i) => (
                     <div key={i} className="card">
                       <div className="h-4 skeleton w-1/2 mb-4" />
                       <div className="h-8 skeleton w-1/3 mb-3" />
@@ -606,7 +609,7 @@ export default function QuotasPage() {
                   ))}
                 </div>
               ) : orgData ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {QUOTA_KEYS.map((key) => (
                     <QuotaCard
                       key={key}

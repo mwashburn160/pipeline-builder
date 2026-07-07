@@ -40,11 +40,14 @@ export function createUpdatePluginRoutes(): Router {
 
     // Build update data from validated body
     const updateData: Record<string, unknown> = {
+      // `name` and `version` are intentionally NOT updatable here — the pushed
+      // registry image is keyed `<namespace>/<name>:<version>`, so renaming /
+      // re-versioning the DB row desyncs it from the image and pipelines then
+      // pull a nonexistent tag. bulk-plugin.ts excludes them for the same reason.
       ...pickDefined({
-        name: body.name,
         description: body.description,
         keywords: body.keywords,
-        version: body.version,
+        category: body.category,
         metadata: body.metadata,
         pluginType: body.pluginType,
         computeType: body.computeType,

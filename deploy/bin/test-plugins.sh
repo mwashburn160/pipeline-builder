@@ -204,7 +204,7 @@ validate_spec() {
     fi
   fi
 
-  $all_pass && log_pass "Spec schema valid"
+  if $all_pass; then log_pass "Spec schema valid"; fi
 }
 
 validate_dockerfile() {

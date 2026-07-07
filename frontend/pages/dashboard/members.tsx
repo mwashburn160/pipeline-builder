@@ -47,7 +47,7 @@ export default function MembersPage() {
   // Create organization
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
-  const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'unlimited'>('developer');
+  const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'team' | 'enterprise'>('developer');
   // Teams nest one level: only a root org can parent a team, so the "Create
   // Team" action only appears when the active org is itself a root.
   const activeOrg = organizations.find(o => o.id === user?.organizationId);
@@ -674,13 +674,14 @@ export default function MembersPage() {
               </label>
               <select
                 value={newOrgTier}
-                onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'unlimited')}
+                onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'team' | 'enterprise')}
                 className="input text-sm"
                 disabled={createOrgForm.loading}
               >
                 <option value="developer">Developer — small budget, cheapest builds</option>
                 <option value="pro">Pro — medium budget, faster builds</option>
-                <option value="unlimited">Unlimited — largest budget, no quota cap</option>
+                <option value="team">Team — shared quotas, collaboration features</option>
+                <option value="enterprise">Enterprise — largest budget, no quota cap</option>
               </select>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Tier determines build resources and quota. Can be changed later.

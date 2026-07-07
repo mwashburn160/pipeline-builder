@@ -41,7 +41,10 @@
 # because it's a CodeBuild runtime, not a plugin base — it doesn't
 # consume `pipeline-plugin-base:24.04`.
 
-FROM node:24-slim
+# Base pinnable per-build: `--build-arg NODE_BASE=24.14.0-slim` for a reproducible
+# CI image. Default tracks the 24-slim line (matches projen minNodeVersion 24.14.0).
+ARG NODE_BASE=24-slim
+FROM node:${NODE_BASE}
 
 # Add: git (source ops), curl + unzip (AWS CLI install), AWS CLI v2,
 # pipeline-manager. node:24-slim already has Node + npm + ca-certs.

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, sendError } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { config } from '../config/index.js';
@@ -128,11 +128,11 @@ export const sendInvitationSchema = z.object({
 
 // Organization Schemas
 
-/** Create organization schema (name required, tier defaults to developer). */
+/** Create organization schema (name required, tier defaults to the configured DEFAULT_QUOTA_TIER). */
 export const createOrganizationSchema = z.object({
   name: z.string().min(2).max(100),
   description: z.string().max(500).optional(),
-  tier: z.enum(['developer', 'pro', 'unlimited']).optional().default('developer'),
+  tier: z.enum(['developer', 'pro', 'team', 'enterprise']).optional().default(DEFAULT_TIER),
   // Org → team hierarchy: when set, create this org as a team nested under
   // `parentOrgId`. The caller must be an admin/owner of the parent (or an
   // ancestor); the parent must itself be a root org (one level of nesting).
@@ -145,30 +145,34 @@ export const updateOrganizationSchema = z.object({
   description: z.string().max(500).optional(),
 });
 
-/** Add member schema (either userId or email required, with optional role). */
+/** Add member schema (either userId or email required, with optional role).
+ *  `owner` is intentionally excluded — ownership only moves via
+ *  transferOwnership (a second `role:'owner'` insert trips the partial-unique
+ *  owner index and surfaces as an unmapped 500). */
 export const addMemberSchema = z.object({
   userId: z.string().optional(),
   email: emailSchema.optional(),
-  role: z.enum(['owner', 'admin', 'member']).optional().default('member'),
+  role: z.enum(['admin', 'member']).optional().default('member'),
 }).refine(data => data.userId || data.email, {
   message: 'Either userId or email is required',
 });
 
 /** Bulk-add schema: add one user (by id or email) to several teams at once.
  *  `orgIds` are the target team ids; the controller/service constrain them to
- *  the context org's subtree. Capped to keep the per-request transaction bounded. */
+ *  the context org's subtree. Capped to keep the per-request transaction bounded.
+ *  `owner` excluded — see addMemberSchema. */
 export const bulkAddMemberSchema = z.object({
   userId: z.string().optional(),
   email: emailSchema.optional(),
   orgIds: z.array(z.string().min(1)).min(1, 'At least one team is required').max(50),
-  role: z.enum(['owner', 'admin', 'member']).optional().default('member'),
+  role: z.enum(['admin', 'member']).optional().default('member'),
 }).refine(data => data.userId || data.email, {
   message: 'Either userId or email is required',
 });
 
-/** Member role update schema. */
+/** Member role update schema. `owner` excluded — use transferOwnership. */
 export const updateMemberRoleSchema = z.object({
-  role: z.enum(['owner', 'admin', 'member']),
+  role: z.enum(['admin', 'member']),
 });
 
 /** Add an existing org member to a permission group (by id or email). */

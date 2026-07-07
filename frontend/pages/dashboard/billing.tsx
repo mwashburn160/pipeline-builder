@@ -22,9 +22,10 @@ import api from '@/lib/api';
 // Border/background tints stay local because they're page-specific accents
 // (the "current plan" highlight) rather than a tier identity.
 const PLAN_ACCENTS: Record<string, { border: string; bg: string }> = {
-  developer: { border: 'border-green-500', bg: 'bg-green-50 dark:bg-green-950' },
-  pro:       { border: 'border-blue-500',  bg: 'bg-blue-50 dark:bg-blue-950' },
-  unlimited: { border: 'border-purple-500', bg: 'bg-purple-50 dark:bg-purple-950' },
+  developer:  { border: 'border-green-500',   bg: 'bg-green-50 dark:bg-green-950' },
+  pro:        { border: 'border-blue-500',    bg: 'bg-blue-50 dark:bg-blue-950' },
+  team:       { border: 'border-purple-500',  bg: 'bg-purple-50 dark:bg-purple-950' },
+  enterprise: { border: 'border-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950' },
 };
 
 /**
@@ -342,7 +343,7 @@ export default function BillingPage() {
         </div>
 
         {/* Plan Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {plans.map((plan) => {
             const accents = PLAN_ACCENTS[plan.id] || PLAN_ACCENTS.developer;
             const tierMeta = getTierMeta(plan.id);

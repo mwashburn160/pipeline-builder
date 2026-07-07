@@ -87,7 +87,7 @@ const organizationSchema = new Schema<OrganizationDocument>( {
   slug: { type: String, required: true },
   // Org → team hierarchy parent (null = root). Indexed for descendant lookups.
   parentOrgId: { type: String, default: null, index: true },
-  tier: { type: String, enum: ['developer', 'pro', 'unlimited'], default: 'developer' },
+  tier: { type: String, enum: ['developer', 'pro', 'team', 'enterprise'], default: 'developer' },
   quotas: {
     plugins: { type: Number, default: config.quota.defaults.plugins },
     pipelines: { type: Number, default: config.quota.defaults.pipelines },

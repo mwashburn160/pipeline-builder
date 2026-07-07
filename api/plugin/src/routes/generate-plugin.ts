@@ -144,6 +144,11 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
               dockerfile,
             },
           })}\n\n`);
+        } else {
+          // AI produced no output — refund the reserved aiCalls slot rather than
+          // charging the org for an empty generation (mirrors the aborted case).
+          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          reserved = false;
         }
         res.write('data: [DONE]\n\n');
       } else {

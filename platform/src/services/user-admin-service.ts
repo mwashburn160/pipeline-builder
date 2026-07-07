@@ -5,6 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/controller-helper.js';
+import { seatCapacityAvailable } from '../helpers/seats.js';
 import { User, Organization, UserOrganization, type OrgMemberRole } from '../models/index.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -15,6 +16,9 @@ export const UA_USERNAME_TAKEN = 'UA_USERNAME_TAKEN';
 export const UA_EMAIL_TAKEN = 'UA_EMAIL_TAKEN';
 export const UA_OWNER_HAS_ORGS = 'UA_OWNER_HAS_ORGS';
 export const UA_ORG_NOT_FOUND = 'UA_ORG_NOT_FOUND';
+/** Target org is at its seat cap (`org.quotas.seats`) — assigning this user
+ *  would exceed it. Same limit the invite/add paths enforce. */
+export const UA_SEAT_LIMIT = 'UA_SEAT_LIMIT';
 
 interface ListFilter {
   /** Restrict to a specific org (system-admin only); narrows the userId set. */
@@ -242,6 +246,12 @@ class UserAdminService {
           userId: user._id, organizationId: toOrgId(body.organizationId),
         });
         if (!existingMembership) {
+          // Enforce the target org's seat cap even for a sysadmin assignment —
+          // a membership row counts against `quotas.seats` like any other.
+          const seatLimit = newOrg.quotas?.seats ?? -1;
+          if (!(await seatCapacityAvailable(String(body.organizationId), seatLimit, 1))) {
+            throw new Error(UA_SEAT_LIMIT);
+          }
           await UserOrganization.create({
             userId: user._id, organizationId: toOrgId(body.organizationId), role: 'member',
           });

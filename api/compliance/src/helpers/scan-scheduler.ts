@@ -209,10 +209,30 @@ export function calculateNextRun(cronExpression: string): Date {
       // Every N minutes
       const interval = parseInt(minuteSpec.slice(2), 10);
       if (interval > 0 && interval <= 60) {
-        const currentMinute = now.getMinutes();
-        const nextMinute = Math.ceil((currentMinute + 1) / interval) * interval;
-        next.setMinutes(nextMinute, 0, 0);
-        if (next <= now) next.setMinutes(next.getMinutes() + interval);
+        if (hour !== null) {
+          // "*/N H * * *" — every N minutes but ONLY during hour H. Previously
+          // the hour was ignored and this ran every N minutes all day.
+          if (now.getHours() === hour) {
+            const nextMinute = Math.ceil((now.getMinutes() + 1) / interval) * interval;
+            if (nextMinute <= 59) {
+              next.setHours(hour, nextMinute, 0, 0);
+            } else {
+              // Past the last slot this hour → hour H tomorrow at :00.
+              next.setHours(hour, 0, 0, 0);
+              next.setDate(next.getDate() + 1);
+            }
+          } else {
+            // Outside hour H → next occurrence of hour H at :00.
+            next.setHours(hour, 0, 0, 0);
+            if (next <= now) next.setDate(next.getDate() + 1);
+          }
+        } else {
+          // "*/N * * * *" — every N minutes, any hour.
+          const currentMinute = now.getMinutes();
+          const nextMinute = Math.ceil((currentMinute + 1) / interval) * interval;
+          next.setMinutes(nextMinute, 0, 0);
+          if (next <= now) next.setMinutes(next.getMinutes() + interval);
+        }
       } else {
         next.setTime(now.getTime() + 3600000);
       }

@@ -65,6 +65,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   OM_ALREADY_INACTIVE: 'OM_ALREADY_INACTIVE',
   OM_ALREADY_ACTIVE: 'OM_ALREADY_ACTIVE',
   OM_TARGETS_OUT_OF_SCOPE: 'OM_TARGETS_OUT_OF_SCOPE',
+  OM_SEAT_LIMIT: 'OM_SEAT_LIMIT',
 }));
 
 jest.unstable_mockModule('../src/utils/validation.js', () => ({

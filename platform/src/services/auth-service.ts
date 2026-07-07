@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { seedDefaultGroups } from './groups-service.js';
 import { config } from '../config/index.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
@@ -76,8 +76,12 @@ class AuthService {
 
       if (isSystemOrg) {
         orgData._id = SYSTEM_ORG_ID;
-        orgData.tier = 'unlimited';
-        orgData.quotas = { plugins: -1, pipelines: -1, apiCalls: -1 };
+        orgData.tier = 'enterprise';
+        // Seed the full enterprise preset. The old partial `{ plugins, pipelines,
+        // apiCalls }` left aiCalls/seats/storage/etc. to fall back to the
+        // DEFAULT_TIER schema default, so the "unlimited" system org silently got
+        // a finite aiCalls and seat cap.
+        orgData.quotas = { ...QUOTA_TIERS.enterprise.limits };
       }
 
       const [org] = await Organization.create([orgData], { session });
@@ -106,7 +110,7 @@ class AuthService {
         role: 'owner',
         organizationId: orgId,
         organizationName: org.name,
-        planId: isSystemOrg ? 'unlimited' : (planId || 'developer'),
+        planId: isSystemOrg ? 'enterprise' : (planId || 'developer'),
       };
     });
   }

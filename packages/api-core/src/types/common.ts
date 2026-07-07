@@ -22,6 +22,9 @@
  *   spam thousands of dashboards / rules and bloat the shared Postgres /
  *   Mongo working sets. Counted at create time; decremented on delete.
  */
+// NOTE: `seats` is intentionally NOT here. It's a tier limit (QuotaTierLimits)
+// enforced by comparing the org's LIVE member count at invite time — not an
+// incrementing per-period counter like the consumable quotas below.
 export type QuotaType =
   | 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls' | 'storageBytes'
   | 'dashboards' | 'alertRules' | 'alertDestinations' | 'idpConfigs';
@@ -95,6 +98,13 @@ export interface QuotaCheckResult {
   resetAt: string;
   /** Whether quota is unlimited */
   unlimited: boolean;
+  /**
+   * True ONLY when this result is the fail-open sentinel returned because the
+   * quota service was unreachable / returned non-ok (not a real quota reading).
+   * Lets fail-closed callers (e.g. the registry storage push-gate) distinguish
+   * an outage from a genuine `limit: -1` (unlimited) org. Absent on real results.
+   */
+  failOpen?: boolean;
 }
 
 /**
@@ -166,7 +176,7 @@ export interface JwtPayload {
    * during the rollout; new users should be granted via `isSuperAdmin`.
    */
   isSuperAdmin?: boolean;
-  /** Organization's quota tier ('developer' | 'pro' | 'unlimited') */
+  /** Organization's quota tier ('developer' | 'pro' | 'team' | 'enterprise') */
   tier?: string;
   /** Resolved feature flags for this user/org */
   features?: string[];

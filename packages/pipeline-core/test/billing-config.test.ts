@@ -14,11 +14,11 @@ describe('loadBillingConfig', () => {
     process.env = originalEnv;
   });
 
-  it('returns three plans with correct defaults', () => {
+  it('returns four plans with correct defaults', () => {
     const config = loadBillingConfig();
-    expect(config.plans).toHaveLength(3);
+    expect(config.plans).toHaveLength(4);
 
-    const [developer, pro, unlimited] = config.plans;
+    const [developer, pro, team, enterprise] = config.plans;
 
     expect(developer).toMatchObject({
       id: 'developer',
@@ -33,18 +33,27 @@ describe('loadBillingConfig', () => {
       id: 'pro',
       name: 'Pro',
       tier: 'pro',
-      prices: { monthly: 799, annual: 7990 },
+      prices: { monthly: 1900, annual: 19000 },
       isDefault: false,
       sortOrder: 1,
     });
 
-    expect(unlimited).toMatchObject({
-      id: 'unlimited',
-      name: 'Unlimited',
-      tier: 'unlimited',
-      prices: { monthly: 1199, annual: 11990 },
+    expect(team).toMatchObject({
+      id: 'team',
+      name: 'Team',
+      tier: 'team',
+      prices: { monthly: 4900, annual: 49000 },
       isDefault: false,
       sortOrder: 2,
+    });
+
+    expect(enterprise).toMatchObject({
+      id: 'enterprise',
+      name: 'Enterprise',
+      tier: 'enterprise',
+      prices: { monthly: 9900, annual: 99000 },
+      isDefault: false,
+      sortOrder: 3,
     });
   });
 
@@ -68,12 +77,12 @@ describe('loadBillingConfig', () => {
   });
 
   it('overrides features from JSON environment variable', () => {
-    process.env.BILLING_PLAN_UNLIMITED_FEATURES = '["Feature A","Feature B"]';
+    process.env.BILLING_PLAN_ENTERPRISE_FEATURES = '["Feature A","Feature B"]';
 
     const config = loadBillingConfig();
-    const unlimited = config.plans.find((p) => p.id === 'unlimited');
+    const enterprise = config.plans.find((p) => p.id === 'enterprise');
 
-    expect(unlimited?.features).toEqual(['Feature A', 'Feature B']);
+    expect(enterprise?.features).toEqual(['Feature A', 'Feature B']);
   });
 
   it('falls back to default features on invalid JSON', () => {
@@ -82,7 +91,7 @@ describe('loadBillingConfig', () => {
     const config = loadBillingConfig();
     const developer = config.plans.find((p) => p.id === 'developer');
 
-    expect(developer?.features).toContain('Up to 100 plugins');
+    expect(developer?.features).toContain('Up to 50 plugins');
   });
 
   it('falls back to default features when JSON is not an array', () => {
@@ -91,15 +100,25 @@ describe('loadBillingConfig', () => {
     const config = loadBillingConfig();
     const pro = config.plans.find((p) => p.id === 'pro');
 
-    expect(pro?.features).toContain('Up to 1,000 plugins');
+    expect(pro?.features).toContain('Up to 500 plugins');
   });
 
   it('includes default features for each plan', () => {
     const config = loadBillingConfig();
-    const [developer, pro, unlimited] = config.plans;
+    const [developer, pro, team, enterprise] = config.plans;
 
     expect(developer.features).toContain('Community support');
     expect(pro.features).toContain('Reporting dashboard');
-    expect(unlimited.features).toContain('Custom integrations');
+    expect(team.features).toContain('Audit log');
+    expect(enterprise.features).toContain('Custom integrations');
+  });
+
+  it('derives seat lines from tier limits', () => {
+    const config = loadBillingConfig();
+    const [developer, , team, enterprise] = config.plans;
+
+    expect(developer.features).toContain('Up to 1 seat');
+    expect(team.features).toContain('Up to 10 seats');
+    expect(enterprise.features).toContain('Unlimited seats');
   });
 });

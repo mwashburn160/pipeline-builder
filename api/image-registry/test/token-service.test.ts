@@ -77,7 +77,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 // @pipeline-builder/api-core ships as CommonJS under a `type: module` package,
 // so its named exports don't resolve under jest's ESM loader. Mock the few
 // exports token-service uses. createQuotaService's `check` resolves an
-// unlimited tier (limit: -1) so the storage push-gate is a no-op — matching
+// unlimited storage limit (-1) so the storage push-gate is a no-op — matching
 // the fail-open behaviour the original (unmocked) test relied on.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createQuotaService: () => ({

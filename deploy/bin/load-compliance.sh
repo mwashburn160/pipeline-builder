@@ -87,3 +87,8 @@ END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
 print_summary "$TOTAL" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"
+
+# Propagate partial-failure to the exit code (matches load-pipelines.sh) so a
+# failed compliance load is not masked as green.
+[ "$FAILED" -gt 0 ] && exit 1
+exit 0

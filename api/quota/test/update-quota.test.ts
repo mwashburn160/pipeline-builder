@@ -61,8 +61,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     pro: { limits: { plugins: 500, pipelines: 50, apiCalls: -1 } },
     unlimited: { limits: { plugins: -1, pipelines: -1, apiCalls: -1 } },
   },
-  VALID_TIERS: ['developer', 'pro', 'unlimited'],
-  isValidTier: (t: string) => ['developer', 'pro', 'unlimited'].includes(t),
+  VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+  isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
   getTierLimits: (t: string) => ({
     developer: { plugins: 100, pipelines: 10, apiCalls: -1 },
     pro: { plugins: 500, pipelines: 50, apiCalls: -1 },

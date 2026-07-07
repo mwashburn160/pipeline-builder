@@ -1,6 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { getTierLimits } from '@pipeline-builder/api-core';
+
+// Unprovisioned-org fallback = the developer-tier preset, sourced from api-core
+// so it can't drift (the previous hardcoded copy had gone stale — notably
+// apiCalls: -1, which re-opened the shared-resource DoS hole the tier
+// restructure closed). Env vars still override per field.
+const DEV = getTierLimits('developer');
+
 export interface QuotaDefaults {
   plugins: number;
   pipelines: number;
@@ -48,21 +56,19 @@ export const config: AppConfig = {
   },
   quota: {
     defaults: {
-      plugins: parseInt(process.env.QUOTA_DEFAULT_PLUGINS || '100', 10),
-      pipelines: parseInt(process.env.QUOTA_DEFAULT_PIPELINES || '10', 10),
-      apiCalls: parseInt(process.env.QUOTA_DEFAULT_API_CALLS || '-1', 10),
-      aiCalls: parseInt(process.env.QUOTA_DEFAULT_AI_CALLS || '100', 10),
-      // 5 GiB default matches the developer tier preset in api-core's
-      // quota-tiers.ts. Override via QUOTA_DEFAULT_STORAGE_BYTES (operator
-      // env) for orgs that need a different baseline before tier upgrade.
-      storageBytes: parseInt(process.env.QUOTA_DEFAULT_STORAGE_BYTES || `${5 * 1024 * 1024 * 1024}`, 10),
-      // Count caps on user-editable feature tables. Match the developer-tier
-      // preset; operators can override per-org via the existing PUT /quotas
-      // CRUD endpoint without changing these defaults.
-      dashboards: parseInt(process.env.QUOTA_DEFAULT_DASHBOARDS || '20', 10),
-      alertRules: parseInt(process.env.QUOTA_DEFAULT_ALERT_RULES || '50', 10),
-      alertDestinations: parseInt(process.env.QUOTA_DEFAULT_ALERT_DESTINATIONS || '10', 10),
-      idpConfigs: parseInt(process.env.QUOTA_DEFAULT_IDP_CONFIGS || '1', 10),
+      plugins: parseInt(process.env.QUOTA_DEFAULT_PLUGINS || `${DEV.plugins}`, 10),
+      pipelines: parseInt(process.env.QUOTA_DEFAULT_PIPELINES || `${DEV.pipelines}`, 10),
+      apiCalls: parseInt(process.env.QUOTA_DEFAULT_API_CALLS || `${DEV.apiCalls}`, 10),
+      aiCalls: parseInt(process.env.QUOTA_DEFAULT_AI_CALLS || `${DEV.aiCalls}`, 10),
+      // Aggregate registry storage cap (bytes). Override via
+      // QUOTA_DEFAULT_STORAGE_BYTES for orgs that need a different baseline.
+      storageBytes: parseInt(process.env.QUOTA_DEFAULT_STORAGE_BYTES || `${DEV.storageBytes}`, 10),
+      // Count caps on user-editable feature tables. Operators can override
+      // per-org via the existing PUT /quotas CRUD endpoint.
+      dashboards: parseInt(process.env.QUOTA_DEFAULT_DASHBOARDS || `${DEV.dashboards}`, 10),
+      alertRules: parseInt(process.env.QUOTA_DEFAULT_ALERT_RULES || `${DEV.alertRules}`, 10),
+      alertDestinations: parseInt(process.env.QUOTA_DEFAULT_ALERT_DESTINATIONS || `${DEV.alertDestinations}`, 10),
+      idpConfigs: parseInt(process.env.QUOTA_DEFAULT_IDP_CONFIGS || `${DEV.idpConfigs}`, 10),
     },
     resetDays: parseInt(process.env.QUOTA_RESET_DAYS || '3', 10),
     atRiskCacheTtlMs: parseInt(process.env.QUOTA_AT_RISK_CACHE_TTL_MS || '60000', 10),

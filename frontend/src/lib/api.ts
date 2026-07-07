@@ -623,7 +623,7 @@ class ApiClient {
    * Pass `parentOrgId` to create it as a team nested under that org (the caller
    * must be an admin/owner of the parent).
    */
-  async createOrganization(data: { name: string; description?: string; tier?: 'developer' | 'pro' | 'unlimited'; parentOrgId?: string }) {
+  async createOrganization(data: { name: string; description?: string; tier?: 'developer' | 'pro' | 'team' | 'enterprise'; parentOrgId?: string }) {
     return this.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string; tier: string; parentOrgId?: string } }>>('/api/organization', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -686,7 +686,7 @@ class ApiClient {
   // ============================================
   // Organization endpoints
   // ============================================
-  async listOrganizations(params?: { search?: string; tier?: 'developer' | 'pro' | 'unlimited'; offset?: number; limit?: number }) {
+  async listOrganizations(params?: { search?: string; tier?: 'developer' | 'pro' | 'team' | 'enterprise'; offset?: number; limit?: number }) {
     return this.request<ApiResponse<{ organizations: Organization[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`);
   }
   async deleteOrganization(id: string, stepUpToken?: string) {
@@ -701,7 +701,7 @@ class ApiClient {
    *  Backend requires step-up because the change affects billing. */
   async updateOrganizationTier(
     id: string,
-    tier: 'developer' | 'pro' | 'unlimited',
+    tier: 'developer' | 'pro' | 'team' | 'enterprise',
     stepUpToken?: string,
   ) {
     return this.request<ApiResponse<{ id: string; previousTier?: string; tier: string }>>(

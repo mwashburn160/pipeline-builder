@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { seedDefaultGroups } from './groups-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
@@ -182,8 +182,7 @@ class OrganizationService {
    * have a baseline even before the quota service is ever called.
    */
   async create(userId: string, body: CreateOrgInput): Promise<{ id: string; name: string; slug: string; description: string; tier: QuotaTier; parentOrgId?: string }> {
-    const tier = body.tier || 'developer';
-    const tierConfig = config.quota.tier[tier];
+    const tier = body.tier || DEFAULT_TIER;
 
     return withMongoTransaction(async (session) => {
       const orgData: Record<string, unknown> = {
@@ -191,20 +190,16 @@ class OrganizationService {
         description: body.description || '',
         owner: userId,
         tier,
+        // Seed ALL limits from the tier preset (matches setTier). Cherry-picking
+        // a subset let the omitted fields — notably `seats`, storageBytes, and
+        // the count-quotas — fall back to the DEFAULT_TIER schema default, so a
+        // non-default-tier org got the wrong seat/limit caps.
+        quotas: { ...QUOTA_TIERS[tier].limits },
       };
 
       // Org → team hierarchy: nest under the parent when requested. Stored as a
       // string id so the descendant-expansion helpers match on string ids.
       if (body.parentOrgId) orgData.parentOrgId = String(body.parentOrgId);
-
-      if (tierConfig) {
-        orgData.quotas = {
-          plugins: tierConfig.plugins,
-          pipelines: tierConfig.pipelines,
-          apiCalls: tierConfig.apiCalls,
-          aiCalls: tierConfig.aiCalls,
-        };
-      }
 
       const [org] = await Organization.create([orgData], { session });
       await UserOrganization.create([{ userId, organizationId: org._id, role: 'owner' }], { session });

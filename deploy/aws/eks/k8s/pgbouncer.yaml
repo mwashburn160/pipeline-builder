@@ -5,7 +5,7 @@
 # Same per-tier pool layout as `deploy/local/docker/config/pgbouncer/pgbouncer.ini`.
 # Each tier gets a logical database pointing at the same physical DB but
 # with its own pool budget — Developer-tier load can't saturate the pool
-# Pro/Unlimited workers share.
+# Pro/Team/Enterprise workers share.
 #
 # Registered in kustomization.yaml and the default DB path: .env.example sets
 # DB_HOST=pgbouncer / DB_PORT=6432, so services connect through it out of the box.

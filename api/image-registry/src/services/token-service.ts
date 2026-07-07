@@ -250,10 +250,21 @@ export async function authorizeAndIssue( identity: Identity,
 }
 
 /**
- * Compare an org's measured registry storage against its `storageBytes`
- * quota. Returns true when push should be denied. Fail-open on quota-
- * service unreachability so a transient outage doesn't lock writers out
- * of an otherwise-healthy registry.
+ * When true, the storage push-gate reverts to the old fail-OPEN behavior (a
+ * quota-service outage or an inconclusive usage scan allows the push). Default
+ * is fail-CLOSED: an unverifiable cap must not silently let over-quota orgs
+ * push. Mirrors the `QUOTA_RESERVE_FAIL_OPEN` escape hatch on the reserve path.
+ */
+const STORAGE_FAIL_OPEN = (process.env.QUOTA_STORAGE_FAIL_OPEN || '').toLowerCase() === 'true';
+
+/**
+ * Compare an org's measured registry storage against its `storageBytes` quota.
+ * Returns true when the push should be DENIED.
+ *
+ * Fails CLOSED (deny) when the cap cannot be verified — quota service
+ * unreachable, or the usage scan was incomplete (under-counted). A genuine
+ * `limit: -1` (unlimited) org is still allowed. Set `QUOTA_STORAGE_FAIL_OPEN=true`
+ * to restore the permissive behavior.
  */
 async function isStorageOverBudget(orgId: string): Promise<boolean> {
   try {
@@ -264,12 +275,25 @@ async function isStorageOverBudget(orgId: string): Promise<boolean> {
       role: 'member',
     });
     const status = await quotaService.check(orgId, 'storageBytes', authHeader);
+
+    // Quota service unreachable / non-ok → the cap is unknown. Deny by default
+    // (the `failOpen` sentinel is distinct from a real unlimited reading).
+    if (status.failOpen) {
+      logger.warn('PUSH_GATE_QUOTA_UNREACHABLE', { orgId, failOpen: STORAGE_FAIL_OPEN });
+      return !STORAGE_FAIL_OPEN;
+    }
+
     const limit = status.limit;
-    // Unlimited tier: -1. Quota service unreachable: fail-open sentinel
-    // returns limit: -1 too. Either way, no enforcement.
+    // Genuine unlimited storage (-1) → no enforcement, allow.
     if (typeof limit !== 'number' || limit < 0) return false;
 
     const usage = await computeStorageUsage(`${ORG_NAMESPACE_PREFIX}${orgId}/`);
+    // Under-counted scan → we can't prove the org is under budget. Inconclusive
+    // → deny by default rather than allow a possibly-over-cap push.
+    if (usage.incomplete) {
+      logger.warn('PUSH_GATE_USAGE_INCOMPLETE', { orgId, usageBytes: usage.bytes, limitBytes: limit });
+      return !STORAGE_FAIL_OPEN;
+    }
     if (usage.bytes >= limit) {
       logger.warn('PUSH_DENIED_OVER_QUOTA', {
         orgId, usageBytes: usage.bytes, limitBytes: limit,
@@ -278,9 +302,10 @@ async function isStorageOverBudget(orgId: string): Promise<boolean> {
     }
     return false;
   } catch (err) {
-    logger.warn('Storage-budget check failed; fail-open', {
-      orgId, error: err instanceof Error ? err.message: String(err),
+    // Unexpected failure in the gate itself → fail closed by default.
+    logger.warn('Storage-budget check failed', {
+      orgId, failOpen: STORAGE_FAIL_OPEN, error: err instanceof Error ? err.message: String(err),
     });
-    return false;
+    return !STORAGE_FAIL_OPEN;
   }
 }

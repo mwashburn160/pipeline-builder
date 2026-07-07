@@ -21,6 +21,17 @@ function requireSecret(envVar: string, name: string): string {
 }
 
 /**
+ * Per-tier quota reset period, overridable via `QUOTA_TIER_<TIER>_RESET_PERIOD`
+ * (a single duration string applied to every quota type). Defaults: `3days`
+ * for developer/pro, `30days` for team/enterprise.
+ * @internal
+ */
+function tierResetPeriod(tier: QuotaTier, fallback: string): { plugins: string; pipelines: string; apiCalls: string; aiCalls: string } {
+  const p = process.env[`QUOTA_TIER_${tier.toUpperCase()}_RESET_PERIOD`] || fallback;
+  return { plugins: p, pipelines: p, apiCalls: p, aiCalls: p };
+}
+
+/**
  * Validate that `SECRET_ENCRYPTION_KEY` is set. AI provider keys and IdP
  * client secrets are encrypted at rest; the read paths no longer have a
  * clear-text fallback. Refuse to boot in production when this env is
@@ -124,7 +135,8 @@ export const config = {
     tierMultipliers: {
       developer: parseFloat(process.env.LIMITER_MULT_DEVELOPER || '1'),
       pro: parseFloat(process.env.LIMITER_MULT_PRO || '10'),
-      unlimited: parseFloat(process.env.LIMITER_MULT_UNLIMITED || '50'),
+      team: parseFloat(process.env.LIMITER_MULT_TEAM || '25'),
+      enterprise: parseFloat(process.env.LIMITER_MULT_ENTERPRISE || '50'),
     } as Record<QuotaTier, number>,
     auth: {
       max: parseInt(process.env.AUTH_LIMITER_MAX || '20', 10),
@@ -285,15 +297,19 @@ export const config = {
     tier: {
       developer: {
         ...QUOTA_TIERS.developer.limits,
-        resetPeriod: { plugins: '3days', pipelines: '3days', apiCalls: '3days', aiCalls: '3days' },
+        resetPeriod: tierResetPeriod('developer', '3days'),
       },
       pro: {
         ...QUOTA_TIERS.pro.limits,
-        resetPeriod: { plugins: '3days', pipelines: '3days', apiCalls: '3days', aiCalls: '3days' },
+        resetPeriod: tierResetPeriod('pro', '3days'),
       },
-      unlimited: {
-        ...QUOTA_TIERS.unlimited.limits,
-        resetPeriod: { plugins: '30days', pipelines: '30days', apiCalls: '30days', aiCalls: '30days' },
+      team: {
+        ...QUOTA_TIERS.team.limits,
+        resetPeriod: tierResetPeriod('team', '30days'),
+      },
+      enterprise: {
+        ...QUOTA_TIERS.enterprise.limits,
+        resetPeriod: tierResetPeriod('enterprise', '30days'),
       },
     },
   },
