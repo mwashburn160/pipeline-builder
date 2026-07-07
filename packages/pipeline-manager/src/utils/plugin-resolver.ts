@@ -97,10 +97,10 @@ export async function resolvePluginsForProps(
       // deploy-time resolution even though the catalog had the plugin.
       const data = (res as { data?: unknown }).data;
       const plugin =
-        (data as { plugin?: unknown } | undefined)?.plugin   // { data: { plugin } }
-        ?? (res as { plugin?: unknown }).plugin              // { plugin }
-        ?? data                                              // { data: Plugin }
-        ?? res;                                              // bare Plugin
+        (data as { plugin?: unknown } | undefined)?.plugin // { data: { plugin } }
+        ?? (res as { plugin?: unknown }).plugin // { plugin }
+        ?? data // { data: Plugin }
+        ?? res; // bare Plugin
       if (plugin && typeof plugin === 'object' && (plugin as { name?: string }).name) {
         resolved[key] = plugin;
       } else {

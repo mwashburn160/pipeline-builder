@@ -10,8 +10,8 @@
 
 import { spawn } from 'child_process';
 import axios from 'axios';
-import { httpsAgentForUrl } from '../utils/tls.js';
 import type { TargetId } from './targets.js';
+import { httpsAgentForUrl } from '../utils/tls.js';
 
 export interface HealthResult {
   readonly url: string;

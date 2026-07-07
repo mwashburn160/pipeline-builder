@@ -7,11 +7,11 @@
  * (they previously kept near-duplicate copies that could drift).
  */
 
-import type { Pipeline } from '../types/pipeline.js';
 import type { ApiClient } from './api-client.js';
 import { extractSingleResponse, printInfo } from './output-utils.js';
 import { resolvePluginsForProps } from './plugin-resolver.js';
 import { bakePlatformRegistry } from './registry.js';
+import type { Pipeline } from '../types/pipeline.js';
 
 export interface FetchedPipeline {
   /** The raw pipeline record (id/org/project/flags) as returned by the platform. */

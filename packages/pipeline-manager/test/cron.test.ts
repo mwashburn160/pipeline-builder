@@ -36,22 +36,22 @@ describe('toEventBridgeCron — 5-field → EventBridge', () => {
 
 describe('assertScheduleInterval — 15-minute guard', () => {
   it.each([
-    '* * * * *',     // every minute
-    '*/5 * * * *',   // every 5 minutes
-    '*/14 * * * *',  // every 14 minutes
-    '0,10 * * * *',  // 10-minute gap
-    '0,50 * * * *',  // 50 then 10 (cyclic) → 10-minute gap
+    '* * * * *', // every minute
+    '*/5 * * * *', // every 5 minutes
+    '*/14 * * * *', // every 14 minutes
+    '0,10 * * * *', // 10-minute gap
+    '0,50 * * * *', // 50 then 10 (cyclic) → 10-minute gap
   ])('rejects sub-15-minute schedule: %s', (expr) => {
     expect(() => assertScheduleInterval(expr)).toThrow(/minimum is 15/);
   });
 
   it.each([
-    '0 0 * * *',     // daily
-    '*/15 * * * *',  // exactly 15
-    '*/30 * * * *',  // 30
-    '0 * * * *',     // hourly
-    '0,30 * * * *',  // 30-minute gap
-    '0,45 * * * *',  // gaps 45 and 15 → ok
+    '0 0 * * *', // daily
+    '*/15 * * * *', // exactly 15
+    '*/30 * * * *', // 30
+    '0 * * * *', // hourly
+    '0,30 * * * *', // 30-minute gap
+    '0,45 * * * *', // gaps 45 and 15 → ok
   ])('allows >=15-minute schedule: %s', (expr) => {
     expect(() => assertScheduleInterval(expr)).not.toThrow();
   });

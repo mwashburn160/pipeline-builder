@@ -4,8 +4,8 @@
 import https from 'https';
 import axios, { type AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
-import { type Config } from './config-loader.js';
 import { decodeTokenPayload } from './auth-guard.js';
+import { type Config } from './config-loader.js';
 import { NetworkError } from './error-handler.js';
 import { printDebug, printError, printWarning } from './output-utils.js';
 import { TIMEOUTS } from '../config/cli.constants.js';

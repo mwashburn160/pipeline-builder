@@ -50,6 +50,18 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // pipeline-core's barrel imports this (createServiceClient); link-time stub.
     InternalHttpClient: class {},
     SYSTEM_ORG_ID: 'system',
+    // pipeline-core's billing-config imports QUOTA_TIERS at module load (derives
+    // marketing copy from each tier's limits), so the transitively-loaded graph
+    // needs these tier exports or ESM linking against the mock throws.
+    QUOTA_TIERS: {
+      developer: { label: 'Developer', limits: { seats: 1, plugins: 50, pipelines: 5, apiCalls: 25000, aiCalls: 50 } },
+      pro: { label: 'Pro', limits: { seats: 3, plugins: 500, pipelines: 50, apiCalls: 500000, aiCalls: 2500 } },
+      team: { label: 'Team', limits: { seats: 10, plugins: 2000, pipelines: 200, apiCalls: -1, aiCalls: 10000 } },
+      enterprise: { label: 'Enterprise', limits: { seats: -1, plugins: 5000, pipelines: 500, apiCalls: -1, aiCalls: 25000 } },
+    },
+    DEFAULT_TIER: 'developer',
+    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

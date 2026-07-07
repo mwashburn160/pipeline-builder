@@ -74,7 +74,7 @@ export function assertScheduleInterval(fiveField: string): void {
   if (minGap < MIN_SCHEDULE_INTERVAL_MIN) {
     throw new Error(
       `Schedule "${fiveField}" fires every ${minGap} minute(s); the minimum is ${MIN_SCHEDULE_INTERVAL_MIN}. ` +
-      `Use a sparser schedule (e.g. "0 0 * * *" for daily, "*/15 * * * *" for the densest allowed).`,
+      'Use a sparser schedule (e.g. "0 0 * * *" for daily, "*/15 * * * *" for the densest allowed).',
     );
   }
 }

@@ -125,10 +125,12 @@ describe('resolvePluginsForProps — lookup filter carries the plugin name', () 
     const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
     await resolvePluginsForProps(client, {
       synth: { plugin: { name: 'cdk-synth', alias: 'BuildSynth' } },
-      stages: [{ steps: [
-        { plugin: { name: 'java-corretto', filter: { isActive: true, isDefault: true } } },
-        { plugin: { name: 'semgrep', filter: { isActive: true, isDefault: true } } },
-      ] }],
+      stages: [{
+        steps: [
+          { plugin: { name: 'java-corretto', filter: { isActive: true, isDefault: true } } },
+          { plugin: { name: 'semgrep', filter: { isActive: true, isDefault: true } } },
+        ],
+      }],
     });
     expect(new Set(sent.map(f => f.name))).toEqual(new Set(['cdk-synth', 'java-corretto', 'semgrep']));
     expect(sent.every(f => typeof f.name === 'string' && f.name.length > 0)).toBe(true);
