@@ -60,8 +60,9 @@ export function OrgSwitcher({ className = '', collapsed = false }: OrgSwitcherPr
 
   const activeOrg = organizations.find(o => o.id === user.organizationId);
 
-  // Only show switcher when user has multiple orgs
-  if (organizations.length <= 1) return null;
+  // Always render the current-org context (so it's easy to locate); it only
+  // becomes an interactive dropdown once the user belongs to 2+ orgs.
+  const canSwitch = organizations.length > 1;
 
   const activeIsTeam = !!activeOrg?.parentOrgId;
   const activeName = activeOrg?.name || user.organizationName || 'Select org';
@@ -84,7 +85,7 @@ export function OrgSwitcher({ className = '', collapsed = false }: OrgSwitcherPr
   };
 
   // Shared dropdown menu (same content for both collapsed and expanded modes).
-  const menu = open && (
+  const menu = open && canSwitch && (
     <div
       className={`absolute z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden ${
         collapsed ? 'left-full top-0 ml-2 w-60' : 'left-0 right-0 top-full mt-1.5'
@@ -129,17 +130,19 @@ export function OrgSwitcher({ className = '', collapsed = false }: OrgSwitcherPr
   if (collapsed) {
     return (
       <div ref={ref} className={`relative flex justify-center ${className}`}>
-        <Tooltip content={`Organization: ${activeName} — click to switch`}>
+        <Tooltip content={canSwitch ? `Organization: ${activeName} — click to switch` : `Organization: ${activeName}`}>
           <button
             type="button"
-            onClick={() => setOpen(!open)}
-            aria-label="Switch organization"
-            aria-haspopup="menu"
-            aria-expanded={open}
-            className="relative flex items-center justify-center w-10 h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 hover:border-blue-400 dark:hover:border-blue-600 transition-colors"
+            onClick={() => canSwitch && setOpen(!open)}
+            aria-label={canSwitch ? 'Switch organization' : `Organization: ${activeName}`}
+            aria-haspopup={canSwitch ? 'menu' : undefined}
+            aria-expanded={canSwitch ? open : undefined}
+            className={`relative flex items-center justify-center w-10 h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 transition-colors ${
+              canSwitch ? 'hover:border-blue-400 dark:hover:border-blue-600 cursor-pointer' : 'cursor-default'
+            }`}
           >
             <Building2 className="w-5 h-5" />
-            <ChevronsUpDown className="w-3 h-3 text-gray-400 absolute -bottom-0.5 -right-0.5 bg-white dark:bg-gray-900 rounded-full" />
+            {canSwitch && <ChevronsUpDown className="w-3 h-3 text-gray-400 absolute -bottom-0.5 -right-0.5 bg-white dark:bg-gray-900 rounded-full" />}
           </button>
         </Tooltip>
         {menu}
@@ -154,11 +157,13 @@ export function OrgSwitcher({ className = '', collapsed = false }: OrgSwitcherPr
     <div ref={ref} className={`relative ${className}`}>
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        aria-label="Switch organization"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="group flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/60 hover:bg-white dark:hover:bg-gray-800 hover:border-blue-300 dark:hover:border-blue-700 shadow-sm transition-colors"
+        onClick={() => canSwitch && setOpen(!open)}
+        aria-label={canSwitch ? 'Switch organization' : `Organization: ${activeName}`}
+        aria-haspopup={canSwitch ? 'menu' : undefined}
+        aria-expanded={canSwitch ? open : undefined}
+        className={`group flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/60 shadow-sm transition-colors ${
+          canSwitch ? 'hover:bg-white dark:hover:bg-gray-800 hover:border-blue-300 dark:hover:border-blue-700 cursor-pointer' : 'cursor-default'
+        }`}
       >
         <span className="flex items-center justify-center w-8 h-8 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 shrink-0">
           {activeIsTeam ? <Users className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
@@ -171,7 +176,7 @@ export function OrgSwitcher({ className = '', collapsed = false }: OrgSwitcherPr
             {activeName}
           </span>
         </span>
-        <ChevronsUpDown className="w-4 h-4 text-gray-400 group-hover:text-blue-500 shrink-0 transition-colors" />
+        {canSwitch && <ChevronsUpDown className="w-4 h-4 text-gray-400 group-hover:text-blue-500 shrink-0 transition-colors" />}
       </button>
       {menu}
     </div>
