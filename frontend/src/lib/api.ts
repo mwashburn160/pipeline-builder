@@ -906,7 +906,9 @@ class ApiClient {
   // Per-org IdP config (sysadmin only)
   // ============================================
   async getOrgIdpConfig(orgId: string) {
-    return this.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/admin/org-idp/${orgId}`);
+    // `config` is null when the org has no IdP configured (a normal state; the
+    // endpoint returns 200, not 404).
+    return this.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/admin/org-idp/${orgId}`);
   }
 
   async putOrgIdpConfig(orgId: string, data: OrgIdpConfigCreate) {

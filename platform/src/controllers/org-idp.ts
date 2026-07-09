@@ -102,13 +102,15 @@ export const listOrgIdpConfigs = withController('List org IdP configs', async (r
   sendSuccess(res, 200, { configs });
 });
 
-/** GET /api/admin/org-idp/:orgId  read one. */
+/** GET /api/admin/org-idp/:orgId  read one. An org having no IdP config is a
+ *  normal state (most orgs never set one up), so this returns 200 with
+ *  `config: null` rather than 404 — a 404 spammed the console on every
+ *  org-detail load and forced callers to swallow it. */
 export const getOrgIdpConfig = withController('Get org IdP config', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
   const id = String(req.params.orgId);
   const config = await orgIdpService.findByOrg(id);
-  if (!config) return sendError(res, 404, 'IdP config not found for org');
-  sendSuccess(res, 200, { config });
+  sendSuccess(res, 200, { config: config ?? null });
 });
 
 /** PUT /api/admin/org-idp/:orgId  upsert (full body required). */

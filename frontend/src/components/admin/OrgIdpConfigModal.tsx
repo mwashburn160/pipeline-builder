@@ -45,21 +45,25 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
     let cancelled = false;
     api.getOrgIdpConfig(org.id).then((res) => {
       if (cancelled) return;
-      if (res.success && res.data?.config) {
-        const c = res.data.config;
+      if (!res.success) {
+        setError(res.message || 'Failed to load IdP config');
+        return;
+      }
+      // `config: null` = no IdP configured yet (a normal state) — leave the
+      // defaults so the operator gets an empty create form, not an error.
+      const c = res.data?.config;
+      if (c) {
         setExisting(c);
         setProvider(c.provider);
         setClientId(c.clientId);
         setDiscoveryUrl(c.discoveryUrl || '');
         setAllowedEmailDomains((c.allowedEmailDomains || []).join(', '));
         setEnabled(c.enabled);
-      } else {
-        setError(res.message || 'Failed to load IdP config');
       }
     }).catch((err) => {
       if (cancelled) return;
-      // 404 = no config yet; leave defaults so the operator gets an empty
-      // create form rather than a scary error banner.
+      // Legacy safety net: older backends 404'd when no config existed; the
+      // endpoint now returns 200 + `config: null`, but tolerate a 404 too.
       if (err instanceof ApiError && err.statusCode === 404) return;
       setError(err instanceof Error ? err.message : String(err));
     })
