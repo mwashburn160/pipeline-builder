@@ -25,6 +25,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
+  // Admins/owners keep 'public'; everyone else is coerced to 'private'.
+  resolveAccessModifier: (req: any, requested: string) =>
+    (requested === 'public' && (req?.user?.role === 'admin' || req?.user?.role === 'owner')) ? 'public' : 'private',
+  isSystemAdmin: (req: any) => req?.user?.isSuperAdmin === true,
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -113,5 +117,29 @@ describe('PUT /plugins/bulk/update — strict update-data whitelist', () => {
       body: { ids: new Array(150).fill('p'), data: { isActive: true } },
     }, res);
     expect(status).toHaveBeenCalledWith(400);
+  });
+});
+
+function getDeleteHandler() {
+  const router = createBulkPluginRoutes();
+  const layer = (router.stack as any[]).find(
+    (l) => l.route?.path === '/bulk/delete' && l.route?.methods?.post,
+  );
+  return layer.route.stack[0].handle;
+}
+
+describe('POST /plugins/bulk/delete — public-plugin access parity', () => {
+  beforeEach(() => { mockBulkDelete.mockReset(); (mockBulkDelete as any).mockResolvedValue([]); });
+
+  it('restricts a non-sysadmin to PRIVATE plugins (restrictToPrivate=true)', async () => {
+    const { res } = makeRes();
+    await getDeleteHandler()({ body: { ids: ['p1'] }, user: { isSuperAdmin: false } }, res);
+    expect(mockBulkDelete).toHaveBeenCalledWith(['p1'], 'org-1', 'u-1', true);
+  });
+
+  it('lets a sysadmin delete public plugins too (restrictToPrivate=false)', async () => {
+    const { res } = makeRes();
+    await getDeleteHandler()({ body: { ids: ['p1'] }, user: { isSuperAdmin: true } }, res);
+    expect(mockBulkDelete).toHaveBeenCalledWith(['p1'], 'org-1', 'u-1', false);
   });
 });

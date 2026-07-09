@@ -1,13 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger } from '@pipeline-builder/api-core';
+import { isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, parsePaginationParams } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
 import { requireAdminContext, withController } from '../helpers/controller-helper.js';
 import { requireAuth, requireServiceAuth } from '../middleware/index.js';
 import { isAuditAction } from '../models/audit-event.js';
 import { auditService, type AuditFilter } from '../services/audit-service.js';
-import { parsePagination } from '../utils/pagination.js';
 
 const logger = createLogger('audit-routes');
 const router = Router();
@@ -37,7 +36,7 @@ router.get('/', requireAuth, withController('List audit events', async (req, res
   const impersonatorId = parseQueryString(req.query.impersonatorId);
   const requestId = parseQueryString(req.query.requestId);
   const outcomeQuery = parseQueryString(req.query.outcome);
-  const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
+  const { offset, limit: limitNum } = parsePaginationParams(req.query);
 
   const filter: AuditFilter = {};
 

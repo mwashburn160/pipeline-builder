@@ -13,6 +13,7 @@
  */
 
 import mongoose from 'mongoose';
+import { toOrgId } from './org-id.js';
 import { Organization, UserOrganization } from '../models/index.js';
 
 export interface ActiveOrgInfo {
@@ -33,8 +34,8 @@ export async function loadActiveOrgInfo(
   if (!activeOrgId) return { organizationName: null };
 
   const [org, membership] = await Promise.all([
-    Organization.findById(activeOrgId).select('name tier').lean(),
-    UserOrganization.findOne({ userId, organizationId: activeOrgId, isActive: true }).lean(),
+    Organization.findById(toOrgId(activeOrgId)).select('name tier').lean(),
+    UserOrganization.findOne({ userId, organizationId: toOrgId(activeOrgId), isActive: true }).lean(),
   ]);
 
   return {

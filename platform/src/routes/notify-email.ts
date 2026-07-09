@@ -15,6 +15,7 @@
 
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
+import { toOrgId } from '../helpers/org-id.js';
 import { requireServiceAuth } from '../middleware/index.js';
 import { User, UserOrganization } from '../models/index.js';
 import { emailService } from '../utils/email.js';
@@ -28,7 +29,7 @@ const router = Router();
  *  Membership is filtered in JS (orgs are small and this only runs when email
  *  is enabled), which avoids Mongoose's strict union typing on `$in`. */
 async function resolveRecipientEmails(orgId: string, targetUsers: string[] | null): Promise<string[]> {
-  const memberships = await UserOrganization.find({ organizationId: orgId, isActive: true }).lean();
+  const memberships = await UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true }).lean();
 
   const wanted = targetUsers && targetUsers.length > 0
     ? memberships.filter((m) => targetUsers.includes(String(m.userId)))

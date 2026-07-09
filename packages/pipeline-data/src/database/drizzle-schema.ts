@@ -509,7 +509,7 @@ export type RuleOperator =
   | 'regex'
   | 'gt' | 'gte' | 'lt' | 'lte'
   | 'in' | 'notIn'
-  | 'exists' | 'notExists'
+  | 'exists' | 'notExists' | 'notEmpty'
   | 'countGt' | 'countLt'
   | 'lengthGt' | 'lengthLt';
 

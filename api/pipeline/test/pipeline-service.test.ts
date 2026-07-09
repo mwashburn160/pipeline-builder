@@ -27,6 +27,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_ENTITY: 60 },
     buildPipelineConditions: jest.fn(() => []),
+    getTenantContext: jest.fn(() => undefined),
     schema: {
       pipeline: {
         id: 'id',

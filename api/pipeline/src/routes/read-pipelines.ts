@@ -4,7 +4,6 @@
 import {
   getParam,
   ErrorCode,
-  requirePublicAccess,
   sendBadRequest,
   sendSuccess,
   sendPaginatedNested,
@@ -80,11 +79,13 @@ export function createReadPipelineRoutes(
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
+    // findById applies the READ access clause (own private + public + system-org
+    // samples), so no extra public-access gate is needed here — and adding one
+    // would 403 non-sysadmins on the system-org sample pipelines that list
+    // returns (system-org content is visible from any org).
     const result = await pipelineService.findById(id, orgId);
 
     if (!result) return sendEntityNotFound(res, 'Pipeline');
-
-    if (!requirePublicAccess(req, res, result)) return;
 
     ctx.log('COMPLETED', 'Retrieved pipeline', { id: result.id, name: result.pipelineName });
     incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');

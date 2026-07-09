@@ -9,6 +9,14 @@ export interface MarketplaceConfig {
   snsTopicArn: string;
   /** Map of AWS Marketplace dimension names to local plan IDs. */
   dimensionToPlanMap: Record<string, string>;
+  /**
+   * Map of local add-on bundle IDs → AWS Marketplace METERED dimension keys
+   * (the dimensions registered on the product listing, e.g. `seat_pack` →
+   * `seats`). Used by BatchMeterUsage to report add-on consumption for
+   * Marketplace-billed accounts. Empty until the listing's metered dimensions
+   * are configured — an unmapped bundle is skipped (not metered).
+   */
+  bundleToDimensionMap: Record<string, string>;
 }
 
 export interface StripeConfig {
@@ -29,18 +37,34 @@ export interface AppConfig {
     host: string;
     port: number;
   };
+  platformService: {
+    host: string;
+    port: number;
+  };
   messageService: {
     host: string;
     port: number;
   };
   marketplace: MarketplaceConfig;
   stripe: StripeConfig;
+  /** Public frontend base URL — the fallback return target for the Stripe billing
+   *  portal when the request carries no Origin header (`PLATFORM_FRONTEND_URL`). */
+  frontendUrl: string;
   /** Grace period in days before downgrading on payment failure (default 7). */
   paymentGracePeriodDays: number;
   /** Days before renewal to send a reminder notification (default 7). */
   renewalReminderDays: number;
   /** Interval in ms for the subscription lifecycle checker (default 1 hour). */
   lifecycleCheckIntervalMs: number;
+  /**
+   * Whether the AWS Marketplace add-on metering job runs (BatchMeterUsage). Off
+   * by default — enable only once the listing's metered dimensions are
+   * registered and `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` matches them.
+   */
+  meteringEnabled: boolean;
+  /** Interval in ms for the Marketplace add-on metering job (default 1 hour). AWS
+   *  dedupes BatchMeterUsage records by (customer, dimension, hour). */
+  meteringIntervalMs: number;
 }
 
 /** Safely parse a JSON env var, falling back to a default on parse error. */
@@ -75,6 +99,11 @@ export const config: AppConfig = {
     port: parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10),
   },
 
+  platformService: {
+    host: process.env.PLATFORM_SERVICE_HOST || 'platform',
+    port: parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
+  },
+
   messageService: {
     host: process.env.MESSAGE_SERVICE_HOST || 'message',
     port: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
@@ -83,6 +112,9 @@ export const config: AppConfig = {
   paymentGracePeriodDays: parseInt(process.env.PAYMENT_GRACE_PERIOD_DAYS || '7', 10),
   renewalReminderDays: parseInt(process.env.RENEWAL_REMINDER_DAYS || '7', 10),
   lifecycleCheckIntervalMs: parseInt(process.env.BILLING_LIFECYCLE_CHECK_INTERVAL_MS || '3600000', 10),
+  meteringEnabled: (process.env.BILLING_METERING_ENABLED || '').toLowerCase() === 'true',
+  meteringIntervalMs: parseInt(process.env.BILLING_METERING_INTERVAL_MS || '3600000', 10),
+  frontendUrl: process.env.PLATFORM_FRONTEND_URL || '',
 
   marketplace: {
     productCode: process.env.AWS_MARKETPLACE_PRODUCT_CODE || '',
@@ -92,6 +124,23 @@ export const config: AppConfig = {
       process.env.AWS_MARKETPLACE_DIMENSION_MAP,
       { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },
       'AWS_MARKETPLACE_DIMENSION_MAP',
+    ),
+    bundleToDimensionMap: safeJsonParse(
+      process.env.AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP,
+      // Default: dimension key == bundle ID (a metered quantity of "packs
+      // purchased"). Register these dimensions on the listing, or override this
+      // map to translate bundle IDs → the listing's actual dimension names.
+      {
+        seat_pack: 'seat_pack',
+        pipeline_pack: 'pipeline_pack',
+        plugin_pack: 'plugin_pack',
+        api_pack: 'api_pack',
+        ai_pack: 'ai_pack',
+        storage_pack: 'storage_pack',
+        audit_log: 'audit_log',
+        sso: 'sso',
+      } as Record<string, string>,
+      'AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP',
     ),
   },
   stripe: {

@@ -117,7 +117,7 @@ export function tokenize(source: string): Token[] {
         path: expr.path,
         defaultValue: expr.defaultValue,
         coerce: expr.coerce,
-        source: source.slice(exprPos.col - 1 === 0 ? i - 2 : (() => { return i - 2; })(), expr.endIdx),
+        source: source.slice(i - 2, expr.endIdx),
         pos: exprPos,
       });
       advance(expr.endIdx - i);

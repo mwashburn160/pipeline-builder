@@ -264,9 +264,11 @@ function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: stri
         const fetchOne = async (t: string) => {
           try {
             const m = await api.getImageManifest(repo, t);
-            // Exclude the active tag — the panel lists *other* tags
-            // pointing to the same digest.
-            if (m.data?.digest === digest && t !== activeTag) found.push(t);
+            // Collect ALL tags on this digest here; the active tag is filtered
+            // out at render (see `displayTags`). Keeping the scan independent of
+            // `activeTag` avoids re-running the whole 50-tag scan on every tag
+            // selection (the N+1).
+            if (m.data?.digest === digest) found.push(t);
           } catch {
             // skip
           }
@@ -290,13 +292,16 @@ function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: stri
       }
     })();
     return () => { cancelled = true; };
-  }, [repo, digest, activeTag]);
+  }, [repo, digest]);
 
-  // Auto-open when other tags share this digest (active tag is excluded
-  // from `tags`). Manual toggle overrides.
-  const autoOpen = !!tags && tags.length > 0;
+  // The scanned set includes the active tag; exclude it for display (this only
+  // re-filters — it does NOT re-scan — when the selected tag changes).
+  const displayTags = tags?.filter((t) => t !== activeTag) ?? null;
+
+  // Auto-open when other tags share this digest. Manual toggle overrides.
+  const autoOpen = !!displayTags && displayTags.length > 0;
   const isOpen = manualOpen ?? autoOpen;
-  const sharedCount = tags?.length ?? 0;
+  const sharedCount = displayTags?.length ?? 0;
 
   return (
     <Disclosure
@@ -321,12 +326,12 @@ function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: stri
           Scanning… {scannedCount}/{Math.min(totalCount, 50)} tag(s) checked
         </div>
       )}
-      {!scanning && tags && tags.length === 0 && (
+      {!scanning && displayTags && displayTags.length === 0 && (
         <div className="text-xs text-gray-500">No other tags share this digest{totalCount > 50 ? ' (scan capped at 50 — repo has more)' : ''}.</div>
       )}
-      {!scanning && tags && tags.length > 0 && (
+      {!scanning && displayTags && displayTags.length > 0 && (
         <ul className="font-mono text-xs space-y-0.5">
-          {tags.map((t) => <li key={t}>{t}</li>)}
+          {displayTags.map((t) => <li key={t}>{t}</li>)}
           {totalCount > 50 && <li className="italic text-gray-500">…and {totalCount - 50} tag(s) not scanned</li>}
         </ul>
       )}

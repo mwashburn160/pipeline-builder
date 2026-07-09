@@ -170,7 +170,15 @@ export class KmsKeyProvider implements KeyProvider {
     if (!this.decryptInFlight) {
       this.decryptInFlight = this.fetchAndDecrypt();
     }
-    this.masterKeyCache = await this.decryptInFlight;
+    try {
+      this.masterKeyCache = await this.decryptInFlight;
+    } catch (err) {
+      // A transient KMS failure must not permanently poison the provider: clear
+      // the rejected in-flight promise so a later warmup() retries instead of
+      // re-awaiting the same rejection forever (matches PerOrgKmsKeyProvider).
+      this.decryptInFlight = null;
+      throw err;
+    }
   }
 
   private async fetchAndDecrypt(): Promise<Buffer> {

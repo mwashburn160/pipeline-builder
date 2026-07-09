@@ -19,6 +19,8 @@ interface OrgInfo {
   name: string;
   slug?: string;
   tier?: string;
+  /** Account-level feature entitlements (e.g. add-on bundle grants). */
+  featureEntitlements?: string[];
 }
 
 interface MembershipInfo {
@@ -65,11 +67,11 @@ class UserProfileService {
     const memberships = await UserOrganization.find({ userId: user._id }).lean();
     const orgIds = memberships.map(m => m.organizationId);
     const orgs = orgIds.length > 0
-      ? await Organization.find({ _id: { $in: orgIds } }).select('_id name slug tier').lean()
+      ? await Organization.find({ _id: { $in: orgIds } }).select('_id name slug tier featureEntitlements').lean()
       : [];
 
     const orgMap = new Map<string, OrgInfo>(
-      orgs.map(o => [o._id.toString(), { id: o._id.toString(), name: o.name, slug: o.slug, tier: o.tier }]),
+      orgs.map(o => [o._id.toString(), { id: o._id.toString(), name: o.name, slug: o.slug, tier: o.tier, featureEntitlements: o.featureEntitlements }]),
     );
 
     return { user: user as never, memberships, orgMap };

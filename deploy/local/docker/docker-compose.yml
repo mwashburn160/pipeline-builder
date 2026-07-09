@@ -145,7 +145,7 @@ services:
   # Databases
   # ---------------------------------------------------------------------------
   mongodb:
-    image: 'mongo:8.0'
+    image: 'mongo:8.3.4'
     container_name: mongodb
     restart: always
     stop_grace_period: 15s
@@ -476,7 +476,7 @@ services:
   buildkitd:
     # v0.30.0 (was v0.16.0): newer runc reaper avoids the hot
     # "container not running" retry loop on killed build containers.
-    image: 'moby/buildkit:v0.30.0-rootless'
+    image: 'moby/buildkit:v0.31.1-rootless'
     container_name: buildkitd
     restart: always
     stop_grace_period: 5s
@@ -587,6 +587,11 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env]
       SERVICE_NAME: reporting
+      # Event-ingest auth: when 'false', /reports/events REQUIRES a
+      # reporting:ingest-scoped token (reject any other). Leave unset/true during
+      # rollout, then set false once the ingestion Lambda is re-provisioned with
+      # `store-token --scope reporting:ingest`.
+      REPORTING_INGEST_ALLOW_LEGACY: ${REPORTING_INGEST_ALLOW_LEGACY:-true}
     networks:
       - backend-network
     depends_on:
@@ -771,6 +776,13 @@ services:
       BILLING_ENABLED: ${BILLING_ENABLED:-true}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
+      # Platform service — billing pushes seat limits + entitlements and reads
+      # pooled seat usage here (two-target entitlement fan-out + over-cap gate).
+      PLATFORM_SERVICE_HOST: ${PLATFORM_SERVICE_HOST:-platform}
+      PLATFORM_SERVICE_PORT: ${PLATFORM_SERVICE_PORT:-3000}
+      # Fallback return URL for the Stripe billing portal (the request Origin is
+      # preferred; this is used only when it's absent).
+      PLATFORM_FRONTEND_URL: ${PLATFORM_FRONTEND_URL:-https://localhost:8443}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
       # Billing provider (stub | aws-marketplace)
@@ -780,6 +792,11 @@ services:
       AWS_MARKETPLACE_REGION: ${AWS_MARKETPLACE_REGION:-us-east-1}
       AWS_MARKETPLACE_SNS_TOPIC_ARN: ${AWS_MARKETPLACE_SNS_TOPIC_ARN:-}
       AWS_MARKETPLACE_DIMENSION_MAP: ${AWS_MARKETPLACE_DIMENSION_MAP:-}
+      AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP: ${AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP:-}
+      # Marketplace add-on metering (BatchMeterUsage). Off by default; enable only
+      # once the listing's metered dimensions match the bundle-dimension map.
+      BILLING_METERING_ENABLED: ${BILLING_METERING_ENABLED:-false}
+      BILLING_METERING_INTERVAL_MS: ${BILLING_METERING_INTERVAL_MS:-3600000}
       # Plan pricing
       BILLING_PLAN_DEVELOPER_MONTHLY: ${BILLING_PLAN_DEVELOPER_MONTHLY:-0}
       BILLING_PLAN_DEVELOPER_ANNUAL: ${BILLING_PLAN_DEVELOPER_ANNUAL:-0}
@@ -804,6 +821,42 @@ services:
       BILLING_PLAN_PRO_FEATURES: ${BILLING_PLAN_PRO_FEATURES:-}
       BILLING_PLAN_TEAM_FEATURES: ${BILLING_PLAN_TEAM_FEATURES:-}
       BILLING_PLAN_ENTERPRISE_FEATURES: ${BILLING_PLAN_ENTERPRISE_FEATURES:-}
+      # Add-on bundles (docs/billing-bundles.md) — off by default
+      BILLING_BUNDLES_ENABLED: ${BILLING_BUNDLES_ENABLED:-false}
+      # Per-bundle price (cents) + single-dimension grant overrides. Defaults
+      # live in packages/pipeline-core billing-config; unset = default.
+      BILLING_BUNDLE_SEAT_PACK_MONTHLY: ${BILLING_BUNDLE_SEAT_PACK_MONTHLY:-}
+      BILLING_BUNDLE_SEAT_PACK_ANNUAL: ${BILLING_BUNDLE_SEAT_PACK_ANNUAL:-}
+      BILLING_BUNDLE_SEAT_PACK_GRANT: ${BILLING_BUNDLE_SEAT_PACK_GRANT:-}
+      BILLING_BUNDLE_PIPELINE_PACK_MONTHLY: ${BILLING_BUNDLE_PIPELINE_PACK_MONTHLY:-}
+      BILLING_BUNDLE_PIPELINE_PACK_ANNUAL: ${BILLING_BUNDLE_PIPELINE_PACK_ANNUAL:-}
+      BILLING_BUNDLE_PIPELINE_PACK_GRANT: ${BILLING_BUNDLE_PIPELINE_PACK_GRANT:-}
+      BILLING_BUNDLE_PLUGIN_PACK_MONTHLY: ${BILLING_BUNDLE_PLUGIN_PACK_MONTHLY:-}
+      BILLING_BUNDLE_PLUGIN_PACK_ANNUAL: ${BILLING_BUNDLE_PLUGIN_PACK_ANNUAL:-}
+      BILLING_BUNDLE_PLUGIN_PACK_GRANT: ${BILLING_BUNDLE_PLUGIN_PACK_GRANT:-}
+      BILLING_BUNDLE_API_PACK_MONTHLY: ${BILLING_BUNDLE_API_PACK_MONTHLY:-}
+      BILLING_BUNDLE_API_PACK_ANNUAL: ${BILLING_BUNDLE_API_PACK_ANNUAL:-}
+      BILLING_BUNDLE_API_PACK_GRANT: ${BILLING_BUNDLE_API_PACK_GRANT:-}
+      BILLING_BUNDLE_AI_PACK_MONTHLY: ${BILLING_BUNDLE_AI_PACK_MONTHLY:-}
+      BILLING_BUNDLE_AI_PACK_ANNUAL: ${BILLING_BUNDLE_AI_PACK_ANNUAL:-}
+      BILLING_BUNDLE_AI_PACK_GRANT: ${BILLING_BUNDLE_AI_PACK_GRANT:-}
+      BILLING_BUNDLE_STORAGE_PACK_MONTHLY: ${BILLING_BUNDLE_STORAGE_PACK_MONTHLY:-}
+      BILLING_BUNDLE_STORAGE_PACK_ANNUAL: ${BILLING_BUNDLE_STORAGE_PACK_ANNUAL:-}
+      BILLING_BUNDLE_STORAGE_PACK_GRANT: ${BILLING_BUNDLE_STORAGE_PACK_GRANT:-}
+      BILLING_BUNDLE_AUDIT_LOG_MONTHLY: ${BILLING_BUNDLE_AUDIT_LOG_MONTHLY:-}
+      BILLING_BUNDLE_AUDIT_LOG_ANNUAL: ${BILLING_BUNDLE_AUDIT_LOG_ANNUAL:-}
+      BILLING_BUNDLE_SSO_MONTHLY: ${BILLING_BUNDLE_SSO_MONTHLY:-}
+      BILLING_BUNDLE_SSO_ANNUAL: ${BILLING_BUNDLE_SSO_ANNUAL:-}
+      # Per-bundle purchasable-tier overrides (JSON arrays). Capacity packs
+      # default to all tiers; feature/rate packs are tier-scoped.
+      BILLING_BUNDLE_SEAT_PACK_TIERS: ${BILLING_BUNDLE_SEAT_PACK_TIERS:-}
+      BILLING_BUNDLE_PIPELINE_PACK_TIERS: ${BILLING_BUNDLE_PIPELINE_PACK_TIERS:-}
+      BILLING_BUNDLE_PLUGIN_PACK_TIERS: ${BILLING_BUNDLE_PLUGIN_PACK_TIERS:-}
+      BILLING_BUNDLE_API_PACK_TIERS: ${BILLING_BUNDLE_API_PACK_TIERS:-}
+      BILLING_BUNDLE_AI_PACK_TIERS: ${BILLING_BUNDLE_AI_PACK_TIERS:-}
+      BILLING_BUNDLE_STORAGE_PACK_TIERS: ${BILLING_BUNDLE_STORAGE_PACK_TIERS:-}
+      BILLING_BUNDLE_AUDIT_LOG_TIERS: ${BILLING_BUNDLE_AUDIT_LOG_TIERS:-}
+      BILLING_BUNDLE_SSO_TIERS: ${BILLING_BUNDLE_SSO_TIERS:-}
       # Message service (for notifications)
       MESSAGE_SERVICE_HOST: ${MESSAGE_SERVICE_HOST:-message}
       MESSAGE_SERVICE_PORT: ${MESSAGE_SERVICE_PORT:-3000}
@@ -826,7 +879,7 @@ services:
   # Admin UIs
   # ---------------------------------------------------------------------------
   mongo-express:
-    image: 'mongo-express:1.0'
+    image: 'mongo-express:1.0.2'
     container_name: mongo-express
     restart: always
     ports:
@@ -953,7 +1006,7 @@ services:
   # the native /dashboard/observability page.
   # ---------------------------------------------------------------------------
   prometheus:
-    image: 'prom/prometheus:v3.12.0'
+    image: 'prom/prometheus:v3.13.0'
     container_name: prometheus
     restart: always
     command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.retention.time=7d']
@@ -986,7 +1039,7 @@ services:
   # silently. That's the intended degraded behavior; the alerts still
   # land in Alertmanager's UI / API.
   alertmanager:
-    image: 'prom/alertmanager:v0.32.2'
+    image: 'prom/alertmanager:v0.33.1'
     container_name: alertmanager
     restart: always
     command:

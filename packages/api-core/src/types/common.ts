@@ -180,6 +180,13 @@ export interface JwtPayload {
   tier?: string;
   /** Resolved feature flags for this user/org */
   features?: string[];
+  /**
+   * Narrow capability scope for machine/automation tokens (e.g.
+   * `'reporting:ingest'`). Absent on normal interactive user tokens. Endpoints
+   * that accept a scoped identity check this (see `hasScope`) instead of role;
+   * a scoped token is minted with minimal role for least-privilege.
+   */
+  scope?: string;
   /** Active organization ID (from UserOrganization membership) */
   organizationId?: string;
   /** Active organization name */

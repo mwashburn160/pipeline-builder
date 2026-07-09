@@ -3,9 +3,9 @@
 
 import {
   buildComplianceScanConditions,
-  db,
   drizzleCount,
   schema,
+  withTenantTx,
 } from '@pipeline-builder/pipeline-core';
 import { and, desc, eq, sql } from 'drizzle-orm';
 
@@ -21,32 +21,36 @@ class ComplianceScanService {
     const conditions = buildComplianceScanConditions(filter, orgId);
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceScan)
-      .where(whereClause)
-      .then(r => drizzleCount(r));
+    // withTenantTx sets `app.org_id` for RLS (bare `db` → null GUC → zero rows
+    // once the table is FORCE'd). Both queries share one tx.
+    return withTenantTx(async (tx) => {
+      const [countResult] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.complianceScan)
+        .where(whereClause)
+        .then(r => drizzleCount(r));
 
-    const scans = await db
-      .select()
-      .from(schema.complianceScan)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceScan.createdAt))
-      .limit(limit)
-      .offset(offset);
+      const scans = await tx
+        .select()
+        .from(schema.complianceScan)
+        .where(whereClause)
+        .orderBy(desc(schema.complianceScan.createdAt))
+        .limit(limit)
+        .offset(offset);
 
-    return { scans, total: countResult?.count ?? 0 };
+      return { scans, total: countResult?.count ?? 0 };
+    });
   }
 
   /** Single scan by id, scoped to org. Returns null on miss. */
   async findById(id: string, orgId: string) {
-    const [scan] = await db
+    const [scan] = await withTenantTx(async (tx) => tx
       .select()
       .from(schema.complianceScan)
       .where(and(
         eq(schema.complianceScan.id, id),
         eq(schema.complianceScan.orgId, orgId),
-      ));
+      )));
     return scan ?? null;
   }
 
@@ -65,7 +69,7 @@ class ComplianceScanService {
     const filter = rawFilter ? { ...rawFilter, orgId } : null;
     const triggeredBy = isDryRun ? 'rule-dry-run' : 'manual';
 
-    const [scan] = await db
+    const [scan] = await withTenantTx(async (tx) => tx
       .insert(schema.complianceScan)
       .values({
         orgId,
@@ -75,13 +79,13 @@ class ComplianceScanService {
         triggeredBy,
         userId,
       })
-      .returning();
+      .returning());
     return scan;
   }
 
   /** Cancel a running scan. Returns the updated row, or null if not found / not running. */
   async cancel(id: string, orgId: string, userId: string) {
-    const [updated] = await db
+    const [updated] = await withTenantTx(async (tx) => tx
       .update(schema.complianceScan)
       .set({ status: 'cancelled', cancelledAt: new Date(), cancelledBy: userId })
       .where(and(
@@ -89,7 +93,7 @@ class ComplianceScanService {
         eq(schema.complianceScan.orgId, orgId),
         eq(schema.complianceScan.status, 'running'),
       ))
-      .returning();
+      .returning());
     return updated ?? null;
   }
 }

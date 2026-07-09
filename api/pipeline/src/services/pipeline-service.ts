@@ -6,6 +6,7 @@ import {
   CoreConstants,
   CrudService,
   buildPipelineConditions,
+  getTenantContext,
   schema,
   withTenantTx,
   type PipelineFilter,
@@ -55,8 +56,12 @@ export class PipelineService extends CrudService<
     return schema.pipeline.project;
   }
 
+  // setDefault scopes clear-others by this column against the tenant context's
+  // orgId (a UUID). It must be the `orgId` tenant column — the `organization`
+  // display-name column would never match the UUID, so old defaults wouldn't be
+  // cleared (leaving multiple defaults per project/org).
   protected getOrgColumn(): AnyColumn {
-    return schema.pipeline.organization;
+    return schema.pipeline.orgId;
   }
 
   protected get conflictTarget(): AnyColumn[] {
@@ -79,7 +84,13 @@ export class PipelineService extends CrudService<
 
   private async invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Pipeline, userId: string): Promise<void> {
     await pipelineCache.invalidatePattern(`${entity.orgId}:*`);
-    entityEvents.emit({ eventType, target: 'pipeline', entityId: id, orgId: entity.orgId, userId, timestamp: new Date(), attributes: entity });
+    // Carry the owning org's parent (when the mutation ran under a team's tenant
+    // context) so async compliance eval sees the same parent `propagateToChildren`
+    // rules the live path does. Only trust the context parent when its org matches
+    // the entity's — a cross-org mutation must not inherit the caller's parent.
+    const tenant = getTenantContext();
+    const parentOrgId = tenant?.orgId === entity.orgId ? tenant?.parentOrgId : undefined;
+    entityEvents.emit({ eventType, target: 'pipeline', entityId: id, orgId: entity.orgId, parentOrgId, userId, timestamp: new Date(), attributes: entity });
   }
 
   protected async onAfterCreate(entity: Pipeline, userId: string): Promise<void> {

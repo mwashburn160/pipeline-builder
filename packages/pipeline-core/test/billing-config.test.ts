@@ -91,7 +91,7 @@ describe('loadBillingConfig', () => {
     const config = loadBillingConfig();
     const developer = config.plans.find((p) => p.id === 'developer');
 
-    expect(developer?.features).toContain('Up to 50 plugins');
+    expect(developer?.features).toContain('Up to 25 plugins');
   });
 
   it('falls back to default features when JSON is not an array', () => {
@@ -100,7 +100,7 @@ describe('loadBillingConfig', () => {
     const config = loadBillingConfig();
     const pro = config.plans.find((p) => p.id === 'pro');
 
-    expect(pro?.features).toContain('Up to 500 plugins');
+    expect(pro?.features).toContain('Up to 50 plugins');
   });
 
   it('includes default features for each plan', () => {
@@ -119,6 +119,76 @@ describe('loadBillingConfig', () => {
 
     expect(developer.features).toContain('Up to 1 seat');
     expect(team.features).toContain('Up to 10 seats');
-    expect(enterprise.features).toContain('Unlimited seats');
+    expect(enterprise.features).toContain('Up to 25 seats');
+  });
+
+  describe('add-on bundles', () => {
+    it('returns the default catalog with default prices + grants', () => {
+      const { bundles } = loadBillingConfig();
+      const seatPack = bundles.find((x) => x.id === 'seat_pack');
+      expect(seatPack).toMatchObject({
+        id: 'seat_pack',
+        grants: { seats: 5 },
+        prices: { monthly: 2500, annual: 25000 },
+        stackable: true,
+      });
+      // Feature bundles carry a flag and no numeric grant.
+      const sso = bundles.find((x) => x.id === 'sso');
+      expect(sso?.features).toContain('sso');
+      expect(sso?.stackable).toBe(false);
+    });
+
+    it('overrides a bundle price from the environment', () => {
+      process.env.BILLING_BUNDLE_SEAT_PACK_MONTHLY = '3000';
+      process.env.BILLING_BUNDLE_SEAT_PACK_ANNUAL = '30000';
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'seat_pack')?.prices).toEqual({ monthly: 3000, annual: 30000 });
+    });
+
+    it('overrides a single-dimension grant amount from the environment', () => {
+      process.env.BILLING_BUNDLE_SEAT_PACK_GRANT = '10';
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'seat_pack')?.grants).toEqual({ seats: 10 });
+    });
+
+    it('ignores a malformed or negative grant override', () => {
+      process.env.BILLING_BUNDLE_PIPELINE_PACK_GRANT = 'abc';
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT = '-5';
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 10 });
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 100 });
+    });
+
+    it('ignores a grant override on a feature-only (empty-grant) bundle', () => {
+      process.env.BILLING_BUNDLE_AUDIT_LOG_GRANT = '99';
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'audit_log')?.grants).toEqual({});
+    });
+
+    it('makes capacity packs (seats/pipelines/plugins) available on every tier by default', () => {
+      const { bundles } = loadBillingConfig();
+      for (const id of ['seat_pack', 'pipeline_pack', 'plugin_pack']) {
+        expect(bundles.find((x) => x.id === id)?.availableForTiers).toEqual(
+          ['developer', 'pro', 'team', 'enterprise'],
+        );
+      }
+    });
+
+    it('overrides purchasable tiers from BILLING_BUNDLE_<ID>_TIERS', () => {
+      process.env.BILLING_BUNDLE_SEAT_PACK_TIERS = '["pro","enterprise"]';
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'seat_pack')?.availableForTiers).toEqual(['pro', 'enterprise']);
+    });
+
+    it('ignores a tiers override that is malformed, empty, or names an unknown tier', () => {
+      process.env.BILLING_BUNDLE_PIPELINE_PACK_TIERS = 'not-json';
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_TIERS = '[]';
+      process.env.BILLING_BUNDLE_SEAT_PACK_TIERS = '["pro","bogus"]';
+      const { bundles } = loadBillingConfig();
+      const all = ['developer', 'pro', 'team', 'enterprise'];
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.availableForTiers).toEqual(all);
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.availableForTiers).toEqual(all);
+      expect(bundles.find((x) => x.id === 'seat_pack')?.availableForTiers).toEqual(all);
+    });
   });
 });

@@ -5,11 +5,12 @@
  * Tests for POST /reports/events ingest endpoint.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSelect = jest.fn<(...args: unknown[]) => unknown>();
 const mockInsert = jest.fn<(...args: unknown[]) => unknown>();
+const mockSendError = jest.fn((_res: any, code: number, msg: string) => ({ error: msg, code }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
@@ -25,7 +26,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((_res: any, _code: number, data: any) => data),
   sendBadRequest: jest.fn((_res: any, msg: string) => msg),
+  sendError: mockSendError,
   requireAuth: jest.fn((_req: any, _res: any, next: any) => next()),
+  hasScope: (req: any, scope: string) => req?.user?.scope === scope,
   hashAccountInArn: (arn: string) => arn,
   hashId: (value: string) => value,
   parseDateRange: jest.fn(() => ({ from: '2026-01-01T00:00:00Z', to: '2026-01-31T00:00:00Z' })),
@@ -39,9 +42,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       : { error: 'invalid' }),
 }));
 
+const mockIngestEvents = jest.fn<(...a: unknown[]) => Promise<unknown>>()
+  .mockResolvedValue({ inserted: 1, skipped: 0, unregisteredPipelineIds: [] });
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
     invalidateOrg: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    ingestEvents: (...a: unknown[]) => mockIngestEvents(...a),
   },
 }));
 
@@ -125,5 +131,33 @@ describe('POST /reports/events', () => {
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
     await handler(req, res);
+  });
+
+  // --- reporting:ingest scope guard -------------------------------------------
+
+  const validEvent = { pipelineId: 'p-1', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'SUCCEEDED' };
+  const getHandler = () => router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
+  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+
+  afterEach(() => { delete process.env.REPORTING_INGEST_ALLOW_LEGACY; });
+
+  it('rejects a non-scoped token with 403 when enforcement is on', async () => {
+    process.env.REPORTING_INGEST_ALLOW_LEGACY = 'false';
+    await getHandler()({ body: { events: [validEvent] }, user: { sub: 'u-1' } }, res());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.stringContaining('reporting:ingest'), expect.anything());
+    expect(mockIngestEvents).not.toHaveBeenCalled();
+  });
+
+  it('accepts a reporting:ingest-scoped token under enforcement', async () => {
+    process.env.REPORTING_INGEST_ALLOW_LEGACY = 'false';
+    await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
+    expect(mockSendError).not.toHaveBeenCalled();
+    expect(mockIngestEvents).toHaveBeenCalled();
+  });
+
+  it('allows a legacy non-scoped token by default (transition), still ingesting', async () => {
+    await getHandler()({ body: { events: [validEvent] }, user: { sub: 'u-1' } }, res());
+    expect(mockSendError).not.toHaveBeenCalled();
+    expect(mockIngestEvents).toHaveBeenCalled();
   });
 });

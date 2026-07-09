@@ -36,6 +36,7 @@ const dbUpdate = jest.fn(() => makeChain(() => Promise.resolve(nextUpdate())));
 
 const mockEvaluateRules = jest.fn();
 const mockFindActiveByOrgAndTarget = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockResolveParentOrgId = jest.fn<(orgId: string) => Promise<string | undefined>>().mockResolvedValue(undefined);
 const mockLogComplianceCheck = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 const mockNotifyComplianceBlock = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 const mockNotifyComplianceWarnings = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
@@ -74,6 +75,13 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   },
 }));
 
+// Parent resolution is an internal platform HTTP call; stub it so the executor
+// stays offline in unit tests. Individual tests override the resolved value to
+// assert it's threaded into rule lookup.
+jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
+  resolveParentOrgId: mockResolveParentOrgId,
+}));
+
 jest.unstable_mockModule('../src/helpers/audit-logger.js', () => ({
   logComplianceCheck: mockLogComplianceCheck,
 }));
@@ -97,6 +105,8 @@ describe('executeScan', () => {
     mockLogComplianceCheck.mockClear();
     mockNotifyComplianceBlock.mockClear();
     mockNotifyComplianceWarnings.mockClear();
+    mockResolveParentOrgId.mockReset();
+    mockResolveParentOrgId.mockResolvedValue(undefined);
   });
 
   it('exits early when scan does not exist', async () => {
@@ -137,10 +147,24 @@ describe('executeScan', () => {
 
     await executeScan('scan-1');
 
-    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin');
+    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin', undefined);
     expect(mockEvaluateRules).not.toHaveBeenCalled();
     // Atomic claim + totalEntities update + final "completed" update.
     expect(dbUpdate).toHaveBeenCalled();
+  });
+
+  it('threads the resolved parentOrgId into rule lookup', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'team-1', target: 'plugin', userId: 'u', triggeredBy: 'scheduled' }],
+    ];
+    selectResults = [[]]; // no entities → still resolves rules once
+    mockResolveParentOrgId.mockResolvedValue('root-1');
+    mockFindActiveByOrgAndTarget.mockResolvedValue([]);
+
+    await executeScan('scan-1');
+
+    expect(mockResolveParentOrgId).toHaveBeenCalledWith('team-1');
+    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('team-1', 'plugin', 'root-1');
   });
 
   it('evaluates rules and writes audit entries on full scan', async () => {
@@ -240,7 +264,7 @@ describe('executeScan', () => {
     await executeScan('scan-1');
 
     expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledTimes(2);
-    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin');
-    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'pipeline');
+    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin', undefined);
+    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'pipeline', undefined);
   });
 });

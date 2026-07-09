@@ -9,12 +9,13 @@
  * ({@link resolveOrgLineageWith} / {@link isAncestorOrgWith} /
  * {@link expandOrgScopeWith}); this module only supplies the platform's own
  * Mongoose query callbacks. The platform `Organization` model has a Mixed `_id`,
- * so id lookups cast 24-hex strings to ObjectId via {@link oid} — without it a
- * `findById('<24hex>')` never matches and the upward walk silently finds no
- * parent.
+ * so id lookups cast 24-hex strings to ObjectId via the shared {@link toOrgId} —
+ * without it a `findById('<24hex>')` never matches and the upward walk silently
+ * finds no parent.
  *
- * Every org is flat today (`parentOrgId` null on all rows), so `resolveOrgLineage`
- * returns `{ rootOrgId: self }` and `expandOrgScope` returns `[self]`.
+ * For a flat org (no `parentOrgId`, no teams nested under it) `resolveOrgLineage`
+ * returns `{ rootOrgId: self }` and `expandOrgScope` returns `[self]`; once teams
+ * are created (org → team hierarchy) these traverse the parent ↔ team links.
  */
 
 import {
@@ -24,25 +25,14 @@ import {
   expandOrgScopeWith,
   toOrgIdString,
 } from '@pipeline-builder/api-core';
-import mongoose from 'mongoose';
+import { toOrgId } from './org-id.js';
 import { Organization } from '../models/index.js';
 
 export type { OrgLineage };
 
-/**
- * Cast a 24-hex id string to ObjectId so `findById` matches the org's Mixed
- * `_id` (mirrors controller-helper's `toOrgId`). String ids like the well-known
- * `'system'` org pass through unchanged.
- */
-function oid(id: string): string | mongoose.Types.ObjectId {
-  return mongoose.Types.ObjectId.isValid(id) && id.length === 24
-    ? new mongoose.Types.ObjectId(id)
-    : id;
-}
-
 /** Fetch a single org's direct parent id (cast-aware), or undefined. */
 async function getParentOrgId(orgId: string): Promise<string | undefined> {
-  const org = await Organization.findById(oid(orgId)).select('parentOrgId').lean();
+  const org = await Organization.findById(toOrgId(orgId)).select('parentOrgId').lean();
   return toOrgIdString(org?.parentOrgId);
 }
 

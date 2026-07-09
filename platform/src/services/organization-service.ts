@@ -1,10 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, DEFAULT_TIER, getServiceAuthHeader, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { seedDefaultGroups } from './groups-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
+import { expandOrgScope, resolveOrgLineage } from '../helpers/org-hierarchy.js';
+import { pooledSeatUsage } from '../helpers/seats.js';
 import {
   getOrganizationQuotaStatus,
   updateQuotaLimits,
@@ -67,6 +69,12 @@ interface OrgMember extends Record<string, unknown> {
 interface OrgWithMembers extends Omit<OrgSummary, 'memberCount'> {
   memberCount: number;
   members: OrgMember[];
+  /** Org → team hierarchy. `isTeam` = this org is a child (has a parent).
+   *  `rootOrgId` is the account boundary (self for a root; the parent for a
+   *  team, since nesting is one level deep). Drives pooled-at-root UI/gating. */
+  parentOrgId?: string | null;
+  isTeam: boolean;
+  rootOrgId: string;
 }
 
 interface QuotaStatus {
@@ -182,19 +190,37 @@ class OrganizationService {
    * have a baseline even before the quota service is ever called.
    */
   async create(userId: string, body: CreateOrgInput): Promise<{ id: string; name: string; slug: string; description: string; tier: QuotaTier; parentOrgId?: string }> {
-    const tier = body.tier || DEFAULT_TIER;
-
     return withMongoTransaction(async (session) => {
+      // A team (child org) is a pooled sub-unit of the root: it inherits the
+      // root's tier and gets locally-unlimited quotas (-1) so ONLY the root's
+      // pooled cap binds (see docs/org-team-hierarchy.md §4/§5.1). A root org
+      // seeds its own quotas from its tier preset (matches setTier).
+      let tier: QuotaTier;
+      let quotas: Record<string, number>;
+      // A team inherits the root's purchased feature entitlements (bundle grants)
+      // so it isn't missing them until the next billing sync (mirrors how
+      // setSeatLimit propagates featureEntitlements to existing descendants).
+      let inheritedFeatures: string[] = [];
+      if (body.parentOrgId) {
+        const parent = await Organization.findById(toOrgId(body.parentOrgId))
+          .select('tier featureEntitlements').session(session).lean();
+        tier = (parent?.tier as QuotaTier) ?? DEFAULT_TIER;
+        inheritedFeatures = (parent?.featureEntitlements as string[] | undefined) ?? [];
+        quotas = Object.fromEntries(
+          Object.keys(QUOTA_TIERS[tier].limits).map((k) => [k, -1]),
+        );
+      } else {
+        tier = body.tier || DEFAULT_TIER;
+        quotas = { ...QUOTA_TIERS[tier].limits };
+      }
+
       const orgData: Record<string, unknown> = {
         name: body.name,
         description: body.description || '',
         owner: userId,
         tier,
-        // Seed ALL limits from the tier preset (matches setTier). Cherry-picking
-        // a subset let the omitted fields — notably `seats`, storageBytes, and
-        // the count-quotas — fall back to the DEFAULT_TIER schema default, so a
-        // non-default-tier org got the wrong seat/limit caps.
-        quotas: { ...QUOTA_TIERS[tier].limits },
+        quotas,
+        ...(inheritedFeatures.length > 0 ? { featureEntitlements: inheritedFeatures } : {}),
       };
 
       // Org → team hierarchy: nest under the parent when requested. Stored as a
@@ -220,13 +246,62 @@ class OrganizationService {
   }
 
   /**
-   * Validate a prospective team parent: it must exist and be a **root** org
-   * (one level of nesting). Returns `'ok'`, `'not-found'`, or `'not-root'`.
+   * Validate a prospective team parent: it must exist, be a **root** org (one
+   * level of nesting), and be on a tier that includes teams (`team`/`enterprise`).
+   * Returns `'ok'`, `'not-found'`, `'not-root'`, or `'tier-forbidden'`.
    */
-  async checkParentEligible(parentOrgId: string): Promise<'ok' | 'not-found' | 'not-root'> {
-    const parent = await Organization.findById(toOrgId(parentOrgId)).select('parentOrgId').lean();
+  async checkParentEligible(parentOrgId: string): Promise<'ok' | 'not-found' | 'not-root' | 'tier-forbidden'> {
+    const parent = await Organization.findById(toOrgId(parentOrgId)).select('parentOrgId tier').lean();
     if (!parent) return 'not-found';
-    return parent.parentOrgId ? 'not-root' : 'ok';
+    if (parent.parentOrgId) return 'not-root';
+    const tier = parent.tier as QuotaTier | undefined;
+    if (tier !== 'team' && tier !== 'enterprise') return 'tier-forbidden';
+    return 'ok';
+  }
+
+  /**
+   * Set the account seat limit on the org's ROOT. Platform owns `seats` (it is
+   * not a quota-service type), so billing syncs the effective seat entitlement
+   * (tier base + bundles) here. Resolves to the root so a team id still targets
+   * the account. Returns the resolved root id, or null if the org is missing.
+   */
+  async setSeatLimit(
+    orgId: string,
+    seats: number,
+    features?: string[],
+  ): Promise<{ rootOrgId: string; seats: number } | null> {
+    const { rootOrgId } = await resolveOrgLineage(orgId);
+    const set: Record<string, unknown> = { 'quotas.seats': seats };
+    // Account-level purchased feature entitlements (bundles) also live on the
+    // root and are synced by billing alongside the seat limit.
+    if (features !== undefined) set.featureEntitlements = features;
+
+    // Atomic: the root seat/entitlement write and its propagation onto descendant
+    // teams must both land or neither, so a member's token can't carry a stale
+    // entitlement set after a partial failure.
+    return withMongoTransaction(async (session) => {
+      const result = await Organization.updateOne(
+        { _id: toOrgId(rootOrgId) },
+        { $set: set },
+        { session },
+      );
+      if (result.matchedCount === 0) return null;
+
+      // Propagate feature entitlements onto descendant teams so a team member's
+      // token carries them (they're account-level; mirrors tier propagation).
+      if (features !== undefined) {
+        const scope = await expandOrgScope(rootOrgId);
+        const descendantIds = scope.filter((sid) => sid !== rootOrgId);
+        if (descendantIds.length > 0) {
+          await Organization.updateMany(
+            { _id: { $in: descendantIds.map(toOrgId) } },
+            { $set: { featureEntitlements: features } },
+            { session },
+          );
+        }
+      }
+      return { rootOrgId, seats };
+    });
   }
 
   /** Get a single org with its full member list. Returns null if not found. */
@@ -235,6 +310,10 @@ class OrganizationService {
       .populate('owner', 'username email')
       .lean();
     if (!org) return null;
+
+    const parentOrgId = (org as { parentOrgId?: unknown }).parentOrgId;
+    const isTeam = !!parentOrgId;
+    const rootOrgId = isTeam ? String(parentOrgId) : org._id.toString();
 
     const [memberships, memberCount, idpDoc] = await Promise.all([
       UserOrganization.find({ organizationId: org._id }).populate('userId', 'username email').lean(),
@@ -261,6 +340,11 @@ class OrganizationService {
       tier: (org as { tier?: QuotaTier }).tier,
       kmsConfigured: Boolean((org as { kmsConfig?: { keyId?: string } }).kmsConfig?.keyId),
       idpConfigured: Boolean(idpDoc),
+      // Org → team hierarchy. One-level nesting means a team's parent IS the
+      // root, so rootOrgId needs no extra query.
+      parentOrgId: parentOrgId ? String(parentOrgId) : null,
+      isTeam,
+      rootOrgId,
     };
   }
 
@@ -275,6 +359,92 @@ class OrganizationService {
    * because partial failure of the remote quota service shouldn't
    * leave the org-doc tier unchanged.
    */
+  /**
+   * Whether changing `orgId`'s account to `newTier` would drop a COUNT quota's
+   * cap below current pooled usage (docs/billing-bundles.md §8) — mirrors the
+   * billing over-cap gate for the sysadmin tier-change path. Guards seats
+   * (pooled), plugins, pipelines (count quotas whose usage lives on the shared
+   * org doc). Rate quotas (apiCalls/aiCalls) aren't guarded — they reset. Empty
+   * array = safe.
+   */
+  async checkTierOvercap(
+    orgId: string,
+    newTier: QuotaTier,
+  ): Promise<Array<{ quotaType: string; currentUsage: number; targetCap: number; overage: number }>> {
+    const limits = QUOTA_TIERS[newTier].limits;
+    const overages: Array<{ quotaType: string; currentUsage: number; targetCap: number; overage: number }> = [];
+
+    // Resolve the account subtree once (shared by the team-stranding + pooled
+    // usage checks below).
+    const { rootOrgId } = await resolveOrgLineage(orgId);
+    const scope = await expandOrgScope(rootOrgId);
+    const scopeIds = scope.map(toOrgId);
+
+    // Structural guard (mirrors the delete-path block): a team requires its
+    // parent tier to be `team`/`enterprise` (checkParentEligible). Downgrading a
+    // root that HAS teams to a team-forbidding tier (developer/pro) would strand
+    // them, so surface it as an over-cap the sysadmin must `force` past.
+    if (newTier !== 'team' && newTier !== 'enterprise') {
+      const teamCount = scopeIds.length - 1; // subtree minus the root itself
+      if (teamCount > 0) {
+        overages.push({ quotaType: 'teams', currentUsage: teamCount, targetCap: 0, overage: teamCount });
+      }
+    }
+
+    // seats (platform-owned, pooled)
+    if (limits.seats !== -1) {
+      const { used } = await pooledSeatUsage(orgId);
+      if (used > limits.seats) {
+        overages.push({ quotaType: 'seats', currentUsage: used, targetCap: limits.seats, overage: used - limits.seats });
+      }
+    }
+
+    // Persistent COUNT quotas — usage pools across the subtree (a team's usage
+    // counts against the root). These can't auto-shrink on downgrade, so a
+    // downgrade below current usage is blocked. (Rate quotas apiCalls/aiCalls
+    // reset per period, and storageBytes is measured live — not guarded here,
+    // matching billing's checkEntitlementOvercap.)
+    //
+    // Authoritative read: ask the QUOTA SERVICE for each field's pooled usage —
+    // it's the single authority for pooling + expired-period semantics.
+    // `getOrganizationQuotaStatus` already rolls the subtree up to the root and
+    // zeroes expired periods, so one read per field on `rootOrgId` equals the
+    // subtree total. Degraded fallback: if the service is unreachable for a
+    // field, read that field straight off the shared org docs (the prior
+    // behavior — same underlying Mongo counters) so a transient outage doesn't
+    // silently under-count and wave a stranding downgrade through.
+    const COUNT_QUOTAS = ['plugins', 'pipelines', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'] as const;
+    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: rootOrgId, role: 'owner' });
+    const statuses = await Promise.all(
+      COUNT_QUOTAS.map((field) => getOrganizationQuotaStatus(rootOrgId, field as QuotaType, auth)),
+    );
+
+    let fallbackRows: Array<{ usage?: unknown }> | null = null;
+    const usageFor = async (field: string, i: number): Promise<number> => {
+      const status = statuses[i];
+      if (status) return status.used;
+      // Service unavailable for this field: degrade to the shared org-doc sum.
+      if (!fallbackRows) {
+        fallbackRows = await Organization.find({ _id: { $in: scopeIds } })
+          .select('usage.plugins usage.pipelines usage.dashboards usage.alertRules usage.alertDestinations usage.idpConfigs').lean();
+      }
+      return fallbackRows.reduce((sum, r) => {
+        const usage = r.usage as unknown as Record<string, { used?: number } | undefined> | undefined;
+        return sum + (usage?.[field]?.used ?? 0);
+      }, 0);
+    };
+
+    for (let i = 0; i < COUNT_QUOTAS.length; i++) {
+      const field = COUNT_QUOTAS[i];
+      if (limits[field] === -1) continue;
+      const used = await usageFor(field, i);
+      if (used > limits[field]) {
+        overages.push({ quotaType: field, currentUsage: used, targetCap: limits[field], overage: used - limits[field] });
+      }
+    }
+    return overages;
+  }
+
   async setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier?: QuotaTier; tier: QuotaTier } | null> {
     const org = await Organization.findById(toOrgId(id));
     if (!org) return null;
@@ -285,17 +455,36 @@ class OrganizationService {
     }
 
     org.tier = newTier;
-    const tierConfig = config.quota.tier[newTier];
-    if (tierConfig) {
-      // Source all limits from QUOTA_TIERS so this stays in lockstep with
-      // api-core's QuotaTierLimits — the schema now requires every field
-      // (plugins/pipelines/apiCalls/aiCalls/storageBytes/dashboards/
-      // alertRules/alertDestinations/idpConfigs), so cherry-picking would
-      // drop the new caps.
+    if (org.parentOrgId) {
+      // Team: tier is derived (display-only). Its quotas stay pooled (-1) so the
+      // ROOT's cap is the only binding one — do NOT reseed from the preset.
+    } else if (config.quota.tier[newTier]) {
+      // Root: reseed its OWN quotas from the new tier (source from QUOTA_TIERS
+      // so every QuotaTierLimits field stays in lockstep).
       org.quotas = { ...QUOTA_TIERS[newTier].limits };
       org.markModified('quotas');
     }
-    await org.save();
+
+    // Atomic: the root's tier/quota save and the tier propagation onto its
+    // descendant teams must both land or neither — a failure between them would
+    // otherwise leave the root on the new tier while teams keep the old.
+    await withMongoTransaction(async (session) => {
+      await org.save({ session });
+
+      // Propagate the tier label to descendant teams so their derived tier tracks
+      // the root (their quotas stay pooled at -1). No-op for a flat org / a team.
+      if (!org.parentOrgId) {
+        const scope = await expandOrgScope(org._id.toString());
+        const descendantIds = scope.filter((sid) => sid !== org._id.toString());
+        if (descendantIds.length > 0) {
+          await Organization.updateMany(
+            { _id: { $in: descendantIds.map(toOrgId) } },
+            { $set: { tier: newTier } },
+            { session },
+          );
+        }
+      }
+    });
 
     return { id: org._id.toString(), previousTier, tier: newTier };
   }

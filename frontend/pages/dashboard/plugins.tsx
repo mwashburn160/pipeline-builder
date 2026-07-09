@@ -151,15 +151,6 @@ export default function PluginsPage() {
     });
   }, []);
 
-  const toggleSelectAll = useCallback(() => {
-    const modifiable = filteredPlugins.filter(p => canModify(isSuperAdmin, p.accessModifier));
-    if (selectedIds.size === modifiable.length && modifiable.length > 0) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(modifiable.map(p => p.id)));
-    }
-  }, [filteredPlugins, isSuperAdmin, selectedIds.size]);
-
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
   const handleBulkDelete = async () => {

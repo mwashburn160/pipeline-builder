@@ -86,12 +86,28 @@ describe('evaluateEntityEvent', () => {
       attributes: { name: 'p' },
     });
 
-    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin');
+    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin', undefined);
     expect(mockEvaluateRules).toHaveBeenCalledWith([{ id: 'r1' }], { name: 'p' }, []);
     expect(result.evaluated).toBe(true);
     expect(result.blocked).toBe(false);
     expect(result.violations).toBe(0);
     expect(result.warnings).toBe(0);
+  });
+
+  it('forwards parentOrgId so parent propagateToChildren rules are included', async () => {
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'r1' }]);
+    mockEvaluateRules.mockReturnValue({ blocked: false, violations: [], warnings: [], rulesEvaluated: 1 });
+
+    await evaluateEntityEvent({
+      entityId: 'e1',
+      orgId: 'team-1',
+      parentOrgId: 'root-1',
+      target: 'plugin',
+      eventType: 'updated',
+      attributes: { name: 'p' },
+    });
+
+    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('team-1', 'plugin', 'root-1');
   });
 
   it('returns blocked=true with violation count', async () => {
@@ -140,7 +156,8 @@ describe('evaluateEntityEvent', () => {
       eventType: 'created',
     });
 
-    expect(result).toEqual({ evaluated: false, reason: 'evaluation error' });
+    // Fail CLOSED: the error is flagged so the route can retry (not fail-open).
+    expect(result).toEqual({ evaluated: false, reason: 'evaluation error', error: true });
   });
 
   it('writes an audit entry for evaluated events', async () => {

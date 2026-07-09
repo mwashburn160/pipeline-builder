@@ -129,6 +129,7 @@ export function storeToken(program: Command): void {
     .option('-e, --email <email>', 'Login email (skips PLATFORM_TOKEN requirement)')
     .option('-p, --password <password>', 'Login password (used with --email)')
     .option('--days <days>', 'Token lifetime in days', '30')
+    .option('--scope <scope>', 'Mint a narrow-scope machine token (e.g. "reporting:ingest") and store it at a scope-specific secret path instead of the shared platform secret')
     .option('--dry-run', 'Show what would be stored without writing to Secrets Manager', false)
     .option('--region <region>', 'AWS region (default: us-east-1, or AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
@@ -163,7 +164,14 @@ export function storeToken(program: Command): void {
         // Resolve secret name from the token's organizationId. An explicit
         // PLATFORM_SECRET_NAME env wins (escape hatch for system/no-org tokens and
         // the renewal Lambda); otherwise derive `{prefix}/{orgId}/platform`.
-        const secretName = process.env.PLATFORM_SECRET_NAME || resolveSecretName(process.env.PLATFORM_TOKEN!);
+        // A `--scope` token is a distinct machine credential — store it at a
+        // scope-specific path (`.../reporting-ingest`) so it never clobbers the
+        // full-privilege platform token used by synth/deploy callbacks.
+        const scope = options.scope as string | undefined;
+        const baseSecretName = process.env.PLATFORM_SECRET_NAME || resolveSecretName(process.env.PLATFORM_TOKEN!);
+        const secretName = scope && !process.env.PLATFORM_SECRET_NAME
+          ? baseSecretName.replace(/\/platform$/, `/${scope.replace(/[^a-z0-9]+/gi, '-')}`)
+          : baseSecretName;
 
         auditLog('store-token', { executionId, secretName, days, dryRun: options.dryRun });
 
@@ -179,7 +187,7 @@ export function storeToken(program: Command): void {
 
         const tokenResponse = await client.post<Record<string, unknown>>(
           '/api/user/generate-token',
-          { expiresIn: expiresInSeconds },
+          { expiresIn: expiresInSeconds, ...(scope ? { scope } : {}) },
         );
 
         const tokenData = (tokenResponse as Record<string, unknown>)?.data ?? tokenResponse;

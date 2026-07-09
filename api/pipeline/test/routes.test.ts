@@ -330,7 +330,10 @@ describe('GET /pipelines/:id', () => {
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
-  it('returns 404 when non-admin accesses public pipeline', async () => {
+  it('lets a non-admin view a visible public/system pipeline (findById enforces visibility; no public-access gate on reads)', async () => {
+    // Regression: GET /:id previously applied requirePublicAccess, which blocked
+    // non-admins from the system-org sample pipelines that list returns. findById's
+    // read clause already scopes visibility, so any returned row is viewable.
     const pipeline = { id: 'uuid-1', pipelineName: 'shared', accessModifier: 'public' };
     mockFindById.mockResolvedValue(pipeline);
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
@@ -339,7 +342,7 @@ describe('GET /pipelines/:id', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 
   it('allows system admin to view public pipeline', async () => {

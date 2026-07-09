@@ -50,6 +50,16 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     DEFAULT_TIER: 'developer',
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
+    // Org-hierarchy traversal primitives — platform's helpers/org-hierarchy.js
+    // (loaded transitively by organization-service / seats.js) imports these.
+    // Default to a FLAT resolution: root = self, subtree = [self]. A suite can
+    // override to exercise a real hierarchy.
+    MAX_ORG_DEPTH: 16,
+    toOrgIdString: (v: unknown) => (v == null ? undefined : String(v)),
+    resolveOrgLineageWith: async (orgId: string) => ({ rootOrgId: orgId }),
+    resolveRootOrgIdWith: async (orgId: string) => orgId,
+    isAncestorOrgWith: async () => false,
+    expandOrgScopeWith: async (orgId: string) => [orgId],
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
@@ -60,6 +70,17 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
       invalidatePattern: () => Promise.resolve(0),
     }),
+    // Service-to-service auth header (checkTierOvercap mints one to read pooled
+    // usage from the quota service). Tests only need a stable stub value.
+    getServiceAuthHeader: () => 'Bearer service-token',
+    // Pagination parser (controllers migrated off the local shim to this).
+    parsePaginationParams: (q: Record<string, unknown> = {}) => {
+      const toInt = (v: unknown, d: number) => {
+        const n = parseInt(String(v ?? ''), 10);
+        return Number.isFinite(n) && n >= 0 ? n : d;
+      };
+      return { limit: Math.min(toInt(q.limit, 10), 100), offset: toInt(q.offset, 0) };
+    },
     ...overrides,
   };
 }

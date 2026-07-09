@@ -16,15 +16,27 @@ import type { NextFunction, Request, Response } from 'express';
  * Apply BEFORE any Mongo query handler (typically right after
  * `express.json()`). Postgres-backed services don't need it.
  *
- * Modifies in place. On Express 5+ where `req.query` is a read-only getter,
- * this still works because we mutate the underlying object's keys, not the
- * reference.
+ * `req.body` and `req.params` are plain writable objects, so they're sanitized
+ * in place. On Express 5 `req.query` is a GETTER that re-parses the URL and
+ * returns a fresh object on every access — mutating it is a no-op — so we
+ * sanitize a snapshot and pin it onto the request instance with
+ * `Object.defineProperty`, shadowing the getter for all downstream reads.
  */
 export function mongoSanitize() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (req.body && typeof req.body === 'object') sanitizeObject(req.body);
-    if (req.query && typeof req.query === 'object') sanitizeObject(req.query as Record<string, unknown>);
     if (req.params && typeof req.params === 'object') sanitizeObject(req.params as Record<string, unknown>);
+    if (req.query && typeof req.query === 'object') {
+      const q = req.query as Record<string, unknown>;
+      sanitizeObject(q);
+      // Pin the sanitized snapshot so the Express 5 getter can't re-parse a
+      // fresh (unsanitized) object on the next access.
+      try {
+        Object.defineProperty(req, 'query', { value: q, writable: true, configurable: true, enumerable: true });
+      } catch {
+        // Express 4 (writable data prop) — the in-place sanitize above sufficed.
+      }
+    }
     next();
   };
 }

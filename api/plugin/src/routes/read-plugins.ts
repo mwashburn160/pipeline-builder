@@ -96,7 +96,10 @@ export function createReadPluginRoutes(
     ctx: RequestContext,
     setCacheHeader: boolean,
   ) => {
-    const plugins = await pluginService.find(filter, orgId);
+    // Org → team hierarchy: a team org also sees its parent's public plugins
+    // (mirrors the list path). No-op for root orgs (claim absent).
+    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+    const plugins = await pluginService.find(filter, orgId, parentOrgId);
     const result = plugins[0];
     if (!result) return sendEntityNotFound(res, 'Plugin');
     ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
@@ -126,7 +129,10 @@ export function createReadPluginRoutes(
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const result = await pluginService.findById(id, orgId);
+    // Org → team hierarchy: a team org also fetches its parent's public plugins
+    // by id (mirrors the list path). No-op for root orgs (claim absent).
+    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+    const result = await pluginService.findById(id, orgId, parentOrgId);
 
     if (!result) return sendEntityNotFound(res, 'Plugin');
 

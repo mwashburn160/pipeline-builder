@@ -30,14 +30,22 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: (...a: unknown[]) => mockExpandOrgScope(...a) }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  expandOrgScope: (...a: unknown[]) => mockExpandOrgScope(...a),
+  resolveOrgLineage: (...a: unknown[]) => Promise.resolve({ rootOrgId: a[0] }),
+}));
 // Run the transaction body immediately with a stub session.
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => unknown) => fn({ id: 'session' }),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  Organization: { find: (...a: unknown[]) => mockOrgFind(...a) },
+  Organization: {
+    find: (...a: unknown[]) => mockOrgFind(...a),
+    // seatCapacityAvailable (helpers/seats.js) reads the ROOT's seat limit;
+    // fixtures use unlimited (-1) so the pooled check short-circuits (no distinct).
+    findById: () => ({ select: () => ({ session: () => ({ lean: () => Promise.resolve({ quotas: { seats: -1 } }) }) }) }),
+  },
   User: {
     findById: (...a: unknown[]) => mockUserFindById(...a),
     findOne: (...a: unknown[]) => mockUserFindOne(...a),
@@ -47,12 +55,11 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     find: (...a: unknown[]) => mockUserOrgFind(...a),
     findOne: (...a: unknown[]) => mockUserOrgFindOne(...a),
     create: (...a: unknown[]) => mockUserOrgCreate(...a),
-    // seatCapacityAvailable (helpers/seats.js) — only reached when a target
-    // team has a finite seat cap; the fixtures below use unlimited (-1) seats.
-    countDocuments: () => ({ session: () => Promise.resolve(0) }),
+    exists: () => ({ session: () => Promise.resolve(null) }),
+    distinct: () => ({ session: () => Promise.resolve([]) }),
   },
   Invitation: {
-    countDocuments: () => ({ session: () => Promise.resolve(0) }),
+    distinct: () => ({ session: () => Promise.resolve([]) }),
   },
 }));
 

@@ -198,7 +198,10 @@ export function login(program: Command): void {
           }
         }
       } catch (error) {
-        if (!isRefresh) recordAuthFailure();
+        // Key the failure to (identifier, url) like the check/success/no-token
+        // paths — a bad-password 401 throws to here, so keying it to the shared
+        // default bucket meant brute-force attempts never accrued toward lockout.
+        if (!isRefresh) recordAuthFailure(identifier, options.url);
         // Provide a clear failure message for auth errors
         if (axios.isAxiosError(error)) {
           const status = error.response?.status;

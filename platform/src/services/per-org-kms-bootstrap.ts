@@ -32,6 +32,7 @@ import {
   type PerOrgKmsConfig,
   type PerOrgKmsResolver,
 } from '@pipeline-builder/api-core';
+import { toOrgId } from '../helpers/org-id.js';
 import { Organization } from '../models/index.js';
 
 const logger = createLogger('per-org-kms-bootstrap');
@@ -43,7 +44,7 @@ const logger = createLogger('per-org-kms-bootstrap');
  * we need; the secret-encryption code path is hot.
  */
 export const perOrgKmsResolver: PerOrgKmsResolver = async (orgId) => {
-  const org = await Organization.findById(orgId).select('kmsConfig').lean();
+  const org = await Organization.findById(toOrgId(orgId)).select('kmsConfig').lean();
   const cfg = (org as { kmsConfig?: { keyId?: string; ciphertextBase64?: string } } | null)?.kmsConfig;
   if (!cfg?.keyId || !cfg?.ciphertextBase64) return null;
   const out: PerOrgKmsConfig = {

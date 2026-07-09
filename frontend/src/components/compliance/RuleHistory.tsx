@@ -21,13 +21,18 @@ interface RuleHistoryProps {
 export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryProps) {
   const [history, setHistory] = useState<ComplianceRuleHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchHistory = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await api.getComplianceRuleHistory(ruleId);
       if (res.success && res.data) setHistory(res.data.history);
-    } catch { /* handled by loading state */ }
+      else setError(res.message || 'Failed to load rule history');
+    } catch {
+      setError('Failed to load rule history');
+    }
     setLoading(false);
   }, [ruleId]);
 
@@ -48,6 +53,13 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
           History: {ruleName}
         </h2>
       </div>
+
+      {error && !loading && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
+          <span>{error}</span>
+          <button onClick={fetchHistory} className="underline hover:no-underline">Retry</button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12">

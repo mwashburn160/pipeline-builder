@@ -137,6 +137,7 @@ export const bulkAddMemberToTeams = withController('Bulk add member to teams', a
 }, {
   [OM_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
   [OM_TARGETS_OUT_OF_SCOPE]: { status: 403, message: 'One or more teams are outside your manageable organizations' },
+  [OM_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for this plan — upgrade the plan or remove a member' },
 });
 
 /** DELETE /organization/:id/members/:userId */
@@ -270,4 +271,5 @@ export const activateMember = withController('Activate member', async (req, res)
 }, {
   [OM_MEMBERSHIP_NOT_FOUND]: { status: 404, message: 'Membership not found' },
   [OM_ALREADY_ACTIVE]: { status: 400, message: 'Member is already active' },
+  [OM_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for this plan — upgrade the plan or remove a member' },
 });

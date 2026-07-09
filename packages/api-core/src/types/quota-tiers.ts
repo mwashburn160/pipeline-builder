@@ -64,7 +64,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
   // Free tier: single seat, apiCalls CAPPED (was unlimited — a DoS/abuse hole
   // on a shared resource); aiCalls small (each has ~$0.01-0.10 external cost).
   developer: {
-    plugins: 50,
+    plugins: 25,
     pipelines: 5,
     apiCalls: 25_000,
     aiCalls: 50,
@@ -75,10 +75,10 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     idpConfigs: 1,
     seats: 1,
   },
-  // Pro = one power user (a few seats for pairing), individual pricing.
+  // Pro = one power user, individual pricing.
   pro: {
-    plugins: 500,
-    pipelines: 50,
+    plugins: 50,
+    pipelines: 10,
     apiCalls: 500_000,
     aiCalls: 2_500,
     storageBytes: 50 * GB,
@@ -86,12 +86,12 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertRules: 500,
     alertDestinations: 50,
     idpConfigs: 5,
-    seats: 3,
+    seats: 1,
   },
   // Team = collaboration tier; the seat limit (10) is the real differentiator
   // over Pro. Limits sit between Pro and Enterprise.
   team: {
-    plugins: 2_000,
+    plugins: 100,
     pipelines: 200,
     apiCalls: -1,
     aiCalls: 10_000,
@@ -102,12 +102,12 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     idpConfigs: 5,
     seats: 10,
   },
-  // Enterprise: org-wide, unlimited seats. FAIR-USE, not literally unlimited —
-  // cost drivers (aiCalls, storageBytes) capped high so one account can't run up
-  // unbounded provider/storage cost on a flat price; cheap count-quotas stay -1.
+  // Enterprise: org-wide, high seat cap. FAIR-USE — cost drivers (aiCalls,
+  // storageBytes) capped high so one account can't run up unbounded provider/
+  // storage cost on a flat price; cheap count-quotas stay -1.
   enterprise: {
-    plugins: 5_000,
-    pipelines: 500,
+    plugins: 250,
+    pipelines: 200,
     apiCalls: -1,
     aiCalls: 25_000,
     storageBytes: TB,
@@ -115,7 +115,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertRules: -1,
     alertDestinations: -1,
     idpConfigs: -1,
-    seats: -1,
+    seats: 25,
   },
 };
 

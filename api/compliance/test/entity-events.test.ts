@@ -59,7 +59,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
-const { sendSuccess, sendBadRequest } = await import('@pipeline-builder/api-core');
+const { sendSuccess, sendBadRequest, sendError } = await import('@pipeline-builder/api-core');
 const { createEntityEventRoutes } = await import('../src/routes/entity-events.js');
 
 // The route now has three middlewares: requireAuth, requireServicePrincipal,
@@ -163,12 +163,28 @@ describe('Entity Events Route', () => {
       attributes: { name: 'my-plugin' },
     }), res);
 
-    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin');
+    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin', undefined);
     expect(mockEvaluateRules).toHaveBeenCalled();
     expect(sendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({
       evaluated: true,
       blocked: false,
     }));
+  });
+
+  it('threads parentOrgId from the payload into rule lookup', async () => {
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'rule-1' }]);
+    mockEvaluateRules.mockReturnValue({ blocked: false, violations: [], warnings: [], rulesEvaluated: 1 });
+
+    await runRoute(makeReq({
+      entityId: 'id-1',
+      orgId: 'team-1',
+      parentOrgId: 'root-1',
+      target: 'plugin',
+      eventType: 'updated',
+      attributes: { name: 'my-plugin' },
+    }), res);
+
+    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('team-1', 'plugin', 'root-1');
   });
 
   it('evaluates rules for pipeline target', async () => {
@@ -195,7 +211,7 @@ describe('Entity Events Route', () => {
     }));
   });
 
-  it('returns evaluated:false on evaluation error', async () => {
+  it('replies 500 (not 200) on evaluation error so the caller retries — fail-closed', async () => {
     mockFindActiveByOrgAndTarget.mockRejectedValue(new Error('DB down'));
 
     await runRoute(makeReq({
@@ -205,9 +221,7 @@ describe('Entity Events Route', () => {
       eventType: 'deleted',
     }), res);
 
-    expect(sendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({
-      evaluated: false,
-      reason: 'evaluation error',
-    }));
+    expect(sendError).toHaveBeenCalledWith(res, 500, expect.any(String), expect.anything());
+    expect(sendSuccess).not.toHaveBeenCalled();
   });
 });

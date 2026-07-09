@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useAuth } from '@/hooks/useAuth';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
@@ -31,14 +32,14 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
   developer: 'Starter tier',
   pro: 'Production use',
   team: 'Team collaboration',
-  enterprise: 'No restrictions',
+  enterprise: 'Highest limits',
 };
 
 const TIER_LIMITS: Record<QuotaTier, Record<QuotaType, number>> = {
-  developer: { pipelines: 5, plugins: 50, apiCalls: 25000, aiCalls: 50 },
-  pro: { pipelines: 50, plugins: 500, apiCalls: 500000, aiCalls: 2500 },
-  team: { pipelines: 200, plugins: 2000, apiCalls: -1, aiCalls: 10000 },
-  enterprise: { pipelines: 500, plugins: 5000, apiCalls: -1, aiCalls: 25000 },
+  developer: { pipelines: 5, plugins: 25, apiCalls: 25000, aiCalls: 50 },
+  pro: { pipelines: 10, plugins: 50, apiCalls: 500000, aiCalls: 2500 },
+  team: { pipelines: 200, plugins: 100, apiCalls: -1, aiCalls: 10000 },
+  enterprise: { pipelines: 200, plugins: 250, apiCalls: -1, aiCalls: 25000 },
 };
 
 const TIER_PRESETS: Record<QuotaTier, { label: string; description: string; color: string; limits: Record<QuotaType, number> }> = {
@@ -204,7 +205,13 @@ function OrgListItem({
 /** Quota management page. Shows per-org usage and limits; system admins can edit tiers, limits, and org metadata. */
 export default function QuotasPage() {
   const { user, isReady, isSuperAdmin } = useAuthGuard();
+  const { organizations } = useAuth();
   const toast = useToast();
+
+  // A team (child org) draws from its ROOT's pooled quota: the quota service
+  // already reports the root's shared limit + the whole subtree's usage here,
+  // so the numbers are correct — we just label them as pooled and read-only.
+  const activeOrgIsTeam = !!organizations.find((o) => o.id === user?.organizationId)?.parentOrgId;
 
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -213,6 +220,7 @@ export default function QuotasPage() {
 
   const [orgData, setOrgData] = useState<OrgQuotaResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0, aiCalls: 0 });
@@ -259,6 +267,7 @@ export default function QuotasPage() {
 
   const fetchOrg = useCallback(async (orgId: string) => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = isSuperAdmin
         ? await api.getOrgQuotas(orgId)
@@ -270,7 +279,7 @@ export default function QuotasPage() {
       const sidebarOrg = platformOrgs.find((o) => o.id === (orgId || quota.orgId));
       applyOrgData(quota, { orgId, sidebarName: sidebarOrg?.name, sidebarSlug: sidebarOrg?.slug });
     } catch {
-      // API unavailable
+      setLoadError('Failed to load quotas. The service may be unavailable.');
     } finally {
       setLoading(false);
     }
@@ -331,7 +340,7 @@ export default function QuotasPage() {
     if (!orgData || !dirty) return;
     setSaving(true);
 
-    const body: Record<string, unknown> = {};
+    const body: { tier?: QuotaTier; quotas?: Record<string, number> } = {};
     if (editTier !== (orgData.tier || 'developer')) body.tier = editTier;
 
     const qc: Record<string, number> = {};
@@ -346,7 +355,7 @@ export default function QuotasPage() {
     }
 
     try {
-      const res = await api.updateOrgQuotas(orgData.orgId, body as { name?: string; slug?: string; quotas?: Record<string, number> });
+      const res = await api.updateOrgQuotas(orgData.orgId, body);
       const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
       applyOrgData(updated);
 
@@ -380,7 +389,9 @@ export default function QuotasPage() {
               ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
               : tier === 'pro'
                 ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
-                : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
+                : tier === 'team'
+                  ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
           }`}>
             <span className={`w-1.5 h-1.5 rounded-full ${tierPreset.color}`} />
             {tierPreset.label}
@@ -388,6 +399,15 @@ export default function QuotasPage() {
         ) : undefined}
       >
         <div className="page-section max-w-4xl">
+          {activeOrgIsTeam && (
+            <div className="mb-6 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4">
+              <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">Pooled across your organization</h3>
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                This is a team. The limits below are your organization&apos;s shared caps, and the usage shown is the combined
+                total across all of its teams. Limits are managed by an admin at the parent organization.
+              </p>
+            </div>
+          )}
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {[0, 1, 2, 3].map((i) => (
@@ -414,7 +434,9 @@ export default function QuotasPage() {
             </div>
           ) : null}
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
-            Contact a system administrator to change quota limits.
+            {activeOrgIsTeam
+              ? 'These pooled limits are managed by an admin at the parent organization.'
+              : 'Contact a system administrator to change quota limits.'}
           </p>
         </div>
       </DashboardLayout>
@@ -431,7 +453,9 @@ export default function QuotasPage() {
           ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
           : editTier === 'pro'
             ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
-            : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
+            : editTier === 'team'
+              ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300'
+              : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
       }`}>
         <span className={`w-1.5 h-1.5 rounded-full ${TIER_PRESETS[editTier].color}`} />
         {TIER_PRESETS[editTier].label}
@@ -497,6 +521,16 @@ export default function QuotasPage() {
         {/* Main content */}
         <div className="flex-1 overflow-y-auto p-6 lg:p-8">
           <div className="max-w-4xl">
+            {loadError && !loading && (
+              <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+                <span>{loadError}</span>
+                <button
+                  type="button"
+                  onClick={() => { const o = isSuperAdmin ? selectedOrgId : user?.organizationId; if (o) fetchOrg(o); }}
+                  className="underline hover:no-underline"
+                >Retry</button>
+              </div>
+            )}
             {/* At-risk orgs banner — sysadmin only. Click an entry to jump
                 to that org in the sidebar. Hidden when no orgs are at risk. */}
             {isSuperAdmin && atRisk.length > 0 && (

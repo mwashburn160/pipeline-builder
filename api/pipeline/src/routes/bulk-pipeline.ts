@@ -216,6 +216,14 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       }
     }
 
+    // A default is singular per (project, org). Bulk-setting `isDefault: true`
+    // would fan out plain per-row updates, bypassing setDefault()'s clear-others
+    // transaction and leaving multiple defaults. Promote a default via the
+    // single-pipeline PUT instead. (Bulk-clearing `false` is fine.)
+    if (validData.isDefault === true) {
+      return sendBadRequest(res, 'Cannot set isDefault=true in bulk; promote a default via PUT /pipelines/:id', ErrorCode.VALIDATION_ERROR);
+    }
+
     // Strip undefined and immutable/tenant-shaped fields before fan-out.
     const updateData = pickDefined({
       pipelineName: validData.pipelineName,

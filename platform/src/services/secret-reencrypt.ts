@@ -29,6 +29,7 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
+import { toOrgId } from '../helpers/org-id.js';
 import { Organization } from '../models/index.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
 import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob.js';
@@ -52,7 +53,7 @@ interface CapturedSecrets {
 export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets> {
   const captured: CapturedSecrets = { aiKeys: {} };
 
-  const org = await Organization.findById(orgId).select('aiProviderKeys').lean();
+  const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys').lean();
   if (org?.aiProviderKeys) {
     for (const provider of AI_PROVIDERS) {
       const raw = (org.aiProviderKeys as Record<string, string | undefined>)[provider];
@@ -88,7 +89,7 @@ export async function reencryptOrgSecrets(orgId: string, captured: CapturedSecre
   let aiKeysReencrypted = 0;
   let idpSecretReencrypted = false;
 
-  const orgDoc = await Organization.findById(orgId);
+  const orgDoc = await Organization.findById(toOrgId(orgId));
   if (orgDoc && Object.keys(captured.aiKeys).length > 0) {
     if (!orgDoc.aiProviderKeys) orgDoc.aiProviderKeys = {};
     for (const [provider, plaintext] of Object.entries(captured.aiKeys)) {

@@ -1,12 +1,26 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, hasScope } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants, runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
+
+/** The capability scope the AWS event-ingestion machine credential must carry. */
+const INGEST_SCOPE = 'reporting:ingest';
+/**
+ * During rollout, legacy (non-scoped) user tokens are still accepted with a
+ * warning so ingestion keeps working until every deployment re-provisions its
+ * events credential (`store-token --scope reporting:ingest`). Set
+ * `REPORTING_INGEST_ALLOW_LEGACY=false` to ENFORCE the scope (reject any token
+ * without it) — do this once all deployments are migrated. Without enforcement,
+ * any authenticated JWT can still post events (the pre-existing behavior).
+ */
+function legacyIngestAllowed(): boolean {
+  return (process.env.REPORTING_INGEST_ALLOW_LEGACY || '').toLowerCase() !== 'false';
+}
 
 /**
  * Status values accepted per-eventSource. AWS pipelines use uppercase
@@ -54,6 +68,19 @@ export function createEventIngestRoutes(): Router {
   const router = Router();
 
   router.post('/', withRoute(async ({ req, res, ctx }) => {
+    // Ingest is a machine endpoint: only a token carrying the `reporting:ingest`
+    // scope may write events (a scoped credential the AWS ingestion Lambda holds).
+    // Without this, any authenticated user JWT could forge events for any org,
+    // since the org is resolved from the pipeline registry, not the caller.
+    if (!hasScope(req, INGEST_SCOPE)) {
+      if (!legacyIngestAllowed()) {
+        return sendError(res, 403, `Token must carry the '${INGEST_SCOPE}' scope`, ErrorCode.INSUFFICIENT_PERMISSIONS);
+      }
+      ctx.log('WARN', `Event ingest used a legacy (non-'${INGEST_SCOPE}') token — re-provision with 'store-token --scope ${INGEST_SCOPE}', then set REPORTING_INGEST_ALLOW_LEGACY=false`, {
+        sub: req.user?.sub,
+      });
+    }
+
     const parsed = ingestBatchSchema.safeParse(req.body);
     if (!parsed.success) {
       const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');

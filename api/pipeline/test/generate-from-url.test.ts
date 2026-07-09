@@ -132,6 +132,14 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
       return mockDbChain;
     },
   },
+  // findExistingPluginNames now reads through withTenantTx (RLS-safe); route the
+  // tx's select to the same mockDbChain the bare-db path used.
+  withTenantTx: (fn: (tx: { select: (...a: any[]) => unknown }) => unknown) => fn({
+    select: (...args: any[]) => {
+      mockDbSelect(...args);
+      return mockDbChain;
+    },
+  }),
   schema: {
     plugin: {
       name: 'name',

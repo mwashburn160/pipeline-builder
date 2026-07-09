@@ -52,11 +52,13 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // (defaultFeatures derives marketing copy from each tier's limits), so the
     // mock must expose the four tiers with a numeric `limits` shape.
     QUOTA_TIERS: {
-      developer: { label: 'Developer', limits: { seats: 1, plugins: 50, pipelines: 5, apiCalls: 25000, aiCalls: 50 } },
-      pro: { label: 'Pro', limits: { seats: 3, plugins: 500, pipelines: 50, apiCalls: 500000, aiCalls: 2500 } },
-      team: { label: 'Team', limits: { seats: 10, plugins: 2000, pipelines: 200, apiCalls: -1, aiCalls: 10000 } },
-      enterprise: { label: 'Enterprise', limits: { seats: -1, plugins: 5000, pipelines: 500, apiCalls: -1, aiCalls: 25000 } },
+      developer: { label: 'Developer', limits: { seats: 1, plugins: 25, pipelines: 5, apiCalls: 25000, aiCalls: 50 } },
+      pro: { label: 'Pro', limits: { seats: 1, plugins: 50, pipelines: 10, apiCalls: 500000, aiCalls: 2500 } },
+      team: { label: 'Team', limits: { seats: 10, plugins: 100, pipelines: 200, apiCalls: -1, aiCalls: 10000 } },
+      enterprise: { label: 'Enterprise', limits: { seats: 25, plugins: 250, pipelines: 200, apiCalls: -1, aiCalls: 25000 } },
     },
+    // billing-config.ts validates BILLING_BUNDLE_<ID>_TIERS entries with this.
+    isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

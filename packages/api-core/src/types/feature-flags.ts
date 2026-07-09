@@ -11,7 +11,8 @@ export type FeatureFlag =
   | 'custom_integrations'
   | 'ai_generation'
   | 'bulk_operations'
-  | 'audit_log';
+  | 'audit_log'
+  | 'sso';
 
 /** All valid feature flags (order determines display order). */
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
@@ -20,6 +21,7 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   'bulk_operations',
   'custom_integrations',
   'audit_log',
+  'sso',
 ];
 
 /** Check whether a string is a valid FeatureFlag. */
@@ -63,6 +65,10 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
     label: 'Audit Log',
     description: 'Detailed audit trail of all user and system actions',
   },
+  sso: {
+    label: 'SSO / IdP',
+    description: 'Single sign-on and external identity-provider configurations',
+  },
 };
 
 // Resolution logic
@@ -84,12 +90,21 @@ export function resolveUserFeatures(
   tier: QuotaTier,
   featureOverrides?: Record<string, boolean> | null,
   isSuperAdmin?: boolean,
+  accountFeatures?: readonly string[] | null,
 ): FeatureFlag[] {
   // Sysadmins get everything regardless of tier.
   if (isSuperAdmin) return [...ALL_FEATURE_FLAGS];
 
   // Start with tier defaults
   const features = new Set<FeatureFlag>(TIER_FEATURES[tier] ?? []);
+
+  // Account-level entitlements (purchased feature bundles — audit_log/sso).
+  // Applied before per-user overrides so an explicit user override still wins.
+  if (accountFeatures) {
+    for (const key of accountFeatures) {
+      if (isValidFeatureFlag(key)) features.add(key);
+    }
+  }
 
   // Apply per-user overrides
   if (featureOverrides) {
@@ -108,12 +123,15 @@ export function resolveUserFeatures(
 }
 
 /**
- * Check if a specific feature is enabled for a user.
+ * Check if a specific feature is enabled for a user. Delegates to
+ * {@link resolveUserFeatures} so it stays in lockstep — including account-level
+ * entitlements purchased via add-on bundles (`accountFeatures`).
  *
  * @param tier - The organization's quota tier
  * @param feature - The feature flag to check
  * @param featureOverrides - Per-user overrides
  * @param isSuperAdmin - Whether the user has the global super-admin flag
+ * @param accountFeatures - Account-level entitlements (e.g. bundle-granted)
  * @returns true if the feature is enabled
  */
 export function hasFeature(
@@ -121,14 +139,7 @@ export function hasFeature(
   feature: FeatureFlag,
   featureOverrides?: Record<string, boolean> | null,
   isSuperAdmin?: boolean,
+  accountFeatures?: readonly string[] | null,
 ): boolean {
-  if (isSuperAdmin) return true;
-
-  // Check override first
-  if (featureOverrides && feature in featureOverrides) {
-    return featureOverrides[feature];
-  }
-
-  // Fall back to tier default
-  return (TIER_FEATURES[tier] ?? []).includes(feature);
+  return resolveUserFeatures(tier, featureOverrides, isSuperAdmin, accountFeatures).includes(feature);
 }

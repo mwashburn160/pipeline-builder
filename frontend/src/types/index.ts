@@ -465,8 +465,37 @@ export interface Subscription {
   currentPeriodStart: string;
   currentPeriodEnd: string;
   cancelAtPeriodEnd: boolean;
+  /** Purchased add-on bundles (docs/billing-bundles.md). */
+  addons?: Array<{ bundleId: string; quantity: number }>;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A purchasable add-on bundle (expansion revenue). */
+export interface Bundle {
+  id: string;
+  name: string;
+  description: string;
+  grants: Record<string, number>;
+  features?: string[];
+  prices: { monthly: number; annual: number };
+  stackable: boolean;
+  availableForTiers: QuotaTier[];
+}
+
+/** An itemized price line + total returned by the add-on preview/mutation. */
+export interface AddonPriceBreakdown {
+  interval: string;
+  items: Array<{ label: string; quantity: number; cents: number }>;
+  totalCents: number;
+}
+
+/** Result of an add-on add/remove/preview: effective limits + itemized price. */
+export interface AddonResult {
+  addons: Array<{ bundleId: string; quantity: number }>;
+  effectiveLimits: Record<string, number>;
+  priceBreakdown: AddonPriceBreakdown;
+  subscription?: Subscription;
 }
 
 /**

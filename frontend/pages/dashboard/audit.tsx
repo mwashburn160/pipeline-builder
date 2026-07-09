@@ -53,7 +53,7 @@ interface AuditEvent {
   createdAt: string;
 }
 
-const LIMIT = 50;
+const DEFAULT_LIMIT = 50;
 
 export default function AuditPage() {
   const router = useRouter();
@@ -68,6 +68,7 @@ export default function AuditPage() {
   const [requestId, setRequestId] = useState<string>('');
   const [outcome, setOutcome] = useState<'' | 'success' | 'failure'>('');
   const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -94,8 +95,8 @@ export default function AuditPage() {
     // is sysadmin-only. UI still sends it, server ignores for non-sysadmins.
     ...(isSuperAdmin && affectedOrgId && { affectedOrgId }),
     offset,
-    limit: LIMIT,
-  }), [action, actorId, requestId, outcome, affectedOrgId, isSuperAdmin, offset]);
+    limit,
+  }), [action, actorId, requestId, outcome, affectedOrgId, isSuperAdmin, offset, limit]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -317,12 +318,12 @@ export default function AuditPage() {
         )}
       </div>
 
-      {total > LIMIT && (
+      {total > limit && (
         <div className="mt-3">
           <Pagination
-            pagination={{ total, offset, limit: LIMIT }}
+            pagination={{ total, offset, limit }}
             onPageChange={(nextOffset) => setOffset(nextOffset)}
-            onPageSizeChange={() => undefined}
+            onPageSizeChange={(size) => { setLimit(size); setOffset(0); }}
           />
         </div>
       )}

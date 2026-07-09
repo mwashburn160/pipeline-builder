@@ -22,7 +22,7 @@ import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeli
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
-import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { isOrgAdmin, isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
 import { alertDestinationService, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
@@ -77,8 +77,8 @@ function isValidChannel(c: unknown): c is 'slack' | 'webhook' | 'in-app' | 'emai
 
 /** GET /api/observability/alert-destinations — list this org's destinations. */
 export const listAlertDestinations = withController('List alert destinations', async (req, res) => {
-  const orgId = req.user?.organizationId;
-  if (!orgId) return sendError(res, 400, 'organizationId required');
+  const orgId = requireOrgMembership(req, res);
+  if (!orgId) return;
 
   const destinations = await alertDestinationService.listForOrg(orgId);
   // Mask the target field on read — Slack URLs are bearer-equivalent.
@@ -102,9 +102,9 @@ export const listAllAlertDestinations = withController('List all alert destinati
 
 /** POST /api/observability/alert-destinations — create. Org-admin or above. */
 export const createAlertDestination = withController('Create alert destination', async (req, res) => {
-  const orgId = req.user?.organizationId;
-  const userId = req.user?.sub;
-  if (!orgId || !userId) return sendError(res, 401, 'Unauthorized');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
 
   if (!isSystemAdmin(req) && !isOrgAdmin(req)) {
     return sendError(res, 403, 'Org admin or system admin required');
@@ -162,9 +162,9 @@ export const createAlertDestination = withController('Create alert destination',
 
 /** PUT /api/observability/alert-destinations/:id — update. */
 export const updateAlertDestination = withController('Update alert destination', async (req, res) => {
-  const orgId = req.user?.organizationId;
-  const userId = req.user?.sub;
-  if (!orgId || !userId) return sendError(res, 401, 'Unauthorized');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
 
   if (!isSystemAdmin(req) && !isOrgAdmin(req)) {
     return sendError(res, 403, 'Org admin or system admin required');
@@ -192,6 +192,14 @@ export const updateAlertDestination = withController('Update alert destination',
     }
     const err = validateChannelTarget(channel, body.target);
     if (err) return sendError(res, 400, err);
+  } else if (typeof body.channel === 'string') {
+    // Channel changed but no new target supplied — re-validate the STORED target
+    // against the new channel's rules, else a webhook target (e.g. an internal
+    // URL) could be relabeled as slack/email and bypass the channel allowlist.
+    const existing = await alertDestinationService.findById(id, orgId);
+    if (!existing) return sendError(res, 404, 'Destination not found');
+    const err = validateChannelTarget(body.channel, existing.target);
+    if (err) return sendError(res, 400, err);
   }
   if (body.minSeverity !== undefined && body.minSeverity !== 'warning' && body.minSeverity !== 'critical') {
     return sendError(res, 400, 'minSeverity must be warning or critical');
@@ -216,9 +224,9 @@ export const updateAlertDestination = withController('Update alert destination',
 
 /** DELETE /api/observability/alert-destinations/:id — soft delete. */
 export const deleteAlertDestination = withController('Delete alert destination', async (req, res) => {
-  const orgId = req.user?.organizationId;
-  const userId = req.user?.sub;
-  if (!orgId || !userId) return sendError(res, 401, 'Unauthorized');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
 
   if (!isSystemAdmin(req) && !isOrgAdmin(req)) {
     return sendError(res, 403, 'Org admin or system admin required');

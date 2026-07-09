@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  db,
   drizzleCount,
   schema,
+  withTenantTx,
 } from '@pipeline-builder/pipeline-core';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { calculateNextRun } from '../helpers/scan-scheduler.js';
@@ -16,27 +16,30 @@ class ComplianceScanScheduleService {
   async list(orgId: string, limit: number, offset: number) {
     const whereClause = eq(schema.complianceScanSchedule.orgId, orgId);
 
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceScanSchedule)
-      .where(whereClause)
-      .then(r => drizzleCount(r));
+    // withTenantTx sets `app.org_id` for RLS once the table is FORCE'd.
+    return withTenantTx(async (tx) => {
+      const [countResult] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.complianceScanSchedule)
+        .where(whereClause)
+        .then(r => drizzleCount(r));
 
-    const schedules = await db
-      .select()
-      .from(schema.complianceScanSchedule)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceScanSchedule.createdAt))
-      .limit(limit)
-      .offset(offset);
+      const schedules = await tx
+        .select()
+        .from(schema.complianceScanSchedule)
+        .where(whereClause)
+        .orderBy(desc(schema.complianceScanSchedule.createdAt))
+        .limit(limit)
+        .offset(offset);
 
-    return { schedules, total: countResult?.count ?? 0 };
+      return { schedules, total: countResult?.count ?? 0 };
+    });
   }
 
   /** Create a new schedule. Caller validates the cron expression first. */
   async create(orgId: string, userId: string, target: ScanTarget, cronExpression: string) {
     const nextRunAt = calculateNextRun(cronExpression);
-    const [schedule] = await db
+    const [schedule] = await withTenantTx(async (tx) => tx
       .insert(schema.complianceScanSchedule)
       .values({
         orgId,
@@ -47,7 +50,7 @@ class ComplianceScanScheduleService {
         createdBy: userId,
         updatedBy: userId,
       })
-      .returning();
+      .returning());
     return schedule;
   }
 
@@ -70,14 +73,14 @@ class ComplianceScanScheduleService {
       updates.nextRunAt = calculateNextRun(patch.cronExpression);
     }
 
-    const [updated] = await db
+    const [updated] = await withTenantTx(async (tx) => tx
       .update(schema.complianceScanSchedule)
       .set(updates)
       .where(and(
         eq(schema.complianceScanSchedule.id, id),
         eq(schema.complianceScanSchedule.orgId, orgId),
       ))
-      .returning();
+      .returning());
     return updated ?? null;
   }
 
@@ -94,39 +97,39 @@ class ComplianceScanScheduleService {
     };
 
     if (isActive) {
-      const [existing] = await db
+      const [existing] = await withTenantTx(async (tx) => tx
         .select({ cronExpression: schema.complianceScanSchedule.cronExpression })
         .from(schema.complianceScanSchedule)
         .where(and(
           eq(schema.complianceScanSchedule.id, id),
           eq(schema.complianceScanSchedule.orgId, orgId),
-        ));
+        )));
       if (existing) {
         updates.nextRunAt = calculateNextRun(existing.cronExpression);
       }
     }
 
-    const [updated] = await db
+    const [updated] = await withTenantTx(async (tx) => tx
       .update(schema.complianceScanSchedule)
       .set(updates)
       .where(and(
         eq(schema.complianceScanSchedule.id, id),
         eq(schema.complianceScanSchedule.orgId, orgId),
       ))
-      .returning();
+      .returning());
     return updated ?? null;
   }
 
   /** Soft-delete: marks the schedule inactive. Same return contract as toggleActive. */
   async softDelete(id: string, orgId: string) {
-    const [deleted] = await db
+    const [deleted] = await withTenantTx(async (tx) => tx
       .update(schema.complianceScanSchedule)
       .set({ isActive: false, updatedAt: new Date() })
       .where(and(
         eq(schema.complianceScanSchedule.id, id),
         eq(schema.complianceScanSchedule.orgId, orgId),
       ))
-      .returning();
+      .returning());
     return deleted ?? null;
   }
 }

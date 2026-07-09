@@ -83,7 +83,7 @@ spec:
           # v0.30.0 (was v0.16.0): newer runc reaper no longer wedges in a hot
           # "container not running" retry loop when a build container is killed
           # mid-flight, which previously zombified the pod (Init:ContainerStatusUnknown).
-          image: moby/buildkit:v0.30.0-rootless
+          image: moby/buildkit:v0.31.1-rootless
           restartPolicy: Always
           args:
             # TEMP DIAGNOSTIC: buildkitd execs (rootlesskit userns setup succeeds)

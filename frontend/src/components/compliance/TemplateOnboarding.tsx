@@ -17,6 +17,7 @@ export default function TemplateOnboarding() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ created: number; skipped: number } | null>(null);
 
   useEffect(() => {
@@ -26,8 +27,10 @@ export default function TemplateOnboarding() {
         // Opt-in by default: org admin must explicitly tick what they want before
         // Apply enrolls them. Previously every template was pre-selected, which
         // made it easy to accept the entire system catalog with one click.
+      } else {
+        setError(res.message || 'Failed to load rule templates');
       }
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch(() => setError('Failed to load rule templates')).finally(() => setLoading(false));
   }, []);
 
   const toggleTemplate = (id: string) => {
@@ -42,10 +45,14 @@ export default function TemplateOnboarding() {
   const handleApply = async () => {
     if (selectedIds.size === 0) return;
     setApplying(true);
+    setError(null);
     try {
       const res = await api.applyRuleTemplates([...selectedIds]);
       if (res.success && res.data) setResult(res.data);
-    } catch { /* handled */ }
+      else setError(res.message || 'Failed to apply templates');
+    } catch {
+      setError('Failed to apply templates');
+    }
     setApplying(false);
   };
 
@@ -82,6 +89,10 @@ export default function TemplateOnboarding() {
           Apply {selectedIds.size} Template{selectedIds.size !== 1 ? 's' : ''}
         </button>
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">{error}</div>
+      )}
 
       <p className="text-sm text-gray-500 dark:text-gray-400">
         Select starter rules to add to your organization. These create org-scoped rules you can customize.

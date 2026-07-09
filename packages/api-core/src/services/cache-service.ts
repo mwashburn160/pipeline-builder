@@ -187,8 +187,11 @@ export class CacheService {
         return keys.length;
       }
 
-      // In-memory — match glob-style pattern
-      const regex = new RegExp('^' + fp.replace(/\*/g, '.*') + '$');
+      // In-memory — match glob-style pattern. Escape regex metacharacters first
+      // so a literal `.`/`(`/`[` in a key prefix (e.g. `org:v1.2:*`) can't
+      // over-match or throw (a throw here is swallowed → nothing invalidated →
+      // stale reads); only `*` is treated as a wildcard.
+      const regex = new RegExp('^' + fp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*') + '$');
       let deleted = 0;
       for (const key of this.memory.keys()) {
         if (regex.test(key)) {

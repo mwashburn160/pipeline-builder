@@ -10,10 +10,17 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-// Mock Mongoose Subscription model
+// Mock Mongoose Subscription model. findOne returns a promise that also has a
+// chainable `.sort()` (the provider does `findOne(...).sort({createdAt:-1})`),
+// so both `await findOne(...)` and `await findOne(...).sort(...)` resolve.
 const mockFindOne = jest.fn();
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { findOne: (...args: unknown[]) => mockFindOne(...args) },
+  Subscription: {
+    findOne: (...args: unknown[]) => {
+      const p = Promise.resolve(mockFindOne(...args));
+      return Object.assign(p, { sort: () => p });
+    },
+  },
 }));
 
 // Mock AWS SDK clients
@@ -22,6 +29,8 @@ const mockEntitlementSend = jest.fn();
 jest.unstable_mockModule('@aws-sdk/client-marketplace-metering', () => ({
   MarketplaceMeteringClient: jest.fn().mockImplementation(() => ({ send: mockMeteringSend })),
   ResolveCustomerCommand: jest.fn(),
+  // Echo the input so tests can assert on the ProductCode + UsageRecords sent.
+  BatchMeterUsageCommand: jest.fn().mockImplementation((input: unknown) => ({ input })),
 }));
 jest.unstable_mockModule('@aws-sdk/client-marketplace-entitlement-service', () => ({
   MarketplaceEntitlementServiceClient: jest.fn().mockImplementation(() => ({ send: mockEntitlementSend })),
@@ -30,17 +39,22 @@ jest.unstable_mockModule('@aws-sdk/client-marketplace-entitlement-service', () =
 
 // Mock Stripe SDK
 const mockStripeCustomersCreate = jest.fn();
+const mockStripeCustomersRetrieve = jest.fn();
 const mockStripeSubscriptionsCreate = jest.fn();
 const mockStripeSubscriptionsUpdate = jest.fn();
 const mockStripeSubscriptionsRetrieve = jest.fn();
+const mockStripePaymentMethodsList = jest.fn();
+const mockStripePortalCreate = jest.fn();
 jest.unstable_mockModule('stripe', () => {
   const StripeMock = jest.fn().mockImplementation(() => ({
-    customers: { create: mockStripeCustomersCreate },
+    customers: { create: mockStripeCustomersCreate, retrieve: mockStripeCustomersRetrieve },
     subscriptions: {
       create: mockStripeSubscriptionsCreate,
       update: mockStripeSubscriptionsUpdate,
       retrieve: mockStripeSubscriptionsRetrieve,
     },
+    paymentMethods: { list: mockStripePaymentMethodsList },
+    billingPortal: { sessions: { create: mockStripePortalCreate } },
   }));
   return { default: StripeMock };
 });
@@ -89,6 +103,7 @@ describe('AWSMarketplaceProvider', () => {
     region: 'us-east-1',
     snsTopicArn: 'arn:aws:sns:us-east-1:123456789:test-topic',
     dimensionToPlanMap: { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },
+    bundleToDimensionMap: { seat_pack: 'seats', pipeline_pack: 'pipelines' },
   };
 
   let provider: AWSMarketplaceProvider;
@@ -185,6 +200,67 @@ describe('AWSMarketplaceProvider', () => {
 
     it('reactivateSubscription resolves without error', async () => {
       await expect(provider.reactivateSubscription('aws_sub_123')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('meterAddonUsage (BatchMeterUsage)', () => {
+    it('reports mapped add-ons as usage records and returns the metered count', async () => {
+      mockMeteringSend.mockResolvedValue({ UnprocessedRecords: [] });
+      const ts = new Date('2026-07-07T00:00:00Z');
+
+      const result = await provider.meterAddonUsage('cust-1', [
+        { bundleId: 'seat_pack', quantity: 3 },
+        { bundleId: 'pipeline_pack', quantity: 2 },
+      ], ts);
+
+      expect(result).toEqual({ metered: 2, skipped: [], unprocessed: 0 });
+      expect(mockMeteringSend).toHaveBeenCalledTimes(1);
+      const sent = (mockMeteringSend.mock.calls[0][0] as { input: { ProductCode: string; UsageRecords: unknown[] } }).input;
+      expect(sent.ProductCode).toBe('test-product');
+      expect(sent.UsageRecords).toEqual([
+        { CustomerIdentifier: 'cust-1', Dimension: 'seats', Quantity: 3, Timestamp: ts },
+        { CustomerIdentifier: 'cust-1', Dimension: 'pipelines', Quantity: 2, Timestamp: ts },
+      ]);
+    });
+
+    it('skips bundles with no dimension mapping (does not meter them)', async () => {
+      mockMeteringSend.mockResolvedValue({ UnprocessedRecords: [] });
+
+      const result = await provider.meterAddonUsage('cust-1', [
+        { bundleId: 'seat_pack', quantity: 1 },
+        { bundleId: 'audit_log', quantity: 1 }, // unmapped
+      ]);
+
+      expect(result.skipped).toEqual(['audit_log']);
+      expect(result.metered).toBe(1);
+      const sent = (mockMeteringSend.mock.calls[0][0] as { input: { UsageRecords: unknown[] } }).input;
+      expect(sent.UsageRecords).toHaveLength(1);
+    });
+
+    it('does not call AWS when there are no metered records', async () => {
+      const result = await provider.meterAddonUsage('cust-1', [
+        { bundleId: 'seat_pack', quantity: 0 }, // zero quantity → no-op
+        { bundleId: 'audit_log', quantity: 5 }, // unmapped
+      ]);
+
+      expect(result).toEqual({ metered: 0, skipped: ['audit_log'], unprocessed: 0 });
+      expect(mockMeteringSend).not.toHaveBeenCalled();
+    });
+
+    it('counts AWS UnprocessedRecords against the metered total', async () => {
+      mockMeteringSend.mockResolvedValue({
+        UnprocessedRecords: [{ CustomerIdentifier: 'cust-1', Dimension: 'seats', Quantity: 3 }],
+      });
+
+      const result = await provider.meterAddonUsage('cust-1', [{ bundleId: 'seat_pack', quantity: 3 }]);
+      expect(result).toEqual({ metered: 0, skipped: [], unprocessed: 1 });
+    });
+
+    it('truncates fractional quantities to a non-negative integer', async () => {
+      mockMeteringSend.mockResolvedValue({ UnprocessedRecords: [] });
+      await provider.meterAddonUsage('cust-1', [{ bundleId: 'seat_pack', quantity: 2.9 }]);
+      const sent = (mockMeteringSend.mock.calls[0][0] as { input: { UsageRecords: Array<{ Quantity: number }> } }).input;
+      expect(sent.UsageRecords[0].Quantity).toBe(2);
     });
   });
 });
@@ -312,6 +388,48 @@ describe('StripeProvider', () => {
       expect(mockStripeSubscriptionsUpdate).toHaveBeenCalledWith('sub_stripe_789', {
         cancel_at_period_end: false,
       });
+    });
+  });
+
+  describe('hasPaymentMethod', () => {
+    it('returns true when the customer has a default payment method', async () => {
+      mockStripeCustomersRetrieve.mockResolvedValue({ invoice_settings: { default_payment_method: 'pm_1' } });
+      expect(await provider.hasPaymentMethod('cus_1')).toBe(true);
+      expect(mockStripePaymentMethodsList).not.toHaveBeenCalled(); // short-circuits
+    });
+
+    it('falls back to listing attached payment methods', async () => {
+      mockStripeCustomersRetrieve.mockResolvedValue({ invoice_settings: {} });
+      mockStripePaymentMethodsList.mockResolvedValue({ data: [{ id: 'pm_2' }] });
+      expect(await provider.hasPaymentMethod('cus_1')).toBe(true);
+    });
+
+    it('returns false when there is no default and no attached method', async () => {
+      mockStripeCustomersRetrieve.mockResolvedValue({ invoice_settings: {} });
+      mockStripePaymentMethodsList.mockResolvedValue({ data: [] });
+      expect(await provider.hasPaymentMethod('cus_1')).toBe(false);
+    });
+
+    it('returns false for a deleted customer', async () => {
+      mockStripeCustomersRetrieve.mockResolvedValue({ deleted: true });
+      expect(await provider.hasPaymentMethod('cus_1')).toBe(false);
+    });
+
+    it('fails CLOSED (false) when the lookup throws', async () => {
+      mockStripeCustomersRetrieve.mockRejectedValue(new Error('network'));
+      expect(await provider.hasPaymentMethod('cus_1')).toBe(false);
+    });
+  });
+
+  describe('createBillingPortalSession', () => {
+    it('creates a portal session for the customer and returns its URL', async () => {
+      mockStripePortalCreate.mockResolvedValue({ url: 'https://billing.stripe.com/session/abc' });
+      const url = await provider.createBillingPortalSession('cus_1', 'https://app/dashboard/billing');
+      expect(mockStripePortalCreate).toHaveBeenCalledWith({
+        customer: 'cus_1',
+        return_url: 'https://app/dashboard/billing',
+      });
+      expect(url).toBe('https://billing.stripe.com/session/abc');
     });
   });
 });

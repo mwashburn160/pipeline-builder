@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID, parsePaginationParams } from '@pipeline-builder/api-core';
+import { verifyOAuthCode, OAUTH_ERROR_MAP } from './oauth.js';
 import { config } from '../config/index.js';
 import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
@@ -11,7 +12,6 @@ import {
   INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED,
   INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING,
 } from '../services/index.js';
-import { parsePagination } from '../utils/pagination.js';
 import { validateBody, sendInvitationSchema } from '../utils/validation.js';
 
 const logger = createLogger('invitation-controller');
@@ -47,6 +47,7 @@ const acceptErrorMap = {
 
 const acceptOAuthErrorMap = {
   ...acceptErrorMap,
+  ...OAUTH_ERROR_MAP,
   [INV_EMAIL_MISMATCH]: { status: 403, message: 'OAuth email does not match invitation email' },
 };
 
@@ -106,18 +107,26 @@ export const acceptInvitation = withController('Accept invitation', async (req, 
   sendSuccess(res, 200, undefined, 'Invitation accepted successfully');
 }, acceptErrorMap);
 
-/** POST /invitation/accept-oauth — first-time OAuth-based accept (creates user if needed). */
+/** POST /invitation/accept-oauth — first-time OAuth-based accept (creates user if needed).
+ *  Public route: the caller supplies the OAuth authorization `code` + `state`
+ *  (obtained via the normal /auth/url → provider redirect), NOT a profile. The
+ *  identity is verified SERVER-SIDE via {@link verifyOAuthCode} — accepting a
+ *  client-supplied `oauthData` previously let anyone holding an invite token
+ *  bind the invitee's email to an attacker-chosen account (org/account takeover). */
 export const acceptInvitationViaOAuth = withController('Accept invitation via OAuth', async (req, res) => {
-  const { token, oauthProvider, oauthData } = req.body;
+  const { token, oauthProvider, code, state } = req.body ?? {};
   if (!token) return sendError(res, 400, 'Invitation token is required');
   if (!oauthProvider || !['google'].includes(oauthProvider)) {
     return sendError(res, 400, 'Valid OAuth provider is required');
   }
-  if (!oauthData || !oauthData.id || !oauthData.email) {
-    return sendError(res, 400, 'OAuth data with id and email is required');
+  if (typeof code !== 'string' || !code || typeof state !== 'string' || !state) {
+    return sendError(res, 400, 'OAuth authorization code and state are required');
   }
 
-  await invitationService.acceptViaOAuth(token, oauthProvider as InvitationOAuthProvider, oauthData);
+  // Exchange the code with the provider and use the VERIFIED identity — never
+  // trust a client-supplied profile.
+  const verified = await verifyOAuthCode(oauthProvider, code, state);
+  await invitationService.acceptViaOAuth(token, oauthProvider as InvitationOAuthProvider, verified);
 
   logger.info('Invitation accepted via OAuth', { token, oauthProvider });
   sendSuccess(res, 200, undefined, 'Invitation accepted successfully via OAuth');
@@ -161,7 +170,7 @@ export const listInvitations = withController('List invitations', async (req, re
   }
 
   const { status, invitationType } = req.query;
-  const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
+  const { offset, limit: limitNum } = parsePaginationParams(req.query);
 
   const { invitations, total } = await invitationService.listForOrg(orgId, {
     status: status as string | undefined,

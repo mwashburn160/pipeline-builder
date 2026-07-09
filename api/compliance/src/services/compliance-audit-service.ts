@@ -3,9 +3,9 @@
 
 import {
   buildComplianceAuditConditions,
-  db,
   drizzleCount,
   schema,
+  withTenantTx,
 } from '@pipeline-builder/pipeline-core';
 import { and, desc, sql } from 'drizzle-orm';
 
@@ -24,21 +24,26 @@ class ComplianceAuditService {
     const conditions = buildComplianceAuditConditions(filter, orgId);
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [countResult] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceAuditLog)
-      .where(whereClause)
-      .then(r => drizzleCount(r));
+    // withTenantTx sets `app.org_id` so these reads work once the audit-log
+    // table is FORCE'd RLS (bare `db` runs with a null GUC → zero rows). Both
+    // queries share one tx for a consistent view.
+    return withTenantTx(async (tx) => {
+      const [countResult] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.complianceAuditLog)
+        .where(whereClause)
+        .then(r => drizzleCount(r));
 
-    const entries = await db
-      .select()
-      .from(schema.complianceAuditLog)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceAuditLog.createdAt))
-      .limit(limit)
-      .offset(offset);
+      const entries = await tx
+        .select()
+        .from(schema.complianceAuditLog)
+        .where(whereClause)
+        .orderBy(desc(schema.complianceAuditLog.createdAt))
+        .limit(limit)
+        .offset(offset);
 
-    return { entries, total: countResult?.count ?? 0 };
+      return { entries, total: countResult?.count ?? 0 };
+    });
   }
 }
 

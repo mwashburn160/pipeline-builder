@@ -131,12 +131,17 @@ export default function ReportsPage() {
     try {
       if (topTab === 'pipelines') {
         if (pipelineTab === 'overview') {
-          const [execRes, timelineRes, successRateRes] = await Promise.allSettled([
-            api.getExecutionCount(rollup), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
+          // `timeline` and `successRateTrend` both derive from the success-rate
+          // response — fetch it once and feed both (was two identical requests).
+          const [execRes, successRateRes] = await Promise.allSettled([
+            api.getExecutionCount(rollup), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
           ]);
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-          if (timelineRes.status === 'fulfilled') setTimeline(timelineRes.value.data?.timeline || []);
-          if (successRateRes.status === 'fulfilled') setSuccessRateTrend(successRateRes.value.data?.timeline || []);
+          if (successRateRes.status === 'fulfilled') {
+            const trend = successRateRes.value.data?.timeline || [];
+            setTimeline(trend);
+            setSuccessRateTrend(trend);
+          }
         } else if (pipelineTab === 'performance') {
           const [execRes, durationRes, bottleneckRes] = await Promise.allSettled([
             api.getExecutionCount(rollup), api.getPipelineDuration({ ...dateParams, ...rollup }), api.getStageBottlenecks(dateParams),
@@ -218,7 +223,7 @@ export default function ReportsPage() {
       actions={
         <div className="flex items-center gap-3">
           {canRollup && hasTeams && topTab === 'pipelines' && (
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate pipeline analytics across this organization and its team sub-organizations">
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate pipeline analytics across this organization and its teams">
               <input
                 type="checkbox"
                 checked={includeDescendants}

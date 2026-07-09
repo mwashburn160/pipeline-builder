@@ -146,10 +146,16 @@ class OrgMembersService {
       }).session(session);
       if (existing) throw new Error(OM_ALREADY_MEMBER);
 
-      // Seat-cap enforcement — the same limit the invite path enforces. A
-      // direct add must not let an admin bypass the org's `quotas.seats`.
-      const seatLimit = org.quotas?.seats ?? -1;
-      if (!(await seatCapacityAvailable(orgId, seatLimit, 1, session))) {
+      // Seat-cap enforcement — pooled at the account root (same cap the invite
+      // path enforces); a direct add must not bypass it. But seats count DISTINCT
+      // humans across the subtree, so a user who already holds a seat elsewhere in
+      // the account consumes no new seat — only check capacity when they don't
+      // (mirrors bulkAddMemberToTeams).
+      const subtreeIds = (await expandOrgScope(orgId)).map(toOrgId);
+      const alreadyHasSeat = await UserOrganization.exists({
+        userId: user._id, organizationId: { $in: subtreeIds }, isActive: true,
+      }).session(session);
+      if (!alreadyHasSeat && !(await seatCapacityAvailable(orgId, 1, session))) {
         throw new Error(OM_SEAT_LIMIT);
       }
 
@@ -224,12 +230,16 @@ class OrgMembersService {
         : await User.findOne({ email: body.email!.toLowerCase() }).session(session);
       if (!user) throw new Error(OM_USER_NOT_FOUND);
 
-      // Per-team seat limits — load each target's `quotas.seats` up front.
-      const targetOrgs = await Organization.find({ _id: { $in: body.orgIds.map(toOrgId) } })
-        .select('_id quotas.seats').session(session);
-      const seatLimitByOrg = new Map(
-        targetOrgs.map((o) => [String(o._id), o.quotas?.seats ?? -1]),
-      );
+      // Seats pool at the account ROOT and count DISTINCT humans, so adding
+      // this one user to N teams consumes at most ONE seat. If they don't
+      // already hold a seat in the account, check pooled capacity once up front.
+      const subtreeIds = (await expandOrgScope(contextOrgId)).map(toOrgId);
+      const alreadyHasSeat = await UserOrganization.exists({
+        userId: user._id, organizationId: { $in: subtreeIds }, isActive: true,
+      }).session(session);
+      if (!alreadyHasSeat && !(await seatCapacityAvailable(contextOrgId, 1, session))) {
+        throw new Error(OM_SEAT_LIMIT);
+      }
 
       const results: BulkAddResult[] = [];
       for (const orgId of body.orgIds) {
@@ -238,13 +248,6 @@ class OrgMembersService {
         }).session(session);
         if (existing) {
           results.push({ orgId, status: 'already_member' });
-          continue;
-        }
-        // Enforce the team's seat cap (skip full teams rather than aborting the
-        // whole batch). The count reflects rows added earlier in this loop.
-        const seatLimit = seatLimitByOrg.get(orgId) ?? -1;
-        if (!(await seatCapacityAvailable(orgId, seatLimit, 1, session))) {
-          results.push({ orgId, status: 'seat_limit' });
           continue;
         }
         await UserOrganization.create(
@@ -385,12 +388,26 @@ class OrgMembersService {
 
   /** Re-activate a previously deactivated member. */
   async activateMember(orgId: string, userId: string): Promise<void> {
-    const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) });
-    if (!membership) throw new Error(OM_MEMBERSHIP_NOT_FOUND);
-    if (membership.isActive) throw new Error(OM_ALREADY_ACTIVE);
+    await withMongoTransaction(async (session) => {
+      const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) }).session(session);
+      if (!membership) throw new Error(OM_MEMBERSHIP_NOT_FOUND);
+      if (membership.isActive) throw new Error(OM_ALREADY_ACTIVE);
 
-    membership.isActive = true;
-    await membership.save();
+      // Reactivation re-occupies a seat, so it must honor the pooled cap the
+      // invite/add paths enforce — otherwise deactivate→reactivate churn could
+      // push an account over its seat limit. A user already holding an active
+      // seat elsewhere in the subtree consumes no new seat (distinct-humans).
+      const subtreeIds = (await expandOrgScope(orgId)).map(toOrgId);
+      const alreadyHasSeat = await UserOrganization.exists({
+        userId, organizationId: { $in: subtreeIds }, isActive: true,
+      }).session(session);
+      if (!alreadyHasSeat && !(await seatCapacityAvailable(orgId, 1, session))) {
+        throw new Error(OM_SEAT_LIMIT);
+      }
+
+      membership.isActive = true;
+      await membership.save({ session });
+    });
   }
 }
 

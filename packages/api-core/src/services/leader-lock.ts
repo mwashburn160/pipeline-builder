@@ -11,7 +11,15 @@ export interface LockRedis {
   set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
   get(key: string): Promise<string | null>;
   del(...keys: string[]): Promise<number>;
+  /** Optional Lua eval (ioredis has it). When present, release uses an atomic
+   *  compare-and-delete so a lapsed holder can't free a successor's lock. */
+  eval?(script: string, numKeys: number, ...args: unknown[]): Promise<unknown>;
 }
+
+/** Atomic "delete only if I still own it" — closes the get-then-del race where
+ *  the lock expires and is re-acquired between the two calls. */
+const RELEASE_IF_OWNER =
+  'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
 
 /**
  * Run `fn` only if this process wins a short-lived distributed lock — the
@@ -38,9 +46,15 @@ export async function withLeaderLock(
     await fn();
   } finally {
     // Release only if the lock is still ours — if our run overran the TTL and
-    // another holder took over, deleting here would free their lock early.
+    // another holder took over, releasing here would free their lock early.
+    // Prefer an atomic CAS (Lua); fall back to get-then-del for clients without
+    // eval (the small non-atomic window is TTL-bounded).
     try {
-      if ((await redis.get(key)) === token) await redis.del(key);
+      if (typeof redis.eval === 'function') {
+        await redis.eval(RELEASE_IF_OWNER, 1, key, token);
+      } else if ((await redis.get(key)) === token) {
+        await redis.del(key);
+      }
     } catch {
       // Best-effort: the TTL expires the lock regardless.
     }

@@ -25,6 +25,12 @@ export interface UseAsyncResult<T> {
  * The async function runs immediately on mount and re-runs whenever
  * the dependency list changes.
  *
+ * **useAsync vs {@link useFetch}:** reach for useAsync ONLY when the fetcher
+ * uses the provided `AbortSignal` to truly abort the request; it returns
+ * `error: string` + `refresh()` and needs a stable `fn`. For the common
+ * fetch-on-mount/deps case (no memoized fn, `error: Error`, `refetch()`),
+ * prefer {@link useFetch}.
+ *
  * @param fn - Async function that returns the data. Receives an optional AbortSignal
  *   that is aborted when deps change or the component unmounts.
  * @param deps - React dependency list (re-fetches when deps change)

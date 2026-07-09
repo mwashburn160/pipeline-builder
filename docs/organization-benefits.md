@@ -86,7 +86,7 @@ Every resource is scoped to an organization with role-based access control:
 | Compliance | Per-org rules and policies |
 | Billing | Per-org subscription tiers and usage tracking |
 
-Teams can't see or modify each other's resources. Public plugins are shared; private plugins are org-only.
+Teams can't see or modify each other's resources. Public plugins are shared; private plugins are org-only. Organizations can also nest **teams** that share one account and pool their quotas — see [Organizations, Teams & Billing](#organizations-teams--billing) for the full model.
 
 ### 5. Zero Vendor Lock-In
 
@@ -107,6 +107,78 @@ EventBridge captures every CodePipeline and CodeBuild state change. Reports incl
 - Stage failure heatmaps — which stages fail most across the org
 - Error categorization — grouping failures by message to surface recurring causes
 - Plugin build success rates and durations across the catalog
+
+---
+
+## Organizations, Teams & Billing
+
+Every resource in Pipeline Builder lives inside an **organization**, organizations can optionally nest **teams**, and each account carries a **billing** subscription that sets its caps. These three concepts work together: the organization is the boundary, teams share a boundary's resources under one account, and billing decides how much that account can do.
+
+### Organizations
+
+**Overview.** An organization is a self-contained, isolated workspace — your company, a business unit, or a single squad. It is the tenancy boundary: every pipeline, plugin, compliance rule, quota, secret, subscription, and analytics record belongs to exactly one organization, and organizations cannot see or modify each other's resources. A user can belong to several organizations and acts within one at a time (switch with the org switcher).
+
+**Details.**
+
+- **Roles (RBAC), enforced at the API layer:**
+
+  | Role | Capabilities |
+  |------|-------------|
+  | **Owner** | Full control — manage members, transfer ownership, delete the organization (exactly one owner per org) |
+  | **Admin** | Manage plugins, pipelines, compliance rules, and quotas; invite and manage members |
+  | **Member** | Create and manage their own pipelines and plugins |
+
+- **What's scoped to the org:** pipelines (by project + orgId), plugins (by orgId + `public`/`private` access modifier), compliance rules and exemptions, quotas and seats, secrets (`pipeline-builder/{orgId}/{secretName}`), the billing subscription, and execution analytics.
+- **The shared system organization** publishes a recommended plugin catalog and compliance-rule catalog that any organization can pull from or subscribe to — a common baseline without giving up isolation.
+- **Membership** is per-organization: inviting a user into one org grants no access to another.
+
+### Teams
+
+**Overview.** A **team** is an organization nested one level under a parent (root) organization — the org → team hierarchy. Nesting is **opt-in**: by default every organization is a flat, top-level root with no teams. A team is a full organization (its own members, roles, and secrets), but it shares its parent's account — so the parent can govern it and quotas, billing, visibility, compliance, and analytics roll across the parent ↔ team relationship.
+
+**Details.**
+
+- **One level deep, and tier-gated.** Teams can't have sub-teams. A parent can only nest teams when it is on the **Team** or **Enterprise** tier — the tiers that include the org → team hierarchy.
+- **One shared account.** A team inherits the parent's tier and feature entitlements, and its own quotas are set to unlimited so that **only the root's pooled caps bind** — the whole subtree draws from one shared pool rather than each team carrying separate limits.
+- **Effective RBAC.** A parent-org **admin/owner** administers its teams (manage members, rules, quotas) without a separate membership; team-local roles still apply within each team. Members get no implied authority over sibling or parent orgs.
+- **Inherited plugin visibility.** A team sees its parent's **private** plugins in addition to its own and the public catalog.
+- **Compliance propagation.** A parent rule marked *apply to child teams* is enforced on every team in the subtree, on both live validation and scheduled scans.
+- **Pooled quotas & seats.** Count quotas (plugins, pipelines, …) sum each team's usage against the root's cap; seats are counted as distinct active members plus pending invites across the whole subtree and checked at invite time. Registry storage is measured live across the subtree.
+- **Rolled-up analytics.** A parent admin can include child-team execution data in reports.
+- **Safe downgrades.** Downgrading a root that has teams to a tier that forbids teams (Developer/Pro) is blocked until the teams are resolved, so a tier change can't silently strand them.
+
+### Billing
+
+**Overview.** Each account (the root organization) carries a subscription **tier** that sets its baseline capabilities and caps, and can stack **add-on bundles** to raise specific caps or unlock features without changing tier. Teams don't have separate bills — they share the root account's subscription, and the effective limits are pooled across them.
+
+**Details.**
+
+- **Tiers** — Developer, Pro, Team, and Enterprise. Higher tiers raise every cap and unlock gated features:
+
+  | | Developer | Pro | Team | Enterprise |
+  |---|:---:|:---:|:---:|:---:|
+  | **Price / month** | $0 | $19 | $49 | $99 |
+  | Plugins | 25 | 50 | 100 | 250 |
+  | Pipelines | 5 | 10 | 200 | 200 |
+  | Member seats | 1 | 1 | 10 | 25 |
+  | API calls / period | 25,000 | 500,000 | unlimited | unlimited |
+  | AI calls / period | 50 | 2,500 | 10,000 | 25,000 |
+  | Registry storage | 2 GB | 50 GB | 250 GB | 1 TB |
+  | Dashboards | 20 | 200 | unlimited | unlimited |
+  | Alert rules / destinations | 50 / 10 | 500 / 50 | unlimited | unlimited |
+  | IdP configs | 1 | 5 | 5 | unlimited |
+  | AI generation (pipelines & plugins) | — | ✅ | ✅ | ✅ |
+  | Bulk operations | — | ✅ | ✅ | ✅ |
+  | Audit log | — | — | ✅ | ✅ |
+  | SSO | — | — | — | ✅ |
+  | Custom integrations | — | — | — | ✅ |
+  | Teams (org → team nesting) | — | — | ✅ | ✅ |
+  | Priority support | — | ✅ | ✅ | ✅ |
+
+  AI quotas are sized smaller than API quotas because AI calls carry an external per-call dollar cost. `-1` in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
+
+- **Add-on bundles** — stackable packs that adjust one dimension: Seat Pack (+5 seats), Pipeline Pack (+10), Plugin Pack (+100), API Pack (+1M calls), AI Pack (+5,000 calls), Storage Pack (+50 GB), plus the Audit Log and SSO feature bundles. **Effective limit = tier base + Σ(bundle grant × quantity)**, and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See [Billing Add-on Bundles](billing-bundles.md) for the full catalog, prices, and pooling rules.
+- **Enforcement.** Billing computes the effective entitlement and syncs it to the enforcing services — quota limits to the quota service, seats and purchased features to the platform service — always against the account root. Removing a bundle can't drop a cap below current pooled usage.
 
 ---
 

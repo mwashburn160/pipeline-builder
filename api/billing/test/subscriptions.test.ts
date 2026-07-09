@@ -102,11 +102,21 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   calculatePeriodEnd: mockCalculatePeriodEnd,
   createBillingEvent: mockCreateBillingEvent,
   syncTierToQuotaService: mockSyncTierToQuotaService,
+  syncEntitlements: mockSyncTierToQuotaService,
+  // Over-cap gate: default to "no overages" so plan-change tests proceed.
+  checkEntitlementOvercap: async () => [],
 }));
 
 jest.unstable_mockModule('../src/validation/schemas.js', () => ({
   SubscriptionCreateSchema: {},
   SubscriptionUpdateSchema: {},
+}));
+
+// Route now reads config.billingProvider (stamped onto the subscription's
+// metadata.provider). Mock config so importing it doesn't run the real
+// env-validation (which throws without MONGODB_URI).
+jest.unstable_mockModule('../src/config.js', () => ({
+  config: { billingProvider: 'stripe' },
 }));
 
 const { createSubscriptionRoutes } = await import('../src/routes/subscriptions.js');

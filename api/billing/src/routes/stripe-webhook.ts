@@ -11,7 +11,7 @@ import {
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import { config } from '../config.js';
-import { createBillingEvent, calculatePeriodEnd, syncTierToQuotaService } from '../helpers/billing-helpers.js';
+import { createBillingEvent, calculatePeriodEnd, syncEntitlements } from '../helpers/billing-helpers.js';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
 import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
@@ -263,7 +263,7 @@ async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription
   await subscription.save();
 
   // Downgrade to developer tier
-  await syncTierToQuotaService(subscription.orgId, 'developer', '', subscription._id.toString());
+  await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
 
   await createBillingEvent(subscription.orgId, 'subscription_canceled', {
     provider: 'stripe',
@@ -318,10 +318,10 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
   if (wasRecovery) {
     subscription.status = 'active';
 
-    // Re-upgrade to their plan's tier
+    // Re-upgrade to their plan's tier, preserving purchased add-on grants.
     const plan = await Plan.findById(subscription.planId);
     if (plan) {
-      await syncTierToQuotaService(subscription.orgId, plan.tier, '', subscription._id.toString());
+      await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
     }
   }
 

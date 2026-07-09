@@ -33,16 +33,18 @@ export function getCdkInfo(): CdkInfo {
     const output = execSync('cdk --version', { encoding: 'utf-8', stdio: 'pipe' });
     return { available: true, version: output.trim() };
   } catch (firstError) {
-    // Fallback: invoke through the user's login shell so PATH from their rc
-    // file is sourced. Skip when SHELL isn't set or is /bin/sh (which would
-    // be the same default).
+    // Fallback: run through the user's shell as login + interactive (`-ilc`) so
+    // it actually sources their profile/rc (nvm/asdf/homebrew PATH). The previous
+    // `shell: userShell` option only changed which binary ran `-c` (still
+    // non-login/non-interactive → rc not sourced). stdin is ignored so an
+    // interactive shell can't block waiting for input. Skip when SHELL is unset
+    // or /bin/sh (same as the default attempt above).
     const userShell = process.env.SHELL;
     if (userShell && !userShell.endsWith('/sh')) {
       try {
-        const output = execSync('cdk --version', {
+        const output = execSync(`${userShell} -ilc 'cdk --version'`, {
           encoding: 'utf-8',
-          stdio: 'pipe',
-          shell: userShell,
+          stdio: ['ignore', 'pipe', 'pipe'],
         });
         return { available: true, version: output.trim() };
       } catch {

@@ -137,6 +137,8 @@ function registerMocks() {
     extractDbError: jest.fn(() => ({})),
     incrementQuota: mockIncrementQuota,
     decrementQuota: mockIncrementQuota,
+    // DLQ replay re-reserves a plugin slot; default to capacity available.
+    reserveQuota: jest.fn(() => Promise.resolve({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99 } })),
     getServiceAuthHeader: () => 'Bearer test-service-token',
     createRemoteAuditClient: () => ({ record: jest.fn() }),
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],

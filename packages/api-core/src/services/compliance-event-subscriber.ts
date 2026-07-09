@@ -62,6 +62,7 @@ export function registerComplianceEventSubscriber(
         target: event.target as 'plugin' | 'pipeline',
         entityId: event.entityId,
         orgId: event.orgId,
+        parentOrgId: event.parentOrgId,
         userId: event.userId,
         attributes: event.attributes,
         timestamp: event.timestamp.toISOString(),

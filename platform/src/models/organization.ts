@@ -51,6 +51,9 @@ export interface OrganizationDocument extends Document {
   slug: string;
   description?: string;
   tier: QuotaTier;
+  /** Account-level purchased feature entitlements (bundles), synced by billing
+   *  to the root and propagated onto teams. */
+  featureEntitlements: string[];
   /** Denormalized reference to the owning user. Canonical ownership is in UserOrganization (role: 'owner'). */
   owner: Types.ObjectId;
   /**
@@ -201,6 +204,12 @@ const organizationSchema = new Schema<OrganizationDocument>(
       // it from env; falls back to 'developer'). Quota defaults below track the
       // same tier so a new org's tier and seeded limits stay consistent.
       default: DEFAULT_TIER,
+    },
+    // Account-level feature entitlements purchased via bundles (audit_log/sso).
+    // Billing syncs these to the ROOT org; unioned into `resolveUserFeatures`.
+    featureEntitlements: {
+      type: [String],
+      default: [],
     },
     owner: {
       type: Schema.Types.ObjectId,

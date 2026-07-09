@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, parsePaginationParams } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
-import { formatUserResponse, toOverridesRecord } from './user-profile.js';
-import type { OrgSummary, OrgMembership, UserResponseInput } from './user-profile.js';
+import { formatUserResponse, toOverridesRecord, toUserResponseInput } from './user-profile.js';
+import type { OrgSummary, OrgMembership } from './user-profile.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { requireAdminContext, withController } from '../helpers/controller-helper.js';
@@ -18,7 +18,6 @@ import {
   UA_ORG_NOT_FOUND,
   UA_SEAT_LIMIT,
 } from '../services/index.js';
-import { parsePagination } from '../utils/pagination.js';
 import { adminUpdateUserSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('user-admin-controller');
@@ -68,7 +67,7 @@ export const listAllUsers = withController('List users', async (req, res) => {
     }
   }
 
-  const { offset, limit: limitNum } = parsePagination(req.query.offset, req.query.limit);
+  const { offset, limit: limitNum } = parsePaginationParams(req.query);
   const { users, total, membershipsByUser, orgNameMap } = await userAdminService.list(
     scopedUserIds,
     { search: search as string | undefined },
@@ -83,7 +82,7 @@ export const listAllUsers = withController('List users', async (req, res) => {
       ? userMemberships.find(m => m.organizationId.toString() === activeOrgId)
       : undefined;
 
-    return formatUserResponse(user as unknown as UserResponseInput, {
+    return formatUserResponse(toUserResponseInput(user), {
       activeOrgRole: activeMembership?.role,
       activeOrgName: activeOrgId ? orgNameMap.get(activeOrgId) || null : null,
     });
@@ -135,7 +134,7 @@ export const getUserById = withController('Get user', async (req, res) => {
   const features = resolveUserFeatures(tier, overrides, (user as { isSuperAdmin?: boolean }).isSuperAdmin === true);
 
   sendSuccess(res, 200, {
-    user: formatUserResponse(user as unknown as UserResponseInput, {
+    user: formatUserResponse(toUserResponseInput(user), {
       activeOrgRole, activeOrgName: organizationName, organization, organizations, tier, features,
     }),
   });
@@ -184,7 +183,7 @@ export const updateUserById = withController('Update user', async (req, res) => 
   logger.info('Update user by id', { id, admin: admin.adminType, by: req.user!.sub, changes });
   sendSuccess(
     res, 200,
-    { user: formatUserResponse(user as unknown as UserResponseInput, { activeOrgRole, activeOrgName: organizationName }), changes },
+    { user: formatUserResponse(toUserResponseInput(user), { activeOrgRole, activeOrgName: organizationName }), changes },
     'User updated successfully',
   );
 }, adminErrorMap);
@@ -320,7 +319,7 @@ export const updateUserFeatures = withController('Update user features', async (
   logger.info('Update user features', { id, admin: admin.adminType, by: req.user!.sub });
   sendSuccess(
     res, 200,
-    { user: formatUserResponse(user as unknown as UserResponseInput, { activeOrgRole, activeOrgName: organizationName, tier: (orgTier as QuotaTier) || 'developer', features }) },
+    { user: formatUserResponse(toUserResponseInput(user), { activeOrgRole, activeOrgName: organizationName, tier: (orgTier as QuotaTier) || 'developer', features }) },
     'Feature overrides updated successfully',
   );
 }, adminErrorMap);

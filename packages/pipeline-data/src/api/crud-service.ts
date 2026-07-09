@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { NotFoundError, createLogger } from '@pipeline-builder/api-core';
-import { SQL, eq, and, asc, desc, sql, inArray } from 'drizzle-orm';
+import { SQL, eq, and, asc, desc, sql, inArray, getTableColumns } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { withTenantTx, runWithTenantContext, getTenantContext } from '../database/tenancy.js';
@@ -133,9 +133,12 @@ export abstract class CrudService<
 
   private readonly _logger = createLogger('crud-service');
 
-  /** Build conditions for a single entity by ID. */
-  private idConditions(id: string, orgId?: string): SQL[] {
-    return this.buildConditions({ id } as unknown as Partial<TFilter>, orgId);
+  /** Build conditions for a single entity by ID.
+   *  `parentOrgId` widens visibility to a parent org's public rows (org → team
+   *  hierarchy) — same opt-in semantics as `find`/`findPaginated`. Omitted by the
+   *  write path (`writeConditions`), which must stay own-org scoped. */
+  private idConditions(id: string, orgId?: string, parentOrgId?: string): SQL[] {
+    return this.buildConditions({ id } as unknown as Partial<TFilter>, orgId, parentOrgId);
   }
 
   /**
@@ -322,15 +325,19 @@ export abstract class CrudService<
    *
    * @param id - Entity ID
    * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
+   * @param parentOrgId - Org → team hierarchy: widen visibility to the parent
+   *   org's public rows (so a team can fetch a parent's public entity by id).
+   *   Same opt-in + sysadmin-scoped read as `find`/`findPaginated`; the
+   *   access-control WHERE clause is the authoritative tenancy gate.
    */
-  async findById(id: string, orgId?: string): Promise<TEntity | null> {
-    const conditions = this.idConditions(id, orgId);
+  async findById(id: string, orgId?: string, parentOrgId?: string): Promise<TEntity | null> {
+    const conditions = this.idConditions(id, orgId, parentOrgId);
 
-    const results = await withTenantTx(async (tx) => tx
+    const results = await this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
       .select()
       .from(this.schema)
       .where(and(...conditions))
-      .limit(1).then(r => drizzleRows<TEntity>(r)));
+      .limit(1).then(r => drizzleRows<TEntity>(r))));
 
     return results[0] || null;
   }
@@ -552,12 +559,34 @@ export abstract class CrudService<
    * Uses upsert (onConflictDoUpdate) — all rows are inserted in one query per chunk.
    * Chunks of 100 to stay within PostgreSQL parameter limits.
    */
+  /**
+   * Build the `onConflictDoUpdate` SET for a bulk upsert. Unlike a single-row
+   * create (which can spread the one row's data), a batched insert has many rows,
+   * so each updatable column is written from `excluded.*` (the would-be-inserted
+   * value) — otherwise an existing row's fields are silently discarded and only
+   * timestamps bump. Skips identity/immutable (`id`, `createdAt`, `createdBy`)
+   * and the conflict-target columns; `updatedAt`/`updatedBy` get the fresh values.
+   */
+  private buildBulkUpsertSet(now: Date, user: string): Record<string, unknown> {
+    const conflictNames = new Set(this.conflictTarget.map((c) => (c as unknown as { name: string }).name));
+    const set: Record<string, unknown> = {};
+    for (const [key, col] of Object.entries(getTableColumns(this.schema))) {
+      const name = (col as unknown as { name: string }).name;
+      if (key === 'id' || key === 'createdAt' || key === 'createdBy' || conflictNames.has(name)) continue;
+      if (key === 'updatedAt') { set[key] = now; continue; }
+      if (key === 'updatedBy') { set[key] = user; continue; }
+      set[key] = sql`excluded.${sql.identifier(name)}`;
+    }
+    return set;
+  }
+
   async bulkCreate(items: TInsert[], userId: string): Promise<TEntity[]> {
     if (items.length === 0) return [];
 
     const CHUNK_SIZE = 100;
     const now = new Date();
     const user = userId || 'system';
+    const conflictSet = this.buildBulkUpsertSet(now, user);
 
     const results = await withTenantTx(async (tx) => {
       const allCreated: TEntity[] = [];
@@ -575,10 +604,7 @@ export abstract class CrudService<
           .values(values)
           .onConflictDoUpdate({
             target: this.conflictTarget as any,
-            set: {
-              updatedAt: now,
-              updatedBy: user,
-            } as any,
+            set: conflictSet as any,
           })
           .returning().then(r => drizzleRows<TEntity>(r));
 
@@ -608,6 +634,11 @@ export abstract class CrudService<
     ids: string[],
     orgId: string,
     userId: string,
+    /** When true, only PRIVATE records are deleted — mirrors the single-delete
+     *  `requirePublicAccess` gate so a non-sysadmin can't bulk-delete public
+     *  (shared/sysadmin-managed) records. No-op for entities without an
+     *  `accessModifier` column. Callers pass `!isSystemAdmin(req)`. */
+    restrictToPrivate = false,
   ): Promise<TEntity[]> {
     if (ids.length === 0) return [];
 
@@ -617,10 +648,12 @@ export abstract class CrudService<
     // -org PUBLIC rows, so without the strict orgId pin a tenant could delete
     // shared records by id. (See writeConditions.)
     const orgCol = (this.schema as any).orgId as AnyColumn | undefined;
+    const accessCol = (this.schema as any).accessModifier as AnyColumn | undefined;
     const conditions = [
       inArray((this.schema as any).id, ids),
       ...this.buildConditions({} as Partial<TFilter>, orgId),
       ...(orgId && orgCol ? [eq(orgCol, orgId)] : []),
+      ...(restrictToPrivate && accessCol ? [eq(accessCol, 'private')] : []),
     ];
 
     const deleted = await withTenantTx(async (tx) => tx

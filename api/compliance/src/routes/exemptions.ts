@@ -131,8 +131,10 @@ export function createExemptionRoutes(): Router {
     }
   }));
 
-  // DELETE /:id — revoke an exemption
-  router.delete('/:id', withRoute(async ({ req, res, ctx, orgId }) => {
+  // DELETE /:id — revoke an exemption. Admin-gated like PUT /:id/review: revoking
+  // re-imposes a rule (can block a previously-compliant entity), so it's an
+  // admin action, not something any member should do.
+  router.delete('/:id', requireAdmin, withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

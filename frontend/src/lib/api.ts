@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, MemberTeam, OrganizationGroup, OrgQuotaResponse, OrgAIConfig, OrgIdpConfigDto, OrgIdpConfigCreate, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, BillingEvent, BillingInterval, UsageRollup, Message, MessageType, MessagePriority, QueueStatus, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
+import { AuthTokens, ApiResponse, CreatePipelineData, BuilderProps, Organization, OrganizationMember, MemberTeam, OrganizationGroup, OrgQuotaResponse, OrgAIConfig, OrgIdpConfigDto, OrgIdpConfigCreate, Invitation, LogQueryResult, Plugin, Pipeline, User, Plan, Subscription, Bundle, AddonResult, BillingEvent, BillingInterval, UsageRollup, Message, MessageType, MessagePriority, QueueStatus, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult, QuotaTier } from '@/types';
 import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate } from '@/types/compliance';
 import { REFRESH_BUFFER_MS, MAX_REFRESH_ATTEMPTS, API_REQUEST_TIMEOUT_MS } from './constants';
 
@@ -742,6 +742,13 @@ class ApiClient {
     return this.request<ApiResponse<{ teams: Array<{ orgId: string; orgName: string; parentOrgId?: string }> }>>(`/api/organization/${orgId}/teams`);
   }
 
+  /** Pooled seat usage for the account (root): distinct active members + pending
+   *  invites across the whole subtree vs the root's seat limit. Account admin or
+   *  service principal only. `limit === -1` means unlimited seats. */
+  async getOrganizationSeatUsage(orgId: string) {
+    return this.request<ApiResponse<{ limit: number; used: number }>>(`/api/organization/${orgId}/seat-usage`);
+  }
+
   /** Descendant teams of `orgId` annotated with whether `memberId` belongs to
    *  each — powers the admin "manage teams" view (a member can be on many teams). */
   async getMemberTeams(orgId: string, memberId: string) {
@@ -1075,7 +1082,7 @@ class ApiClient {
   }
 
   /** Update org name, slug, and/or quotas (system admin only). */
-  async updateOrgQuotas(orgId: string, data: { name?: string; slug?: string; quotas?: Record<string, number> }) {
+  async updateOrgQuotas(orgId: string, data: { name?: string; slug?: string; tier?: QuotaTier; quotas?: Record<string, number> }) {
     return this.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -1182,6 +1189,40 @@ class ApiClient {
     return this.request<ApiResponse<{ subscription: Subscription; message: string }>>(`/api/billing/subscriptions/${id}/reactivate`, {
       method: 'POST',
     });
+  }
+
+  /** Add-on bundle catalog for the active account, filtered to its tier. */
+  async getBundles() {
+    return this.request<ApiResponse<{ bundles: Bundle[]; selfService: boolean }>>('/api/billing/bundles');
+  }
+
+  /** Dry-run: effective limits + itemized price for a proposed add-on change. */
+  async previewAddon(subscriptionId: string, bundleId: string, quantity: number) {
+    return this.request<ApiResponse<AddonResult>>(`/api/billing/subscriptions/${subscriptionId}/addons/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ bundleId, quantity }),
+    });
+  }
+
+  /** Add or set an add-on bundle's quantity. */
+  async addAddon(subscriptionId: string, bundleId: string, quantity: number) {
+    return this.request<ApiResponse<AddonResult>>(`/api/billing/subscriptions/${subscriptionId}/addons`, {
+      method: 'POST',
+      body: JSON.stringify({ bundleId, quantity }),
+    });
+  }
+
+  /** Remove an add-on bundle. */
+  async removeAddon(subscriptionId: string, bundleId: string) {
+    return this.request<ApiResponse<AddonResult>>(`/api/billing/subscriptions/${subscriptionId}/addons/${bundleId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** Create a hosted billing-portal session and return its URL (add/update a
+   *  payment method). Powers the "Add a payment method" CTA after a 402. */
+  async createBillingPortalSession() {
+    return this.request<ApiResponse<{ url: string }>>('/api/billing/portal', { method: 'POST' });
   }
   /** List billing events (admin only). */
   async listBillingEvents(params?: { orgId?: string; limit?: number; offset?: number }) {

@@ -7,8 +7,10 @@ import express from 'express';
 import mongoose from 'mongoose';
 
 import { config } from './config.js';
+import { startMarketplaceMetering, stopMarketplaceMetering } from './helpers/marketplace-metering.js';
 import { seedPlans } from './helpers/seed-plans.js';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
+import { createAddonRoutes } from './routes/addons.js';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
 import { createMarketplaceRoutes } from './routes/marketplace.js';
 import { createReadPlanRoutes } from './routes/read-plans.js';
@@ -38,6 +40,7 @@ if (config.enabled) {
 
   app.use('/billing', createReadPlanRoutes());
   app.use('/billing', createSubscriptionRoutes());
+  app.use('/billing', createAddonRoutes());
   app.use('/billing', createUsageRoutes());
   app.use('/billing', createAdminSubscriptionRoutes());
 
@@ -56,10 +59,12 @@ if (config.enabled) {
       await connectMongo(mongoose, config.mongodb.uri);
       await seedPlans();
       startSubscriptionLifecycleChecker();
+      startMarketplaceMetering();
     },
     testDatabase: async () => mongoose.connection.readyState === 1,
     closeDatabase: async () => {
       stopSubscriptionLifecycleChecker();
+      stopMarketplaceMetering();
       await mongoose.connection.close(false);
     },
   });

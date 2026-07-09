@@ -841,18 +841,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [token, oauthProvider, oauthData]
+              required: [token, oauthProvider, code, state]
               properties:
                 token: { type: string }
                 oauthProvider: { type: string, enum: [google] }
-                oauthData:
-                  type: object
-                  required: [id, email]
-                  properties:
-                    id: { type: string }
-                    email: { type: string, format: email }
-                    name: { type: string }
-                    picture: { type: string }
+                code:
+                  type: string
+                  description: OAuth authorization code from the provider redirect (server-side exchanged; the caller never supplies the profile).
+                state:
+                  type: string
+                  description: One-time CSRF state minted by GET /auth/url and returned on the provider redirect.
       responses:
         '200':
           description: Invitation accepted via OAuth

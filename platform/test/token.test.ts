@@ -205,4 +205,24 @@ describe('token utilities', () => {
       expect(decoded.exp - decoded.iat).toBe(3600);
     });
   });
+
+  describe('scoped machine token', () => {
+    it('mints a least-privilege reporting:ingest token — even from a super-admin operator', async () => {
+      // CRITICAL: a scoped token minted by a super-admin must NOT inherit sysadmin.
+      const user = { ...mockUser(), isSuperAdmin: true } as any;
+      const { accessToken } = await issueTokens(user, undefined, 3600, 'reporting:ingest');
+      const decoded = jwt.decode(accessToken) as any;
+      expect(decoded.scope).toBe('reporting:ingest');
+      expect(decoded.role).toBe('member');
+      expect(decoded.isAdmin).toBe(false);
+      expect(decoded.isSuperAdmin).toBeUndefined();
+      expect(decoded.features).toEqual([]);
+    });
+
+    it('omits the scope claim on a normal (interactive) token', async () => {
+      const { accessToken } = await issueTokens(mockUser());
+      const decoded = jwt.decode(accessToken) as any;
+      expect(decoded.scope).toBeUndefined();
+    });
+  });
 });

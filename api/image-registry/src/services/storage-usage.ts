@@ -96,6 +96,25 @@ export async function computeStorageUsage(
           const { body } = await getManifest(repo, tag);
           const digests = new Set<string>();
           collectBlobDigests(body, digests);
+          // Multi-arch index: collectBlobDigests only added the child MANIFEST
+          // digests (the index JSON blobs). Fetch each child and collect its
+          // config+layer blobs too — otherwise a multi-arch image's actual layer
+          // bytes go UNCOUNTED and the storage push-gate (isStorageOverBudget)
+          // is bypassable. A failed child fetch marks the rollup incomplete
+          // (fail-closed) but doesn't abort the remaining children.
+          for (const childDigest of indexChildDigests(body)) {
+            try {
+              const { body: childBody } = await getManifest(repo, childDigest);
+              collectBlobDigests(childBody, digests);
+            } catch (childErr) {
+              if (!isNotFound(childErr)) {
+                incomplete = true;
+                logger.warn('Child manifest fetch failed during storage rollup', {
+                  repo, tag, childDigest, error: childErr instanceof Error ? childErr.message : String(childErr),
+                });
+              }
+            }
+          }
           for (const d of digests) if (!blobRepo.has(d)) blobRepo.set(d, repo);
         } catch (err) {
           if (!isNotFound(err)) {
@@ -180,9 +199,20 @@ function collectBlobDigests(body: unknown, out: Set<string>): void {
 
   // Multi-arch index: { manifests: [{digest}, ...] }
   // Child manifests are themselves blobs (digest-addressable) so include
-  // them in the count — the bytes-on-disk include the manifest JSON.
+  // them in the count — the bytes-on-disk include the manifest JSON. Their
+  // OWN config+layer blobs are collected by recursing (see indexChildDigests).
   const indexChildren = b.manifests as Array<{ digest: string }> | undefined;
   if (Array.isArray(indexChildren)) {
     for (const c of indexChildren) if (c.digest) out.add(c.digest);
   }
+}
+
+/** Child manifest digests referenced by a multi-arch index (`manifests[].digest`);
+ *  empty for a single-arch image. The caller fetches each and recurses so the
+ *  per-architecture config+layer blobs are counted, not just the index JSON. */
+function indexChildDigests(body: unknown): string[] {
+  if (typeof body !== 'object' || body === null) return [];
+  const children = (body as Record<string, unknown>).manifests as Array<{ digest?: string }> | undefined;
+  if (!Array.isArray(children)) return [];
+  return children.map((c) => c.digest).filter((d): d is string => typeof d === 'string');
 }

@@ -64,6 +64,11 @@ export interface TenantContext {
   /** True when the caller is a sysadmin (system-org admin). Bypasses RLS
    *  policies via the sysadmin-bypass branch in `current_is_sysadmin()`. */
   isSuperAdmin: boolean;
+  /** Org → team hierarchy: the caller's active-org parent (present only when the
+   *  active org is a team). Not used for RLS; carried so downstream side-effects
+   *  (e.g. entity-event compliance eval) can honor parent `propagateToChildren`
+   *  rules without a request in scope. */
+  parentOrgId?: string;
 }
 
 /**

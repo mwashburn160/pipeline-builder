@@ -17,6 +17,9 @@ const TARGET_MAP: Record<string, RuleTarget | undefined> = {
 interface EntityEventInput {
   entityId: string;
   orgId: string;
+  /** Owning org's parent (present only when `orgId` is a team). Lets rule lookup
+   *  include parent `propagateToChildren` rules, matching live validation. */
+  parentOrgId?: string;
   target: string;
   eventType: string;
   userId?: string;
@@ -29,6 +32,9 @@ interface EvaluationResult {
   violations?: number;
   warnings?: number;
   reason?: string;
+  /** True when evaluation ERRORED (vs. legitimately having no rules). The caller
+   *  must NOT treat this as success — it should retry rather than fail-open. */
+  error?: boolean;
 }
 
 /**
@@ -42,7 +48,7 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
   }
 
   try {
-    const rules = await complianceRuleService.findActiveByOrgAndTarget(event.orgId, ruleTarget);
+    const rules = await complianceRuleService.findActiveByOrgAndTarget(event.orgId, ruleTarget, event.parentOrgId);
     if (rules.length === 0) {
       return { evaluated: false, reason: 'no active rules' };
     }
@@ -81,6 +87,8 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
       entityId: event.entityId,
       error: errorMessage(err),
     });
-    return { evaluated: false, reason: 'evaluation error' };
+    // Fail CLOSED: flag the error so the route returns non-2xx and the caller
+    // (BullMQ producer) retries — do NOT silently let the entity through.
+    return { evaluated: false, reason: 'evaluation error', error: true };
   }
 }

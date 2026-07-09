@@ -33,7 +33,7 @@ interface ComposeModalProps {
    *  entry and broadcast announcements). Non-sysadmins see the support-alias
    *  pre-fill with their own org's other teams as datalist suggestions. */
   isSuperAdmin: boolean;
-  /** Other orgs/teams the user can message (e.g. sub-orgs they belong to).
+  /** Other orgs/teams the user can message (e.g. teams they belong to).
    *  Rendered as a `<datalist>` so the To input auto-completes by name. */
   recipientSuggestions?: ReadonlyArray<{ value: string; label: string }>;
 }
@@ -186,7 +186,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientS
           )}
 
           {/* Non-system org: pre-filled support recipient (editable; type
-              to override with one of the user's other teams/sub-orgs —
+              to override with one of the user's other teams —
               the datalist auto-completes from `recipientSuggestions`). */}
           {!isSuperAdmin && (
             <div className="flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
@@ -197,7 +197,7 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientS
                 onChange={(e) => setSupportRecipient(e.target.value)}
                 list="compose-recipient-options"
                 className="flex-1 bg-transparent text-gray-700 dark:text-gray-300 font-medium border-none focus:outline-none focus:ring-0"
-                aria-label="Recipient (defaults to support; type a teammate or sub-org name to override)"
+                aria-label="Recipient (defaults to support; type a teammate or team name to override)"
               />
               <datalist id="compose-recipient-options">
                 <option value={SUPPORT_ALIAS}>Pipeline Builder Support</option>

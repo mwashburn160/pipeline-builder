@@ -17,6 +17,8 @@
  * same gated `runScript()` as the deploy.
  */
 
+import { shellQuote } from '../config/cli.constants.js';
+
 /** Canonical upstream platform repo, used when `--repo` is given without a value. */
 export const DEFAULT_REPO = 'https://github.com/mwashburn160/pipeline-builder.git';
 /** Default ref to check out when bootstrapping (a branch or tag — see below). */
@@ -51,11 +53,6 @@ export function resolveBootstrap(
     paths,
     full: opts.full ?? false,
   };
-}
-
-/** Single-quote a value for safe shell interpolation (handles embedded quotes). */
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 /**

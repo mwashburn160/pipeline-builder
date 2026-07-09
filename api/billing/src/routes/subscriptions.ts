@@ -3,6 +3,7 @@
 
 import {
   requireAuth,
+  requireAdmin,
   requireSystemAdmin,
   sendSuccess,
   sendError,
@@ -16,11 +17,13 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
+import { config } from '../config.js';
 import {
   buildSubscriptionResponse,
   calculatePeriodEnd,
+  checkEntitlementOvercap,
   createBillingEvent,
-  syncTierToQuotaService,
+  syncEntitlements,
 } from '../helpers/billing-helpers.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
@@ -64,7 +67,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions  create a new subscription
 
-  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const validation = validateBody(req, SubscriptionCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -109,6 +112,11 @@ export function createSubscriptionRoutes(): Router {
       cancelAtPeriodEnd: false,
       externalId: externalResult.externalId,
       externalCustomerId: externalResult.externalCustomerId,
+      // Stamp the configured provider so lifecycle webhooks can find this row.
+      // The Stripe webhook lookup filters on `metadata.provider: 'stripe'`;
+      // without this, every Stripe subscription.updated/deleted + invoice.*
+      // webhook resolved null and silently no-op'd (missed past_due/cancel).
+      metadata: { provider: config.billingProvider },
     });
 
     // Sync tier to quota service via a freshly-minted service token rather
@@ -116,7 +124,7 @@ export function createSubscriptionRoutes(): Router {
     // as a peer service; forwarding the user token would mean a compromised
     // quota service receives the user's full session credential.
     const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-    await syncTierToQuotaService(orgId, plan.tier, serviceAuth, subscription._id.toString());
+    await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString());
 
     // Log billing event
     await createBillingEvent(orgId, 'subscription_created', {
@@ -132,7 +140,7 @@ export function createSubscriptionRoutes(): Router {
 
   // PUT /billing/subscriptions/:id  change plan or interval
 
-  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
     const validation = validateBody(req, SubscriptionUpdateSchema);
     if (!validation.ok) {
@@ -158,6 +166,13 @@ export function createSubscriptionRoutes(): Router {
       plan = await Plan.findOne({ _id: planId, isActive: true });
       if (!plan) {
         return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
+      }
+      // Downgrade gate (docs/billing-bundles.md §8): a lower tier (with the
+      // account's existing add-ons) must not drop a count-quota cap below
+      // current pooled usage. Structured overages drive the UI's "remove N".
+      const overages = await checkEntitlementOvercap(orgId, plan.tier, subscription.addons ?? [], '');
+      if (overages.length > 0) {
+        return sendError(res, 409, 'This plan change would put the account over its limit — remove members/resources first', 'PLAN_OVER_CAP', { overages });
       }
       const oldPlanId = subscription.planId;
       subscription.planId = planId;
@@ -185,21 +200,23 @@ export function createSubscriptionRoutes(): Router {
 
     // Sync tier if plan changed. Use a service token rather than forwarding
     // the caller's bearer (see create-subscription comment for rationale).
+    // Pass the current add-ons so a plan change preserves purchased bundle
+    // grants instead of resetting to tier-base-only limits.
     if (plan) {
       const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-      await syncTierToQuotaService(orgId, plan.tier, serviceAuth, subscriptionId);
+      await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId, subscription.addons ?? []);
     }
 
     logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
 
     return sendSuccess(res, 200, {
-      subscription: buildSubscriptionResponse(subscription),
+      subscription: buildSubscriptionResponse(subscription, plan?.name, plan?.tier),
     });
   }));
 
   // POST /billing/subscriptions/:id/cancel  cancel at period end
 
-  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -300,7 +317,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/reactivate  undo cancellation
 
-  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({

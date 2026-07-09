@@ -189,6 +189,15 @@ export function isSystemAdmin(req: Request): boolean {
   return req.user?.isSuperAdmin === true;
 }
 
+/**
+ * Whether the request's token carries a specific capability `scope` (e.g.
+ * `'reporting:ingest'`). Used to gate endpoints that accept a narrow machine
+ * identity — a normal interactive user token has no `scope` and returns false.
+ */
+export function hasScope(req: Request, scope: string): boolean {
+  return req.user?.scope === scope;
+}
+
 /** Requires system admin (admin role + system organization). */
 export function requireSystemAdmin(
   req: Request,

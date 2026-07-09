@@ -378,7 +378,12 @@ export class ComplianceRuleService extends CrudService<
     return rows as unknown as ComplianceRule[];
   }
 
-  /** Single rule by id, ignoring soft-deleted/inactive rows. Returns null on miss. */
+  /**
+   * Single PUBLISHED rule by id, ignoring soft-deleted/inactive rows. Returns
+   * null on miss. Runs under sysadmin scope (published rules don't share the
+   * caller's orgId), so the `scope='published'` filter is REQUIRED — without it
+   * this would return any org's private rule by UUID (cross-tenant disclosure).
+   */
   async findPublishedById(id: string): Promise<ComplianceRule | null> {
     const [rule] = await runWithTenantContext({ isSuperAdmin: true }, () =>
       withTenantTx(async (tx) => tx
@@ -386,6 +391,7 @@ export class ComplianceRuleService extends CrudService<
         .from(schema.complianceRule)
         .where(and(
           eq(schema.complianceRule.id, id),
+          eq(schema.complianceRule.scope, 'published' as RuleScope),
           eq(schema.complianceRule.isActive, true),
           isNull(schema.complianceRule.deletedAt),
         ))),

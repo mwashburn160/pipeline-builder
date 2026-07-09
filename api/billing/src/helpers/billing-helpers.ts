@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { QuotaTier } from '@pipeline-builder/api-core';
-import { createLogger, createSafeClient, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, getServiceAuthHeader, getTierLimits, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
-import { Config } from '@pipeline-builder/pipeline-core';
+import { Config, type BillingConfig, type BundleConfig } from '@pipeline-builder/pipeline-core';
 import { config } from '../config.js';
 import { BillingEvent } from '../models/billing-event.js';
 import type { BillingEventType } from '../models/billing-event.js';
@@ -71,6 +71,7 @@ export async function syncTierToQuotaService(
   tier: QuotaTier,
   authHeader: string,
   subscriptionId?: string,
+  quotas?: Record<string, number>,
 ): Promise<boolean> {
   try {
     const client = createSafeClient({
@@ -81,9 +82,11 @@ export async function syncTierToQuotaService(
 
     // Mint the service token for the target org so the quota service sees a
     // real tenant identity rather than 'system' — keeps RLS / audit logs
-    // attributable to the org being mutated.
+    // attributable to the org being mutated. Push EXPLICIT effective limits
+    // (tier + bundles) so a plain tier reseed can't wipe purchased add-ons.
     const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-    const response = await client.put(`/quotas/${orgId}`, { tier }, {
+    const body = quotas ? { tier, quotas } : { tier };
+    const response = await client.put(`/quotas/${orgId}`, body, {
       headers: {
         'Authorization': effectiveAuth,
         'x-org-id': orgId,
@@ -116,6 +119,181 @@ export async function syncTierToQuotaService(
 }
 
 /**
+ * Push the effective SEAT limit to the platform service. Seats are platform-
+ * owned (not a quota-service type — see docs/org-team-hierarchy.md §3a), so
+ * they can't ride the quota sync. `seats` is the EFFECTIVE limit (tier +
+ * bundles). Best-effort with an audit row on failure; platform resolves the org
+ * to its root.
+ */
+async function pushSeatLimitToPlatform(
+  orgId: string,
+  seats: number,
+  features: string[],
+  authHeader: string,
+  subscriptionId?: string,
+): Promise<boolean> {
+  try {
+    const client = createSafeClient({
+      host: config.platformService.host,
+      port: config.platformService.port,
+      timeout: getBillingTimeout(),
+    });
+    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+    const response = await client.put(`/organization/${orgId}/seat-limit`, { seats, features }, {
+      headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId },
+    });
+    if (response && response.statusCode < 400) {
+      logger.info('Synced seat limit to platform', { orgId, seats });
+      return true;
+    }
+    logger.error('Failed to sync seat limit to platform', { orgId, seats, statusCode: response?.statusCode });
+    await createBillingEvent(orgId, 'subscription_updated', {
+      reason: 'seat_sync_failed', seats, statusCode: response?.statusCode,
+    }, subscriptionId);
+    return false;
+  } catch (error) {
+    logger.error('Error syncing seat limit to platform', { orgId, seats, error });
+    return false;
+  }
+}
+
+/** The active add-on bundle catalog (env-driven, from pipeline-core config). */
+export function getBundleCatalog(): readonly BundleConfig[] {
+  return (Config.get('billing') as BillingConfig | undefined)?.bundles ?? [];
+}
+
+/** Whether purchasable add-on bundles are enabled (`BILLING_BUNDLES_ENABLED`). */
+export function bundlesEnabled(): boolean {
+  return (process.env.BILLING_BUNDLES_ENABLED || '').toLowerCase() === 'true';
+}
+
+/**
+ * Whether in-app bundle *self-service* is allowed. AWS Marketplace is
+ * entitlement/SNS-driven — the app can't push add-on line items (its lifecycle
+ * methods are all no-ops), so applying local entitlements would grant uncharged
+ * capacity. Marketplace customers manage add-ons in AWS (metered dimensions);
+ * self-service add/remove is Stripe/stub only.
+ */
+export function bundleSelfServiceAllowed(): boolean {
+  return bundlesEnabled() && config.billingProvider !== 'aws-marketplace';
+}
+
+/**
+ * Compute an account's EFFECTIVE entitlements = tier base limits + Σ(bundle
+ * grants × quantity), plus the union of bundle-granted feature flags. A field
+ * already `-1` (unlimited) stays `-1`. Pure; the catalog is passed in.
+ */
+export function effectiveEntitlements(
+  tier: QuotaTier,
+  addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
+  bundles: readonly BundleConfig[],
+): { limits: Record<string, number>; features: string[] } {
+  const limits: Record<string, number> = { ...getTierLimits(tier) };
+  const features = new Set<string>();
+  const byId = new Map(bundles.map((b) => [b.id, b]));
+  for (const { bundleId, quantity } of addons) {
+    const bundle = byId.get(bundleId);
+    if (!bundle || quantity <= 0) continue;
+    for (const [field, delta] of Object.entries(bundle.grants)) {
+      // `grants` is a Partial map, so a value can be undefined — skip those.
+      if (delta === undefined) continue;
+      if (limits[field] === -1) continue; // already unlimited
+      limits[field] = (limits[field] ?? 0) + delta * quantity;
+    }
+    for (const f of bundle.features ?? []) features.add(f);
+  }
+  return { limits, features: [...features] };
+}
+
+/** A count-quota that would be over its (reduced) cap after an add-on change. */
+export interface Overage {
+  quotaType: string;
+  currentUsage: number;
+  targetCap: number;
+  overage: number;
+}
+
+/** Read current pooled seat usage from platform; null on any error (fail-open). */
+async function readSeatUsage(orgId: string, authHeader: string): Promise<number | null> {
+  try {
+    const client = createSafeClient({ host: config.platformService.host, port: config.platformService.port, timeout: getBillingTimeout() });
+    const resp = await client.get<{ used?: number }>(`/organization/${orgId}/seat-usage`, { headers: { 'Authorization': authHeader, 'x-org-id': orgId } });
+    if (resp && resp.statusCode < 400) return resp.body?.used ?? null;
+  } catch { /* fall through */ }
+  return null;
+}
+
+/** Read current pooled usage for a tracked quota type; null on error (fail-open). */
+async function readQuotaUsage(orgId: string, quotaType: string, authHeader: string): Promise<number | null> {
+  try {
+    const client = createSafeClient({ host: config.quotaService.host, port: config.quotaService.port, timeout: getBillingTimeout() });
+    const resp = await client.get<{ data?: { status?: { used?: number } } }>(`/quotas/${orgId}/${quotaType}`, { headers: { 'Authorization': authHeader, 'x-org-id': orgId } });
+    if (resp && resp.statusCode < 400) return resp.body?.data?.status?.used ?? null;
+  } catch { /* fall through */ }
+  return null;
+}
+
+/**
+ * Whether applying `newAddons` would drop a COUNT quota's cap below current
+ * pooled usage (docs/billing-bundles.md §8). Guards seats (platform),
+ * plugins/pipelines (quota) — these can't auto-shrink. Rate-based quotas
+ * (apiCalls/aiCalls/storage) are NOT guarded (they reset / fail-closed on new
+ * consumption). Returns the overages (empty = safe). Fail-open on a usage-read
+ * error (a transient outage must not block the user's explicit removal).
+ */
+export async function checkEntitlementOvercap(
+  orgId: string,
+  tier: QuotaTier,
+  newAddons: ReadonlyArray<{ bundleId: string; quantity: number }>,
+  authHeader: string,
+): Promise<Overage[]> {
+  const { limits } = effectiveEntitlements(tier, newAddons, getBundleCatalog());
+  const auth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+  const overages: Overage[] = [];
+
+  if (limits.seats !== -1) {
+    const used = await readSeatUsage(orgId, auth);
+    if (used !== null && used > limits.seats) {
+      overages.push({ quotaType: 'seats', currentUsage: used, targetCap: limits.seats, overage: used - limits.seats });
+    }
+  }
+  for (const field of ['plugins', 'pipelines'] as const) {
+    if (limits[field] === -1) continue;
+    const used = await readQuotaUsage(orgId, field, auth);
+    if (used !== null && used > limits[field]) {
+      overages.push({ quotaType: field, currentUsage: used, targetCap: limits[field], overage: used - limits[field] });
+    }
+  }
+  return overages;
+}
+
+/**
+ * Sync an account's EFFECTIVE entitlements (tier + add-on bundles) with a
+ * TWO-TARGET fan-out (docs/billing-bundles.md §5): the 9 tracked quota limits go
+ * to the quota service; SEATS go to platform (quota has no `seats`). Both target
+ * the subscription's org (root-scoped). Returns true only if both legs succeed.
+ */
+export async function syncEntitlements(
+  orgId: string,
+  tier: QuotaTier,
+  authHeader: string,
+  subscriptionId?: string,
+  addons: ReadonlyArray<{ bundleId: string; quantity: number }> = [],
+): Promise<boolean> {
+  const { limits, features } = effectiveEntitlements(tier, addons, getBundleCatalog());
+  // The 9 tracked types go to quota; `seats` + purchased feature entitlements
+  // go to platform (platform owns both).
+  const tracked: Record<string, number> = {};
+  for (const t of VALID_QUOTA_TYPES) tracked[t] = limits[t];
+
+  const [quotaOk, seatOk] = await Promise.all([
+    syncTierToQuotaService(orgId, tier, authHeader, subscriptionId, tracked),
+    pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId),
+  ]);
+  return quotaOk && seatOk;
+}
+
+/**
  * Build a full subscription response object (used in GET, POST, PUT routes).
  */
 export function buildSubscriptionResponse(
@@ -128,6 +306,7 @@ export function buildSubscriptionResponse(
     currentPeriodStart: Date;
     currentPeriodEnd: Date;
     cancelAtPeriodEnd: boolean;
+    addons?: Array<{ bundleId: string; quantity: number }>;
     createdAt: Date;
     updatedAt: Date;
   },
@@ -145,6 +324,8 @@ export function buildSubscriptionResponse(
     currentPeriodStart: subscription.currentPeriodStart.toISOString(),
     currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
     cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+    // Purchased add-on bundles — the billing UI reads these on load.
+    addons: (subscription.addons ?? []).map((a) => ({ bundleId: a.bundleId, quantity: a.quantity })),
     createdAt: subscription.createdAt.toISOString(),
     updatedAt: subscription.updatedAt.toISOString(),
   };

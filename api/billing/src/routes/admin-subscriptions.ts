@@ -18,7 +18,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { buildSubscriptionResponse, createBillingEvent, syncTierToQuotaService } from '../helpers/billing-helpers.js';
+import { buildSubscriptionResponse, createBillingEvent, syncEntitlements } from '../helpers/billing-helpers.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -96,7 +96,7 @@ export function createAdminSubscriptionRoutes(): Router {
         // Sync tier via service-to-service auth (avoid forwarding the
         // admin's bearer to the quota service).
         const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-        await syncTierToQuotaService(orgId, plan.tier, serviceAuth, subscriptionId);
+        await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId);
         await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId);
       }
 

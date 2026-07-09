@@ -86,7 +86,14 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { default: { startSession: jest.fn() }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  // setTier/setSeatLimit now wrap their writes in withMongoTransaction, which
+  // calls mongoose.startSession().withTransaction(cb) — return a session whose
+  // withTransaction just runs the callback (no real Mongo tx in unit tests).
+  const startSession = jest.fn(async () => ({
+    withTransaction: async (cb: () => Promise<unknown>) => cb(),
+    endSession: jest.fn(),
+  }));
+  return { default: { startSession }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
@@ -116,7 +123,9 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     countDocuments: (...a: unknown[]) => mockOrgCount(...a),
   },
   User: { updateOne: jest.fn() },
-  UserOrganization: { countDocuments: (...a: unknown[]) => mockUserOrgCount(...a), create: jest.fn() },
+  UserOrganization: { countDocuments: (...a: unknown[]) => mockUserOrgCount(...a), create: jest.fn(), distinct: () => ({ session: () => Promise.resolve([]) }) },
+  // seats.js (pulled in via organization-service) links against Invitation.
+  Invitation: { distinct: () => ({ session: () => Promise.resolve([]) }) },
   OrgIdpConfig: {
     find: (...a: unknown[]) => mockIdpFind(...a),
     exists: jest.fn(),
@@ -340,13 +349,18 @@ describe('organizationService.checkParentEligible — team nesting (org → team
     expect(await organizationService.checkParentEligible('missing')).toBe('not-found');
   });
 
-  it('returns "ok" when the parent is a root org (no parentOrgId)', async () => {
-    findByIdReturns({ parentOrgId: null });
+  it('returns "ok" when the parent is a root org on a team/enterprise tier', async () => {
+    findByIdReturns({ parentOrgId: null, tier: 'enterprise' });
     expect(await organizationService.checkParentEligible('root-1')).toBe('ok');
   });
 
+  it('returns "tier-forbidden" when the root org is on developer/pro (teams gated)', async () => {
+    findByIdReturns({ parentOrgId: null, tier: 'pro' });
+    expect(await organizationService.checkParentEligible('root-1')).toBe('tier-forbidden');
+  });
+
   it('returns "not-root" when the parent is itself a team (one nesting level max)', async () => {
-    findByIdReturns({ parentOrgId: 'root-1' });
+    findByIdReturns({ parentOrgId: 'root-1', tier: 'enterprise' });
     expect(await organizationService.checkParentEligible('team-1')).toBe('not-root');
   });
 });

@@ -10,6 +10,9 @@ export interface ComplianceEvent {
   target: 'plugin' | 'pipeline';
   entityId: string;
   orgId: string;
+  /** Owning org's parent (present only when `orgId` is a team) so the async
+   *  worker evaluates parent `propagateToChildren` rules like the live path. */
+  parentOrgId?: string;
   userId: string;
   attributes: Record<string, unknown>;
   timestamp: string;

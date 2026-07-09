@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { db, schema } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 
 /**
@@ -26,10 +26,13 @@ export function availablePluginConditions(orgId: string): SQL[] {
 export async function findExistingPluginNames(names: string[], orgId: string): Promise<Set<string>> {
   if (names.length === 0) return new Set();
 
-  const rows = await db
+  // Wrap in withTenantTx so `app.org_id` is set — the `plugins` table is
+  // FORCE ROW LEVEL SECURITY, and a bare `db.select()` runs with a null GUC,
+  // collapsing the policy to system-org rows only and dropping the org's own.
+  const rows = await withTenantTx(async (tx) => tx
     .select({ name: schema.plugin.name })
     .from(schema.plugin)
-    .where(and(inArray(schema.plugin.name, names), ...availablePluginConditions(orgId)));
+    .where(and(inArray(schema.plugin.name, names), ...availablePluginConditions(orgId))));
 
   return new Set(rows.map(r => r.name));
 }

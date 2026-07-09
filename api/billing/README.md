@@ -53,6 +53,9 @@ Subscription management, plan catalog, usage rollups, and payment processing (St
 | `AWS_MARKETPLACE_REGION` | Marketplace region (falls back to `AWS_REGION`) | `us-east-1` |
 | `AWS_MARKETPLACE_SNS_TOPIC_ARN` | Marketplace SNS topic ARN | — |
 | `AWS_MARKETPLACE_DIMENSION_MAP` | JSON map of marketplace dimensions → plan IDs | developer/pro/team/enterprise |
+| `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | JSON map of add-on bundle IDs → metered dimension keys (BatchMeterUsage) | identity (bundle ID = dimension) |
+| `BILLING_METERING_ENABLED` | Run the Marketplace add-on metering cycle (BatchMeterUsage) | `false` |
+| `BILLING_METERING_INTERVAL_MS` | Metering cycle interval (ms) | `3600000` (1h) |
 
 ## Development
 

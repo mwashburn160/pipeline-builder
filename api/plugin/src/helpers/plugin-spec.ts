@@ -213,7 +213,7 @@ export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
 /**
  * Validate Docker build arguments.
  * Must be a plain object with string keys/values, max 20 entries,
- * and max 1000 characters per key/value.
+ * keys up to 1000 characters and values up to 4096 characters.
  *
  * @param buildArgs - Build arguments to validate
  * @throws ValidationError if build arguments are invalid

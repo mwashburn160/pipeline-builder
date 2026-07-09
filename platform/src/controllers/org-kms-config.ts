@@ -33,6 +33,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { Organization } from '../models/index.js';
 import { captureOrgSecrets, reencryptOrgSecrets } from '../services/secret-reencrypt.js';
 
@@ -71,7 +72,7 @@ function evictPerOrgCache(orgId: string): void {
 export const getOrgKmsConfig = withController('Get org KMS config', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
   const orgId = String(req.params.orgId);
-  const org = await Organization.findById(orgId).select('kmsConfig').lean();
+  const org = await Organization.findById(toOrgId(orgId)).select('kmsConfig').lean();
   if (!org) return sendError(res, 404, 'Organization not found');
 
   const cfg = (org as { kmsConfig?: { keyId?: string; ciphertextBase64?: string } }).kmsConfig;
@@ -102,7 +103,7 @@ export const putOrgKmsConfig = withController('Put org KMS config', async (req, 
   const parsed = parseKmsConfigBody(req.body);
   if ('error' in parsed) return sendError(res, 400, parsed.error);
 
-  const org = await Organization.findById(orgId);
+  const org = await Organization.findById(toOrgId(orgId));
   if (!org) return sendError(res, 404, 'Organization not found');
 
   // Capture plaintexts under the OLD provider, before any state changes.
@@ -163,7 +164,7 @@ export const deleteOrgKmsConfig = withController('Delete org KMS config', async 
   if (!requireSystemAdmin(req, res)) return;
   const orgId = String(req.params.orgId);
 
-  const org = await Organization.findById(orgId);
+  const org = await Organization.findById(toOrgId(orgId));
   if (!org) return sendError(res, 404, 'Organization not found');
 
   if (!org.kmsConfig?.keyId) {
@@ -206,7 +207,7 @@ export const testOrgKmsConfig = withController('Test org KMS config', async (req
   const parsed = parseKmsConfigBody(req.body);
   if ('error' in parsed) return sendError(res, 400, parsed.error);
 
-  const org = await Organization.findById(orgId).select('_id').lean();
+  const org = await Organization.findById(toOrgId(orgId)).select('_id').lean();
   if (!org) return sendError(res, 404, 'Organization not found');
 
   // Construct an ephemeral PerOrgKmsKeyProvider with the proposed config.

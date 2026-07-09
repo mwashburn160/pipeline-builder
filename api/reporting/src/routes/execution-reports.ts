@@ -57,19 +57,22 @@ export function createExecutionReportRoutes(): Router {
   router.get('/stage-failures', withRoute(async ({ req, res, orgId }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    sendSuccess(res, 200, { stages: await reportingService.getStageFailures(orgId, range.from, range.to) });
+    const orgIds = await rollupIds(req, orgId);
+    sendSuccess(res, 200, { stages: await reportingService.getStageFailures(orgId, range.from, range.to, orgIds) });
   }));
 
   router.get('/stage-bottlenecks', withRoute(async ({ req, res, orgId }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    sendSuccess(res, 200, { stages: await reportingService.getStageBottlenecks(orgId, range.from, range.to) });
+    const orgIds = await rollupIds(req, orgId);
+    sendSuccess(res, 200, { stages: await reportingService.getStageBottlenecks(orgId, range.from, range.to, orgIds) });
   }));
 
   router.get('/action-failures', withRoute(async ({ req, res, orgId }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    sendSuccess(res, 200, { actions: await reportingService.getActionFailures(orgId, range.from, range.to) });
+    const orgIds = await rollupIds(req, orgId);
+    sendSuccess(res, 200, { actions: await reportingService.getActionFailures(orgId, range.from, range.to, orgIds) });
   }));
 
   router.get('/errors', withRoute(async ({ req, res, orgId }) => {

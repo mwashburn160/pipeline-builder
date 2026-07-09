@@ -47,15 +47,18 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     },
     returning: () => Promise.resolve(insertedRowRef.value ? [insertedRowRef.value] : []),
   };
+  const dbLike = {
+    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+    insert: () => insertChain,
+    update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+  };
   return {
     schema: {
       complianceScan: { id: 'col_id', orgId: 'col_org' },
     },
-    db: {
-      select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
-      insert: () => insertChain,
-      update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
-    },
+    db: dbLike,
+    // Services now read/write via withTenantTx; the tx exposes the same chain.
+    withTenantTx: (fn: (tx: typeof dbLike) => unknown) => fn(dbLike),
     buildComplianceScanConditions: () => [],
     drizzleCount: (r: unknown) => r,
   };

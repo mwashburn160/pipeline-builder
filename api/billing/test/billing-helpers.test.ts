@@ -62,7 +62,41 @@ const {
   createBillingEvent,
   buildSubscriptionResponse,
   syncTierToQuotaService,
+  effectiveEntitlements,
 } = await import('../src/helpers/billing-helpers.js');
+
+// effectiveEntitlements — bundle math
+
+describe('effectiveEntitlements', () => {
+  const bundles = [
+    { id: 'seat_pack', name: 'Seat Pack', description: '', grants: { seats: 5 }, prices: { monthly: 2500, annual: 25000 }, stackable: true, availableForTiers: ['pro'], isActive: true, sortOrder: 0 },
+    { id: 'pipeline_pack', name: 'Pipeline Pack', description: '', grants: { pipelines: 10 }, prices: { monthly: 1500, annual: 15000 }, stackable: true, availableForTiers: ['pro'], isActive: true, sortOrder: 1 },
+    { id: 'audit_log', name: 'Audit Log', description: '', grants: {}, features: ['audit_log'], prices: { monthly: 2000, annual: 20000 }, stackable: false, availableForTiers: ['pro'], isActive: true, sortOrder: 2 },
+  ] as never[];
+
+  it('adds stacked grants (3× seat_pack ⇒ +15 seats over the base 10)', () => {
+    const { limits } = effectiveEntitlements('developer', [{ bundleId: 'seat_pack', quantity: 3 }], bundles);
+    expect(limits.seats).toBe(10 + 15); // mock base seats = 10
+  });
+
+  it('sums grants across different bundles', () => {
+    const { limits } = effectiveEntitlements('developer', [
+      { bundleId: 'seat_pack', quantity: 1 },
+      { bundleId: 'pipeline_pack', quantity: 2 },
+    ], bundles);
+    expect(limits.seats).toBe(15);
+    expect(limits.pipelines).toBe(5 + 20); // mock base pipelines = 5
+  });
+
+  it('unions feature-bundle flags and ignores unknown bundles', () => {
+    const { limits, features } = effectiveEntitlements('developer', [
+      { bundleId: 'audit_log', quantity: 1 },
+      { bundleId: 'nope', quantity: 5 },
+    ], bundles);
+    expect(features).toContain('audit_log');
+    expect(limits.seats).toBe(10); // unchanged
+  });
+});
 
 // calculatePeriodEnd
 

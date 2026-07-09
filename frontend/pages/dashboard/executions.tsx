@@ -250,7 +250,7 @@ export default function ExecutionsPage() {
               </select>
             </div>
             {canRollup && hasTeams && (
-              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate executions across this organization and its team sub-organizations">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate executions across this organization and its teams">
                 <input
                   type="checkbox"
                   checked={includeDescendants}

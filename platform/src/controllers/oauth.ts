@@ -16,20 +16,22 @@ const logger = createLogger('oauth-controller');
 /** Cap on in-memory OAuth state map. Each entry is ~80 bytes; default 1000
  *  caps memory at ~80 KB. Override via `OAUTH_MAX_PENDING_STATES`. */
 const MAX_PENDING_STATES = parseInt(process.env.OAUTH_MAX_PENDING_STATES || '1000', 10);
-const pendingOAuthStates = new Map<string, number>();
+// Bind each state to the provider that minted it so a state issued for one
+// provider can't be replayed on another provider's callback.
+const pendingOAuthStates = new Map<string, { provider: string; createdAt: number }>();
 
 // `.unref()` so this background sweep doesn't keep Node alive in tests
 // or worker scripts that import this module without starting the server.
 setInterval(() => {
   const now = Date.now();
-  for (const [key, createdAt] of pendingOAuthStates) {
+  for (const [key, { createdAt }] of pendingOAuthStates) {
     if (now - createdAt > config.oauth.stateTtlMs) pendingOAuthStates.delete(key);
   }
 }, config.oauth.cleanupIntervalMs).unref();
 
 // Types
 
-interface OAuthUserInfo {
+export interface OAuthUserInfo {
   id: string;
   email: string;
   name?: string;
@@ -165,6 +167,45 @@ function getProvider(name: string): OAuthProvider | null {
   return providers[name as ProviderName] ?? null;
 }
 
+// Shared verification
+
+/**
+ * Typed OAuth error → HTTP status map. Shared by the login callback and the
+ * OAuth invitation-accept flow so both surface identical, correct statuses.
+ */
+export const OAUTH_ERROR_MAP = {
+  OAUTH_UNSUPPORTED_PROVIDER: { status: 400, message: 'Unsupported OAuth provider' },
+  OAUTH_PROVIDER_DISABLED: { status: 400, message: 'OAuth provider is not configured' },
+  OAUTH_INVALID_STATE: { status: 403, message: 'Invalid or expired OAuth state' },
+  OAUTH_NO_EMAIL: { status: 400, message: 'OAuth provider did not return an email address' },
+  TOKEN_EXCHANGE_FAILED: { status: 502, message: 'Failed to exchange authorization code' },
+} as const;
+
+/**
+ * Validate the one-time CSRF `state`, exchange the authorization `code` with the
+ * provider, and return the provider-VERIFIED identity (id + verified email).
+ *
+ * This is the ONLY trustworthy source of an OAuth identity — every flow (login
+ * callback AND invitation-accept) must go through it. Accepting a client-supplied
+ * profile instead would let a caller assert any identity. Consumes the state on
+ * any lookup (valid or mismatched) to prevent probing/replay. Throws typed
+ * errors from {@link OAUTH_ERROR_MAP}; callers wire that map into withController.
+ */
+export async function verifyOAuthCode(providerName: string, code: string, state: string): Promise<OAuthUserInfo> {
+  const provider = getProvider(providerName);
+  if (!provider) throw new Error('OAUTH_UNSUPPORTED_PROVIDER');
+  if (!provider.enabled) throw new Error('OAUTH_PROVIDER_DISABLED');
+
+  const pending = pendingOAuthStates.get(state);
+  pendingOAuthStates.delete(state);
+  if (!pending || pending.provider !== providerName) throw new Error('OAUTH_INVALID_STATE');
+
+  const accessToken = await provider.exchangeCode(code);
+  const userInfo = await provider.fetchUserInfo(accessToken);
+  if (!userInfo.email) throw new Error('OAUTH_NO_EMAIL');
+  return userInfo;
+}
+
 // Route handlers
 
 export const getAuthUrl = withController('Get OAuth URL', async (req, res) => {
@@ -185,36 +226,25 @@ export const getAuthUrl = withController('Get OAuth URL', async (req, res) => {
   }
 
   const state = crypto.randomBytes(32).toString('hex');
-  pendingOAuthStates.set(state, Date.now());
+  pendingOAuthStates.set(state, { provider: providerName, createdAt: Date.now() });
 
   sendSuccess(res, 200, { url: provider.buildAuthorizeUrl(state), state });
 });
 
 export const handleCallback = withController('OAuth callback', async (req, res) => {
   const providerName = getParam(req.params, 'provider')!;
-  const provider = getProvider(providerName);
-
-  if (!provider) return sendError(res, 400, `Unsupported OAuth provider: ${providerName}`);
 
   const body = validateBody(oauthCallbackSchema, req.body, res);
   if (!body) return;
 
-  if (!pendingOAuthStates.has(body.state)) return sendError(res, 403, 'Invalid or expired OAuth state');
-  pendingOAuthStates.delete(body.state);
-
-  const accessToken = await provider.exchangeCode(body.code);
-  const userInfo = await provider.fetchUserInfo(accessToken);
-
-  if (!userInfo.email) return sendError(res, 400, `${providerName} did not return an email address`);
+  const userInfo = await verifyOAuthCode(providerName, body.code, body.state);
 
   const user = await authService.findOrCreateOAuthUser(providerName, userInfo);
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
 
   logger.info(`[OAUTH] ${providerName} login successful`, { userId: user._id, email: userInfo.email });
   sendSuccess(res, 200, tokens);
-}, {
-  TOKEN_EXCHANGE_FAILED: { status: 502, message: 'Failed to exchange authorization code' },
-});
+}, OAUTH_ERROR_MAP);
 
 export const getProviders = withController('Get OAuth providers', async (_req, res) => {
   const enabled = Object.entries(providers).filter(([, p]) => p.enabled).map(([name]) => name);

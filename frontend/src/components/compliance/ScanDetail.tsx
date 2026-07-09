@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Loader2, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
@@ -17,22 +17,26 @@ interface ScanDetailProps {
 export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   const [scan, setScan] = useState<ComplianceScan | null>(null);
   const [scanLoading, setScanLoading] = useState(true);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   // The scan-detail page has two parallel fetches: the scan record itself
   // (one-shot, no pagination) and the per-entity audit log (paginated).
   // useServerPagination handles the latter; the scan fetch stays inline.
-  useEffect(() => {
-    let cancelled = false;
+  const fetchScan = useCallback(async () => {
     setScanLoading(true);
-    api.getScan(scanId)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.success && res.data) setScan(res.data.scan);
-      })
-      .catch(() => { /* handled by loading state */ })
-      .finally(() => { if (!cancelled) setScanLoading(false); });
-    return () => { cancelled = true; };
+    setScanError(null);
+    try {
+      const res = await api.getScan(scanId);
+      if (res.success && res.data) setScan(res.data.scan);
+      else setScanError(res.message || 'Failed to load scan');
+    } catch {
+      setScanError('Failed to load scan');
+    } finally {
+      setScanLoading(false);
+    }
   }, [scanId]);
+
+  useEffect(() => { fetchScan(); }, [fetchScan]);
 
   const {
     items: auditEntries,
@@ -76,7 +80,10 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
         <button onClick={onBack} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label="Go back">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">Scan not found.</div>
+        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+          {scanError ?? 'Scan not found.'}
+          {scanError && <button onClick={fetchScan} className="ml-2 underline hover:no-underline text-red-600 dark:text-red-400">Retry</button>}
+        </div>
       </div>
     );
   }

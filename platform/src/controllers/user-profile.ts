@@ -53,6 +53,16 @@ export interface UserResponseInput {
   tokenVersion?: number;
 }
 
+/**
+ * Adapt a lean/projected user document to `formatUserResponse`'s input. Lean
+ * Mongoose projections don't structurally line up with `UserResponseInput`
+ * (looser field types), so this centralizes the single unavoidable cast in one
+ * auditable place instead of scattering `as unknown as UserResponseInput`.
+ */
+export function toUserResponseInput(doc: unknown): UserResponseInput {
+  return doc as UserResponseInput;
+}
+
 /** Convert Mongoose Map or plain object to Record<string, boolean>. */
 export function toOverridesRecord(overrides?: Map<string, boolean> | Record<string, boolean>): Record<string, boolean> | undefined {
   if (!overrides) return undefined;
@@ -125,7 +135,10 @@ export const getUser = withController('Get user profile', async (req, res) => {
   }
 
   const overrides = toOverridesRecord((user as { featureOverrides?: Map<string, boolean> }).featureOverrides);
-  const features = resolveUserFeatures(tier, overrides, (user as { isSuperAdmin?: boolean }).isSuperAdmin === true);
+  // Include the active org's account-level entitlements (e.g. add-on bundle
+  // grants) so /profile reports the same feature set the JWT carries.
+  const activeOrgFeatures = activeOrgId ? orgMap.get(activeOrgId.toString())?.featureEntitlements : undefined;
+  const features = resolveUserFeatures(tier, overrides, (user as { isSuperAdmin?: boolean }).isSuperAdmin === true, activeOrgFeatures);
 
   sendSuccess(res, 200, {
     user: formatUserResponse(user as UserResponseInput, {
@@ -194,8 +207,18 @@ export const changePassword = withController('Change password', async (req, res)
 }, profileErrorMap);
 
 /**
+ * Capability scopes a caller may request on a generated token. A scoped token is
+ * minted at least-privilege (member role, no sysadmin, no features) and is only
+ * honored by endpoints that opt into that scope. Kept as a strict allowlist so a
+ * caller can't invent arbitrary scopes.
+ */
+const ALLOWED_TOKEN_SCOPES = new Set(['reporting:ingest']);
+
+/**
  * POST /user/generate-token
- * Body: { expiresIn?: number } — token lifetime in seconds (max 365 days).
+ * Body: { expiresIn?: number, scope?: string } — token lifetime in seconds
+ * (max 365 days); optional narrow capability scope (e.g. 'reporting:ingest' for
+ * the AWS event-ingestion machine credential).
  */
 export const generateToken = withController('Generate token', async (req, res) => {
   const userId = requireAuthUserId(req, res);
@@ -214,9 +237,17 @@ export const generateToken = withController('Generate token', async (req, res) =
     }
   }
 
+  let scope: string | undefined;
+  if (req.body?.scope !== undefined) {
+    if (typeof req.body.scope !== 'string' || !ALLOWED_TOKEN_SCOPES.has(req.body.scope)) {
+      return sendError(res, 400, `scope must be one of: ${[...ALLOWED_TOKEN_SCOPES].join(', ')}`, 'INVALID_TOKEN_SCOPE');
+    }
+    scope = req.body.scope;
+  }
+
   const user = await userProfileService.findForTokenIssue(userId);
   const { accessToken, refreshToken, expiresIn: actual } = await issueTokens(
-    user, user.lastActiveOrgId?.toString(), expiresIn,
+    user, user.lastActiveOrgId?.toString(), expiresIn, scope,
   );
   // Bearer-token issuance is sensitive: long-lived tokens (up to 365 days)
   // become a credential. Recording the requested lifetime lets reviewers
@@ -224,7 +255,7 @@ export const generateToken = withController('Generate token', async (req, res) =
   audit(req, 'user.token.create', {
     targetType: 'user',
     targetId: userId,
-    details: { expiresIn: actual },
+    details: { expiresIn: actual, ...(scope ? { scope } : {}) },
   });
   sendSuccess(res, 200, { accessToken, refreshToken, expiresIn: actual });
 }, profileErrorMap);

@@ -43,6 +43,7 @@ export function setupEvents(program: Command): void {
     .option('-p, --password <password>', 'Login password (used with --email)')
     .option('--region <region>', 'AWS region (default: us-east-1, or AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
+    .option('--scoped-ingest', 'Point the ingestion Lambda at the dedicated least-privilege reporting-ingest secret (provision it first: `store-token --scope reporting:ingest --schedule`, then set REPORTING_INGEST_ALLOW_LEGACY=false on the reporting service)')
     .action(async (options) => {
       const executionId = printCommandHeader('Setup Event Ingestion');
 
@@ -59,7 +60,13 @@ export function setupEvents(program: Command): void {
         // minted) when PLATFORM_SECRET_NAME isn't set — matching store-token, which
         // WROTE the secret at the same derived path. Logs in with
         // --email/--password or PLATFORM_IDENTIFIER/PLATFORM_PASSWORD if no token yet.
-        const secretName = await resolvePlatformSecretName(options);
+        // With --scoped-ingest, point at the dedicated reporting-ingest secret
+        // (a least-privilege machine credential) instead of the shared platform
+        // token — provision it with `store-token --scope reporting:ingest`.
+        let secretName = await resolvePlatformSecretName(options);
+        if (options.scopedIngest) {
+          secretName = secretName.replace(/\/platform$/, '/reporting-ingest');
+        }
 
         printInfo('Parameters', {
           stack: STACK_NAME,

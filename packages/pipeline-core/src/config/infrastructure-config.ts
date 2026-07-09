@@ -153,9 +153,9 @@ export function loadDockerConfig(): BuildConfig {
  * Load AWS infrastructure configuration from environment variables.
  *
  * Environment variables:
- * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs24.x'`; supports nodejs22.x, nodejs24.x)
+ * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs24.x'`; unknown values fall back to it)
  * - `LAMBDA_TIMEOUT` — Lambda timeout in seconds (default: `900`)
- * - `LAMBDA_MEMORY_SIZE` — Lambda memory in MB (default: `128`)
+ * - `LAMBDA_MEMORY_SIZE` — Lambda memory in MB (default: `512`)
  * - `LAMBDA_ARCHITECTURE` — `'x86_64'` or ARM (default: ARM_64)
  * - `LOG_GROUP_NAME` — CloudWatch log group (default: `'/pipeline-builder/logs'`)
  * - `LOG_RETENTION` — Log retention in days (default: `7`)

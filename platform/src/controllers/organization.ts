@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, isServicePrincipal, isSystemAdmin, sendError, sendSuccess, parsePaginationParams } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
@@ -11,13 +11,13 @@ import {
   withController,
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
+import { pooledSeatUsage } from '../helpers/seats.js';
 import {
   organizationService,
   ORG_NOT_FOUND,
   SYSTEM_ORG_DELETE_FORBIDDEN,
 } from '../services/index.js';
 import { cascadeDeleteOrg, exportOrg } from '../services/org-cascade-service.js';
-import { parsePagination } from '../utils/pagination.js';
 import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateQuotasSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-controller');
@@ -48,7 +48,7 @@ export const listAllOrganizations = withController('List organizations', async (
   const tier = tierRaw && ['developer', 'pro', 'team', 'enterprise'].includes(tierRaw)
     ? (tierRaw as 'developer' | 'pro' | 'team' | 'enterprise')
     : undefined;
-  const { offset, limit } = parsePagination(req.query.offset, req.query.limit);
+  const { offset, limit } = parsePaginationParams(req.query);
 
   const { organizations, total } = await organizationService.list({ search, tier, offset, limit });
 
@@ -73,6 +73,9 @@ export const createOrganization = withController('Create organization', async (r
     if (eligibility === 'not-found') return sendError(res, 404, 'Parent organization not found');
     if (eligibility === 'not-root') {
       return sendError(res, 400, 'Teams can only be nested one level deep (the parent must be a top-level organization)');
+    }
+    if (eligibility === 'tier-forbidden') {
+      return sendError(res, 403, 'Teams require a Team or Enterprise plan — upgrade the organization to create teams');
     }
   }
 
@@ -120,6 +123,25 @@ export const getOrganizationDescendants = withController('Get org descendants', 
   sendSuccess(res, 200, { orgIds });
 });
 
+/**
+ * GET /organization/:id/parent — the org's direct parent id (org → team
+ * hierarchy), or `null` for a root org. A least-privilege internal read for
+ * peer services (compliance's scheduled scans run detached from any request/JWT
+ * and need the parent to evaluate parent `propagateToChildren` rules); an
+ * account/ancestor admin may also read their own. Mirrors the seat-usage gate:
+ * service principal OR org-admin, never the broad `canAccessOrg`/full-org body.
+ */
+export const getOrganizationParent = withController('Get organization parent', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const id = getParam(req.params, 'id')!;
+  if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
+    return sendError(res, 403, 'Forbidden: service or organization-admin only');
+  }
+  const org = await organizationService.getById(id);
+  if (!org) return sendError(res, 404, 'Organization not found');
+  sendSuccess(res, 200, { parentOrgId: org.parentOrgId ?? null });
+});
+
 export const updateOrganization = withController('Update organization', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
   const body = validateBody(updateOrganizationSchema, req.body, res);
@@ -150,6 +172,17 @@ export const updateOrganizationTier = withController('Update organization tier',
     return sendError(res, 400, 'tier must be one of: developer, pro, team, enterprise');
   }
 
+  // Over-cap gate (docs/billing-bundles.md §8): a downgrade must not strand
+  // members/resources. Same protection as the billing plan-change path; a
+  // sysadmin can deliberately override with `force: true`.
+  const force = (req.body as { force?: unknown })?.force === true;
+  if (!force) {
+    const overages = await organizationService.checkTierOvercap(id, tier);
+    if (overages.length > 0) {
+      return sendError(res, 409, 'This tier change would put the account over its limit — remove members/resources first, or pass force=true', 'TIER_OVER_CAP', { overages });
+    }
+  }
+
   const result = await organizationService.setTier(id, tier);
   if (!result) return sendError(res, 404, 'Organization not found');
 
@@ -167,6 +200,15 @@ export const deleteOrganization = withController('Delete organization', async (r
   if (!requireSystemAdmin(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
+
+  // A root org with live teams must not be deleted directly — it would orphan
+  // the teams (dangling `parentOrgId`) and their pooled seats/usage. Require the
+  // teams be removed first. `expandOrgScope` returns `[self]` for a flat org or
+  // a team (no descendants), so this only blocks a root that still has teams.
+  const scope = await expandOrgScope(id);
+  if (scope.length > 1) {
+    return sendError(res, 400, 'This organization has teams — delete or move its teams before deleting it');
+  }
 
   // full cascade across Postgres, Mongo, quota, billing BEFORE the
   // org doc itself is deleted. Cascade returns a report so the audit event
@@ -241,6 +283,67 @@ export const getOrganizationQuotas = withController('Get organization quotas', a
   if (!quotas) return sendError(res, 404, 'Organization not found');
 
   sendSuccess(res, 200, { quotas });
+});
+
+/**
+ * PUT /organization/:id/seat-limit — internal: set the account seat limit.
+ *
+ * `seats` is platform-owned (not a quota-service type), so the billing service
+ * syncs the effective seat entitlement (tier base + bundles) here. Gated to a
+ * service principal or a sysadmin; NO step-up (service-to-service). Always
+ * applied to the resolved ROOT org.
+ */
+export const updateOrganizationSeatLimit = withController('Update organization seat limit', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
+    return sendError(res, 403, 'Forbidden: service or system-admin only');
+  }
+
+  const id = getParam(req.params, 'id')!;
+  const body = (req.body ?? {}) as { seats?: unknown; features?: unknown };
+  if (typeof body.seats !== 'number' || !Number.isInteger(body.seats) || body.seats < -1) {
+    return sendError(res, 400, 'seats must be an integer >= -1');
+  }
+  // Optional account-level feature entitlements (purchased bundles).
+  let features: string[] | undefined;
+  if (body.features !== undefined) {
+    if (!Array.isArray(body.features) || body.features.some((f) => typeof f !== 'string')) {
+      return sendError(res, 400, 'features must be an array of strings');
+    }
+    features = body.features as string[];
+  }
+
+  const result = await organizationService.setSeatLimit(id, body.seats, features);
+  if (!result) return sendError(res, 404, 'Organization not found');
+
+  // Entitlement mutation on the account root (+ its descendants) — leave an audit
+  // trail like every other admin org mutation (setTier, member ops, delete).
+  audit(req, 'admin.org.seatLimit.update', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: result.rootOrgId,
+    details: { seats: body.seats, ...(features ? { features } : {}) },
+  });
+  logger.info('Seat limit synced', { orgId: id, rootOrgId: result.rootOrgId, seats: body.seats, features, by: req.user!.sub });
+  sendSuccess(res, 200, result, 'Seat limit updated');
+});
+
+/**
+ * GET /organization/:id/seat-usage — internal: current pooled seat usage + limit
+ * for the account (root). Used by billing's over-cap gate before removing a seat
+ * bundle. Service principal or sysadmin.
+ */
+export const getOrganizationSeatUsage = withController('Get organization seat usage', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const id = getParam(req.params, 'id')!;
+  // Billing's over-cap gate calls this with a service token; an account admin
+  // (or an ancestor-org admin) may also read their OWN pooled seat usage — it's
+  // their own data. pooledSeatUsage resolves `id` to its root internally.
+  if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
+    return sendError(res, 403, 'Forbidden: service or organization-admin only');
+  }
+  const usage = await pooledSeatUsage(id);
+  sendSuccess(res, 200, usage);
 });
 
 export const updateOrganizationQuotas = withController('Update organization quotas', async (req, res) => {

@@ -83,6 +83,9 @@ export type AuditAction =
   // side-effect. `details` carries the previousTier so the transition
   // is reconstructable from the audit log alone.
   | 'admin.org.tier.update'
+  // Account seat-limit / entitlement sync on the org root (from billing or a
+  // sysadmin). `details` carries the new seat cap (+ any feature bundles).
+  | 'admin.org.seatLimit.update'
   // Sysadmin impersonation. `admin.impersonate.start` is emitted when
   // a read-only impersonation token is issued; the `impersonatorId` in
   // details + `targetId` (the impersonated user) tell reviewers who
@@ -151,6 +154,7 @@ export const ALL_AUDIT_ACTIONS = [
   'admin.org.kms-config.upsert',
   'admin.org.kms-config.delete',
   'admin.org.tier.update',
+  'admin.org.seatLimit.update',
   'admin.impersonate.start',
   'admin.org.namespace.render',
   'plugin.build.completed',

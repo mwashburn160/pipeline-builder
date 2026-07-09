@@ -40,10 +40,6 @@ export interface AppConfig {
     readonly http: boolean;
     /** Skip TLS cert verification (self-signed registries; env: `IMAGE_REGISTRY_INSECURE`). */
     readonly insecure: boolean;
-    /** Username this service uses to call the underlying registry's API for management ops. */
-    readonly username: string;
-    /** Password for the same. */
-    readonly password: string;
   };
 
   /**
@@ -102,8 +98,6 @@ export function loadConfig(): AppConfig {
       port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10),
       http: process.env.IMAGE_REGISTRY_HTTP === 'true',
       insecure: process.env.IMAGE_REGISTRY_INSECURE === 'true',
-      username: resolveSecretValue('IMAGE_REGISTRY_USERNAME'),
-      password: resolveSecretValue('IMAGE_REGISTRY_PASSWORD'),
     },
 
     tokenSigning: {

@@ -12,7 +12,7 @@ import {
 } from '@pipeline-builder/ai-core';
 import { createLogger, ValidationError } from '@pipeline-builder/api-core';
 
-import { db, schema } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
 import { and } from 'drizzle-orm';
 import { z } from 'zod';
 import { availablePluginConditions } from './plugin-lookup-service.js';
@@ -75,7 +75,10 @@ function filterPluginsByContext(plugins: PluginSummary[], terms: string[]): Plug
 
 /** Fetch active plugins visible to the given organization. */
 async function getAvailablePlugins(orgId: string): Promise<PluginSummary[]> {
-  return db
+  // withTenantTx sets `app.org_id` — the `plugins` table is FORCE ROW LEVEL
+  // SECURITY, so a bare `db.select()` runs with a null GUC and the policy drops
+  // the caller org's rows (AI context would miss the org's own plugins).
+  return withTenantTx(async (tx) => tx
     .select({
       name: schema.plugin.name,
       description: schema.plugin.description,
@@ -90,7 +93,7 @@ async function getAvailablePlugins(orgId: string): Promise<PluginSummary[]> {
       env: schema.plugin.env,
     })
     .from(schema.plugin)
-    .where(and(...availablePluginConditions(orgId))) as Promise<PluginSummary[]>;
+    .where(and(...availablePluginConditions(orgId)))) as Promise<PluginSummary[]>;
 }
 
 /**
@@ -140,16 +143,14 @@ export interface GenerationResult {
   validationWarnings?: string[];
 }
 
-// -- Prompt cache -------------------------------------------------------------
+// -- Prompt plugin list -------------------------------------------------------
 
-let cachedPluginListHash = '';
-let cachedPluginList = '';
-
+// Built fresh per call: a process-global cache keyed only on `name:version`
+// leaked one org's rendered plugin metadata (descriptions/keywords/env) into
+// another org's prompt when they shared name:version pairs. The render is a
+// cheap string concat over the (bounded) visible plugin set.
 function buildPluginList(plugins: PluginSummary[]): string {
-  const hash = plugins.map(p => `${p.name}:${p.version}`).join(',');
-  if (hash === cachedPluginListHash) return cachedPluginList;
-
-  cachedPluginList = plugins.length > 0
+  return plugins.length > 0
     ? plugins.map((p) => {
       let line = `- "${p.name}" (v${p.version}, type: ${p.pluginType}, compute: ${p.computeType})${p.description ? `: ${p.description}` : ''}`;
       const parts: string[] = [];
@@ -163,9 +164,6 @@ function buildPluginList(plugins: PluginSummary[]): string {
       return line;
     }).join('\n')
     : '(No plugins available — use a reasonable default plugin name and note it may need to be created)';
-
-  cachedPluginListHash = hash;
-  return cachedPluginList;
 }
 
 // Zod Schema — BuilderProps structure for structured AI output

@@ -100,7 +100,10 @@ class UserAdminService {
 
     const allOrgIds = [...new Set(allMemberships.map(m => m.organizationId.toString()))];
     const orgs = allOrgIds.length > 0
-      ? await Organization.find({ _id: { $in: allOrgIds } }).select('_id name').lean()
+      // Cast each id back to its stored form (24-hex → ObjectId, well-known
+      // string ids left as-is). The `.toString()` dedup above flattens ObjectIds
+      // to strings, which would miss the Mixed `_id` (stored as ObjectId).
+      ? await Organization.find({ _id: { $in: allOrgIds.map(id => toOrgId(id)) } }).select('_id name').lean()
       : [];
     const orgNameMap = new Map(orgs.map(o => [o._id.toString(), o.name]));
 
@@ -240,16 +243,15 @@ class UserAdminService {
         user.lastActiveOrgId = undefined;
         changes.push('organizationId (removed)');
       } else {
-        const newOrg = await Organization.findById(body.organizationId);
+        const newOrg = await Organization.findById(toOrgId(body.organizationId));
         if (!newOrg) throw new Error(UA_ORG_NOT_FOUND);
         const existingMembership = await UserOrganization.findOne({
           userId: user._id, organizationId: toOrgId(body.organizationId),
         });
         if (!existingMembership) {
-          // Enforce the target org's seat cap even for a sysadmin assignment —
-          // a membership row counts against `quotas.seats` like any other.
-          const seatLimit = newOrg.quotas?.seats ?? -1;
-          if (!(await seatCapacityAvailable(String(body.organizationId), seatLimit, 1))) {
+          // Enforce the account's pooled seat cap even for a sysadmin assignment
+          // (resolved at the root by the helper).
+          if (!(await seatCapacityAvailable(String(body.organizationId), 1))) {
             throw new Error(UA_SEAT_LIMIT);
           }
           await UserOrganization.create({

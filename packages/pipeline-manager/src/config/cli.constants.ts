@@ -186,3 +186,12 @@ export function assertShellSafe(
     throw new Error(`${fieldName} contains unsafe characters${detail}`);
   }
 }
+
+/**
+ * POSIX single-quote a value (escaping embedded single quotes) for safe shell
+ * interpolation. Single source of truth — drift in a shell-quoting helper is
+ * security-relevant, so both agent modules import this rather than re-declaring it.
+ */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}

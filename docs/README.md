@@ -51,7 +51,8 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | [Metadata Keys](metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
 | [Plugin Catalog](plugins/README.md) | 119 pre-built plugins across 10 categories |
-| [Org → Team Hierarchy](#teams-org--team-hierarchy) | Sub-organizations (teams) nested one level under a parent org — RBAC, visibility, quota, and compliance inheritance |
+| [Org → Team Hierarchy](#teams-org--team-hierarchy) | Teams nested one level under a parent org — RBAC, visibility, quota, and compliance inheritance |
+| [Billing Add-on Bundles](billing-bundles.md) | Stackable add-ons that raise an account's pooled caps (seats, pipelines, plugins, storage) and unlock features |
 
 ---
 
@@ -223,7 +224,7 @@ Organizations are the isolation boundary — each one is a self-contained worksp
 
 Register an account, then create one or more organizations. The creator becomes the **owner**.
 
-**From the dashboard** — navigate to **Team** and click **Create Organization**.
+**From the dashboard** — open the **Organizations** page and click **Create Organization**. (Teams — organizations nested under a parent — are created from the **Members** page with **Create Team**; see [Teams](#teams-org--team-hierarchy).)
 
 **From the API:**
 
@@ -257,7 +258,7 @@ What the parent ↔ team relationship adds on top of plain organizations:
 
 A user can belong to several organizations and teams at once and acts within one at a time (switch with the org switcher).
 
-**Creating / managing teams** — on the dashboard **Members** page, an admin of a root org uses **Create Sub-Org / Team** to nest a new team and **Manage teams** (per member) to add or remove a member across the org's teams in one step. Via the API, `POST /api/organization` accepts a `parentOrgId`, and `POST /api/organization/:id/members/bulk-add` adds a user to several teams at once.
+**Creating / managing teams** — on the dashboard **Members** page, an admin of a root org uses **Create Team** to nest a new team and **Manage teams** (per member) to add or remove a member across the org's teams in one step. Via the API, `POST /api/organization` accepts a `parentOrgId`, and `POST /api/organization/:id/members/bulk-add` adds a user to several teams at once.
 
 ### Feature Tiers
 
@@ -270,16 +271,21 @@ A user can belong to several organizations and teams at once and acts within one
 | Audit log | - | - | yes | yes |
 | Custom integrations | - | - | - | yes |
 | Priority support | - | yes | yes | yes |
-| Seats (members) | 1 | 3 | 10 | unlimited |
+| Plugins | 25 | 50 | 100 | 250 |
+| Pipelines | 5 | 10 | 200 | 200 |
+| Seats (members) | 1 | 1 | 10 | 25 |
+| Price / month | $0 | $19 | $49 | $99 |
 
-System org users always have access to all features.
+System org users always have access to all features. Base limits are raised by [add-on bundles](billing-bundles.md) and are env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
+
+**Add-on bundles** — an account can stack purchasable add-ons on top of its tier to raise pooled caps (extra seats, pipelines, plugins, API/AI calls, storage) or unlock features (audit log, SSO). Effective limits = tier base + add-ons, shared across the account's teams. See [Billing Add-on Bundles](billing-bundles.md).
 
 ### What Each Org Controls
 
 - **Plugins** — upload private plugins or use shared public ones; control which versions are available
 - **Compliance rules** — enforce security standards, naming conventions, resource limits
-- **Quotas** — set limits on pipelines, plugins, and API calls
-- **Billing** — per-org subscription plans and usage tracking
+- **Quotas** — per-org limits on pipelines, plugins, API/AI calls, storage, and more (nine tracked resource types), plus member **seats**; a parent's caps can be pooled across its teams
+- **Billing** — per-account subscription tier (Developer / Pro / Team / Enterprise) plus stackable [add-on bundles](billing-bundles.md) that raise pooled caps
 - **Secrets** — stored in AWS Secrets Manager, injected at build time
 
 ---

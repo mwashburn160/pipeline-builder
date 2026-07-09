@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { QuotaTier, QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import type { ComputeType } from 'aws-cdk-lib/aws-codebuild';
 import type { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
@@ -270,7 +270,33 @@ export interface BillingPlanConfig {
   readonly sortOrder: number;
 }
 
-/** Billing plans configuration. */
+/**
+ * A purchasable add-on bundle: a quantity-stackable pack that ADDS to the
+ * account's base (tier) limits and adds a recurring line item. See
+ * docs/billing-bundles.md.
+ */
+export interface BundleConfig {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  /** Per-unit deltas on `QuotaTierLimits` fields, e.g. `{ seats: 5 }`. Keys are
+   *  constrained to real quota fields so a typo is a compile error (was
+   *  `Record<string, number>`, where a misspelled key was silently unenforceable). */
+  readonly grants: Readonly<Partial<Record<keyof QuotaTierLimits, number>>>;
+  /** Feature flags granted by a feature bundle (e.g. `audit_log`). */
+  readonly features?: readonly string[];
+  /** Per-unit price (cents). Stripe multiplies by quantity. */
+  readonly prices: BillingPlanPrices;
+  /** True for stackable resource packs; false for a boolean feature bundle. */
+  readonly stackable: boolean;
+  /** Base tiers this bundle is offered to. */
+  readonly availableForTiers: readonly QuotaTier[];
+  readonly isActive: boolean;
+  readonly sortOrder: number;
+}
+
+/** Billing plans + add-on bundle configuration. */
 export interface BillingConfig {
   readonly plans: readonly BillingPlanConfig[];
+  readonly bundles: readonly BundleConfig[];
 }

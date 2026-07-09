@@ -79,6 +79,7 @@ const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   buildSubscriptionResponse: mockBuildSubscriptionResponse,
   syncTierToQuotaService: mockSyncTierToQuotaService,
+  syncEntitlements: mockSyncTierToQuotaService,
   createBillingEvent: mockCreateBillingEvent,
 }));
 

@@ -170,8 +170,27 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       .returning());
     // Direct tx bypasses the CrudService onAfter* hooks — invalidate the reader's
     // cached inbox/unread views so the read state isn't stale for the TTL.
-    if (updated) await this.invalidateMessageCaches(orgId);
-    return (updated as Message) ?? null;
+    if (updated) {
+      await this.invalidateMessageCaches(orgId);
+      return updated as Message;
+    }
+
+    // No row updated → either already read, OR not found / not visible to this
+    // org. Distinguish so re-marking an already-read message is IDEMPOTENT
+    // (returns the message → 200) rather than a spurious 404 on retry.
+    const [existing] = await withTenantTx(async (tx) => tx
+      .select()
+      .from(schema.message)
+      .where(and(
+        eq(schema.message.id, id),
+        or(
+          eq(schema.message.orgId, orgId),
+          eq(schema.message.recipientOrgId, orgId),
+          eq(schema.message.recipientOrgId, '*'),
+        ),
+      ))
+      .limit(1));
+    return (existing as Message) ?? null;
   }
 
   /**

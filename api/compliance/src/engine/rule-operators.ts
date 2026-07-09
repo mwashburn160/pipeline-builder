@@ -158,7 +158,7 @@ export function evaluateOperator(
  * Validate that a regex pattern is safe to use.
  *
  * Checks for:
- * - Maximum length (200 chars)
+ * - Maximum length (`MAX_REGEX_LENGTH`, default 100; override via `COMPLIANCE_MAX_REGEX_LENGTH`)
  * - Nested quantifiers that could cause ReDoS (e.g., `(a+)+`)
  * - Valid regex syntax
  *

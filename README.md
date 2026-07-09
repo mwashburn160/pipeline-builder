@@ -149,8 +149,8 @@ An **organization** is a self-contained, isolated workspace (your company, busin
 A **team** is an organization nested one level under a parent organization (the org → team hierarchy). Nesting is **opt-in** — by default every organization is a flat, top-level root with no teams. A team keeps its own members, roles, quotas, secrets, and billing, but its parent can manage it: a parent-org admin administers its teams (effective RBAC), and plugin-catalog visibility, compliance rules marked *apply to child teams*, shared-root quota caps, and analytics roll down/up the parent ↔ team relationship.
 
 - **RBAC** — Owner, Admin, Member roles enforced at the API layer, per organization; a parent-org admin inherits admin over its teams
-- **Feature tiers** — Developer, Pro, Team, Enterprise (AI generation, bulk ops, audit log, seats gated by tier)
-- **Per-organization quotas** — four dimensions: `plugins`, `pipelines`, `apiCalls`, `aiCalls` (AI sized smaller because external $ cost); a parent's limit can be shared across its teams
+- **Feature tiers** — Developer, Pro, Team, Enterprise (AI generation, bulk ops, audit log, seats gated by tier), plus stackable [add-on bundles](docs/billing-bundles.md) that raise an account's pooled caps
+- **Per-organization quotas** — nine tracked resource types (`plugins`, `pipelines`, `apiCalls`, `aiCalls`, `storageBytes`, dashboards, alert rules/destinations, IdP configs — AI sized smaller because of external $ cost) plus member `seats`; a parent's caps can be pooled across its teams
 - **Public + private plugins** — publish a plugin to the shared catalog (visible to every organization) or keep it private to yours; a parent's private plugins are visible to its teams
 - **Isolated secrets** — AWS Secrets Manager path `pipeline-builder/{orgId}/{secretName}` (per organization), injected at build time, never stored in images
 
@@ -220,8 +220,8 @@ flowchart TB
 | **Image Registry** | Stores and serves containerized plugin images with token-based auth, per-org storage quotas, and garbage collection |
 | **Compliance** | Per-organization rule enforcement (subscribe to the shared catalog), policy management, audit trail |
 | **Reporting** | Execution reports + build analytics via EventBridge |
-| **Quota** | Resource limits per team |
-| **Billing** | Subscriptions and plans per organization |
+| **Quota** | Resource limits per organization (pooled across a parent's teams) |
+| **Billing** | Subscription tiers + add-on bundles per account |
 | **Message** | Organization and team announcements |
 
 For detailed end-to-end flows (plugin upload, pipeline creation, CDK synthesis, CodePipeline execution), see [Architecture Flow](docs/architecture-flow.md). For how Pipeline Builder benefits engineering organizations, see [Organization Benefits](docs/organization-benefits.md). For cut-and-paste pipeline examples by language, see [Developer Guide](docs/developer-guide.md).
@@ -309,6 +309,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 | [AWS Deployment](docs/aws-deployment.md) | EC2 and EKS deployment guides |
 | [Environment Variables](docs/environment-variables.md) | Full config reference for all services |
 | [Compliance](docs/compliance.md) | Rule engine, validation, audit trail |
+| [Billing Add-on Bundles](docs/billing-bundles.md) | Stackable add-ons that raise an account's pooled caps and unlock features |
 
 ---
 

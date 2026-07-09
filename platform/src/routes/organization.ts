@@ -9,10 +9,13 @@ import {
   updateOrgAIConfig,
   getOrganizationById,
   getOrganizationDescendants,
+  getOrganizationParent,
   updateOrganization,
   updateOrganizationTier,
   getOrganizationQuotas,
   updateOrganizationQuotas,
+  updateOrganizationSeatLimit,
+  getOrganizationSeatUsage,
   getOrganizationMembers,
   getOrganizationTeams,
   getMemberTeams,
@@ -67,6 +70,11 @@ router.get('/:id', requireAuth, getOrganizationById);
 /** GET /:id/descendants - org→team subtree ids (self + descendants) */
 router.get('/:id/descendants', requireAuth, getOrganizationDescendants);
 
+/** GET /:id/parent — internal: direct parent id (service principal or org-admin,
+ *  checked in the controller). Compliance's detached scheduled scans use it to
+ *  evaluate parent `propagateToChildren` rules. */
+router.get('/:id/parent', requireAuth, getOrganizationParent);
+
 /** PUT /organization/:id - Update organization (sysadmin only).
  *  `requireSystemAdmin` mirrors the controller's own check at the route layer
  *  so org admins/owners are rejected here, not deeper in. */
@@ -96,6 +104,15 @@ router.get('/:id/quotas', requireAuth, getOrganizationQuotas);
  *  Step-up gated like the tier change: resizing quota limits has billing/capacity
  *  impact, so a stale sysadmin session must re-confirm before it lands. */
 router.put('/:id/quotas', requireAuth, requireSystemAdmin, requireStepUp, updateOrganizationQuotas);
+
+/** PUT /organization/:id/seat-limit — internal seat-entitlement sync from billing.
+ *  Service-principal or sysadmin (checked in the controller); NO step-up, so the
+ *  billing service can sync effective seats without a human MFA gate. */
+router.put('/:id/seat-limit', requireAuth, updateOrganizationSeatLimit);
+
+/** GET /organization/:id/seat-usage — internal pooled seat usage read for
+ *  billing's over-cap gate. Service-principal or sysadmin (checked in controller). */
+router.get('/:id/seat-usage', requireAuth, getOrganizationSeatUsage);
 
 /*
  * Organization Members (admin can manage any org)

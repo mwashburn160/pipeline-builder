@@ -254,7 +254,10 @@ export function buildCompliancePolicyConditions(
 
   if (filter.isActive !== undefined) {
     conditions.push(eq(schema.compliancePolicy.isActive, parseBooleanFilter(filter.isActive)));
-  } else {
+  } else if (filter.id === undefined) {
+    // Only default to active=true for list queries, not single-entity lookups by
+    // ID (mirrors buildComplianceRuleConditions) — otherwise findById of an
+    // inactive policy returns nothing.
     conditions.push(eq(schema.compliancePolicy.isActive, true));
   }
 

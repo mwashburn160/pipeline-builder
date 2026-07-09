@@ -15,7 +15,7 @@ import { config } from '../config.js';
 import {
   calculatePeriodEnd,
   createBillingEvent,
-  syncTierToQuotaService,
+  syncEntitlements,
 } from '../helpers/billing-helpers.js';
 import {
   verifySNSSignature,
@@ -72,9 +72,12 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
     return;
   }
 
+  // cancel→resubscribe can leave a canceled row + a new active row sharing the
+  // identifier (the unique index is partial on active rows). Take the NEWEST so
+  // the notification lands on the current subscription, not a stale canceled one.
   const subscription = await Subscription.findOne({
     'metadata.awsCustomerIdentifier': customerIdentifier,
-  });
+  }).sort({ createdAt: -1 });
 
   if (!subscription) {
     logger.warn('No subscription found for marketplace customer', { customerIdentifier });
@@ -93,7 +96,7 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
   // (api/billing/src/helpers/subscription-lifecycle.ts) handles the actual
   // downgrade once `currentPeriodEnd` lapses.
   if (statusChange.status === 'canceled') {
-    await syncTierToQuotaService(subscription.orgId, 'developer', '', subscription._id.toString());
+    await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
     await createBillingEvent(subscription.orgId, 'subscription_canceled', {
       action,
       provider: 'aws-marketplace',
@@ -113,7 +116,7 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
   } else if (previousStatus === 'canceled' && statusChange.status === 'active') {
     const plan = await Plan.findById(subscription.planId);
     if (plan) {
-      await syncTierToQuotaService(subscription.orgId, plan.tier, '', subscription._id.toString());
+      await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
     }
     await createBillingEvent(subscription.orgId, 'subscription_reactivated', {
       action,
@@ -179,7 +182,7 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
   subscription.planId = newPlanId;
   await subscription.save();
 
-  await syncTierToQuotaService(subscription.orgId, plan.tier, '', subscription._id.toString());
+  await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
 
   await createBillingEvent(subscription.orgId, 'plan_changed', {
     oldPlanId,
@@ -315,8 +318,8 @@ export function createMarketplaceRoutes(): Router {
           },
         });
 
-        // Step 6: Sync tier to quota service
-        await syncTierToQuotaService(orgId, plan.tier, '', subscription._id.toString());
+        // Step 6: Sync tier to quota service (preserve purchased add-on grants)
+        await syncEntitlements(orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
 
         // Step 7: Log billing event
         await createBillingEvent(orgId, 'subscription_created', {

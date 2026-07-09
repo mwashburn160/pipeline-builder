@@ -44,6 +44,21 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
   return {
     createLogger: loggerMock,
     SYSTEM_ORG_ID: 'system',
+    // billing-helpers.syncEntitlements reads the tier's seat limit to sync it to
+    // platform (the seat leg of the two-target fan-out).
+    getTierLimits: (_tier: string) => ({
+      seats: 10,
+      plugins: 50,
+      pipelines: 5,
+      apiCalls: 25000,
+      aiCalls: 50,
+      storageBytes: 2147483648,
+      dashboards: 20,
+      alertRules: 50,
+      alertDestinations: 10,
+      idpConfigs: 1,
+    }),
+    VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'],
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

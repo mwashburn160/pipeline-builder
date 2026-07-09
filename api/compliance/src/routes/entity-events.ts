@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, createLogger, requireAuth, isServicePrincipal, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, createLogger, requireAuth, isServicePrincipal, validateBody } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
@@ -12,6 +12,7 @@ const logger = createLogger('compliance-entity-events');
 const EntityEventSchema = z.object({
   entityId: z.string().min(1),
   orgId: z.string().min(1),
+  parentOrgId: z.string().optional(),
   target: z.string().min(1),
   eventType: z.string().min(1),
   userId: z.string().optional(),
@@ -58,6 +59,11 @@ export function createEntityEventRoutes(): Router {
       evaluateEntityEvent(event),
     );
 
+    // An evaluation ERROR must NOT read as success — reply non-2xx so the caller
+    // (BullMQ) retries instead of letting a non-compliant entity slip through.
+    if (result.error) {
+      return sendError(res, 500, 'Compliance evaluation failed; retry', ErrorCode.INTERNAL_ERROR);
+    }
     if (!result.evaluated) {
       logger.debug('Entity event not evaluated', { entityId: event.entityId, reason: result.reason });
     }

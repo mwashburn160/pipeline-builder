@@ -198,14 +198,36 @@ describe('MessageService', () => {
       expect(result).toEqual(updated);
     });
 
+    // Wire the fallback existence SELECT: tx.select().from().where().limit() → rows
+    const wireExistenceSelect = (rows: unknown[]) => mockDbSelect.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          limit: jest.fn<() => Promise<unknown>>().mockResolvedValue(rows),
+        }),
+      }),
+    });
+
     it('should return null when message not found', async () => {
       const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([]);
       mockDbUpdate.mockReturnValue({
         set: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ returning: returningFn }) }),
       });
+      wireExistenceSelect([]); // fallback finds nothing → truly not found
 
       const result = await service.markAsRead('nonexistent', 'org-1', 'user-1');
       expect(result).toBeNull();
+    });
+
+    it('is idempotent: returns the message (not null) when it exists but is already read', async () => {
+      const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([]);
+      mockDbUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ returning: returningFn }) }),
+      });
+      const existing = { id: 'msg-1', readBy: { 'org-1': '2026-04-27T00:00:00Z' } };
+      wireExistenceSelect([existing]);
+
+      const result = await service.markAsRead('msg-1', 'org-1', 'user-1');
+      expect(result).toEqual(existing);
     });
   });
 

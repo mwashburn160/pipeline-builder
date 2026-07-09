@@ -27,6 +27,7 @@
 import { createLogger, sendError } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { Organization } from '../models/index.js';
 
 const logger = createLogger('org-namespace-controller');
@@ -48,7 +49,7 @@ export const renderOrgNamespace = withController('Render org k8s namespace', asy
   if (!requireSystemAdmin(req, res)) return;
   const orgId = String(req.params.orgId);
 
-  const org = await Organization.findById(orgId).select('slug name').lean();
+  const org = await Organization.findById(toOrgId(orgId)).select('slug name').lean();
   if (!org) return sendError(res, 404, 'Organization not found');
 
   const slug = (org as { slug?: string }).slug;

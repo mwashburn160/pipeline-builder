@@ -17,7 +17,7 @@
 
 import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { isOrgAdmin, isSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { isOrgAdmin, isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
 import { alertRuleService, prepareRuleExpr, renderRulesYaml, validateRule, type RuleCreate, type RuleUpdate } from '../services/alert-rule-service.js';
 import { PromQLRewriteError } from '../services/promql-rewriter.js';
@@ -63,8 +63,8 @@ function parseRuleBody(
 
 /** GET /api/observability/alert-rules  list this org's rules. */
 export const listAlertRules = withController('List alert rules', async (req, res) => {
-  const orgId = req.user?.organizationId;
-  if (!orgId) return sendError(res, 400, 'organizationId required');
+  const orgId = requireOrgMembership(req, res);
+  if (!orgId) return;
 
   const rules = await alertRuleService.listForOrg(orgId);
   sendSuccess(res, 200, { rules });
@@ -72,9 +72,9 @@ export const listAlertRules = withController('List alert rules', async (req, res
 
 /** POST /api/observability/alert-rules  create. Org-admin or above. */
 export const createAlertRule = withController('Create alert rule', async (req, res) => {
-  const orgId = req.user?.organizationId;
-  const userId = req.user?.sub;
-  if (!orgId || !userId) return sendError(res, 400, 'organizationId + userId required');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
   if (!isOrgAdmin(req) && !isSystemAdmin(req)) {
     return sendError(res, 403, 'Org admin required to create alert rules');
   }
@@ -121,9 +121,9 @@ export const createAlertRule = withController('Create alert rule', async (req, r
 
 /** PUT /api/observability/alert-rules/:id  update. Org-admin or above. */
 export const updateAlertRule = withController('Update alert rule', async (req, res) => {
-  const orgId = req.user?.organizationId;
-  const userId = req.user?.sub;
-  if (!orgId || !userId) return sendError(res, 400, 'organizationId + userId required');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
   if (!isOrgAdmin(req) && !isSystemAdmin(req)) {
     return sendError(res, 403, 'Org admin required to update alert rules');
   }
@@ -161,9 +161,9 @@ export const updateAlertRule = withController('Update alert rule', async (req, r
 
 /** DELETE /api/observability/alert-rules/:id  soft-delete. Org-admin or above. */
 export const deleteAlertRule = withController('Delete alert rule', async (req, res) => {
-  const orgId = req.user?.organizationId;
-  const userId = req.user?.sub;
-  if (!orgId || !userId) return sendError(res, 400, 'organizationId + userId required');
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
   if (!isOrgAdmin(req) && !isSystemAdmin(req)) {
     return sendError(res, 403, 'Org admin required to delete alert rules');
   }

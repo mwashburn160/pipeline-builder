@@ -4,6 +4,7 @@
 import axios from 'axios';
 import { Command } from 'commander';
 import { ENV_VARS, TIMEOUTS } from '../config/cli.constants.js';
+import { decodeTokenPayload } from '../utils/auth-guard.js';
 import { checkCdkAvailable } from '../utils/cdk-utils.js';
 import { printCommandHeader } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
@@ -55,20 +56,16 @@ export function status(program: Command): void {
           results['Platform Health'] = 'unreachable';
         }
 
-        // 5. Decode token expiry
+        // 5. Decode token expiry (shared decoder — same base64url + exp logic
+        // used by audit-tokens / api-client).
         if (token) {
-          try {
-            const parts = token.split('.');
-            if (parts.length === 3 && parts[1]) {
-              const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as Record<string, unknown>;
-              if (typeof payload.exp === 'number') {
-                const expiresAt = new Date(payload.exp * 1000);
-                results['Token Expires'] = expiresAt.toISOString();
-                results['Token Expired'] = expiresAt.getTime() < Date.now() ? 'yes' : 'no';
-              }
-            }
-          } catch {
+          const payload = decodeTokenPayload(token);
+          if (!payload) {
             results['Token Expires'] = 'unable to decode';
+          } else if (typeof payload.exp === 'number') {
+            const expiresAt = new Date(payload.exp * 1000);
+            results['Token Expires'] = expiresAt.toISOString();
+            results['Token Expired'] = expiresAt.getTime() < Date.now() ? 'yes' : 'no';
           }
         }
 

@@ -55,4 +55,18 @@ describe('withLeaderLock', () => {
       .rejects.toThrow('boom');
     expect(redis.del).toHaveBeenCalledWith('k');
   });
+
+  it('releases via atomic eval (CAS) when the client supports it — no get-then-del race', async () => {
+    const set = jest.fn(async () => 'OK');
+    const get = jest.fn(async () => null);
+    const del = jest.fn(async () => 1);
+    const evalFn = jest.fn(async () => 1);
+    const redis = { set, get, del, eval: evalFn };
+    const ran = await withLeaderLock(redis as never, 'k', 1000, async () => {});
+    expect(ran).toBe(true);
+    // Atomic path: eval used with (script, 1, key, token); no separate get/del.
+    expect(evalFn).toHaveBeenCalledWith(expect.stringContaining('redis.call'), 1, 'k', expect.any(String));
+    expect(del).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
 });

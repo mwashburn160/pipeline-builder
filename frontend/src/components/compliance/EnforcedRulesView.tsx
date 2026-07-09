@@ -9,16 +9,21 @@ import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
 export default function EnforcedRulesView() {
   const [rules, setRules] = useState<ComplianceRule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
 
   const fetchRules = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params: Record<string, string> = {};
       if (targetFilter) params.target = targetFilter;
       const res = await api.getEnforcedRules(params);
       if (res.success && res.data) setRules(res.data.rules);
-    } catch { /* handled by loading state */ }
+      else setError(res.message || 'Failed to load enforced rules');
+    } catch {
+      setError('Failed to load enforced rules');
+    }
     setLoading(false);
   }, [targetFilter]);
 
@@ -44,6 +49,13 @@ export default function EnforcedRulesView() {
           <option value="pipeline">Pipeline</option>
         </select>
       </div>
+
+      {error && !loading && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
+          <span>{error}</span>
+          <button onClick={fetchRules} className="underline hover:no-underline">Retry</button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-green-600" /></div>

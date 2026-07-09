@@ -21,8 +21,17 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('mongoose', () => {
-  class Schema { constructor() { /* no-op */ } index() { /* no-op */ } method() { /* no-op */ } static Types = { Mixed: class {}, ObjectId: class {} }; }
-  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  // Functional ObjectId so `toOrgId` (org-id.js) can run: 24-hex → ObjectId,
+  // else the string unchanged. Include a `default` export (org-id.js default-imports mongoose).
+  class ObjectId {
+    v: unknown;
+    constructor(v?: unknown) { this.v = v; }
+    toString() { return String(this.v); }
+    static isValid(v: unknown) { return typeof v === 'string' && /^[a-f0-9]{24}$/i.test(v); }
+  }
+  class Schema { constructor() { /* no-op */ } index() { /* no-op */ } method() { /* no-op */ } static Types = { Mixed: class {}, ObjectId }; }
+  const api = { Types: { Mixed: class {}, ObjectId }, Schema, models: {}, model: jest.fn() };
+  return { ...api, default: api };
 });
 
 jest.unstable_mockModule('../src/middleware/index.js', () => ({

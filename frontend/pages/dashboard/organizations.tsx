@@ -96,15 +96,15 @@ export default function OrganizationsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
   const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'team' | 'enterprise'>('developer');
-  // New orgs default to sub-organizations (teams nested under a parent); uncheck
-  // for a top-level organization. Parent candidates are the existing root orgs.
+  // New orgs default to teams (nested under a parent); uncheck for a top-level
+  // organization. Parent candidates are the existing root orgs.
   const [createAsSubOrg, setCreateAsSubOrg] = useState(true);
   const [parentOrgId, setParentOrgId] = useState('');
   const [parentOptions, setParentOptions] = useState<Organization[]>([]);
   const createForm = useFormState();
 
   // Open the create modal, resetting state and loading the root orgs that can
-  // act as a parent for a sub-organization.
+  // act as a parent for a team.
   const openCreate = async () => {
     setNewOrgName('');
     setNewOrgTier('developer');
@@ -116,14 +116,14 @@ export default function OrganizationsPage() {
     try {
       const res = await api.listOrganizations({ limit: 200 });
       setParentOptions((res.data?.organizations ?? []).filter((o) => !o.parentOrgId));
-    } catch { /* best-effort — sub-org option simply won't have parents to pick */ }
+    } catch { /* best-effort — the team option simply won't have parents to pick */ }
   };
 
   const handleCreateOrg = async () => {
     const name = newOrgName.trim();
     if (!name) return;
     if (createAsSubOrg && !parentOrgId) {
-      createForm.setError('Choose a parent organization for the sub-organization (or uncheck to create a top-level org).');
+      createForm.setError('Choose a parent organization for the team (or uncheck to create a top-level org).');
       return;
     }
     const result = await createForm.run(() => api.createOrganization({
@@ -134,7 +134,7 @@ export default function OrganizationsPage() {
     if (result !== null) {
       setCreateOpen(false);
       list.refresh();
-      toast.success(`${createAsSubOrg ? 'Sub-organization' : 'Organization'} "${name}" created`);
+      toast.success(`${createAsSubOrg ? 'Team' : 'Organization'} "${name}" created`);
     }
   };
 
@@ -338,7 +338,7 @@ export default function OrganizationsPage() {
 
       {createOpen && (
         <Modal
-          title={createAsSubOrg ? 'Create Sub-organization' : 'Create Organization'}
+          title={createAsSubOrg ? 'Create Team' : 'Create Organization'}
           onClose={() => setCreateOpen(false)}
           footer={
             <div className="flex justify-end gap-2">
@@ -348,20 +348,20 @@ export default function OrganizationsPage() {
                 disabled={createForm.loading || !newOrgName.trim() || (createAsSubOrg && !parentOrgId)}
                 className="btn btn-primary"
               >
-                {createForm.loading ? 'Creating...' : (createAsSubOrg ? 'Create Sub-org' : 'Create Organization')}
+                {createForm.loading ? 'Creating...' : (createAsSubOrg ? 'Create Team' : 'Create Organization')}
               </button>
             </div>
           }
         >
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
             {createAsSubOrg
-              ? 'Create a sub-organization (team) nested under a parent org. You become its initial owner; transfer ownership from the org’s detail page afterward.'
+              ? 'Create a team nested under a parent organization. You become its initial owner; transfer ownership from the org’s detail page afterward.'
               : 'Create a top-level organization. You become its initial owner; transfer ownership from the org’s detail page afterward.'}
           </p>
           <div className="space-y-3">
             <div className="space-y-1">
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                {createAsSubOrg ? 'Sub-organization name' : 'Organization name'}
+                {createAsSubOrg ? 'Team name' : 'Organization name'}
               </label>
               <input
                 type="text"
@@ -389,7 +389,7 @@ export default function OrganizationsPage() {
               </select>
             </div>
 
-            {/* Sub-organization toggle — defaults on. When on, pick the parent. */}
+            {/* Team toggle — defaults on. When on, pick the parent. */}
             <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 pt-1">
               <input
                 type="checkbox"
@@ -399,7 +399,7 @@ export default function OrganizationsPage() {
                 className="mt-0.5 rounded border-gray-300"
               />
               <span>
-                <strong>Sub-organization</strong> — nest this org as a team under a parent.
+                <strong>Team</strong> — nest this organization under a parent org.
                 Uncheck to create a standalone top-level organization.
               </span>
             </label>

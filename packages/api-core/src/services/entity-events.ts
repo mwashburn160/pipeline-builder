@@ -34,6 +34,10 @@ export interface EntityEvent {
   entityId: string;
   /** The organization that owns this entity */
   orgId: string;
+  /** Org → team hierarchy: the owning org's parent (present only when `orgId` is
+   *  a team). Lets compliance evaluate parent `propagateToChildren` rules on the
+   *  async event path, matching live validation. */
+  parentOrgId?: string;
   /** The user who performed the mutation */
   userId: string;
   /** When the event occurred */

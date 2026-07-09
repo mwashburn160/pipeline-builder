@@ -101,10 +101,16 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => {
   });
 });
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
-  db: { select: jest.fn().mockReturnThis(), from: jest.fn().mockReturnThis(), where: jest.fn().mockResolvedValue([]) },
-  schema: { plugin: {} },
-}));
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
+  // Plugin reads now run through withTenantTx (RLS-safe); the tx exposes the
+  // same chaining select/from/where as the legacy bare db.
+  const tx = { select: jest.fn().mockReturnThis(), from: jest.fn().mockReturnThis(), where: jest.fn().mockResolvedValue([]) };
+  return {
+    db: tx,
+    schema: { plugin: {} },
+    withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
+  };
+});
 
 // Import AFTER mocks
 

@@ -377,9 +377,9 @@ export class ReportingService {
   }
 
   /** 1.5 Stage failure heatmap — which stages fail most. */
-  async getStageFailures(orgId: string, from: string, to: string): Promise<StageFailure[]> {
-    return timeseriesCache.getOrSet(`${orgId}:stage-failures:${from}:${to}`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  async getStageFailures(orgId: string, from: string, to: string, orgIds?: string[]): Promise<StageFailure[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           e.stage_name,
           COUNT(*) FILTER (WHERE e.status = 'FAILED')::int AS failures,
@@ -388,34 +388,34 @@ export class ReportingService {
             / NULLIF(COUNT(*), 0) * 100, 1)::float AS failure_pct
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE p.org_id = ${orgId} AND e.event_type = 'STAGE' AND e.stage_name IS NOT NULL
+        WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.stage_name IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY e.stage_name ORDER BY failures DESC
-      `).then(r => drizzleRows<StageFailure>(r.rows))),
-    );
+      `).then(r => drizzleRows<StageFailure>(r.rows)));
+    return this.runReport(`${orgId}:stage-failures:${from}:${to}`, multi, exec);
   }
 
   /** 1.6 Stage bottlenecks — slowest stages per pipeline. */
-  async getStageBottlenecks(orgId: string, from: string, to: string): Promise<StageBottleneck[]> {
-    return timeseriesCache.getOrSet(`${orgId}:stage-bottlenecks:${from}:${to}`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  async getStageBottlenecks(orgId: string, from: string, to: string, orgIds?: string[]): Promise<StageBottleneck[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           p.id, p.pipeline_name, e.stage_name,
           AVG(e.duration_ms)::int AS avg_ms,
           MAX(e.duration_ms)::int AS max_ms
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE p.org_id = ${orgId} AND e.event_type = 'STAGE' AND e.duration_ms IS NOT NULL
+        WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.duration_ms IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY p.id, e.stage_name ORDER BY avg_ms DESC
-      `).then(r => drizzleRows<StageBottleneck>(r.rows))),
-    );
+      `).then(r => drizzleRows<StageBottleneck>(r.rows)));
+    return this.runReport(`${orgId}:stage-bottlenecks:${from}:${to}`, multi, exec);
   }
 
   /** 1.7 Action failure rate — which plugin steps fail most. */
-  async getActionFailures(orgId: string, from: string, to: string): Promise<ActionFailure[]> {
-    return timeseriesCache.getOrSet(`${orgId}:action-failures:${from}:${to}`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  async getActionFailures(orgId: string, from: string, to: string, orgIds?: string[]): Promise<ActionFailure[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           e.action_name,
           COUNT(*) FILTER (WHERE e.status = 'FAILED')::int AS failures,
@@ -424,11 +424,11 @@ export class ReportingService {
             / NULLIF(COUNT(*), 0) * 100, 1)::float AS failure_pct
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE p.org_id = ${orgId} AND e.event_type = 'ACTION' AND e.action_name IS NOT NULL
+        WHERE p.org_id ${pred} AND e.event_type = 'ACTION' AND e.action_name IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY e.action_name ORDER BY failures DESC
-      `).then(r => drizzleRows<ActionFailure>(r.rows))),
-    );
+      `).then(r => drizzleRows<ActionFailure>(r.rows)));
+    return this.runReport(`${orgId}:action-failures:${from}:${to}`, multi, exec);
   }
 
   /** 1.8 Error categorization — group failure messages. */

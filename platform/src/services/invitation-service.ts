@@ -108,7 +108,7 @@ class InvitationService {
    */
   async send(input: SendInvitationInput): Promise<SendInvitationResult> {
     return withMongoTransaction(async (session) => {
-      const org = await Organization.findById(input.orgId).session(session);
+      const org = await Organization.findById(toOrgId(input.orgId)).session(session);
       if (!org) throw new Error(INV_ORG_NOT_FOUND);
 
       if (org.owner.toString() !== input.inviterId && !input.inviterIsAdmin) {
@@ -149,11 +149,10 @@ class InvitationService {
         throw new Error(INV_MAX_REACHED);
       }
 
-      // Seat-limit enforcement (Team caps at 10; Enterprise is unlimited = -1).
-      // A pending invite reserves a seat, so the ceiling is active members +
-      // pending + this new invite. `org.quotas.seats` is the effective limit.
-      const seatLimit = org.quotas?.seats ?? -1;
-      if (!(await seatCapacityAvailable(input.orgId, seatLimit, 1, session))) {
+      // Seat-limit enforcement — pooled at the account ROOT (a pending invite
+      // reserves a seat). The helper resolves root + subtree and the root's
+      // seat limit internally; `-1` (unlimited) short-circuits.
+      if (!(await seatCapacityAvailable(input.orgId, 1, session))) {
         throw new Error(INV_SEAT_LIMIT);
       }
 
@@ -364,7 +363,7 @@ class InvitationService {
     if (!invitation) throw new Error(INV_NOT_FOUND);
     if (invitation.status !== 'pending') throw new Error(INV_NOT_PENDING);
 
-    const org = await Organization.findById(orgId);
+    const org = await Organization.findById(toOrgId(orgId));
     if (!org || (org.owner.toString() !== userId && !isAdmin)) {
       throw new Error(INV_UNAUTHORIZED);
     }
@@ -385,7 +384,7 @@ class InvitationService {
     });
     if (!invitation) throw new Error(INV_NOT_FOUND);
 
-    const org = await Organization.findById(orgId);
+    const org = await Organization.findById(toOrgId(orgId));
     if (!org || (org.owner.toString() !== userId && !isAdmin)) {
       throw new Error(INV_UNAUTHORIZED);
     }

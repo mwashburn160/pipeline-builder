@@ -6,6 +6,7 @@ import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pi
 import { eq, and } from 'drizzle-orm';
 import { logComplianceCheck } from './audit-logger.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
+import { resolveParentOrgId } from './org-hierarchy-client.js';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
@@ -76,6 +77,13 @@ async function executeScanInternal(scanId: string): Promise<void> {
   const isDryRun = scan.triggeredBy === 'rule-dry-run';
 
   try {
+    // Resolve the org's parent once for the whole scan so rule lookup includes
+    // the parent's `propagateToChildren` rules — matching the live validation
+    // and entity-event paths (which read it off the request JWT). Scans are
+    // detached from any request, so this is an internal platform lookup;
+    // fail-soft to undefined (own-rules-only) if platform is unreachable.
+    const parentOrgId = await resolveParentOrgId(scan.orgId);
+
     // Fetch entities based on target
     const targets: RuleTarget[] = scan.target === 'all'
       ? ['plugin', 'pipeline']
@@ -96,7 +104,7 @@ async function executeScanInternal(scanId: string): Promise<void> {
         .set({ totalEntities })
         .where(eq(schema.complianceScan.id, scanId)));
 
-      const rules = await complianceRuleService.findActiveByOrgAndTarget(scan.orgId, target);
+      const rules = await complianceRuleService.findActiveByOrgAndTarget(scan.orgId, target, parentOrgId);
       if (rules.length === 0) {
         processedEntities += entities.length;
         passCount += entities.length;

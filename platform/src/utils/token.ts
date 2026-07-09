@@ -7,6 +7,7 @@ import type { QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import type { UserDocument } from '../models/user.js';
@@ -24,13 +25,25 @@ export interface MembershipContext {
   parentOrganizationId?: string;
   /** Org → team hierarchy: root of the active org's ancestry chain (omitted for root orgs). */
   rootOrganizationId?: string;
+  /** Account-level purchased feature entitlements (bundles), propagated onto the
+   *  active org; unioned into the resolved feature set. */
+  featureEntitlements?: readonly string[];
 }
 
-/** Build an access token JWT payload from a user document and optional membership. */
-function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext): AccessTokenPayload {
-  const role = membership?.role ?? 'member';
+/**
+ * Build an access token JWT payload from a user document and optional membership.
+ *
+ * When `scope` is set the token is a narrow MACHINE identity (e.g. the
+ * `reporting:ingest` credential stored in a client AWS account): it is forced to
+ * least-privilege — `role: 'member'`, no `isSuperAdmin`, no feature flags — and
+ * carries the `scope` claim so scoped endpoints can accept it while every other
+ * gate treats it as a plain member. This is critical: a scoped token minted by a
+ * super-admin operator must NOT inherit super-admin authority.
+ */
+function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext, scope?: string): AccessTokenPayload {
+  const role = scope ? 'member' : (membership?.role ?? 'member');
   const tier: QuotaTier = membership?.tier ?? 'developer';
-  const isSuperAdmin = user.isSuperAdmin === true;
+  const isSuperAdmin = scope ? false : user.isSuperAdmin === true;
   const overrides = user.featureOverrides
     ? Object.fromEntries(user.featureOverrides as Map<string, boolean>)
     : undefined;
@@ -50,12 +63,13 @@ function createAccessTokenPayload(user: UserDocument, membership?: MembershipCon
     // Carry the global super-admin flag through the JWT so downstream auth
     // gates (`isSystemAdmin`) can honor it without re-reading the user
     // record on every request. Only set when true to keep the payload
-    // small for non-sysadmin users (the vast majority).
+    // small for non-sysadmin users (the vast majority). NEVER on a scoped token.
     ...(isSuperAdmin ? { isSuperAdmin: true } : {}),
     tier,
-    // Sysadmins get every feature; non-sysadmins get their tier's defaults
-    // plus per-user overrides.
-    features: resolveUserFeatures(tier, overrides, isSuperAdmin),
+    // A scoped machine token needs no feature flags; interactive users get their
+    // tier defaults plus per-user overrides.
+    features: scope ? [] : resolveUserFeatures(tier, overrides, isSuperAdmin, membership?.featureEntitlements),
+    ...(scope ? { scope } : {}),
     tokenVersion: user.tokenVersion,
     isEmailVerified: user.isEmailVerified,
   };
@@ -96,14 +110,15 @@ export interface IssuedTokens {
 async function resolveMembership(userId: string, activeOrgId?: string): Promise<MembershipContext | undefined> {
   // Try explicit activeOrgId first
   if (activeOrgId) {
-    const membership = await UserOrganization.findOne({ userId, organizationId: activeOrgId, isActive: true }).lean();
+    const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(activeOrgId), isActive: true }).lean();
     if (membership) {
-      const org = await Organization.findById(activeOrgId).select('name tier parentOrgId').lean();
+      const org = await Organization.findById(toOrgId(activeOrgId)).select('name tier parentOrgId featureEntitlements').lean();
       return {
         organizationId: activeOrgId,
         organizationName: org?.name,
         role: membership.role as OrgMemberRole,
         tier: org?.tier,
+        featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
         ...(await hierarchyContext(activeOrgId, org?.parentOrgId)),
       };
     }
@@ -114,12 +129,13 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
   if (!first) return undefined;
 
   const orgId = first.organizationId.toString();
-  const org = await Organization.findById(orgId).select('name tier parentOrgId').lean();
+  const org = await Organization.findById(toOrgId(orgId)).select('name tier parentOrgId featureEntitlements').lean();
   return {
     organizationId: orgId,
     organizationName: org?.name,
     role: first.role as OrgMemberRole,
     tier: org?.tier,
+    featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
     ...(await hierarchyContext(orgId, org?.parentOrgId)),
   };
 }
@@ -157,7 +173,7 @@ async function hierarchyContext(
  * @param activeOrgId - Optional org ID to use as active (falls back to lastActiveOrgId, then first membership)
  * @param expiresIn - Optional access token lifetime in seconds (default: config.auth.jwt.expiresIn)
  */
-export async function issueTokens(user: UserDocument, activeOrgId?: string, expiresIn?: number): Promise<IssuedTokens> {
+export async function issueTokens(user: UserDocument, activeOrgId?: string, expiresIn?: number, scope?: string): Promise<IssuedTokens> {
   let membership: MembershipContext | undefined;
   try {
     membership = await resolveMembership(
@@ -177,7 +193,7 @@ export async function issueTokens(user: UserDocument, activeOrgId?: string, expi
   const tokenExpiresIn = expiresIn ?? tierExpiresIn ?? config.auth.jwt.expiresIn;
 
   const accessToken = jwt.sign(
-    createAccessTokenPayload(user, membership),
+    createAccessTokenPayload(user, membership, scope),
     config.auth.jwt.secret,
     { algorithm: config.auth.jwt.algorithm, expiresIn: tokenExpiresIn },
   );

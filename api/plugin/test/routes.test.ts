@@ -336,6 +336,25 @@ describe('GET /plugins/:id', () => {
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
+  it('passes parentOrgId to findById so a team can fetch a parent public plugin', async () => {
+    mockFindById.mockResolvedValue({ id: 'uuid-1', name: 'shared', accessModifier: 'public' });
+
+    const req = mockReq({ params: { id: 'uuid-1' }, user: { parentOrganizationId: 'root-1' } });
+    await handler(req, mockRes());
+
+    // 3rd arg: parentOrgId from the JWT (org → team inherited plugin visibility).
+    expect(mockFindById).toHaveBeenCalledWith('uuid-1', 'org-1', 'root-1');
+  });
+
+  it('passes undefined parentOrgId for a flat (root) org', async () => {
+    mockFindById.mockResolvedValue({ id: 'uuid-1', name: 'lint', accessModifier: 'private' });
+
+    const req = mockReq({ params: { id: 'uuid-1' } }); // no user.parentOrganizationId
+    await handler(req, mockRes());
+
+    expect(mockFindById).toHaveBeenCalledWith('uuid-1', 'org-1', undefined);
+  });
+
   it('allows non-admin to view public plugin (access control handled by service layer)', async () => {
     const plugin = { id: 'uuid-1', name: 'shared', accessModifier: 'public' };
     mockFindById.mockResolvedValue(plugin);

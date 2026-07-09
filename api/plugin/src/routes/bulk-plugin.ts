@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendBadRequest, sendSuccess, ErrorCode } from '@pipeline-builder/api-core';
+import { sendBadRequest, sendSuccess, ErrorCode, resolveAccessModifier, isSystemAdmin } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -45,7 +45,10 @@ export function createBulkPluginRoutes(): Router {
 
     ctx.log('INFO', 'Bulk delete plugins', { count: ids.length });
 
-    const deleted = await pluginService.bulkDelete(ids, orgId, userId);
+    // Non-sysadmins may only bulk-delete their PRIVATE plugins — public plugins
+    // are shared/sysadmin-managed (mirrors the single-delete requirePublicAccess
+    // gate). Public plugins in the id set are simply skipped, not deleted.
+    const deleted = await pluginService.bulkDelete(ids, orgId, userId, !isSystemAdmin(req));
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length });
 
@@ -76,11 +79,19 @@ export function createBulkPluginRoutes(): Router {
       return sendBadRequest(res, `Invalid update data: ${dataValidation.error.message}`, ErrorCode.VALIDATION_ERROR);
     }
 
+    // Same escalation guard the single-update path applies: only admins/owners
+    // may set `accessModifier: 'public'`. Without this, any member with the
+    // bulk-ops feature could flip every plugin in the org to public.
+    const updateData = { ...dataValidation.data };
+    if (updateData.accessModifier !== undefined) {
+      updateData.accessModifier = resolveAccessModifier(req, updateData.accessModifier);
+    }
+
     ctx.log('INFO', 'Bulk update plugins', { count: ids.length });
 
     const updated = await pluginService.updateMany(
       { id: ids },
-      dataValidation.data,
+      updateData,
       orgId,
       userId,
     );

@@ -10,9 +10,15 @@ function CopyInline({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    // Only flip to "copied" once the write actually resolves — and swallow the
+    // rejection (insecure context / permission) instead of an unhandled reject
+    // + a false success checkmark.
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => { /* clipboard unavailable — leave state unchanged */ });
   };
 
   return (

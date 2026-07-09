@@ -20,6 +20,7 @@ const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().
 const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-04-01'));
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
+  syncEntitlements: (...args: unknown[]) => mockSyncTier(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
   calculatePeriodEnd: (...args: unknown[]) => mockCalculatePeriodEnd(),
 }));

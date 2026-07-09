@@ -481,6 +481,10 @@ const platform = new FunctionProject({
     '@types/nodemailer@8.0.0', '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
     '@types/node@25.9.2', '@types/pg@8.20.0', '@types/adm-zip@0.5.8',
     '@types/multer@2.1.0', 'copyfiles@2.4.1',
+    // Real-Mongo integration test (organization-id-storage.integration.test.ts).
+    // The test self-skips unless RUN_MONGO_INTEGRATION=1, so the default suite
+    // never spins up mongod; this dep is only exercised on the opt-in path.
+    'mongodb-memory-server@11.2.0',
   ],
 });
 platform.postCompileTask.exec('copyfiles -f ./src/utils/email-templates/*.html lib/utils/email-templates/ --verbose --error');

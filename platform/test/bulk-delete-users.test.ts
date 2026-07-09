@@ -62,7 +62,6 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   changePasswordSchema: {},
   adminUpdateUserSchema: {},
 }));
-jest.unstable_mockModule('../src/utils/pagination.js', () => ({ parsePagination: () => ({ offset: 0, limit: 25 }) }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireAdminContext: (req: any, res: any) => mockRequireAdminContext(req, res),

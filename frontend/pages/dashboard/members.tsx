@@ -70,6 +70,19 @@ export default function MembersPage() {
     return () => { cancelled = true; };
   }, [user?.organizationId, isAdmin, activeOrgIsRoot, teamCountTick]);
 
+  // Pooled seat usage for the whole account (distinct members + pending invites
+  // across the subtree vs the root's seat limit). Endpoint resolves to root, so
+  // this is account-wide even when viewing a team. Best-effort; admins only.
+  const [seatUsage, setSeatUsage] = useState<{ limit: number; used: number } | null>(null);
+  useEffect(() => {
+    if (!user?.organizationId || !isAdmin) return;
+    let cancelled = false;
+    void api.getOrganizationSeatUsage(user.organizationId)
+      .then((res) => { if (!cancelled && res.data) setSeatUsage(res.data); })
+      .catch(() => { /* best-effort — seat pill just hides */ });
+    return () => { cancelled = true; };
+  }, [user?.organizationId, isAdmin, members.length]);
+
   // Switch the active org context to a team so its members can be managed
   // directly (mirrors the org switcher). The page re-renders in the new scope.
   const switchTeam = async (team: { orgId: string; orgName: string }) => {
@@ -181,7 +194,8 @@ export default function MembersPage() {
   // Remove member
   const removeMember = useDelete<OrganizationMember>(
     async (m) => {
-      await api.removeMemberFromOrganization(user!.organizationId!, m.id);
+      if (!orgId) return; // same guard the other handlers use — avoid sending `undefined` as the org id
+      await api.removeMemberFromOrganization(orgId, m.id);
       setMembers(prev => prev.filter(x => x.id !== m.id));
     },
     undefined,
@@ -449,6 +463,25 @@ export default function MembersPage() {
     >
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="team members" />
 
+      {seatUsage && (() => {
+        const unlimited = seatUsage.limit === -1;
+        const atCap = !unlimited && seatUsage.used >= seatUsage.limit;
+        return (
+          <div className={`mb-4 flex items-center gap-2 px-3 py-2 rounded border text-xs ${
+            atCap
+              ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200'
+              : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400'
+          }`}>
+            <UserPlus className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              <strong>{seatUsage.used}</strong>{unlimited ? '' : ` of ${seatUsage.limit}`} account {seatUsage.limit === 1 ? 'seat' : 'seats'} used
+              {unlimited ? ' (unlimited)' : atCap ? ' — at capacity; remove a member or add a seat pack to invite more' : ''}
+              {activeOrgIsRoot ? '' : ' (pooled across your organization)'}
+            </span>
+          </div>
+        );
+      })()}
+
       {activeOrg?.parentOrgId && (
         <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-600 dark:text-gray-400">
           <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
@@ -456,7 +489,7 @@ export default function MembersPage() {
         </div>
       )}
 
-      {/* Teams list — the org's sub-organizations. Open one to manage its
+      {/* Teams list — the org's teams. Open one to manage its
           members directly; or add an existing member to teams via the
           per-member "Manage teams" action below. */}
       {activeOrgIsRoot && teams.length > 0 && (
@@ -465,7 +498,7 @@ export default function MembersPage() {
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
               <Building2 className="w-4 h-4 text-gray-400" /> Teams <span className="text-gray-400 font-normal">({teams.length})</span>
             </h2>
-            <span className="text-xs text-gray-500 dark:text-gray-400 truncate">Sub-organizations of {activeOrg?.name}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400 truncate">Teams of {activeOrg?.name}</span>
           </div>
           <ul className="divide-y divide-gray-100 dark:divide-gray-800">
             {teams.map((t) => (
@@ -681,7 +714,7 @@ export default function MembersPage() {
                 <option value="developer">Developer — small budget, cheapest builds</option>
                 <option value="pro">Pro — medium budget, faster builds</option>
                 <option value="team">Team — shared quotas, collaboration features</option>
-                <option value="enterprise">Enterprise — largest budget, no quota cap</option>
+                <option value="enterprise">Enterprise — highest limits, unlimited API calls</option>
               </select>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Tier determines build resources and quota. Can be changed later.

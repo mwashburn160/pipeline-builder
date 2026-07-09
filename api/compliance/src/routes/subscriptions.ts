@@ -190,7 +190,10 @@ export function createSubscriptionRoutes(): Router {
   // GET /enforced — merged view of all enforced rules (org + active subscriptions) (Feature #6)
   router.get('/enforced', withRoute(async ({ req, res, ctx, orgId }) => {
     const target = req.query.target as 'plugin' | 'pipeline' | undefined;
-    const rules = await complianceRuleService.findAllEnforced(orgId, target);
+    // Include the parent's `propagateToChildren` rules for a team, matching what
+    // actually blocks at upload/validate time (validate.ts reads the same claim).
+    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+    const rules = await complianceRuleService.findAllEnforced(orgId, target, parentOrgId);
 
     ctx.log('COMPLETED', 'Listed all enforced rules', { count: rules.length });
     return sendSuccess(res, 200, { rules, total: rules.length });

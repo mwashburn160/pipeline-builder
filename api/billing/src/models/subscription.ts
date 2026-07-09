@@ -22,6 +22,9 @@ export interface SubscriptionDocument extends Document {
   failedPaymentAttempts: number;
   /** When the first payment failure occurred (starts grace period). */
   firstFailedAt?: Date;
+  /** Purchased add-on bundles (docs/billing-bundles.md). Each stacks its grants
+   *  onto the account's effective limits; defaults to `[]`. */
+  addons: Array<{ bundleId: string; quantity: number }>;
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -50,6 +53,10 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
     externalCustomerId: { type: String, default: null },
     failedPaymentAttempts: { type: Number, default: 0 },
     firstFailedAt: { type: Date, default: null },
+    addons: {
+      type: [{ bundleId: { type: String, required: true }, quantity: { type: Number, required: true, min: 1 } }],
+      default: [],
+    },
     metadata: { type: Schema.Types.Mixed, default: {} },
   },
   {

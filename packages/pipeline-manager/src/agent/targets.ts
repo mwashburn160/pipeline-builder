@@ -11,7 +11,7 @@
  * operator entrypoint is `bin/setup.sh` (deploy/<target>/bin/setup.sh).
  */
 
-import { assertShellSafe } from '../config/cli.constants.js';
+import { assertShellSafe, shellQuote } from '../config/cli.constants.js';
 
 export type TargetId = 'docker' | 'minikube' | 'ec2' | 'eks';
 
@@ -227,11 +227,6 @@ export interface AssembleResult {
   readonly command: string;
   /** Required inputs that were not supplied. */
   readonly missing: readonly InputSpec[];
-}
-
-/** POSIX single-quote a value (with embedded-quote escaping) for safe shell use. */
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 /**

@@ -59,26 +59,11 @@ export function DeployedPipelinesPanel() {
     }
   }, []);
 
+  // Load once when the panel first opens — single code path via fetchRegistry
+  // (was a duplicated inline fetch that could drift from the callback).
   useEffect(() => {
-    if (!open || loaded) return;
-    let cancelled = false;
-    setLoading(true);
-    api.listPipelineRegistry({ limit: 50 })
-      .then((res) => {
-        if (cancelled) return;
-        if (res.success && res.data) {
-          setRows(res.data.registry);
-          setLoaded(true);
-        } else {
-          setError('Failed to load registry');
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load registry');
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [open, loaded]);
+    if (open && !loaded) void fetchRegistry();
+  }, [open, loaded, fetchRegistry]);
 
   const performRemove = async (row: RegistryRow) => {
     setRemoving(row.id);

@@ -16,10 +16,13 @@ import { getContext } from './get-context.js';
  */
 export type TenantScopeResolver = (req: Request) => TenantContext;
 
-/** Default resolver: the authenticated identity's org + super-admin flag. */
+/** Default resolver: the authenticated identity's org + super-admin flag, plus
+ *  the active-org parent (org → team hierarchy) so downstream side-effects can
+ *  reach it without a request. */
 const identityScope: TenantScopeResolver = (req) => ({
   orgId: getContext(req).identity.orgId,
   isSuperAdmin: isSystemAdmin(req),
+  parentOrgId: req.user?.parentOrganizationId,
 });
 
 /**

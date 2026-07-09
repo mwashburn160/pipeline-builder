@@ -76,6 +76,13 @@ export interface BuilderProps {
   readonly global?: MetaDataType;
 
   /**
+   * Pipeline-level template variables, exposed to `{{ pipeline.vars.* }}` in
+   * pipeline configs and plugin specs (see `PluginSpec.requiredVars`). Declared
+   * here so the `pipeline.vars` template scope is type-checked end-to-end.
+   */
+  readonly vars?: Record<string, unknown>;
+
+  /**
    * Pipeline-level CodeBuild defaults applied to all CodeBuild actions
    * (synth, self-mutation, asset publishing) via `codeBuildDefaults`.
    */
@@ -228,7 +235,7 @@ export class PipelineBuilder extends Construct {
         organization: this.config.organization,
         pipelineName: this.config.pipelineName,
         metadata: this.config.metadata.merged,
-        vars: (props as { vars?: Record<string, unknown> }).vars ?? {},
+        vars: props.vars ?? {},
       },
     };
 

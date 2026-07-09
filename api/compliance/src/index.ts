@@ -108,16 +108,24 @@ registerComplianceQueueBackend(enqueue);
 // Without this wrap the worker would silently hit FORCE'd tables with an
 // empty org_id and either get zero rows or "permission denied."
 startComplianceWorker(async (event) => {
-  await runWithTenantContext({ orgId: event.orgId, isSuperAdmin: false }, async () => {
-    await evaluateEntityEvent({
+  const result = await runWithTenantContext({ orgId: event.orgId, isSuperAdmin: false }, () =>
+    evaluateEntityEvent({
       entityId: event.entityId,
       orgId: event.orgId,
+      parentOrgId: event.parentOrgId,
       target: event.target,
       eventType: event.eventType,
       userId: event.userId,
       attributes: event.attributes,
-    });
-  });
+    }),
+  );
+  // `evaluateEntityEvent` returns `{ error: true }` (rather than throwing) on an
+  // evaluation failure so the HTTP path can reply 500. The BullMQ worker must
+  // THROW on that flag, else the job resolves "completed" and never retries —
+  // fail-open, letting a non-compliant entity slip through on the async path.
+  if (result.error) {
+    throw new Error(`Compliance evaluation failed for ${event.target} ${event.entityId}; retrying`);
+  }
 });
 
 // Daily prune of compliance_audit_log (default 180 days, override via

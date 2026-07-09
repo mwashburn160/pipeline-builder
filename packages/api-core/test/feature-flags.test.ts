@@ -15,13 +15,14 @@ import {
 // ALL_FEATURE_FLAGS
 
 describe('ALL_FEATURE_FLAGS', () => {
-  it('should contain all 5 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(5);
+  it('should contain all 6 feature flags', () => {
+    expect(ALL_FEATURE_FLAGS).toHaveLength(6);
     expect(ALL_FEATURE_FLAGS).toContain('priority_support');
     expect(ALL_FEATURE_FLAGS).toContain('ai_generation');
     expect(ALL_FEATURE_FLAGS).toContain('bulk_operations');
     expect(ALL_FEATURE_FLAGS).toContain('custom_integrations');
     expect(ALL_FEATURE_FLAGS).toContain('audit_log');
+    expect(ALL_FEATURE_FLAGS).toContain('sso');
   });
 });
 
@@ -88,6 +89,17 @@ describe('isValidFeatureFlag', () => {
 // resolveUserFeatures
 
 describe('resolveUserFeatures', () => {
+  it('unions account-level feature entitlements (purchased bundles)', () => {
+    const features = resolveUserFeatures('developer', undefined, false, ['audit_log', 'not_a_flag']);
+    expect(features).toContain('audit_log'); // granted by an account bundle
+    expect(features).not.toContain('not_a_flag'); // invalid flag ignored
+  });
+
+  it('a per-user override can still disable an account-entitled feature', () => {
+    const features = resolveUserFeatures('developer', { audit_log: false }, false, ['audit_log']);
+    expect(features).not.toContain('audit_log');
+  });
+
   it('developer tier gets no features by default', () => {
     const features = resolveUserFeatures('developer');
     expect(features).toEqual([]);

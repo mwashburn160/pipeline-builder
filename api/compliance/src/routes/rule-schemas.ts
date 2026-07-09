@@ -7,7 +7,7 @@ import { z } from 'zod';
 export const VALID_OPERATORS = [
   'eq', 'neq', 'contains', 'notContains', 'regex',
   'gt', 'gte', 'lt', 'lte', 'in', 'notIn',
-  'exists', 'notExists', 'countGt', 'countLt', 'lengthGt', 'lengthLt',
+  'exists', 'notExists', 'notEmpty', 'countGt', 'countLt', 'lengthGt', 'lengthLt',
 ] as const;
 
 export const OperatorEnum = z.enum(VALID_OPERATORS);

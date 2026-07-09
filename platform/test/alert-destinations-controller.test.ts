@@ -52,6 +52,9 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   isOrgAdmin: jest.fn(),
   withController: (_label: string, fn: Function) =>
     async (req: any, res: any) => fn(req, res),
+  requireOrgMembership: (req: any) => req.user?.organizationId ?? null,
+  requireAuthContext: (req: any) =>
+    req.user?.sub && req.user?.organizationId ? { userId: req.user.sub, orgId: req.user.organizationId } : null,
 }));
 
 jest.unstable_mockModule('../src/services/alert-destination-service.js', () => ({

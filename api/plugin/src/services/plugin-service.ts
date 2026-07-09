@@ -6,6 +6,7 @@ import {
   CoreConstants,
   CrudService,
   buildPluginConditions,
+  getTenantContext,
   schema,
   withTenantTx,
   AccessModifier,
@@ -69,10 +70,12 @@ export class PluginService extends CrudService<
 
   // -- Cached reads -----------------------------------------------------------
 
-  /** findById with server-side cache (keyed by orgId:id). */
-  async findById(id: string, orgId?: string): Promise<Plugin | null> {
-    const cacheKey = `${orgId || 'anon'}:id:${id}`;
-    return pluginCache.getOrSet(cacheKey, () => super.findById(id, orgId));
+  /** findById with server-side cache (keyed by orgId[:p:parentOrgId]:id). The
+   *  parent segment keeps a team's parent-widened read from colliding with the
+   *  own-org-only read under the same orgId. */
+  async findById(id: string, orgId?: string, parentOrgId?: string): Promise<Plugin | null> {
+    const cacheKey = `${orgId || 'anon'}${parentOrgId ? `:p:${parentOrgId}` : ''}:id:${id}`;
+    return pluginCache.getOrSet(cacheKey, () => super.findById(id, orgId, parentOrgId));
   }
 
   // -- Lifecycle hooks — emit events + invalidate cache ---------------------
@@ -89,7 +92,13 @@ export class PluginService extends CrudService<
     } catch (err) {
       logger.debug(`Cache invalidation failed after plugin ${eventType}`, { orgId: entity.orgId, error: errorMessage(err) });
     }
-    entityEvents.emit({ eventType, target: 'plugin', entityId: id, orgId: entity.orgId, userId, timestamp: new Date(), attributes: entity });
+    // Carry the owning org's parent (when the mutation ran under a team's tenant
+    // context) so async compliance eval sees the same parent `propagateToChildren`
+    // rules the live path does. Only trust the context parent when its org matches
+    // the entity's — a cross-org mutation must not inherit the caller's parent.
+    const tenant = getTenantContext();
+    const parentOrgId = tenant?.orgId === entity.orgId ? tenant?.parentOrgId : undefined;
+    entityEvents.emit({ eventType, target: 'plugin', entityId: id, orgId: entity.orgId, parentOrgId, userId, timestamp: new Date(), attributes: entity });
   }
 
   protected async onAfterCreate(entity: Plugin, userId: string): Promise<void> {
@@ -119,7 +128,10 @@ export class PluginService extends CrudService<
             FOR UPDATE`,
       );
 
-      // Unset old defaults for this plugin name in the org
+      // Unset the CURRENT default for this plugin name in the org. Scope to
+      // `isDefault = true` (mirrors pipeline-service) so we don't stamp
+      // updatedAt/updatedBy on every non-default version and churn their
+      // recently-updated ordering + cache keys.
       await tx
         .update(schema.plugin)
         .set({
@@ -131,6 +143,7 @@ export class PluginService extends CrudService<
           and(
             eq(schema.plugin.name, data.name),
             eq(schema.plugin.orgId, data.orgId!),
+            eq(schema.plugin.isDefault, true),
           ),
         );
 

@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, createRemoteAuditClient, decrementQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, createRemoteAuditClient, decrementQuota, reserveQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, VALID_TIERS } from '@pipeline-builder/api-core';
 import type { QuotaService, QuotaTier, RemoteAuditClient } from '@pipeline-builder/api-core';
 import { incCounter, observe } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -521,15 +521,36 @@ export async function replayDlqJob(jobId: string, quotaService: QuotaService): P
   const dlqJob = await getDeadLetterQueue().getJob(jobId);
   if (!dlqJob) return null;
 
+  const { orgId } = dlqJob.data;
+  const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
+
+  // The DLQ job already RELEASED its plugin slot on terminal failure
+  // (quotaReleased:true). A replay is a fresh build attempt, so re-reserve a
+  // slot and hand ownership to the new job (quotaReleased:false) — otherwise a
+  // successful replay deploys a plugin the org's usage never counts. If the org
+  // is at its plugin cap we still replay (an admin action) but the job carries
+  // no slot to release, keeping accounting balanced (no double-credit).
+  let quotaReleased = true;
+  try {
+    const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
+    if (reservation.exceeded) {
+      logger.warn('DLQ replay proceeding without a plugin-quota slot (org at cap)', { jobId, orgId });
+    } else {
+      quotaReleased = false;
+    }
+  } catch (err) {
+    logger.warn('DLQ replay quota reservation failed; proceeding without slot', { jobId, orgId, error: errorMessage(err) });
+  }
+
   const freshData: PluginBuildJobData = {
     ...dlqJob.data,
     totalAttempts: 0,
+    quotaReleased,
   };
   delete (freshData as { lastError?: string }).lastError;
   delete (freshData as { failureCategory?: string }).failureCategory;
 
-  const { orgId } = dlqJob.data;
-  const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
+  const tier = await getOrgTier(quotaService, orgId, authHeader);
   const replayed = await getTierQueue(tier).add(`replay-${dlqJob.name}`, freshData);
   await dlqJob.remove();
   return String(replayed.id);
@@ -849,6 +870,14 @@ function startDlqWorker(quotaService: QuotaService): void {
       const { failureCategory: _, lastError: __, ...cleanData } = job.data;
       const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
       await getTierQueue(tier).add(`retry-${pluginRecord.name}`, cleanData);
+
+      // The re-queued job (fresh data, quotaReleased unset) now OWNS this org's
+      // plugin-quota slot and will release it on its terminal. Mark the original
+      // DLQ job's slot as already accounted so purgeDlq / auto-purge don't release
+      // the SAME slot again (double-release) when they later evict this lingering
+      // completed DLQ job (kept by removeOnComplete:false).
+      job.data.quotaReleased = true;
+      await job.updateData(job.data);
     },
     {
       connection: getConnectionForDb(0) as ConnectionOptions,

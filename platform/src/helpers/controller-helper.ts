@@ -3,7 +3,6 @@
 
 import { createLogger, isSystemAdmin as apiCoreIsSystemAdmin, isSystemOrgId, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
-import mongoose from 'mongoose';
 
 const logger = createLogger('platform-api');
 
@@ -320,16 +319,7 @@ export function handleControllerError(
 }
 
 // ID Conversion
-
-/**
- * Convert a string org ID to ObjectId when valid.
- * Organization._id is Mixed type to support both string IDs ('system')
- * and ObjectId values. findById won't auto-cast strings to ObjectId
- * for Mixed fields, so we must do it explicitly.
- */
-export function toOrgId(id: string | string[]): string | mongoose.Types.ObjectId {
-  const idStr = Array.isArray(id) ? id[0] : id;
-  return mongoose.Types.ObjectId.isValid(idStr) && idStr.length === 24
-    ? new mongoose.Types.ObjectId(idStr)
-    : idStr;
-}
+// `toOrgId` now lives in the mongoose-only `./org-id.js` (no express/api-core
+// coupling) so hot paths + service modules can use it without dragging the
+// request layer. Re-exported here for the many existing controller-helper importers.
+export { toOrgId } from './org-id.js';

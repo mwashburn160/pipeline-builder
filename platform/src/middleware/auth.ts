@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, isSystemAdmin, sendError } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, isSystemAdmin, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
@@ -12,6 +12,8 @@ import {
   verifyRefreshToken,
   hashRefreshToken,
 } from '../utils/index.js';
+
+const logger = createLogger('auth-middleware');
 
 /** Minimal user shape needed by populateRequestUser (works with lean objects and documents). */
 interface UserLike {
@@ -46,7 +48,7 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
     if (membership) {
       role = membership.role as OrgMemberRole;
       organizationId = orgId;
-      const org = await Organization.findById(orgId).select('name').lean();
+      const org = await Organization.findById(toOrgId(orgId)).select('name').lean();
       organizationName = org?.name;
     }
   }
@@ -55,9 +57,18 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
   if (!organizationId) {
     const first = await UserOrganization.findOne({ userId, isActive: true }).sort({ joinedAt: 1 }).lean();
     if (first) {
+      // The token claimed an org the user is no longer an active member of, so
+      // we're running this request under a DIFFERENT org. Legitimate for multi-
+      // org users (they keep access to their other orgs), but surface it — a
+      // silent re-scope is otherwise invisible when a membership is revoked.
+      if (orgId && first.organizationId.toString() !== orgId) {
+        logger.warn('Token active-org membership missing; substituting first membership', {
+          userId, claimedOrgId: orgId, substitutedOrgId: first.organizationId.toString(),
+        });
+      }
       role = first.role as OrgMemberRole;
       organizationId = first.organizationId.toString();
-      const org = await Organization.findById(organizationId).select('name').lean();
+      const org = await Organization.findById(toOrgId(organizationId)).select('name').lean();
       organizationName = org?.name;
     }
   }

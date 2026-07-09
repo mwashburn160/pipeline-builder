@@ -24,7 +24,7 @@ describe('QUOTA_TIERS', () => {
       // Count caps on user-editable feature tables added to close per-org
       // DoS via spam (dashboards / alertRules / alertDestinations / idpConfigs).
       limits: {
-        plugins: 50,
+        plugins: 25,
         pipelines: 5,
         apiCalls: 25_000,
         aiCalls: 50,
@@ -42,8 +42,8 @@ describe('QUOTA_TIERS', () => {
     expect(QUOTA_TIERS.pro).toEqual({
       label: 'Pro',
       limits: {
-        plugins: 500,
-        pipelines: 50,
+        plugins: 50,
+        pipelines: 10,
         apiCalls: 500_000,
         aiCalls: 2_500,
         storageBytes: 50 * GB,
@@ -51,7 +51,7 @@ describe('QUOTA_TIERS', () => {
         alertRules: 500,
         alertDestinations: 50,
         idpConfigs: 5,
-        seats: 3,
+        seats: 1,
       },
     });
   });
@@ -60,7 +60,7 @@ describe('QUOTA_TIERS', () => {
     expect(QUOTA_TIERS.team).toEqual({
       label: 'Team',
       limits: {
-        plugins: 2_000,
+        plugins: 100,
         pipelines: 200,
         apiCalls: -1,
         aiCalls: 10_000,
@@ -78,8 +78,8 @@ describe('QUOTA_TIERS', () => {
     expect(QUOTA_TIERS.enterprise).toEqual({
       label: 'Enterprise',
       limits: {
-        plugins: 5_000,
-        pipelines: 500,
+        plugins: 250,
+        pipelines: 200,
         apiCalls: -1,
         aiCalls: 25_000,
         storageBytes: TB,
@@ -87,7 +87,7 @@ describe('QUOTA_TIERS', () => {
         alertRules: -1,
         alertDestinations: -1,
         idpConfigs: -1,
-        seats: -1,
+        seats: 25,
       },
     });
   });
@@ -127,7 +127,7 @@ describe('isValidTier', () => {
 
 describe('getTierLimits', () => {
   const developerLimits = {
-    plugins: 50,
+    plugins: 25,
     pipelines: 5,
     apiCalls: 25_000,
     aiCalls: 50,
@@ -141,8 +141,8 @@ describe('getTierLimits', () => {
   it('should return limits for valid tiers', () => {
     expect(getTierLimits('developer')).toEqual(developerLimits);
     expect(getTierLimits('pro')).toEqual({
-      plugins: 500,
-      pipelines: 50,
+      plugins: 50,
+      pipelines: 10,
       apiCalls: 500_000,
       aiCalls: 2_500,
       storageBytes: 50 * GB,
@@ -150,10 +150,10 @@ describe('getTierLimits', () => {
       alertRules: 500,
       alertDestinations: 50,
       idpConfigs: 5,
-      seats: 3,
+      seats: 1,
     });
     expect(getTierLimits('team')).toEqual({
-      plugins: 2_000,
+      plugins: 100,
       pipelines: 200,
       apiCalls: -1,
       aiCalls: 10_000,
@@ -165,8 +165,8 @@ describe('getTierLimits', () => {
       seats: 10,
     });
     expect(getTierLimits('enterprise')).toEqual({
-      plugins: 5_000,
-      pipelines: 500,
+      plugins: 250,
+      pipelines: 200,
       apiCalls: -1,
       aiCalls: 25_000,
       storageBytes: TB,
@@ -174,7 +174,7 @@ describe('getTierLimits', () => {
       alertRules: -1,
       alertDestinations: -1,
       idpConfigs: -1,
-      seats: -1,
+      seats: 25,
     });
   });
 

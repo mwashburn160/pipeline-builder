@@ -41,12 +41,14 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
       }
     >
       <ul className="max-h-48 overflow-auto px-4 pb-2 space-y-1 text-xs">
-        {actions.map((a, i) => {
+        {actions.map((a) => {
             const auditHref = a.kind === 'copy'
               ? buildAuditLogLink({ kind: 'copy', at: a.at, digest: a.digest, source: a.source, target: a.target })
               : buildAuditLogLink({ kind: 'delete', at: a.at, digest: a.digest, repo: a.repo, ref: a.ref });
             return (
-              <li key={i} className="flex items-start gap-2 py-1 border-t border-gray-200 dark:border-gray-800 first:border-t-0">
+              // Stable key (kind+timestamp+digest) — this is a shifting ring buffer,
+              // so an index key would bind a row's copy-state to the wrong entry.
+              <li key={`${a.kind}-${a.at}-${a.digest}`} className="flex items-start gap-2 py-1 border-t border-gray-200 dark:border-gray-800 first:border-t-0">
                 <span className="text-gray-400 font-mono w-12 flex-shrink-0">
                   {new Date(a.at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
