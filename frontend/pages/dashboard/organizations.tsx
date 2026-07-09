@@ -96,9 +96,10 @@ export default function OrganizationsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
   const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'team' | 'enterprise'>('developer');
-  // New orgs default to teams (nested under a parent); uncheck for a top-level
-  // organization. Parent candidates are the existing root orgs.
-  const [createAsSubOrg, setCreateAsSubOrg] = useState(true);
+  // The "New Organization" button defaults to a top-level org (matching its
+  // label); check the Team box to instead nest under a parent. Parent
+  // candidates are the existing root orgs.
+  const [createAsSubOrg, setCreateAsSubOrg] = useState(false);
   const [parentOrgId, setParentOrgId] = useState('');
   const [parentOptions, setParentOptions] = useState<Organization[]>([]);
   const createForm = useFormState();
@@ -108,7 +109,7 @@ export default function OrganizationsPage() {
   const openCreate = async () => {
     setNewOrgName('');
     setNewOrgTier('developer');
-    setCreateAsSubOrg(true);
+    setCreateAsSubOrg(false);
     setParentOrgId('');
     setParentOptions([]);
     createForm.reset();
