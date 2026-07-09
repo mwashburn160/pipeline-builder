@@ -6,6 +6,7 @@ import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-
 import { seedDefaultGroups } from './groups-service.js';
 import { config } from '../config/index.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { hashRefreshToken } from '../utils/token.js';
 
@@ -164,9 +165,12 @@ class AuthService {
    * exist / is inactive.
    */
   async switchActiveOrg(userId: string, organizationId: string) {
+    // `organizationId` is a Mixed field: teams store an ObjectId, the 'system'
+    // org a string. Mongoose won't auto-cast a hex string on a Mixed field, so
+    // switching to a team would silently miss (→ 403) without toOrgId.
     const membership = await UserOrganization.findOne({
       userId,
-      organizationId,
+      organizationId: toOrgId(organizationId),
       isActive: true,
     }).lean();
     if (!membership) return null;
