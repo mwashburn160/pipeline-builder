@@ -30,14 +30,16 @@ interface OrgSwitcherProps {
   className?: string;
   /** Collapsed sidebar: render a compact icon trigger with a right-popout menu. */
   collapsed?: boolean;
+  /** `header` renders a compact horizontal pill for the top app bar; `sidebar` (default) renders the vertical card. */
+  variant?: 'sidebar' | 'header';
 }
 
 /**
- * Organization switcher dropdown.
- * Displays the active organization and allows switching between memberships.
- * Only renders when the user belongs to multiple organizations.
+ * Organization switcher.
+ * Displays the active organization as an always-visible context anchor and, when
+ * the user belongs to 2+ orgs, opens a dropdown to switch between memberships.
  */
-export function OrgSwitcher({ className = '', collapsed = false }: OrgSwitcherProps = {}) {
+export function OrgSwitcher({ className = '', collapsed = false, variant = 'sidebar' }: OrgSwitcherProps = {}) {
   const { user, organizations, switchOrganization } = useAuth();
   const toast = useToast();
   const router = useRouter();
@@ -84,12 +86,17 @@ export function OrgSwitcher({ className = '', collapsed = false }: OrgSwitcherPr
     }
   };
 
-  // Shared dropdown menu (same content for both collapsed and expanded modes).
+  // Shared dropdown menu (same content across variants; only the anchoring
+  // differs: header pops down left-aligned at a fixed width, the collapsed rail
+  // pops out to the right, and the sidebar card fills its own width).
+  const menuPosition = variant === 'header'
+    ? 'left-0 top-full mt-1.5 w-64'
+    : collapsed
+      ? 'left-full top-0 ml-2 w-60'
+      : 'left-0 right-0 top-full mt-1.5';
   const menu = open && canSwitch && (
     <div
-      className={`absolute z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden ${
-        collapsed ? 'left-full top-0 ml-2 w-60' : 'left-0 right-0 top-full mt-1.5'
-      }`}
+      className={`absolute z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden ${menuPosition}`}
       role="menu"
     >
       <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700/60 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
@@ -124,6 +131,40 @@ export function OrgSwitcher({ className = '', collapsed = false }: OrgSwitcherPr
       </div>
     </div>
   );
+
+  // Header: a compact horizontal pill for the top app bar — an org/team icon,
+  // the active name, and (when switchable) the up/down affordance. Dropdown
+  // opens below, left-aligned.
+  if (variant === 'header') {
+    return (
+      <div ref={ref} className={`relative ${className}`}>
+        <button
+          type="button"
+          onClick={() => canSwitch && setOpen(!open)}
+          aria-label={canSwitch ? 'Switch organization' : `Organization: ${activeName}`}
+          aria-haspopup={canSwitch ? 'menu' : undefined}
+          aria-expanded={canSwitch ? open : undefined}
+          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-800/60 shadow-sm transition-colors ${
+            canSwitch ? 'hover:border-blue-400 dark:hover:border-blue-600 cursor-pointer' : 'cursor-default'
+          }`}
+        >
+          <span className="flex items-center justify-center w-6 h-6 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 shrink-0">
+            {activeIsTeam ? <Users className="w-3.5 h-3.5" /> : <Building2 className="w-3.5 h-3.5" />}
+          </span>
+          <span className="flex flex-col items-start min-w-0 leading-none">
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              {activeIsTeam ? 'Team' : 'Organization'}
+            </span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate max-w-[10rem] sm:max-w-[14rem]">
+              {activeName}
+            </span>
+          </span>
+          {canSwitch && <ChevronsUpDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
+        </button>
+        {menu}
+      </div>
+    );
+  }
 
   // Collapsed rail: a single prominent icon button that pops the menu out to
   // the right (the full card doesn't fit in a 64px rail).

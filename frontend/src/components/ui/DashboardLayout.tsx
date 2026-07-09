@@ -11,6 +11,7 @@ import { useSidebarState } from '@/hooks/useSidebarState';
 import { Sidebar } from './Sidebar';
 import { Breadcrumb, type BreadcrumbItem } from './Breadcrumb';
 import { CommandPalette } from './CommandPalette';
+import { OrgSwitcher } from './OrgSwitcher';
 import { LoadingPage } from './Loading';
 import { QuotaBanner } from './QuotaBanner';
 import { ImpersonationBanner } from './ImpersonationBanner';
@@ -159,6 +160,10 @@ export function DashboardLayout({
                 >
                   <Menu className="w-5 h-5" />
                 </button>
+                {/* Organization / team context — top-left anchor, visible on
+                    every page. Becomes an interactive switcher at 2+ orgs. */}
+                <OrgSwitcher variant="header" />
+                <div className="hidden sm:block h-8 w-px bg-gray-200 dark:bg-gray-700" aria-hidden />
                 <div className="min-w-0">
                   {breadcrumbs && <Breadcrumb items={breadcrumbs} />}
                   <div className="flex items-center gap-3">

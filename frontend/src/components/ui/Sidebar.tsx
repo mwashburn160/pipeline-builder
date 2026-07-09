@@ -12,7 +12,6 @@ import type { User } from '@/types';
 import { useFeatures } from '@/hooks/useFeatures';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible, type NavItem } from '@/lib/nav';
 import { Tooltip } from './Tooltip';
-import { OrgSwitcher } from './OrgSwitcher';
 
 /** localStorage key for which nav sections the user has collapsed. */
 const NAV_SECTIONS_KEY = 'pb-nav-collapsed-sections:v1';
@@ -92,15 +91,6 @@ export function Sidebar({
           )}
         </Link>
       </div>
-
-      {/* Organization / team switcher — placed directly under the brand (was
-          buried at the bottom of the rail) so switching orgs/teams is easy to
-          find. Renders in both collapsed (icon popout) and expanded (card)
-          modes. Self-hides when the user belongs to a single org. */}
-      <OrgSwitcher
-        collapsed={collapsed}
-        className={`border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'px-2 py-2.5' : 'px-3 py-2.5'}`}
-      />
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2">
