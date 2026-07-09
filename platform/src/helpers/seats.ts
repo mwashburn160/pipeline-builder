@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ClientSession } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { toOrgId } from './controller-helper.js';
 import { expandOrgScope, resolveOrgLineage } from './org-hierarchy.js';
 import { Invitation, Organization, UserOrganization } from '../models/index.js';
@@ -39,9 +39,14 @@ export async function seatCapacityAvailable(
   if (seatLimit === -1) return true;
 
   const scopeIds = (await expandOrgScope(rootOrgId)).map(toOrgId);
+  // Invitation.organizationId is a strict ObjectId (unlike the Mixed
+  // UserOrganization.organizationId), so a string-keyed scope id like the
+  // 'system' org would throw a CastError. Such orgs can't have ObjectId-keyed
+  // invitations anyway, so query invites over the ObjectId subset only.
+  const inviteScopeIds = scopeIds.filter((id) => id instanceof Types.ObjectId);
   const [memberIds, pendingEmails] = await Promise.all([
     UserOrganization.distinct('userId', { organizationId: { $in: scopeIds }, isActive: true }).session(session ?? null),
-    Invitation.distinct('email', { organizationId: { $in: scopeIds }, status: 'pending' }).session(session ?? null),
+    Invitation.distinct('email', { organizationId: { $in: inviteScopeIds }, status: 'pending' }).session(session ?? null),
   ]);
 
   const used = memberIds.length + pendingEmails.length;
@@ -62,9 +67,12 @@ export async function pooledSeatUsage(
   const limit = root?.quotas?.seats ?? -1;
 
   const scopeIds = (await expandOrgScope(rootOrgId)).map(toOrgId);
+  // See seatCapacityAvailable: invites key organizationId as a strict ObjectId,
+  // so exclude string-keyed scope ids (e.g. 'system') to avoid a CastError.
+  const inviteScopeIds = scopeIds.filter((id) => id instanceof Types.ObjectId);
   const [memberIds, pendingEmails] = await Promise.all([
     UserOrganization.distinct('userId', { organizationId: { $in: scopeIds }, isActive: true }),
-    Invitation.distinct('email', { organizationId: { $in: scopeIds }, status: 'pending' }),
+    Invitation.distinct('email', { organizationId: { $in: inviteScopeIds }, status: 'pending' }),
   ]);
   return { limit, used: memberIds.length + pendingEmails.length };
 }

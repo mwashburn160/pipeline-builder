@@ -95,8 +95,12 @@ export function Sidebar({
 
       {/* Organization / team switcher — placed directly under the brand (was
           buried at the bottom of the rail) so switching orgs/teams is easy to
-          find. Self-hides when the user belongs to a single org. */}
-      {!collapsed && <OrgSwitcher className="px-3 py-2.5 border-b border-gray-200 dark:border-gray-700" />}
+          find. Renders in both collapsed (icon popout) and expanded (card)
+          modes. Self-hides when the user belongs to a single org. */}
+      <OrgSwitcher
+        collapsed={collapsed}
+        className={`border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'px-2 py-2.5' : 'px-3 py-2.5'}`}
+      />
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2">
