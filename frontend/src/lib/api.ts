@@ -615,7 +615,7 @@ class ApiClient {
 
   /** List all organizations the current user belongs to. */
   async getUserOrganizations() {
-    return this.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string; parentOrgId?: string }> }>>('/api/user/organizations');
+    return this.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string; parentOrgId?: string; tier?: string }> }>>('/api/user/organizations');
   }
 
   /**

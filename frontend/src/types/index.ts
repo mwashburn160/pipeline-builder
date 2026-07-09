@@ -43,6 +43,8 @@ export interface UserOrgMembership {
   role: 'owner' | 'admin' | 'member';
   /** Parent org id when this org is a team (org → team hierarchy); absent for top-level orgs. */
   parentOrgId?: string;
+  /** Org's quota tier — used to gate tier-gated actions (only team/enterprise roots may parent teams). */
+  tier?: 'developer' | 'pro' | 'team' | 'enterprise';
 }
 
 /**

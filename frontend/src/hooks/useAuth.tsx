@@ -101,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               slug: o.slug,
               role: o.role as UserOrgMembership['role'],
               parentOrgId: o.parentOrgId,
+              tier: o.tier as UserOrgMembership['tier'],
             }));
             setOrganizations(orgs);
           } catch {

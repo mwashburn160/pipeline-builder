@@ -32,6 +32,8 @@ interface MembershipInfo {
   joinedAt?: string;
   /** Parent org id when this org is a team (org → team hierarchy); omitted for root orgs. */
   parentOrgId?: string;
+  /** Org's quota tier — lets the UI gate tier-gated actions (e.g. only team/enterprise roots may parent teams). */
+  tier?: string;
 }
 
 interface ProfileData {
@@ -86,7 +88,7 @@ class UserProfileService {
     const memberships = await UserOrganization.find({ userId }).sort({ joinedAt: 1 }).lean();
     const orgIds = memberships.map(m => m.organizationId);
     const orgs = orgIds.length > 0
-      ? await Organization.find({ _id: { $in: orgIds } }).select('_id name slug parentOrgId').lean()
+      ? await Organization.find({ _id: { $in: orgIds } }).select('_id name slug parentOrgId tier').lean()
       : [];
     const orgMap = new Map(orgs.map(o => [o._id.toString(), o]));
 
@@ -101,6 +103,7 @@ class UserProfileService {
         isActive: m.isActive,
         joinedAt: m.joinedAt?.toISOString(),
         ...(parentOrgId && { parentOrgId }),
+        ...(org?.tier && { tier: org.tier as string }),
       };
     });
   }

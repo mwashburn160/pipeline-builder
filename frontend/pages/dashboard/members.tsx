@@ -47,11 +47,15 @@ export default function MembersPage() {
   // Create organization
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
-  const [newOrgTier, setNewOrgTier] = useState<'developer' | 'pro' | 'team' | 'enterprise'>('developer');
   // Teams nest one level: only a root org can parent a team, so the "Create
   // Team" action only appears when the active org is itself a root.
   const activeOrg = organizations.find(o => o.id === user?.organizationId);
   const activeOrgIsRoot = !!activeOrg && !activeOrg.parentOrgId;
+  // Teams are a paid feature: the backend only lets a root on the team/enterprise
+  // tier parent a team (organizationService.checkParentEligible). Mirror that here
+  // so we don't offer a "Create Team" action that would 403 — the create modal's
+  // tier picker never mattered (a team always inherits the parent's tier).
+  const activeOrgCanHaveTeams = activeOrgIsRoot && (activeOrg?.tier === 'team' || activeOrg?.tier === 'enterprise');
   // Descendant teams this org parents (org → team hierarchy) — drives the Teams
   // list + the "Manage teams" gate. Best-effort; admins of a root org only.
   const [teams, setTeams] = useState<{ orgId: string; orgName: string }[]>([]);
@@ -319,12 +323,12 @@ export default function MembersPage() {
     // Create Team only renders on a root org, so the new org always nests under
     // the active (root) org as a team.
     const parentOrgId = user?.organizationId;
+    // Teams always inherit the parent's tier server-side, so no tier is sent.
     const result = await createOrgForm.run(
-      () => api.createOrganization({ name, tier: newOrgTier, parentOrgId }),
+      () => api.createOrganization({ name, parentOrgId }),
     );
     if (result !== null) {
       setNewOrgName('');
-      setNewOrgTier('developer');
       setCreateOrgOpen(false);
       await refreshUser();          // pulls the new org into the org-switcher list
       setTeamCountTick((t) => t + 1); // refresh the team-count banner + Manage-teams button
@@ -449,9 +453,15 @@ export default function MembersPage() {
         <div className="flex gap-2">
           {/* Teams nest one level under a root org, so only show this on a root
               org (a team can't parent sub-teams). Top-level orgs are created by
-              a system admin from the Organizations page. */}
+              a system admin from the Organizations page. Disabled (not hidden) on
+              ineligible tiers so the feature is discoverable as an upsell. */}
           {activeOrgIsRoot && (
-            <button onClick={() => { setNewOrgName(''); setNewOrgTier('developer'); createOrgForm.reset(); setCreateOrgOpen(true); }} className="btn btn-secondary">
+            <button
+              onClick={() => { setNewOrgName(''); createOrgForm.reset(); setCreateOrgOpen(true); }}
+              disabled={!activeOrgCanHaveTeams}
+              title={activeOrgCanHaveTeams ? undefined : 'Teams require a Team or Enterprise plan — upgrade this organization to create teams'}
+              className="btn btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               <Building2 className="w-4 h-4 mr-1.5" /> Create Team
             </button>
           )}
@@ -701,25 +711,10 @@ export default function MembersPage() {
                 disabled={createOrgForm.loading}
               />
             </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                Tier
-              </label>
-              <select
-                value={newOrgTier}
-                onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'team' | 'enterprise')}
-                className="input text-sm"
-                disabled={createOrgForm.loading}
-              >
-                <option value="developer">Developer — small budget, cheapest builds</option>
-                <option value="pro">Pro — medium budget, faster builds</option>
-                <option value="team">Team — shared quotas, collaboration features</option>
-                <option value="enterprise">Enterprise — highest limits, unlimited API calls</option>
-              </select>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Tier determines build resources and quota. Can be changed later.
-              </p>
-            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              The team inherits <strong>{activeOrg?.name}</strong>&apos;s plan
+              {activeOrg?.tier ? ` (${activeOrg.tier})` : ''} and its quotas are pooled under the parent organization.
+            </p>
           </div>
           {createOrgForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createOrgForm.error}</p>}
           {createOrgForm.success && <p className="text-sm text-green-600 dark:text-green-400 mt-3">{createOrgForm.success}</p>}
