@@ -3,7 +3,7 @@
 
 import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemAdmin, validateBody } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';

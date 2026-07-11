@@ -24,6 +24,8 @@ import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterBar } from '@/components/ui/FilterBar';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { downloadCsv } from '@/lib/csv-export';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
@@ -172,7 +174,8 @@ export default function ExecutionsPage() {
       subtitle="Pipeline run health across the organization"
       actions={
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            variant="secondary"
             onClick={() => downloadCsv(
               filtered.map((r) => ({
                 pipeline: r.pipeline_name || '',
@@ -188,22 +191,18 @@ export default function ExecutionsPage() {
               `executions-${new Date().toISOString().slice(0, 10)}`,
             )}
             disabled={filtered.length === 0}
-            className="btn btn-secondary inline-flex items-center gap-1"
+            className="inline-flex items-center gap-1"
             title="Export current view as CSV"
           >
             CSV
-          </button>
-          <button onClick={() => refetch()} className="btn btn-secondary inline-flex items-center gap-1" disabled={loading}>
+          </Button>
+          <Button variant="secondary" onClick={() => refetch()} className="inline-flex items-center gap-1" disabled={loading}>
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-          </button>
+          </Button>
         </div>
       }
     >
-      {error && (
-        <div className="alert-error">
-          <p>{error}</p>
-        </div>
-      )}
+      <ErrorAlert message={error} />
 
       {/* Stat strip — at-a-glance health */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">

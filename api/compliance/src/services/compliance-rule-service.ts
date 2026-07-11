@@ -1,20 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
-import {
-  CoreConstants,
-  CrudService,
-  buildComplianceRuleConditions,
-  buildPublishedRuleCatalogConditions,
-  runWithTenantContext,
-  schema,
-  withTenantTx,
-  type ComplianceRuleFilter,
-  type RuleTarget,
-  type RuleScope,
-  drizzleCount,
-} from '@pipeline-builder/pipeline-core';
+import { createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
+import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope, drizzleCount } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, desc, inArray, isNull, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -93,7 +82,7 @@ export class ComplianceRuleService extends CrudService<
     // orgId='system' — evaluates the whole library against itself and blocks).
     // Returning [] here makes system inert across every caller: validate
     // (upload), entity events, scheduled scans, and the /enforced view.
-    if (orgId === 'system') return [];
+    if (orgId === SYSTEM_ORG_ID) return [];
 
     // Parent org id determines visibility of parent-propagated rules, so it's
     // the trailing key segment (`${child}:${target}:${parent}`). This lets

@@ -156,6 +156,47 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     },
   },
 }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  CoreConstants: {
+    SSE_STREAM_TIMEOUT_MS: 300000,
+  },
+  Config: (() => {
+    const get = (section: string) => {
+      if (section === 'server') return { services: { pluginHost: 'plugin', pluginPort: 3000 } };
+      return {};
+    };
+    return { get, getAny: get };
+  })(),
+  db: {
+    select: (...args: any[]) => {
+      mockDbSelect(...args);
+      return mockDbChain;
+    },
+  },
+  // findExistingPluginNames now reads through withTenantTx (RLS-safe); route the
+  // tx's select to the same mockDbChain the bare-db path used.
+  withTenantTx: (fn: (tx: { select: (...a: any[]) => unknown }) => unknown) => fn({
+    select: (...args: any[]) => {
+      mockDbSelect(...args);
+      return mockDbChain;
+    },
+  }),
+  schema: {
+    plugin: {
+      name: 'name',
+      description: 'description',
+      version: 'version',
+      pluginType: 'pluginType',
+      computeType: 'computeType',
+      commands: 'commands',
+      installCommands: 'installCommands',
+      orgId: 'orgId',
+      isActive: 'isActive',
+      deletedAt: 'deletedAt',
+      accessModifier: 'accessModifier',
+    },
+  },
+}));;
 
 jest.unstable_mockModule('../src/services/git-analysis-service.js', () => ({
   parseGitUrl: mockParseGitUrl,

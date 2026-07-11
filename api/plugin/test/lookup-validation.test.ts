@@ -62,6 +62,11 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   db: { execute: jest.fn().mockResolvedValue({ rows: [] }) },
   withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
 }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  CoreConstants: { CACHE_CONTROL_LIST: 'public, max-age=60', CACHE_CONTROL_DETAIL: 'public, max-age=300' },
+  db: { execute: jest.fn().mockResolvedValue({ rows: [] }) },
+  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
+}));;
 
 const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 

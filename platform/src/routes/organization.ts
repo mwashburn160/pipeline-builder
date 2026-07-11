@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { requirePermission } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   getMyOrganization,
@@ -29,10 +30,13 @@ import {
   deleteOrganization,
   exportOrganization,
   getOrganizationGroups,
+  createOrganizationGroup,
+  updateOrganizationGroup,
+  deleteOrganizationGroup,
   addGroupMember,
   removeGroupMember,
 } from '../controllers/index.js';
-import { requireAuth, requireRole, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
+import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
 
 const router = Router();
 
@@ -48,7 +52,7 @@ router.get('/', requireAuth, getMyOrganization);
  *  /auth/register (which creates a paired user+org), NOT this endpoint.
  *  This route is for already-org-bound admins/owners adding *additional*
  *  orgs to their account. */
-router.post('/', requireAuth, requireRole('admin', 'owner'), createOrganization);
+router.post('/', requireAuth, requirePermission('org:settings'), createOrganization);
 
 /*
  * AI Provider Configuration (must be before /:id routes)
@@ -58,7 +62,7 @@ router.post('/', requireAuth, requireRole('admin', 'owner'), createOrganization)
 router.get('/ai-config', requireAuth, getOrgAIConfig);
 
 /** PUT /organization/ai-config - Update org AI provider keys (admin only) */
-router.put('/ai-config', requireAuth, requireRole('admin', 'owner'), updateOrgAIConfig);
+router.put('/ai-config', requireAuth, requirePermission('org:settings'), updateOrgAIConfig);
 
 /*
  * Organization CRUD (system admin can access any org)
@@ -88,9 +92,9 @@ router.patch('/:id/tier', requireAuth, requireSystemAdmin, requireStepUp, update
 router.delete('/:id', requireAuth, requireSystemAdmin, requireStepUp, deleteOrganization);
 
 /** GET /organization/:id/export - GDPR portability dump (org admin or sysadmin).
- *  Controller gates with `canAdministerOrg`, so an org's own admin can export it;
- *  `requireRole('admin','owner')` is the matching route guard. */
-router.get('/:id/export', requireAuth, requireRole('admin', 'owner'), exportOrganization);
+ *  Controller gates with `canAdministerOrg` (target-org scope); `requirePermission`
+ *  is the capability gate (org:settings, in the admin/owner bundle). */
+router.get('/:id/export', requireAuth, requirePermission('org:settings'), exportOrganization);
 
 /*
  * Organization Quotas
@@ -122,11 +126,11 @@ router.get('/:id/seat-usage', requireAuth, getOrganizationSeatUsage);
 router.get('/:id/members', requireAuth, getOrganizationMembers);
 
 /** POST /organization/:id/members - Add member to organization (admin only) */
-router.post('/:id/members', requireAuth, requireRole('admin', 'owner'), addMemberToOrganization);
+router.post('/:id/members', requireAuth, requirePermission('members:manage'), addMemberToOrganization);
 
 /** POST /organization/:id/members/bulk-add - Add one user to several teams in
  *  the org's subtree at once (admin/parent-admin only). */
-router.post('/:id/members/bulk-add', requireAuth, requireRole('admin', 'owner'), bulkAddMemberToTeams);
+router.post('/:id/members/bulk-add', requireAuth, requirePermission('members:manage'), bulkAddMemberToTeams);
 
 /** GET /organization/:id/teams - Descendant team roster (no member context). */
 router.get('/:id/teams', requireAuth, getOrganizationTeams);
@@ -136,16 +140,16 @@ router.get('/:id/teams', requireAuth, getOrganizationTeams);
 router.get('/:id/member/:memberId/teams', requireAuth, getMemberTeams);
 
 /** DELETE /organization/:id/members/:userId - Remove member from organization (admin only) */
-router.delete('/:id/members/:userId', requireAuth, requireRole('admin', 'owner'), removeMemberFromOrganization);
+router.delete('/:id/members/:userId', requireAuth, requirePermission('members:manage'), removeMemberFromOrganization);
 
 /** PATCH /organization/:id/members/:userId - Update member role (admin only) */
-router.patch('/:id/members/:userId', requireAuth, requireRole('admin', 'owner'), updateMemberRole);
+router.patch('/:id/members/:userId', requireAuth, requirePermission('members:manage'), updateMemberRole);
 
 /** PATCH /organization/:id/members/:userId/deactivate - Deactivate member (admin only) */
-router.patch('/:id/members/:userId/deactivate', requireAuth, requireRole('admin', 'owner'), deactivateMember);
+router.patch('/:id/members/:userId/deactivate', requireAuth, requirePermission('members:manage'), deactivateMember);
 
 /** PATCH /organization/:id/members/:userId/activate - Reactivate member (admin only) */
-router.patch('/:id/members/:userId/activate', requireAuth, requireRole('admin', 'owner'), activateMember);
+router.patch('/:id/members/:userId/activate', requireAuth, requirePermission('members:manage'), activateMember);
 
 /*
  * Permission Groups (first-class RBAC). Membership drives the cached
@@ -156,17 +160,26 @@ router.patch('/:id/members/:userId/activate', requireAuth, requireRole('admin', 
 /** GET /organization/:id/groups - List groups + members */
 router.get('/:id/groups', requireAuth, getOrganizationGroups);
 
+/** POST /organization/:id/groups - Create a custom permission group (admin only) */
+router.post('/:id/groups', requireAuth, requirePermission('groups:manage'), createOrganizationGroup);
+
+/** PUT /organization/:id/groups/:groupId - Update a custom group (admin only) */
+router.put('/:id/groups/:groupId', requireAuth, requirePermission('groups:manage'), updateOrganizationGroup);
+
+/** DELETE /organization/:id/groups/:groupId - Delete a custom group (admin only) */
+router.delete('/:id/groups/:groupId', requireAuth, requirePermission('groups:manage'), deleteOrganizationGroup);
+
 /** POST /organization/:id/groups/:groupId/members - Add member to a group (admin only) */
-router.post('/:id/groups/:groupId/members', requireAuth, requireRole('admin', 'owner'), addGroupMember);
+router.post('/:id/groups/:groupId/members', requireAuth, requirePermission('groups:manage'), addGroupMember);
 
 /** DELETE /organization/:id/groups/:groupId/members/:userId - Remove member from a group (admin only) */
-router.delete('/:id/groups/:groupId/members/:userId', requireAuth, requireRole('admin', 'owner'), removeGroupMember);
+router.delete('/:id/groups/:groupId/members/:userId', requireAuth, requirePermission('groups:manage'), removeGroupMember);
 
 /*
  * Ownership Transfer
  */
 
 /** PATCH /organization/:id/transfer-owner - Transfer organization ownership (admin only) */
-router.patch('/:id/transfer-owner', requireAuth, requireRole('admin', 'owner'), requireStepUp, transferOrganizationOwnership);
+router.patch('/:id/transfer-owner', requireAuth, requirePermission('org:settings'), requireStepUp, transferOrganizationOwnership);
 
 export default router;

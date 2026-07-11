@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature, requirePermission } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck, redisHealthCheck, combineHealthChecks } from '@pipeline-builder/api-server';
 
 import { startWorker, waitForWorkerReady, shutdownQueue, getHealthRedisConnection } from './queue/plugin-build-queue.js';
@@ -45,14 +45,14 @@ app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeployGeneratedP
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/plugins', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPluginRoutes(quotaService));
 
-// -- Update route — auth + orgId (no quota check) ----------------------------
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createUpdatePluginRoutes());
+// -- Update route — auth + orgId + plugins:write (no quota check) -------------
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requirePermission('plugins:write'), createUpdatePluginRoutes());
 
-// -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeletePluginRoutes());
+// -- Delete route — auth + orgId + plugins:write (admin-only also in handler) -
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requirePermission('plugins:write'), createDeletePluginRoutes());
 
-// -- Bulk routes — auth + orgId + bulk_operations feature gate ---------------
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requireFeature('bulk_operations'), createBulkPluginRoutes());
+// -- Bulk routes — auth + orgId + plugins:write + bulk_operations feature gate -
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requirePermission('plugins:write'), requireFeature('bulk_operations'), createBulkPluginRoutes());
 
 // -- Start BullMQ worker for async Docker builds ----------------------------
 startWorker(sseManager, quotaService);

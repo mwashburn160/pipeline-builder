@@ -11,6 +11,8 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
@@ -27,9 +29,13 @@ import type { Pipeline, BuilderProps } from '@/types';
 
 /** Pipeline management page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
 export default function PipelinesPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
   const canViewPublic = isSuperAdmin;
+  // Fine-grained RBAC: write controls (create/edit/delete/bulk/select) unlock
+  // on `pipelines:write`, not org-admin role, so a custom-group member granted
+  // the capability gets them too. Role-admins hold it in their bundle.
+  const canWrite = can('pipelines:write');
 
   // ── Data ──
 
@@ -158,7 +164,7 @@ export default function PipelinesPage() {
   // ── Columns ──
 
   const pipelineColumns: Column<Pipeline>[] = useMemo(() => [
-    ...(isAdmin ? [{
+    ...(canWrite ? [{
       id: 'select',
       header: '',
       locked: true,
@@ -266,18 +272,18 @@ export default function PipelinesPage() {
       cellClassName: 'text-sm',
       render: (pipeline) => (
         <div className="flex items-center space-x-3">
-          {canModify(isSuperAdmin, pipeline.accessModifier) ? (
+          {canWrite && canModify(isSuperAdmin, pipeline.accessModifier) ? (
             <button onClick={() => setEditPipeline(pipeline)} className="action-link">Edit</button>
           ) : (
             <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
-          {canModify(isSuperAdmin, pipeline.accessModifier) && (
+          {canWrite && canModify(isSuperAdmin, pipeline.accessModifier) && (
             <button onClick={() => del.open(pipeline)} className="action-link-danger">Delete</button>
           )}
         </div>
       ),
     },
-  ], [isSuperAdmin, isAdmin, selectedIds, toggleSelect]);
+  ], [isSuperAdmin, canWrite, selectedIds, toggleSelect]);
 
   // ── Render ──
 
@@ -288,10 +294,12 @@ export default function PipelinesPage() {
       title="Pipelines"
       subtitle="Create, edit, and monitor pipeline configurations"
       actions={
-        <button onClick={() => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); }} className="btn btn-primary">
-          <Plus className="w-4 h-4 mr-2" />
-          Create Pipeline
-        </button>
+        canWrite ? (
+          <Button onClick={() => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); }}>
+            <Plus className="w-4 h-4 mr-2" />
+            Create Pipeline
+          </Button>
+        ) : undefined
       }
     >
       <div className="page-section">
@@ -334,7 +342,7 @@ export default function PipelinesPage() {
         />
 
         {/* Spacer when sticky bulk bar is visible */}
-        {isAdmin && selectedIds.size > 0 && <div className="h-16" />}
+        {canWrite && selectedIds.size > 0 && <div className="h-16" />}
 
         {/* ResourceList owns: error+retry, refresh button, empty state, and
             offset Pagination. Body is custom so we preserve DataTable's
@@ -356,12 +364,12 @@ export default function PipelinesPage() {
             icon: Search,
             title: 'No pipelines match your filters',
             description: 'Try adjusting your search or filter criteria.',
-            action: <button onClick={list.clearFilters} className="btn btn-secondary">Clear filters</button>,
+            action: <Button variant="secondary" onClick={list.clearFilters}>Clear filters</Button>,
           } : {
             icon: GitBranch,
             title: 'No pipelines yet',
             description: 'Get started by creating your first pipeline, or fork one from the system catalog.',
-            action: <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Pipeline</button>,
+            action: canWrite ? <Button onClick={() => setShowCreateModal(true)}>Create Pipeline</Button> : undefined,
           }}
         >
           <DataTable
@@ -372,7 +380,7 @@ export default function PipelinesPage() {
               icon: GitBranch,
               title: 'No pipelines yet',
               description: 'Get started by creating your first pipeline, or fork one from the system catalog.',
-              action: <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">Create Pipeline</button>,
+              action: canWrite ? <Button onClick={() => setShowCreateModal(true)}>Create Pipeline</Button> : undefined,
             }}
             getRowKey={(p) => p.id}
             defaultSortColumn="name"
@@ -400,26 +408,26 @@ export default function PipelinesPage() {
       )}
 
       {/* Sticky bottom bulk actions bar */}
-      {isAdmin && selectedIds.size > 0 && (
+      {canWrite && selectedIds.size > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
           <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               {selectedIds.size} selected
             </span>
             <div className="flex items-center gap-2">
-              <button onClick={() => handleBulkActivate(true)} disabled={bulkLoading} className="btn btn-secondary btn-xs">
+              <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(true)} disabled={bulkLoading}>
                 Activate
-              </button>
-              <button onClick={() => handleBulkActivate(false)} disabled={bulkLoading} className="btn btn-secondary btn-xs">
+              </Button>
+              <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(false)} disabled={bulkLoading}>
                 Deactivate
-              </button>
-              <button onClick={handleBulkDelete} disabled={bulkLoading} className="btn btn-danger btn-xs">
+              </Button>
+              <Button variant="danger" size="xs" onClick={handleBulkDelete} disabled={bulkLoading}>
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
-              </button>
-              <button onClick={clearSelection} className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear selection">
+              </Button>
+              <IconButton onClick={clearSelection} title="Clear selection" aria-label="Clear selection">
                 <X className="w-4 h-4" />
-              </button>
+              </IconButton>
             </div>
           </div>
         </div>

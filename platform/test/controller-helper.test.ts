@@ -9,11 +9,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // `isSystemAdmin` is re-exported from api-core into the platform helper;
   // mock it to match the production semantics (sysadmin iff JWT claim).
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
-  // `isOrgAdmin` uses `isSystemOrgId(orgId, orgName)` to exclude the legacy
-  // 'system' content-holder org from being treated as a real tenant.
+  // `isOrgAdmin` uses `isSystemOrgId(orgId, orgName)` to exclude the system
+  // content-holder org from being treated as a real tenant. The org's id is
+  // now the fixed ObjectId (SYSTEM_ORG_ID); only its name/slug stays 'system'.
   isSystemOrgId: jest.fn(
     (orgId?: string, orgName?: string) =>
-      orgId?.toLowerCase() === 'system' || orgName?.toLowerCase() === 'system',
+      orgId?.toLowerCase() === '000000000000000000000001' || orgName?.toLowerCase() === 'system',
   ),
 }));
 
@@ -82,7 +83,7 @@ describe('controller-helper', () => {
     });
 
     it('should return false for system admin', () => {
-      expect(isOrgAdmin(mockReq({ role: 'admin', organizationId: 'system' }))).toBe(false);
+      expect(isOrgAdmin(mockReq({ role: 'admin', organizationId: '000000000000000000000001' }))).toBe(false);
     });
 
     it('should return false for non-admin', () => {

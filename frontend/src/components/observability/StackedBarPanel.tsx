@@ -24,14 +24,6 @@ const PAD = { top: 8, right: 8, bottom: 18, left: 32 };
  * Stacked-bar viz over a Loki matrix query. Each bar = one time bucket;
  * each color = one series (e.g. event name). Used for "audit events per
  * hour" where it's helpful to see the mix of event types over time.
- *
- * TODO(I21): wire this into `PanelRenderer` in
- * `pages/dashboard/observability/[id].tsx`. Currently the `'stacked-bar'`
- * case falls through to `'line'` and renders a LinePanel — catalog entries
- * with vizMode `stacked-bar` therefore render as a line. PanelRenderer
- * lives under `pages/` (owned by the pages agent); add an explicit
- * `case 'stacked-bar': return <StackedBarPanel .../>` ahead of the
- * `'line'` fallthrough.
  */
 export function StackedBarPanel({ queryKey, title, range, span = 12, groupBy = 'event' }: StackedBarPanelProps) {
   const { data, loading, error } = useObservabilityLogs(queryKey, range);

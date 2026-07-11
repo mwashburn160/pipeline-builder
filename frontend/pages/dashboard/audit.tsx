@@ -28,6 +28,8 @@ import { SideDrawer } from '@/components/ui/SideDrawer';
 import { Pagination } from '@/components/ui/Pagination';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { formatError } from '@/lib/constants';
 import { downloadCsv, downloadJsonl } from '@/lib/csv-export';
 import api from '@/lib/api';
@@ -135,11 +137,7 @@ export default function AuditPage() {
         </div>
       )}
 
-      {error && (
-        <div className="alert-error mb-4">
-          <p>{error}</p>
-        </div>
-      )}
+      <ErrorAlert message={error} className="mb-4" />
 
       {/* Filter bar */}
       <div className="filter-bar grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -210,7 +208,7 @@ export default function AuditPage() {
       {events.length > 0 && (
         <div className="mt-2 flex items-center justify-end gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span>{events.length} event{events.length === 1 ? '' : 's'} on this page</span>
-          <button
+          <Button
             onClick={() => downloadCsv(
               events.map((e) => ({
                 createdAt: e.createdAt,
@@ -234,18 +232,20 @@ export default function AuditPage() {
               ['createdAt', 'action', 'outcome', 'actorId', 'actorEmail', 'actorRole', 'impersonatorId', 'orgId', 'affectedOrgId', 'targetType', 'targetId', 'groupId', 'ip', 'userAgent', 'requestId', 'traceId', 'details'],
               `audit-page-${new Date().toISOString().slice(0, 10)}`,
             )}
-            className="btn btn-secondary inline-flex items-center gap-1"
+            variant="secondary"
+            className="inline-flex items-center gap-1"
             title="Export the current page of events as CSV"
           >
             <Download className="w-3.5 h-3.5" /> CSV
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => downloadJsonl(events, `audit-page-${new Date().toISOString().slice(0, 10)}`)}
-            className="btn btn-secondary inline-flex items-center gap-1"
+            variant="secondary"
+            className="inline-flex items-center gap-1"
             title="Export the current page as JSON Lines (preserves nested details)"
           >
             <Download className="w-3.5 h-3.5" /> JSONL
-          </button>
+          </Button>
         </div>
       )}
 

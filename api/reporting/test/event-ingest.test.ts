@@ -11,6 +11,8 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockSelect = jest.fn<(...args: unknown[]) => unknown>();
 const mockInsert = jest.fn<(...args: unknown[]) => unknown>();
 const mockSendError = jest.fn((_res: any, code: number, msg: string) => ({ error: msg, code }));
+const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
+const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
@@ -24,8 +26,8 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendSuccess: jest.fn((_res: any, _code: number, data: any) => data),
-  sendBadRequest: jest.fn((_res: any, msg: string) => msg),
+  sendSuccess: mockSendSuccess,
+  sendBadRequest: mockSendBadRequest,
   sendError: mockSendError,
   requireAuth: jest.fn((_req: any, _res: any, next: any) => next()),
   hasScope: (req: any, scope: string) => req?.user?.scope === scope,
@@ -49,12 +51,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     invalidateOrg: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
     ingestEvents: (...a: unknown[]) => mockIngestEvents(...a),
   },
-}));
-
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
-  CoreConstants: {
-    MAX_EVENTS_PER_BATCH: 100,
-  },
   runWithTenantContext: (_ctx: any, fn: () => unknown) => fn(),
   db: {
     select: mockSelect,
@@ -66,6 +62,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
       orgId: 'org_id',
     },
     pipelineEvent: 'pipeline_events',
+  },
+}));
+
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  CoreConstants: {
+    MAX_EVENTS_PER_BATCH: 100,
   },
 }));
 
@@ -105,7 +107,13 @@ describe('POST /reports/events', () => {
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
     await handler(req, res);
-    // sendBadRequest was called — verify via the mock
+
+    // Empty array fails the schema's `.min(1)` — must be rejected as a 400
+    // VALIDATION_ERROR and must never reach the DB insert / ingest path.
+    expect(mockSendBadRequest).toHaveBeenCalledWith(
+      expect.anything(), expect.any(String), 'VALIDATION_ERROR');
+    expect(mockIngestEvents).not.toHaveBeenCalled();
+    expect(mockSendSuccess).not.toHaveBeenCalled();
   });
 
   it('should reject more than 100 events', async () => {
@@ -118,10 +126,19 @@ describe('POST /reports/events', () => {
       status: 'SUCCEEDED',
     }));
 
+    expect(events).toHaveLength(101); // guard: must actually exceed MAX_EVENTS_PER_BATCH (100)
+
     const req = { body: { events } };
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
     await handler(req, res);
+
+    // 101 valid events pass per-item schema but trip the batch-size cap — must
+    // be rejected as a 400 VALIDATION_ERROR naming the limit, never ingested.
+    expect(mockSendBadRequest).toHaveBeenCalledWith(
+      expect.anything(), expect.stringContaining('Maximum 100'), 'VALIDATION_ERROR');
+    expect(mockIngestEvents).not.toHaveBeenCalled();
+    expect(mockSendSuccess).not.toHaveBeenCalled();
   });
 
   it('should reject request without events field', async () => {
@@ -131,6 +148,13 @@ describe('POST /reports/events', () => {
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
     await handler(req, res);
+
+    // Missing `events` field fails the required-array schema — must be rejected
+    // as a 400 VALIDATION_ERROR and must not reach the ingest path.
+    expect(mockSendBadRequest).toHaveBeenCalledWith(
+      expect.anything(), expect.any(String), 'VALIDATION_ERROR');
+    expect(mockIngestEvents).not.toHaveBeenCalled();
+    expect(mockSendSuccess).not.toHaveBeenCalled();
   });
 
   // --- reporting:ingest scope guard -------------------------------------------

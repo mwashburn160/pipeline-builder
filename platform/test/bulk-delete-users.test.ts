@@ -22,6 +22,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   resolveUserFeatures: jest.fn(),
+  resolveUserPermissions: jest.fn(() => []),
   isValidFeatureFlag: () => true,
   // `validateBulkArray` is the shared guard used by all bulk endpoints.
   // Mirror api-core's behaviour: empty/non-array → error; over cap → error;
@@ -84,6 +85,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   UA_OWNER_HAS_ORGS: 'UA_OWNER_HAS_ORGS',
   UA_ORG_NOT_FOUND: 'UA_ORG_NOT_FOUND',
   UA_SEAT_LIMIT: 'UA_SEAT_LIMIT',
+  UA_CANNOT_CHANGE_OWNER: 'UA_CANNOT_CHANGE_OWNER',
   // Consumed transitively via user-admin.js -> user-profile.js.
   PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
   PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',

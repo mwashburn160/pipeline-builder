@@ -30,12 +30,9 @@
  * **Re-exports from api-core**
  * - ErrorCode, createLogger
  *
- * **Re-exports from pipeline-data**
- * - db, schema, getConnection, closeConnection  database access
- * - CrudService, BaseEntity  CRUD service infrastructure
- * - All query condition builders and filter types
- * - Compliance domain types (RuleSeverity, RuleTarget, etc.)
- * - drizzleRows, drizzleCount  type helpers
+ * The Postgres/Drizzle data layer (db, schema, CrudService, query builders,
+ * filter/compliance types, etc.) is NOT re-exported here  import those
+ * directly from `@pipeline-builder/pipeline-data`.
  */
 
 // Configuration
@@ -65,75 +62,6 @@ export {
   ErrorCode,
   createLogger,
 } from '@pipeline-builder/api-core';
-
-// Re-export database layer from pipeline-data (only items consumed externally)
-export {
-  // Database connection
-  db,
-  getConnection,
-  closeConnection,
-
-  // Schema & tables
-  schema,
-
-  // Tenant-context primitives (Postgres RLS enforcement)
-  tenantContext,
-  runWithTenantContext,
-  getTenantContext,
-  withTenantTx,
-  type TenantContext,
-
-  // Query builders
-  buildPluginConditions,
-  buildPipelineConditions,
-  buildMessageConditions,
-  validateMessageFilter,
-  buildCompliancePolicyConditions,
-  buildComplianceRuleConditions,
-  buildComplianceExemptionConditions,
-  buildComplianceAuditConditions,
-  buildComplianceScanConditions,
-  buildPublishedRuleCatalogConditions,
-  buildComplianceRuleSubscriptionConditions,
-
-  // Query filter types
-  type PluginFilter,
-  type PipelineFilter,
-  type MessageFilter,
-  type CompliancePolicyFilter,
-  type ComplianceRuleFilter,
-  type ComplianceExemptionFilter,
-  type ComplianceAuditFilter,
-  type ComplianceScanFilter,
-  type ComplianceRuleSubscriptionFilter,
-
-  // Plugin types
-  type PluginSecret,
-
-  // Compliance types
-  type RuleSeverity,
-  type RuleTarget,
-  type RuleOperator,
-  type RuleConditionMode,
-  type RuleScope,
-  type RuleCondition,
-  type ComplianceRoleType,
-
-  // CRUD service
-  CrudService,
-  type BaseEntity,
-
-  // Drizzle type helpers
-  drizzleRows,
-  drizzleCount,
-
-  // Migration runner (idempotent startup hook)
-  runMigrations,
-  type MigrateOptions,
-
-  // Reporting service (cache invalidation hook for plugin/reporting events)
-  reportingService,
-} from '@pipeline-builder/pipeline-data';
 
 // Pipeline (CDK constructs)
 export * from './pipeline/source-types.js';

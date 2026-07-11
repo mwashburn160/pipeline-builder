@@ -1,0 +1,15 @@
+# Secrets
+# (.env is also covered by the repo-root `deploy/**/.env` rule.)
+.env
+
+# Generated certificates
+certs/
+
+# MongoDB replica-set keyfile — should be generated per-deploy (openssl rand)
+# and rotated per environment, like jwt-keys.sh does for the registry keypair.
+# Must NOT be committed.
+# NOTE: a copy is still tracked in git from before this rule; it is left in
+# place because setup.sh (pb_create_config_maps) reads it directly, so removing
+# it would break the deploy. Rotate it and `git rm --cached` once each
+# environment generates its own.
+mongodb-keyfile

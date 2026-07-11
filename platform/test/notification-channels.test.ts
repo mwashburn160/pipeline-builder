@@ -24,7 +24,7 @@ const mockSend = jest.fn<(opts: { to: string; subject: string; text?: string }) 
 const mockConfig = { email: { enabled: true } };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: { message: { __table: 'messages' } },
   withTenantTx: (fn: (tx: unknown) => unknown) => mockWithTenantTx(fn),
 }));
@@ -126,7 +126,7 @@ describe('in-app channel', () => {
     expect(insertedRows).toHaveLength(1);
     const row = insertedRows[0];
     expect(row).toMatchObject({
-      orgId: 'system',
+      orgId: '000000000000000000000001',
       recipientOrgId: 'o1',
       messageType: 'announcement',
       subject: '[CRITICAL] HighErrorRate',

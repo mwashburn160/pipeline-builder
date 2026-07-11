@@ -15,6 +15,9 @@
  */
 import { jest } from '@jest/globals';
 
+/** No-op guard: the mock covers route wiring, not the auth/permission gate. */
+const passThroughMiddleware = (_req: unknown, _res: unknown, next: () => void) => next();
+
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
   info: jest.fn(),
@@ -53,12 +56,15 @@ class ValidationError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
-    SYSTEM_ORG_ID: 'system',
+    SYSTEM_ORG_ID: '000000000000000000000001',
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    // `requirePermission(...perms)` is a factory that RETURNS middleware, so
+    // the stub is a function producing the pass-through guard.
+    requirePermission: () => passThroughMiddleware,
     NotFoundError,
     ValidationError,
     createCacheService: () => ({

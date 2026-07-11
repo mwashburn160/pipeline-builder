@@ -21,7 +21,7 @@ import { createHmac } from 'crypto';
 import { lookup } from 'dns/promises';
 import { isIP } from 'net';
 
-import { errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 
 import { emailClient } from './email-client.js';
 import { messageClient } from './message-client.js';
@@ -73,8 +73,8 @@ const inAppChannel: NotificationChannel = {
         priority: n.priority,
       }, {
         headers: {
-          'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: 'system', role: 'member' }),
-          'x-org-id': 'system',
+          'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: SYSTEM_ORG_ID, role: 'member' }),
+          'x-org-id': SYSTEM_ORG_ID,
           'x-internal-service': 'true',
         },
       });
@@ -153,7 +153,7 @@ const emailChannel: NotificationChannel = {
         text: n.content,
       }, {
         headers: {
-          'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: 'system', role: 'member' }),
+          'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: SYSTEM_ORG_ID, role: 'member' }),
           'x-internal-service': 'true',
         },
       });

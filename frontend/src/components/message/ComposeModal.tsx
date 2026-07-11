@@ -9,7 +9,9 @@ import { ModalPortal } from '@/components/ui/ModalPortal';
 // = "system" with channel = "support" so system-org readers can filter
 // by channel.
 const SUPPORT_ALIAS = 'support@pipeline-builder';
-const SUPPORT_RECIPIENT = 'system';
+// The system tenant's well-known org id (api-core SYSTEM_ORG_ID default). The
+// support inbox is the system org; messages to support are addressed to this id.
+const SUPPORT_RECIPIENT = '000000000000000000000001';
 const SUPPORT_CHANNEL = 'support';
 
 /** Props for the ComposeModal component. */
@@ -29,9 +31,15 @@ interface ComposeModalProps {
     priority?: MessagePriority;
     channel?: string;
   }) => Promise<boolean>;
-  /** Whether the current user is a sysadmin (enables free-form recipient
-   *  entry and broadcast announcements). Non-sysadmins see the support-alias
-   *  pre-fill with their own org's other teams as datalist suggestions. */
+  /** Whether the current user holds `messages:write` — enables full compose
+   *  (address another org/team directly) instead of the support-only contact
+   *  form. Users without it see the support-alias pre-fill with their own org's
+   *  other teams as datalist suggestions. */
+  canWrite: boolean;
+  /** Whether the current user is a sysadmin. Gates ONLY the broadcast
+   *  announcement toggle (recipient `*` fans out to every org) — a genuine
+   *  platform-operator capability, so it stays sysadmin-only even for
+   *  `messages:write` holders. */
   isSuperAdmin: boolean;
   /** Other orgs/teams the user can message (e.g. teams they belong to).
    *  Rendered as a `<datalist>` so the To input auto-completes by name. */
@@ -46,7 +54,7 @@ function autoSubject(content: string): string {
 }
 
 /** Modal for composing and sending new messages or announcements to organizations. */
-export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientSuggestions = [] }: ComposeModalProps) {
+export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, recipientSuggestions = [] }: ComposeModalProps) {
   const [recipientOrgId, setRecipientOrgId] = useState('');
   // Non-sysadmin To-field state. Pre-filled with the support alias;
   // users can override it with a team/member name within their org.
@@ -71,19 +79,19 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientS
       return;
     }
 
-    // Compute the recipient. Non-sysadmin: the To field is editable —
+    // Compute the recipient. Support-only user: the To field is editable —
     // if the user kept the support alias, route to the system support
     // inbox; otherwise treat the typed value as a team/member name
     // within their org and pass it straight through as recipientOrgId
     // (server-side resolves it / authorizes).
-    const isSupportSend = !isSuperAdmin && supportRecipient.trim().toLowerCase() === SUPPORT_ALIAS;
+    const isSupportSend = !canWrite && supportRecipient.trim().toLowerCase() === SUPPORT_ALIAS;
     const recipient = isAnnouncement
       ? '*'
-      : (isSuperAdmin
+      : (canWrite
           ? recipientOrgId.trim().toLowerCase()
           : (isSupportSend ? SUPPORT_RECIPIENT : supportRecipient.trim().toLowerCase()));
     if (!isAnnouncement && !recipient) {
-      setValidationError(isSuperAdmin
+      setValidationError(canWrite
         ? 'Recipient organization is required'
         : 'Recipient is required');
       return;
@@ -174,8 +182,8 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientS
             </div>
           )}
 
-          {/* Recipient (system org conversations only) */}
-          {isSuperAdmin && !isAnnouncement && (
+          {/* Recipient free-form entry (full-compose users only) */}
+          {canWrite && !isAnnouncement && (
             <input
               type="text"
               value={recipientOrgId}
@@ -185,10 +193,10 @@ export function ComposeModal({ isOpen, onClose, onSend, isSuperAdmin, recipientS
             />
           )}
 
-          {/* Non-system org: pre-filled support recipient (editable; type
+          {/* Support-only user: pre-filled support recipient (editable; type
               to override with one of the user's other teams —
               the datalist auto-completes from `recipientSuggestions`). */}
-          {!isSuperAdmin && (
+          {!canWrite && (
             <div className="flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
               <span className="text-gray-500 dark:text-gray-400">To:</span>
               <input

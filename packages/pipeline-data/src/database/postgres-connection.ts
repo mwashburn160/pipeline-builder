@@ -608,9 +608,3 @@ async function closeReplicaPool(): Promise<void> {
     _replica = null;
   }
 }
-
-// Back-compat alias: closeConnection() now tears down both pools itself, so this
-// just delegates. Prefer closeConnection().
-export async function closeAllConnections(): Promise<void> {
-  await closeConnection();
-}

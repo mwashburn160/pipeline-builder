@@ -23,9 +23,10 @@ grouped by area:
 |------|---------|
 | User lifecycle | `user.register`, `user.login`, `user.login.failed`, `user.logout`, `user.delete`, `user.profile.update`, `user.password.change`, `user.token.create`, `user.tokens.revoke-all` |
 | Organization | `org.create`, `org.member.add`, `org.member.remove`, `org.member.role.update`, `org.member.deactivate`, `org.member.activate`, `org.ownership.transfer` |
+| Permission groups | `org.group.create`, `org.group.update`, `org.group.delete`, `org.group.member.add`, `org.group.member.remove` |
 | Dashboards | `dashboard.create`, `dashboard.update`, `dashboard.delete`, `dashboard.clone` |
 | Alerts | `alert.destination.create/update/delete`, `alert.rule.create/update/delete` |
-| Admin | `admin.user.delete`, `admin.org.delete`, `admin.org.export`, `admin.org-idp.upsert/delete`, `admin.superadmin.grant/revoke`, `admin.org.kms-config.upsert/delete`, `admin.org.tier.update`, `admin.impersonate.start`, `admin.org.namespace.render` |
+| Admin | `admin.user.delete`, `admin.org.delete`, `admin.org.export`, `admin.org-idp.upsert/delete`, `admin.superadmin.grant/revoke`, `admin.org.kms-config.upsert/delete`, `admin.org.tier.update`, `admin.org.seatLimit.update`, `admin.impersonate.start`, `admin.org.namespace.render` |
 | Plugin builds | `plugin.build.completed`, `plugin.build.failed`, `plugin.build.timeout` |
 
 Each record carries an `actorId`/`actorEmail`, `orgId` (the actor's own

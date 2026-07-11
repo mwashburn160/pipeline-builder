@@ -1,11 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  drizzleCount,
-  schema,
-  withTenantTx,
-} from '@pipeline-builder/pipeline-core';
+import { drizzleCount, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { calculateNextRun } from '../helpers/scan-scheduler.js';
 

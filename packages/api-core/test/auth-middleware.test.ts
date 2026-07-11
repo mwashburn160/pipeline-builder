@@ -7,7 +7,7 @@ import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import {
   requireAuth, requireAdmin, isSystemAdmin, resolveAccessModifier,
-  signServiceToken, getServiceAuthHeader, isServicePrincipal,
+  signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal,
 } from '../src/middleware/auth.js';
 import type { JwtPayload } from '../src/types/common.js';
 
@@ -260,13 +260,13 @@ describe('isSystemAdmin', () => {
     // The legacy "membership in the system org grants sysadmin" branch is
     // removed — operators must be granted authority via the user-level flag.
     const req = createMockReq();
-    req.user = { role: 'admin', organizationId: 'system' } as any;
+    req.user = { role: 'admin', organizationId: '000000000000000000000001' } as any;
     expect(isSystemAdmin(req)).toBe(false);
   });
 
   it('returns false for legacy owner in system org without isSuperAdmin flag', () => {
     const req = createMockReq();
-    req.user = { role: 'owner', organizationId: 'system' } as any;
+    req.user = { role: 'owner', organizationId: '000000000000000000000001' } as any;
     expect(isSystemAdmin(req)).toBe(false);
   });
 });
@@ -303,13 +303,13 @@ describe('resolveAccessModifier', () => {
 
   it('should return "private" when private is requested', () => {
     const req = createMockReq();
-    req.user = { role: 'admin', organizationId: 'system' } as any;
+    req.user = { role: 'admin', organizationId: '000000000000000000000001' } as any;
     expect(resolveAccessModifier(req, 'private')).toBe('private');
   });
 
   it('should return "private" when undefined is requested', () => {
     const req = createMockReq();
-    req.user = { role: 'admin', organizationId: 'system' } as any;
+    req.user = { role: 'admin', organizationId: '000000000000000000000001' } as any;
     expect(resolveAccessModifier(req, undefined)).toBe('private');
   });
 });
@@ -322,11 +322,11 @@ describe('resolveAccessModifier', () => {
 
 describe('signServiceToken', () => {
   it('mints a JWT verifiable with the shared JWT_SECRET', () => {
-    const token = signServiceToken({ serviceName: 'billing', orgId: 'system', role: 'owner' });
+    const token = signServiceToken({ serviceName: 'billing', orgId: '000000000000000000000001', role: 'owner' });
     const decoded = jwt.verify(token, TEST_SECRET) as JwtPayload;
     expect(decoded.sub).toBe('service:billing');
     expect(decoded.username).toBe('billing-service');
-    expect(decoded.organizationId).toBe('system');
+    expect(decoded.organizationId).toBe('000000000000000000000001');
     expect(decoded.role).toBe('owner');
     expect(decoded.type).toBe('access');
     expect(decoded.isAdmin).toBe(true);
@@ -340,9 +340,9 @@ describe('signServiceToken', () => {
   });
 
   it('defaults orgName to orgId when omitted', () => {
-    const token = signServiceToken({ serviceName: 'compliance', orgId: 'system', role: 'owner' });
+    const token = signServiceToken({ serviceName: 'compliance', orgId: '000000000000000000000001', role: 'owner' });
     const decoded = jwt.verify(token, TEST_SECRET) as JwtPayload;
-    expect(decoded.organizationName).toBe('system');
+    expect(decoded.organizationName).toBe('000000000000000000000001');
   });
 
   it('expires within the configured TTL (default 5 min)', () => {
@@ -362,7 +362,7 @@ describe('signServiceToken', () => {
   });
 
   it('produces tokens that satisfy requireAuth without modification', (done) => {
-    const token = signServiceToken({ serviceName: 'billing', orgId: 'system', role: 'owner' });
+    const token = signServiceToken({ serviceName: 'billing', orgId: '000000000000000000000001', role: 'owner' });
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     const res = createMockRes();
     requireAuth(req, res, () => {
@@ -385,7 +385,7 @@ describe('signServiceToken', () => {
 
 describe('getServiceAuthHeader', () => {
   it('returns "Bearer <jwt>" format', () => {
-    const header = getServiceAuthHeader({ serviceName: 'billing', orgId: 'system', role: 'owner' });
+    const header = getServiceAuthHeader({ serviceName: 'billing', orgId: '000000000000000000000001', role: 'owner' });
     expect(header).toMatch(/^Bearer [\w-]+\.[\w-]+\.[\w-]+$/);
     const token = header.slice(7);
     const decoded = jwt.verify(token, TEST_SECRET) as JwtPayload;
@@ -409,5 +409,65 @@ describe('isServicePrincipal', () => {
   it('returns false when req.user is undefined', () => {
     const req = createMockReq();
     expect(isServicePrincipal(req)).toBe(false);
+  });
+});
+
+// verifyServicePrincipal
+//
+// A PRE-auth check (runs before requireAuth populates req.user) that
+// CRYPTOGRAPHICALLY verifies the bearer token is a valid, signed SERVICE
+// token. Unlike isServicePrincipal (which trusts an already-verified
+// req.user.sub), this must not be fooled by an unsigned/tampered token or a
+// spoofable header, since it gates things like rate-limiter bypass.
+
+describe('verifyServicePrincipal', () => {
+  it('returns true for a token minted by signServiceToken', () => {
+    const token = signServiceToken({ serviceName: 'billing', orgId: 'org1', role: 'member' });
+    const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
+    expect(verifyServicePrincipal(req)).toBe(true);
+  });
+
+  it('returns false for a normal user access token (sub not service:)', () => {
+    const token = signToken({ type: 'access', sub: 'user1', role: 'member' });
+    const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
+    expect(verifyServicePrincipal(req)).toBe(false);
+  });
+
+  it('returns false when the Authorization header is missing', () => {
+    const req = createMockReq();
+    expect(verifyServicePrincipal(req)).toBe(false);
+  });
+
+  it('returns false for a malformed Authorization header', () => {
+    expect(verifyServicePrincipal(createMockReq({ headers: { authorization: 'Basic abc123' } }))).toBe(false);
+    expect(verifyServicePrincipal(createMockReq({ headers: { authorization: 'Bearer' } }))).toBe(false);
+    const token = signServiceToken({ serviceName: 'billing', orgId: 'org1', role: 'member' });
+    // Extra segment → split length !== 2.
+    expect(verifyServicePrincipal(createMockReq({ headers: { authorization: `Bearer ${token} extra` } }))).toBe(false);
+  });
+
+  it('returns false for a service token signed with the WRONG secret', () => {
+    const token = jwt.sign(
+      { sub: 'service:evil', role: 'owner', type: 'access' },
+      'wrong-secret',
+      { expiresIn: 60 },
+    );
+    const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
+    expect(verifyServicePrincipal(req)).toBe(false);
+  });
+
+  it('returns false for a tampered token', () => {
+    const token = signServiceToken({ serviceName: 'billing', orgId: 'org1', role: 'member' });
+    // Flip the last char of the signature to invalidate it.
+    const tampered = token.slice(0, -1) + (token.at(-1) === 'a' ? 'b' : 'a');
+    const req = createMockReq({ headers: { authorization: `Bearer ${tampered}` } });
+    expect(verifyServicePrincipal(req)).toBe(false);
+  });
+
+  it('returns false for a service-sub token that is NOT an access token', () => {
+    // Correctly signed and service-scoped, but wrong token type → rejected.
+    const token = signToken({ type: 'refresh', sub: 'service:billing', role: 'member' });
+    const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
+    expect(verifyServicePrincipal(req)).toBe(false);
   });
 });

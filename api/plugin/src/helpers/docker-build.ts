@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { createLogger, signServiceToken, ValidationError } from '@pipeline-builder/api-core';
+import { createLogger, signServiceToken, ValidationError, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('docker-build');
@@ -66,8 +66,6 @@ export interface BuildRequest {
 export interface BuildResult {
   fullImage: string;
 }
-
-const SYSTEM_ORG_ID = 'system';
 
 // -----------------------------------------------------------------------------
 // Config

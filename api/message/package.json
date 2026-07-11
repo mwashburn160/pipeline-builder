@@ -40,6 +40,7 @@
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
+    "@pipeline-builder/pipeline-data": "workspace:*",
     "drizzle-orm": "0.45.2",
     "express": "5.2.1",
     "pg": "8.21.0",

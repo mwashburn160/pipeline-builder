@@ -25,7 +25,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: mockSendError,
   sendBadRequest: mockSendBadRequest,
   requireAuth: mockRequireAuth,
-  requireAdmin: (_req: any, _res: any, next: () => void) => next(),
+  requirePermission: () => (_req: any, _res: any, next: () => void) => next(),
   isSystemAdmin: mockIsSystemAdmin,
   requireSystemAdmin: (_req: any, _res: any, next: () => void) => next(),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
@@ -53,11 +53,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 
 const mockSubscriptionFindOne = jest.fn<(...args: unknown[]) => any>();
 const mockSubscriptionCreate = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockSubscriptionDeleteOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ deletedCount: 1 });
 
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     findOne: mockSubscriptionFindOne,
     create: mockSubscriptionCreate,
+    deleteOne: mockSubscriptionDeleteOne,
   },
 }));
 

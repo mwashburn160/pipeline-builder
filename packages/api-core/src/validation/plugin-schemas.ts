@@ -81,12 +81,3 @@ export const PluginUpdateSchema = z.object({
 export const PluginUploadBodySchema = z.object({
   accessModifier: AccessModifierSchema.optional(),
 });
-
-/**
- * Infer TypeScript types from schemas
- * Note: Prefixed with "Validated" to avoid conflicts with existing type definitions
- */
-export type ValidatedPluginFilter = z.infer<typeof PluginFilterSchema>;
-export type ValidatedPluginCreate = z.infer<typeof PluginCreateSchema>;
-export type ValidatedPluginUpdate = z.infer<typeof PluginUpdateSchema>;
-export type ValidatedPluginUploadBody = z.infer<typeof PluginUploadBodySchema>;

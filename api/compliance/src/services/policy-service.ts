@@ -1,14 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  CrudService,
-  buildCompliancePolicyConditions,
-  runWithTenantContext,
-  schema,
-  withTenantTx,
-  type CompliancePolicyFilter,
-} from '@pipeline-builder/pipeline-core';
+import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { CrudService, buildCompliancePolicyConditions, runWithTenantContext, schema, withTenantTx, type CompliancePolicyFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, and, eq, isNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -55,7 +49,7 @@ export class CompliancePolicyService extends CrudService<
 
   /** Find system-org template policies available for cloning. */
   async findTemplates(): Promise<CompliancePolicy[]> {
-    return this.find({ isTemplate: true }, 'system');
+    return this.find({ isTemplate: true }, SYSTEM_ORG_ID);
   }
 
   /**
@@ -73,7 +67,7 @@ export class CompliancePolicyService extends CrudService<
     targetOrgId: string,
     userId: string,
   ): Promise<CompliancePolicy> {
-    const template = await this.findById(templateId, 'system');
+    const template = await this.findById(templateId, SYSTEM_ORG_ID);
     if (!template) throw new Error('Template not found');
 
     const cloned = await this.create({

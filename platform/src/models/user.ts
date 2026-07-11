@@ -118,8 +118,8 @@ const userSchema = new Schema<UserDocument>(
       select: false,
     },
     // `String` (not `Mixed`) so MongoDB indexes / equality queries behave
-    // predictably; values are either a 24-char ObjectId hex or the literal
-    // 'system' (the bootstrap system-org id). The validator rejects anything
+    // predictably; the value is always a 24-char ObjectId hex (the system org is
+    // now an ObjectId too — no string sentinel). The validator rejects anything
     // else so a stray write can't park the user on a non-existent org.
     lastActiveOrgId: {
       type: String,
@@ -129,9 +129,8 @@ const userSchema = new Schema<UserDocument>(
         validator: (v: unknown) =>
           v === null
           || v === undefined
-          || v === 'system'
           || (typeof v === 'string' && mongoose.isValidObjectId(v)),
-        message: 'lastActiveOrgId must be an ObjectId or "system"',
+        message: 'lastActiveOrgId must be an ObjectId',
       },
     },
     isEmailVerified: {
@@ -210,7 +209,7 @@ export const PASSWORD_RULES: ReadonlyArray<{ test: RegExp; message: string }> = 
  * if the value satisfies every rule in `PASSWORD_RULES` and meets the
  * configured minimum length.
  */
-export function validatePasswordStrength(password: string): string | null {
+function validatePasswordStrength(password: string): string | null {
   if (password.length < config.auth.passwordMinLength) {
     return `Password must be at least ${config.auth.passwordMinLength} characters`;
   }

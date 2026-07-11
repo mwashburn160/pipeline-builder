@@ -27,13 +27,20 @@ deploy/aws/eks/
   cluster/cluster.yaml   # eksctl ClusterConfig, Auto Mode + aws-efs-csi-driver
   .env.example           # platform config template (setup.sh fills secrets + domain)
   config/ nginx/         # prometheus/loki/alertmanager/promtail + nginx conf (→ ConfigMaps)
-  postgres-init.sql  mongodb-init.js  mongodb-keyfile
+  postgres-init.sql  mongodb-init.js  mongodb-keyfile  # keyfile: see note below
   k8s/
     kustomization.yaml   # standalone manifests (NOT shared with ec2/minikube)
     storageclasses.yaml  # pb-ebs (RWO, DBs) + pb-efs (RWX, registry/loki)
     ingress.yaml         # ALB Ingress → nginx:8080 (ACM TLS at the ALB)
     *.yaml               # full workload set, tuned for multi-node (PVC, no hostPath)
 ```
+
+> **MongoDB keyfile secret.** `mongodb-keyfile` is the shared secret for the replica set's
+> internal auth. It should be generated per-deploy and rotated per environment (e.g.
+> `openssl rand -base64 756 > mongodb-keyfile`), like `jwt-keys.sh` does for the registry
+> keypair — it is now gitignored. A copy is still tracked in git from before that rule and is
+> read directly by `setup.sh` (`pb_create_config_maps`); replace it with a freshly generated,
+> per-environment keyfile and `git rm --cached` the committed one.
 
 This target is **self-contained** — its own copy of every manifest and config file, so
 it never shares state with ec2/minikube (per project convention). The service *images*

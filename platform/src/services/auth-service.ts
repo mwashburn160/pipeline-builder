@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG } from '@pipeline-builder/api-core';
 import { seedDefaultGroups } from './groups-service.js';
 import { config } from '../config/index.js';
-import { User, Organization, UserOrganization } from '../models/index.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { User, Organization, UserOrganization } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { hashRefreshToken } from '../utils/token.js';
 
@@ -68,15 +68,19 @@ class AuthService {
 
       const user = new User({ username, email, password });
 
-      const isSystemOrg = effectiveOrgName.toLowerCase() === SYSTEM_ORG_ID;
+      // The system tenant is identified by its well-known slug/name 'system'
+      // (SYSTEM_ORG_SLUG); its `_id` is the fixed SYSTEM_ORG_ID ObjectId.
+      const isSystemOrg = effectiveOrgName.toLowerCase() === SYSTEM_ORG_SLUG;
 
       const orgData: Record<string, unknown> = {
-        name: isSystemOrg ? SYSTEM_ORG_ID : effectiveOrgName,
+        name: isSystemOrg ? SYSTEM_ORG_SLUG : effectiveOrgName,
         owner: user._id,
       };
 
       if (isSystemOrg) {
-        orgData._id = SYSTEM_ORG_ID;
+        orgData._id = SYSTEM_ORG_ID; // fixed well-known ObjectId (cast from hex)
+        orgData.slug = SYSTEM_ORG_SLUG;
+        orgData.isSystem = true;
         orgData.tier = 'enterprise';
         // Seed the full enterprise preset. The old partial `{ plugins, pipelines,
         // apiCalls }` left aiCalls/seats/storage/etc. to fall back to the
@@ -94,9 +98,8 @@ class AuthService {
         role: 'owner',
       }], { session });
 
-      // `lastActiveOrgId` is typed `string` (with a validator that also
-      // accepts the literal 'system' sentinel); always stringify the
-      // ObjectId here so the assignment matches the schema.
+      // `lastActiveOrgId` is typed `string`; stringify the ObjectId so the
+      // assignment matches the schema (the system org is now an ObjectId too).
       user.lastActiveOrgId = String(org._id);
       await user.save({ session });
 
@@ -165,9 +168,9 @@ class AuthService {
    * exist / is inactive.
    */
   async switchActiveOrg(userId: string, organizationId: string) {
-    // `organizationId` is a Mixed field: teams store an ObjectId, the 'system'
-    // org a string. Mongoose won't auto-cast a hex string on a Mixed field, so
-    // switching to a team would silently miss (→ 403) without toOrgId.
+    // `organizationId` is a plain ObjectId field; `organizationId` arrives here
+    // as a hex string (route body), so cast it via toOrgId so the membership
+    // filter matches the stored ObjectId.
     const membership = await UserOrganization.findOne({
       userId,
       organizationId: toOrgId(organizationId),
@@ -237,12 +240,39 @@ class AuthService {
       oauth: { [providerName]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
     });
 
-    // Auto-create personal org + owner membership (mirrors the email-registration flow).
-    const org = await Organization.create({ name: username, owner: newUser._id });
-    await UserOrganization.create({ userId: newUser._id, organizationId: org._id, role: 'owner' });
-    newUser.lastActiveOrgId = String(org._id);
+    // Auto-create personal org + owner membership + default groups in a single
+    // transaction (mirrors register()): a partial apply would leave an org with
+    // no owner membership or no permission groups. `save()` happens inside the
+    // tx so the whole identity lands atomically.
+    await withMongoTransaction(async (session) => {
+      // Same well-known-slug handling as register(): if the derived org name is
+      // 'system', create it as the system tenant (fixed id/slug/tier/quotas).
+      const isSystemOrg = username.toLowerCase() === SYSTEM_ORG_SLUG;
+      const orgData: Record<string, unknown> = {
+        name: isSystemOrg ? SYSTEM_ORG_SLUG : username,
+        owner: newUser._id,
+      };
+      if (isSystemOrg) {
+        orgData._id = SYSTEM_ORG_ID;
+        orgData.slug = SYSTEM_ORG_SLUG;
+        orgData.isSystem = true;
+        orgData.tier = 'enterprise';
+        orgData.quotas = { ...QUOTA_TIERS.enterprise.limits };
+      }
 
-    await newUser.save();
+      const [org] = await Organization.create([orgData], { session });
+      await UserOrganization.create(
+        [{ userId: newUser._id, organizationId: org._id, role: 'owner' }],
+        { session },
+      );
+      newUser.lastActiveOrgId = String(org._id);
+      await newUser.save({ session });
+
+      // Seed default permission groups so an OAuth-created org has the same
+      // Administrators/Developers groups as an email-registered one.
+      await seedDefaultGroups(org._id, newUser._id, { isSystemOrg }, session);
+    });
+
     return newUser;
   }
 

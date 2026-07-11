@@ -38,7 +38,8 @@ const DashboardLayoutGrid = dynamic(() => import('@/components/observability/Das
  * for other readers if the request fails mid-flight.
  */
 export default function DashboardEditPage() {
-  const { isReady, isAuthenticated } = useAuthGuard();
+  // Editing a dashboard is a `dashboards:write` capability (superadmins bypass).
+  const { isReady, isAuthenticated } = useAuthGuard({ requirePermission: 'dashboards:write' });
   const router = useRouter();
   const toast = useToast();
   const id = typeof router.query.id === 'string' ? router.query.id: '';

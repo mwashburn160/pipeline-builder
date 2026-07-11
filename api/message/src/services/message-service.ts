@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createCacheService } from '@pipeline-builder/api-core';
-import { CoreConstants, CrudService, schema, withTenantTx, buildMessageConditions, type MessageFilter } from '@pipeline-builder/pipeline-core';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
+import { CrudService, schema, withTenantTx, buildMessageConditions, type MessageFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, or, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';

@@ -10,6 +10,8 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import type { QueueStatus } from '@/types';
 import api from '@/lib/api';
 
@@ -320,18 +322,14 @@ export default function BuildQueuePage() {
       title="Builds"
       subtitle="Queued builds and execution status"
       actions={
-        <button onClick={fetchStatus} className="btn btn-secondary">
+        <Button onClick={fetchStatus} variant="secondary">
           <RefreshCw className="w-4 h-4" />
           Refresh
-        </button>
+        </Button>
       }
     >
       <BuildsTabs active="queue" />
-      {error && (
-        <div className="alert-error mb-6">
-          {error}
-        </div>
-      )}
+      <ErrorAlert message={error} className="mb-6" />
 
       {/* Health indicator */}
       <motion.div
@@ -415,9 +413,9 @@ export default function BuildQueuePage() {
               </span>
             </h2>
             {!showFailed && (
-              <button onClick={fetchFailed} className="btn btn-secondary btn-sm">
+              <Button onClick={fetchFailed} variant="secondary" size="sm">
                 View Failed Jobs
-              </button>
+              </Button>
             )}
           </div>
           {showFailed && <FailedJobsTable jobs={failedJobs} title="failed jobs" />}
@@ -441,9 +439,9 @@ export default function BuildQueuePage() {
               </span>
             </h2>
             {!showDlq && (
-              <button onClick={fetchDlq} className="btn btn-secondary btn-sm">
+              <Button onClick={fetchDlq} variant="secondary" size="sm">
                 View DLQ Jobs
-              </button>
+              </Button>
             )}
           </div>
           {showDlq && <FailedJobsTable jobs={dlqJobs} title="DLQ jobs" showCategory />}

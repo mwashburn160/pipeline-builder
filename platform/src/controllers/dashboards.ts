@@ -18,9 +18,9 @@
  * boundary even when dashboards are user-editable.
  */
 
-import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess, userHasPermission } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { isOrgAdmin, isSystemAdmin, requireAuthContext, withController } from '../helpers/controller-helper.js';
+import { isSystemAdmin, requireAuthContext, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
 import { QUERIES } from '../observability/catalog.js';
 import { dashboardService, type PanelInput } from '../services/dashboard-service.js';
@@ -126,7 +126,7 @@ export const createDashboard = withController('Create dashboard', async (req, re
 
   // Org-admin or sysadmin can create. Anyone else gets 403 — keeps random
   // members from churning out org/public dashboards.
-  if (!isSystemAdmin(req) && !isOrgAdmin(req)) {
+  if (!userHasPermission(req, 'dashboards:write')) {
     return sendError(res, 403, 'Org admin or system admin required to create dashboards');
   }
 
@@ -194,7 +194,7 @@ export const updateDashboard = withController('Update dashboard', async (req, re
     orgId,
     userId,
     isSuperAdmin: isSystemAdmin(req),
-    isOrgAdmin: isOrgAdmin(req),
+    isOrgAdmin: userHasPermission(req, 'dashboards:write'),
   });
   if (!canWrite) return sendError(res, 403, 'You cannot modify this dashboard');
 
@@ -257,7 +257,7 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
     orgId,
     userId,
     isSuperAdmin: isSystemAdmin(req),
-    isOrgAdmin: isOrgAdmin(req),
+    isOrgAdmin: userHasPermission(req, 'dashboards:write'),
   });
   if (!canWrite) return sendError(res, 403, 'You cannot delete this dashboard');
 
@@ -288,7 +288,7 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
 
   // Same gate as create — needs at least org-admin to land a new dashboard
   // in the org's namespace.
-  if (!isSystemAdmin(req) && !isOrgAdmin(req)) {
+  if (!userHasPermission(req, 'dashboards:write')) {
     return sendError(res, 403, 'Org admin or system admin required to clone');
   }
 

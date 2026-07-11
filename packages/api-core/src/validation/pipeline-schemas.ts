@@ -106,11 +106,3 @@ export const PipelineUpdateSchema = z.object({
   isDefault: BooleanQuerySchema.optional(),
   accessModifier: AccessModifierSchema.optional(),
 });
-
-/**
- * Infer TypeScript types from schemas
- * Note: Prefixed with "Validated" to avoid conflicts with existing type definitions
- */
-export type ValidatedPipelineFilter = z.infer<typeof PipelineFilterSchema>;
-export type ValidatedPipelineCreate = z.infer<typeof PipelineCreateSchema>;
-export type ValidatedPipelineUpdate = z.infer<typeof PipelineUpdateSchema>;

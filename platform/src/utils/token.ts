@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, resolveUserFeatures } from '@pipeline-builder/api-core';
+import { createLogger, resolveUserFeatures, resolveUserPermissions } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
+import type { Types } from 'mongoose';
 import { config } from '../config/index.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { User, Organization, UserOrganization } from '../models/index.js';
+import { User, Organization, UserOrganization, Group, GroupMembership } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import type { UserDocument } from '../models/user.js';
 import type { AccessTokenPayload, RefreshTokenPayload } from '../types/index.js';
@@ -28,6 +29,9 @@ export interface MembershipContext {
   /** Account-level purchased feature entitlements (bundles), propagated onto the
    *  active org; unioned into the resolved feature set. */
   featureEntitlements?: readonly string[];
+  /** Fine-grained permissions granted by the user's groups in the active org.
+   *  Unioned with the role's base bundle to form the JWT `permissions` claim. */
+  groupPermissions?: readonly string[];
 }
 
 /**
@@ -69,6 +73,10 @@ function createAccessTokenPayload(user: UserDocument, membership?: MembershipCon
     // A scoped machine token needs no feature flags; interactive users get their
     // tier defaults plus per-user overrides.
     features: scope ? [] : resolveUserFeatures(tier, overrides, isSuperAdmin, membership?.featureEntitlements),
+    // Fine-grained RBAC: effective permissions = role's base bundle ∪ group
+    // grants (superadmin ⇒ all). Enforced downstream via requirePermission().
+    // Scoped machine tokens carry none (least privilege).
+    permissions: scope ? [] : resolveUserPermissions(role, membership?.groupPermissions, isSuperAdmin),
     ...(scope ? { scope } : {}),
     tokenVersion: user.tokenVersion,
     isEmailVerified: user.isEmailVerified,
@@ -103,6 +111,22 @@ export interface IssuedTokens {
 }
 
 /**
+ * Raw permission strings granted by a user's groups in an org (deduped).
+ * Kept inline (rather than importing groups-service) so token issuance has a
+ * minimal dependency graph. api-core's `resolveUserPermissions` filters out any
+ * unknown strings downstream, so no validation is needed here.
+ */
+async function groupPermissionsFor(userId: string, organizationId: Types.ObjectId | string): Promise<string[]> {
+  const memberships = await GroupMembership.find({ userId, organizationId }).session(null).select('groupId').lean();
+  const groupIds = memberships.map((m) => m.groupId);
+  if (groupIds.length === 0) return [];
+  const groups = await Group.find({ _id: { $in: groupIds } }).session(null).select('permissions').lean();
+  const perms = new Set<string>();
+  for (const g of groups) for (const p of ((g.permissions as string[]) ?? [])) perms.add(p);
+  return [...perms];
+}
+
+/**
  * Resolve the membership context for a user's active organization.
  * Looks up UserOrganization + Organization name for the given orgId.
  * Falls back to user.lastActiveOrgId, then first membership.
@@ -119,6 +143,7 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
         role: membership.role as OrgMemberRole,
         tier: org?.tier,
         featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
+        groupPermissions: await groupPermissionsFor(userId, toOrgId(activeOrgId)),
         ...(await hierarchyContext(activeOrgId, org?.parentOrgId)),
       };
     }
@@ -136,6 +161,7 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
     role: first.role as OrgMemberRole,
     tier: org?.tier,
     featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
+    groupPermissions: await groupPermissionsFor(userId, toOrgId(orgId)),
     ...(await hierarchyContext(orgId, org?.parentOrgId)),
   };
 }

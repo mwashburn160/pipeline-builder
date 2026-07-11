@@ -47,7 +47,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     safeCreateRequire: () => ((_id: string) => { throw new Error('require unavailable in tests'); }),
     // Scheduler factory stub — no-op start/stop (real behaviour tested in api-core).
     createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
-    SYSTEM_ORG_ID: 'system',
+    SYSTEM_ORG_ID: '000000000000000000000001',
     // Quota tier presets — billing-config.ts reads these at import time
     // (defaultFeatures derives marketing copy from each tier's limits), so the
     // mock must expose the four tiers with a numeric `limits` shape.

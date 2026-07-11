@@ -48,6 +48,7 @@
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
+    "@pipeline-builder/pipeline-data": "workspace:*",
     "adm-zip": "0.5.17",
     "bcryptjs": "3.0.3",
     "cors": "2.8.6",

@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createSafeClient, createScheduler, type Scheduler, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
-import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
+import { createLogger, createSafeClient, createScheduler, type Scheduler, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
 import { createBillingEvent, syncTierToQuotaService } from './billing-helpers.js';
 import { Plan } from '../models/plan.js';
@@ -169,8 +169,8 @@ async function sendRenewalReminders(): Promise<void> {
       }, {
         headers: {
           'x-internal-service': 'true',
-          'x-org-id': 'system',
-          'authorization': getServiceAuthHeader({ serviceName: 'billing', orgId: 'system', role: 'member' }),
+          'x-org-id': SYSTEM_ORG_ID,
+          'authorization': getServiceAuthHeader({ serviceName: 'billing', orgId: SYSTEM_ORG_ID, role: 'member' }),
         },
       });
 

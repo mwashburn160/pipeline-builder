@@ -3,16 +3,18 @@
 
 import {
   requireAuth,
-  requireAdmin,
+  requirePermission,
   sendSuccess,
   sendError,
+  ErrorCode,
   createLogger,
   getParam,
   getServiceAuthHeader,
+  validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import { config } from '../config.js';
 import {
   bundleSelfServiceAllowed,
@@ -27,6 +29,7 @@ import {
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
+import { AddonMutateSchema } from '../validation/schemas.js';
 
 /** Best-effort: reconcile the external provider's add-on line items. Local
  *  entitlements are already applied, so a provider error must not fail the
@@ -94,6 +97,19 @@ export function createAddonRoutes(): Router {
     return { subscription, plan };
   }
 
+  /**
+   * Guard the `:id` path param against the org's loaded active subscription.
+   * The routes are keyed by subscription id, but `loadSubAndPlan` resolves the
+   * org's active sub by orgId — without this check the id in the URL is
+   * decorative and a caller could target one sub's id while mutating another.
+   * When `:id` is absent (never true for the mounted routes; only in unit
+   * tests that invoke the handler directly) the check is skipped.
+   */
+  function subscriptionIdMatches(req: Request, subscription: { _id: { toString(): string } }): boolean {
+    const id = getParam(req.params, 'id');
+    return !id || subscription._id.toString() === id;
+  }
+
   // GET /billing/bundles — the add-on catalog filtered to the account's tier
   router.get('/bundles', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ res, orgId }) => {
     if (!bundlesEnabled()) return sendSuccess(res, 200, { bundles: [], selfService: false });
@@ -108,7 +124,7 @@ export function createAddonRoutes(): Router {
 
   // POST /billing/portal — hosted session to add/update a payment method. Powers
   // the "Add a payment method" CTA shown after a 402 PAYMENT_METHOD_REQUIRED.
-  router.post('/portal', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/portal', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscription = await Subscription.findOne({ orgId, status: 'active' });
     if (!subscription?.externalCustomerId) return sendError(res, 404, 'No billing customer for this account');
 
@@ -131,12 +147,14 @@ export function createAddonRoutes(): Router {
   router.post('/subscriptions/:id/addons/preview', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled');
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace');
-    const { bundleId, quantity } = (req.body ?? {}) as { bundleId?: string; quantity?: number };
-    if (typeof bundleId !== 'string') return sendError(res, 400, 'bundleId is required');
+    const validation = validateBody(req, AddonMutateSchema);
+    if (!validation.ok) return sendError(res, 400, validation.error);
+    const { bundleId, quantity } = validation.value;
 
     const loaded = await loadSubAndPlan(orgId);
     if (!loaded) return sendError(res, 404, 'No active subscription');
     const { subscription, plan } = loaded;
+    if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
     const bundles = getBundleCatalog();
     const bundle = bundles.find((b) => b.id === bundleId && b.isActive);
@@ -158,15 +176,17 @@ export function createAddonRoutes(): Router {
   }));
 
   // POST /billing/subscriptions/:id/addons — add or set a bundle quantity
-  router.post('/subscriptions/:id/addons', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/addons', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled');
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace');
-    const { bundleId, quantity } = (req.body ?? {}) as { bundleId?: string; quantity?: number };
-    if (typeof bundleId !== 'string') return sendError(res, 400, 'bundleId is required');
+    const validation = validateBody(req, AddonMutateSchema);
+    if (!validation.ok) return sendError(res, 400, validation.error);
+    const { bundleId, quantity } = validation.value;
 
     const loaded = await loadSubAndPlan(orgId);
     if (!loaded) return sendError(res, 404, 'No active subscription');
     const { subscription, plan } = loaded;
+    if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
     const bundles = getBundleCatalog();
     const bundle = bundles.find((b) => b.id === bundleId && b.isActive);
@@ -224,7 +244,7 @@ export function createAddonRoutes(): Router {
   // DELETE /billing/subscriptions/:id/addons/:bundleId — remove a bundle.
   // The over-cap gate below blocks a removal that would drop a pooled cap under
   // current usage (docs/billing-bundles.md §8); otherwise it removes + re-syncs.
-  router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled');
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace');
     const bundleId = getParam(req.params, 'bundleId');
@@ -233,6 +253,7 @@ export function createAddonRoutes(): Router {
     const loaded = await loadSubAndPlan(orgId);
     if (!loaded) return sendError(res, 404, 'No active subscription');
     const { subscription, plan } = loaded;
+    if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
     const next = applyAddon((subscription.addons ?? []) as Addon[], bundleId, 0);
 

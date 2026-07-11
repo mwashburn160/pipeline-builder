@@ -9,7 +9,7 @@ const { resolveDefaultBuildImage, resolvePluginImage } = await import('../src/co
 const { parsePlatformBaseUrl } = await import('../src/config/infrastructure-config.js');
 
 /** Minimal image-backed plugin that reaches the pull-host resolution. */
-const imagePlugin = { name: 'trivy', version: '1.0.0', buildType: 'build_image', orgId: 'system' } as never;
+const imagePlugin = { name: 'trivy', version: '1.0.0', buildType: 'build_image', orgId: '000000000000000000000001' } as never;
 
 /**
  * The CodeBuild image URI must use a registry host AWS CodeBuild can resolve.

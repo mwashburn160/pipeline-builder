@@ -32,6 +32,11 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     findById: (...args: any[]) => mockOrgFindById(...args),
   },
   UserOrganization: {},
+  // auth.js itself no longer touches Group/GroupMembership (it trusts the JWT),
+  // but token.js — pulled in transitively via utils/index.js — still imports them
+  // for issue-time permission resolution, so the mock must expose them.
+  Group: {},
+  GroupMembership: {},
 }));
 
 const { requireRole } = await import('../src/middleware/auth.js');

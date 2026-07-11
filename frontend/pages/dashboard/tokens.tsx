@@ -2,9 +2,13 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { RefreshCw, ChevronRight, ShieldOff } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import api from '@/lib/api';
@@ -52,10 +56,10 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
 
   if (!token) {
     return (
-      <div className="card">
+      <Card>
         <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{title}</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400">No token available</p>
-      </div>
+      </Card>
     );
   }
 
@@ -244,17 +248,12 @@ export default function TokensPage() {
           can be used for CLI or API access.
         </p>
 
-        {genError && (
-          <div className="alert-error"><p>{genError}</p></div>
-        )}
-        {genSuccess && (
-          <div className="alert-success"><p>{genSuccess}</p></div>
-        )}
+        <ErrorAlert message={genError} />
+        <SuccessAlert message={genSuccess} />
 
-        <button onClick={handleGenerateToken} disabled={generating} className="btn btn-primary">
-          {generating ? <LoadingSpinner size="sm" className="mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-          {generating ? 'Generating...' : 'Generate Token'}
-        </button>
+        <Button onClick={handleGenerateToken} loading={generating}>
+          {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate Token</>}
+        </Button>
       </motion.div>
 
       <div className="space-y-6">
@@ -280,19 +279,19 @@ export default function TokensPage() {
                 JWTs cannot be revoked individually — use &ldquo;Sign out everywhere&rdquo; to invalidate all of them at once.
               </p>
             </div>
-            <button
+            <Button
+              variant="danger"
               onClick={handleRevokeAll}
-              disabled={revoking}
-              className="btn btn-danger flex-shrink-0"
+              loading={revoking}
+              className="flex-shrink-0"
             >
-              {revoking ? <LoadingSpinner size="sm" className="mr-2" /> : <ShieldOff className="w-4 h-4 mr-2" />}
-              {revoking ? 'Revoking…' : 'Sign out everywhere'}
-            </button>
+              {revoking ? 'Revoking…' : <><ShieldOff className="w-4 h-4 mr-2" />Sign out everywhere</>}
+            </Button>
           </div>
 
-          {historyError && <div className="alert-error mb-3"><p>{historyError}</p></div>}
-          {revokeError && <div className="alert-error mb-3"><p>{revokeError}</p></div>}
-          {revokeSuccess && <div className="alert-success mb-3"><p>{revokeSuccess}</p></div>}
+          <ErrorAlert message={historyError} className="mb-3" />
+          <ErrorAlert message={revokeError} className="mb-3" />
+          <SuccessAlert message={revokeSuccess} className="mb-3" />
 
           {history.length === 0 ? (
             <p className="text-sm text-gray-500 dark:text-gray-400 italic">No tokens issued yet.</p>

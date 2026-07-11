@@ -44,9 +44,11 @@ const logger = createLogger('tenant-context');
 
 /**
  * Behavior when `withTenantTx` is invoked outside any `runWithTenantContext`
- * scope. Defaults to 'warn' so existing code paths that haven't been audited
- * keep working but surface in logs. Set RLS_CONTEXT_MODE=strict to flip
- * production into fail-fast — recommended once the codebase is fully audited.
+ * scope. The effective default is fail-fast ('strict') in production so a
+ * missing tenant scope surfaces at the bad call site instead of silently
+ * running with empty RLS GUCs; outside production it defaults to 'warn' so
+ * un-audited dev/test paths keep working but log an actionable trace. An
+ * explicit RLS_CONTEXT_MODE env override always wins.
  *
  * 'silent' is kept for tests and scripts that intentionally enter the DB
  * without context (e.g. integration test setup that runs as the connection
@@ -54,8 +56,10 @@ const logger = createLogger('tenant-context');
  */
 type ContextMode = 'silent' | 'warn' | 'strict';
 function getContextMode(): ContextMode {
-  const raw = (process.env.RLS_CONTEXT_MODE || 'warn').toLowerCase();
-  return raw === 'silent' || raw === 'strict' ? raw : 'warn';
+  const raw = process.env.RLS_CONTEXT_MODE?.toLowerCase();
+  if (raw === 'silent' || raw === 'warn' || raw === 'strict') return raw;
+  // No explicit override: fail-fast in production, warn everywhere else.
+  return process.env.NODE_ENV === 'production' ? 'strict' : 'warn';
 }
 
 export interface TenantContext {

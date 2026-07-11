@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, createLogger, errorMessage, getServiceAuthHeader, reserveQuota, decrementQuota, resolveAccessModifier, sendBadRequest, sendError, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveAccessModifier, sendBadRequest, sendError, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireAuth, requireOrgId, withRoute, withTenantContext } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
@@ -76,6 +76,11 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     }) as ErrorRequestHandler,
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
+    // Gate the mutation on `plugins:write` (mirrors the factory write routes and
+    // pipeline's create route). members keep access via the role bundle; this
+    // enforces the permission for custom groups. Runs after auth/orgId so it
+    // sees the resolved principal, before any tenant-scoped work.
+    requirePermission('plugins:write') as RequestHandler,
     // Open the RLS tenant scope (orgId + isSuperAdmin) so deployVersion's reads/writes
     // against the FORCE-RLS plugins table see the caller's org — the factory routes get
     // this via createProtectedRoute, but this route hand-wires its chain.

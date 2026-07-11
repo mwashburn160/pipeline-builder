@@ -23,6 +23,9 @@ const {
   updateMemberRoleSchema,
   transferOwnershipSchema,
   updateQuotasSchema,
+  orgIdpCreateSchema,
+  orgIdpPatchSchema,
+  orgKmsConfigSchema,
 } = await import('../src/utils/validation.js');
 
 // Tests
@@ -281,6 +284,82 @@ describe('updateQuotasSchema', () => {
 
   it('should reject values below -1', () => {
     expect(updateQuotasSchema.safeParse({ pipelines: -5 }).success).toBe(false);
+  });
+});
+
+// Org IdP / KMS schemas (post-zod migration — Task 1). These guard that the
+// controllers still 400 on the same invalid bodies the hand-rolled parsers did.
+
+describe('orgIdpCreateSchema', () => {
+  const valid = {
+    orgId: 'org-1',
+    provider: 'github',
+    clientId: 'cid',
+    clientSecret: 'csecret',
+  };
+
+  it('accepts a minimal valid non-generic config', () => {
+    expect(orgIdpCreateSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('rejects a missing required field', () => {
+    expect(orgIdpCreateSchema.safeParse({ ...valid, clientSecret: '' }).success).toBe(false);
+    const { clientId, ...noClientId } = valid;
+    expect(orgIdpCreateSchema.safeParse(noClientId).success).toBe(false);
+  });
+
+  it('rejects an unknown provider', () => {
+    expect(orgIdpCreateSchema.safeParse({ ...valid, provider: 'okta' }).success).toBe(false);
+  });
+
+  it('requires discoveryUrl for generic-oidc', () => {
+    expect(orgIdpCreateSchema.safeParse({ ...valid, provider: 'generic-oidc' }).success).toBe(false);
+    expect(orgIdpCreateSchema.safeParse({ ...valid, provider: 'generic-oidc', discoveryUrl: 'https://idp/.well-known' }).success).toBe(true);
+  });
+
+  it('rejects a wrongly-typed optional field', () => {
+    expect(orgIdpCreateSchema.safeParse({ ...valid, allowedEmailDomains: 'acme.com' }).success).toBe(false);
+    expect(orgIdpCreateSchema.safeParse({ ...valid, enabled: 'yes' }).success).toBe(false);
+  });
+});
+
+describe('orgIdpPatchSchema', () => {
+  it('accepts an empty patch (all fields optional)', () => {
+    expect(orgIdpPatchSchema.safeParse({}).success).toBe(true);
+  });
+
+  it('accepts a partial update', () => {
+    expect(orgIdpPatchSchema.safeParse({ enabled: false }).success).toBe(true);
+  });
+
+  it('rejects an unknown provider', () => {
+    expect(orgIdpPatchSchema.safeParse({ provider: 'okta' }).success).toBe(false);
+  });
+
+  it('rejects a wrongly-typed field', () => {
+    expect(orgIdpPatchSchema.safeParse({ allowedEmailDomains: [1, 2] }).success).toBe(false);
+  });
+});
+
+describe('orgKmsConfigSchema', () => {
+  it('accepts a valid keyId + base64 ciphertext', () => {
+    expect(orgKmsConfigSchema.safeParse({ keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' }).success).toBe(true);
+  });
+
+  it('rejects a missing keyId', () => {
+    expect(orgKmsConfigSchema.safeParse({ ciphertextBase64: 'AQICAH==' }).success).toBe(false);
+  });
+
+  it('rejects an empty keyId', () => {
+    expect(orgKmsConfigSchema.safeParse({ keyId: '', ciphertextBase64: 'AQICAH==' }).success).toBe(false);
+  });
+
+  it('rejects non-base64 ciphertext', () => {
+    expect(orgKmsConfigSchema.safeParse({ keyId: 'alias/pb', ciphertextBase64: 'not!base64!' }).success).toBe(false);
+  });
+
+  it('rejects a missing ciphertext', () => {
+    expect(orgKmsConfigSchema.safeParse({ keyId: 'alias/pb' }).success).toBe(false);
   });
 });
 

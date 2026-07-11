@@ -48,7 +48,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
     const ctx = { log: jest.fn(), requestId: 'test-req' };
     try {
-      await handler({ req, res, ctx, orgId: 'system', userId: 'admin' });
+      await handler({ req, res, ctx, orgId: '000000000000000000000001', userId: 'admin' });
     } catch (err) {
       const r = res as { headersSent: boolean; status: (n: number) => { json: (b: unknown) => void } };
       const status = (err as { statusCode?: number })?.statusCode ?? 500;

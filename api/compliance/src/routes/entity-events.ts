@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { sendSuccess, sendBadRequest, sendError, ErrorCode, createLogger, requireAuth, isServicePrincipal, validateBody } from '@pipeline-builder/api-core';
-import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { evaluateEntityEvent } from '../helpers/entity-event-handler.js';

@@ -5,7 +5,7 @@ import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
-  canAdministerOrg,
+  requireOrgAdmin,
   getAdminContext,
   requireAuth,
   withController,
@@ -14,14 +14,20 @@ import {
   listGroupsWithMembers,
   addUserToGroup,
   removeUserFromGroup,
+  createGroup,
+  updateGroup,
+  deleteGroup,
   GRP_GROUP_NOT_FOUND,
   GRP_USER_NOT_FOUND,
   GRP_NOT_ORG_MEMBER,
   GRP_CANNOT_REMOVE_SELF,
   GRP_LAST_PRIVILEGED_MEMBER,
   GRP_REQUIRES_SUPERADMIN,
+  GRP_SYSTEM_IMMUTABLE,
+  GRP_NAME_TAKEN,
+  GRP_INVALID_PERMISSION,
 } from '../services/index.js';
-import { validateBody, addGroupMemberSchema } from '../utils/validation.js';
+import { validateBody, addGroupMemberSchema, createGroupSchema, updateGroupSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-groups-controller');
 
@@ -39,6 +45,61 @@ export const getOrganizationGroups = withController('Get groups', async (req, re
   sendSuccess(res, 200, { groups });
 });
 
+/** POST /organization/:id/groups — create a custom permission group. */
+export const createOrganizationGroup = withController('Create group', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const id = req.params.id as string;
+  if (!(await requireOrgAdmin(req, res, id))) return;
+
+  const body = validateBody(createGroupSchema, req.body, res);
+  if (!body) return;
+
+  const group = await createGroup(id, body);
+  audit(req, 'org.group.create', { targetType: 'group', targetId: group.id, affectedOrgId: id });
+  sendSuccess(res, 201, { group }, 'Group created');
+}, {
+  [GRP_NAME_TAKEN]: { status: 409, message: 'A group with this name already exists' },
+  [GRP_INVALID_PERMISSION]: { status: 400, message: 'One or more permissions are not recognized' },
+});
+
+/** PUT /organization/:id/groups/:groupId — update a custom group's name/description/permissions. */
+export const updateOrganizationGroup = withController('Update group', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const id = req.params.id as string;
+  const groupId = req.params.groupId as string;
+  if (!(await requireOrgAdmin(req, res, id))) return;
+
+  const body = validateBody(updateGroupSchema, req.body, res);
+  if (!body) return;
+
+  const group = await updateGroup(id, groupId, body);
+  audit(req, 'org.group.update', { targetType: 'group', targetId: groupId, affectedOrgId: id });
+  sendSuccess(res, 200, { group }, 'Group updated');
+}, {
+  [GRP_GROUP_NOT_FOUND]: { status: 404, message: 'Group not found' },
+  [GRP_SYSTEM_IMMUTABLE]: { status: 400, message: 'Built-in groups cannot be modified' },
+  [GRP_NAME_TAKEN]: { status: 409, message: 'A group with this name already exists' },
+  [GRP_INVALID_PERMISSION]: { status: 400, message: 'One or more permissions are not recognized' },
+});
+
+/** DELETE /organization/:id/groups/:groupId — delete a custom group. */
+export const deleteOrganizationGroup = withController('Delete group', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const id = req.params.id as string;
+  const groupId = req.params.groupId as string;
+  if (!(await requireOrgAdmin(req, res, id))) return;
+
+  await deleteGroup(id, groupId);
+  audit(req, 'org.group.delete', { targetType: 'group', targetId: groupId, affectedOrgId: id });
+  sendSuccess(res, 200, undefined, 'Group deleted');
+}, {
+  [GRP_GROUP_NOT_FOUND]: { status: 404, message: 'Group not found' },
+  [GRP_SYSTEM_IMMUTABLE]: { status: 400, message: 'Built-in groups cannot be deleted' },
+});
+
 /** POST /organization/:id/groups/:groupId/members — add an org member to a group. */
 export const addGroupMember = withController('Add group member', async (req, res) => {
   if (!requireAuth(req, res)) return;
@@ -46,9 +107,7 @@ export const addGroupMember = withController('Add group member', async (req, res
   const id = req.params.id as string;
   const groupId = req.params.groupId as string;
   const admin = getAdminContext(req);
-  if (!(await canAdministerOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden: Admin access required for this organization');
-  }
+  if (!(await requireOrgAdmin(req, res, id))) return;
 
   const body = validateBody(addGroupMemberSchema, req.body, res);
   if (!body) return;
@@ -79,9 +138,7 @@ export const removeGroupMember = withController('Remove group member', async (re
   const groupId = req.params.groupId as string;
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-  if (!(await canAdministerOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden: Admin access required for this organization');
-  }
+  if (!(await requireOrgAdmin(req, res, id))) return;
 
   await removeUserFromGroup(id, groupId, userId, { actorUserId: req.user!.sub, actorIsSuperAdmin: admin.isSuperAdmin });
   logger.info(`[REMOVE GROUP MEMBER] User ${userId} removed from group ${groupId} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);

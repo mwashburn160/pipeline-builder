@@ -369,6 +369,65 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
     || echo "WARNING: auto-init exited non-zero — re-run on the box: sudo -iu minikube; cd ${INSTALL_DIR}; PLATFORM_BASE_URL=https://${DOMAIN} ./deploy/bin/init-platform.sh ec2"
 fi
 
+# =============================================================================
+# Phase 11: Daily backup timer (systemd) — INSTALLED DISABLED, needs review
+# =============================================================================
+# deploy/bin/backup.sh does pg_dump + mongodump → S3 but nothing schedules it.
+# We install a ready-to-enable systemd service + daily timer here, but leave it
+# DISABLED because enabling it unattended is NOT unambiguously safe on this box:
+#   - backup.sh needs pg_dump + mongodump on the HOST; bootstrap doesn't install
+#     the postgresql/mongodb client tools.
+#   - The DBs run INSIDE minikube; POSTGRES_HOST / MONGODB_URI in .env resolve to
+#     in-cluster service names, not reachable from the host without a NodePort /
+#     port-forward.
+#   - BACKUP_BUCKET must be provisioned + the instance role granted s3:PutObject.
+# So an operator must review + wire those up, then `systemctl enable --now
+# pipeline-backup.timer`. Mirrors the dnf-automatic-install.timer style above,
+# but intentionally not auto-enabled. Guarded so it only installs if backup.sh
+# is present.
+echo ""
+echo "========================================"
+echo "Phase 11: Install backup timer (disabled — review before enabling)"
+echo "========================================"
+BACKUP_SH="${INSTALL_DIR}/deploy/bin/backup.sh"
+if [ -f "$BACKUP_SH" ]; then
+  cat > /etc/systemd/system/pipeline-backup.service <<BACKUPSVC
+[Unit]
+Description=Pipeline Builder DB backup (postgres + mongo) to S3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=minikube
+# Pulls BACKUP_BUCKET / POSTGRES_* / MONGODB_URI / AWS_REGION from the deploy .env.
+# Review that these point at host-reachable endpoints before enabling (see notes
+# in bootstrap.sh Phase 11).
+EnvironmentFile=${DEPLOY_DIR}/.env
+ExecStart=/usr/bin/env bash ${BACKUP_SH}
+BACKUPSVC
+
+  cat > /etc/systemd/system/pipeline-backup.timer <<'BACKUPTIMER'
+[Unit]
+Description=Run Pipeline Builder DB backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target
+BACKUPTIMER
+
+  systemctl daemon-reload
+  echo "  Installed pipeline-backup.{service,timer} (DISABLED)."
+  echo "  To enable after wiring up client tools + DB reachability + BACKUP_BUCKET:"
+  echo "    sudo systemctl enable --now pipeline-backup.timer"
+else
+  echo "  backup.sh not found at $BACKUP_SH — skipping backup timer install"
+fi
+
 echo ""
 echo "========================================"
 echo "Bootstrap Complete"

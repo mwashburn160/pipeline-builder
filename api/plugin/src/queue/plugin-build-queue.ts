@@ -4,26 +4,40 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, createRemoteAuditClient, decrementQuota, reserveQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, createRemoteAuditClient, decrementQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, VALID_TIERS } from '@pipeline-builder/api-core';
 import type { QuotaService, QuotaTier, RemoteAuditClient } from '@pipeline-builder/api-core';
 import { incCounter, observe } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import type { PluginBuildConfig } from '@pipeline-builder/pipeline-core';
-import { Config, CoreConstants, db, schema, reportingService, runWithTenantContext, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
+import { db, schema, reportingService, runWithTenantContext, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { Queue, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 
+import {
+  DLQ_NAME,
+  getDeadLetterQueue,
+  enforceDlqMaxSize,
+  startDlqWorker,
+  closeDlqWorker,
+  closeDlqQueue,
+} from './plugin-build-dlq.js';
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
+import { ORG_SLOT_DELAY_MS, tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } from './slot-manager.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { pluginService } from '../services/plugin-service.js';
 
+// Re-exported so existing `import { ... } from './plugin-build-queue.js'` sites
+// keep resolving after the DLQ concern moved to its own module.
+export { getDeadLetterQueue, purgeDlq, replayDlqJob } from './plugin-build-dlq.js';
+
 const logger = createLogger('plugin-build-queue');
 
 /** Lazy accessor so config load errors surface on use, not at module import. */
-function getBuildCfg(): PluginBuildConfig {
+export function getBuildCfg(): PluginBuildConfig {
   return Config.get('pluginBuild');
 }
 
@@ -34,107 +48,13 @@ function getBuildCfg(): PluginBuildConfig {
  */
 const mainBudget = () => getBuildCfg().maxAttempts;
 const dlqBudget = () => getBuildCfg().dlqMaxAttempts * getBuildCfg().maxAttempts;
-const totalAttemptBudget = () => mainBudget() + dlqBudget();
+export const totalAttemptBudget = () => mainBudget() + dlqBudget();
 
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
-
-// ---------------------------------------------------------------------------
-// Per-org concurrency cap (multi-tenancy hardening)
-// ---------------------------------------------------------------------------
-//
-// BullMQ OSS doesn't have built-in group-keyed concurrency; we layer a
-// per-org semaphore on top of Redis. Each worker tries to acquire a slot
-// before processing; over the cap it re-enqueues with a short delay so
-// another org's job can take the worker slot. Atomic via Lua so two
-// concurrent acquires can't both observe a stale count and over-allocate.
-//
-// Tuning:
-//   PLUGIN_MAX_BUILDS_PER_ORG  max in-flight builds per org (default 3)
-//   PLUGIN_ORG_SLOT_DELAY_MS   backoff between re-acquisition tries (default 10s)
-//   ORG_SLOT_TTL_SEC           defensive expiry so a crashed worker doesn't leak
-const MAX_BUILDS_PER_ORG = parseInt(process.env.PLUGIN_MAX_BUILDS_PER_ORG || '3', 10);
-const ORG_SLOT_DELAY_MS = parseInt(process.env.PLUGIN_ORG_SLOT_DELAY_MS || '10000', 10);
-const ORG_SLOT_TTL_SEC = parseInt(process.env.PLUGIN_ORG_SLOT_TTL_SEC || '900', 10);
-const orgSlotKey = (orgId: string) => `pb:org-build:${orgId}`;
-/** Sibling hash `jobId -> orgId` for live slot owners. The scrubber walks
- *  this to reconcile slots that BullMQ no longer knows about. */
-const orgSlotOwnersKey = 'pb:org-build-owners';
-
-/**
- * Atomic check-and-increment via Lua. Returns 1 if a slot was reserved
- * (count <= cap), 0 if the cap was already reached. Avoids the INCR-then-DECR
- * race where two acquires can briefly observe a count over the cap before one
- * rolls back.
- */
-const ACQUIRE_SLOT_LUA = `
-local count = redis.call('INCR', KEYS[1])
-if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
-if count > tonumber(ARGV[1]) then
-  redis.call('DECR', KEYS[1])
-  return 0
-end
-return 1
-`;
-
-/** Try to acquire an in-flight build slot for `orgId`. Returns true on success;
- *  false if the org is already at its cap (caller should re-enqueue). Records
- *  `jobId -> orgId` so the scrubber can reclaim a slot whose job vanished. */
-async function tryAcquireOrgSlot(orgId: string, jobId: string): Promise<boolean> {
-  const redis = getConnectionForDb(0);
-  const result = await redis.eval(
-    ACQUIRE_SLOT_LUA, 1, orgSlotKey(orgId),
-    String(MAX_BUILDS_PER_ORG), String(ORG_SLOT_TTL_SEC),
-  );
-  if (result !== 1) return false;
-  await redis.hset(orgSlotOwnersKey, jobId, orgId);
-  return true;
-}
-
-/** Release the org's slot. Defensive: never let the counter go negative. */
-async function releaseOrgSlot(orgId: string, jobId: string): Promise<void> {
-  const redis = getConnectionForDb(0);
-  const count = await redis.decr(orgSlotKey(orgId));
-  if (count < 0) await redis.set(orgSlotKey(orgId), '0', 'EX', ORG_SLOT_TTL_SEC);
-  await redis.hdel(orgSlotOwnersKey, jobId);
-}
-
-/**
- * Reconcile slot counters against live BullMQ state. For each owner entry
- * whose jobId is no longer in any active/waiting/delayed set across the tier
- * queues and DLQ, decrement the org's counter and drop the owner record.
- * Protects against worker crashes that leak slots until TTL expiry.
- */
-async function scrubOrgSlots(): Promise<void> {
-  const redis = getConnectionForDb(0);
-  try {
-    const owners = await redis.hgetall(orgSlotOwnersKey);
-    const ownerEntries = Object.entries(owners);
-    if (ownerEntries.length === 0) return;
-
-    const activeStates = ['active', 'waiting', 'delayed'] as const;
-    const tierJobLists = await Promise.all([
-      ...getAllTierQueues().map(({ queue }) => queue.getJobs([...activeStates])),
-      getDeadLetterQueue().getJobs([...activeStates]),
-    ]);
-    const liveJobIds = new Set<string>();
-    for (const jobs of tierJobLists) for (const j of jobs) if (j.id) liveJobIds.add(String(j.id));
-
-    for (const [jobId, orgId] of ownerEntries) {
-      if (liveJobIds.has(jobId)) continue;
-      const count = await redis.decr(orgSlotKey(orgId));
-      if (count < 0) await redis.set(orgSlotKey(orgId), '0', 'EX', ORG_SLOT_TTL_SEC);
-      await redis.hdel(orgSlotOwnersKey, jobId);
-      logger.warn('Reclaimed leaked org build slot', { jobId, orgId });
-    }
-  } catch (err) {
-    logger.debug('Org slot scrub failed', { error: errorMessage(err) });
-  }
-}
 
 // Queue name & singleton state
 
 const QUEUE_NAME = CoreConstants.PLUGIN_BUILD_QUEUE_NAME;
-const DLQ_NAME = `${QUEUE_NAME}-dlq`;
 
 // ---------------------------------------------------------------------------
 // Per-tier queue partitioning
@@ -173,8 +93,6 @@ function getRedisDbForTier(tier: QuotaTier): number {
 const connectionsByDb = new Map<number, Redis>();
 const tierQueues = new Map<QuotaTier, Queue<PluginBuildJobData>>();
 const tierWorkers = new Map<QuotaTier, Worker<PluginBuildJobData>>();
-let dlq: Queue<PluginBuildJobData> | null = null;
-let dlqWorker: Worker<PluginBuildJobData> | null = null;
 
 // ---------------------------------------------------------------------------
 // Per-org tier cache
@@ -216,7 +134,7 @@ function getAuditClient(): RemoteAuditClient {
 // Redis connection
 // ---------------------------------------------------------------------------
 
-function getConnectionForDb(dbNum: number): Redis {
+export function getConnectionForDb(dbNum: number): Redis {
   let conn = connectionsByDb.get(dbNum);
   if (!conn) {
     const redis = Config.get('redis');
@@ -264,19 +182,6 @@ function getConnectionForTier(tier: QuotaTier): Redis {
 // ---------------------------------------------------------------------------
 // Queues
 // ---------------------------------------------------------------------------
-
-export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
-  if (!dlq) {
-    dlq = new Queue<PluginBuildJobData>(DLQ_NAME, {
-      connection: getConnectionForDb(0) as ConnectionOptions,
-      defaultJobOptions: {
-        removeOnComplete: false,
-        removeOnFail: false,
-      },
-    });
-  }
-  return dlq;
-}
 
 export function getTierQueue(tier: QuotaTier): Queue<PluginBuildJobData> {
   let q = tierQueues.get(tier);
@@ -359,7 +264,7 @@ export function waitForWorkerReady(timeoutMs = getBuildCfg().workerTimeoutMs): P
   });
 }
 
-function cleanupContextDir(dir: string): void {
+export function cleanupContextDir(dir: string): void {
   if (dir && fs.existsSync(dir)) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -436,15 +341,6 @@ async function getProtectedContextDirs(): Promise<Set<string>> {
   return dirs;
 }
 
-const DLQ_ENFORCE_SCAN_INTERVAL_MS = parseInt(process.env.PLUGIN_DLQ_SCAN_INTERVAL_MS || '5000', 10);
-let lastDlqEnforceMs = 0;
-
-/**
- * Enforce DLQ max size by purging oldest terminal jobs first. Rate-limited
- * to once per DLQ_ENFORCE_SCAN_INTERVAL_MS and gated by a cheap getJobCounts
- * total-check so the expensive scan only runs when the queue is close to its
- * cap.
- */
 /**
  * Release the org's reserved `plugins` quota slot for a build job exactly once.
  * Every terminal failure path (main worker + DLQ worker) and every DLQ purge
@@ -454,7 +350,7 @@ let lastDlqEnforceMs = 0;
  * isn't decremented again when a purge removes it (double-count), while a job
  * purged before it ever reached a terminal handler still gets its slot back.
  */
-function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: QuotaService): void {
+export function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: QuotaService): void {
   if (job.data.quotaReleased) return;
   const { orgId } = job.data;
   decrementQuota(quotaService, orgId, 'plugins',
@@ -465,95 +361,6 @@ function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: QuotaSer
   void job.updateData(job.data).catch((err) =>
     logger.debug('Failed to persist quotaReleased flag', { jobId: job.id, error: String(err) }),
   );
-}
-
-async function enforceDlqMaxSize(quotaService: QuotaService): Promise<void> {
-  const now = Date.now();
-  if (now - lastDlqEnforceMs < DLQ_ENFORCE_SCAN_INTERVAL_MS) return;
-  lastDlqEnforceMs = now;
-
-  const cfg = getBuildCfg();
-  const q = getDeadLetterQueue();
-  const counts = await q.getJobCounts('waiting', 'delayed', 'active', 'completed', 'failed');
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  if (total < cfg.dlqMaxSize) return;
-
-  const allJobs = await q.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed']);
-  const terminalJobs = allJobs.filter((job) => {
-    if (job.finishedOn == null) return false;
-    const maxAttempts = job.opts.attempts ?? 1;
-    return job.attemptsMade >= maxAttempts;
-  });
-
-  terminalJobs.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
-  const purgeCount = allJobs.length - cfg.dlqMaxSize + 1;
-  const toPurge = terminalJobs.slice(0, purgeCount);
-
-  for (const job of toPurge) {
-    // Give the slot back unless the job already released it on exhaustion
-    // (its terminal handler decremented + marked it) — purging is otherwise a
-    // silent quota leak for any not-yet-terminal job we evict for capacity.
-    releasePluginQuota(job, quotaService);
-    cleanupContextDir(job.data.buildRequest.contextDir);
-    try { await job.remove(); } catch { /* best-effort */ }
-    logger.info('Purged oldest DLQ job', { jobId: job.id, pluginName: job.data.pluginRecord.name });
-  }
-}
-
-export async function purgeDlq(quotaService: QuotaService): Promise<void> {
-  const q = getDeadLetterQueue();
-  const jobs = await q.getJobs(['waiting', 'delayed', 'completed', 'failed']);
-  for (const job of jobs) {
-    // Release each still-reserved slot before obliterating — jobs that never
-    // reached a terminal handler would otherwise leak quota until period reset.
-    releasePluginQuota(job, quotaService);
-    cleanupContextDir(job.data.buildRequest.contextDir);
-  }
-  await q.obliterate({ force: true });
-}
-
-/**
- * Replay a single DLQ job back onto the build queue matching the org's tier.
- * Resets retry counters so the job gets a fresh budget. Removes the DLQ
- * entry after successful enqueue so it doesn't show up twice.
- */
-export async function replayDlqJob(jobId: string, quotaService: QuotaService): Promise<string | null> {
-  const dlqJob = await getDeadLetterQueue().getJob(jobId);
-  if (!dlqJob) return null;
-
-  const { orgId } = dlqJob.data;
-  const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
-
-  // The DLQ job already RELEASED its plugin slot on terminal failure
-  // (quotaReleased:true). A replay is a fresh build attempt, so re-reserve a
-  // slot and hand ownership to the new job (quotaReleased:false) — otherwise a
-  // successful replay deploys a plugin the org's usage never counts. If the org
-  // is at its plugin cap we still replay (an admin action) but the job carries
-  // no slot to release, keeping accounting balanced (no double-credit).
-  let quotaReleased = true;
-  try {
-    const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
-    if (reservation.exceeded) {
-      logger.warn('DLQ replay proceeding without a plugin-quota slot (org at cap)', { jobId, orgId });
-    } else {
-      quotaReleased = false;
-    }
-  } catch (err) {
-    logger.warn('DLQ replay quota reservation failed; proceeding without slot', { jobId, orgId, error: errorMessage(err) });
-  }
-
-  const freshData: PluginBuildJobData = {
-    ...dlqJob.data,
-    totalAttempts: 0,
-    quotaReleased,
-  };
-  delete (freshData as { lastError?: string }).lastError;
-  delete (freshData as { failureCategory?: string }).failureCategory;
-
-  const tier = await getOrgTier(quotaService, orgId, authHeader);
-  const replayed = await getTierQueue(tier).add(`replay-${dlqJob.name}`, freshData);
-  await dlqJob.remove();
-  return String(replayed.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -667,121 +474,129 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   const failedHandler = (job: Job<PluginBuildJobData> | undefined, error: Error) => {
     if (!job) return;
 
-    const { requestId, orgId, pluginRecord, buildRequest } = job.data;
-    const totalAttempts = (job.data.totalAttempts ?? 0) + 1;
-    const maxAttempts = job.opts.attempts ?? 1;
-    const isFinalAttempt = job.attemptsMade >= maxAttempts;
+    // The 'failed' event fires OUTSIDE the processor's runWithTenantContext, so
+    // recordBuildEvent's withTenantTx insert would run with an empty
+    // `app.org_id` and RLS silently drops the failed BUILD row (the insert's
+    // .catch just logs a warn). Re-establish the job's tenant scope for the
+    // whole handler so the failure is recorded (and any other tenant-scoped
+    // read/write here is attributable).
+    return runWithTenantContext({ orgId: job.data.orgId, isSuperAdmin: false }, async () => {
+      const { requestId, orgId, pluginRecord, buildRequest } = job.data;
+      const totalAttempts = (job.data.totalAttempts ?? 0) + 1;
+      const maxAttempts = job.opts.attempts ?? 1;
+      const isFinalAttempt = job.attemptsMade >= maxAttempts;
 
-    // Prometheus counter. `plugin_name` is intentionally omitted to keep the
-    // label set bounded -- per-plugin drill-down is served via Loki.
-    const isTimeout = /timed out|timeout/i.test(error.message);
-    incCounter('plugin_builds_total', {
-      status: isTimeout ? 'timeout' : 'failed',
-      org_id: orgId ?? 'unknown',
-    });
+      // Prometheus counter. `plugin_name` is intentionally omitted to keep the
+      // label set bounded -- per-plugin drill-down is served via Loki.
+      const isTimeout = /timed out|timeout/i.test(error.message);
+      incCounter('plugin_builds_total', {
+        status: isTimeout ? 'timeout' : 'failed',
+        org_id: orgId ?? 'unknown',
+      });
 
-    logger.error('Plugin build failed', {
-      jobId: job.id,
-      requestId,
-      error: error.message,
-      attemptsMade: job.attemptsMade,
-      totalAttempts,
-      isFinalAttempt,
-      ...extractDbError(error),
-    });
+      logger.error('Plugin build failed', {
+        jobId: job.id,
+        requestId,
+        error: error.message,
+        attemptsMade: job.attemptsMade,
+        totalAttempts,
+        isFinalAttempt,
+        ...extractDbError(error),
+      });
 
-    sseManager.send(requestId, 'ERROR', 'Build failed: an error occurred during the build process', {
-      jobId: job.id,
-      attemptsMade: job.attemptsMade,
-      maxAttempts,
-    });
+      sseManager.send(requestId, 'ERROR', 'Build failed: an error occurred during the build process', {
+        jobId: job.id,
+        attemptsMade: job.attemptsMade,
+        maxAttempts,
+      });
 
-    recordBuildEvent(orgId, 'failed', job, {
-      pluginName: pluginRecord.name,
-      pluginVersion: pluginRecord.version,
-      errorMessage: error.message,
-    });
+      recordBuildEvent(orgId, 'failed', job, {
+        pluginName: pluginRecord.name,
+        pluginVersion: pluginRecord.version,
+        errorMessage: error.message,
+      });
 
-    const action = isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed';
-    logger.info('Plugin build event', {
-      eventCategory: 'plugin-build',
-      action,
-      event: isTimeout ? 'timeout' : 'failed',
-      actorId: job.data.userId,
-      orgId,
-      targetType: 'plugin',
-      pluginName: pluginRecord.name,
-      pluginVersion: pluginRecord.version,
-      jobId: job.id,
-      errorMessage: error.message,
-    });
-
-    if (isFinalAttempt) {
-      getAuditClient().record({
+      const action = isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed';
+      logger.info('Plugin build event', {
+        eventCategory: 'plugin-build',
         action,
+        event: isTimeout ? 'timeout' : 'failed',
         actorId: job.data.userId,
         orgId,
         targetType: 'plugin',
-        details: {
-          pluginName: pluginRecord.name,
-          pluginVersion: pluginRecord.version,
-          jobId: job.id,
-          errorMessage: error.message,
-          isTimeout,
-        },
-      }, 'plugin');
-    }
-
-    if (!isFinalAttempt) return;
-
-    const category = classifyFailure(error);
-    const cfg = getBuildCfg();
-    const budget = totalAttemptBudget();
-
-    // Permanent failure: terminal. Decrement here because the job will not
-    // reach the DLQ. When the failure IS retryable (DLQ-bound branch below),
-    // we deliberately skip decrement -- the dlqWorker's `failed` handler
-    // owns the decrement on DLQ exhaustion, otherwise a single retryable
-    // failure would double-count.
-    if (category === 'permanent' || totalAttempts >= budget) {
-      cleanupContextDir(buildRequest.contextDir);
-      releasePluginQuota(job, quotaService);
-      logger.warn('Permanent failure, cleaned up', {
-        jobId: job.id,
         pluginName: pluginRecord.name,
-        category,
-        totalAttempts,
+        pluginVersion: pluginRecord.version,
+        jobId: job.id,
+        errorMessage: error.message,
       });
-      return;
-    }
 
-    // Retryable: move to DLQ for retry (keep dir alive; do NOT decrement
-    // quota -- the DLQ exhaustion path owns that decrement).
-    const dlqData: PluginBuildJobData = {
-      ...job.data,
-      failureCategory: category,
-      lastError: error.message,
-      totalAttempts,
-    };
+      if (isFinalAttempt) {
+        getAuditClient().record({
+          action,
+          actorId: job.data.userId,
+          orgId,
+          targetType: 'plugin',
+          details: {
+            pluginName: pluginRecord.name,
+            pluginVersion: pluginRecord.version,
+            jobId: job.id,
+            errorMessage: error.message,
+            isTimeout,
+          },
+        }, 'plugin');
+      }
 
-    enforceDlqMaxSize(quotaService)
-      .then(() => getDeadLetterQueue().add(`dlq-${job.id}`, dlqData, {
-        jobId: `dlq-${job.id}`,
-        attempts: cfg.dlqMaxAttempts,
-        backoff: { type: 'exponential', delay: cfg.dlqBackoffBaseMs },
-      }))
-      .then(() => {
-        logger.info('Moved to DLQ for retry', {
+      if (!isFinalAttempt) return;
+
+      const category = classifyFailure(error);
+      const cfg = getBuildCfg();
+      const budget = totalAttemptBudget();
+
+      // Permanent failure: terminal. Decrement here because the job will not
+      // reach the DLQ. When the failure IS retryable (DLQ-bound branch below),
+      // we deliberately skip decrement -- the dlqWorker's `failed` handler
+      // owns the decrement on DLQ exhaustion, otherwise a single retryable
+      // failure would double-count.
+      if (category === 'permanent' || totalAttempts >= budget) {
+        cleanupContextDir(buildRequest.contextDir);
+        releasePluginQuota(job, quotaService);
+        logger.warn('Permanent failure, cleaned up', {
           jobId: job.id,
           pluginName: pluginRecord.name,
+          category,
           totalAttempts,
-          dlqAttempts: cfg.dlqMaxAttempts,
         });
-      })
-      .catch((dlqErr) => {
-        logger.warn('Failed to move job to DLQ, cleaning up', { jobId: job.id, error: errorMessage(dlqErr) });
-        cleanupContextDir(buildRequest.contextDir);
-      });
+        return;
+      }
+
+      // Retryable: move to DLQ for retry (keep dir alive; do NOT decrement
+      // quota -- the DLQ exhaustion path owns that decrement).
+      const dlqData: PluginBuildJobData = {
+        ...job.data,
+        failureCategory: category,
+        lastError: error.message,
+        totalAttempts,
+      };
+
+      enforceDlqMaxSize(quotaService)
+        .then(() => getDeadLetterQueue().add(`dlq-${job.id}`, dlqData, {
+          jobId: `dlq-${job.id}`,
+          attempts: cfg.dlqMaxAttempts,
+          backoff: { type: 'exponential', delay: cfg.dlqBackoffBaseMs },
+        }))
+        .then(() => {
+          logger.info('Moved to DLQ for retry', {
+            jobId: job.id,
+            pluginName: pluginRecord.name,
+            totalAttempts,
+            dlqAttempts: cfg.dlqMaxAttempts,
+          });
+        })
+        .catch((dlqErr) => {
+          logger.warn('Failed to move job to DLQ, cleaning up', { jobId: job.id, error: errorMessage(dlqErr) });
+          cleanupContextDir(buildRequest.contextDir);
+        });
+    });
   };
 
   const errorHandler = (error: Error) => {
@@ -829,91 +644,6 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     ...getAllTierQueues().map(({ queue }) => ({ name: queue.name, queue })),
     { name: DLQ_NAME, queue: getDeadLetterQueue() },
   ]);
-}
-
-// ---------------------------------------------------------------------------
-// DLQ worker -- re-queues retryable jobs back to the main queue
-// ---------------------------------------------------------------------------
-
-function startDlqWorker(quotaService: QuotaService): void {
-  if (dlqWorker) return;
-
-  dlqWorker = new Worker<PluginBuildJobData>(DLQ_NAME,
-    async (job: Job<PluginBuildJobData>) => {
-      const { orgId, pluginRecord, buildRequest, totalAttempts } = job.data;
-      const budget = totalAttemptBudget();
-
-      if ((totalAttempts ?? 0) >= budget) {
-        cleanupContextDir(buildRequest.contextDir);
-        releasePluginQuota(job, quotaService);
-        logger.warn('DLQ: max total attempts reached, giving up', {
-          jobId: job.id,
-          pluginName: pluginRecord.name,
-          totalAttempts,
-        });
-        return;
-      }
-
-      if (!fs.existsSync(buildRequest.contextDir)) {
-        throw new Error(`Context dir missing: ${buildRequest.contextDir}`);
-      }
-
-      try { fs.utimesSync(buildRequest.contextDir, new Date(), new Date()); } catch { /* ignore */ }
-
-      logger.info('DLQ: re-queuing job', {
-        jobId: job.id,
-        pluginName: pluginRecord.name,
-        dlqAttempt: job.attemptsMade,
-        totalAttempts,
-      });
-
-      const { failureCategory: _, lastError: __, ...cleanData } = job.data;
-      const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
-      await getTierQueue(tier).add(`retry-${pluginRecord.name}`, cleanData);
-
-      // The re-queued job (fresh data, quotaReleased unset) now OWNS this org's
-      // plugin-quota slot and will release it on its terminal. Mark the original
-      // DLQ job's slot as already accounted so purgeDlq / auto-purge don't release
-      // the SAME slot again (double-release) when they later evict this lingering
-      // completed DLQ job (kept by removeOnComplete:false).
-      job.data.quotaReleased = true;
-      await job.updateData(job.data);
-    },
-    {
-      connection: getConnectionForDb(0) as ConnectionOptions,
-      concurrency: 1,
-    },
-  );
-
-  dlqWorker.on('failed', (job, error) => {
-    if (!job) return;
-
-    const maxAttempts = job.opts.attempts ?? 1;
-    const isFinalAttempt = job.attemptsMade >= maxAttempts;
-
-    logger.error('DLQ retry failed', {
-      jobId: job.id,
-      pluginName: job.data.pluginRecord.name,
-      error: error.message,
-      attemptsMade: job.attemptsMade,
-      isFinalAttempt,
-    });
-
-    if (isFinalAttempt) {
-      cleanupContextDir(job.data.buildRequest.contextDir);
-      releasePluginQuota(job, quotaService);
-      logger.warn('DLQ exhausted all retries, cleaned up', {
-        jobId: job.id,
-        pluginName: job.data.pluginRecord.name,
-      });
-    }
-  });
-
-  dlqWorker.on('completed', (job) => {
-    logger.info('DLQ job processed', { jobId: job.id, name: job.name });
-  });
-
-  logger.info('DLQ worker started');
 }
 
 // ---------------------------------------------------------------------------
@@ -972,18 +702,12 @@ export async function shutdownQueue(): Promise<void> {
     cleanupTimer = null;
   }
   stopQueueMetricsScraper();
-  if (dlqWorker) {
-    await dlqWorker.close();
-    dlqWorker = null;
-  }
+  await closeDlqWorker();
   await Promise.all(Array.from(tierWorkers.values()).map((w) => w.close()));
   tierWorkers.clear();
   await Promise.all(Array.from(tierQueues.values()).map((q) => q.close()));
   tierQueues.clear();
-  if (dlq) {
-    await dlq.close();
-    dlq = null;
-  }
+  await closeDlqQueue();
   for (const conn of connectionsByDb.values()) {
     conn.disconnect();
   }

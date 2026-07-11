@@ -2,18 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import {
-  CoreConstants,
-  CrudService,
-  buildPluginConditions,
-  getTenantContext,
-  schema,
-  withTenantTx,
-  AccessModifier,
-  ComputeType,
-  PluginType,
-  type PluginFilter,
-} from '@pipeline-builder/pipeline-core';
+import { CoreConstants, AccessModifier, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
+import { CrudService, buildPluginConditions, getTenantContext, schema, withTenantTx, type PluginFilter } from '@pipeline-builder/pipeline-data';
 
 const logger = createLogger('plugin-service');
 

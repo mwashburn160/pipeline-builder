@@ -46,7 +46,9 @@ function styleFor(a: Alert): { bg: string; text: string; chip: string } {
 }
 
 export default function AlertsPage() {
-  const { isReady, isAuthenticated } = useAuthGuard();
+  // Alert triage (creating/expiring silences) is an `observability:write`
+  // capability (superadmins bypass).
+  const { isReady, isAuthenticated } = useAuthGuard({ requirePermission: 'observability:write' });
   const toast = useToast();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [silences, setSilences] = useState<Silence[]>([]);

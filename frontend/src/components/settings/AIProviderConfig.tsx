@@ -6,7 +6,9 @@ import { formatError } from '@/lib/constants';
 import api, { ApiError } from '@/lib/api';
 
 interface AIProviderConfigProps {
-  isAdmin: boolean;
+  /** Whether the current user can edit org AI config (`org:settings` capability).
+   *  Gates the add/update/remove affordances; everyone else sees read-only. */
+  canEdit: boolean;
 }
 
 /**
@@ -14,7 +16,7 @@ interface AIProviderConfigProps {
  * Manages viewing, adding, updating, and removing AI provider API keys.
  * Extracted from settings.tsx for reusability and readability.
  */
-export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
+export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
   const [providers, setProviders] = useState<Record<string, AIProviderStatus>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [success, setSuccess] = useState<string | null>(null);
@@ -148,7 +150,7 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
                       </span>
                     )}
                   </div>
-                  {isAdmin && isEditing ? (
+                  {canEdit && isEditing ? (
                     <div className="flex items-center gap-2">
                       <input
                         type="password"
@@ -174,7 +176,7 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
                         Cancel
                       </button>
                     </div>
-                  ) : isAdmin ? (
+                  ) : canEdit ? (
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => { setEditingProvider(id); setEditApiKey(''); }}
@@ -207,7 +209,7 @@ export function AIProviderConfig({ isAdmin }: AIProviderConfigProps) {
       )}
 
       {/* Add new provider — admin only */}
-      {isAdmin && availableProviders.length > 0 && (
+      {canEdit && availableProviders.length > 0 && (
         <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Add Provider</h3>
           <div className="flex items-end gap-3">

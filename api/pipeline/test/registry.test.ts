@@ -33,7 +33,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   // pipeline-registry-service was migrated to withTenantTx — hand the tx the
   // same spies registry.test.ts already tracks so existing assertions hold.
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({

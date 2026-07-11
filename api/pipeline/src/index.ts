@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature, requirePermission } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
-import { runMigrations } from '@pipeline-builder/pipeline-core';
+import { runMigrations } from '@pipeline-builder/pipeline-data';
 
 import { createBulkPipelineRoutes } from './routes/bulk-pipeline.js';
 import { createCreatePipelineRoutes } from './routes/create-pipeline.js';
@@ -34,16 +34,16 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createRegistryRoutes
 
 // -- Bulk routes — auth + orgId + bulk_operations feature gate ---------------
 //    Also before read routes — `/bulk/create` must not hit `/:id`.
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requireFeature('bulk_operations'), createBulkPipelineRoutes(quotaService));
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireFeature('bulk_operations'), createBulkPipelineRoutes(quotaService));
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));
 
-// -- Update route — auth + orgId (no quota check) ----------------------------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createUpdatePipelineRoutes());
+// -- Update route — auth + orgId + pipelines:write ---------------------------
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), createUpdatePipelineRoutes());
 
-// -- Delete route — auth + orgId (admin-only, enforced in handler) -----------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createDeletePipelineRoutes());
+// -- Delete route — auth + orgId + pipelines:write ---------------------------
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), createDeletePipelineRoutes());
 
 // -- Register compliance event subscriber for entity lifecycle events --------
 // `'pipeline'` is the service principal baked into the signed JWT the

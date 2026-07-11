@@ -15,6 +15,7 @@ import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { FilterBar } from '@/components/ui/FilterBar';
@@ -61,9 +62,13 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 /** Plugin management page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
 export default function PluginsPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard();
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
   const canViewPublic = isSuperAdmin;
+  // Fine-grained RBAC: write controls (create/upload/edit/delete/bulk/select)
+  // unlock on `plugins:write`, not org-admin role, so a custom-group member
+  // granted the capability gets them too. Role-admins hold it in their bundle.
+  const canWrite = can('plugins:write');
 
   // Mark the "explore plugin catalog" onboarding step as complete on first visit.
   useEffect(() => {
@@ -201,7 +206,7 @@ export default function PluginsPage() {
   // ── Columns ──
 
   const pluginColumns: Column<Plugin>[] = useMemo(() => [
-    ...(isAdmin ? [{
+    ...(canWrite ? [{
       id: 'select',
       header: '',
       locked: true,
@@ -383,7 +388,7 @@ export default function PluginsPage() {
         return (
           <div className="flex items-center space-x-3">
             <button onClick={() => setViewPlugin(plugin)} className="action-link">View</button>
-            {canModify(isSuperAdmin, plugin.accessModifier) && (
+            {canWrite && canModify(isSuperAdmin, plugin.accessModifier) && (
               <button onClick={() => setEditPlugin(plugin)} className="action-link">Edit</button>
             )}
             {/* Sysadmin-only registry cross-link — closes the
@@ -400,24 +405,24 @@ export default function PluginsPage() {
                 In registry
               </Link>
             )}
-            {canModify(isSuperAdmin, plugin.accessModifier) && (
+            {canWrite && canModify(isSuperAdmin, plugin.accessModifier) && (
               <button onClick={() => del.open(plugin)} className="action-link-danger">Delete</button>
             )}
           </div>
         );
       },
     },
-  ], [isSuperAdmin, isAdmin, selectedIds, toggleSelect, favorites, handleToggleFavorite, pluginUsage]);
+  ], [isSuperAdmin, canWrite, selectedIds, toggleSelect, favorites, handleToggleFavorite, pluginUsage]);
 
   // ── Render ──
 
   if (!isReady || !user) return <LoadingPage />;
 
-  const emptyDescription = isAdmin
+  const emptyDescription = canWrite
     ? 'Get started by creating your first plugin.'
     : 'No private plugins available for your organization.';
-  const emptyAction = isAdmin
-    ? <button onClick={() => setCreateInitialTab('ai')} className="btn btn-primary">Create Plugin</button>
+  const emptyAction = canWrite
+    ? <Button onClick={() => setCreateInitialTab('ai')}>Create Plugin</Button>
     : undefined;
 
   return (
@@ -425,16 +430,16 @@ export default function PluginsPage() {
       title="Plugins"
       subtitle="Manage build and deploy plugins"
       actions={
-        isAdmin ? (
+        canWrite ? (
           <div className="flex gap-2">
-            <button onClick={() => setCreateInitialTab('upload')} className="btn btn-secondary">
+            <Button variant="secondary" onClick={() => setCreateInitialTab('upload')}>
               <Upload className="w-4 h-4 mr-1.5" />
               Upload Plugin
-            </button>
-            <button onClick={() => setCreateInitialTab('ai')} className="btn btn-primary">
+            </Button>
+            <Button onClick={() => setCreateInitialTab('ai')}>
               <Plus className="w-4 h-4 mr-1.5" />
               Create Plugin
-            </button>
+            </Button>
           </div>
         ) : undefined
       }
@@ -494,7 +499,7 @@ export default function PluginsPage() {
         />
 
         {/* Spacer when sticky bulk bar is visible */}
-        {isAdmin && selectedIds.size > 0 && <div className="h-16" />}
+        {canWrite && selectedIds.size > 0 && <div className="h-16" />}
 
         {/* ResourceList owns: error+retry, refresh button, empty state, and
             offset Pagination. Body is custom so we preserve DataTable's
@@ -516,7 +521,7 @@ export default function PluginsPage() {
             icon: Search,
             title: 'No plugins match your filters',
             description: 'Try adjusting your search or filter criteria.',
-            action: <button onClick={list.clearFilters} className="btn btn-secondary">Clear filters</button>,
+            action: <Button variant="secondary" onClick={list.clearFilters}>Clear filters</Button>,
           } : {
             icon: Puzzle,
             title: 'No plugins yet',
@@ -614,23 +619,23 @@ export default function PluginsPage() {
       )}
 
       {/* Sticky bottom bulk actions bar */}
-      {isAdmin && selectedIds.size > 0 && (
+      {canWrite && selectedIds.size > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg">
           <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               {selectedIds.size} selected
             </span>
             <div className="flex items-center gap-2">
-              <button onClick={() => handleBulkActivate(true)} disabled={bulkLoading} className="btn btn-secondary btn-xs">
+              <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(true)} disabled={bulkLoading}>
                 Activate
-              </button>
-              <button onClick={() => handleBulkActivate(false)} disabled={bulkLoading} className="btn btn-secondary btn-xs">
+              </Button>
+              <Button variant="secondary" size="xs" onClick={() => handleBulkActivate(false)} disabled={bulkLoading}>
                 Deactivate
-              </button>
-              <button onClick={handleBulkDelete} disabled={bulkLoading} className="btn btn-danger btn-xs">
+              </Button>
+              <Button variant="danger" size="xs" onClick={handleBulkDelete} disabled={bulkLoading}>
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete
-              </button>
+              </Button>
               <button onClick={clearSelection} className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear selection">
                 <X className="w-4 h-4" />
               </button>

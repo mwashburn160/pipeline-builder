@@ -10,6 +10,7 @@ import {
   resolveAccessModifier,
   reserveQuota,
   decrementQuota,
+  getServiceAuthHeader,
   validateBulkArray,
   PipelineCreateSchema,
   PipelineUpdateSchema,
@@ -42,7 +43,11 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
     ctx.log('INFO', 'Bulk create pipelines', { count: pipelines.length });
 
-    const authHeader = req.headers.authorization || '';
+    // Mint a service token for the downstream S2S calls (quota, compliance)
+    // rather than forwarding the end-user bearer — the caller's token may carry
+    // only end-user scopes that service-to-service authorization rejects,
+    // failing legitimate creates. Mirrors upload-plugin.ts / create-pipeline.ts.
+    const authHeader = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
     const results: {
       created: number;
       updated: number;
@@ -157,8 +162,8 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     // so we can reject the whole request if it would touch a public row the
     // caller isn't allowed to mutate.
     if (!isSystemAdmin(req)) {
-      const matched = await Promise.all(ids.map(id => pipelineService.findById(id, orgId)));
-      const nonPrivate = matched.filter((p): p is NonNullable<typeof p> => !!p && p.accessModifier !== AccessModifier.PRIVATE);
+      const matched = await pipelineService.findByIds(ids, orgId);
+      const nonPrivate = matched.filter((p) => p.accessModifier !== AccessModifier.PRIVATE);
       if (nonPrivate.length > 0) {
         return sendError(
           res,
@@ -203,8 +208,8 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
     // Sysadmin guard: if any matched row is non-private, only sysadmins can update.
     if (!isSystemAdmin(req)) {
-      const matched = await Promise.all(ids.map(id => pipelineService.findById(id, orgId)));
-      const nonPrivate = matched.filter((p): p is NonNullable<typeof p> => !!p && p.accessModifier !== AccessModifier.PRIVATE);
+      const matched = await pipelineService.findByIds(ids, orgId);
+      const nonPrivate = matched.filter((p) => p.accessModifier !== AccessModifier.PRIVATE);
       if (nonPrivate.length > 0) {
         return sendError(
           res,

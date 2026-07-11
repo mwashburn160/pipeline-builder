@@ -3,7 +3,7 @@
 
 import {
   requireAuth,
-  requireAdmin,
+  requirePermission,
   requireSystemAdmin,
   sendSuccess,
   sendError,
@@ -67,7 +67,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions  create a new subscription
 
-  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const validation = validateBody(req, SubscriptionCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -94,30 +94,63 @@ export function createSubscriptionRoutes(): Router {
     // failed-payment notifications.
     // TODO: source email from JWT issuance or platform lookup once it's
     // populated on req.user; current AUTH path leaves email unset.
-    const provider = getPaymentProvider();
     const rawEmail = req.user?.email;
     const customerEmail = typeof rawEmail === 'string' && rawEmail.length > 0 ? rawEmail : undefined;
-    const customerId = await provider.createCustomer(orgId, customerEmail);
-    const externalResult = await provider.createSubscription(customerId, planId, interval);
 
-    // Create subscription
+    // Reserve the local uniqueness slot BEFORE any external provider work.
+    // Previously the provider's createCustomer/createSubscription ran first, so a
+    // concurrent/retried POST minted real Stripe objects and then 500'd on the
+    // unique-index collision, leaking orphaned Stripe state. Inserting the local
+    // row first means the loser trips the `{orgId,status:'active'}` unique index
+    // (11000) and gets a clean 409 without ever touching the provider. The row is
+    // created externally-unbound (externalId/externalCustomerId null) and rolled
+    // back if the provider calls fail, so a failure can't wedge the org behind a
+    // phantom active subscription.
     const now = new Date();
-    const subscription = await Subscription.create({
-      orgId,
-      planId,
-      status: 'active',
-      interval,
-      currentPeriodStart: now,
-      currentPeriodEnd: calculatePeriodEnd(now, interval),
-      cancelAtPeriodEnd: false,
-      externalId: externalResult.externalId,
-      externalCustomerId: externalResult.externalCustomerId,
-      // Stamp the configured provider so lifecycle webhooks can find this row.
-      // The Stripe webhook lookup filters on `metadata.provider: 'stripe'`;
-      // without this, every Stripe subscription.updated/deleted + invoice.*
-      // webhook resolved null and silently no-op'd (missed past_due/cancel).
-      metadata: { provider: config.billingProvider },
-    });
+    let subscription;
+    try {
+      subscription = await Subscription.create({
+        orgId,
+        planId,
+        status: 'active',
+        interval,
+        currentPeriodStart: now,
+        currentPeriodEnd: calculatePeriodEnd(now, interval),
+        cancelAtPeriodEnd: false,
+        // Stamp the configured provider so lifecycle webhooks can find this row.
+        // The Stripe webhook lookup filters on `metadata.provider: 'stripe'`;
+        // without this, every Stripe subscription.updated/deleted + invoice.*
+        // webhook resolved null and silently no-op'd (missed past_due/cancel).
+        metadata: { provider: config.billingProvider },
+      });
+    } catch (err) {
+      // Concurrent create lost the unique-index race — the org already has (or
+      // is mid-creating) an active subscription. Return the same 409 the
+      // pre-check returns rather than a 500.
+      if ((err as { code?: number }).code === 11000) {
+        return sendError(res, 409,
+          'Organization already has an active subscription. Use PUT to change plans.',
+          ErrorCode.DUPLICATE_ENTRY,
+        );
+      }
+      throw err;
+    }
+
+    // Now mint the external objects, keyed by the reserved row's id so a retry
+    // reuses the same idempotency key (providers that support it dedupe rather
+    // than double-create). On any provider failure, roll the reservation back.
+    const idempotencyKey = subscription._id.toString();
+    try {
+      const provider = getPaymentProvider();
+      const customerId = await provider.createCustomer(orgId, customerEmail, `cust_${idempotencyKey}`);
+      const externalResult = await provider.createSubscription(customerId, planId, interval, `sub_${idempotencyKey}`);
+      subscription.externalId = externalResult.externalId;
+      subscription.externalCustomerId = externalResult.externalCustomerId;
+      await subscription.save();
+    } catch (err) {
+      await Subscription.deleteOne({ _id: subscription._id }).catch(() => { /* best-effort rollback */ });
+      throw err;
+    }
 
     // Sync tier to quota service via a freshly-minted service token rather
     // than forwarding the user's bearer. The quota service trusts billing
@@ -140,7 +173,7 @@ export function createSubscriptionRoutes(): Router {
 
   // PUT /billing/subscriptions/:id  change plan or interval
 
-  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.put('/subscriptions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
     const validation = validateBody(req, SubscriptionUpdateSchema);
     if (!validation.ok) {
@@ -216,7 +249,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/cancel  cancel at period end
 
-  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
@@ -317,7 +350,7 @@ export function createSubscriptionRoutes(): Router {
 
   // POST /billing/subscriptions/:id/reactivate  undo cancellation
 
-  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requireAdmin as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({

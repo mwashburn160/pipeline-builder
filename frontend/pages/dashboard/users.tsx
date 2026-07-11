@@ -9,7 +9,12 @@ import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { ModalPortal } from '@/components/ui/ModalPortal';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ModalFooter } from '@/components/ui/ModalFooter';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { ActionBar } from '@/components/ui/ActionBar';
@@ -303,12 +308,7 @@ export default function UsersPage() {
 
   return (
     <DashboardLayout title="All Users" subtitle="System-wide user administration">
-      {list.error && (
-        <div className="alert-error">
-          <p>{list.error}</p>
-          <button onClick={() => list.setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
-        </div>
-      )}
+      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       <div className="filter-bar">
         <ActionBar
@@ -335,12 +335,13 @@ export default function UsersPage() {
           </span>
           <div className="flex items-center gap-2">
             <button onClick={() => setSelectedIds(new Set())} className="action-link text-sm">Clear</button>
-            <button
+            <Button
+              variant="danger"
               onClick={() => setPendingBulkDelete(true)}
-              className="btn btn-danger inline-flex items-center gap-1 text-sm"
+              className="inline-flex items-center gap-1 text-sm"
             >
               <Trash2 className="h-4 w-4" /> Delete {selectedIds.size}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -411,81 +412,80 @@ export default function UsersPage() {
       )}
 
       {editingUser && (
-        <ModalPortal>
-        <div className="modal-backdrop">
-          <div className="modal-panel max-w-md">
-            <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Edit User: {editingUser.username}</h2>
-
-            {editForm.error && <div className="alert-error"><p>{editForm.error}</p></div>}
-            {editForm.success && <div className="alert-success"><p>{editForm.success}</p></div>}
-
-            <div className="space-y-4">
-              <div>
-                <label className="label">Email</label>
-                <input type="text" value={editingUser.email} disabled className="input bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
-                  User ID: <CopyableId value={editingUser.id} size="sm" />
-                </p>
-              </div>
-              <div>
-                <label className="label">Organization</label>
-                <input type="text" value={editingUser.organizationName || 'None'} disabled className="input bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
-              </div>
-              <div>
-                <label className="label">Role</label>
-                <select value={editRole} onChange={(e) => setEditRole(e.target.value as 'owner' | 'admin' | 'member')} className="input" disabled={editForm.loading || editingUser.id === user?.id}>
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                  <option value="owner">Owner</option>
-                </select>
-                {editingUser.id === user?.id && (
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Cannot change your own role</p>
-                )}
-              </div>
-              {/* Wrapped in a <form> with a username field + autocomplete hints
-                  so browsers/password managers treat this as a credential change
-                  (silences Chrome's "Password field is not contained in a form"
-                  warning). onSubmit is a no-op — saving goes through the explicit
-                  "Save Changes" button below; this just prevents an Enter keypress
-                  from reloading the page. */}
-              <form onSubmit={(e) => e.preventDefault()}>
-                <label className="label">New Password (leave blank to keep current)</label>
-                <input type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
-                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" className="input" disabled={editForm.loading} />
-              </form>
-
-              <SysadminGrantHistory userId={editingUser.id} isSuperAdmin={editingUser.isSuperAdmin === true} />
-
-              <FeatureOverridesEditor
-                userId={editingUser.id}
-                initial={editingUser.featureOverrides ?? {}}
-                onSaved={() => list.refresh()}
-              />
-            </div>
-
-            <div className="mt-6 flex justify-end space-x-3">
-              <button onClick={() => setEditingUser(null)} disabled={editForm.loading} className="btn btn-secondary">Cancel</button>
+        <Modal
+          title={`Edit User: ${editingUser.username}`}
+          onClose={() => !editForm.loading && setEditingUser(null)}
+          maxWidth="max-w-md"
+          footer={
+            <ModalFooter
+              onCancel={() => setEditingUser(null)}
+              onConfirm={handleSaveUser}
+              confirmLabel="Save Changes"
+              loading={editForm.loading}
+            >
               {/* "View as user" — sysadmin impersonation (read-only). Disabled
                   for sysadmin targets (you can't impersonate another sysadmin)
                   and for the actor themselves. */}
               {editingUser.id !== user?.id && !editingUser.isSuperAdmin && (
-                <button
+                <Button
+                  variant="secondary"
                   onClick={() => setImpersonateTarget(editingUser)}
                   disabled={editForm.loading}
-                  className="btn btn-secondary"
                   title="View the app as this user (read-only)"
                 >
                   View as user
-                </button>
+                </Button>
               )}
-              <button onClick={handleSaveUser} disabled={editForm.loading} className="btn btn-primary">
-                {editForm.loading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
-                Save Changes
-              </button>
+            </ModalFooter>
+          }
+        >
+          <ErrorAlert message={editForm.error} />
+          {editForm.success && <div className="alert-success"><p>{editForm.success}</p></div>}
+
+          <div className="space-y-4">
+            <div>
+              <label className="label">Email</label>
+              <Input type="text" value={editingUser.email} disabled className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+                User ID: <CopyableId value={editingUser.id} size="sm" />
+              </p>
             </div>
+            <div>
+              <label className="label">Organization</label>
+              <Input type="text" value={editingUser.organizationName || 'None'} disabled className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
+            </div>
+            <div>
+              <label className="label">Role</label>
+              <Select value={editRole} onChange={(e) => setEditRole(e.target.value as 'owner' | 'admin' | 'member')} disabled={editForm.loading || editingUser.id === user?.id}>
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+                <option value="owner">Owner</option>
+              </Select>
+              {editingUser.id === user?.id && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Cannot change your own role</p>
+              )}
+            </div>
+            {/* Wrapped in a <form> with a username field + autocomplete hints
+                so browsers/password managers treat this as a credential change
+                (silences Chrome's "Password field is not contained in a form"
+                warning). onSubmit is a no-op — saving goes through the explicit
+                "Save Changes" button below; this just prevents an Enter keypress
+                from reloading the page. */}
+            <form onSubmit={(e) => e.preventDefault()}>
+              <label className="label">New Password (leave blank to keep current)</label>
+              <input type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
+              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" disabled={editForm.loading} />
+            </form>
+
+            <SysadminGrantHistory userId={editingUser.id} isSuperAdmin={editingUser.isSuperAdmin === true} />
+
+            <FeatureOverridesEditor
+              userId={editingUser.id}
+              initial={editingUser.featureOverrides ?? {}}
+              onSaved={() => list.refresh()}
+            />
           </div>
-        </div>
-        </ModalPortal>
+        </Modal>
       )}
     </DashboardLayout>
   );

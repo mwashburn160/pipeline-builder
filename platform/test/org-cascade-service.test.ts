@@ -28,7 +28,7 @@ const mockUpdateChain = { set: jest.fn(), where: jest.fn() };
 const mockDeleteChain = { where: jest.fn() };
 const mockSelectChain = { from: jest.fn(), where: jest.fn() };
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   db: {
     update: jest.fn(() => mockUpdateChain),
     delete: jest.fn(() => mockDeleteChain),
@@ -106,18 +106,18 @@ beforeEach(() => {
 
 describe('cascadeDeleteOrg', () => {
   it('refuses to delete the system org', async () => {
-    await expect(cascadeDeleteOrg('system', 'system')).rejects.toThrow(SYSTEM_ORG_DELETE_FORBIDDEN);
+    await expect(cascadeDeleteOrg('000000000000000000000001', '000000000000000000000001')).rejects.toThrow(SYSTEM_ORG_DELETE_FORBIDDEN);
   });
 
   it('soft-deletes the 7 tables that have a deleted_at column', async () => {
-    await cascadeDeleteOrg('org-acme', 'system');
+    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
     // 7 soft-delete tables  one update per
     expect(mockUpdateChain.set).toHaveBeenCalledTimes(7);
     expect(mockUpdateChain.where).toHaveBeenCalledTimes(7);
   });
 
   it('hard-deletes the 13 tables without deleted_at', async () => {
-    await cascadeDeleteOrg('org-acme', 'system');
+    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
     // 13 hard-delete tables
     expect(mockDeleteChain.where).toHaveBeenCalledTimes(13);
   });
@@ -127,7 +127,7 @@ describe('cascadeDeleteOrg', () => {
     mockAuditDeleteMany.mockResolvedValue({ deletedCount: 12 });
     mockIdpDeleteMany.mockResolvedValue({ deletedCount: 1 });
 
-    const report = await cascadeDeleteOrg('org-acme', 'system');
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
 
     expect(report.mongo).toEqual({ invitations: 3, auditEvents: 12, idpConfigs: 1 });
     // The deleteMany filter must exclude `admin.org.delete` so the audit
@@ -146,12 +146,12 @@ describe('cascadeDeleteOrg', () => {
     mockAuditDeleteMany.mockResolvedValue({ deletedCount: 0 });
     mockIdpDeleteMany.mockResolvedValue({ deletedCount: 0 });
 
-    const report = await cascadeDeleteOrg('org-acme', 'system');
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
     expect(report.mongo.idpConfigs).toBe(0);
   });
 
   it('fires DELETE at the quota and billing services with a service token', async () => {
-    await cascadeDeleteOrg('org-acme', 'system');
+    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
 
     const paths = mockHttpDelete.mock.calls.map((c: unknown[]) => c[0]);
     expect(paths).toContain('/quotas/org-acme');
@@ -166,14 +166,14 @@ describe('cascadeDeleteOrg', () => {
 
   it('reports quota/billing as ok when the downstream returns 2xx', async () => {
     mockHttpDelete.mockResolvedValue({ statusCode: 200, body: {} });
-    const report = await cascadeDeleteOrg('org-acme', 'system');
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
     expect(report.quota).toEqual({ ok: true, statusCode: 200 });
     expect(report.billing).toEqual({ ok: true, statusCode: 200 });
   });
 
   it('reports ok=false when the downstream returns 5xx  but does not throw (best-effort)', async () => {
     mockHttpDelete.mockResolvedValue({ statusCode: 503, body: {} });
-    const report = await cascadeDeleteOrg('org-acme', 'system');
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
     expect(report.quota.ok).toBe(false);
     expect(report.billing.ok).toBe(false);
   });
@@ -184,7 +184,7 @@ describe('cascadeDeleteOrg', () => {
       .mockRejectedValueOnce(new Error('connection refused'))
       .mockResolvedValue({ rowCount: 1 });
 
-    const report = await cascadeDeleteOrg('org-acme', 'system');
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
     // The first table reports { ok: false, error } (the new structured
     // failure marker, replacing the old -1 sentinel); others report ok=true.
     const entries = Object.values(report.postgres);
@@ -202,7 +202,7 @@ describe('exportOrg', () => {
     mockInvitationFind.mockReturnValue({ lean: () => [{ email: 'foo@example.com' }] });
     mockAuditFind.mockReturnValue({ lean: () => [{ action: 'user.login' }] });
 
-    const dump = await exportOrg('org-acme', 'system');
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
 
     expect(Object.keys(dump.postgres).length).toBe(20); // 7 soft + 13 hard
     expect(dump.mongo.invitations).toHaveLength(1);

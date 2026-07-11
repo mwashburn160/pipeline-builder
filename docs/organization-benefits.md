@@ -128,6 +128,7 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
   | **Admin** | Manage plugins, pipelines, compliance rules, and quotas; invite and manage members |
   | **Member** | Create and manage their own pipelines and plugins |
 
+- **Custom permission groups.** A role grants a base permission bundle; **custom permission groups** layer on additional fine-grained `resource:action` permissions. A user's effective permissions are the union of their role bundle and every group they belong to. New orgs seed default groups (Administrators, Developers); the system org also gets a Superadmins group, and a platform superadmin implicitly holds every permission.
 - **What's scoped to the org:** pipelines (by project + orgId), plugins (by orgId + `public`/`private` access modifier), compliance rules and exemptions, quotas and seats, secrets (`pipeline-builder/{orgId}/{secretName}`), the billing subscription, and execution analytics.
 - **The shared system organization** publishes a recommended plugin catalog and compliance-rule catalog that any organization can pull from or subscribe to — a common baseline without giving up isolation.
 - **Membership** is per-organization: inviting a user into one org grants no access to another.

@@ -50,6 +50,7 @@ Complete reference for all environment variables used across Pipeline Builder se
 | `SERVICE_NAME` | `api` | Service name in logs |
 | `CORS_CREDENTIALS` | `true` | Allow credentials in CORS requests |
 | `CORS_ORIGIN` | — | CORS allowed origins (optional) |
+| `SYSTEM_ORG_ID` | `000000000000000000000001` | ObjectId of the well-known system tenant (the org with `slug:'system'` + `isSystem:true`). Lowercased at module load and compared case-insensitively. **If you override it, you must mirror the new value in the Postgres RLS policy** (`deploy/**/postgres-init.sql` hardcodes `000000000000000000000001` as the always-visible system org), or system-org content becomes invisible to other orgs. |
 
 ---
 
@@ -244,10 +245,10 @@ Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers
 
 | Tier | plugins | pipelines | apiCalls | aiCalls | seats |
 |------|---------|-----------|----------|---------|-------|
-| developer | 50 | 5 | 25,000 | 50 | 1 |
-| pro | 500 | 50 | 500,000 | 2,500 | 3 |
-| team | 2,000 | 200 | unlimited | 10,000 | 10 |
-| enterprise | 5,000 | 500 | unlimited | 25,000 | unlimited |
+| developer | 25 | 5 | 25,000 | 50 | 1 |
+| pro | 50 | 10 | 500,000 | 2,500 | 1 |
+| team | 100 | 200 | unlimited | 10,000 | 10 |
+| enterprise | 250 | 200 | unlimited | 25,000 | 25 |
 
 Any preset can be overridden per-environment via `QUOTA_TIER_<DEVELOPER|PRO|TEAM|ENTERPRISE>_<LIMIT>` (e.g. `QUOTA_TIER_TEAM_SEATS=20`), and `DEFAULT_QUOTA_TIER` sets the tier assigned to newly created orgs (`developer` by default). `seats` is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership.
 

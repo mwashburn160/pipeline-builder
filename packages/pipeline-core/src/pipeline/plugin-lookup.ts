@@ -3,7 +3,7 @@
 
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
 import { CustomResource, Token, Duration } from 'aws-cdk-lib';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
@@ -295,7 +295,7 @@ export class PluginLookup extends Construct {
     const now = new Date();
     return {
       id: '00000000-0000-0000-0000-000000000000',
-      orgId: 'system',
+      orgId: SYSTEM_ORG_ID,
       createdBy: 'system',
       createdAt: now,
       updatedBy: 'system',

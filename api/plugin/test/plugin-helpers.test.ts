@@ -27,7 +27,7 @@ const { createBuildJobData, pluginUri, shapePlugin } = await import('../src/help
 describe('plugin-helpers', () => {
   describe('pluginUri', () => {
     it('uses `system/<name>:<version>` for system-org plugins', () => {
-      expect(pluginUri({ orgId: 'system', name: 'cdk-synth', version: '1.0.0' }))
+      expect(pluginUri({ orgId: '000000000000000000000001', name: 'cdk-synth', version: '1.0.0' }))
         .toBe('system/cdk-synth:1.0.0');
     });
 

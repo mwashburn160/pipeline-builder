@@ -62,11 +62,3 @@ export const MessageCreateSchema = z.object({
 export const MessageReplySchema = z.object({
   content: z.string().min(1, 'Content is required'),
 });
-
-/**
- * Infer TypeScript types from schemas
- * Note: Prefixed with "Validated" to avoid conflicts with existing type definitions
- */
-export type ValidatedMessageFilter = z.infer<typeof MessageFilterSchema>;
-export type ValidatedMessageCreate = z.infer<typeof MessageCreateSchema>;
-export type ValidatedMessageReply = z.infer<typeof MessageReplySchema>;

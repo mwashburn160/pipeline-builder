@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
-import { createLogger, createQuotaService, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
 import { computeStorageUsage } from './storage-usage.js';
@@ -49,8 +49,8 @@ export function parseScope(raw: string): RequestedScope | null {
 }
 
 /** Constants for repo namespace policy. */
-export const SYSTEM_NAMESPACE_PREFIX = 'system/';
-export const ORG_NAMESPACE_PREFIX = 'org-';
+const SYSTEM_NAMESPACE_PREFIX = 'system/';
+const ORG_NAMESPACE_PREFIX = 'org-';
 /**
  * The org id that OWNS the un-prefixed `system/*` namespace. System sample
  * plugins are built and pushed under this org id and land in `system/<name>`
@@ -58,14 +58,13 @@ export const ORG_NAMESPACE_PREFIX = 'org-';
  * — this MUST stay in lock-step with that mapping). A token scoped to this org
  * may push to `system/*`, exactly as a tenant org pushes to its `org-{id}/*`.
  */
-export const SYSTEM_ORG_ID = 'system';
 // Docker's convention for unqualified base images: `FROM ubuntu` →
 // `docker.io/library/ubuntu`. Our buildkit mirror redirects those
 // lookups at `registry:5000/library/<name>`, so plugin Dockerfiles
 // using bare `FROM pipeline-plugin-base:24.04` end up requesting a
 // `library/...` pull token. Treat library/* like system/* — any
 // authenticated identity can pull, only admins can push.
-export const LIBRARY_NAMESPACE_PREFIX = 'library/';
+const LIBRARY_NAMESPACE_PREFIX = 'library/';
 
 /**
  * Authorize a single requested scope for the given identity. Returns the

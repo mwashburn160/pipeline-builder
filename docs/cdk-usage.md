@@ -8,7 +8,7 @@ title: CDK Usage
 Use the `PipelineBuilder` CDK construct to define pipelines as infrastructure-as-code. Pipelines deploy as native AWS CodePipeline + CodeBuild in your AWS account, with build steps drawn from a catalog of 119 ready-to-use plugins.
 
 ```bash
-npm install @mwashburn160/pipeline-core
+npm install @pipeline-builder/pipeline-core
 ```
 
 **Related docs:** [Metadata Keys](metadata-keys.md) | [Samples](samples.md) | [Plugin Catalog](plugins/README.md) | [Environment Variables](environment-variables.md)
@@ -19,7 +19,7 @@ npm install @mwashburn160/pipeline-core
 
 ```typescript
 import { App, Stack } from 'aws-cdk-lib';
-import { PipelineBuilder } from '@mwashburn160/pipeline-core';
+import { PipelineBuilder } from '@pipeline-builder/pipeline-core';
 
 const app = new App();
 const stack = new Stack(app, 'MyPipelineStack', {
@@ -412,7 +412,7 @@ stages: [
   {
     stageName: 'Build',
     steps: [{
-      plugin: { name: 'nodejs-build', alias: 'build-app' },
+      plugin: { name: 'nodejs', alias: 'build-app' },
       // Output goes to primaryOutputDirectory (e.g., 'dist')
     }],
   },
@@ -423,7 +423,7 @@ stages: [
       inputArtifact: {
         stageName: 'Build',
         stageAlias: 'Build',
-        pluginName: 'nodejs-build',
+        pluginName: 'nodejs',
         pluginAlias: 'build-app',
         outputDirectory: 'dist',
       },

@@ -10,6 +10,8 @@ import {
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import type { BuilderProps } from '@/types';
 import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
@@ -243,19 +245,19 @@ export default function DashboardPage() {
               <div className="mt-3 flex gap-2">
                 <div className="flex-1 relative">
                   <GitBranch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
+                  <Input
                     type="text"
                     value={gitUrl}
                     onChange={(e) => setGitUrl(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleGenerateFromUrl(); }}
                     placeholder="https://github.com/owner/repo"
-                    className="input pl-9"
+                    className="pl-9"
                   />
                 </div>
-                <button onClick={handleGenerateFromUrl} disabled={!gitUrl.trim()} className="btn btn-primary">
+                <Button onClick={handleGenerateFromUrl} disabled={!gitUrl.trim()}>
                   Generate
                   <ArrowRight className="w-4 h-4 ml-1.5" />
-                </button>
+                </Button>
               </div>
               <div className="mt-2 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                 <button onClick={openModalTab} className="action-link-muted underline">
@@ -343,12 +345,12 @@ export default function DashboardPage() {
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Services</h3>
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                <input
+                <Input
                   type="text"
                   value={serviceSearch}
                   onChange={(e) => setServiceSearch(e.target.value)}
                   placeholder="Search services"
-                  className="input input-sm pl-8 w-48 text-xs"
+                  className="input-sm pl-8 w-48 text-xs"
                 />
               </div>
             </div>

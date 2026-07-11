@@ -132,6 +132,23 @@ function registerMocks() {
       update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
     }),
   }));
+  jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+    CoreConstants: {
+      PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
+      PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
+      PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
+    },
+    Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
+    db: { execute: jest.fn(), insert: jest.fn(), select: jest.fn(), update: jest.fn() },
+    schema: { plugin: {} },
+    reportingService: { record: jest.fn(), invalidateOrg: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined) },
+    runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
+    withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
+      insert: () => ({ values: () => Object.assign(Promise.resolve(), { onConflictDoNothing: () => Promise.resolve() }) }),
+      select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+      update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+    }),
+  }));;
 
   jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     extractDbError: jest.fn(() => ({})),

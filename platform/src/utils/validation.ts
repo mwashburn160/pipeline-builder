@@ -183,6 +183,20 @@ export const addGroupMemberSchema = z.object({
   message: 'Either userId or email is required',
 });
 
+/** Create a custom permission group (name + optional description + permission set). */
+export const createGroupSchema = z.object({
+  name: z.string().trim().min(2).max(60),
+  description: z.string().trim().max(200).optional(),
+  permissions: z.array(z.string()).max(100).optional(),
+});
+
+/** Update a custom group. All fields optional (partial update). */
+export const updateGroupSchema = z.object({
+  name: z.string().trim().min(2).max(60).optional(),
+  description: z.string().trim().max(200).optional(),
+  permissions: z.array(z.string()).max(100).optional(),
+});
+
 /** Organization ownership transfer schema. */
 export const transferOwnershipSchema = z.object({
   newOwnerId: z.string().min(1, 'New owner ID is required'),
@@ -194,5 +208,49 @@ export const updateQuotasSchema = z.object({
   pipelines: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
   apiCalls: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
   aiCalls: z.union([z.number().int().min(-1), z.literal('unlimited')]).optional(),
+});
+
+// Org IdP (per-org SSO) Schemas
+
+/** Supported IdP providers. Mirrors `IdpProvider` in models/org-idp-config.ts
+ *  (`generic-oidc` + the named OAuth providers). */
+const idpProviderSchema = z.enum(['generic-oidc', 'google', 'github']);
+
+/** Create/upsert an org IdP config. All four core fields are required
+ *  non-empty strings; `generic-oidc` additionally requires a discoveryUrl. */
+export const orgIdpCreateSchema = z.object({
+  orgId: z.string().min(1),
+  provider: idpProviderSchema,
+  clientId: z.string().min(1),
+  clientSecret: z.string().min(1),
+  discoveryUrl: z.string().optional(),
+  allowedEmailDomains: z.array(z.string()).optional(),
+  enabled: z.boolean().optional(),
+}).refine(
+  data => data.provider !== 'generic-oidc' || !!data.discoveryUrl,
+  { message: 'discoveryUrl is required for generic-oidc provider', path: ['discoveryUrl'] },
+);
+
+/** Partial update of an org IdP config. Every field optional; unset fields
+ *  are left untouched by the service. */
+export const orgIdpPatchSchema = z.object({
+  provider: idpProviderSchema.optional(),
+  clientId: z.string().optional(),
+  clientSecret: z.string().optional(),
+  discoveryUrl: z.string().optional(),
+  allowedEmailDomains: z.array(z.string()).optional(),
+  enabled: z.boolean().optional(),
+});
+
+// Org KMS Config Schema
+
+/** Per-org KMS config PUT body: CMK id/alias + the KMS-wrapped master key
+ *  (base64). The regex is a cheap shape guard; the SDK does real validation
+ *  on the next Decrypt. */
+export const orgKmsConfigSchema = z.object({
+  keyId: z.string().min(1, 'keyId is required (KMS CMK alias or ARN)'),
+  ciphertextBase64: z.string()
+    .min(1, 'ciphertextBase64 is required (KMS-wrapped 32-byte master)')
+    .regex(/^[A-Za-z0-9+/=]+$/, 'ciphertextBase64 must be valid base64'),
 });
 

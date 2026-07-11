@@ -6,7 +6,7 @@ import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { formatRelativeTime } from '@/lib/relative-time';
 import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
-import { RESULT_STYLES } from './_result-styles';
+import { RESULT_STYLES } from '@/lib/compliance-styles';
 
 const RuleList = lazy(() => import('./RuleList'));
 const RuleEditor = lazy(() => import('./RuleEditor'));

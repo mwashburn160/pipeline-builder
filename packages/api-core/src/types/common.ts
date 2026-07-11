@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { Permission } from './permissions.js';
+
 /**
  * Quota type identifiers.
  *
@@ -155,6 +157,9 @@ export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
  * Use `POST /auth/switch-org` to change the active organization, which
  * re-issues tokens with the new org's role and context.
  */
+/** Per-org role in a single organization/team. Not a global role. */
+export type OrgRole = 'owner' | 'admin' | 'member';
+
 export interface JwtPayload {
   /** User ID (subject) */
   sub: string;
@@ -163,9 +168,17 @@ export interface JwtPayload {
   /** User email */
   email: string;
   /** Per-org role in the active organization ('owner' | 'admin' | 'member'). Not a global role. */
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   /** Derived: true when role is 'admin' or 'owner' in the active organization */
   isAdmin?: boolean;
+  /**
+   * Resolved fine-grained permissions for the active org/team — the union of
+   * the role's base bundle and every group the user belongs to (see
+   * `resolveUserPermissions`). Absent on machine/scoped tokens. Superadmins are
+   * granted all permissions implicitly and may omit this. Endpoints enforce via
+   * `requirePermission(...)`.
+   */
+  permissions?: Permission[];
   /**
    * Global super-admin flag (cross-org). When `true`, the user is treated
    * as a system administrator regardless of which org they're currently

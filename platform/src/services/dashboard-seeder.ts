@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import auditActivity from '../observability/dashboards/audit-activity.json' with { type: 'json' };
@@ -79,7 +79,7 @@ export async function seedDefaultDashboards(): Promise<void> {
           .select({ id: schema.dashboard.id })
           .from(schema.dashboard)
           .where(and(
-            eq(schema.dashboard.orgId, 'system'),
+            eq(schema.dashboard.orgId, SYSTEM_ORG_ID),
             eq(schema.dashboard.name, def.name),
             isNull(schema.dashboard.deletedAt),
           ))
@@ -92,9 +92,9 @@ export async function seedDefaultDashboards(): Promise<void> {
 
         await withTenantTx(async (tx) => {
           const [created] = await tx.insert(schema.dashboard).values({
-            orgId: 'system',
-            createdBy: 'system',
-            updatedBy: 'system',
+            orgId: SYSTEM_ORG_ID,
+            createdBy: SYSTEM_ORG_ID,
+            updatedBy: SYSTEM_ORG_ID,
             name: def.name,
             description: def.description,
             visibility: 'public',

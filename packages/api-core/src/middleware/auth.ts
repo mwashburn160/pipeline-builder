@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import { HttpStatus } from '../constants/http-status.js';
 import type { JwtPayload } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
+import { type Permission, hasPermission } from '../types/permissions.js';
 import { getHeaderString } from '../utils/headers.js';
 import { createLogger } from '../utils/logger.js';
 import { sendError } from '../utils/response.js';
@@ -161,17 +162,58 @@ export function requireAdmin(
   next();
 }
 
-/** Organization ID/name that identifies the system (super-admin) tenant. */
-export const SYSTEM_ORG_ID = (process.env.SYSTEM_ORG_ID || 'system').toLowerCase();
+/**
+ * Whether the request's user holds `permission`. Superadmins implicitly hold
+ * every permission. Reads the resolved `permissions` claim (set at token issue,
+ * or re-derived per request by the platform).
+ */
+export function userHasPermission(req: Request, permission: Permission): boolean {
+  return hasPermission(req.user?.permissions, permission, req.user?.isSuperAdmin);
+}
 
 /**
- * Check if an orgId or orgName matches the system org.
- * Use this instead of comparing directly against SYSTEM_ORG_ID,
- * because the JWT orgId is a database ID (e.g. MongoDB ObjectId)
- * while SYSTEM_ORG_ID is the well-known name "system".
+ * Requires that the user hold AT LEAST ONE of the given permissions (or be a
+ * superadmin). Use after requireAuth. Mirrors `requireRole`'s any-of semantics;
+ * pass a single permission for a specific action, or several when any one of
+ * them should grant access.
+ */
+export function requirePermission(...permissions: Permission[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
+    }
+    // userHasPermission → hasPermission already grants superadmins every
+    // permission, so this single check covers both the superadmin bypass and
+    // the any-of membership test without re-inlining either.
+    if (permissions.some((p) => userHasPermission(req, p))) return next();
+    return sendError(
+      res, HttpStatus.FORBIDDEN,
+      `Missing required permission: ${permissions.join(' or ')}`,
+      ErrorCode.INSUFFICIENT_PERMISSIONS,
+    );
+  };
+}
+
+/**
+ * The system tenant's canonical org **id** — a fixed, well-known ObjectId (NOT
+ * the string 'system'). This is the single knob every service resolves the
+ * system tenant through; override via the `SYSTEM_ORG_ID` env for alternate
+ * installs. The system org's human identifier stays the slug/name 'system'
+ * (see {@link SYSTEM_ORG_SLUG}); only its `_id` is this ObjectId.
+ */
+export const SYSTEM_ORG_ID = (process.env.SYSTEM_ORG_ID || '000000000000000000000001').toLowerCase();
+
+/** The system org's well-known slug/name (the human identifier; its `_id` is {@link SYSTEM_ORG_ID}). */
+export const SYSTEM_ORG_SLUG = 'system';
+
+/**
+ * Check if an orgId or orgName/slug matches the system org. Use this instead of
+ * comparing directly: the id is now an ObjectId ({@link SYSTEM_ORG_ID}) while the
+ * name/slug is 'system' ({@link SYSTEM_ORG_SLUG}), so the two are compared against
+ * their respective canonical values.
  */
 export function isSystemOrgId(orgId?: string, orgName?: string): boolean {
-  return orgId?.toLowerCase() === SYSTEM_ORG_ID || orgName?.toLowerCase() === SYSTEM_ORG_ID;
+  return orgId?.toLowerCase() === SYSTEM_ORG_ID || orgName?.toLowerCase() === SYSTEM_ORG_SLUG;
 }
 
 /**
@@ -330,4 +372,27 @@ export function getServiceAuthHeader(opts: ServiceTokenOptions): string {
 /** True when `req.user.sub` was issued by `signServiceToken` (i.e. starts with `service:`). */
 export function isServicePrincipal(req: Request): boolean {
   return req.user?.sub?.startsWith('service:') ?? false;
+}
+
+/**
+ * PRE-auth check: cryptographically verify the request carries a valid, signed
+ * SERVICE token (`sub` starts with `service:`). Unlike {@link isServicePrincipal}
+ * (which reads the already-populated `req.user`), this verifies the bearer token
+ * itself, so it is safe to call BEFORE `requireAuth` runs — e.g. the global rate
+ * limiter's `skip`, which must not trust the spoofable `x-internal-service`
+ * header. Mirrors `requireAuth`'s verification (algorithm pinning + optional
+ * issuer/audience) and returns `false` on any missing/invalid/non-service token.
+ */
+export function verifyServicePrincipal(req: Request): boolean {
+  const parts = req.headers.authorization?.split(' ');
+  if (!parts || parts.length !== 2 || parts[0] !== 'Bearer') return false;
+  try {
+    const verifyOptions: jwt.VerifyOptions = { algorithms: [(process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm] };
+    if (process.env.JWT_ISSUER) verifyOptions.issuer = process.env.JWT_ISSUER;
+    if (process.env.JWT_AUDIENCE) verifyOptions.audience = process.env.JWT_AUDIENCE;
+    const decoded = jwt.verify(parts[1], getJwtSecret(), verifyOptions) as JwtPayload;
+    return decoded.type === 'access' && typeof decoded.sub === 'string' && decoded.sub.startsWith('service:');
+  } catch {
+    return false;
+  }
 }

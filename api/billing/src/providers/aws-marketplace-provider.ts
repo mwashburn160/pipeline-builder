@@ -23,7 +23,6 @@ const logger = createLogger('aws-marketplace-provider');
 /** Result of resolving a marketplace registration token. */
 export interface ResolveResult {
   customerIdentifier: string;
-  customerAWSAccountId: string;
   productCode: string;
 }
 
@@ -226,13 +225,14 @@ export class AWSMarketplaceProvider implements PaymentProvider {
     const command = new ResolveCustomerCommand({ RegistrationToken: token });
     const result = await this.meteringClient.send(command);
 
-    if (!result.CustomerIdentifier || !result.CustomerAWSAccountId || !result.ProductCode) {
+    if (!result.CustomerIdentifier || !result.ProductCode) {
       throw new Error('ResolveCustomer returned incomplete data');
     }
 
+    // Note: AWS also returns CustomerAWSAccountId; we deliberately do NOT map or
+    // persist it (repo policy forbids storing AWS account ids).
     return {
       customerIdentifier: result.CustomerIdentifier,
-      customerAWSAccountId: result.CustomerAWSAccountId,
       productCode: result.ProductCode,
     };
   }

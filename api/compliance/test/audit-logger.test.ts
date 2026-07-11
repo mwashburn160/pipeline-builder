@@ -9,7 +9,7 @@ const mockValues = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResol
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: {
     complianceAuditLog: { __table: 'complianceAuditLog' },
   },

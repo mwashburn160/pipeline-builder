@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, isSystemOrgId } from '@pipeline-builder/api-core';
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
-import type { RuleScope } from '@pipeline-builder/pipeline-core';
-import { eq, and, isNull, inArray } from 'drizzle-orm';
+import { schema, withTenantTx, drizzleCount } from '@pipeline-builder/pipeline-data';
+import type { RuleScope } from '@pipeline-builder/pipeline-data';
+import { eq, and, isNull, inArray, sql } from 'drizzle-orm';
 import { complianceRuleService } from './compliance-rule-service.js';
 
 const logger = createLogger('subscription-service');
@@ -145,22 +145,38 @@ export class ComplianceRuleSubscriptionService {
   }
 
   /**
-   * List all subscriptions for an org (active + inactive, excludes unsubscribed
-   * and soft-deleted rules). Selects all subscription columns so newer fields
-   * (`pinnedVersion`, `pausedUntil`, etc.) survive without having to update the
-   * projection every schema bump.
+   * Paginated list of an org's subscriptions (active + inactive, excludes
+   * unsubscribed and soft-deleted rules). Selects all subscription columns so
+   * newer fields (`pinnedVersion`, `pausedUntil`, etc.) survive without having
+   * to update the projection every schema bump. LIMIT/OFFSET + COUNT run in SQL
+   * so we never load the whole table just to slice a page.
    */
-  async findByOrg(orgId: string): Promise<ComplianceRuleSubscription[]> {
-    return withTenantTx(async (tx) => tx
-      .select()
-      .from(schema.complianceRuleSubscription)
-      .innerJoin(schema.complianceRule, eq(schema.complianceRuleSubscription.ruleId, schema.complianceRule.id))
-      .where(and(
-        eq(schema.complianceRuleSubscription.orgId, orgId),
-        isNull(schema.complianceRuleSubscription.unsubscribedAt),
-        isNull(schema.complianceRule.deletedAt),
-      ))
-      .then((rows) => rows.map((r: { compliance_rule_subscriptions: ComplianceRuleSubscription }) => r.compliance_rule_subscriptions)));
+  async findByOrg(orgId: string, limit: number, offset: number): Promise<{ subscriptions: ComplianceRuleSubscription[]; total: number }> {
+    const whereClause = and(
+      eq(schema.complianceRuleSubscription.orgId, orgId),
+      isNull(schema.complianceRuleSubscription.unsubscribedAt),
+      isNull(schema.complianceRule.deletedAt),
+    );
+
+    return withTenantTx(async (tx) => {
+      const [countResult] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.complianceRuleSubscription)
+        .innerJoin(schema.complianceRule, eq(schema.complianceRuleSubscription.ruleId, schema.complianceRule.id))
+        .where(whereClause)
+        .then((r: unknown[]) => drizzleCount(r));
+
+      const rows = await tx
+        .select()
+        .from(schema.complianceRuleSubscription)
+        .innerJoin(schema.complianceRule, eq(schema.complianceRuleSubscription.ruleId, schema.complianceRule.id))
+        .where(whereClause)
+        .limit(limit)
+        .offset(offset);
+
+      const subscriptions = rows.map((r: { compliance_rule_subscriptions: ComplianceRuleSubscription }) => r.compliance_rule_subscriptions);
+      return { subscriptions, total: countResult?.count ?? 0 };
+    });
   }
 
   /** List all orgs subscribed to a specific rule (system org admin view). */

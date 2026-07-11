@@ -7,6 +7,8 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LogDetailsDrawer } from '@/components/observability/LogDetailsDrawer';
 import api from '@/lib/api';
 import { LOG_TIME_RANGES, LOG_LEVEL_COLORS } from '@/lib/constants';
@@ -166,29 +168,25 @@ export default function LogsPage() {
       subtitle="System and pipeline logs"
       actions={
         <div className="flex items-center gap-2">
-          <button
+          <Button
             onClick={() => downloadJsonl(entries, `logs-${new Date().toISOString().slice(0, 10)}`)}
             disabled={entries.length === 0}
-            className="btn btn-secondary py-1.5 flex items-center gap-1.5"
+            variant="secondary"
+            className="py-1.5 flex items-center gap-1.5"
             title="Export current results as JSON Lines (preserves nested fields)"
           >
             <Download className="w-4 h-4" /> Export
-          </button>
-          <button onClick={fetchLogs} disabled={isLoading} className="btn btn-secondary py-1.5 flex items-center gap-1.5">
+          </Button>
+          <Button onClick={fetchLogs} disabled={isLoading} variant="secondary" className="py-1.5 flex items-center gap-1.5">
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
-          </button>
+          </Button>
         </div>
       }
     >
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="logs" orgName={user.organizationName} />
 
-      {error && (
-        <div className="alert-error">
-          <p>{error}</p>
-          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
-        </div>
-      )}
+      <ErrorAlert message={error} onDismiss={() => setError(null)} />
 
       {/* Filters */}
       <div className="filter-bar">

@@ -80,6 +80,8 @@ export function formatUserResponse(
     organizations?: OrgMembership[];
     tier?: QuotaTier;
     features?: FeatureFlag[];
+    /** Effective fine-grained permissions for the active org (RBAC UI gating). */
+    permissions?: string[];
   },
 ) {
   return {
@@ -99,6 +101,7 @@ export function formatUserResponse(
     ...(opts?.organizations && { organizations: opts.organizations }),
     ...(opts?.tier && { tier: opts.tier }),
     ...(opts?.features && { features: opts.features }),
+    ...(opts?.permissions && { permissions: opts.permissions }),
     ...(user.featureOverrides && { featureOverrides: toOverridesRecord(user.featureOverrides) }),
     ...(user.createdAt && { createdAt: user.createdAt }),
     ...(user.updatedAt && { updatedAt: user.updatedAt }),
@@ -147,6 +150,9 @@ export const getUser = withController('Get user profile', async (req, res) => {
       organizations,
       tier,
       features,
+      // `req.user.permissions` is resolved per-request by populateRequestUser
+      // (role bundle ∪ group grants; superadmin ⇒ all) — echo it for UI gating.
+      permissions: req.user?.permissions,
     }),
   });
 }, profileErrorMap);

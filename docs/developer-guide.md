@@ -60,7 +60,7 @@ pipeline-manager deploy --id <pipeline-id> --no-verify-ssl --store-tokens
 
 ```bash
 # Create pipeline
-curl -X POST https://your-instance/api/pipeline \
+curl -X POST https://your-instance/api/pipelines \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d @pipeline.json
@@ -73,7 +73,7 @@ curl https://your-instance/api/pipelines \
 ### 5. CDK Construct (Infrastructure as Code)
 
 ```typescript
-import { PipelineBuilder } from '@mwashburn160/pipeline-core';
+import { PipelineBuilder } from '@pipeline-builder/pipeline-core';
 
 new PipelineBuilder(stack, 'MyPipeline', {
   project: 'my-app',

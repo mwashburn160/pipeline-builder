@@ -22,13 +22,13 @@ export class StripeProvider implements PaymentProvider {
    * Create a Stripe customer for the organization.
    * @returns The Stripe Customer ID (e.g., "cus_xxx")
    */
-  async createCustomer(orgId: string, email?: string): Promise<string> {
+  async createCustomer(orgId: string, email?: string, idempotencyKey?: string): Promise<string> {
     logger.info('Creating Stripe customer', { orgId });
 
     const customer = await this.stripe.customers.create({
       email: email || undefined,
       metadata: { orgId },
-    });
+    }, idempotencyKey ? { idempotencyKey } : undefined);
 
     logger.info('Stripe customer created', { orgId, customerId: customer.id });
     return customer.id;
@@ -42,6 +42,7 @@ export class StripeProvider implements PaymentProvider {
     customerId: string,
     planId: string,
     interval: BillingInterval,
+    idempotencyKey?: string,
   ): Promise<ExternalSubscriptionResult> {
     const priceKey = `${planId}_${interval}`;
     const priceId = this.stripeConfig.priceToPlanMap[priceKey];
@@ -59,7 +60,7 @@ export class StripeProvider implements PaymentProvider {
       customer: customerId,
       items: [{ price: priceId }],
       metadata: { planId, interval },
-    });
+    }, idempotencyKey ? { idempotencyKey } : undefined);
 
     logger.info('Stripe subscription created', {
       customerId,

@@ -81,18 +81,19 @@ function RecentChangesStrip() {
 }
 
 export default function CompliancePage() {
-  // requireAdmin redirects non-admins to /dashboard (consistent with Members /
-  // Groups / Audit) rather than rendering an in-page "not allowed" message that
-  // still revealed the feature. Backend remains the real gate (compliance APIs
-  // 403 regardless); this is the cosmetic, defense-in-depth layer.
-  const { isReady } = useAuthGuard({ requireAdmin: true });
+  // Viewing requires only `compliance:read` (members hold it in their base
+  // bundle), so read-only users can see rules, policies, and scans. Editing
+  // affordances inside ComplianceDashboard are gated separately on
+  // `compliance:write` via the `isAdmin` prop. Backend remains the real gate
+  // (compliance APIs 403 regardless); this is the cosmetic layer.
+  const { isReady, can } = useAuthGuard({ requirePermission: 'compliance:read' });
 
   if (!isReady) return <LoadingPage />;
 
   return (
     <DashboardLayout title="Compliance" subtitle="Organization compliance rules and policies">
       <RecentChangesStrip />
-      <ComplianceDashboard isAdmin />
+      <ComplianceDashboard isAdmin={can('compliance:write')} />
     </DashboardLayout>
   );
 }

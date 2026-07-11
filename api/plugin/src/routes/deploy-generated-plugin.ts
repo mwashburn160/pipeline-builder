@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 import {
-  requireAdmin,
+  requirePermission,
   reserveQuota,
   decrementQuota,
   resolveAccessModifier,
@@ -54,7 +54,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
     // quota reservation happens inside the handler (atomic) so two
     // concurrent deploys at the limit can't both succeed; on any failure
     // path the worker decrements to give the slot back.
-    requireAdmin as RequestHandler,
+    requirePermission('plugins:write') as RequestHandler,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
       // Service-minted auth for downstream calls (quota, tier, compliance). The

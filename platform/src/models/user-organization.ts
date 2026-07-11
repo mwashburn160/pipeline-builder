@@ -25,7 +25,7 @@ export type OrgMemberRole = typeof MEMBER_ROLES[number];
  */
 export interface UserOrganizationDocument extends Document {
   userId: Types.ObjectId;
-  organizationId: Types.ObjectId | string;
+  organizationId: Types.ObjectId;
   role: OrgMemberRole;
   isActive: boolean;
   joinedAt: Date;
@@ -41,7 +41,7 @@ const userOrganizationSchema = new Schema<UserOrganizationDocument>(
       required: true,
     },
     organizationId: {
-      type: Schema.Types.Mixed,
+      type: Schema.Types.ObjectId,
       ref: 'Organization',
       required: true,
     },

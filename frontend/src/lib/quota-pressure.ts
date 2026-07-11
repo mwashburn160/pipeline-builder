@@ -18,11 +18,18 @@ export interface QuotaPressure {
   label?: string;
 }
 
+// Covers the full backend QuotaType set — `highestPressure` scans every quota
+// on the response, so a partial map would leave the newer kinds unlabelled.
 const TYPE_LABEL: Record<QuotaType, string> = {
   plugins: 'Plugins',
   pipelines: 'Pipelines',
   apiCalls: 'API calls',
   aiCalls: 'AI calls',
+  storageBytes: 'Storage',
+  dashboards: 'Dashboards',
+  alertRules: 'Alert rules',
+  alertDestinations: 'Alert destinations',
+  idpConfigs: 'IdP configs',
 };
 
 /** Compute the usage percentage for a single quota (0 for unlimited). */

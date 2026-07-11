@@ -43,7 +43,7 @@ const mockNotifyComplianceWarnings = jest.fn<(...args: unknown[]) => Promise<unk
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: {
     complianceScan: { id: 'col_id', status: 'col_status', orgId: 'col_org' },
     complianceExemption: {},
@@ -128,7 +128,7 @@ describe('executeScan', () => {
 
   it('marks system-org scans as completed without evaluating rules', async () => {
     updateReturning = [
-      [{ id: 'scan-1', status: 'running', orgId: 'SYSTEM', target: 'plugin', userId: 'u' }],
+      [{ id: 'scan-1', status: 'running', orgId: '000000000000000000000001', target: 'plugin', userId: 'u' }],
     ];
     await executeScan('scan-1');
     expect(dbUpdate).toHaveBeenCalled();

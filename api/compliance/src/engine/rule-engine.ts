@@ -14,7 +14,7 @@
  * - Priority ordering (highest priority first)
  */
 
-import type { RuleOperator, RuleSeverity, RuleCondition } from '@pipeline-builder/pipeline-core';
+import type { RuleOperator, RuleSeverity, RuleCondition } from '@pipeline-builder/pipeline-data';
 import { evaluateOperator, getFieldValue } from './rule-operators.js';
 
 /**

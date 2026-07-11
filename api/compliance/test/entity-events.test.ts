@@ -49,7 +49,7 @@ jest.unstable_mockModule('../src/helpers/audit-logger.js', () => ({
   logComplianceCheck: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: {},
   db: { select: jest.fn() },
   // Route now wraps its handler in `runWithTenantContext` (so internal

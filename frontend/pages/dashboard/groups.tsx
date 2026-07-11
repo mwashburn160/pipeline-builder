@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ShieldCheck, ShieldAlert, Users, UserPlus, UserMinus, Crown, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Users, UserPlus, UserMinus, Crown, AlertTriangle, Plus, Pencil, Trash2, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFormState } from '@/hooks/useFormState';
 import { useToast } from '@/components/ui/Toast';
@@ -8,6 +8,14 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
+import { Input } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ModalFooter } from '@/components/ui/ModalFooter';
+import { PERMISSION_CATEGORIES, permissionLabel } from '@/lib/permissions';
 import api from '@/lib/api';
 import type { OrganizationGroup, GroupRole } from '@/types';
 
@@ -25,7 +33,10 @@ const ROLE_LABEL: Record<GroupRole, string> = {
 };
 
 export default function GroupsPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'groups:manage' });
+  // Capability to manage groups — role admins/owners (via their bundle) and
+  // custom-group members granted `groups:manage`. The page is guarded on it.
+  const canManageGroups = can('groups:manage');
   const toast = useToast();
   const orgId = user?.organizationId;
 
@@ -58,12 +69,12 @@ export default function GroupsPage() {
   }, [orgId]);
 
   useEffect(() => {
-    if (isAuthenticated && isAdmin && orgId) fetchGroups();
-  }, [isAuthenticated, isAdmin, orgId, fetchGroups]);
+    if (isAuthenticated && canManageGroups && orgId) fetchGroups();
+  }, [isAuthenticated, canManageGroups, orgId, fetchGroups]);
 
   // Role-based UI: a group that grants platform admin (Superadmins) can only be
   // managed by an existing platform admin; org admins manage the rest.
-  const canEditGroup = (g: OrganizationGroup) => (g.grantsRole === 'superadmin' ? isSuperAdmin : isAdmin);
+  const canEditGroup = (g: OrganizationGroup) => (g.grantsRole === 'superadmin' ? isSuperAdmin : canManageGroups);
 
   // Why a member's removal is blocked (mirrors the backend lockout guards so the
   // button is disabled rather than failing with an error toast). Returns the
@@ -117,13 +128,82 @@ export default function GroupsPage() {
     }
   };
 
+  // Create / edit a custom permission group. `editorGroup === null` = create;
+  // otherwise editing that (non-system) group.
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorGroup, setEditorGroup] = useState<OrganizationGroup | null>(null);
+  const [groupName, setGroupName] = useState('');
+  const [groupDesc, setGroupDesc] = useState('');
+  const [groupPerms, setGroupPerms] = useState<Set<string>>(new Set());
+  const editorForm = useFormState();
+  const [deleteTarget, setDeleteTarget] = useState<OrganizationGroup | null>(null);
+  const del = useFormState();
+
+  const openCreate = () => {
+    setEditorGroup(null);
+    setGroupName('');
+    setGroupDesc('');
+    setGroupPerms(new Set());
+    editorForm.reset();
+    setEditorOpen(true);
+  };
+
+  const openEdit = (g: OrganizationGroup) => {
+    setEditorGroup(g);
+    setGroupName(g.name);
+    setGroupDesc(g.description ?? '');
+    setGroupPerms(new Set(g.permissions));
+    editorForm.reset();
+    setEditorOpen(true);
+  };
+
+  const togglePerm = (id: string) => {
+    setGroupPerms((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSaveGroup = async () => {
+    if (!orgId || !groupName.trim()) return;
+    const payload = {
+      name: groupName.trim(),
+      description: groupDesc.trim() || undefined,
+      permissions: [...groupPerms],
+    };
+    const result = await editorForm.run(() => editorGroup
+      ? api.updateGroup(orgId, editorGroup.id, payload)
+      : api.createGroup(orgId, payload));
+    if (result !== null) {
+      toast.success(editorGroup ? `Updated ${payload.name}` : `Created ${payload.name}`);
+      setEditorOpen(false);
+      fetchGroups();
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!orgId || !deleteTarget) return;
+    const result = await del.run(() => api.deleteGroup(orgId, deleteTarget.id));
+    if (result !== null) {
+      toast.success(`Deleted ${deleteTarget.name}`);
+      setDeleteTarget(null);
+      fetchGroups();
+    }
+  };
+
   if (!isReady || !user) return <LoadingPage />;
 
   return (
     <DashboardLayout
       title="Groups"
-      subtitle="Permission groups grant roles to their members"
+      subtitle="Permission groups grant roles and fine-grained permissions to their members"
       maxWidth="4xl"
+      actions={
+        <Button onClick={openCreate}>
+          <Plus className="w-4 h-4 mr-1.5" /> New Group
+        </Button>
+      }
     >
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="permission groups" />
 
@@ -136,12 +216,7 @@ export default function GroupsPage() {
         </span>
       </div>
 
-      {error && (
-        <div className="alert-error">
-          <p>{error}</p>
-          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
-        </div>
-      )}
+      <ErrorAlert message={error} onDismiss={() => setError(null)} />
 
       {isLoading ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">Loading groups…</p>
@@ -159,20 +234,46 @@ export default function GroupsPage() {
               <div key={g.id} className="card">
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div className="min-w-0">
-                    <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2">
+                    <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2 flex-wrap">
                       {isSuperGroup ? <ShieldAlert className="w-4 h-4 text-red-500" /> : <ShieldCheck className="w-4 h-4 text-gray-400" />}
                       {g.name}
-                      <Badge color={ROLE_BADGE[g.grantsRole]}>{g.grantsRole}</Badge>
+                      {g.system
+                        ? <Badge color={ROLE_BADGE[g.grantsRole]}>{g.grantsRole}</Badge>
+                        : <Badge color="blue">custom</Badge>}
                     </h2>
+                    {g.description && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{g.description}</p>
+                    )}
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {ROLE_LABEL[g.grantsRole]} · {g.members.length} member{g.members.length === 1 ? '' : 's'}
+                      {g.system ? ROLE_LABEL[g.grantsRole] : `${g.permissions.length} permission${g.permissions.length === 1 ? '' : 's'}`} · {g.members.length} member{g.members.length === 1 ? '' : 's'}
                     </p>
+                    {g.permissions.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {g.permissions.map((p) => (
+                          <span key={p} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                            <KeyRound className="w-2.5 h-2.5 text-gray-400" />{permissionLabel(p)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {editable && (
-                    <button onClick={() => openAdd(g)} className="btn btn-secondary btn-sm shrink-0">
-                      <UserPlus className="w-3.5 h-3.5 mr-1" /> Add member
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {editable && !g.system && (
+                      <>
+                        <IconButton tone="primary" onClick={() => openEdit(g)} title={`Edit ${g.name}`} aria-label={`Edit ${g.name}`}>
+                          <Pencil className="w-4 h-4" />
+                        </IconButton>
+                        <IconButton tone="danger" onClick={() => setDeleteTarget(g)} title={`Delete ${g.name}`} aria-label={`Delete ${g.name}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </IconButton>
+                      </>
+                    )}
+                    {editable && (
+                      <Button variant="secondary" size="sm" onClick={() => openAdd(g)}>
+                        <UserPlus className="w-3.5 h-3.5 mr-1" /> Add member
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 {g.members.length === 0 ? (
@@ -191,15 +292,16 @@ export default function GroupsPage() {
                             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{m.email}</p>
                           </div>
                           {editable && (
-                            <button
+                            <IconButton
+                              tone="danger"
                               onClick={() => setRemoveTarget({ group: g, member: m })}
                               disabled={!!blockReason}
-                              className="p-1.5 rounded-lg text-gray-400 enabled:hover:text-red-600 enabled:hover:bg-red-50 dark:enabled:hover:text-red-400 dark:enabled:hover:bg-red-900/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:bg-transparent"
                               title={blockReason ?? `Remove ${m.username} from ${g.name}`}
                               aria-label={`Remove ${m.username} from ${g.name}`}
                             >
                               {blockReason ? <Crown className="w-4 h-4" /> : <UserMinus className="w-4 h-4" />}
-                            </button>
+                            </IconButton>
                           )}
                         </li>
                       );
@@ -218,12 +320,13 @@ export default function GroupsPage() {
           title={`Add member to ${addToGroup.name}`}
           onClose={() => setAddToGroup(null)}
           footer={
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setAddToGroup(null)} className="btn btn-secondary" disabled={addForm.loading}>Cancel</button>
-              <button onClick={handleAdd} disabled={addForm.loading || !addEmail.trim()} className="btn btn-primary">
-                {addForm.loading ? 'Adding...' : 'Add Member'}
-              </button>
-            </div>
+            <ModalFooter
+              onCancel={() => setAddToGroup(null)}
+              onConfirm={handleAdd}
+              confirmLabel="Add Member"
+              loading={addForm.loading}
+              confirmDisabled={!addEmail.trim()}
+            />
           }
         >
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
@@ -235,13 +338,13 @@ export default function GroupsPage() {
               This group {addToGroup.grantsRole === 'superadmin' ? 'grants platform-wide admin' : 'grants organization admin'}. Add with care.
             </p>
           )}
-          <input
+          <Input
             type="email"
             placeholder="user@example.com"
             value={addEmail}
             onChange={(e) => setAddEmail(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-            className="input text-sm mt-1"
+            className="text-sm mt-1"
             autoFocus
           />
           {addForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{addForm.error}</p>}
@@ -254,12 +357,13 @@ export default function GroupsPage() {
           title={`Remove from ${removeTarget.group.name}`}
           onClose={() => !removeLoading && setRemoveTarget(null)}
           footer={
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setRemoveTarget(null)} className="btn btn-secondary" disabled={removeLoading}>Cancel</button>
-              <button onClick={handleRemove} disabled={removeLoading} className="btn btn-danger">
-                {removeLoading ? 'Removing...' : 'Remove'}
-              </button>
-            </div>
+            <ModalFooter
+              onCancel={() => setRemoveTarget(null)}
+              onConfirm={handleRemove}
+              confirmLabel="Remove"
+              confirmVariant="danger"
+              loading={removeLoading}
+            />
           }
         >
           <div className="flex items-start gap-3">
@@ -288,6 +392,93 @@ export default function GroupsPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Create / edit a custom permission group */}
+      {editorOpen && (
+        <Modal
+          title={editorGroup ? `Edit ${editorGroup.name}` : 'New Permission Group'}
+          onClose={() => !editorForm.loading && setEditorOpen(false)}
+          footer={
+            <ModalFooter
+              onCancel={() => setEditorOpen(false)}
+              onConfirm={handleSaveGroup}
+              confirmLabel={editorGroup ? 'Save changes' : 'Create group'}
+              loading={editorForm.loading}
+              confirmDisabled={!groupName.trim()}
+            />
+          }
+        >
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Name</label>
+              <Input
+                type="text"
+                placeholder="e.g. Deployers, QA, Read-only"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                className="text-sm"
+                autoFocus
+                disabled={editorForm.loading}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                Description <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <Input
+                type="text"
+                placeholder="What this group is for"
+                value={groupDesc}
+                onChange={(e) => setGroupDesc(e.target.value)}
+                className="text-sm"
+                disabled={editorForm.loading}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                Permissions <span className="text-gray-400 font-normal">({groupPerms.size} selected)</span>
+              </label>
+              <div className="max-h-72 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
+                {PERMISSION_CATEGORIES.map(({ category, permissions }) => (
+                  <div key={category} className="p-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">{category}</p>
+                    <div className="mt-1.5 space-y-1.5">
+                      {permissions.map((p) => (
+                        <label key={p.id} className="flex items-start gap-2 text-xs cursor-pointer">
+                          <Checkbox
+                            checked={groupPerms.has(p.id)}
+                            onChange={() => togglePerm(p.id)}
+                            disabled={editorForm.loading}
+                            className="mt-0.5"
+                          />
+                          <span className="min-w-0">
+                            <span className="font-medium text-gray-800 dark:text-gray-200">{p.label}</span>
+                            <span className="block text-gray-400 dark:text-gray-500">{p.description}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                Members of this group get these permissions on top of their base role. The org owner and admins already have everything.
+              </p>
+            </div>
+          </div>
+          {editorForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{editorForm.error}</p>}
+        </Modal>
+      )}
+
+      {deleteTarget && (
+        <DeleteConfirmModal
+          title="Delete Group"
+          itemName={deleteTarget.name}
+          loading={del.loading}
+          onConfirm={handleDeleteGroup}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </DashboardLayout>
   );

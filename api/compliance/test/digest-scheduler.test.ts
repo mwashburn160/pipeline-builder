@@ -14,6 +14,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: { getAny: () => ({}) },
   runWithTenantContext: (_c: unknown, fn: () => unknown) => fn(),
 }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  Config: { getAny: () => ({}) },
+  runWithTenantContext: (_c: unknown, fn: () => unknown) => fn(),
+}));;
 jest.unstable_mockModule('../src/helpers/compliance-notifier.js', () => ({ dispatchImmediate: jest.fn() }));
 // Avoid loading the real BullMQ queue (it would connect to Redis on import).
 jest.unstable_mockModule('../src/queue/compliance-event-queue.js', () => ({ getLockRedis: jest.fn() }));

@@ -1,12 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  buildComplianceExemptionConditions,
-  drizzleCount,
-  schema,
-  withTenantTx,
-} from '@pipeline-builder/pipeline-core';
+import { buildComplianceExemptionConditions, drizzleCount, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { ActiveExemption } from '../engine/rule-engine.js';
 

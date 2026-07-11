@@ -112,7 +112,7 @@ describe('seedDefaultGroups', () => {
   });
 
   it('seeds Superadmins for the system org; creator joins Superadmins + Administrators and is flagged isSuperAdmin', async () => {
-    await seedDefaultGroups('system', 'u1', { isSystemOrg: true });
+    await seedDefaultGroups('000000000000000000000001', 'u1', { isSystemOrg: true });
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string }>;
     expect(seeded.map((g) => g.name)).toEqual(['Superadmins', 'Administrators', 'Developers']);
@@ -171,7 +171,7 @@ describe('recomputeUserOrgRole', () => {
     const uo = { role: 'member', save: jest.fn().mockResolvedValue(undefined) };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
-    await recomputeUserOrgRole('u1', 'system');
+    await recomputeUserOrgRole('u1', '000000000000000000000001');
 
     expect(uo.role).toBe('admin');
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: true } }, expect.anything());
@@ -186,7 +186,7 @@ describe('recomputeUserOrgRole', () => {
     const uo = { role: 'admin', save: jest.fn().mockResolvedValue(undefined) };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
-    await recomputeUserOrgRole('u1', 'system');
+    await recomputeUserOrgRole('u1', '000000000000000000000001');
 
     expect(uo.role).toBe('member');
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: false } }, expect.anything());
@@ -201,7 +201,7 @@ describe('recomputeUserOrgRole', () => {
     const uo = { role: 'member', save: jest.fn() };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
-    await recomputeUserOrgRole('u1', 'system');
+    await recomputeUserOrgRole('u1', '000000000000000000000001');
 
     expect(mockUserUpdateOne).not.toHaveBeenCalled();
   });
@@ -267,7 +267,7 @@ describe('addUserToGroup error paths', () => {
     // would mint a platform superadmin (privilege escalation).
     mockGroupFindOne.mockResolvedValue({ _id: 'gS', grantsRole: 'superadmin' });
 
-    await expect(addUserToGroup('system', 'gS', { userId: 'u1' }, false))
+    await expect(addUserToGroup('000000000000000000000001', 'gS', { userId: 'u1' }, false))
       .rejects.toThrow(GRP_REQUIRES_SUPERADMIN);
     expect(mockGmUpdateOne).not.toHaveBeenCalled();
   });
@@ -282,7 +282,7 @@ describe('addUserToGroup error paths', () => {
     findReturns(mockGmFind, [{ groupId: 'gS' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'superadmin' }]);
 
-    const res = await addUserToGroup('system', 'gS', { userId: 'u1' }, true);
+    const res = await addUserToGroup('000000000000000000000001', 'gS', { userId: 'u1' }, true);
 
     expect(res).toEqual({ userId: 'u1' });
     expect(mockGmUpdateOne).toHaveBeenCalled();
@@ -342,7 +342,7 @@ describe('removeUserFromGroup', () => {
     // isSuperAdmin off a real superadmin via the recompute.
     mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gS', grantsRole: 'superadmin', name: 'Superadmins' }) });
 
-    await expect(removeUserFromGroup('system', 'gS', 'victim', { actorUserId: 'admin', actorIsSuperAdmin: false }))
+    await expect(removeUserFromGroup('000000000000000000000001', 'gS', 'victim', { actorUserId: 'admin', actorIsSuperAdmin: false }))
       .rejects.toThrow(GRP_REQUIRES_SUPERADMIN);
     expect(mockGmDeleteOne).not.toHaveBeenCalled();
   });

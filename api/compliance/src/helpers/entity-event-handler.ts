@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import type { RuleTarget } from '@pipeline-builder/pipeline-core';
+import type { RuleTarget } from '@pipeline-builder/pipeline-data';
 import { logComplianceCheck } from './audit-logger.js';
 import { evaluateRules } from '../engine/rule-engine.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';

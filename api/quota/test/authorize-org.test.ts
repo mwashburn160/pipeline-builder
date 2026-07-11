@@ -84,7 +84,7 @@ describe('authorizeOrg', () => {
     it('should allow system admin cross-org access', () => {
       mockIsSystemAdmin.mockReturnValue(true);
       const { req, res, next } = createMockReqResNext({
-        user: { organizationId: 'system' },
+        user: { organizationId: '000000000000000000000001' },
         params: { orgId: 'org-1' },
       });
 
@@ -140,7 +140,7 @@ describe('authorizeOrg', () => {
     it('should allow system admin', () => {
       mockIsSystemAdmin.mockReturnValue(true);
       const { req, res, next } = createMockReqResNext({
-        user: { organizationId: 'system' },
+        user: { organizationId: '000000000000000000000001' },
         params: { orgId: 'org-1' },
       });
 

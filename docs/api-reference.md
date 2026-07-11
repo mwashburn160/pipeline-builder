@@ -20,7 +20,7 @@ All requests require two headers:
 | `Authorization` | `Bearer <JWT>` -- obtained from the platform login endpoint |
 | `x-org-id` | Organization ID -- scopes the request to a specific tenant |
 
-Access tokens expire after 2 hours by default (configurable via `JWT_EXPIRES_IN`, capped at 24 hours). Use the refresh token endpoint to obtain a new access token without re-authenticating.
+Access tokens expire after 2 hours by default (configurable via `JWT_EXPIRES_IN`, with optional per-tier overrides via `JWT_EXPIRES_IN_<TIER>`). Use the refresh token endpoint to obtain a new access token without re-authenticating.
 
 ---
 
@@ -92,6 +92,33 @@ Access tokens expire after 2 hours by default (configurable via `JWT_EXPIRES_IN`
 | `PUT` | `/quotas/:orgId` | Update tier/limits (system admin only) |
 | `POST` | `/quotas/:orgId/reset` | Reset usage counters (system admin only) |
 | `POST` | `/quotas/:orgId/increment` | Internal: increment usage (service-to-service, `amount` capped at 1000/call) |
+
+### Organization & Access Service
+
+Base path `/api/organization` (and `/api/invitation`). Management endpoints enforce **fine-grained permissions** via `requirePermission('resource:action')` — a user passes if their effective permissions (role bundle ∪ custom-group grants) include it, or they're a super-admin. The required permission is in the last column; endpoints marked *system admin* require the global super-admin flag instead.
+
+| Method | Endpoint | Description | Permission |
+|--------|----------|-------------|------------|
+| `GET` | `/organization` | Caller's active organization | — (auth) |
+| `POST` | `/organization` | Create an organization or nested team | `org:settings` |
+| `GET` | `/organization/:id` | Get an organization | — (own org / managed team / sysadmin) |
+| `PUT` | `/organization/:id` | Update an organization | *system admin* |
+| `DELETE` | `/organization/:id` | Delete an organization (+ step-up) | *system admin* |
+| `PATCH` | `/organization/:id/tier` | Change pricing tier (+ step-up) | *system admin* |
+| `GET` | `/organization/:id/export` | GDPR data export | `org:settings` |
+| `PATCH` | `/organization/:id/transfer-owner` | Transfer ownership (+ step-up) | `org:settings` |
+| `GET` | `/organization/:id/members` | List members | — (member) |
+| `POST` \| `DELETE` \| `PATCH` | `/organization/:id/members[/:userId[/activate\|deactivate]]` | Add / remove / change-role / (de)activate a member | `members:manage` |
+| `GET` | `/organization/:id/teams` | List descendant teams | — (member) |
+| `GET` | `/organization/:id/groups` | List permission groups + members | — (member) |
+| `POST` | `/organization/:id/groups` | Create a custom permission group | `groups:manage` |
+| `PUT` \| `DELETE` | `/organization/:id/groups/:groupId` | Update / delete a custom group | `groups:manage` |
+| `POST` \| `DELETE` | `/organization/:id/groups/:groupId/members[/:userId]` | Add / remove a group member | `groups:manage` |
+| `POST` | `/invitation/send` | Send an invitation | `invitations:manage` |
+| `GET` | `/invitation` | List invitations | `invitations:manage` |
+| `DELETE` \| `POST` | `/invitation/:id[/resend]` | Revoke / resend an invitation | `invitations:manage` |
+
+The full permission catalog (`pipelines:write`, `plugins:write`, `compliance:write`, `billing:manage`, `dashboards:write`, `observability:write`, `org:settings`, …) lives in `@pipeline-builder/api-core` (`types/permissions.ts`). Custom groups grant any subset; a member's effective permissions are the union of their role's base bundle and every group they belong to.
 
 ### Common Query Parameters
 

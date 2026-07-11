@@ -40,6 +40,39 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     },
   };
 });
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
+  class MockCrudService {
+    find = mockFind;
+    setDefault = mockSetDefault;
+  }
+
+  return {
+    __mockFind: mockFind,
+    __mockSetDefault: mockSetDefault,
+    CrudService: MockCrudService,
+    CoreConstants: { CACHE_TTL_ENTITY: 60 },
+    buildPluginConditions: jest.fn(() => []),
+    getTenantContext: jest.fn(() => undefined),
+    withTenantTx: jest.fn(),
+    AccessModifier: {},
+    ComputeType: {},
+    PluginType: {},
+    schema: {
+      plugin: {
+        id: 'id',
+        name: 'name',
+        version: 'version',
+        description: 'description',
+        createdAt: 'createdAt',
+        updatedAt: 'updatedAt',
+        isActive: 'isActive',
+        isDefault: 'isDefault',
+        orgId: 'orgId',
+        accessModifier: 'accessModifier',
+      },
+    },
+  };
+});;
 
 jest.unstable_mockModule('drizzle-orm', () => ({
   SQL: class {},

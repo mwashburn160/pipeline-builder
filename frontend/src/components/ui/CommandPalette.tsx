@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Search, Sun, Moon } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useFeatures } from '@/hooks/useFeatures';
+import { useAuth } from '@/hooks/useAuth';
+import { hasPermission } from '@/lib/auth-helpers';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible } from '@/lib/nav';
 
 interface CommandItem {
@@ -52,6 +54,7 @@ export function CommandPalette({
   }, [router, runAndClose]);
 
   const features = useFeatures();
+  const { user } = useAuth();
 
   const commands: CommandItem[] = useMemo(() => {
     // Quick actions first — these are the primary "start something" flows
@@ -75,7 +78,7 @@ export function CommandPalette({
     // every admin page) so users can find a page by area, not just name.
     const navItems: CommandItem[] = NAV_SECTIONS.flatMap((section) =>
       section.items
-        .filter((item) => isNavItemVisible(item, { isAdmin, isSuperAdmin, isFeatureEnabled: (n) => features.isEnabled(n) }))
+        .filter((item) => isNavItemVisible(item, { isAdmin, isSuperAdmin, isFeatureEnabled: (n) => features.isEnabled(n), hasPermission: (p) => hasPermission(user, p) }))
         .map((item) => ({
           id: item.href,
           label: `Go to ${item.title}`,
@@ -91,7 +94,7 @@ export function CommandPalette({
       ...navItems,
       { id: 'toggle-dark', label: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: isDark ? Sun : Moon, section: 'Settings', keywords: 'theme', action: () => runAndClose(onToggleDark) },
     ];
-  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose, features]);
+  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose, features, user]);
 
   const filtered = useMemo(() => {
     if (!query) return commands;

@@ -24,7 +24,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 // Pass-through tenant-context wrapper (real one is AsyncLocalStorage-backed).
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 

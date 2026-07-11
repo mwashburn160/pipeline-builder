@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, getOrgId, createHealthRouter, setCounterEmitter, safeCreateRequire } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, safeCreateRequire } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
-import { Config, CoreConstants, getConnection } from '@pipeline-builder/pipeline-core';
+import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
+import { getConnection } from '@pipeline-builder/pipeline-data';
 import compression from 'compression';
 import cors from 'cors';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
@@ -256,13 +257,19 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       windowMs: rateLimitConfig.windowMs,
       standardHeaders: true,
       legacyHeaders: false,
-      // Skip rate limiting for internal service calls (init scripts, inter-service)
-      skip: (req: Request) => req.headers['x-internal-service'] === 'true',
-      // Per-org key: use orgId from JWT when available, fall back to IP.
-      // ipKeyGenerator normalizes IPv6 to a /64 prefix so a single user can't
-      // rotate low-bits to escape the bucket; express-rate-limit 8.x's
-      // validator also refuses to start without it.
-      keyGenerator: (req: Request) => getOrgId(req) || ipKeyGenerator(req.ip || 'anon', 64),
+      // Skip rate limiting only for CRYPTOGRAPHICALLY-VERIFIED internal service
+      // callers. The limiter runs before requireAuth, so the previously-trusted
+      // plaintext `x-internal-service` header was spoofable by any external
+      // client → total bypass. verifyServicePrincipal verifies the signed
+      // service JWT instead; inter-service callers all send one
+      // (getServiceAuthHeader).
+      skip: (req: Request) => verifyServicePrincipal(req),
+      // Key on client IP only. The limiter runs pre-auth, so `req.user` is unset
+      // and any org id would come from the caller-supplied `x-org-id` header —
+      // spoofable, letting an attacker rotate values to evade the bucket or
+      // flood a victim org's bucket. ipKeyGenerator normalizes IPv6 to a /64
+      // prefix (also required by express-rate-limit 8.x's validator).
+      keyGenerator: (req: Request) => ipKeyGenerator(req.ip || 'anon', 64),
       handler: (_req: Request, res: Response) => {
         sendError(res, 429, 'Too many requests, please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);
       },

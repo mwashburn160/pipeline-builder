@@ -60,6 +60,43 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     },
   };
 });
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
+  class MockCrudService {
+    find = mockFind;
+  }
+
+  return {
+    CrudService: MockCrudService,
+    CoreConstants: { CACHE_TTL_MESSAGE: 300 },
+    buildMessageConditions: jest.fn(() => []),
+    // message-service.{markAsRead,markThreadAsRead,getUnreadCount,deleteThread}
+    // were migrated to withTenantTx — pass through the same spies the test
+    // already tracks (mockDbUpdate / mockDbSelect).
+    withTenantTx: (fn: (tx: unknown) => unknown) => fn({
+      update: mockDbUpdate,
+      select: mockDbSelect,
+    }),
+    schema: {
+      message: {
+        id: 'id',
+        orgId: 'orgId',
+        recipientOrgId: 'recipientOrgId',
+        threadId: 'threadId',
+        messageType: 'messageType',
+        subject: 'subject',
+        content: 'content',
+        priority: 'priority',
+        readBy: 'readBy',
+        isActive: 'isActive',
+        createdAt: 'createdAt',
+        updatedAt: 'updatedAt',
+        createdBy: 'createdBy',
+        updatedBy: 'updatedBy',
+        accessModifier: 'accessModifier',
+      },
+    },
+  };
+});;
 
 jest.unstable_mockModule('drizzle-orm', () => ({
   SQL: class {},

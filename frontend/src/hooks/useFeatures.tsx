@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
 import { useAuth } from './useAuth';
-import { isSystemAdmin } from '@/types';
+import { isSystemAdmin } from '@/lib/auth-helpers';
 import api from '@/lib/api';
 
 /** Shape of the features context value. */

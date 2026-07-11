@@ -298,10 +298,14 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    ORG[Organization: acme-corp<br/>orgId: abc123]
-    ORG --> PLUG[Plugins<br/>scoped by orgId + accessModifier]
-    ORG --> PIPE[Pipelines<br/>scoped by project, org, orgId]
-    ORG --> SEC[Secrets<br/>AWS SM: /prefix/abc123/secretName]
-    ORG --> QUO[Quotas<br/>per-org limits]
-    ORG --> COMP[Compliance<br/>per-org policy rules]
+    ROOT[Root Organization: acme-corp<br/>orgId: abc123]
+    ROOT --> PLUG[Plugins<br/>scoped by orgId + accessModifier]
+    ROOT --> PIPE[Pipelines<br/>scoped by project, org, orgId]
+    ROOT --> SEC[Secrets<br/>AWS SM: /prefix/abc123/secretName]
+    ROOT --> QUO[Quotas + seats<br/>pooled at the root org]
+    ROOT --> COMP[Compliance<br/>per-org policy rules]
+    ROOT --> TEAM[Team: acme-mobile<br/>orgId: def456, parentOrgId: abc123]
+    TEAM --> TMEM[Members + roles + groups<br/>scoped to the team]
 ```
+
+**Org → team hierarchy.** A **team** is a nested `Organization` (a doc with `parentOrgId` set, sharing the same schema/collection). Resource scoping is per org/team by `orgId` — but **seats, quotas, and billing pool at the root** organization (a person on several teams counts as one seat; usage sums across the subtree). **Roles, groups, and fine-grained permissions are per org/team**: a user's effective permissions are resolved in whichever org/team is active. A root-org admin can administer its child teams via the hierarchy (`canAdministerOrg`), while super-admins span everything.

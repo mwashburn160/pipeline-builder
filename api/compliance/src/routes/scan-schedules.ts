@@ -10,6 +10,7 @@ import {
   getParam,
   parsePaginationParams,
   validateBody,
+  requirePermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -49,8 +50,10 @@ export function createScanScheduleRoutes(): Router {
     });
   }));
 
+  // Recurring auto-scan schedules are governance config: create/update/toggle/
+  // delete require `compliance:write`. Reads (GET /) stay member-level.
   // POST / — create a scan schedule
-  router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ScheduleCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -67,7 +70,7 @@ export function createScanScheduleRoutes(): Router {
   }));
 
   // PUT /:id — update a scan schedule
-  router.put('/:id', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Scan schedule');
 
@@ -88,7 +91,7 @@ export function createScanScheduleRoutes(): Router {
   }));
 
   // PATCH /:id/active — toggle schedule active/inactive
-  router.patch('/:id/active', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.patch('/:id/active', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Scan schedule');
 
@@ -105,7 +108,7 @@ export function createScanScheduleRoutes(): Router {
   }));
 
   // DELETE /:id — deactivate/remove a scan schedule
-  router.delete('/:id', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.delete('/:id', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Scan schedule');
 

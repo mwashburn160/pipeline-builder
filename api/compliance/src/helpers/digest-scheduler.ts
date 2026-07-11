@@ -14,7 +14,8 @@
  */
 
 import { createLogger, errorMessage, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
-import { Config, runWithTenantContext } from '@pipeline-builder/pipeline-core';
+import { Config } from '@pipeline-builder/pipeline-core';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { dispatchImmediate } from './compliance-notifier.js';
 import type { ComplianceNotification } from './notification-channels.js';
 import { getLockRedis } from '../queue/compliance-event-queue.js';

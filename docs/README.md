@@ -117,7 +117,7 @@ See the [API Reference](api-reference.md) for the full endpoint list.
 
 ```typescript
 import { App, Stack } from 'aws-cdk-lib';
-import { PipelineBuilder } from '@mwashburn160/pipeline-core';
+import { PipelineBuilder } from '@pipeline-builder/pipeline-core';
 
 const app = new App();
 const stack = new Stack(app, 'MyPipelineStack', {
@@ -243,6 +243,18 @@ curl -X POST https://localhost:8443/api/organization \
 | **Member** | Create and manage their own pipelines and plugins |
 
 Invite members via email from the dashboard or API. A user can belong to multiple organizations.
+
+### Permission Groups
+
+Beyond the three base roles, an admin can create **custom permission groups** — a named set of fine-grained `resource:action` permissions (e.g. `pipelines:write`, `plugins:write`, `members:manage`, `groups:manage`, `compliance:write`, `billing:manage`, `dashboards:write`, `org:settings`). A user's **effective permissions** are their role's base bundle unioned with every group they belong to; superadmins hold all. Endpoints enforce them via `requirePermission(...)`.
+
+Manage groups from the dashboard, or via the API:
+
+```bash
+GET|POST    /api/organization/:id/groups                       # list / create groups
+PUT|DELETE  /api/organization/:id/groups/:groupId              # update / delete a group
+POST|DELETE /api/organization/:id/groups/:groupId/members/...  # add / remove a group member
+```
 
 ### Teams (Org → Team Hierarchy)
 

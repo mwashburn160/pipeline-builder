@@ -8,15 +8,16 @@
  * enabled rules across all orgs into a Prometheus rule_files YAML document
  * served at `GET /api/observability/alert-rules/materialized.yml`.
  *
- * Tenancy gate * - `expr` MUST substring-contain `org_id="<orgId>"` (or `org_id=~"<orgId>"`).
- * Real PromQL parsing + automatic org_id injection is the next iteration;
- * today the substring check stops accidental cross-tenant rules cheaply.
+ * Tenancy gate (`validateRule` → `validateOrgIdMatchers`): a real PromQL
+ * matcher walk rejects any `org_id` matcher that doesn't pin the rule to
+ * `<orgId>`, and `injectOrgId` auto-injects `org_id="<orgId>"` into selectors
+ * that omit it — so a rule can't span tenants.
  * - The materialized rule carries `labels.org_id = <orgId>` so the existing
  * alertmanager-relay routes firing alerts to the right org's destinations.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
-import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from './promql-rewriter.js';
 
@@ -208,7 +209,7 @@ export class AlertRuleService {
    * non-deleted rules across the whole instance.
    */
   async listAllEnabledForMaterializer(): Promise<OrgAlertRule[]> {
-    return runWithTenantContext({ orgId: 'system', isSuperAdmin: true }, async () => {
+    return runWithTenantContext({ orgId: SYSTEM_ORG_ID, isSuperAdmin: true }, async () => {
       return withTenantTx(async (tx) => tx
         .select()
         .from(schema.orgAlertRule)

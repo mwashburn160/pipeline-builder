@@ -27,10 +27,11 @@ import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useFeatures } from '@/hooks/useFeatures';
 import api from '@/lib/api';
-import type { OrgQuotaResponse, QuotaType, Subscription } from '@/types';
+import type { OrgQuotaResponse, DisplayedQuotaType, Subscription } from '@/types';
 import type { ComplianceAuditEntry } from '@/types/compliance';
 
-const QUOTA_LABELS: Record<QuotaType, string> = {
+// The home quota-health row shows the curated 4-tile subset (grid-cols-4).
+const QUOTA_LABELS: Record<DisplayedQuotaType, string> = {
   plugins: 'Plugins',
   pipelines: 'Pipelines',
   apiCalls: 'API calls',
@@ -126,7 +127,7 @@ export function OrgAdminHome({ organizationId }: Props) {
         {loading && !quotas && <LoadingSpinner size="sm" />}
         {quotas && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {(Object.keys(QUOTA_LABELS) as QuotaType[]).map((type) => {
+            {(Object.keys(QUOTA_LABELS) as DisplayedQuotaType[]).map((type) => {
               const q = quotas.quotas[type];
               if (!q) return null;
               const tone = quotaTone(q.used, q.limit, q.unlimited);

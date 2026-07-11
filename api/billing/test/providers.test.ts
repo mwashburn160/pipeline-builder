@@ -292,10 +292,12 @@ describe('StripeProvider', () => {
 
       const result = await provider.createCustomer('org-1', 'user@test.com');
       expect(result).toBe('cus_stripe_123');
+      // Second arg is the Stripe request-options object; undefined when no
+      // idempotency key is supplied.
       expect(mockStripeCustomersCreate).toHaveBeenCalledWith({
         email: 'user@test.com',
         metadata: { orgId: 'org-1' },
-      });
+      }, undefined);
     });
 
     it('omits email when empty', async () => {
@@ -306,7 +308,17 @@ describe('StripeProvider', () => {
       expect(mockStripeCustomersCreate).toHaveBeenCalledWith({
         email: undefined,
         metadata: { orgId: 'org-1' },
-      });
+      }, undefined);
+    });
+
+    it('forwards an idempotency key as Stripe request options when supplied', async () => {
+      mockStripeCustomersCreate.mockResolvedValue({ id: 'cus_stripe_789' });
+
+      await provider.createCustomer('org-1', 'user@test.com', 'cust_key_1');
+      expect(mockStripeCustomersCreate).toHaveBeenCalledWith({
+        email: 'user@test.com',
+        metadata: { orgId: 'org-1' },
+      }, { idempotencyKey: 'cust_key_1' });
     });
   });
 
@@ -324,7 +336,18 @@ describe('StripeProvider', () => {
         customer: 'cus_123',
         items: [{ price: 'price_pro_mo' }],
         metadata: { planId: 'pro', interval: 'monthly' },
-      });
+      }, undefined);
+    });
+
+    it('forwards an idempotency key as Stripe request options when supplied', async () => {
+      mockStripeSubscriptionsCreate.mockResolvedValue({ id: 'sub_stripe_790', status: 'active' });
+
+      await provider.createSubscription('cus_123', 'pro', 'monthly', 'sub_key_1');
+      expect(mockStripeSubscriptionsCreate).toHaveBeenCalledWith({
+        customer: 'cus_123',
+        items: [{ price: 'price_pro_mo' }],
+        metadata: { planId: 'pro', interval: 'monthly' },
+      }, { idempotencyKey: 'sub_key_1' });
     });
 
     it('throws when no price ID configured for plan/interval', async () => {

@@ -2,24 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * REAL-Mongo integration test (NOT mocked) for finding #13 — the Mixed `_id`
- * casting split. Every other platform test fully mocks mongoose, so none can
- * observe how an organization id is actually STORED and QUERIED. This one runs
- * the real `Organization` / `UserOrganization` schemas against an in-memory
- * mongod to establish the authoritative representation before we route all
- * org-id lookups through a single canonical caster.
+ * REAL-Mongo integration test (NOT mocked) for how an organization id is
+ * actually STORED and QUERIED. Every other platform test fully mocks mongoose,
+ * so none can observe the on-disk representation. This one runs the real
+ * `Organization` / `UserOrganization` schemas against an in-memory mongod.
  *
- * What it pins down:
- *  - `Organization._id` (Schema.Types.Mixed, default `() => new ObjectId()`) is
- *    stored as an ObjectId for a normally-created org.
- *  - A raw-string `findById(<24-hex>)` MISSES that org (Mongoose does not
- *    auto-cast a Mixed field), while `findById(toOrgId(<24-hex>))` HITS it —
- *    this IS the bug behind the raw-string call sites (auth.ts:49, token.ts:114,
- *    active-org-info.ts, etc.), since the JWT carries `String(org._id)`.
- *  - `UserOrganization.organizationId` (Mixed) is stored as an ObjectId when set
- *    from `org._id`, so raw-string membership queries miss too.
- *  - The well-known string `_id` (e.g. 'system') is stored + matched as a
- *    string, so `toOrgId` must leave non-24-hex ids untouched (it does).
+ * Background: org ids were de-stringed. `Organization._id` and
+ * `UserOrganization.organizationId` are now `Schema.Types.ObjectId` (not the old
+ * `Schema.Types.Mixed`), and the well-known system tenant is created with the
+ * fixed `_id` = api-core `SYSTEM_ORG_ID` (an ObjectId) plus `slug:'system'` +
+ * `isSystem:true` — no more magic string `_id`.
+ *
+ * What it pins down (the current, de-Mixed reality):
+ *  - `Organization._id` (default `() => new ObjectId()`) is stored as an ObjectId.
+ *  - Because the path is now a real ObjectId (not Mixed), Mongoose auto-casts a
+ *    24-hex string in a `findById`/filter, so both a raw-string lookup AND a
+ *    `toOrgId(<24-hex>)` lookup HIT — the old Mixed casting split (#13) is gone.
+ *    `toOrgId` stays a safe canonical caster (24-hex → ObjectId, else untouched).
+ *  - `UserOrganization.organizationId` is stored as an ObjectId when set from
+ *    `org._id`, and matches by string or cast for the same reason.
+ *  - The system org is stored with an ObjectId `_id` = `SYSTEM_ORG_ID`, `isSystem`
+ *    true, and `findById(SYSTEM_ORG_ID)` resolves it.
  *
  * OPT-IN: self-skips unless `RUN_MONGO_INTEGRATION=1`, so the default `pnpm test`
  * never spins up mongod (the first run downloads a mongod binary). Run with:
@@ -59,6 +62,7 @@ suite('organization id storage (real Mongo, #13)', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let UserOrganization: any;
   let toOrgId: (id: string) => unknown;
+  let SYSTEM_ORG_ID: string;
 
   beforeAll(async () => {
     const { MongoMemoryServer } = await import('mongodb-memory-server');
@@ -77,6 +81,7 @@ suite('organization id storage (real Mongo, #13)', () => {
     // default connection. These are the exact schemas production uses.
     ({ Organization, UserOrganization } = await import('../src/models/index.js'));
     ({ toOrgId } = await import('../src/helpers/controller-helper.js'));
+    ({ SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core'));
   }, 120_000); // first run downloads the mongod binary
 
   afterAll(async () => {
@@ -89,7 +94,7 @@ suite('organization id storage (real Mongo, #13)', () => {
     expect(org._id).toBeInstanceOf(Types.ObjectId);
   });
 
-  it('raw-string findById MISSES an ObjectId _id (the bug); toOrgId cast HITS', async () => {
+  it('raw-string findById AND toOrgId cast both HIT the ObjectId _id (de-Mixed path auto-casts)', async () => {
     const org = await Organization.create({ name: 'Beta', owner: new Types.ObjectId() });
     // The 24-hex string form — this is what rides in the JWT (`lastActiveOrgId`
     // is written as `String(org._id)`) and reaches the raw call sites.
@@ -98,12 +103,15 @@ suite('organization id storage (real Mongo, #13)', () => {
     const raw = await Organization.findById(idStr);
     const cast = await Organization.findById(toOrgId(idStr));
 
-    expect(raw).toBeNull(); // Mixed _id: string query != stored ObjectId → miss
-    expect(cast).not.toBeNull(); // canonical caster converts to ObjectId → hit
+    // The path is now a real ObjectId (not Mixed), so Mongoose auto-casts the
+    // 24-hex string — both the raw and the explicitly-cast lookups resolve.
+    expect(raw).not.toBeNull();
+    expect(cast).not.toBeNull();
+    expect(String(raw._id)).toBe(idStr);
     expect(String(cast._id)).toBe(idStr);
   });
 
-  it('stores UserOrganization.organizationId as an ObjectId; raw-string query misses', async () => {
+  it('stores UserOrganization.organizationId as an ObjectId; string and cast both match', async () => {
     const org = await Organization.create({ name: 'Gamma', owner: new Types.ObjectId() });
     await UserOrganization.create({ userId: new Types.ObjectId(), organizationId: org._id, role: 'owner' });
     const idStr = String(org._id);
@@ -113,18 +121,29 @@ suite('organization id storage (real Mongo, #13)', () => {
 
     const rawMatch = await UserOrganization.findOne({ organizationId: idStr });
     const castMatch = await UserOrganization.findOne({ organizationId: toOrgId(idStr) });
-    expect(rawMatch).toBeNull();
+    expect(rawMatch).not.toBeNull();
     expect(castMatch).not.toBeNull();
   });
 
-  it('stores + matches a well-known string _id ("system") as a string', async () => {
-    await Organization.create({ _id: 'system', name: 'System Org', owner: new Types.ObjectId() });
+  it('stores the system org with an ObjectId _id (SYSTEM_ORG_ID), isSystem, and slug "system"', async () => {
+    // `name` slugifies to 'system' (the pre-validate hook derives slug from name).
+    await Organization.create({
+      _id: toOrgId(SYSTEM_ORG_ID),
+      name: 'System',
+      isSystem: true,
+      owner: new Types.ObjectId(),
+    });
 
-    const found = await Organization.findById('system'); // raw string HITS a string _id
+    const found = await Organization.findById(SYSTEM_ORG_ID); // 24-hex auto-casts → hit
     expect(found).not.toBeNull();
-    expect(typeof found._id).toBe('string');
-    // toOrgId must leave a non-24-hex id untouched so string ids still match.
+    expect(found._id).toBeInstanceOf(Types.ObjectId);
+    expect(String(found._id)).toBe(SYSTEM_ORG_ID);
+    expect(found.isSystem).toBe(true);
+    expect(found.slug).toBe('system');
+    // toOrgId leaves a non-24-hex id untouched (the name/slug 'system' is never
+    // an id); the id itself is 24-hex and casts to an ObjectId.
     expect(String(toOrgId('system'))).toBe('system');
+    expect(toOrgId(SYSTEM_ORG_ID)).toBeInstanceOf(Types.ObjectId);
   });
 
   // End-to-end proof that the caster FIX works on a real fixed call site:

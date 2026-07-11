@@ -6,7 +6,8 @@ import { Types } from 'mongoose';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { seatCapacityAvailable } from '../helpers/seats.js';
-import { User, Organization, UserOrganization, type OrgMemberRole } from '../models/index.js';
+import { User, Organization, UserOrganization, GroupMembership, type OrgMemberRole } from '../models/index.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
 const logger = createLogger('user-admin-service');
@@ -16,6 +17,11 @@ export const UA_USERNAME_TAKEN = 'UA_USERNAME_TAKEN';
 export const UA_EMAIL_TAKEN = 'UA_EMAIL_TAKEN';
 export const UA_OWNER_HAS_ORGS = 'UA_OWNER_HAS_ORGS';
 export const UA_ORG_NOT_FOUND = 'UA_ORG_NOT_FOUND';
+/** Refused an attempt to change the role of an org OWNER's membership. The owner
+ *  role can only move via `transferOwnership` (which atomically re-homes it);
+ *  a plain role edit would demote/orphan the org. Mirrors `org-members-service`'s
+ *  `OM_CANNOT_CHANGE_OWNER`. */
+export const UA_CANNOT_CHANGE_OWNER = 'UA_CANNOT_CHANGE_OWNER';
 /** Target org is at its seat cap (`org.quotas.seats`) — assigning this user
  *  would exceed it. Same limit the invite/add paths enforce. */
 export const UA_SEAT_LIMIT = 'UA_SEAT_LIMIT';
@@ -100,9 +106,9 @@ class UserAdminService {
 
     const allOrgIds = [...new Set(allMemberships.map(m => m.organizationId.toString()))];
     const orgs = allOrgIds.length > 0
-      // Cast each id back to its stored form (24-hex → ObjectId, well-known
-      // string ids left as-is). The `.toString()` dedup above flattens ObjectIds
-      // to strings, which would miss the Mixed `_id` (stored as ObjectId).
+      // The `.toString()` dedup above flattened the ObjectId org ids to strings;
+      // cast them back to ObjectId (24-hex → ObjectId) so the `_id` filter
+      // matches the stored ObjectId values.
       ? await Organization.find({ _id: { $in: allOrgIds.map(id => toOrgId(id)) } }).select('_id name').lean()
       : [];
     const orgNameMap = new Map(orgs.map(o => [o._id.toString(), o.name]));
@@ -183,90 +189,113 @@ class UserAdminService {
       passwordMinLength: number;
     },
   ) {
-    const user = await User.findById(id).select('+password +tokenVersion');
-    if (!user) throw new Error(UA_USER_NOT_FOUND);
-
     const changes: string[] = [];
 
-    if (body.username !== undefined) {
-      const exists = await User.findOne({
-        username: body.username.trim().toLowerCase(),
-        _id: { $ne: new Types.ObjectId(id) },
-      });
-      if (exists) throw new Error(UA_USERNAME_TAKEN);
-      user.username = body.username.trim().toLowerCase();
-      changes.push('username');
-    }
+    // The reads + writes below interleave across User + UserOrganization +
+    // Organization, so run them in a single transaction: a partial apply (e.g.
+    // role updated but the seat-capped org assignment then throws) would leave
+    // the user record inconsistent otherwise.
+    const updatedUser = await withMongoTransaction(async (session) => {
+      const user = await User.findById(id).select('+password +tokenVersion').session(session);
+      if (!user) throw new Error(UA_USER_NOT_FOUND);
 
-    if (body.email !== undefined) {
-      const exists = await User.findOne({
-        email: body.email.trim().toLowerCase(),
-        _id: { $ne: new Types.ObjectId(id) },
-      });
-      if (exists) throw new Error(UA_EMAIL_TAKEN);
-      user.email = body.email.trim().toLowerCase();
-      user.isEmailVerified = false;
-      changes.push('email');
-    }
-
-    // Role applies to the user's membership in a specific org. Org-admins
-    // change the role in their own org; system-admins target the supplied
-    // organizationId or fall back to the user's last-active org.
-    if (body.role !== undefined && ['owner', 'admin', 'member'].includes(body.role)) {
-      const targetOrgId = options.isOrgAdmin
-        ? options.adminOrgId
-        : (body.organizationId || user.lastActiveOrgId?.toString());
-      if (targetOrgId) {
-        await UserOrganization.updateOne(
-          { userId: user._id, organizationId: toOrgId(targetOrgId) },
-          { $set: { role: body.role } },
-        );
-        changes.push('role');
+      if (body.username !== undefined) {
+        const exists = await User.findOne({
+          username: body.username.trim().toLowerCase(),
+          _id: { $ne: new Types.ObjectId(id) },
+        }).session(session);
+        if (exists) throw new Error(UA_USERNAME_TAKEN);
+        user.username = body.username.trim().toLowerCase();
+        changes.push('username');
       }
-    }
 
-    if (body.password !== undefined) {
-      if (typeof body.password !== 'string' || body.password.length < options.passwordMinLength) {
-        throw new Error(`Password must be at least ${options.passwordMinLength} characters`);
+      if (body.email !== undefined) {
+        const exists = await User.findOne({
+          email: body.email.trim().toLowerCase(),
+          _id: { $ne: new Types.ObjectId(id) },
+        }).session(session);
+        if (exists) throw new Error(UA_EMAIL_TAKEN);
+        user.email = body.email.trim().toLowerCase();
+        user.isEmailVerified = false;
+        changes.push('email');
       }
-      user.password = body.password;
-      user.tokenVersion = (user.tokenVersion || 0) + 1;
-      changes.push('password');
-    }
 
-    // Organization assignment is system-admin-only. Empty string or null
-    // removes the user from every org; otherwise we ensure a membership
-    // exists in the target org and update lastActiveOrgId.
-    if (!options.isOrgAdmin && body.organizationId !== undefined) {
-      if (body.organizationId === null || body.organizationId === '') {
-        await UserOrganization.deleteMany({ userId: user._id });
-        user.lastActiveOrgId = undefined;
-        changes.push('organizationId (removed)');
-      } else {
-        const newOrg = await Organization.findById(toOrgId(body.organizationId));
-        if (!newOrg) throw new Error(UA_ORG_NOT_FOUND);
-        const existingMembership = await UserOrganization.findOne({
-          userId: user._id, organizationId: toOrgId(body.organizationId),
-        });
-        if (!existingMembership) {
-          // Enforce the account's pooled seat cap even for a sysadmin assignment
-          // (resolved at the root by the helper).
-          if (!(await seatCapacityAvailable(String(body.organizationId), 1))) {
-            throw new Error(UA_SEAT_LIMIT);
+      // Role applies to the user's membership in a specific org. Org-admins
+      // change the role in their own org; system-admins target the supplied
+      // organizationId or fall back to the user's last-active org.
+      if (body.role !== undefined && ['owner', 'admin', 'member'].includes(body.role)) {
+        const targetOrgId = options.isOrgAdmin
+          ? options.adminOrgId
+          : (body.organizationId || user.lastActiveOrgId?.toString());
+        if (targetOrgId) {
+          const membership = await UserOrganization.findOne({
+            userId: user._id, organizationId: toOrgId(targetOrgId),
+          }).session(session);
+          if (membership) {
+            // Owner guard: refuse to change the role of an org OWNER's membership
+            // (mirrors org-members-service.updateRole). The controller only blocks
+            // SETTING role:'owner' — without this an admin could DEMOTE the owner
+            // here and orphan the org.
+            if (membership.role === 'owner') throw new Error(UA_CANNOT_CHANGE_OWNER);
+            if (membership.role !== body.role) {
+              membership.role = body.role as OrgMemberRole;
+              await membership.save({ session });
+              // Bump tokenVersion so the role change (a privilege change) takes
+              // effect immediately — outstanding JWTs carrying the old role are
+              // rejected on the next request. Same rationale as the password
+              // branch below and org-members-service.updateRole.
+              user.tokenVersion = (user.tokenVersion || 0) + 1;
+              changes.push('role');
+            }
           }
-          await UserOrganization.create({
-            userId: user._id, organizationId: toOrgId(body.organizationId), role: 'member',
-          });
         }
-        user.lastActiveOrgId = String(body.organizationId);
-        changes.push('organizationId');
       }
-    }
 
-    await user.save();
+      if (body.password !== undefined) {
+        if (typeof body.password !== 'string' || body.password.length < options.passwordMinLength) {
+          throw new Error(`Password must be at least ${options.passwordMinLength} characters`);
+        }
+        user.password = body.password;
+        user.tokenVersion = (user.tokenVersion || 0) + 1;
+        changes.push('password');
+      }
 
-    const { organizationName, activeOrgRole } = await loadActiveOrgInfo(user._id, user.lastActiveOrgId?.toString());
-    return { user, changes, organizationName, activeOrgRole };
+      // Organization assignment is system-admin-only. Empty string or null
+      // removes the user from every org; otherwise we ensure a membership
+      // exists in the target org and update lastActiveOrgId.
+      if (!options.isOrgAdmin && body.organizationId !== undefined) {
+        if (body.organizationId === null || body.organizationId === '') {
+          await UserOrganization.deleteMany({ userId: user._id }).session(session);
+          user.lastActiveOrgId = undefined;
+          changes.push('organizationId (removed)');
+        } else {
+          const newOrg = await Organization.findById(toOrgId(body.organizationId)).session(session);
+          if (!newOrg) throw new Error(UA_ORG_NOT_FOUND);
+          const existingMembership = await UserOrganization.findOne({
+            userId: user._id, organizationId: toOrgId(body.organizationId),
+          }).session(session);
+          if (!existingMembership) {
+            // Enforce the account's pooled seat cap even for a sysadmin assignment
+            // (resolved at the root by the helper).
+            if (!(await seatCapacityAvailable(String(body.organizationId), 1, session))) {
+              throw new Error(UA_SEAT_LIMIT);
+            }
+            await UserOrganization.create(
+              [{ userId: user._id, organizationId: toOrgId(body.organizationId), role: 'member' }],
+              { session },
+            );
+          }
+          user.lastActiveOrgId = String(body.organizationId);
+          changes.push('organizationId');
+        }
+      }
+
+      await user.save({ session });
+      return user;
+    });
+
+    const { organizationName, activeOrgRole } = await loadActiveOrgInfo(updatedUser._id, updatedUser.lastActiveOrgId?.toString());
+    return { user: updatedUser, changes, organizationName, activeOrgRole };
   }
 
   /**
@@ -281,8 +310,14 @@ class UserAdminService {
     const ownerCount = await UserOrganization.countDocuments({ userId: user._id, role: 'owner' });
     if (ownerCount > 0) throw new Error(UA_OWNER_HAS_ORGS);
 
-    await UserOrganization.deleteMany({ userId: user._id });
-    await User.findByIdAndDelete(id);
+    // Delete memberships + group memberships + the user atomically so a partial
+    // failure can't leave orphaned GroupMembership docs behind (which would
+    // corrupt the last-privileged-member guard).
+    await withMongoTransaction(async (session) => {
+      await UserOrganization.deleteMany({ userId: user._id }, { session });
+      await GroupMembership.deleteMany({ userId: user._id }, { session });
+      await User.findByIdAndDelete(id, { session });
+    });
     logger.info('User deleted by admin', { userId: id });
   }
 

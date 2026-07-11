@@ -14,10 +14,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn(),
   sendBadRequest: jest.fn(),
   validateBody: jest.fn(),
-  requireAdmin: jest.fn(),
+  requirePermission: () => jest.fn(),
 }));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ withRoute: (fn: unknown) => fn }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({ schema: { complianceNotificationPreference: {} }, withTenantTx: jest.fn() }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ schema: { complianceNotificationPreference: {} }, withTenantTx: jest.fn() }));
 jest.unstable_mockModule('../src/services/notification-service.js', () => ({
   getNotificationPreference: jest.fn(),
   upsertNotificationPreference: jest.fn(),

@@ -17,7 +17,7 @@
 import { sendError } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 
-export const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /** Shared message + code for a blocked write under read-only impersonation. */
 export const IMPERSONATION_READ_ONLY_MESSAGE =

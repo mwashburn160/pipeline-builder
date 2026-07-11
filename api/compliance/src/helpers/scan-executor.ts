@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { eq, and } from 'drizzle-orm';
 import { logComplianceCheck } from './audit-logger.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';

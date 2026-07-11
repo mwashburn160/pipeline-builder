@@ -22,6 +22,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   resolveUserFeatures: jest.fn(),
+  resolveUserPermissions: jest.fn(() => []),
 }));
 
 jest.unstable_mockModule('mongoose', () => {

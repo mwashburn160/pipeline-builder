@@ -61,12 +61,3 @@ export const BaseFilterSchema = z.object({
   isActive: BooleanQuerySchema.optional(),
   isDefault: BooleanQuerySchema.optional(),
 });
-
-/**
- * Infer TypeScript types from schemas
- * Note: Prefixed with "Validated" to avoid conflicts with existing type definitions
- */
-export type ValidatedAccessModifier = z.infer<typeof AccessModifierSchema>;
-export type ValidatedSortOrder = z.infer<typeof SortOrderSchema>;
-export type ValidatedPaginationParams = z.infer<typeof PaginationSchema>;
-export type ValidatedBaseFilter = z.infer<typeof BaseFilterSchema>;

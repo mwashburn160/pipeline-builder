@@ -17,14 +17,16 @@ import {
   patchOrgIdpConfig,
   putOrgIdpConfig,
 } from '../controllers/org-idp.js';
-import { requireAuth } from '../middleware/index.js';
+import { requireAuth, requireStepUp } from '../middleware/index.js';
 
 const router = Router();
 
 router.get('/', requireAuth, listOrgIdpConfigs);
 router.get('/:orgId', requireAuth, getOrgIdpConfig);
-router.put('/:orgId', requireAuth, putOrgIdpConfig);
-router.patch('/:orgId', requireAuth, patchOrgIdpConfig);
-router.delete('/:orgId', requireAuth, deleteOrgIdpConfig);
+// Mutations persist the org's IdP `clientSecret` — gate on step-up so a
+// stolen session can't write SSO credentials (mirrors org-kms-config).
+router.put('/:orgId', requireAuth, requireStepUp, putOrgIdpConfig);
+router.patch('/:orgId', requireAuth, requireStepUp, patchOrgIdpConfig);
+router.delete('/:orgId', requireAuth, requireStepUp, deleteOrgIdpConfig);
 
 export default router;

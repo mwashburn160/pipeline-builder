@@ -10,6 +10,7 @@ import {
   ErrorCode,
   getParam,
   isSystemAdmin,
+  requirePermission,
   validateBody,
   MessageCreateSchema,
   MessageReplySchema,
@@ -19,7 +20,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
-import { schema } from '@pipeline-builder/pipeline-core';
+import { schema } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { messageService } from '../services/message-service.js';
 
@@ -38,7 +39,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   // POST /messages — Create new message
-  router.post('/', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     // Validate request body with Zod schema
     const validation = validateBody(req, MessageCreateSchema);
     if (!validation.ok) {
@@ -119,7 +120,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
   }));
 
   // POST /messages/:id/reply — Reply to a thread
-  router.post('/:id/reply', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/reply', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -168,8 +169,8 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       // System org replying — send to the original sender
       replyRecipientOrgId = rootMessage.orgId;
     } else if (isBroadcast) {
-      // Replying to announcement — send to system
-      replyRecipientOrgId = 'system';
+      // Replying to announcement — send to the system org
+      replyRecipientOrgId = SYSTEM_ORG_ID;
     } else {
       // Regular org replying — send to the other party
       replyRecipientOrgId = isSender ? rootMessage.recipientOrgId : rootMessage.orgId;

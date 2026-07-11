@@ -349,6 +349,7 @@ const apiServer = new PackageProject({
   outdir: './packages/api-server',
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
+    `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`,
     'express-rate-limit@8.5.2', 'helmet@8.2.0', 'cors@2.8.6', 'compression@1.8.1',
@@ -465,9 +466,10 @@ const platform = new FunctionProject({
     // Dockerfile/start). The preload's OpenTelemetry deps resolve from
     // api-server, so platform needs no direct @opentelemetry/* deps.
     `@pipeline-builder/api-server@${pkg.apiServer}`,
-    // pipeline-core re-exports the drizzle schema + connection from pipeline-data.
+    // Postgres data layer (drizzle schema + connection + tenant context).
     // Pulled in for the dashboards CRUD path (Postgres-backed); platform's
     // identity/auth/observability code remains Mongo-backed.
+    `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`, 'express-rate-limit@8.5.2',
     'nodemailer@8.0.10', 'zod@4.4.3', '@aws-sdk/client-sesv2@3.1064.0',
@@ -520,7 +522,7 @@ const frontend = new FrontEndProject({
     `@pipeline-builder/api-server@${pkg.apiServer}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     'next@16.2.7', 'react@19.2.7', 'react-dom@19.2.7',
-    'lucide-react@1.17.0', 'tailwindcss@4.3.0', 'framer-motion@12.40.0', 'swr@2.4.1',
+    'lucide-react@1.17.0', 'tailwindcss@4.3.0', 'framer-motion@12.40.0',
     // drag-resize on the dashboard editor. Loaded only on the editor
     // page (next/dynamic) so non-editor traffic doesn't pay the ~120 KB cost.
     // `react-resizable` is a transitive dep of react-grid-layout but must be
@@ -577,6 +579,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   {
     name: 'billing',
     deps: [
+      `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
       'cors@2.8.6', 'express-rate-limit@8.5.2', 'helmet@8.2.0', 'jsonwebtoken@9.0.3', 'mongoose@9.6.3', 'winston@3.19.0', 'zod@4.4.3',
       '@aws-sdk/client-marketplace-metering@3.1064.0', '@aws-sdk/client-marketplace-entitlement-service@3.1064.0',
       // stripe v22's CJS type entry (`export = StripeConstructor`) doesn't expose
@@ -589,6 +592,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   {
     name: 'plugin',
     deps: [
+      `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
       'express-rate-limit@8.5.2', 'jsonwebtoken@9.0.3', 'helmet@8.2.0', 'cors@2.8.6',
       'pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'yaml@2.9.0',
       'adm-zip@0.5.17', 'yauzl@3.4.0', 'multer@2.1.1', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
@@ -599,6 +603,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   {
     name: 'pipeline',
     deps: [
+      `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
       'express-rate-limit@8.5.2', 'jsonwebtoken@9.0.3', 'helmet@8.2.0', 'cors@2.8.6',
       'pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'yaml@2.9.0',
       `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
@@ -607,7 +612,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   },
   {
     name: 'message',
-    deps: ['pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'ws@8.21.0', 'zod@4.4.3'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'ws@8.21.0', 'zod@4.4.3'],
     devDeps: ['@types/pg@8.20.0', '@types/ws@8.18.1'],
   },
   {
@@ -617,7 +622,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   },
   {
     name: 'compliance',
-    deps: ['pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'zod@4.4.3', 'bullmq@5.78.0'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'zod@4.4.3', 'bullmq@5.78.0'],
     devDeps: ['@types/pg@8.20.0'],
   },
   {

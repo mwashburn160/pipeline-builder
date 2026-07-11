@@ -36,27 +36,9 @@ import { requireSystemAdmin, withController } from '../helpers/controller-helper
 import { toOrgId } from '../helpers/org-id.js';
 import { Organization } from '../models/index.js';
 import { captureOrgSecrets, reencryptOrgSecrets } from '../services/secret-reencrypt.js';
+import { orgKmsConfigSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-kms-config-controller');
-
-/** Parse + validate a `PUT` body. */
-function parseKmsConfigBody(body: unknown): { keyId: string; ciphertextBase64: string } | { error: string } {
-  if (typeof body !== 'object' || body === null) return { error: 'body must be a JSON object' };
-  const b = body as Record<string, unknown>;
-  if (typeof b.keyId !== 'string' || b.keyId.length === 0) {
-    return { error: 'keyId is required (KMS CMK alias or ARN)' };
-  }
-  if (typeof b.ciphertextBase64 !== 'string' || b.ciphertextBase64.length === 0) {
-    return { error: 'ciphertextBase64 is required (KMS-wrapped 32-byte master)' };
-  }
-  // Cheap shape check — proper base64 validation will land at the SDK call
-  // when the provider runs Decrypt. We just guard against blatantly wrong
-  // input that would otherwise fail much later in the next encrypt path.
-  if (!/^[A-Za-z0-9+/=]+$/.test(b.ciphertextBase64)) {
-    return { error: 'ciphertextBase64 must be valid base64' };
-  }
-  return { keyId: b.keyId, ciphertextBase64: b.ciphertextBase64 };
-}
 
 /** Evict the cached master for `orgId` from the active provider if it's a
  *  PerOrgKmsKeyProvider. No-op for EnvKeyProvider or any other provider. */
@@ -75,7 +57,7 @@ export const getOrgKmsConfig = withController('Get org KMS config', async (req, 
   const org = await Organization.findById(toOrgId(orgId)).select('kmsConfig').lean();
   if (!org) return sendError(res, 404, 'Organization not found');
 
-  const cfg = (org as { kmsConfig?: { keyId?: string; ciphertextBase64?: string } }).kmsConfig;
+  const cfg = org.kmsConfig;
   if (!cfg?.keyId || !cfg?.ciphertextBase64) {
     return sendSuccess(res, 200, { configured: false });
   }
@@ -100,8 +82,8 @@ export const putOrgKmsConfig = withController('Put org KMS config', async (req, 
   const orgId = String(req.params.orgId);
   const reencrypt = String(req.query.reencrypt ?? 'true').toLowerCase() !== 'false';
 
-  const parsed = parseKmsConfigBody(req.body);
-  if ('error' in parsed) return sendError(res, 400, parsed.error);
+  const parsed = validateBody(orgKmsConfigSchema, req.body, res);
+  if (!parsed) return;
 
   const org = await Organization.findById(toOrgId(orgId));
   if (!org) return sendError(res, 404, 'Organization not found');
@@ -204,8 +186,8 @@ export const testOrgKmsConfig = withController('Test org KMS config', async (req
   if (!requireSystemAdmin(req, res)) return;
   const orgId = String(req.params.orgId);
 
-  const parsed = parseKmsConfigBody(req.body);
-  if ('error' in parsed) return sendError(res, 400, parsed.error);
+  const parsed = validateBody(orgKmsConfigSchema, req.body, res);
+  if (!parsed) return;
 
   const org = await Organization.findById(toOrgId(orgId)).select('_id').lean();
   if (!org) return sendError(res, 404, 'Organization not found');

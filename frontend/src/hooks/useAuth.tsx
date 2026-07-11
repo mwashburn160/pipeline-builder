@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { User, UserOrgMembership } from '@/types';
-import api from '@/lib/api';
+import api, { ApiError } from '@/lib/api';
 import { clearPluginCache } from './usePlugins';
 
 /**
@@ -19,6 +19,10 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isInitialized: boolean;
+  /** Set when a profile refresh failed for a transient reason (network / 5xx)
+   *  rather than a genuine 401. The prior user is kept; callers can retry
+   *  via `refreshUser`. Cleared on the next successful refresh. */
+  authError: Error | null;
   login: (email: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string, organizationName?: string, planId?: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -41,6 +45,7 @@ interface RawUserData {
   isEmailVerified?: boolean;
   tier?: string;
   features?: string[];
+  permissions?: string[];
   featureOverrides?: Record<string, boolean>;
   createdAt?: string;
   updatedAt?: string;
@@ -53,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [organizations, setOrganizations] = useState<UserOrgMembership[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [authError, setAuthError] = useState<Error | null>(null);
   const router = useRouter();
 
   /**
@@ -82,12 +88,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             isEmailVerified: rawUser.isEmailVerified ?? false,
             tier: rawUser.tier as User['tier'],
             features: rawUser.features,
+            permissions: rawUser.permissions,
             featureOverrides: rawUser.featureOverrides,
             createdAt: rawUser.createdAt,
             updatedAt: rawUser.updatedAt,
           };
           
           setUser(userData);
+          setAuthError(null);
           // Set organization ID for API requests
           if (userData.organizationId) {
             api.setOrganizationId(userData.organizationId);
@@ -109,10 +117,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           return;
         }
+        // Authenticated request returned an unexpected non-success envelope
+        // (no user, but a 2xx). Treat as an invalid session.
+        setUser(null);
+        setAuthError(null);
+        return;
       }
+      // No token at all — genuinely signed out.
       setUser(null);
-    } catch {
-      setUser(null);
+      setAuthError(null);
+    } catch (err) {
+      // Only sign the user out on a genuine auth failure (401 — token expired
+      // or revoked). A network blip or 5xx is transient: keep the current user
+      // and surface a retryable error instead of silently logging them out.
+      // (The api client already fires `onSessionExpired` when a refresh truly
+      // fails, which clears state + redirects; this catch must not double as a
+      // logout for every transient error.)
+      if (err instanceof ApiError && err.statusCode === 401) {
+        setUser(null);
+        setAuthError(null);
+      } else {
+        setAuthError(err instanceof Error ? err : new Error('Failed to refresh session'));
+      }
     }
   }, []);
 
@@ -238,6 +264,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         isInitialized,
+        authError,
         login,
         register,
         logout,

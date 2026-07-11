@@ -31,10 +31,13 @@ const { app, sseManager } = createApp({
     : [],
 });
 
-app.use(attachRequestContext(sseManager));
-// Mongo operator-injection guard — strips `$`-prefixed keys + dot-walks
-// from incoming JSON. Billing is Mongo-backed so this matters here.
+// Mongo operator-injection guard — strips `$`-prefixed keys + dot-walks from
+// incoming JSON. Billing is Mongo-backed so this matters here. Runs BEFORE the
+// request-context middleware (mirrors quota's index) so any structured logging
+// triggered by the sanitizer or downstream middleware reading req.body/req.query
+// sees the already-sanitised payload, not the raw operator-laden one.
 app.use(mongoSanitize());
+app.use(attachRequestContext(sseManager));
 
 if (config.enabled) {
 

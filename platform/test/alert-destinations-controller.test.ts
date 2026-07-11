@@ -22,6 +22,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   sendQuotaExceeded: jest.fn(),
+  // The write gate now uses userHasPermission; these tests drive admin-ness via
+  // mockIsSystemAdmin, so bridge it (plus honor an explicit permissions claim).
+  userHasPermission: (req: any, perm: string) => mockIsSystemAdmin(req) || (req.user?.permissions ?? []).includes(perm),
 }));
 
 jest.unstable_mockModule('mongoose', () => {
@@ -38,7 +41,7 @@ jest.unstable_mockModule('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   runWithTenantContext: (ctx: unknown, fn: () => unknown) => {
     mockRunWithTenantContext(ctx);
     return fn();

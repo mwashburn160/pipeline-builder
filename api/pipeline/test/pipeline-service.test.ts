@@ -54,6 +54,48 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     }),
   };
 });
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
+  const mockFind = jest.fn();
+  const mockSetDefault = jest.fn();
+
+  class MockCrudService {
+    find = mockFind;
+    setDefault = mockSetDefault;
+  }
+
+  return {
+    __mockFind: mockFind,
+    __mockSetDefault: mockSetDefault,
+    CrudService: MockCrudService,
+    CoreConstants: { CACHE_TTL_ENTITY: 60 },
+    buildPipelineConditions: jest.fn(() => []),
+    getTenantContext: jest.fn(() => undefined),
+    schema: {
+      pipeline: {
+        id: 'id',
+        project: 'project',
+        organization: 'organization',
+        pipelineName: 'pipelineName',
+        createdAt: 'createdAt',
+        updatedAt: 'updatedAt',
+        isActive: 'isActive',
+        isDefault: 'isDefault',
+        orgId: 'orgId',
+        accessModifier: 'accessModifier',
+      },
+    },
+    // pipeline-service.createAsDefault was migrated from db.transaction to
+    // withTenantTx — same tx shape, just routed through the tenancy seam.
+    withTenantTx: jest.fn(async (cb: Function) => {
+      const tx = {
+        execute: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockReturnValue({ set: mockTransactionSet }),
+        insert: jest.fn().mockReturnValue({ values: mockTransactionValues }),
+      };
+      return cb(tx);
+    }),
+  };
+});;
 
 jest.unstable_mockModule('drizzle-orm', () => ({
   SQL: class {},
@@ -62,13 +104,14 @@ jest.unstable_mockModule('drizzle-orm', () => ({
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),
   eq: jest.fn((col: any, val: any) => ({ col, val, op: 'eq' })),
   and: jest.fn((...args: any[]) => args),
+  inArray: jest.fn((col: any, vals: any[]) => ({ col, vals, op: 'inArray' })),
 }));
 
 jest.unstable_mockModule('drizzle-orm/column', () => ({}));
 jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
 const { PipelineService } = await import('../src/services/pipeline-service.js');
-const pipelineCoreMock = await import('@pipeline-builder/pipeline-core');
+const pipelineDataMock = await import('@pipeline-builder/pipeline-data');
 
 // Tests
 
@@ -87,7 +130,7 @@ describe('PipelineService', () => {
       const result = await service.createAsDefault(data, 'user-1', 'proj', 'org');
 
       // Verify the tenancy-aware transaction wrapper was used.
-      const { withTenantTx } = pipelineCoreMock as unknown as { withTenantTx: jest.Mock };
+      const { withTenantTx } = pipelineDataMock as unknown as { withTenantTx: jest.Mock };
       expect(withTenantTx).toHaveBeenCalled();
 
       // Verify update was called to clear defaults

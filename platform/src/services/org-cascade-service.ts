@@ -19,7 +19,7 @@
  */
 
 import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { db, runWithTenantContext, schema } from '@pipeline-builder/pipeline-core';
+import { db, runWithTenantContext, schema } from '@pipeline-builder/pipeline-data';
 import { eq, sql } from 'drizzle-orm';
 import { config } from '../config/index.js';
 import AuditEvent from '../models/audit-event.js';

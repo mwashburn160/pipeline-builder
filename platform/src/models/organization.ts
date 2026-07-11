@@ -49,6 +49,9 @@ export type { QuotaTier };
 export interface OrganizationDocument extends Document {
   name: string;
   slug: string;
+  /** True for the single well-known system tenant (id = api-core SYSTEM_ORG_ID).
+   *  Identifies the system org by flag rather than a magic string `_id`. */
+  isSystem?: boolean;
   description?: string;
   tier: QuotaTier;
   /** Account-level purchased feature entitlements (bundles), synced by billing
@@ -171,7 +174,7 @@ const quotaUsageSchema = new Schema<QuotaUsage>(
 const organizationSchema = new Schema<OrganizationDocument>(
   {
     _id: {
-      type: Schema.Types.Mixed,
+      type: Schema.Types.ObjectId,
       default: () => new Types.ObjectId(),
     },
     name: {
@@ -186,6 +189,11 @@ const organizationSchema = new Schema<OrganizationDocument>(
       unique: true,
       lowercase: true,
       trim: true,
+      index: true,
+    },
+    isSystem: {
+      type: Boolean,
+      default: false,
       index: true,
     },
     description: {

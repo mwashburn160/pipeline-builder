@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AccessModifier, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 
 /**

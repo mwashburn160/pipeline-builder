@@ -102,13 +102,13 @@ describe('GET /triage  auth and tenant isolation', () => {
     queueGetJobs.mockResolvedValue([
       job('1', 'org-a'),
       job('2', 'org-b'),
-      job('3', 'system'),
+      job('3', '000000000000000000000001'),
     ]);
     const handler = getTriageHandler();
     const { res, json } = makeRes();
     await handler({
-      __orgId: 'system',
-      user: { role: 'admin', organizationId: 'system', organizationName: 'system' },
+      __orgId: '000000000000000000000001',
+      user: { role: 'admin', organizationId: '000000000000000000000001', organizationName: 'system' },
       query: {},
     } as any, res);
 

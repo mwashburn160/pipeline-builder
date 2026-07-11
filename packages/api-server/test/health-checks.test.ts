@@ -5,7 +5,7 @@ import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll 
 
 const mockTestConnection = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   getConnection: () => ({ testConnection: mockTestConnection }),
 }));
 

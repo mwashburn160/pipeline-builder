@@ -9,7 +9,7 @@
  */
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { ComplianceNotification } from '../helpers/notification-channels.js';
 

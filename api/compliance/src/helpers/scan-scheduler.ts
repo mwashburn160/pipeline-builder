@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, createScheduler, type Scheduler, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { Config, schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-core';
+import { Config } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { eq, and, lte, sql } from 'drizzle-orm';
 import { executeScan } from './scan-executor.js';
 import { getLockRedis } from '../queue/compliance-event-queue.js';

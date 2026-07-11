@@ -142,18 +142,18 @@ describe('authorizeScope', () => {
   it('grants pull,push on system/* to a SYSTEM-ORG token (system sample-plugin build)', () => {
     // The system org owns system/*; a system-org-scoped build token (not a
     // super-admin) must be able to push its sample plugins there.
-    const granted = authorizeScope( { type: 'jwt', orgId: 'system', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false },
+    const granted = authorizeScope( { type: 'jwt', orgId: '000000000000000000000001', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false },
       { type: 'repository', name: 'system/sentry-release', actions: ['pull', 'push'] },
     );
     expect(granted).toEqual(['pull', 'push']);
   });
 
   it('does NOT let the system-org token push outside system/* (e.g. library/* or another org)', () => {
-    const lib = authorizeScope( { type: 'jwt', orgId: 'system', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false },
+    const lib = authorizeScope( { type: 'jwt', orgId: '000000000000000000000001', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false },
       { type: 'repository', name: 'library/ubuntu', actions: ['pull', 'push'] },
     );
     expect(lib).toEqual(['pull']); // library/* push stays super-admin-only
-    const other = authorizeScope( { type: 'jwt', orgId: 'system', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false },
+    const other = authorizeScope( { type: 'jwt', orgId: '000000000000000000000001', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false },
       { type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] },
     );
     expect(other).toEqual([]); // system org has no claim on a tenant namespace
@@ -181,7 +181,7 @@ describe('authorizeScope', () => {
   });
 
   it('grants super-admin push on system/* (bootstrap base-image push)', () => {
-    const granted = authorizeScope( { type: 'jwt', orgId: 'system', userId: 'bootstrap-push', isAdmin: true, isSuperAdmin: true },
+    const granted = authorizeScope( { type: 'jwt', orgId: '000000000000000000000001', userId: 'bootstrap-push', isAdmin: true, isSuperAdmin: true },
       { type: 'repository', name: 'system/cdk-synth', actions: ['pull', 'push'] },
     );
     expect(granted).toEqual(['pull', 'push']);

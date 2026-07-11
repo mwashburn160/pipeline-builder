@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getParam, isServicePrincipal, isSystemAdmin, sendError, sendSuccess, parsePaginationParams } from '@pipeline-builder/api-core';
+import { createLogger, getParam, isServicePrincipal, isSystemAdmin, sendError, sendSuccess, parsePaginationParams, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
@@ -16,6 +16,7 @@ import {
   organizationService,
   ORG_NOT_FOUND,
   SYSTEM_ORG_DELETE_FORBIDDEN,
+  ORG_AI_KEY_TOO_LONG,
 } from '../services/index.js';
 import { cascadeDeleteOrg, exportOrg } from '../services/org-cascade-service.js';
 import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateQuotasSchema } from '../utils/validation.js';
@@ -99,7 +100,15 @@ export const getOrganizationById = withController('Get organization', async (req
     return sendError(res, 403, 'Forbidden');
   }
 
-  const org = await organizationService.getById(id);
+  // Bound the member roster this hot read returns — `memberCount` still reflects
+  // the full org, so the UI can page via ?membersOffset/?membersLimit. The
+  // service clamps these to a safe range; a missing value falls back to its cap.
+  const membersLimit = parseInt(String(req.query.membersLimit), 10);
+  const membersOffset = parseInt(String(req.query.membersOffset), 10);
+  const org = await organizationService.getById(id, {
+    membersLimit: Number.isNaN(membersLimit) ? undefined : membersLimit,
+    membersOffset: Number.isNaN(membersOffset) ? undefined : membersOffset,
+  });
   if (!org) return sendError(res, 404, 'Organization not found');
 
   sendSuccess(res, 200, org);
@@ -214,7 +223,7 @@ export const deleteOrganization = withController('Delete organization', async (r
   // org doc itself is deleted. Cascade returns a report so the audit event
   // captures what was actually touched. We let cascade failures propagate;
   // a partial state is worse than retrying the whole sweep.
-  const actorOrgId = (req.user!.organizationId as string) ?? 'system';
+  const actorOrgId = (req.user!.organizationId as string) ?? SYSTEM_ORG_ID;
   const cascadeReport = await cascadeDeleteOrg(id, actorOrgId);
 
   await organizationService.delete(id);
@@ -244,7 +253,7 @@ export const exportOrganization = withController('Export organization', async (r
   if (!requireAuth(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
-  const actorOrgId = (req.user!.organizationId as string) ?? 'system';
+  const actorOrgId = (req.user!.organizationId as string) ?? SYSTEM_ORG_ID;
   // Sysadmin, own-org admin/owner, or admin/owner of a parent org managing
   // this team. Members and unrelated orgs are refused.
   if (!(await canAdministerOrg(req, id))) {
@@ -408,4 +417,6 @@ export const updateOrgAIConfig = withController('Update AI config', async (req, 
 
   logger.info(`Organization ${orgId} AI config updated by ${req.user!.sub}`);
   sendSuccess(res, 200, { providers }, 'AI provider configuration updated');
+}, {
+  [ORG_AI_KEY_TOO_LONG]: { status: 400, message: 'AI provider key exceeds the maximum allowed length' },
 });

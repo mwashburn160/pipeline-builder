@@ -10,7 +10,7 @@ import {
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { type RuleTarget } from '@pipeline-builder/pipeline-core';
+import { type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';

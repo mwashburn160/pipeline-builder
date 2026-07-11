@@ -18,11 +18,11 @@
  * create/update/delete (org admins own their notification surface).
  */
 
-import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
-import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
+import { createLogger, sendError, sendQuotaExceeded, sendSuccess, userHasPermission } from '@pipeline-builder/api-core';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
-import { isOrgAdmin, isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
+import { isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
 import { alertDestinationService, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
@@ -106,7 +106,7 @@ export const createAlertDestination = withController('Create alert destination',
   if (!ctx) return;
   const { userId, orgId } = ctx;
 
-  if (!isSystemAdmin(req) && !isOrgAdmin(req)) {
+  if (!userHasPermission(req, 'observability:write')) {
     return sendError(res, 403, 'Org admin or system admin required');
   }
 
@@ -166,7 +166,7 @@ export const updateAlertDestination = withController('Update alert destination',
   if (!ctx) return;
   const { userId, orgId } = ctx;
 
-  if (!isSystemAdmin(req) && !isOrgAdmin(req)) {
+  if (!userHasPermission(req, 'observability:write')) {
     return sendError(res, 403, 'Org admin or system admin required');
   }
 
@@ -228,7 +228,7 @@ export const deleteAlertDestination = withController('Delete alert destination',
   if (!ctx) return;
   const { userId, orgId } = ctx;
 
-  if (!isSystemAdmin(req) && !isOrgAdmin(req)) {
+  if (!userHasPermission(req, 'observability:write')) {
     return sendError(res, 403, 'Org admin or system admin required');
   }
 

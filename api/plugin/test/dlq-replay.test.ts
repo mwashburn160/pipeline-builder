@@ -92,8 +92,8 @@ describe('POST /dlq/:jobId/replay', () => {
     const handler = getReplayHandler();
     const { res, json } = makeRes();
     await handler({
-      __orgId: 'system',
-      user: { role: 'admin', organizationId: 'system', organizationName: 'system' },
+      __orgId: '000000000000000000000001',
+      user: { role: 'admin', organizationId: '000000000000000000000001', organizationName: 'system' },
       params: { jobId: 'missing' },
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
@@ -105,8 +105,8 @@ describe('POST /dlq/:jobId/replay', () => {
     const handler = getReplayHandler();
     const { res, json } = makeRes();
     await handler({
-      __orgId: 'system',
-      user: { role: 'admin', organizationId: 'system', organizationName: 'system' },
+      __orgId: '000000000000000000000001',
+      user: { role: 'admin', organizationId: '000000000000000000000001', organizationName: 'system' },
       params: { jobId: 'j-1' },
     } as any, res);
     expect(replayHelper).toHaveBeenCalledWith('j-1');

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { runCancellableFetch } from './internal/fetchCore';
 
 /**
  * Generic "fetch-once-or-on-deps-change" hook.
@@ -42,26 +43,15 @@ export function useFetch<T>(
   fetcherRef.current = fetcher;
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetcherRef
-      .current()
-      .then((result) => {
-        if (cancelled) return;
-        setData(result);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err : new Error(String(err)));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    return runCancellableFetch(() => fetcherRef.current(), {
+      onStart: () => {
+        setLoading(true);
+        setError(null);
+      },
+      onSuccess: setData,
+      onError: setError,
+      onSettled: () => setLoading(false),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
 

@@ -6,8 +6,7 @@ import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan, ComplianceAuditEntry } from '@/types/compliance';
-import { SCAN_STATUS_CONFIG as STATUS_CONFIG } from '@/lib/compliance-styles';
-import { RESULT_STYLES } from './_result-styles';
+import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RESULT_STYLES } from '@/lib/compliance-styles';
 
 interface ScanDetailProps {
   scanId: string;

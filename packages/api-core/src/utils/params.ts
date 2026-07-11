@@ -52,22 +52,25 @@ export function getParam(
  * ```
  */
 export function getOrgId(req: Request): string | undefined {
-  // Check route params first
+  // Prefer the VERIFIED JWT identity first. A spoofable `x-org-id` header must
+  // never override an authenticated user's org (cross-tenant footgun). For a
+  // superadmin acting cross-org, requireAuth already re-points
+  // `req.user.organizationId` to the chosen org via the isSuperAdmin-gated
+  // header override, so this still yields the intended scope.
+  const userOrgId = req.user?.organizationId?.trim();
+  if (userOrgId) {
+    return userOrgId;
+  }
+
+  // Pre-auth fallbacks only (req.user unset): route param, then header.
   const paramOrgId = getParam(req.params, 'orgId');
   if (paramOrgId) {
     return paramOrgId;
   }
 
-  // Check x-org-id header
   const headerOrgId = getHeaderString(req.headers['x-org-id'])?.trim();
   if (headerOrgId) {
     return headerOrgId;
-  }
-
-  // Check authenticated user
-  const userOrgId = req.user?.organizationId?.trim();
-  if (userOrgId) {
-    return userOrgId;
   }
 
   return undefined;

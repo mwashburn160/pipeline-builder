@@ -135,10 +135,34 @@ describe('withTenantTx', () => {
       expect(mockTransaction).toHaveBeenCalledTimes(1);
     });
 
-    it('unknown mode value falls back to warn', async () => {
+    it('unknown mode value falls back to warn (non-production)', async () => {
       process.env.RLS_CONTEXT_MODE = 'something-else';
       await withTenantTx(async () => 'ok');
       expect(mockTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('no override + NODE_ENV=production defaults to strict (throws)', async () => {
+      delete process.env.RLS_CONTEXT_MODE;
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        await expect(withTenantTx(async () => 'unreachable')).rejects.toThrow(/outside a tenant scope/);
+        expect(mockTransaction).not.toHaveBeenCalled();
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
+    });
+
+    it('no override + non-production defaults to warn (still runs)', async () => {
+      delete process.env.RLS_CONTEXT_MODE;
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'test';
+      try {
+        await withTenantTx(async () => 'ok');
+        expect(mockTransaction).toHaveBeenCalledTimes(1);
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
     });
 
     it('strict mode does NOT throw when context IS active', async () => {

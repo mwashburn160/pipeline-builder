@@ -43,7 +43,7 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
-    SYSTEM_ORG_ID: 'system',
+    SYSTEM_ORG_ID: '000000000000000000000001',
     // billing-helpers.syncEntitlements reads the tier's seat limit to sync it to
     // platform (the seat leg of the two-target fan-out).
     getTierLimits: (_tier: string) => ({

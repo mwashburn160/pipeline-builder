@@ -11,14 +11,18 @@ export interface ExternalSubscriptionResult {
 
 /** Payment provider interface (Stripe, AWS Marketplace, or stub for dev). */
 export interface PaymentProvider {
-  /** Create a customer in the external payment system. */
-  createCustomer(orgId: string, email?: string): Promise<string>;
+  /** Create a customer in the external payment system. `idempotencyKey`, when
+   *  supported by the provider, makes a retried create return the original
+   *  object instead of minting a duplicate. */
+  createCustomer(orgId: string, email?: string, idempotencyKey?: string): Promise<string>;
 
-  /** Create a subscription in the external payment system. */
+  /** Create a subscription in the external payment system. `idempotencyKey`,
+   *  when supported, dedupes a retried create at the provider. */
   createSubscription(
     customerId: string,
     planId: string,
     interval: BillingInterval,
+    idempotencyKey?: string,
   ): Promise<ExternalSubscriptionResult>;
 
   /** Cancel a subscription in the external payment system. */

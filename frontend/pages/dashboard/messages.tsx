@@ -4,6 +4,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useMessages } from '@/hooks/useMessages';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { Button } from '@/components/ui/Button';
 import { MessageList } from '@/components/message/MessageList';
 import { ThreadView } from '@/components/message/ThreadView';
 import { ComposeModal } from '@/components/message/ComposeModal';
@@ -45,7 +46,11 @@ function EmptyChat() {
 
 /** Message inbox page. Displays conversations in a split-panel layout with compose, thread view, and unread tracking. */
 export default function MessagesPage() {
-  const { user, isReady, isSuperAdmin } = useAuthGuard();
+  const { user, isReady, isSuperAdmin, can } = useAuthGuard();
+  // `messages:write` unlocks full compose (address other orgs/teams directly)
+  // vs. the support-only contact form. Broadcast-to-all-orgs announcements stay
+  // sysadmin-only (see ComposeModal `isSuperAdmin`). Role-admins hold the perm.
+  const canWrite = can('messages:write');
   const { organizations } = useAuth();
   const {
     messages,
@@ -124,14 +129,14 @@ export default function MessagesPage() {
             {/* List header */}
             <div className="flex items-center justify-between px-3 py-3 border-b border-gray-200 dark:border-gray-700">
               <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Conversations</h2>
-              <button
+              <Button
+                size="sm"
                 onClick={() => setShowCompose(true)}
-                className="btn btn-primary btn-sm"
-                title={isSuperAdmin ? 'New Message' : 'Contact Support'}
-                aria-label={isSuperAdmin ? 'New Message' : 'Contact Support'}
+                title={canWrite ? 'New Message' : 'Contact Support'}
+                aria-label={canWrite ? 'New Message' : 'Contact Support'}
               >
                 <Plus className="w-4 h-4" />
-              </button>
+              </Button>
             </div>
 
             {/* Filter tabs — message type */}
@@ -215,6 +220,7 @@ export default function MessagesPage() {
         isOpen={showCompose}
         onClose={() => setShowCompose(false)}
         onSend={handleSend}
+        canWrite={canWrite}
         isSuperAdmin={isSuperAdmin}
         recipientSuggestions={organizations
           .filter((o) => o.id.toLowerCase() !== currentOrgId)

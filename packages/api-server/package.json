@@ -47,6 +47,7 @@
     "@opentelemetry/sdk-node": "0.218.0",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
+    "@pipeline-builder/pipeline-data": "workspace:*",
     "compression": "1.8.1",
     "cors": "2.8.6",
     "express": "5.2.1",

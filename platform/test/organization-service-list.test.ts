@@ -16,6 +16,7 @@ const mockOrgFind = jest.fn();
 const mockOrgFindById = jest.fn();
 const mockOrgCount = jest.fn();
 const mockUserOrgCount = jest.fn();
+const mockUserOrgAggregate = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
 const mockIdpFind = jest.fn();
 const mockIdpDistinct = jest.fn();
 
@@ -123,7 +124,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     countDocuments: (...a: unknown[]) => mockOrgCount(...a),
   },
   User: { updateOne: jest.fn() },
-  UserOrganization: { countDocuments: (...a: unknown[]) => mockUserOrgCount(...a), create: jest.fn(), distinct: () => ({ session: () => Promise.resolve([]) }) },
+  UserOrganization: { countDocuments: (...a: unknown[]) => mockUserOrgCount(...a), create: jest.fn(), distinct: () => ({ session: () => Promise.resolve([]) }), aggregate: (...a: unknown[]) => mockUserOrgAggregate(...a) },
   // seats.js (pulled in via organization-service) links against Invitation.
   Invitation: { distinct: () => ({ session: () => Promise.resolve([]) }) },
   OrgIdpConfig: {
@@ -154,6 +155,8 @@ beforeEach(() => {
   mockOrgFindById.mockReset();
   mockOrgCount.mockReset();
   mockUserOrgCount.mockReset();
+  mockUserOrgAggregate.mockReset();
+  mockUserOrgAggregate.mockResolvedValue([]);
   mockIdpFind.mockReset();
   mockIdpDistinct.mockReset();
   mockIdpFind.mockReturnValue({ distinct: () => mockIdpDistinct() });

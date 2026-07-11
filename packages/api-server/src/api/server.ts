@@ -3,7 +3,8 @@
 
 import { Server } from 'http';
 import { createLogger, errorMessage, installCrashHandlers } from '@pipeline-builder/api-core';
-import { Config, getConnection, closeConnection } from '@pipeline-builder/pipeline-core';
+import { Config } from '@pipeline-builder/pipeline-core';
+import { getConnection, closeConnection } from '@pipeline-builder/pipeline-data';
 import type { Express } from 'express';
 import { setReady, isReady } from './readiness.js';
 import { shutdownTracing } from './tracing.js';

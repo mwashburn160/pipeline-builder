@@ -27,6 +27,8 @@ Plugin/Pipeline Service                  Compliance Service
 
 **Each organization owns its compliance.** The system org does not enforce rules on other organizations. Instead, it publishes recommended rules that any organization can browse, subscribe to, and customize. Independent organizations relate as peers via this catalog. The one exception is the org → team hierarchy: a parent organization's rule marked **apply to child teams** (`propagateToChildren`) is inherited and enforced on its nested teams.
 
+The system org is itself **exempt from compliance enforcement** — no rules are evaluated against its own entities, and scheduled/bulk scans skip it (unless `SYSTEM_ORG_SCANS_ENABLED=true`). Alongside its published rules, the system org also owns shared **template** policies and rules (`isTemplate: true`) that any org can clone into its own editable copy via the templates/clone endpoints.
+
 When validating an entity, the engine merges two rule sets:
 1. **Org rules** — rules the org created for itself
 2. **Subscribed published rules** — rules the org opted into from the published catalog

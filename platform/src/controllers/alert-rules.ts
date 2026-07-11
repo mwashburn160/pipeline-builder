@@ -15,9 +15,9 @@
  * pulls to pick up operator-authored rules at runtime.
  */
 
-import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess, userHasPermission } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { isOrgAdmin, isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
+import { isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
 import { alertRuleService, prepareRuleExpr, renderRulesYaml, validateRule, type RuleCreate, type RuleUpdate } from '../services/alert-rule-service.js';
 import { PromQLRewriteError } from '../services/promql-rewriter.js';
@@ -75,7 +75,7 @@ export const createAlertRule = withController('Create alert rule', async (req, r
   const ctx = requireAuthContext(req, res);
   if (!ctx) return;
   const { userId, orgId } = ctx;
-  if (!isOrgAdmin(req) && !isSystemAdmin(req)) {
+  if (!userHasPermission(req, 'observability:write')) {
     return sendError(res, 403, 'Org admin required to create alert rules');
   }
 
@@ -124,7 +124,7 @@ export const updateAlertRule = withController('Update alert rule', async (req, r
   const ctx = requireAuthContext(req, res);
   if (!ctx) return;
   const { userId, orgId } = ctx;
-  if (!isOrgAdmin(req) && !isSystemAdmin(req)) {
+  if (!userHasPermission(req, 'observability:write')) {
     return sendError(res, 403, 'Org admin required to update alert rules');
   }
 
@@ -164,7 +164,7 @@ export const deleteAlertRule = withController('Delete alert rule', async (req, r
   const ctx = requireAuthContext(req, res);
   if (!ctx) return;
   const { userId, orgId } = ctx;
-  if (!isOrgAdmin(req) && !isSystemAdmin(req)) {
+  if (!userHasPermission(req, 'observability:write')) {
     return sendError(res, 403, 'Org admin required to delete alert rules');
   }
 

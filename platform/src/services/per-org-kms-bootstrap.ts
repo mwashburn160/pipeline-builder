@@ -45,7 +45,7 @@ const logger = createLogger('per-org-kms-bootstrap');
  */
 export const perOrgKmsResolver: PerOrgKmsResolver = async (orgId) => {
   const org = await Organization.findById(toOrgId(orgId)).select('kmsConfig').lean();
-  const cfg = (org as { kmsConfig?: { keyId?: string; ciphertextBase64?: string } } | null)?.kmsConfig;
+  const cfg = org?.kmsConfig;
   if (!cfg?.keyId || !cfg?.ciphertextBase64) return null;
   const out: PerOrgKmsConfig = {
     keyId: cfg.keyId,

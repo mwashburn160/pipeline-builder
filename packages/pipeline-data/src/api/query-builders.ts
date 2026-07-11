@@ -3,6 +3,7 @@
 
 import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { and, eq, ilike, isNull, not, or, gte, lte, sql, SQL } from 'drizzle-orm';
+import type { AnyColumn } from 'drizzle-orm/column';
 import {
   AccessControlQueryBuilder,
   buildJsonbKeywordCondition,
@@ -33,6 +34,34 @@ import {
 // Query builder instances
 const pipelineBuilder = new AccessControlQueryBuilder(schema.pipeline);
 const pluginBuilder = new AccessControlQueryBuilder(schema.plugin);
+
+/** Take the first id when a filter's `id` is an array, else the string itself. */
+function firstId(id: string | string[]): string {
+  return typeof id === 'string' ? id : id[0];
+}
+
+/**
+ * Push the shared "isActive" condition:
+ * - explicit `isActive` → `eq(col, bool)`;
+ * - otherwise default to active-only, EXCEPT single-entity lookups by id so a
+ *   `findById` of an inactive row still returns it. Pass `hasId=false` to always
+ *   default (e.g. the published-catalog browse, which never keys off id).
+ */
+function activeDefault(conditions: SQL[], col: AnyColumn, isActive: unknown, hasId: boolean): void {
+  if (isActive !== undefined) {
+    conditions.push(eq(col, parseBooleanFilter(isActive)));
+  } else if (!hasId) {
+    conditions.push(eq(col, true));
+  }
+}
+
+/**
+ * Fail-closed org guard for compliance builders whose only tenancy gate is the
+ * app-layer `orgId` predicate. When `orgId` is absent we emit an impossible
+ * predicate so the query returns zero rows rather than leaking across tenants
+ * (mirrors the anonymous fallback in access-control-builder.ts).
+ */
+const IMPOSSIBLE: SQL = sql`false`;
 
 /**
  * Build SQL conditions for pipeline queries
@@ -198,8 +227,7 @@ export function buildMessageConditions(
 
   // ID filter
   if (filter.id !== undefined) {
-    const id = typeof filter.id === 'string' ? filter.id : filter.id[0];
-    conditions.push(eq(schema.message.id, id));
+    conditions.push(eq(schema.message.id, firstId(filter.id)));
   }
 
   return conditions;
@@ -237,11 +265,13 @@ export function buildCompliancePolicyConditions(
         )!,
       );
     }
+  } else {
+    // Fail-closed: no org context ⇒ no rows (never leak every tenant's policies).
+    conditions.push(IMPOSSIBLE);
   }
 
   if (filter.id !== undefined) {
-    const id = typeof filter.id === 'string' ? filter.id : filter.id[0];
-    conditions.push(eq(schema.compliancePolicy.id, id));
+    conditions.push(eq(schema.compliancePolicy.id, firstId(filter.id)));
   }
 
   if (filter.name !== undefined) {
@@ -252,14 +282,9 @@ export function buildCompliancePolicyConditions(
     conditions.push(eq(schema.compliancePolicy.isTemplate, parseBooleanFilter(filter.isTemplate)));
   }
 
-  if (filter.isActive !== undefined) {
-    conditions.push(eq(schema.compliancePolicy.isActive, parseBooleanFilter(filter.isActive)));
-  } else if (filter.id === undefined) {
-    // Only default to active=true for list queries, not single-entity lookups by
-    // ID (mirrors buildComplianceRuleConditions) — otherwise findById of an
-    // inactive policy returns nothing.
-    conditions.push(eq(schema.compliancePolicy.isActive, true));
-  }
+  // Default to active=true for list queries, not single-entity lookups by ID
+  // (otherwise findById of an inactive policy returns nothing).
+  activeDefault(conditions, schema.compliancePolicy.isActive, filter.isActive, filter.id !== undefined);
 
   return conditions;
 }
@@ -292,11 +317,13 @@ export function buildComplianceRuleConditions(
         )!,
       );
     }
+  } else {
+    // Fail-closed: no org context ⇒ no rows (never leak every tenant's rules).
+    conditions.push(IMPOSSIBLE);
   }
 
   if (filter.id !== undefined) {
-    const id = typeof filter.id === 'string' ? filter.id : filter.id[0];
-    conditions.push(eq(schema.complianceRule.id, id));
+    conditions.push(eq(schema.complianceRule.id, firstId(filter.id)));
   }
 
   if (filter.name !== undefined) {
@@ -323,12 +350,8 @@ export function buildComplianceRuleConditions(
     conditions.push(buildJsonbKeywordCondition(schema.complianceRule.tags, normalizeStringFilter(filter.tag)));
   }
 
-  if (filter.isActive !== undefined) {
-    conditions.push(eq(schema.complianceRule.isActive, parseBooleanFilter(filter.isActive)));
-  } else if (filter.id === undefined) {
-    // Only default to active=true for list queries, not single-entity lookups by ID
-    conditions.push(eq(schema.complianceRule.isActive, true));
-  }
+  // Default to active=true for list queries, not single-entity lookups by ID.
+  activeDefault(conditions, schema.complianceRule.isActive, filter.isActive, filter.id !== undefined);
 
   return conditions;
 }
@@ -363,11 +386,8 @@ export function buildPublishedRuleCatalogConditions(
     conditions.push(buildJsonbKeywordCondition(schema.complianceRule.tags, normalizeStringFilter(filter.tag)));
   }
 
-  if (filter.isActive !== undefined) {
-    conditions.push(eq(schema.complianceRule.isActive, parseBooleanFilter(filter.isActive)));
-  } else {
-    conditions.push(eq(schema.complianceRule.isActive, true));
-  }
+  // The catalog is always active-only (no single-id exemption here).
+  activeDefault(conditions, schema.complianceRule.isActive, filter.isActive, false);
 
   return conditions;
 }
@@ -383,6 +403,8 @@ export function buildComplianceRuleSubscriptionConditions(
 
   if (orgId) {
     conditions.push(eq(schema.complianceRuleSubscription.orgId, orgId));
+  } else {
+    conditions.push(IMPOSSIBLE);
   }
 
   if (filter.ruleId !== undefined) {
@@ -409,6 +431,8 @@ export function buildComplianceExemptionConditions(
 
   if (orgId) {
     conditions.push(eq(schema.complianceExemption.orgId, orgId));
+  } else {
+    conditions.push(IMPOSSIBLE);
   }
 
   if (filter.ruleId !== undefined) {
@@ -441,6 +465,8 @@ export function buildComplianceAuditConditions(
 
   if (orgId) {
     conditions.push(eq(schema.complianceAuditLog.orgId, orgId));
+  } else {
+    conditions.push(IMPOSSIBLE);
   }
 
   if (filter.target !== undefined) {
@@ -481,6 +507,8 @@ export function buildComplianceScanConditions(
 
   if (orgId) {
     conditions.push(eq(schema.complianceScan.orgId, orgId));
+  } else {
+    conditions.push(IMPOSSIBLE);
   }
 
   if (filter.target !== undefined) {

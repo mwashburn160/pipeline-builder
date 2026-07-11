@@ -58,6 +58,51 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     },
   },
 }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  CrudService: StubCrudService,
+  buildCompliancePolicyConditions: jest.fn(() => []),
+  buildComplianceRuleConditions: jest.fn(() => []),
+  buildPublishedRuleCatalogConditions: jest.fn(() => []),
+  drizzleCount: (r: unknown) => r,
+  runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
+  // tx supports the chain shape used by policy-service.cloneTemplate
+  // (`tx.select().from(...).where(...)`) — returns no template-rules by default.
+  withTenantTx: <T>(fn: (tx: unknown) => T): T => fn({
+    select: () => ({
+      from: () => ({
+        where: () => Promise.resolve([]),
+      }),
+    }),
+  }),
+  // Transitive import (policy-service → compliance-rule-service) reads
+  // CoreConstants.CACHE_TTL_COMPLIANCE_RULES at module load. Provide a stub.
+  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60_000 },
+  // Transitive import chain (policy-service → compliance-rule-service →
+  // rule-change-notifier → message-client) builds its client via createServiceClient.
+  createServiceClient: () => ({ post: jest.fn(), get: jest.fn() }),
+  Config: {
+    getAny: (key: string) => key === 'server'
+      ? { services: { messageHost: 'localhost', messagePort: 0 } }
+      : undefined,
+    get: (key: string) => key === 'server'
+      ? { services: { messageHost: 'localhost', messagePort: 0 } }
+      : undefined,
+  },
+  schema: {
+    compliancePolicy: {
+      name: 'col_name',
+      createdAt: 'col_createdAt',
+      updatedAt: 'col_updatedAt',
+      orgId: 'col_orgId',
+      version: 'col_version',
+    },
+    complianceRule: {
+      policyId: 'col_policyId',
+      isActive: 'col_isActive',
+      deletedAt: 'col_deletedAt',
+    },
+  },
+}));;
 
 const { CompliancePolicyService } = await import('../src/services/policy-service.js');
 
@@ -74,7 +119,7 @@ describe('CompliancePolicyService', () => {
 
       const result = await svc.findTemplates();
 
-      expect(findSpy).toHaveBeenCalledWith({ isTemplate: true }, 'system');
+      expect(findSpy).toHaveBeenCalledWith({ isTemplate: true }, '000000000000000000000001');
       expect(result).toEqual([{ id: 'p1' }]);
     });
 
@@ -106,7 +151,7 @@ describe('CompliancePolicyService', () => {
 
       const result = await svc.cloneTemplate('tpl-1', 'org-target', 'user-1');
 
-      expect(svc.findById).toHaveBeenCalledWith('tpl-1', 'system');
+      expect(svc.findById).toHaveBeenCalledWith('tpl-1', '000000000000000000000001');
       expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
         orgId: 'org-target',
         name: 'tpl-name',

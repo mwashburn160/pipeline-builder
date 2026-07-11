@@ -8,7 +8,8 @@ import {
   PanelLeftOpen,
   ChevronDown,
 } from 'lucide-react';
-import type { User } from '@/types';
+import { hasPermission } from '@/lib/auth-helpers';
+import { type User } from '@/types';
 import { useFeatures } from '@/hooks/useFeatures';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible, type NavItem } from '@/lib/nav';
 import { Tooltip } from './Tooltip';
@@ -72,7 +73,7 @@ export function Sidebar({
       : currentPath.startsWith(href);
 
   const isItemVisible = (item: NavItem) =>
-    isNavItemVisible(item, { isAdmin, isSuperAdmin, isFeatureEnabled: (n) => features.isEnabled(n) });
+    isNavItemVisible(item, { isAdmin, isSuperAdmin, isFeatureEnabled: (n) => features.isEnabled(n), hasPermission: (p) => hasPermission(user, p) });
 
   return (
     <div className={`sidebar transition-all duration-200 ${collapsed ? 'w-16' : 'w-64'}`}>

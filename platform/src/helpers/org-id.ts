@@ -6,12 +6,13 @@ import mongoose from 'mongoose';
 /**
  * Convert a string org ID to ObjectId when valid.
  *
- * `Organization._id` (and `UserOrganization.organizationId`) are `Schema.Types.Mixed`
- * to support both ObjectId values and well-known string IDs (e.g. the 'system'
- * org). Mongoose does NOT auto-cast a hex string to ObjectId on a Mixed field,
- * so a raw-string `findById`/filter silently misses an ObjectId-stored id. Route
- * every org-id lookup through this: 24-hex → ObjectId, anything else → unchanged
- * (so 'system' still matches its string `_id`).
+ * Every org-id field (`Organization._id`, `UserOrganization.organizationId`, the
+ * configured system-org id) is now a plain `Schema.Types.ObjectId`. This helper
+ * is retained as a documented cast helper: a 24-hex string arriving from a route
+ * param / JWT claim / cross-service payload is cast to ObjectId (24-hex →
+ * ObjectId, anything else → unchanged) so filters match regardless of whether the
+ * caller passed a string or an ObjectId. The `parentOrgId` field is still stored
+ * as a String, so the pass-through branch keeps those lookups working too.
  *
  * Lives in its own mongoose-only module (no express / api-core imports) so it can
  * be pulled into hot paths and service modules without dragging the request layer.

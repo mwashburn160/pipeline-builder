@@ -791,4 +791,60 @@ describe('CrudService', () => {
       await expect(service.count({}, 'org1')).rejects.toThrow('DB error');
     });
   });
+
+  // count / find parity for parentOrgId widening (org → team hierarchy).
+  // Regression guard: count() used to omit parentOrgId, so a paged list's
+  // `total` was computed from a NARROWER WHERE than the widened find() rows.
+  // count() must now pass parentOrgId into buildConditions exactly like find().
+
+  describe('count/find parentOrgId parity', () => {
+    /** Records every (orgId, parentOrgId) buildConditions is invoked with. */
+    class CapturingService extends TestService {
+      public calls: Array<{ orgId?: string; parentOrgId?: string }> = [];
+      protected override buildConditions(
+        _filter: Partial<TestFilter>,
+        orgId?: string,
+        parentOrgId?: string,
+      ): SQL[] {
+        this.calls.push({ orgId, parentOrgId });
+        return [{ orgId, parentOrgId } as unknown as SQL];
+      }
+    }
+
+    it('count() widens to parentOrgId with the same buildConditions args as find()', async () => {
+      const svc = new CapturingService();
+
+      // Widened find()
+      mockSelect.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue([]) }),
+      });
+      await svc.find({}, 'org1', 'parent1');
+
+      // Widened count()
+      mockSelect.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue([{ count: 7 }]) }),
+      });
+      const total = await svc.count({}, 'org1', 'parent1');
+
+      expect(total).toBe(7);
+      // Both reads must build their WHERE with the identical widening args,
+      // so the total counts the same row set the widened find() would return.
+      expect(svc.calls).toEqual([
+        { orgId: 'org1', parentOrgId: 'parent1' },
+        { orgId: 'org1', parentOrgId: 'parent1' },
+      ]);
+    });
+
+    it('count() stays own-org scoped (no parentOrgId) when not widened', async () => {
+      const svc = new CapturingService();
+
+      mockSelect.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue([{ count: 2 }]) }),
+      });
+      const total = await svc.count({}, 'org1');
+
+      expect(total).toBe(2);
+      expect(svc.calls).toEqual([{ orgId: 'org1', parentOrgId: undefined }]);
+    });
+  });
 });

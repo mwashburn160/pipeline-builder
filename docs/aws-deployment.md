@@ -9,7 +9,7 @@ Two deployment options: **EC2** (single Minikube instance) or **EKS** (managed K
 
 Both deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced via the native `/dashboard/observability` page), and admin tools. Both front the workload with an **ALB that terminates TLS using an ACM cert** (DNS-validated); the compute is always in private subnets. A domain + public Route 53 zone is required.
 
-Observability is the native `/dashboard/observability` page across all deployments. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public `org_id='system'` rows, so they appear automatically for any logged-in org and open at `/dashboard/observability/<id>`. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
+Observability is the native `/dashboard/observability` page across all deployments. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public rows owned by the system org (`org_id` = the configured `SYSTEM_ORG_ID`, default `000000000000000000000001`), so they appear automatically for any logged-in org and open at `/dashboard/observability/<id>`. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
 
 **Related docs:** [Environment Variables](environment-variables.md) | [API Reference](api-reference.md) | [Plugin Catalog](plugins/README.md)
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
-import { runWithTenantContext } from '@pipeline-builder/pipeline-core';
+import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
 import { Subscription } from '../models/subscription.js';
 import { AWSMarketplaceProvider, type MeterUsageResult } from '../providers/aws-marketplace-provider.js';

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useRef, useState } from 'react';
+import { runCancellableFetch } from './internal/fetchCore';
 
 /**
  * "Fetch full record by id on mount, with optional fallback shape from
@@ -31,26 +32,15 @@ export function useEntityFetch<T>(
       setEntity(fallback ?? null);
       return;
     }
-    let cancelled = false;
-    setFetching(true);
-    setError(null);
-    fetcherRef
-      .current(id)
-      .then((result) => {
-        if (cancelled) return;
-        setEntity(result);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err : new Error(String(err)));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setFetching(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    return runCancellableFetch(() => fetcherRef.current(id), {
+      onStart: () => {
+        setFetching(true);
+        setError(null);
+      },
+      onSuccess: setEntity,
+      onError: setError,
+      onSettled: () => setFetching(false),
+    });
     // fallback intentionally omitted: it's only the initial seed and changes
     // on every render in callers that pass an inline object.
     // eslint-disable-next-line react-hooks/exhaustive-deps

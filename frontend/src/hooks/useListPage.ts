@@ -3,6 +3,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useDebounce } from './useDebounce';
+import { runCancellableFetch } from './internal/fetchCore';
 import { formatError } from '@/lib/constants';
 import type { PaginationState } from '@/components/ui/Pagination';
 
@@ -125,57 +126,47 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; only filter values matter
   }, [debouncedTextValues, ...selectFieldKeys.map(k => filters[k])]);
 
-  // Fetch data when debounced filters, pagination, or fetchKey change
+  // Fetch data when debounced filters, pagination, or fetchKey change. Shares
+  // the cancellable-fetch core with useFetch/useServerPagination so the
+  // "drop stale state writes on deps-change/unmount" semantics live in one place.
   useEffect(() => {
     if (!enabled) return;
 
-    let cancelled = false;
-
-    async function doFetch() {
-      setIsLoading(true);
-      try {
-        // Build params from debounced filter values
-        const params: Record<string, string> = {};
-        for (const f of fields) {
-          const val = f.type === 'text' ? (debouncedFilters[f.key] ?? '').trim() : filters[f.key];
-          if (val && val !== f.defaultValue) {
-            params[f.key] = val;
-          }
-        }
-
-        // Apply custom param transformations
-        const finalParams = buildParams ? { ...params, ...buildParams(debouncedFilters) } : params;
-
-        // Add pagination
-        finalParams.limit = String(pageState.limit);
-        finalParams.offset = String(pageState.offset);
-
-        const result = await fetcher(finalParams);
-        if (!cancelled) {
-          setData(result.items);
-          if (result.pagination) {
-            setTotal(result.pagination.total);
-            // Only sync offset if the server returned a different one (e.g.
-            // clamped to last page) — avoids a redundant re-render loop.
-            setPageState(prev => prev.offset === result.pagination!.offset
-              ? prev
-              : { ...prev, offset: result.pagination!.offset });
-          }
-          setError(null);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(formatError(err, 'Failed to load data'));
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+    // Build params from debounced filter values
+    const params: Record<string, string> = {};
+    for (const f of fields) {
+      const val = f.type === 'text' ? (debouncedFilters[f.key] ?? '').trim() : filters[f.key];
+      if (val && val !== f.defaultValue) {
+        params[f.key] = val;
       }
     }
 
-    doFetch();
-    return () => { cancelled = true; };
+    // Apply custom param transformations
+    const finalParams = buildParams ? { ...params, ...buildParams(debouncedFilters) } : params;
+
+    // Add pagination
+    finalParams.limit = String(pageState.limit);
+    finalParams.offset = String(pageState.offset);
+
+    return runCancellableFetch(() => fetcher(finalParams), {
+      onStart: () => setIsLoading(true),
+      onSuccess: (result) => {
+        setData(result.items);
+        if (result.pagination) {
+          setTotal(result.pagination.total);
+          // Only sync offset if the server returned a different one (e.g.
+          // clamped to last page) — avoids a redundant re-render loop.
+          setPageState(prev => prev.offset === result.pagination!.offset
+            ? prev
+            : { ...prev, offset: result.pagination!.offset });
+        }
+        setError(null);
+      },
+      // fetchCore normalizes the throw to an Error; formatError extracts its
+      // message, preserving this hook's `error: string` contract.
+      onError: (err) => setError(formatError(err, 'Failed to load data')),
+      onSettled: () => setIsLoading(false),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; dynamic filter values are spread individually
   }, [enabled, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), pageState.limit, pageState.offset, fetchKey]);
 

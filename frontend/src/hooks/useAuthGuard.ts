@@ -9,14 +9,16 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from './useAuth';
-import { isSystemAdmin, isOrgAdmin } from '@/types';
+import { isSystemAdmin, isOrgAdmin, hasPermission } from '@/lib/auth-helpers';
 
-/** Options for configuring the auth guard's role requirements. */
+/** Options for configuring the auth guard's requirements. */
 interface AuthGuardOptions {
   /** Require the user to be an org admin or system admin. */
   requireAdmin?: boolean;
   /** Require the user to be a system admin specifically. */
   requireSystemAdmin?: boolean;
+  /** Require a specific fine-grained permission (RBAC). Superadmins bypass. */
+  requirePermission?: string;
 }
 
 /**
@@ -37,6 +39,8 @@ export function useAuthGuard(options?: AuthGuardOptions) {
 
   const requireAdmin = options?.requireAdmin ?? false;
   const requireSystemAdmin = options?.requireSystemAdmin ?? false;
+  const requirePermission = options?.requirePermission;
+  const hasRequiredPermission = !requirePermission || hasPermission(user, requirePermission);
 
   useEffect(() => {
     if (!isInitialized || isLoading) return;
@@ -52,11 +56,16 @@ export function useAuthGuard(options?: AuthGuardOptions) {
       router.push('/dashboard');
       return;
     }
-  }, [isAuthenticated, isInitialized, isLoading, isAdmin, isSuperAdmin, router, requireAdmin, requireSystemAdmin]);
+    if (!hasRequiredPermission) {
+      router.push('/dashboard');
+      return;
+    }
+  }, [isAuthenticated, isInitialized, isLoading, isAdmin, isSuperAdmin, hasRequiredPermission, router, requireAdmin, requireSystemAdmin]);
 
   const isReady = isInitialized && !isLoading && isAuthenticated && !!user
     && (!requireAdmin || isAdmin)
-    && (!requireSystemAdmin || isSuperAdmin);
+    && (!requireSystemAdmin || isSuperAdmin)
+    && hasRequiredPermission;
 
   return {
     user,
@@ -65,6 +74,8 @@ export function useAuthGuard(options?: AuthGuardOptions) {
     isSuperAdmin,
     isOrgAdminUser,
     isAdmin,
+    /** Fine-grained permission check for the active org (RBAC UI gating). */
+    can: (permission: string) => hasPermission(user, permission),
     logout,
     refreshUser,
   };

@@ -51,6 +51,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
   sendPaginatedNested: jest.fn(),
+  // RBAC gates on /clone (requirePermission) and /auto-subscribe
+  // (requireServicePrincipal → isServicePrincipal). Passthrough so the router loads.
+  requirePermission: () => (_req: any, _res: any, next: any) => next(),
+  isServicePrincipal: () => true,
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -59,7 +63,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: {
     complianceRule: {
       id: 'col_id', deletedAt: 'col_deleted', target: 'col_target', name: 'col_name',

@@ -51,7 +51,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
       requestId: 'test-req', log: jest.fn(),
     };
     (req as any).__ctx = ctx;
-    await handler({ req, res, ctx, orgId: req.headers['x-org-id'] || 'system', userId: 'user-1' });
+    await handler({ req, res, ctx, orgId: req.headers['x-org-id'] || '000000000000000000000001', userId: 'user-1' });
   },
 }));
 
@@ -61,7 +61,7 @@ const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js'
 // Minimal Express-like mocks
 function createMockReqRes() {
   const req = {
-    headers: { 'x-org-id': 'system' },
+    headers: { 'x-org-id': '000000000000000000000001' },
     method: 'GET',
     path: '/status',
   } as any;
@@ -169,7 +169,7 @@ describe('queue-status route', () => {
       ]);
 
       const handler = getRouteHandler('/failed');
-      const req = makeReq('owner', 'system');
+      const req = makeReq('owner', '000000000000000000000001');
       const json = jest.fn();
       const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
       await handler(req, res, jest.fn());

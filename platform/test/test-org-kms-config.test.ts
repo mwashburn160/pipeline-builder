@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import { z } from 'zod';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgFindById = jest.fn();
 const mockRequireSystemAdmin = jest.fn();
@@ -75,6 +76,23 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
   captureOrgSecrets: jest.fn(),
   reencryptOrgSecrets: jest.fn(),
+}));
+
+// Post-zod migration the controller validates via utils/validation.js. The
+// real module transitively loads config + the Mongoose user model; mock it
+// with a faithful stand-in (same schema shape + 400-on-fail behavior) so this
+// suite stays a focused unit test. The schema itself is covered in
+// validation.test.ts.
+jest.unstable_mockModule('../src/utils/validation.js', () => ({
+  orgKmsConfigSchema: z.object({
+    keyId: z.string().min(1),
+    ciphertextBase64: z.string().min(1).regex(/^[A-Za-z0-9+/=]+$/),
+  }),
+  validateBody: (schema: any, body: unknown, res: any) => {
+    const result = schema.safeParse(body);
+    if (!result.success) { res.status(400).json({ success: false, message: 'VALIDATION_ERROR' }); return null; }
+    return result.data;
+  },
 }));
 
 const { testOrgKmsConfig } = await import('../src/controllers/org-kms-config.js');

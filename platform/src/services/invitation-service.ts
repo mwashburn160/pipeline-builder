@@ -101,6 +101,25 @@ class InvitationService {
   }
 
   /**
+   * Tombstone an invitation as accepted (status + acceptedAt/By/Via) without
+   * creating a membership — used on the already-a-member path so the audit
+   * trail still records the click. See the callers for why this write must
+   * survive the transaction commit.
+   */
+  private async tombstoneAccepted(
+    invitation: InvitationDocument,
+    user: UserDocument,
+    via: 'email' | InvitationOAuthProvider,
+    session: mongoose.ClientSession,
+  ): Promise<void> {
+    invitation.status = 'accepted';
+    invitation.acceptedAt = new Date();
+    invitation.acceptedBy = user._id;
+    invitation.acceptedVia = via;
+    await invitation.save({ session });
+  }
+
+  /**
    * Send a new invitation to an email. Validates ownership/admin-ship,
    * detects existing membership + pending invitations, enforces the
    * per-org pending cap, and triggers the invitation email. Wrapped in a
@@ -224,11 +243,7 @@ class InvitationService {
         // Tombstone the invitation as accepted so the audit trail records
         // the click, then signal the caller (outside the tx) to surface
         // INV_ALREADY_MEMBER without rolling back the status update.
-        invitation.status = 'accepted';
-        invitation.acceptedAt = new Date();
-        invitation.acceptedBy = user._id;
-        invitation.acceptedVia = oauthProvider || 'email';
-        await invitation.save({ session });
+        await this.tombstoneAccepted(invitation, user, oauthProvider || 'email', session);
         return true;
       }
 
@@ -287,11 +302,7 @@ class InvitationService {
       }).session(session);
 
       if (existingMembership) {
-        invitation.status = 'accepted';
-        invitation.acceptedAt = new Date();
-        invitation.acceptedBy = user._id;
-        invitation.acceptedVia = oauthProvider;
-        await invitation.save({ session });
+        await this.tombstoneAccepted(invitation, user, oauthProvider, session);
         return true;
       }
 

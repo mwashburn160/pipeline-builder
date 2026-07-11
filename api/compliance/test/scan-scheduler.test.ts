@@ -43,6 +43,33 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })) })),
   }),
 }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  Config: {
+    getAny: () => ({ scanSchedulerIntervalMs: 60000 }),
+  },
+  schema: {
+    complianceScan: {},
+    complianceScanSchedule: {},
+  },
+  db: {
+    select: jest.fn(() => ({
+      from: jest.fn(() => ({ where: jest.fn(() => ({ limit: jest.fn(() => Promise.resolve([])) })) })),
+    })),
+    insert: jest.fn(() => ({ values: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })),
+    update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })) })),
+  },
+  // scan-scheduler funnels every DB op through withTenantTx /
+  // runWithTenantContext after the RLS migration — pass through to a tx with
+  // the same chain shape the module expects.
+  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
+    select: jest.fn(() => ({
+      from: jest.fn(() => ({ where: jest.fn(() => ({ limit: jest.fn(() => Promise.resolve([])) })) })),
+    })),
+    insert: jest.fn(() => ({ values: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })),
+    update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })) })),
+  }),
+}));;
 
 jest.unstable_mockModule('../src/helpers/scan-executor.js', () => ({
   executeScan: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),

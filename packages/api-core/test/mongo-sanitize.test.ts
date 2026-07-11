@@ -3,7 +3,7 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 import type { Request, Response, NextFunction } from 'express';
-import { mongoSanitize } from '../src/middleware/mongo-sanitize.js';
+import { mongoSanitize, MAX_SANITIZE_DEPTH } from '../src/middleware/mongo-sanitize.js';
 
 const run = (req: Partial<Request>) => {
   const next = jest.fn();
@@ -37,5 +37,31 @@ describe('mongoSanitize', () => {
     const req = { params: { $where: 'bad', id: '123' } } as unknown as Request;
     run(req);
     expect(req.params).toEqual({ id: '123' });
+  });
+
+  it('sanitizes bodies nested up to the depth cap without error', () => {
+    // Exactly MAX_SANITIZE_DEPTH levels deep — must still strip operator keys.
+    let deep: Record<string, unknown> = { $ne: null, ok: 1 };
+    for (let i = 0; i < MAX_SANITIZE_DEPTH; i++) deep = { nested: deep };
+    const req = { body: deep } as unknown as Request;
+    run(req);
+    // Walk to the leaf and confirm the operator key was stripped.
+    let cur = req.body as Record<string, unknown>;
+    for (let i = 0; i < MAX_SANITIZE_DEPTH; i++) cur = cur.nested as Record<string, unknown>;
+    expect(cur).toEqual({ ok: 1 });
+  });
+
+  it('rejects over-deep payloads with 400 instead of silently truncating', () => {
+    // Deeper than the cap — the middleware must respond 400 and NOT call next.
+    let deep: Record<string, unknown> = { $bad: 1 };
+    for (let i = 0; i < MAX_SANITIZE_DEPTH + 5; i++) deep = { nested: deep };
+    const req = { body: deep } as unknown as Request;
+    const next = jest.fn();
+    const json = jest.fn();
+    const status = jest.fn().mockReturnValue({ json });
+    const res = { headersSent: false, status } as unknown as Response;
+    mongoSanitize()(req, res, next as unknown as NextFunction);
+    expect(next).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(400);
   });
 });

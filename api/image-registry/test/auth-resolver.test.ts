@@ -47,10 +47,10 @@ describe('resolveIdentity', () => {
   });
 
   it('resolves admin JWT with isAdmin flag preserved', async () => {
-    const token = signPlatformJwt({ sub: 'admin-1', organizationId: 'system', isAdmin: true });
+    const token = signPlatformJwt({ sub: 'admin-1', organizationId: '000000000000000000000001', isAdmin: true });
     await expect(resolveIdentity('system', token)).resolves.toEqual({
       type: 'jwt',
-      orgId: 'system',
+      orgId: '000000000000000000000001',
       userId: 'admin-1',
       isAdmin: true,
       isSuperAdmin: false,
@@ -60,13 +60,13 @@ describe('resolveIdentity', () => {
   it('resolves super-admin JWT with isSuperAdmin flag preserved', async () => {
     const token = signPlatformJwt({
       sub: 'bootstrap-push',
-      organizationId: 'system',
+      organizationId: '000000000000000000000001',
       isAdmin: true,
       isSuperAdmin: true,
     });
     await expect(resolveIdentity('system', token)).resolves.toEqual({
       type: 'jwt',
-      orgId: 'system',
+      orgId: '000000000000000000000001',
       userId: 'bootstrap-push',
       isAdmin: true,
       isSuperAdmin: true,

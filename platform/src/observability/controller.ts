@@ -7,8 +7,10 @@
  *   GET /api/observability/query?key=&range=
  *   GET /api/observability/logs?key=&range=&limit=&event=&actor=
  *
- * Sysadmin-only. The catalog is the security boundary — frontend cannot
- * request raw PromQL/LogQL; only catalog keys.
+ * Authenticated + org-scoped (`requireAuth`, then results are scoped to the
+ * caller's org via `$ORG` substitution; a sysadmin gets a cross-org wildcard).
+ * The catalog is the security boundary — frontend cannot request raw
+ * PromQL/LogQL; only catalog keys.
  *
  * Error mapping:
  *   - Unknown catalog key                       → 400
@@ -247,9 +249,17 @@ export const observabilityAlerts = withController('Observability alerts', async 
  */
 export const observabilitySilencesList = withController('Observability silences list', async (req, res) => {
   if (!requireAuth(req, res)) return;
+  const sysadmin = isSystemAdmin(req);
+  const orgId = req.user?.organizationId;
   try {
     const silences = await am.listSilences();
-    sendSuccess(res, 200, { silences });
+    // Tenancy: non-sysadmins only see silences scoped to their own org (an
+    // `org_id` matcher equal to their org) — the same ownership test the
+    // create/delete paths enforce. Sysadmins see every tenant's silences.
+    const visible = sysadmin
+      ? silences
+      : silences.filter(s => s.matchers.some(m => m.name === 'org_id' && m.value === orgId));
+    sendSuccess(res, 200, { silences: visible });
   } catch (err) {
     sendUpstreamError(res, err);
   }

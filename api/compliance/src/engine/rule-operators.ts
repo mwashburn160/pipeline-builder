@@ -8,7 +8,7 @@
  * returning true if the condition is MET (no violation) or false if VIOLATED.
  */
 
-import type { RuleOperator } from '@pipeline-builder/pipeline-core';
+import type { RuleOperator } from '@pipeline-builder/pipeline-data';
 
 /**
  * Cap on user-supplied regex patterns in compliance rules — long patterns

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, ErrorCode, isSystemAdmin, sendError } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, isSystemAdmin, resolveUserPermissions, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
@@ -29,6 +29,12 @@ interface UserLike {
 /**
  * Populate the request.user object with user details from the database.
  * Queries UserOrganization for the active org membership to resolve role and org name.
+ *
+ * Used by the REFRESH path (`isValidRefreshToken`), whose refresh token carries
+ * only `sub`/`tokenVersion` — no role/org/permission claims — so those must be
+ * re-derived from the DB. `requireAuth` no longer calls this: an access token
+ * already carries fresh claims (kept current by tokenVersion bumps), so it trusts
+ * them instead of re-querying on every request.
  *
  * @param req - Express request object to populate
  * @param user - User document from database
@@ -73,6 +79,12 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
     }
   }
 
+  // Role's base permission bundle (superadmins implicitly hold all). The refresh
+  // handler re-issues tokens via `issueTokens`, which re-resolves the full
+  // permission set (role bundle ∪ group grants) at issue time — so this middleware
+  // needn't flatten group permissions again here.
+  const permissions = resolveUserPermissions(role, [], user.isSuperAdmin === true);
+
   const payload: AccessTokenPayload = {
     type: 'access',
     sub: userId,
@@ -80,6 +92,7 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
     email: user.email,
     role,
     isAdmin: role === 'admin' || role === 'owner',
+    permissions,
     // Propagate the sysadmin claim. Missing this here silently turned every
     // sysadmin into a regular user as soon as this middleware ran — every
     // /admin/* and audit route 403'd because `req.user.isSuperAdmin` was
@@ -136,22 +149,23 @@ export async function requireAuth(
       return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
     }
 
-    // `+isSuperAdmin` — both fields are `select: false` on the schema. Without
-    // them, populateRequestUser silently builds a non-sysadmin req.user even
-    // though the JWT (and the User doc) say otherwise.
-    const user = await User.findById(decoded.sub).select('+tokenVersion +isSuperAdmin').lean();
+    // The ONLY DB read this path needs: the current tokenVersion, to reject
+    // tokens minted before the last "invalidate all sessions" / role / permission
+    // / membership change (every such change bumps tokenVersion). Everything else
+    // the request needs — role, org, permissions, isSuperAdmin — already rides in
+    // the validated JWT and is kept fresh by that same bump, so re-deriving it
+    // per request (previously up to 5 sequential queries) is redundant.
+    const user = await User.findById(decoded.sub).select('+tokenVersion').lean();
 
     if (!user || decoded.tokenVersion !== user.tokenVersion) {
       return sendError(res, 401, 'Session invalid');
     }
 
-    // Scope the request to the org the ACCESS TOKEN was minted for, not the
-    // user's `lastActiveOrgId` in the DB. The two diverge whenever the user
-    // switches active org in another session/tab: honoring lastActiveOrgId
-    // would silently run this request (and its role check) against the wrong
-    // org. populateRequestUser re-verifies the membership for this org and
-    // falls back to a valid membership if the user no longer belongs to it.
-    await populateRequestUser(req, user, decoded.organizationId);
+    // Trust the JWT claims verbatim (role/organizationId/organizationName/
+    // isSuperAdmin/permissions/tier/features/hierarchy/scope). They were minted
+    // for the org the token was issued against and are only stale if tokenVersion
+    // moved — which we just checked.
+    req.user = decoded;
     next();
   } catch {
     // Token verification failed - return unauthorized without exposing error details

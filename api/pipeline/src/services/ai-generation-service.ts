@@ -12,7 +12,7 @@ import {
 } from '@pipeline-builder/ai-core';
 import { createLogger, ValidationError } from '@pipeline-builder/api-core';
 
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and } from 'drizzle-orm';
 import { z } from 'zod';
 import { availablePluginConditions } from './plugin-lookup-service.js';

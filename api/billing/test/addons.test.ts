@@ -21,9 +21,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   requireAuth: mockRequireAuth,
-  requireAdmin: (_req: any, _res: any, next: () => void) => next(),
+  requirePermission: () => (_req: any, _res: any, next: () => void) => next(),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   getServiceAuthHeader: jest.fn(() => 'Bearer service-token'),
+  // Mirror api-core's validateBody: safeParse the real AddonMutateSchema (this
+  // suite does not mock ../src/validation/schemas.js) and shape the result.
+  validateBody: (req: any, schema: any) => {
+    const r = schema.safeParse(req.body ?? {});
+    return r.success ? { ok: true, value: r.data } : { ok: false, error: r.error.message };
+  },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({

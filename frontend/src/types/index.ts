@@ -1,6 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Quota + tier identifiers come from the api-core source of truth (see below).
+// `import type` is fully erased at build time, so this pulls no server-only
+// runtime code into the Next bundle.
+import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
+
 /**
  * User model.
  *
@@ -28,6 +33,12 @@ export interface User {
   isEmailVerified: boolean;
   tier?: QuotaTier;
   features?: string[];
+  /**
+   * Effective fine-grained permissions for the active org (RBAC): the role's
+   * base bundle ∪ any custom-group grants; superadmins get all. Client-visible
+   * for UI gating only — every privileged action is re-checked server-side.
+   */
+  permissions?: string[];
   featureOverrides?: Record<string, boolean>;
   /** All organizations this user belongs to, with per-org roles */
   organizations?: UserOrgMembership[];
@@ -47,33 +58,10 @@ export interface UserOrgMembership {
   tier?: 'developer' | 'pro' | 'team' | 'enterprise';
 }
 
-/**
- * Check if user is a Pipeline Builder super-admin.
- *
- * Reads the `isSuperAdmin` flag from the JWT — the canonical signal for
- * operator authority. The legacy "user is admin/owner in the well-known
- * 'system' org" branch was removed alongside the backend cutover; flipping
- * a user to sysadmin now requires setting `User.isSuperAdmin=true`
- * (BOOTSTRAP_SUPERADMIN_EMAILS env or a future admin endpoint).
- */
-// SECURITY: `user.isSuperAdmin` comes from the client-decoded (UNVERIFIED) JWT.
-// Trust it ONLY for cosmetic UI gating (show/hide nav, redirect before render).
-// Never treat it as an authorization decision — every privileged action is
-// re-checked server-side against the token's verified claim, so a user who
-// forges this flag sees admin UI but every API call still 403s.
-export function isSystemAdmin(user: User | null): boolean {
-  return user?.isSuperAdmin === true;
-}
-
-/**
- * Check if user is an organization admin — admin/owner role on a regular
- * customer org. Excludes sysadmins; the UI typically wants to render
- * "org admin" affordances separately from "Pipeline Builder operator"
- * affordances.
- */
-export function isOrgAdmin(user: User | null): boolean {
-  return (user?.role === 'admin' || user?.role === 'owner') && !isSystemAdmin(user);
-}
+// The runtime user guards now live in `@/lib/auth-helpers` (a `.ts` file can't
+// hold both the type contracts and their runtime helpers cleanly). Re-exported
+// here for back-compat so existing `from '@/types'` importers keep working.
+export { isSystemAdmin, isOrgAdmin, hasPermission } from '@/lib/auth-helpers';
 
 /**
  * Organization member
@@ -115,9 +103,14 @@ export type GroupRole = 'superadmin' | 'admin' | 'member';
 export interface OrganizationGroup {
   id: string;
   name: string;
+  /** Operator-facing description (custom groups). */
+  description?: string;
   grantsRole: GroupRole;
+  /** Fine-grained permissions this group grants (empty for role-only groups). */
+  permissions: string[];
   /** Seeded default group (Administrators / Developers / Superadmins) — these
-   *  can't be deleted from the UI; only their membership is editable. */
+   *  can't be edited or deleted from the UI; only their membership is editable.
+   *  Custom, user-created groups are fully editable. */
   system: boolean;
   members: Array<{ id: string; username: string; email: string }>;
 }
@@ -134,15 +127,24 @@ export interface QuotaSummary {
 }
 
 /**
- * Quota type identifiers
+ * Quota + tier identifiers — re-exported from api-core so the frontend union
+ * can't drift from the backend's. The local copy previously listed only 4 of
+ * the 9 quota types, silently under-typing quota responses.
  */
-export type QuotaType = 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls';
+export type { QuotaType, QuotaTier };
 
 /**
- * Quota tier identifiers.
- * Source of truth: packages/api-core/src/types/quota-tiers.ts
+ * The quota kinds the dashboard currently surfaces — a curated subset of the
+ * backend's full `QuotaType` (which also tracks `storageBytes`, `dashboards`,
+ * `alertRules`, `alertDestinations`, `idpConfigs`). Key display/config maps by
+ * {@link DisplayedQuotaType} so they needn't enumerate quota kinds the UI does
+ * not render. The `satisfies` clause fails the build if any entry stops being a
+ * valid `QuotaType`, so this list can't silently drift either.
  */
-export type QuotaTier = 'developer' | 'pro' | 'team' | 'enterprise';
+export const DISPLAYED_QUOTA_TYPES = [
+  'plugins', 'pipelines', 'apiCalls', 'aiCalls',
+] as const satisfies readonly QuotaType[];
+export type DisplayedQuotaType = typeof DISPLAYED_QUOTA_TYPES[number];
 
 /**
  * Unified org quota response (matches backend OrgQuotaResponse)

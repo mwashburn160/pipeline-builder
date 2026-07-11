@@ -57,6 +57,16 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     execute: (...args: unknown[]) => mockExecute(...args),
   }),
 }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  CoreConstants: { CACHE_CONTROL_LIST: 'private, max-age=30', CACHE_CONTROL_DETAIL: 'private, max-age=60' },
+  // The route was migrated from direct `db.execute(...)` to
+  // `withTenantTx(tx => tx.execute(...))`. The mock hands back a tx whose
+  // execute funnels through the same mockExecute spy so per-test
+  // mockExecute.mockResolvedValue(...) calls still drive responses.
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
+    execute: (...args: unknown[]) => mockExecute(...args),
+  }),
+}));;
 
 const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 

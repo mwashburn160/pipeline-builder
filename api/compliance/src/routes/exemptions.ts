@@ -11,7 +11,7 @@ import {
   getParam,
   parsePaginationParams,
   validateBody,
-  requireAdmin,
+  requirePermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -100,7 +100,7 @@ export function createExemptionRoutes(): Router {
   // decision, so it requires an org admin/owner (any member may *request* an
   // exemption via POST /, but only an admin reviews it). The service still
   // blocks self-approval (CE_SELF_APPROVE) so an admin can't approve their own.
-  router.put('/:id/review', requireAdmin, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id/review', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -134,7 +134,7 @@ export function createExemptionRoutes(): Router {
   // DELETE /:id — revoke an exemption. Admin-gated like PUT /:id/review: revoking
   // re-imposes a rule (can block a previously-compliant entity), so it's an
   // admin action, not something any member should do.
-  router.delete('/:id', requireAdmin, withRoute(async ({ req, res, ctx, orgId }) => {
+  router.delete('/:id', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

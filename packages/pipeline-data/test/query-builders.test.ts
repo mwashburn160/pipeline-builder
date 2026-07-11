@@ -70,7 +70,7 @@ describe('buildPluginConditions', () => {
 
 describe('buildMessageConditions', () => {
   it('system org gets no access control filter', () => {
-    const systemConditions = buildMessageConditions({}, 'system');
+    const systemConditions = buildMessageConditions({}, '000000000000000000000001');
     const orgConditions = buildMessageConditions({}, 'org-1');
     // system org should have fewer conditions (no sender/recipient filter)
     expect(systemConditions.length).toBeLessThan(orgConditions.length);
@@ -143,18 +143,21 @@ describe('buildComplianceRuleConditions', () => {
   });
 
   it('system org gets a single equality on its own rules (no extra OR branch)', () => {
-    const systemConditions = buildComplianceRuleConditions({}, 'system');
+    const systemConditions = buildComplianceRuleConditions({}, '000000000000000000000001');
     const orgConditions = buildComplianceRuleConditions({}, 'org-1');
-    // Both produce 2 conditions but the system path uses eq(orgId='system'),
+    // Both produce 2 conditions but the system path uses eq(orgId=SYSTEM_ORG_ID),
     // not the OR-with-published-catalog branch.
     expect(systemConditions.length).toBe(orgConditions.length);
   });
 
-  it('omits orgId condition entirely when no orgId is provided', () => {
+  it('fails closed when no orgId is provided (impossible predicate, not fail-open)', () => {
     const withoutOrg = buildComplianceRuleConditions({});
     const withOrg = buildComplianceRuleConditions({}, 'org-1');
-    // Without orgId: only the isActive default. With orgId: visibility OR + isActive.
-    expect(withoutOrg.length).toBe(withOrg.length - 1);
+    // Without orgId we must still emit a tenancy predicate (an impossible one),
+    // so the count matches the org path (impossible-guard + isActive) rather
+    // than dropping the org clause entirely (the old cross-tenant leak).
+    expect(withoutOrg.length).toBe(withOrg.length);
+    expect(withoutOrg.length).toBe(2);
   });
 
   it('normalizes orgId to lowercase before building visibility condition', () => {
@@ -184,7 +187,7 @@ describe('buildComplianceRuleConditions', () => {
 
 describe('buildCompliancePolicyConditions', () => {
   // Regression: same shape as the rule-conditions fix — sample policy templates
-  // are uploaded under orgId='system' with isTemplate=true; non-system dashboards
+  // are uploaded under orgId=SYSTEM_ORG_ID with isTemplate=true; non-system dashboards
   // must be able to see them.
   it('non-system org gets visibility OR (own policies + system templates)', () => {
     const conditions = buildCompliancePolicyConditions({}, 'org-1');
@@ -193,7 +196,7 @@ describe('buildCompliancePolicyConditions', () => {
   });
 
   it('system org gets a single equality on its own policies', () => {
-    const systemConditions = buildCompliancePolicyConditions({}, 'system');
+    const systemConditions = buildCompliancePolicyConditions({}, '000000000000000000000001');
     const orgConditions = buildCompliancePolicyConditions({}, 'org-1');
     expect(systemConditions.length).toBe(orgConditions.length);
   });
@@ -204,10 +207,13 @@ describe('buildCompliancePolicyConditions', () => {
     expect(upper.length).toBe(lower.length);
   });
 
-  it('omits orgId condition when no orgId is provided', () => {
+  it('fails closed when no orgId is provided (impossible predicate, not fail-open)', () => {
     const without = buildCompliancePolicyConditions({});
     const withOrg = buildCompliancePolicyConditions({}, 'org-1');
-    expect(without.length).toBe(withOrg.length - 1);
+    // Fail-closed: emit an impossible predicate rather than dropping the org
+    // clause, so a context-less call returns zero rows instead of every tenant's.
+    expect(without.length).toBe(withOrg.length);
+    expect(without.length).toBe(2);
   });
 
   it('adds isTemplate filter when explicitly set', () => {

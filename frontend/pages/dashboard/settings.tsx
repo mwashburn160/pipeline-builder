@@ -3,8 +3,12 @@ import { formatError } from '@/lib/constants';
 import { motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFormState } from '@/hooks/useFormState';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -14,7 +18,7 @@ import { decodeJwt } from '@/lib/jwt';
 
 /** User and organization settings page. Manages profile info, AI provider API keys, password changes, and account deletion. */
 export default function SettingsPage() {
-  const { user, isReady, isAdmin, refreshUser } = useAuthGuard();
+  const { user, isReady, refreshUser, can } = useAuthGuard();
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -111,25 +115,24 @@ export default function SettingsPage() {
           <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Profile Settings</h2>
 
           <form onSubmit={handleProfileSubmit} className="space-y-4">
-            {profile.error && <div className="alert-error"><p>{profile.error}</p></div>}
-            {profile.success && <div className="alert-success"><p>{profile.success}</p></div>}
+            <ErrorAlert message={profile.error} />
+            <SuccessAlert message={profile.success} />
 
             <div>
               <label htmlFor="username" className="label">Username</label>
-              <input id="username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="input" disabled={profile.loading} />
+              <Input id="username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} disabled={profile.loading} />
             </div>
 
             <div>
               <label htmlFor="email" className="label">Email</label>
-              <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input" disabled={profile.loading} />
+              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={profile.loading} />
             </div>
 
             <SessionStartedRow />
 
-            <button type="submit" disabled={profile.loading} className="btn btn-primary">
-              {profile.loading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
+            <Button type="submit" loading={profile.loading}>
               Save Changes
-            </button>
+            </Button>
           </form>
         </motion.div>
 
@@ -140,7 +143,7 @@ export default function SettingsPage() {
           transition={{ duration: 0.3, delay: 0.05 }}
           className="card mb-6"
         >
-          <AIProviderConfig isAdmin={isAdmin} />
+          <AIProviderConfig canEdit={can('org:settings')} />
         </motion.div>
 
         {/* Change Password */}
@@ -153,28 +156,27 @@ export default function SettingsPage() {
           <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Change Password</h2>
 
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
-            {password.error && <div className="alert-error"><p>{password.error}</p></div>}
-            {password.success && <div className="alert-success"><p>{password.success}</p></div>}
+            <ErrorAlert message={password.error} />
+            <SuccessAlert message={password.success} />
 
             <div>
               <label htmlFor="currentPassword" className="label">Current Password</label>
-              <input id="currentPassword" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="input" disabled={password.loading} />
+              <Input id="currentPassword" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={password.loading} />
             </div>
 
             <div>
               <label htmlFor="newPassword" className="label">New Password</label>
-              <input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="input" disabled={password.loading} />
+              <Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={password.loading} />
             </div>
 
             <div>
               <label htmlFor="confirmPassword" className="label">Confirm New Password</label>
-              <input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="input" disabled={password.loading} />
+              <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={password.loading} />
             </div>
 
-            <button type="submit" disabled={password.loading} className="btn btn-primary">
-              {password.loading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
+            <Button type="submit" loading={password.loading}>
               Change Password
-            </button>
+            </Button>
           </form>
         </motion.div>
 
@@ -192,9 +194,9 @@ export default function SettingsPage() {
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 Once you delete your account, there is no going back. Please be certain.
               </p>
-              <button onClick={() => setShowDeleteConfirm(true)} className="btn btn-danger">
+              <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
                 Delete Account
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="space-y-4">
@@ -202,13 +204,12 @@ export default function SettingsPage() {
                 Are you absolutely sure you want to delete your account? This action cannot be undone.
               </p>
               <div className="flex space-x-3">
-                <button onClick={handleDeleteAccount} disabled={deleteLoading} className="btn btn-danger">
-                  {deleteLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
+                <Button variant="danger" onClick={handleDeleteAccount} loading={deleteLoading}>
                   Yes, Delete My Account
-                </button>
-                <button onClick={() => setShowDeleteConfirm(false)} disabled={deleteLoading} className="btn btn-secondary">
+                </Button>
+                <Button variant="secondary" onClick={() => setShowDeleteConfirm(false)} disabled={deleteLoading}>
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           )}

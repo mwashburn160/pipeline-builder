@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { lt } from 'drizzle-orm';
 import type { ValidationResult } from '../engine/rule-engine.js';
 

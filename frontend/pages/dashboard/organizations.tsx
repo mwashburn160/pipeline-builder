@@ -9,6 +9,11 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -250,20 +255,12 @@ export default function OrganizationsPage() {
       subtitle="Manage organizations and access"
       titleExtra={<Badge color="red">System Admin</Badge>}
       actions={
-        <button
-          onClick={openCreate}
-          className="btn btn-primary"
-        >
+        <Button onClick={openCreate}>
           <Plus className="w-4 h-4 mr-1.5" /> New Organization
-        </button>
+        </Button>
       }
     >
-      {list.error && (
-        <div className="alert-error">
-          <p>{list.error}</p>
-          <button onClick={() => list.setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
-        </div>
-      )}
+      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       <div className="filter-bar flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[16rem]">
@@ -342,16 +339,13 @@ export default function OrganizationsPage() {
           title={createAsSubOrg ? 'Create Team' : 'Create Organization'}
           onClose={() => setCreateOpen(false)}
           footer={
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setCreateOpen(false)} className="btn btn-secondary" disabled={createForm.loading}>Cancel</button>
-              <button
-                onClick={handleCreateOrg}
-                disabled={createForm.loading || !newOrgName.trim() || (createAsSubOrg && !parentOrgId)}
-                className="btn btn-primary"
-              >
-                {createForm.loading ? 'Creating...' : (createAsSubOrg ? 'Create Team' : 'Create Organization')}
-              </button>
-            </div>
+            <ModalFooter
+              onCancel={() => setCreateOpen(false)}
+              onConfirm={handleCreateOrg}
+              confirmLabel={createAsSubOrg ? 'Create Team' : 'Create Organization'}
+              loading={createForm.loading}
+              confirmDisabled={!newOrgName.trim() || (createAsSubOrg && !parentOrgId)}
+            />
           }
         >
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
@@ -364,30 +358,30 @@ export default function OrganizationsPage() {
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
                 {createAsSubOrg ? 'Team name' : 'Organization name'}
               </label>
-              <input
+              <Input
                 type="text"
                 placeholder="e.g. acme-platform"
                 value={newOrgName}
                 onChange={(e) => setNewOrgName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleCreateOrg()}
-                className="input text-sm"
+                className="text-sm"
                 autoFocus
                 disabled={createForm.loading}
               />
             </div>
             <div className="space-y-1">
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Tier</label>
-              <select
+              <Select
                 value={newOrgTier}
                 onChange={(e) => setNewOrgTier(e.target.value as 'developer' | 'pro' | 'team' | 'enterprise')}
-                className="input text-sm"
+                className="text-sm"
                 disabled={createForm.loading}
               >
                 <option value="developer">Developer</option>
                 <option value="pro">Pro</option>
                 <option value="team">Team</option>
                 <option value="enterprise">Enterprise</option>
-              </select>
+              </Select>
             </div>
 
             {/* Team toggle — defaults on. When on, pick the parent. */}
@@ -408,17 +402,17 @@ export default function OrganizationsPage() {
             {createAsSubOrg && (
               <div className="space-y-1">
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Parent organization</label>
-                <select
+                <Select
                   value={parentOrgId}
                   onChange={(e) => setParentOrgId(e.target.value)}
-                  className="input text-sm"
+                  className="text-sm"
                   disabled={createForm.loading}
                 >
                   <option value="">Select a parent organization…</option>
                   {parentOptions.map((o) => (
                     <option key={o.id} value={o.id}>{o.name}</option>
                   ))}
-                </select>
+                </Select>
                 {parentOptions.length === 0 && (
                   <p className="text-xs text-amber-600 dark:text-amber-400">
                     No top-level organizations available to nest under — uncheck above to create one.

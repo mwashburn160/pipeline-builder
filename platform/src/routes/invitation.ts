@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { requirePermission } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   sendInvitation,
@@ -11,7 +12,7 @@ import {
   revokeInvitation,
   resendInvitation,
 } from '../controllers/index.js';
-import { requireAuth, requireRole } from '../middleware/index.js';
+import { requireAuth } from '../middleware/index.js';
 
 const router = Router();
 
@@ -37,15 +38,15 @@ router.post('/accept', requireAuth, acceptInvitation);
  */
 
 /** POST /invitation/send - Send new invitation (org admin only) */
-router.post('/send', requireAuth, requireRole('admin', 'owner'), sendInvitation);
+router.post('/send', requireAuth, requirePermission('invitations:manage'), sendInvitation);
 
 /** GET /invitation - List organization's invitations (org admin only) */
-router.get('/', requireAuth, requireRole('admin', 'owner'), listInvitations);
+router.get('/', requireAuth, requirePermission('invitations:manage'), listInvitations);
 
 /** DELETE /invitation/:invitationId - Revoke pending invitation (org admin only) */
-router.delete('/:invitationId', requireAuth, requireRole('admin', 'owner'), revokeInvitation);
+router.delete('/:invitationId', requireAuth, requirePermission('invitations:manage'), revokeInvitation);
 
 /** POST /invitation/:invitationId/resend - Resend invitation email (org admin only) */
-router.post('/:invitationId/resend', requireAuth, requireRole('admin', 'owner'), resendInvitation);
+router.post('/:invitationId/resend', requireAuth, requirePermission('invitations:manage'), resendInvitation);
 
 export default router;

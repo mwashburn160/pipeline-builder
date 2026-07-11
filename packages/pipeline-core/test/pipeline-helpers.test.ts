@@ -190,7 +190,7 @@ describe('createCodeBuildStep — env var precedence', () => {
   // for the CodeBuildStep branch.
   const basePlugin = (over: Record<string, unknown> = {}) => ({
     id: '00000000-0000-0000-0000-000000000000',
-    orgId: 'system',
+    orgId: '000000000000000000000001',
     name: 'java-corretto',
     version: '1.0.0',
     description: null,

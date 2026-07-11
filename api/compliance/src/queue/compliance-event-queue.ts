@@ -8,6 +8,7 @@ import { Queue, Worker } from 'bullmq';
 const logger = createLogger('compliance-event-queue');
 
 const QUEUE_NAME = 'compliance-events';
+const DLQ_NAME = `${QUEUE_NAME}-dlq`;
 const REDIS_HOST = process.env.REDIS_HOST || 'redis';
 const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379', 10);
 
@@ -23,7 +24,78 @@ const queue = new Queue<ComplianceEvent>(QUEUE_NAME, {
   },
 });
 
+/**
+ * Dead-letter payload: the original compliance event plus the forensic
+ * metadata (why it died, how many attempts it burned, when it landed here).
+ */
+export interface ComplianceEventDeadLetter extends ComplianceEvent {
+  failedReason: string;
+  attemptsMade: number;
+  failedAt: string;
+}
+
 let worker: Worker<ComplianceEvent> | null = null;
+let deadLetterQueue: Queue<ComplianceEventDeadLetter> | null = null;
+
+/**
+ * Dead-letter queue for compliance events that exhaust all retries.
+ *
+ * This is a governance path: a persistently-failing entity that just fell off
+ * the main queue after `attempts:3` would stop being re-validated and silently
+ * slip through non-compliant. Mirroring the plugin build queue's DLQ, the
+ * final-failure path parks the job here — `removeOnComplete/removeOnFail:false`
+ * keeps it forever for forensics and manual replay — rather than letting BullMQ
+ * evict it from the bounded (`removeOnFail:{count:500}`) failed set and vanish.
+ *
+ * Lazily constructed so importing this module (readiness probe, `enqueue`)
+ * doesn't open a second Redis connection until a job actually dead-letters.
+ */
+export function getDeadLetterQueue(): Queue<ComplianceEventDeadLetter> {
+  if (!deadLetterQueue) {
+    deadLetterQueue = new Queue<ComplianceEventDeadLetter>(DLQ_NAME, {
+      connection,
+      defaultJobOptions: {
+        removeOnComplete: false,
+        removeOnFail: false,
+      },
+    });
+  }
+  return deadLetterQueue;
+}
+
+/**
+ * Move an exhausted compliance-event job to the dead-letter queue. Called from
+ * the worker's `failed` handler only once retries are spent (final attempt), so
+ * a still-retrying job isn't dead-lettered prematurely. Best-effort: a DLQ
+ * `add` failure is logged, never thrown, so it can't crash the worker.
+ */
+async function moveToDeadLetter(job: { name?: string; id?: string; data: ComplianceEvent; attemptsMade: number }, reason: string): Promise<void> {
+  const event = job.data;
+  try {
+    await getDeadLetterQueue().add(`dlq:${job.name ?? event.eventType}`, {
+      ...event,
+      failedReason: reason,
+      attemptsMade: job.attemptsMade,
+      failedAt: new Date().toISOString(),
+    });
+    logger.error('Compliance event dead-lettered after exhausting retries', {
+      jobId: job.id,
+      eventType: event.eventType,
+      target: event.target,
+      entityId: event.entityId,
+      attemptsMade: job.attemptsMade,
+    });
+  } catch (dlqErr) {
+    // Last resort: even the DLQ add failed. Log loudly with the full event so
+    // the job is at least recoverable from logs rather than truly lost.
+    logger.error('Failed to dead-letter compliance event', {
+      jobId: job.id,
+      event,
+      reason,
+      error: dlqErr instanceof Error ? dlqErr.message : String(dlqErr),
+    });
+  }
+}
 
 /**
  * Enqueue a compliance event for async processing via BullMQ.
@@ -76,6 +148,14 @@ export function startComplianceWorker(
       error: err.message,
       attemptsMade: job?.attemptsMade,
     });
+    if (!job) return;
+    // Only dead-letter once the retry budget is spent; earlier failures still
+    // have BullMQ retries left. Keeping this a fire-and-forget void keeps the
+    // (sync) event listener from swallowing the promise while `moveToDeadLetter`
+    // owns its own error handling.
+    const maxAttempts = job.opts?.attempts ?? 1;
+    if (job.attemptsMade < maxAttempts) return;
+    void moveToDeadLetter(job, err.message);
   });
 
   worker.on('completed', (job) => {
@@ -103,5 +183,9 @@ export async function stopComplianceWorker(): Promise<void> {
     worker = null;
   }
   await queue.close();
+  if (deadLetterQueue) {
+    await deadLetterQueue.close();
+    deadLetterQueue = null;
+  }
   logger.info('Compliance event worker stopped');
 }

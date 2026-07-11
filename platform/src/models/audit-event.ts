@@ -42,6 +42,9 @@ export type AuditAction =
   // Superadmins is a privilege escalation, so these are surfaced distinctly.
   | 'org.group.member.add'
   | 'org.group.member.remove'
+  | 'org.group.create'
+  | 'org.group.update'
+  | 'org.group.delete'
   // Admin actions (controllers/user-admin.ts)
   | 'admin.user.delete'
   | 'admin.org.delete'
@@ -115,7 +118,7 @@ export type AuditAction =
  * Used by `routes/audit.ts` to validate `POST /audit/events` ingest
  * payloads at runtime (the union itself is erased at runtime).
  */
-export const ALL_AUDIT_ACTIONS = [
+const ALL_AUDIT_ACTIONS = [
   'user.register',
   'user.login',
   'user.login.failed',
@@ -134,6 +137,9 @@ export const ALL_AUDIT_ACTIONS = [
   'org.ownership.transfer',
   'org.group.member.add',
   'org.group.member.remove',
+  'org.group.create',
+  'org.group.update',
+  'org.group.delete',
   'admin.user.delete',
   'admin.org.delete',
   'admin.org.export',

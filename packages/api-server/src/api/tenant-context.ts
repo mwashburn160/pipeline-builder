@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { isSystemAdmin } from '@pipeline-builder/api-core';
-import { runWithTenantContext, type TenantContext } from '@pipeline-builder/pipeline-core';
+import { runWithTenantContext, type TenantContext } from '@pipeline-builder/pipeline-data';
 import type { Request, Response, NextFunction } from 'express';
 import { getContext } from './get-context.js';
 

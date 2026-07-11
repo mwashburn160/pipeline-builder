@@ -8,10 +8,9 @@
  * The cycle-safe, depth-capped traversal lives in api-core
  * ({@link resolveOrgLineageWith} / {@link isAncestorOrgWith} /
  * {@link expandOrgScopeWith}); this module only supplies the platform's own
- * Mongoose query callbacks. The platform `Organization` model has a Mixed `_id`,
- * so id lookups cast 24-hex strings to ObjectId via the shared {@link toOrgId} —
- * without it a `findById('<24hex>')` never matches and the upward walk silently
- * finds no parent.
+ * Mongoose query callbacks. The platform `Organization._id` is a plain ObjectId,
+ * so id lookups cast 24-hex strings to ObjectId via the shared {@link toOrgId}
+ * (a route param / stored string vs. an ObjectId both match the same doc).
  *
  * For a flat org (no `parentOrgId`, no teams nested under it) `resolveOrgLineage`
  * returns `{ rootOrgId: self }` and `expandOrgScope` returns `[self]`; once teams

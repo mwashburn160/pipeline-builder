@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { schema } from '@pipeline-builder/pipeline-core';
+import { schema } from '@pipeline-builder/pipeline-data';
 import { alertDestinationService } from './alert-destination-service.js';
 import { getNotificationChannel, type NotificationMessage, type Severity } from './notification-channels.js';
 import { incCounter } from '../observability/metrics.js';

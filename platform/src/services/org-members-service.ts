@@ -5,7 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
-import { seatCapacityAvailable } from '../helpers/seats.js';
+import { seatCapacityAvailable, seatCapacityStillWithinCap } from '../helpers/seats.js';
 import { Organization, User, UserOrganization } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -163,6 +163,15 @@ class OrgMembersService {
         [{ userId: user._id, organizationId: toOrgId(orgId), role: body.role || 'member' }],
         { session },
       );
+
+      // G5: re-validate the pooled cap AFTER the write, inside the same tx, so a
+      // concurrent add/invite that slipped in between our pre-check and this
+      // insert can't push the account over its seats limit unnoticed. Only when
+      // this add actually consumed a seat (matches the pre-check's guard so we
+      // don't block re-adding an already-seated human when the cap is exceeded).
+      if (!alreadyHasSeat && !(await seatCapacityStillWithinCap(orgId, session))) {
+        throw new Error(OM_SEAT_LIMIT);
+      }
     });
   }
 
@@ -179,7 +188,7 @@ class OrgMembersService {
     const orgs = await Organization.find({ _id: { $in: teamIds.map(toOrgId) } })
       .select('_id name parentOrgId').lean();
     const teams: TeamSummary[] = orgs.map((o) => {
-      const parent = (o as { parentOrgId?: unknown }).parentOrgId;
+      const parent = o.parentOrgId;
       return { orgId: String(o._id), orgName: o.name, ...(parent ? { parentOrgId: String(parent) } : {}) };
     });
     teams.sort((a, b) => a.orgName.localeCompare(b.orgName));
@@ -220,8 +229,9 @@ class OrgMembersService {
     contextOrgId: string,
     body: { userId?: string; email?: string; orgIds: string[]; role?: OrgMemberRole },
   ): Promise<{ results: BulkAddResult[] }> {
-    const subtree = new Set(await expandOrgScope(contextOrgId));
-    const outOfScope = body.orgIds.filter((id) => !subtree.has(id));
+    const subtree = await expandOrgScope(contextOrgId);
+    const subtreeSet = new Set(subtree);
+    const outOfScope = body.orgIds.filter((id) => !subtreeSet.has(id));
     if (outOfScope.length > 0) throw new Error(OM_TARGETS_OUT_OF_SCOPE);
 
     return withMongoTransaction(async (session) => {
@@ -233,7 +243,7 @@ class OrgMembersService {
       // Seats pool at the account ROOT and count DISTINCT humans, so adding
       // this one user to N teams consumes at most ONE seat. If they don't
       // already hold a seat in the account, check pooled capacity once up front.
-      const subtreeIds = (await expandOrgScope(contextOrgId)).map(toOrgId);
+      const subtreeIds = subtree.map(toOrgId);
       const alreadyHasSeat = await UserOrganization.exists({
         userId: user._id, organizationId: { $in: subtreeIds }, isActive: true,
       }).session(session);
@@ -310,24 +320,29 @@ class OrgMembersService {
    * needs to follow the DB.
    */
   async updateRole(orgId: string, userId: string, role: OrgMemberRole) {
-    const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) });
-    if (!membership) throw new Error(OM_NOT_A_MEMBER);
-    if (membership.role === 'owner') throw new Error(OM_CANNOT_CHANGE_OWNER);
-    if (membership.role === role) {
-      // No-op when caller passes the existing role — don't churn tokens.
-      const user = await User.findById(userId).select('_id username email').lean();
+    return withMongoTransaction(async (session) => {
+      const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) }).session(session);
+      if (!membership) throw new Error(OM_NOT_A_MEMBER);
+      if (membership.role === 'owner') throw new Error(OM_CANNOT_CHANGE_OWNER);
+      if (membership.role === role) {
+        // No-op when caller passes the existing role — don't churn tokens.
+        const user = await User.findById(userId).select('_id username email').session(session).lean();
+        return { user, role: membership.role };
+      }
+
+      membership.role = role;
+      await membership.save({ session });
+      // Role save + tokenVersion bump must be atomic — a crash between them
+      // would leave the DB role changed but stale role claims trusted in JWTs.
+      await User.updateOne(
+        { _id: userId },
+        { $inc: { tokenVersion: 1 } },
+        { session },
+      );
+
+      const user = await User.findById(userId).select('_id username email').session(session).lean();
       return { user, role: membership.role };
-    }
-
-    membership.role = role;
-    await membership.save();
-    await User.updateOne(
-      { _id: userId },
-      { $inc: { tokenVersion: 1 } },
-    );
-
-    const user = await User.findById(userId).select('_id username email').lean();
-    return { user, role: membership.role };
+    });
   }
 
   /**

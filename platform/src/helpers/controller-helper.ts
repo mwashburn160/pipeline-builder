@@ -228,6 +228,20 @@ export async function canAdministerOrg(req: Request, targetOrgId: string): Promi
 }
 
 /**
+ * Require effective ADMIN authority over `targetOrgId` (via {@link canAdministerOrg},
+ * including the org → team hierarchy). Sends 403 and returns false on failure;
+ * returns true otherwise. Mirrors {@link requireSystemAdmin} for the per-org case
+ * so controllers can short-circuit with `if (!(await requireOrgAdmin(req, res, id))) return;`.
+ */
+export async function requireOrgAdmin(req: Request, res: Response, targetOrgId: string): Promise<boolean> {
+  if (!(await canAdministerOrg(req, targetOrgId))) {
+    sendError(res, 403, 'Forbidden: Admin access required for this organization');
+    return false;
+  }
+  return true;
+}
+
+/**
  * Effective READ authorization over a target org: a platform super admin, any
  * member of that exact org (a member can view their own org — current
  * behavior), or an admin/owner of an ancestor org (a parent-org admin can view

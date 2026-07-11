@@ -10,5 +10,11 @@ data/
 # Environment file with secrets
 .env
 
+# MongoDB replica-set keyfile — generated per-deploy by setup.sh (openssl rand).
+# Must NOT be committed; rotate per environment.
+# NOTE: a copy is still tracked in git from before this rule; it is left in
+# place so existing deploys don't break, but should be rotated + `git rm --cached`d.
+mongodb-keyfile
+
 # macOS
 .DS_Store

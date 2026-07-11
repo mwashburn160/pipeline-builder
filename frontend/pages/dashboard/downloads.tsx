@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { LinkButton } from '@/components/ui/LinkButton';
 
 function CopyInline({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -177,20 +178,14 @@ export default function DownloadsPage() {
           transition={{ duration: 0.3, delay: 0.2 }}
           className="flex flex-wrap gap-3"
         >
-          <Link
-            href="/dashboard/help"
-            className="btn btn-secondary"
-          >
+          <LinkButton href="/dashboard/help" variant="secondary">
             <ExternalLink className="w-4 h-4" />
             CLI Reference
-          </Link>
-          <Link
-            href="/dashboard/tokens"
-            className="btn btn-secondary"
-          >
+          </LinkButton>
+          <LinkButton href="/dashboard/tokens" variant="secondary">
             <ExternalLink className="w-4 h-4" />
             API Tokens
-          </Link>
+          </LinkButton>
         </motion.div>
       </div>
     </DashboardLayout>

@@ -49,7 +49,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
     // pipeline-core's barrel imports this (createServiceClient); link-time stub.
     InternalHttpClient: class {},
-    SYSTEM_ORG_ID: 'system',
+    SYSTEM_ORG_ID: '000000000000000000000001',
     // pipeline-core's billing-config imports QUOTA_TIERS at module load (derives
     // marketing copy from each tier's limits), so the transitively-loaded graph
     // needs these tier exports or ESM linking against the mock throws.

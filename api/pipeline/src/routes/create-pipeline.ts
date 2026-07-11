@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, reserveQuota, decrementQuota, sendBadRequest, sendError, sendInternalError, sendQuotaExceeded, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
+import { extractDbError, ErrorCode, createLogger, resolveAccessModifier, errorMessage, reserveQuota, decrementQuota, getServiceAuthHeader, requirePermission, sendBadRequest, sendError, sendInternalError, sendQuotaExceeded, sendSuccess, validateBody, PipelineCreateSchema, createComplianceClient } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { AccessModifier, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
@@ -30,6 +30,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
 
   router.post( '/',
     ...createAuthenticatedWithOrgRoute(),
+    requirePermission('pipelines:write'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       // Validate request body with Zod
       const validation = validateBody(req, PipelineCreateSchema);
@@ -46,33 +47,42 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }
 
+      const accessModifier = resolveAccessModifier(req, body.accessModifier);
+
+      // Normalize project and organization names and validate them BEFORE
+      // reserving quota. Reserving first and then returning on an empty/invalid
+      // name (as this used to) burned a `pipelines` slot per bad request — the
+      // early return skipped the `decrementQuota` rollback. Mirror
+      // bulk-pipeline.ts, which validates before it reserves.
+      const project = replaceNonAlphanumeric(body.project, '_').toLowerCase();
+      const organization = replaceNonAlphanumeric(body.organization, '_').toLowerCase();
+
+      if (!project.replace(/_/g, '') || !organization.replace(/_/g, '')) {
+        return sendBadRequest(res, 'Project and organization must contain alphanumeric characters', ErrorCode.VALIDATION_ERROR);
+      }
+
+      // Default pipelineName if not provided
+      const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
+
+      // Mint a service token for the downstream S2S calls (quota, compliance)
+      // rather than forwarding the end-user bearer. The caller's token may carry
+      // only end-user scopes that service-to-service authorization rejects,
+      // which would fail legitimate creates. Mirrors upload-plugin.ts.
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
+
       // Reserve the quota slot atomically before any work runs. The quota
       // service does an atomic UPSERT/UPDATE (Postgres `INSERT ... ON CONFLICT
       // DO UPDATE` with a `WHERE used < limit` guard), so two concurrent
       // requests at the limit can't both pass. If the downstream action fails
       // (compliance block, DB save error), the slot is given back via
       // `decrementQuota` in the catch block.
-      const authHeader = req.headers.authorization || '';
-      const reservation = await reserveQuota(quotaService, orgId, 'pipelines', authHeader);
+      const reservation = await reserveQuota(quotaService, orgId, 'pipelines', serviceAuth);
       if (reservation.exceeded) {
         ctx.log('WARN', 'Pipeline quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
         return sendQuotaExceeded(res, 'pipelines', reservation.quota, reservation.quota.resetAt);
       }
 
       try {
-        const accessModifier = resolveAccessModifier(req, body.accessModifier);
-
-        // Normalize project and organization names
-        const project = replaceNonAlphanumeric(body.project, '_').toLowerCase();
-        const organization = replaceNonAlphanumeric(body.organization, '_').toLowerCase();
-
-        if (!project.replace(/_/g, '') || !organization.replace(/_/g, '')) {
-          return sendBadRequest(res, 'Project and organization must contain alphanumeric characters', ErrorCode.VALIDATION_ERROR);
-        }
-
-        // Default pipelineName if not provided
-        const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
-
         ctx.log('INFO', 'Pipeline creation request received', { project, organization });
 
         // -- Compliance check (fail-closed) -----------------------------------
@@ -83,7 +93,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
             pipelineName,
             props: body.props,
             accessModifier,
-          }, req.headers.authorization || '', undefined, pipelineName, 'create');
+          }, serviceAuth, undefined, pipelineName, 'create');
 
           if (complianceResult.blocked) {
             ctx.log('WARN', 'Pipeline creation blocked by compliance', {
@@ -91,7 +101,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
             });
             // Roll back the quota slot we reserved above — the pipeline was
             // never created so the org shouldn't be charged for it.
-            decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+            decrementQuota(quotaService, orgId, 'pipelines', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
             return sendError(res, 403, 'Pipeline creation blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
               violations: complianceResult.violations,
             });
@@ -100,7 +110,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
           ctx.log('ERROR', 'Compliance service unavailable', {
             error: errorMessage(err),
           });
-          decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          decrementQuota(quotaService, orgId, 'pipelines', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           return sendError(res, 503, 'Compliance service unavailable — pipeline creation rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
         }
 
@@ -150,7 +160,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
 
         // Roll back the quota slot — the action failed so the org shouldn't
         // be charged for it.
-        decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+        decrementQuota(quotaService, orgId, 'pipelines', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         return sendInternalError(res, 'Failed to save pipeline configuration', { details: message, ...dbDetails });
       }
     }),

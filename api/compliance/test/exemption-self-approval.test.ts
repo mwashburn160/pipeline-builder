@@ -43,7 +43,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   const insertChain = { values: () => insertChain, returning: () => Promise.resolve([]) };
   const tx = {
     select: () => ({ from: () => ({ where: () => Promise.resolve(selectChainStub.fromRows) }) }),
@@ -88,7 +88,7 @@ function getReviewHandler() {
     (l) => l.route?.path === '/:id/review' && l.route?.methods?.put,
   );
   if (!layer) throw new Error('PUT /:id/review not registered');
-  // The route may carry guard middleware (e.g. requireAdmin) before the
+  // The route may carry guard middleware (e.g. requirePermission) before the
   // business handler; the handler under test is always the LAST in the stack.
   const stack = layer.route.stack as any[];
   return stack[stack.length - 1].handle;

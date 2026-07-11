@@ -99,7 +99,7 @@ export interface PaginatedResult<T> {
  *   protected buildConditions(filter, orgId) { return buildPipelineConditions(filter, orgId); }
  *   protected getSortColumn(sortBy) { return sortColumnMap[sortBy] ?? null; }
  *   protected getProjectColumn() { return schema.pipeline.project; }
- *   protected getOrgColumn() { return schema.pipeline.organization; }
+ *   protected getOrgColumn() { return schema.pipeline.orgId; }
  * }
  * ```
  */
@@ -125,13 +125,27 @@ export abstract class CrudService<
   /** Get the project column for setDefault scoping (null if entity has no project scope) */
   protected abstract getProjectColumn(): AnyColumn | null;
 
-  /** Get the organization column for setDefault scoping */
+  /**
+   * Get the tenant org-id column. Used both to scope `setDefault` and to pin
+   * every write (update/delete/bulkDelete) to the caller's own org — so it MUST
+   * be the tenant `orgId` column, not a display/name column.
+   */
   protected abstract getOrgColumn(): AnyColumn;
 
   /** Get the unique constraint columns for onConflictDoUpdate */
   protected abstract get conflictTarget(): AnyColumn[];
 
   private readonly _logger = createLogger('crud-service');
+
+  constructor() {
+    // Fail fast if a subclass doesn't expose a tenant org column. The write
+    // paths (writeConditions / bulkDelete) pin mutations to the caller's own
+    // org through it; a missing column would silently drop that guard — a
+    // cross-tenant fail-open — so assert its presence up front.
+    if (this.getOrgColumn() == null) {
+      throw new Error(`${this.constructor.name}: getOrgColumn() must return the tenant org column`);
+    }
+  }
 
   /** Build conditions for a single entity by ID.
    *  `parentOrgId` widens visibility to a parent org's public rows (org → team
@@ -153,8 +167,10 @@ export abstract class CrudService<
    */
   private writeConditions(id: string, orgId?: string): SQL[] {
     const conditions = this.idConditions(id, orgId);
-    const orgCol = (this.schema as any).orgId as AnyColumn | undefined;
-    if (orgId && orgCol) conditions.push(eq(orgCol, orgId));
+    // Pin the mutation to the caller's own org via the tenant column
+    // (getOrgColumn, asserted non-null in the constructor) — consistent with
+    // setDefault and without the old silent fail-open when the property was absent.
+    if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
     return conditions;
   }
 
@@ -182,6 +198,18 @@ export abstract class CrudService<
    * run under sysadmin context — the access-control WHERE clause (own + parent +
    * system public, built server-side from a trusted JWT claim) is then the
    * authoritative tenancy gate. Without `parentOrgId` it stays RLS-scoped.
+   *
+   * INVARIANT (why the sysadmin bypass is safe): the WHERE clause is always
+   * server-built by `buildConditions(filter, orgId, parentOrgId)` from values
+   * derived from the validated JWT (`orgId` = active org, `parentOrgId` = the
+   * active org's parent). None of them is a raw user-supplied predicate, so the
+   * bypass only ever widens the read to the caller's own subtree + system public
+   * rows — it can NOT be steered at an arbitrary org. NOTE: this does remove the
+   * RLS backstop for the widened read; a single-GUC `app.org_id` can't express
+   * the "own OR parent OR system" set the policy would need, so replacing the
+   * bypass would require a tenancy-layer change (e.g. a multi-org RLS policy).
+   * Deferred deliberately — do not swap this for a blanket bypass without
+   * re-checking the WHERE is still fully server-built.
    */
   private runRead<T>(parentOrgId: string | undefined, fn: () => Promise<T>): Promise<T> {
     return parentOrgId ? runWithTenantContext({ isSuperAdmin: true }, fn) : fn();
@@ -308,14 +336,19 @@ export abstract class CrudService<
    *
    * @param filter - Filter criteria
    * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
+   * @param parentOrgId - Org → team hierarchy: widen the count to the parent org's
+   *   public rows. MUST mirror `find`/`findPaginated`'s widening (same
+   *   `buildConditions` args + sysadmin-scoped read via `runRead`) so a paged
+   *   list's `total` matches the rows a widened `find()` returns — otherwise the
+   *   count omits the parent's rows and reports a narrower total than the data set.
    */
-  async count(filter: Partial<TFilter>, orgId?: string): Promise<number> {
-    const conditions = this.buildConditions(filter, orgId);
+  async count(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): Promise<number> {
+    const conditions = this.buildConditions(filter, orgId, parentOrgId);
 
-    const [result] = await withTenantTx(async (tx) => tx
+    const [result] = await this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
       .select({ count: sql<number>`count(*)::int` })
       .from(this.schema)
-      .where(and(...conditions)).then(r => drizzleCount(r)));
+      .where(and(...conditions)).then(r => drizzleCount(r))));
 
     return result?.count || 0;
   }
@@ -647,12 +680,13 @@ export abstract class CrudService<
     // Owner-scope the bulk soft-delete: buildConditions also matches system/other
     // -org PUBLIC rows, so without the strict orgId pin a tenant could delete
     // shared records by id. (See writeConditions.)
-    const orgCol = (this.schema as any).orgId as AnyColumn | undefined;
     const accessCol = (this.schema as any).accessModifier as AnyColumn | undefined;
     const conditions = [
       inArray((this.schema as any).id, ids),
       ...this.buildConditions({} as Partial<TFilter>, orgId),
-      ...(orgId && orgCol ? [eq(orgCol, orgId)] : []),
+      // Tenant column (getOrgColumn, asserted non-null) — consistent with
+      // writeConditions; no silent fail-open when the property is absent.
+      ...(orgId ? [eq(this.getOrgColumn(), orgId)] : []),
       ...(restrictToPrivate && accessCol ? [eq(accessCol, 'private')] : []),
     ];
 

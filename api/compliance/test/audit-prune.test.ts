@@ -21,7 +21,7 @@ const ltMock = jest.fn((col: unknown, val: unknown) => ({ __op: 'lt', col, val }
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: {
     complianceAuditLog: { id: 'col_id', createdAt: 'col_created_at' },
   },

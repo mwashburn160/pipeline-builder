@@ -2,16 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { entityEvents, createCacheService } from '@pipeline-builder/api-core';
-import {
-  CoreConstants,
-  CrudService,
-  buildPipelineConditions,
-  getTenantContext,
-  schema,
-  withTenantTx,
-  type PipelineFilter,
-} from '@pipeline-builder/pipeline-core';
-import { SQL, eq, and, sql } from 'drizzle-orm';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
+import { CrudService, buildPipelineConditions, getTenantContext, schema, withTenantTx, type PipelineFilter } from '@pipeline-builder/pipeline-data';
+import { SQL, eq, and, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
@@ -80,6 +73,23 @@ export class PipelineService extends CrudService<
     return pipelineCache.getOrSet(cacheKey, () => super.findById(id, orgId));
   }
 
+  /**
+   * Batched sibling of {@link findById}: fetch many pipelines by id in a single
+   * query with the same access-control scoping. Bulk routes use this instead of
+   * `Promise.all(ids.map(findById))` (an N+1 round-trip). Not cached — a bulk
+   * read would thrash the per-id cache; returns only the rows visible to `orgId`
+   * (own org + public), soft-deleted rows excluded, matching findById.
+   */
+  async findByIds(ids: string[], orgId?: string): Promise<Pipeline[]> {
+    if (ids.length === 0) return [];
+    const conditions = this.buildConditions({} as Partial<PipelineFilter>, orgId);
+    return withTenantTx(async (tx) => tx
+      .select()
+      .from(schema.pipeline)
+      .where(and(inArray(schema.pipeline.id, ids), ...conditions))
+      .then((rows) => rows as unknown as Pipeline[]));
+  }
+
   // -- Lifecycle hooks — emit events + invalidate cache ---------------------
 
   private async invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Pipeline, userId: string): Promise<void> {
@@ -103,6 +113,27 @@ export class PipelineService extends CrudService<
 
   protected async onAfterDelete(id: string, entity: Pipeline, userId: string): Promise<void> {
     await this.invalidateAndEmit('deleted', id, entity, userId);
+  }
+
+  /**
+   * Build the `ON CONFLICT ... DO UPDATE` set for the default-upsert. Spreading
+   * the whole insert `data` here would overwrite immutable columns on the update
+   * branch — `createdBy`/`createdAt` would be reset to the current caller/time
+   * (rewriting provenance on every re-create) and `id` must never change — so
+   * strip those and write only mutable columns plus the fresh default/active
+   * flags, the undelete, and the update stamps.
+   */
+  private buildDefaultConflictSet(data: PipelineInsert, userId: string): Record<string, unknown> {
+    const { id: _id, createdAt: _createdAt, createdBy: _createdBy, ...mutable } = data as Record<string, unknown>;
+    return {
+      ...mutable,
+      isDefault: true,
+      isActive: true,
+      deletedAt: null,
+      deletedBy: null,
+      updatedAt: new Date(),
+      updatedBy: userId,
+    };
   }
 
   /** Atomically create a pipeline as the default for a project (clears existing defaults). */
@@ -151,15 +182,7 @@ export class PipelineService extends CrudService<
         .values({ ...data, isDefault: true, isActive: true })
         .onConflictDoUpdate({
           target: [schema.pipeline.project, schema.pipeline.organization, schema.pipeline.orgId],
-          set: {
-            ...data,
-            isDefault: true,
-            isActive: true,
-            deletedAt: null,
-            deletedBy: null,
-            updatedAt: new Date(),
-            updatedBy: userId,
-          } as any,
+          set: this.buildDefaultConflictSet(data, userId) as any,
         })
         .returning();
 
@@ -224,15 +247,7 @@ export class PipelineService extends CrudService<
         .values({ ...data, isDefault: true, isActive: true })
         .onConflictDoUpdate({
           target: [schema.pipeline.project, schema.pipeline.organization, schema.pipeline.orgId],
-          set: {
-            ...data,
-            isDefault: true,
-            isActive: true,
-            deletedAt: null,
-            deletedBy: null,
-            updatedAt: new Date(),
-            updatedBy: userId,
-          } as any,
+          set: this.buildDefaultConflictSet(data, userId) as any,
         })
         .returning(returningCols as any);
 

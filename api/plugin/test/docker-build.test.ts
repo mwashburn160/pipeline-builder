@@ -129,7 +129,7 @@ describe('buildAndPush', () => {
   });
 
   it('namespaces system org builds under system/<name>:<version>', async () => {
-    const result = await buildAndPush(makeRequest({ orgId: 'system' }));
+    const result = await buildAndPush(makeRequest({ orgId: '000000000000000000000001' }));
     expect(result.fullImage).toBe('registry:5000/system/test-plugin:1.0.0');
   });
 

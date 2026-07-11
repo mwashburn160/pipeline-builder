@@ -290,7 +290,24 @@ export async function syncEntitlements(
     syncTierToQuotaService(orgId, tier, authHeader, subscriptionId, tracked),
     pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId),
   ]);
-  return quotaOk && seatOk;
+
+  const ok = quotaOk && seatOk;
+  if (!ok) {
+    // Every caller currently fires-and-forgets this result — the user's
+    // subscription mutation succeeds regardless (by design). Centralise the
+    // failure observability here so a swallowed return can't hide entitlement
+    // drift: log at error level AND emit a distinct, aggregatable metric so SRE
+    // can alert + reconcile. The failing leg(s) also wrote a `billing_events`
+    // audit row (reason quota_sync_failed / seat_sync_failed) inside
+    // syncTierToQuotaService / pushSeatLimitToPlatform, so the drift is both
+    // metered and auditable without failing the request.
+    const leg = !quotaOk && !seatOk ? 'both' : !quotaOk ? 'quota' : 'seat';
+    logger.error('Entitlement sync incomplete — local billing state may have drifted from quota/platform', {
+      orgId, tier, subscriptionId, quotaOk, seatOk, leg,
+    });
+    incCounter('billing_quota_sync_failed_total', { leg });
+  }
+  return ok;
 }
 
 /**

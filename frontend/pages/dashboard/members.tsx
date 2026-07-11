@@ -11,15 +11,26 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ActionBar } from '@/components/ui/ActionBar';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { AddMemberModal } from '@/components/members/AddMemberModal';
+import { PasswordResetModal } from '@/components/members/PasswordResetModal';
+import { CreateOrgModal } from '@/components/members/CreateOrgModal';
+import { ManageTeamsModal } from '@/components/members/ManageTeamsModal';
+import { AddToTeamModal } from '@/components/members/AddToTeamModal';
 import api from '@/lib/api';
 import type { OrganizationMember, MemberTeam } from '@/types';
 
 export default function MembersPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'members:manage' });
+  // Capability to manage members — role admins/owners hold it via their bundle,
+  // and so do custom-group members granted `members:manage`. Gates the page's
+  // data fetches + controls (the page itself is guarded on this permission).
+  const canManageMembers = can('members:manage');
   const { refreshUser, organizations, switchOrganization } = useAuth();
   const toast = useToast();
   const router = useRouter();
@@ -66,26 +77,26 @@ export default function MembersPage() {
   useEffect(() => {
     // Only root orgs can parent teams — skip the lookup when the active org is
     // itself a team (the banner shows the "is a team" branch regardless).
-    if (!user?.organizationId || !isAdmin || !activeOrgIsRoot) return;
+    if (!user?.organizationId || !canManageMembers || !activeOrgIsRoot) return;
     let cancelled = false;
     void api.getOrganizationTeams(user.organizationId)
       .then((res) => { if (!cancelled) setTeams(res.data?.teams ?? []); })
       .catch(() => { /* best-effort */ });
     return () => { cancelled = true; };
-  }, [user?.organizationId, isAdmin, activeOrgIsRoot, teamCountTick]);
+  }, [user?.organizationId, canManageMembers, activeOrgIsRoot, teamCountTick]);
 
   // Pooled seat usage for the whole account (distinct members + pending invites
   // across the subtree vs the root's seat limit). Endpoint resolves to root, so
   // this is account-wide even when viewing a team. Best-effort; admins only.
   const [seatUsage, setSeatUsage] = useState<{ limit: number; used: number } | null>(null);
   useEffect(() => {
-    if (!user?.organizationId || !isAdmin) return;
+    if (!user?.organizationId || !canManageMembers) return;
     let cancelled = false;
     void api.getOrganizationSeatUsage(user.organizationId)
       .then((res) => { if (!cancelled && res.data) setSeatUsage(res.data); })
       .catch(() => { /* best-effort — seat pill just hides */ });
     return () => { cancelled = true; };
-  }, [user?.organizationId, isAdmin, members.length]);
+  }, [user?.organizationId, canManageMembers, members.length]);
 
   // Switch the active org context to a team so its members can be managed
   // directly (mirrors the org switcher). The page re-renders in the new scope.
@@ -221,8 +232,8 @@ export default function MembersPage() {
   }, [orgId]);
 
   useEffect(() => {
-    if (isAuthenticated && isAdmin && orgId) fetchMembers();
-  }, [isAuthenticated, isAdmin, orgId, fetchMembers]);
+    if (isAuthenticated && canManageMembers && orgId) fetchMembers();
+  }, [isAuthenticated, canManageMembers, orgId, fetchMembers]);
 
   const filteredMembers = useMemo(() => {
     let result = members;
@@ -391,51 +402,47 @@ export default function MembersPage() {
         return (
           <div className="flex items-center gap-1 justify-end">
             {canManageTeams && (
-              <button
+              <IconButton
+                tone="indigo"
                 onClick={() => openManageTeams(m)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:text-indigo-400 dark:hover:bg-indigo-900/20 transition-colors"
                 title="Manage team memberships"
                 aria-label={`Manage team memberships for ${m.username}`}
               >
                 <Network className="w-4 h-4" />
-              </button>
+              </IconButton>
             )}
-            <button
+            <IconButton
+              tone="primary"
               onClick={() => setRoleChangeTarget(m)}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-900/20 transition-colors"
               title={m.role === 'admin' ? 'Demote to user' : 'Promote to admin'}
               aria-label={`${m.role === 'admin' ? 'Demote' : 'Promote'} ${m.username}`}
             >
               {m.role === 'admin' ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
-            </button>
-            <button
+            </IconButton>
+            <IconButton
+              tone="warn"
               onClick={() => { setPasswordTarget(m); setNewPassword(''); passwordForm.reset(); }}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:text-amber-400 dark:hover:bg-amber-900/20 transition-colors"
               title="Reset password"
               aria-label={`Reset password for ${m.username}`}
             >
               <KeyRound className="w-4 h-4" />
-            </button>
-            <button
+            </IconButton>
+            <IconButton
+              tone={m.isActive ? 'orange' : 'success'}
               onClick={() => handleToggleActive(m)}
-              className={`p-1.5 rounded-lg transition-colors ${
-                m.isActive
-                  ? 'text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:text-orange-400 dark:hover:bg-orange-900/20'
-                  : 'text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:text-green-400 dark:hover:bg-green-900/20'
-              }`}
               title={m.isActive ? 'Deactivate member' : 'Reactivate member'}
               aria-label={`${m.isActive ? 'Deactivate' : 'Reactivate'} ${m.username}`}
             >
               {m.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-            </button>
-            <button
+            </IconButton>
+            <IconButton
+              tone="danger"
               onClick={() => removeMember.open(m)}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/20 transition-colors"
               title="Remove from organization"
               aria-label={`Remove ${m.username} from the organization`}
             >
               <UserMinus className="w-4 h-4" />
-            </button>
+            </IconButton>
           </div>
         );
       },
@@ -456,18 +463,19 @@ export default function MembersPage() {
               a system admin from the Organizations page. Disabled (not hidden) on
               ineligible tiers so the feature is discoverable as an upsell. */}
           {activeOrgIsRoot && (
-            <button
+            <Button
+              variant="secondary"
               onClick={() => { setNewOrgName(''); createOrgForm.reset(); setCreateOrgOpen(true); }}
               disabled={!activeOrgCanHaveTeams}
               title={activeOrgCanHaveTeams ? undefined : 'Teams require a Team or Enterprise plan — upgrade this organization to create teams'}
-              className="btn btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+              className="disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Building2 className="w-4 h-4 mr-1.5" /> Create Team
-            </button>
+            </Button>
           )}
-          <button onClick={openAddModal} className="btn btn-primary">
+          <Button onClick={openAddModal}>
             <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
-          </button>
+          </Button>
         </div>
       }
     >
@@ -533,12 +541,7 @@ export default function MembersPage() {
         </div>
       )}
 
-      {error && (
-        <div className="alert-error">
-          <p>{error}</p>
-          <button onClick={() => setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
-        </div>
-      )}
+      <ErrorAlert message={error} onDismiss={() => setError(null)} />
 
       <div className="filter-bar">
         <ActionBar
@@ -568,64 +571,30 @@ export default function MembersPage() {
           title: 'No team members found',
           description: searchQuery ? 'Try adjusting your search.' : 'Add members to your organization to get started.',
           action: searchQuery ? undefined : (
-            <button onClick={openAddModal} className="btn btn-primary">
+            <Button onClick={openAddModal}>
               <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
-            </button>
+            </Button>
           ),
         }}
         defaultSortColumn="username"
       />
 
       {/* Add member modal */}
-      {addModalOpen && (
-        <Modal
-          title="Add Member"
-          onClose={() => setAddModalOpen(false)}
-          footer={
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setAddModalOpen(false)} className="btn btn-secondary">Cancel</button>
-              <button onClick={handleAddMember} disabled={addForm.loading || !addEmail.trim()} className="btn btn-primary">
-                {addForm.loading ? 'Adding...' : 'Add Member'}
-              </button>
-            </div>
-          }
-        >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Enter the email address of an existing user to add to your organization.</p>
-          <input
-            type="email"
-            placeholder="user@example.com"
-            value={addEmail}
-            onChange={(e) => setAddEmail(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddMember()}
-            className="input text-sm"
-            autoFocus
-          />
-          {addTeamRoster.length > 0 && (
-            <div className="mt-4">
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">Also add to teams (optional)</p>
-              <div className="space-y-0.5 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded p-1">
-                {addTeamRoster.map((t) => (
-                  <label key={t.orgId} className="flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={addSelectedTeams.has(t.orgId)}
-                      onChange={() => setAddSelectedTeams(prev => {
-                        const next = new Set(prev);
-                        if (next.has(t.orgId)) next.delete(t.orgId); else next.add(t.orgId);
-                        return next;
-                      })}
-                      disabled={addForm.loading}
-                      className="rounded border-gray-300"
-                    />
-                    <span className="truncate text-gray-900 dark:text-gray-100">{t.orgName}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-          {addForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{addForm.error}</p>}
-        </Modal>
-      )}
+      <AddMemberModal
+        open={addModalOpen}
+        email={addEmail}
+        onEmailChange={setAddEmail}
+        form={addForm}
+        teamRoster={addTeamRoster}
+        selectedTeams={addSelectedTeams}
+        onToggleTeam={(teamId) => setAddSelectedTeams(prev => {
+          const next = new Set(prev);
+          if (next.has(teamId)) next.delete(teamId); else next.add(teamId);
+          return next;
+        })}
+        onSubmit={handleAddMember}
+        onClose={() => setAddModalOpen(false)}
+      />
 
       {/* Role change confirmation */}
       {roleChangeTarget && (
@@ -639,168 +608,48 @@ export default function MembersPage() {
       )}
 
       {/* Password reset modal */}
-      {passwordTarget && (
-        <Modal
-          title={`Reset Password: ${passwordTarget.username}`}
-          onClose={() => setPasswordTarget(null)}
-          footer={
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setPasswordTarget(null)} className="btn btn-secondary" disabled={passwordForm.loading}>Cancel</button>
-              <button onClick={handlePasswordReset} disabled={passwordForm.loading || !newPassword} className="btn btn-primary">
-                {passwordForm.loading ? 'Updating...' : 'Reset Password'}
-              </button>
-            </div>
-          }
-        >
-          {passwordForm.error && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{passwordForm.error}</p>}
-          {passwordForm.success && <p className="text-sm text-green-600 dark:text-green-400 mb-3">{passwordForm.success}</p>}
-          {/* <form> + username field + autocomplete hints so this reads as a
-              credential change to browsers/password managers (silences
-              Chrome's "Password field is not contained in a form" warning).
-              onSubmit also gives us native Enter-to-submit. */}
-          <form onSubmit={(e) => { e.preventDefault(); handlePasswordReset(); }}>
-            <label className="label">New Password</label>
-            <input type="text" name="username" autoComplete="username" value={passwordTarget.username} readOnly hidden />
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Minimum 8 characters"
-              autoComplete="new-password"
-              className="input text-sm"
-              autoFocus
-              disabled={passwordForm.loading}
-            />
-          </form>
-        </Modal>
-      )}
+      <PasswordResetModal
+        target={passwordTarget}
+        password={newPassword}
+        onPasswordChange={setNewPassword}
+        form={passwordForm}
+        onSubmit={handlePasswordReset}
+        onClose={() => setPasswordTarget(null)}
+      />
 
       {/* Create organization modal */}
-      {createOrgOpen && (
-        <Modal
-          title="Create Team"
-          onClose={() => setCreateOrgOpen(false)}
-          footer={
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setCreateOrgOpen(false)} className="btn btn-secondary" disabled={createOrgForm.loading}>Cancel</button>
-              <button onClick={handleCreateOrg} disabled={createOrgForm.loading || !newOrgName.trim()} className="btn btn-primary">
-                {createOrgForm.loading ? 'Creating...' : 'Create Team'}
-              </button>
-            </div>
-          }
-        >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Create a <strong>team</strong> nested under <strong>{activeOrg?.name}</strong>. It gets
-            its own members, quotas, and secrets, and you&apos;ll be its owner.
-            <br />
-            <span className="text-xs">Need a separate top-level organization instead? A system admin creates those from the Organizations page.</span>
-          </p>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                Team name
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. mobile-team, qa-shared, project-foo"
-                value={newOrgName}
-                onChange={(e) => setNewOrgName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateOrg()}
-                className="input text-sm"
-                autoFocus
-                disabled={createOrgForm.loading}
-              />
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              The team inherits <strong>{activeOrg?.name}</strong>&apos;s plan
-              {activeOrg?.tier ? ` (${activeOrg.tier})` : ''} and its quotas are pooled under the parent organization.
-            </p>
-          </div>
-          {createOrgForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createOrgForm.error}</p>}
-          {createOrgForm.success && <p className="text-sm text-green-600 dark:text-green-400 mt-3">{createOrgForm.success}</p>}
-        </Modal>
-      )}
+      <CreateOrgModal
+        open={createOrgOpen}
+        orgName={newOrgName}
+        onOrgNameChange={setNewOrgName}
+        form={createOrgForm}
+        activeOrg={activeOrg}
+        onSubmit={handleCreateOrg}
+        onClose={() => setCreateOrgOpen(false)}
+      />
 
       {/* Manage teams modal — a member can belong to multiple teams */}
-      {manageTeamsTarget && (
-        <Modal
-          title={`Manage Teams: ${manageTeamsTarget.username}`}
-          onClose={() => setManageTeamsTarget(null)}
-          footer={
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setManageTeamsTarget(null)} className="btn btn-secondary" disabled={teamsSaving}>Cancel</button>
-              <button onClick={handleSaveTeams} disabled={teamsSaving || teamsLoading} className="btn btn-primary">
-                {teamsSaving ? 'Saving...' : 'Save Teams'}
-              </button>
-            </div>
-          }
-        >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Select which teams <strong>{manageTeamsTarget.username}</strong> belongs to.
-            A member can be on multiple teams; each membership keeps its own role.
-          </p>
-          {teamsError && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{teamsError}</p>}
-          {teamsLoading ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading teams…</p>
-          ) : teamRoster.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">This organization has no teams yet.</p>
-          ) : (
-            <div className="space-y-1 max-h-72 overflow-y-auto">
-              {teamRoster.map((t) => {
-                const isOwner = t.role === 'owner';
-                return (
-                  <label
-                    key={t.orgId}
-                    className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm ${isOwner ? 'opacity-60' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer'}`}
-                    title={isOwner ? 'Owner of this team — transfer ownership to remove' : undefined}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedTeamIds.has(t.orgId)}
-                      onChange={() => toggleTeam(t.orgId)}
-                      disabled={teamsSaving || isOwner}
-                      className="rounded border-gray-300"
-                    />
-                    <span className="flex-1 truncate text-gray-900 dark:text-gray-100">{t.orgName}</span>
-                    {t.isMember && <Badge color={isOwner ? 'purple' : 'gray'}>{t.role}</Badge>}
-                    {t.isMember && t.isActive === false && <Badge color="red">inactive</Badge>}
-                  </label>
-                );
-              })}
-            </div>
-          )}
-        </Modal>
-      )}
+      <ManageTeamsModal
+        target={manageTeamsTarget}
+        roster={teamRoster}
+        loading={teamsLoading}
+        saving={teamsSaving}
+        error={teamsError}
+        selectedTeamIds={selectedTeamIds}
+        onToggleTeam={toggleTeam}
+        onSubmit={handleSaveTeams}
+        onClose={() => setManageTeamsTarget(null)}
+      />
 
       {/* Add a member straight to one team (no context switch) */}
-      {addToTeam && (
-        <Modal
-          title={`Add member to ${addToTeam.orgName}`}
-          onClose={() => setAddToTeam(null)}
-          footer={
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setAddToTeam(null)} className="btn btn-secondary" disabled={teamAddForm.loading}>Cancel</button>
-              <button onClick={handleAddToTeam} disabled={teamAddForm.loading || !teamMemberEmail.trim()} className="btn btn-primary">
-                {teamAddForm.loading ? 'Adding...' : 'Add Member'}
-              </button>
-            </div>
-          }
-        >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Enter the email of an existing user to add to the <strong>{addToTeam.orgName}</strong> team.
-          </p>
-          <input
-            type="email"
-            placeholder="user@example.com"
-            value={teamMemberEmail}
-            onChange={(e) => setTeamMemberEmail(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddToTeam()}
-            className="input text-sm"
-            autoFocus
-          />
-          {teamAddForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{teamAddForm.error}</p>}
-        </Modal>
-      )}
+      <AddToTeamModal
+        target={addToTeam}
+        email={teamMemberEmail}
+        onEmailChange={setTeamMemberEmail}
+        form={teamAddForm}
+        onSubmit={handleAddToTeam}
+        onClose={() => setAddToTeam(null)}
+      />
 
       {/* Remove confirmation */}
       {removeMember.target && (

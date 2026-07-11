@@ -18,6 +18,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
   // Consumed transitively via token.js -> org-hierarchy.js.
   resolveUserFeatures: jest.fn(() => ({})),
+  resolveUserPermissions: jest.fn(() => []),
   resolveOrgLineageWith: jest.fn(),
   isAncestorOrgWith: jest.fn(),
   expandOrgScopeWith: jest.fn(),
@@ -32,6 +33,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
   User: {},
   UserOrganization: {},
+  Group: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
+  GroupMembership: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
 }));
 
 const { hashRefreshToken, issueStepUpToken, verifyStepUpToken } = await import('../src/utils/token.js');

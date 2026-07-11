@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { db, schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { db, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 
 // The transaction object's full type is enormous; reuse drizzle's inferred

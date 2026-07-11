@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, validateBody, requireAdmin } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, validateBody, requirePermission } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -63,7 +63,7 @@ export function createNotificationPreferenceRoutes(): Router {
   }));
 
   // PUT / — upsert the calling org's preference. Org admin / owner only.
-  router.put('/', requireAdmin, withRoute(async ({ req, res, ctx, orgId }) => {
+  router.put('/', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, PreferenceUpdateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error);
 

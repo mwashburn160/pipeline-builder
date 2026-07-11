@@ -80,7 +80,7 @@ describe('notifyPublishedRuleChange', () => {
 
     const [, , opts] = mockPost.mock.calls[0];
     expect(opts.headers['x-internal-service']).toBe('true');
-    expect(opts.headers['x-org-id']).toBe('system');
+    expect(opts.headers['x-org-id']).toBe('000000000000000000000001');
   });
 
   it('swallows individual notification errors and continues', async () => {

@@ -12,15 +12,15 @@ import { Schema, model, Document, Types } from 'mongoose';
 export interface GroupMembershipDocument extends Document {
   userId: Types.ObjectId;
   groupId: Types.ObjectId;
-  /** Denormalized owning-org id (Mixed, mirrors the group's org). */
-  organizationId: Types.ObjectId | string;
+  /** Denormalized owning-org/team id (mirrors the group's org). */
+  organizationId: Types.ObjectId;
 }
 
 const groupMembershipSchema = new Schema<GroupMembershipDocument>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     groupId: { type: Schema.Types.ObjectId, ref: 'Group', required: true, index: true },
-    organizationId: { type: Schema.Types.Mixed, required: true },
+    organizationId: { type: Schema.Types.ObjectId, required: true },
   },
   { timestamps: true, collection: 'group_memberships' },
 );

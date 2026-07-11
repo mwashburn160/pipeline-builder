@@ -32,7 +32,7 @@ const dbTransaction = jest.fn((cb: (t: typeof tx) => Promise<unknown>) => cb(tx)
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemOrgId: (orgId?: string, orgName?: string) =>
-    orgId?.toLowerCase() === 'system' || orgName?.toLowerCase() === 'system',
+    orgId?.toLowerCase() === '000000000000000000000001' || orgName?.toLowerCase() === 'system',
 }));
 
 const mockInvalidate = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
@@ -40,7 +40,7 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: { invalidateRulesCache: mockInvalidate },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: {
     complianceRule: {
       id: 'col_id', scope: 'col_scope', deletedAt: 'col_del', isActive: 'col_active',
@@ -62,6 +62,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   // other paths poll it; runWithTenantContext is a noop pass-through.
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
   withTenantTx: (cb: (t: typeof tx) => Promise<unknown>) => dbTransaction(cb),
+  // findByOrg's COUNT query funnels rows through drizzleCount; passthrough.
+  drizzleCount: (r: unknown) => r,
 }));
 
 const { ComplianceRuleSubscriptionService } = await import('../src/services/subscription-service.js');
@@ -126,7 +128,7 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('subscribe', () => {
     it('rejects system org', async () => {
-      await expect(svc.subscribe('system', 'rule-1', 'u1')).rejects.toThrow(/System org/);
+      await expect(svc.subscribe('000000000000000000000001', 'rule-1', 'u1')).rejects.toThrow(/System org/);
     });
 
     it('rejects when rule not found', async () => {
@@ -151,7 +153,7 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('setActive', () => {
     it('rejects system org', async () => {
-      await expect(svc.setActive('SYSTEM', 'r', true, 'u')).rejects.toThrow(/System org/);
+      await expect(svc.setActive('000000000000000000000001', 'r', true, 'u')).rejects.toThrow(/System org/);
     });
 
     it('rejects when subscription not found', async () => {
@@ -171,7 +173,7 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('unsubscribe', () => {
     it('rejects system org', async () => {
-      await expect(svc.unsubscribe('system', 'r', 'u')).rejects.toThrow(/System org/);
+      await expect(svc.unsubscribe('000000000000000000000001', 'r', 'u')).rejects.toThrow(/System org/);
     });
 
     it('rejects when subscription not found', async () => {
@@ -188,7 +190,7 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('autoSubscribeToPublished', () => {
     it('returns 0 for system org', async () => {
-      const count = await svc.autoSubscribeToPublished('SYSTEM');
+      const count = await svc.autoSubscribeToPublished('000000000000000000000001');
       expect(count).toBe(0);
       // After migration every DB op funnels through tx  assert against
       // the tx spy that withTenantTx hands the service.
@@ -214,7 +216,7 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('bulkSetActive', () => {
     it('rejects system org', async () => {
-      await expect(svc.bulkSetActive('system', ['r1'], true, 'u')).rejects.toThrow(/System org/);
+      await expect(svc.bulkSetActive('000000000000000000000001', ['r1'], true, 'u')).rejects.toThrow(/System org/);
     });
 
     it('returns count of updated rows', async () => {
@@ -227,7 +229,7 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('pinVersion', () => {
     it('rejects system org', async () => {
-      await expect(svc.pinVersion('system', 'r', 'u')).rejects.toThrow(/System org/);
+      await expect(svc.pinVersion('000000000000000000000001', 'r', 'u')).rejects.toThrow(/System org/);
     });
 
     it('throws when subscription is missing', async () => {

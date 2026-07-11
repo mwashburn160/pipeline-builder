@@ -100,6 +100,14 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   },
   withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
 }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  schema: { plugin: {} },
+  CoreConstants: {
+    CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
+    CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',
+  },
+  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
+}));;
 
 jest.unstable_mockModule('drizzle-orm', () => ({
   SQL: class {},

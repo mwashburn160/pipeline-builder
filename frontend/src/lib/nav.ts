@@ -43,6 +43,10 @@ export interface NavItem {
   icon: LucideIcon;
   adminOnly?: boolean;
   systemAdminOnly?: boolean;
+  /** Show only when the user holds this fine-grained permission (RBAC).
+   *  Superadmins bypass. Preferred over `adminOnly` for capability-specific
+   *  items so custom-group grants reveal the right nav. */
+  requiredPermission?: string;
   requiredFeature?: string;
   /** Extra path prefixes that should also mark this item active (e.g. a sibling
    *  route folded into the same nav entry, like /triage under "Builds"). */
@@ -86,7 +90,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },
       // Security audit trail (was only reachable from deep links).
       { title: 'Audit Log', href: '/dashboard/audit', icon: History, adminOnly: true },
-      { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, adminOnly: true },
+      { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, requiredPermission: 'compliance:read' },
       // Observability is visible to any authenticated user. Server-side
       // $ORG substitution scopes their view to their own org's metrics;
       // sysadmins see all orgs.
@@ -96,11 +100,11 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Organization',
     items: [
-      { title: 'Members', href: '/dashboard/members', icon: UsersRound, adminOnly: true },
-      { title: 'Groups', href: '/dashboard/groups', icon: ShieldCheck, adminOnly: true },
-      { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, adminOnly: true },
-      { title: 'Quotas', href: '/dashboard/quotas', icon: Gauge },
-      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredFeature: 'billing' },
+      { title: 'Members', href: '/dashboard/members', icon: UsersRound, requiredPermission: 'members:manage' },
+      { title: 'Groups', href: '/dashboard/groups', icon: ShieldCheck, requiredPermission: 'groups:manage' },
+      { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, requiredPermission: 'invitations:manage' },
+      { title: 'Quotas', href: '/dashboard/quotas', icon: Gauge, requiredPermission: 'quotas:read' },
+      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredPermission: 'billing:read', requiredFeature: 'billing' },
     ],
   },
   {
@@ -133,10 +137,11 @@ export const NAV_SECTIONS: NavSection[] = [
  */
 export function isNavItemVisible(
   item: NavItem,
-  ctx: { isAdmin: boolean; isSuperAdmin: boolean; isFeatureEnabled: (name: string) => boolean },
+  ctx: { isAdmin: boolean; isSuperAdmin: boolean; isFeatureEnabled: (name: string) => boolean; hasPermission: (perm: string) => boolean },
 ): boolean {
   if (item.systemAdminOnly && !ctx.isSuperAdmin) return false;
   if (item.adminOnly && !ctx.isAdmin) return false;
+  if (item.requiredPermission && !ctx.hasPermission(item.requiredPermission)) return false;
   if (item.requiredFeature && !ctx.isFeatureEnabled(item.requiredFeature)) return false;
   return true;
 }

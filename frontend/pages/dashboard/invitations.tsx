@@ -3,12 +3,17 @@ import { formatError } from '@/lib/constants';
 import { Mail } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { ModalPortal } from '@/components/ui/ModalPortal';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ModalFooter } from '@/components/ui/ModalFooter';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -33,7 +38,9 @@ const STATUS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray' | 'red'> = {
 };
 
 export default function InvitationsPage() {
-  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin } = useAuthGuard({ requireAdmin: true });
+  const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'invitations:manage' });
+  // Role admins/owners (via bundle) and custom-group members granted it.
+  const canManageInvitations = can('invitations:manage');
 
   const list = useListPage<InvitationListItem>({
     fields: [
@@ -51,7 +58,7 @@ export default function InvitationsPage() {
         pagination: data?.pagination,
       };
     },
-    enabled: isAuthenticated && isAdmin,
+    enabled: isAuthenticated && canManageInvitations,
   });
 
   // Send modal state — supports single + bulk send. The input is always
@@ -219,19 +226,14 @@ export default function InvitationsPage() {
       title="Invitations"
       subtitle="Pending and sent invites"
       actions={
-        <button onClick={() => { setSendModalOpen(true); setSendError(null); }} className="btn btn-primary">
+        <Button onClick={() => { setSendModalOpen(true); setSendError(null); }}>
           Send Invitation
-        </button>
+        </Button>
       }
     >
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="invitations" orgName={user.organizationName} />
 
-      {list.error && (
-        <div className="alert-error">
-          <p>{list.error}</p>
-          <button onClick={() => list.setError(null)} className="action-link-danger mt-2 underline">Dismiss</button>
-        </div>
-      )}
+      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       {/* Filter */}
       <div className="filter-bar">
@@ -259,9 +261,9 @@ export default function InvitationsPage() {
           title: 'No invitations found',
           description: list.hasActiveFilters ? 'Try adjusting your filter.' : 'Send an invitation to add team members.',
           action: list.hasActiveFilters ? undefined : (
-            <button onClick={() => { setSendModalOpen(true); setSendError(null); }} className="btn btn-primary">
+            <Button onClick={() => { setSendModalOpen(true); setSendError(null); }}>
               <Mail className="w-4 h-4 mr-1.5" /> Send invitation
-            </button>
+            </Button>
           ),
         }}
         getRowKey={(inv) => inv.id}
@@ -285,75 +287,72 @@ export default function InvitationsPage() {
 
       {/* Send Invitation Modal */}
       {sendModalOpen && (
-        <ModalPortal>
-        <div className="modal-backdrop">
-          <div className="modal-panel max-w-md">
-            <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Send invitations</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-              Paste one or many emails — separated by newlines, commas, or spaces. Each email gets its own invitation.
-            </p>
+        <Modal
+          title="Send invitations"
+          onClose={() => !sendLoading && setSendModalOpen(false)}
+          maxWidth="max-w-md"
+          footer={
+            <ModalFooter
+              onCancel={() => setSendModalOpen(false)}
+              onConfirm={handleSendInvitation}
+              confirmLabel="Send"
+              loading={sendLoading}
+            />
+          }
+        >
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Paste one or many emails — separated by newlines, commas, or spaces. Each email gets its own invitation.
+          </p>
 
-            {sendError && (
-              <div className="alert-error"><p>{sendError}</p></div>
-            )}
+          <ErrorAlert message={sendError} />
 
-            {sendResult && (
-              <div className={`rounded-lg px-3 py-2 text-sm mb-2 ${sendResult.failed === 0
-                ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300'
-                : 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300'}`}
-              >
-                Sent <strong>{sendResult.sent}</strong>, failed <strong>{sendResult.failed}</strong>.
-                {sendResult.errors.length > 0 && (
-                  <ul className="mt-1 list-disc pl-5 text-xs">
-                    {sendResult.errors.map((e) => <li key={e}><code>{e}</code></li>)}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-4">
-              <div>
-                <label className="label">Email(s)</label>
-                <textarea
-                  value={sendEmail}
-                  onChange={(e) => setSendEmail(e.target.value)}
-                  placeholder={'user@example.com\nteam@example.com, lead@example.com'}
-                  className="input min-h-[6rem] font-mono text-sm"
-                  disabled={sendLoading}
-                />
-                {sendEmail.trim() && (
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Will send to <strong>{parseEmailList(sendEmail).length}</strong> address{parseEmailList(sendEmail).length === 1 ? '' : 'es'}.
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="label">Role</label>
-                <select value={sendRole} onChange={(e) => setSendRole(e.target.value as 'admin' | 'member')} className="input" disabled={sendLoading}>
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Invitation Type</label>
-                <select value={sendInvitationType} onChange={(e) => setSendInvitationType(e.target.value)} className="input" disabled={sendLoading}>
-                  <option value="any">Any (Email or OAuth)</option>
-                  <option value="email">Email Only</option>
-                  <option value="oauth">OAuth Only</option>
-                </select>
-              </div>
+          {sendResult && (
+            <div className={`rounded-lg px-3 py-2 text-sm mb-2 ${sendResult.failed === 0
+              ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+              : 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300'}`}
+            >
+              Sent <strong>{sendResult.sent}</strong>, failed <strong>{sendResult.failed}</strong>.
+              {sendResult.errors.length > 0 && (
+                <ul className="mt-1 list-disc pl-5 text-xs">
+                  {sendResult.errors.map((e) => <li key={e}><code>{e}</code></li>)}
+                </ul>
+              )}
             </div>
+          )}
 
-            <div className="mt-6 flex justify-end space-x-3">
-              <button onClick={() => setSendModalOpen(false)} disabled={sendLoading} className="btn btn-secondary">Cancel</button>
-              <button onClick={handleSendInvitation} disabled={sendLoading} className="btn btn-primary">
-                {sendLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
-                Send
-              </button>
+          <div className="space-y-4">
+            <div>
+              <label className="label">Email(s)</label>
+              <Textarea
+                value={sendEmail}
+                onChange={(e) => setSendEmail(e.target.value)}
+                placeholder={'user@example.com\nteam@example.com, lead@example.com'}
+                className="min-h-[6rem] font-mono text-sm"
+                disabled={sendLoading}
+              />
+              {sendEmail.trim() && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Will send to <strong>{parseEmailList(sendEmail).length}</strong> address{parseEmailList(sendEmail).length === 1 ? '' : 'es'}.
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="label">Role</label>
+              <Select value={sendRole} onChange={(e) => setSendRole(e.target.value as 'admin' | 'member')} disabled={sendLoading}>
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </Select>
+            </div>
+            <div>
+              <label className="label">Invitation Type</label>
+              <Select value={sendInvitationType} onChange={(e) => setSendInvitationType(e.target.value)} disabled={sendLoading}>
+                <option value="any">Any (Email or OAuth)</option>
+                <option value="email">Email Only</option>
+                <option value="oauth">OAuth Only</option>
+              </Select>
             </div>
           </div>
-        </div>
-        </ModalPortal>
+        </Modal>
       )}
     </DashboardLayout>
   );

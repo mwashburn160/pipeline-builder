@@ -59,21 +59,27 @@ describe('getOrgId', () => {
     expect(getOrgId(req)).toBe('org-from-user');
   });
 
-  it('should prefer params over header and user', () => {
+  it('prefers the verified JWT identity over a spoofable header/param (cross-tenant guard)', () => {
     const req = mockReq({
       params: { orgId: 'from-params' },
       headers: { 'x-org-id': 'from-header' },
       user: { organizationId: 'from-user' },
     });
-    expect(getOrgId(req)).toBe('from-params');
+    // JWT identity wins — an x-org-id header (or route param) must not override
+    // an authenticated user's org.
+    expect(getOrgId(req)).toBe('from-user');
   });
 
-  it('should prefer header over user', () => {
-    const req = mockReq({
+  it('falls back to route param, then header, only when there is no authenticated identity (pre-auth)', () => {
+    // No req.user → route param wins over header.
+    expect(getOrgId(mockReq({
+      params: { orgId: 'from-params' },
       headers: { 'x-org-id': 'from-header' },
-      user: { organizationId: 'from-user' },
-    });
-    expect(getOrgId(req)).toBe('from-header');
+    }))).toBe('from-params');
+    // No req.user, no param → header is the last resort.
+    expect(getOrgId(mockReq({
+      headers: { 'x-org-id': 'from-header' },
+    }))).toBe('from-header');
   });
 
   it('should return undefined when no org available', () => {

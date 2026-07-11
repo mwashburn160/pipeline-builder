@@ -150,11 +150,6 @@ export const MetadataKeys = {
 } as const;
 
 /**
- * Type for MetadataKeys values
- */
-export type MetadataKey = typeof MetadataKeys[keyof typeof MetadataKeys];
-
-/**
  * Prefix for AWS CDK metadata keys.
  * Keys with this prefix are handled by the metadata extraction functions
  * (metadataForCodePipeline, etc.) and should NOT be passed as CodeBuild environment variables.

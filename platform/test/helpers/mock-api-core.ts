@@ -26,6 +26,22 @@ export const loggerMock = () => ({
 /** Mirrors api-core: `ErrorCode.ANY_CODE` resolves to the string `'ANY_CODE'`. */
 const ErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<string, string>;
 
+/** Canonical org-scoped permission identifiers (mirrors api-core ALL_PERMISSIONS). */
+const ALL_PERMISSIONS: readonly string[] = [
+  'pipelines:read', 'pipelines:write',
+  'plugins:read', 'plugins:write',
+  'compliance:read', 'compliance:write',
+  'members:manage', 'groups:manage', 'invitations:manage',
+  'dashboards:read', 'dashboards:write',
+  'observability:read', 'observability:write',
+  'reports:read',
+  'messages:read', 'messages:write',
+  'billing:read', 'billing:manage',
+  'quotas:read',
+  'registry:read', 'registry:write',
+  'org:settings',
+];
+
 /** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
 class NotFoundError extends Error {
   statusCode = 404;
@@ -43,7 +59,7 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
-    SYSTEM_ORG_ID: 'system',
+    SYSTEM_ORG_ID: '000000000000000000000001',
     // Tier identity — organization-service / validation import these at module
     // load. A suite can override QUOTA_TIERS via `overrides` for shape-specific
     // assertions; DEFAULT_TIER stays 'developer' unless a suite overrides it.
@@ -66,6 +82,19 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     NotFoundError,
+    // Permission catalog — groups-service / organization-service import these to
+    // validate/filter group-granted permissions. Mirrors api-core's real list so
+    // the mock's `isValidPermission` accepts exactly the canonical identifiers.
+    ALL_PERMISSIONS,
+    isValidPermission: (value: string) => ALL_PERMISSIONS.includes(value),
+    // Fine-grained RBAC helpers (faithful to api-core): superadmins hold all;
+    // otherwise the resolved `permissions` claim must include it.
+    userHasPermission: (req: { user?: { isSuperAdmin?: boolean; permissions?: string[] } }, perm: string) =>
+      req?.user?.isSuperAdmin === true || (Array.isArray(req?.user?.permissions) && req.user!.permissions!.includes(perm)),
+    requirePermission: (...perms: string[]) => (req: { user?: { isSuperAdmin?: boolean; permissions?: string[] } }, res: { status: (n: number) => { json: (b: unknown) => void } }, next: () => void) => {
+      if (req?.user?.isSuperAdmin === true || (Array.isArray(req?.user?.permissions) && perms.some((p) => req.user!.permissions!.includes(p)))) return next();
+      res.status(403).json({ success: false, message: 'INSUFFICIENT_PERMISSIONS' });
+    },
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
       invalidatePattern: () => Promise.resolve(0),

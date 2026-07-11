@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, createLogger, errorMessage, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, createLogger, errorMessage, validateBody, requirePermission } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -27,8 +27,11 @@ export function createTemplateRoutes(): Router {
     return sendSuccess(res, 200, { templates: RULE_TEMPLATES });
   }));
 
-  // POST /apply — create org rules from selected templates
-  router.post('/apply', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // POST /apply — create org rules from selected templates.
+  // Applying a template mints enforceable org rules (same write as
+  // POST /compliance/rules), so it requires `compliance:write`. GET / stays
+  // member-readable so anyone can browse the starter catalog.
+  router.post('/apply', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ApplyTemplatesSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);

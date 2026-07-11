@@ -89,7 +89,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     const aliases = new Set(['support@pipeline-builder', 'help@pipeline-builder']);
     const normalized = recipientOrgId.trim().toLowerCase();
     if (aliases.has(normalized)) {
-      return { resolvedOrgId: 'system', wasAlias: true, originalValue: recipientOrgId };
+      return { resolvedOrgId: '000000000000000000000001', wasAlias: true, originalValue: recipientOrgId };
     }
     return { resolvedOrgId: normalized, wasAlias: false, originalValue: recipientOrgId };
   }),
@@ -129,7 +129,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   createAuthenticatedWithOrgRoute: jest.fn(() => []),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: { message: { $inferInsert: {} } },
 }));
 
@@ -169,7 +169,11 @@ function getHandler(router: any, method: string, path: string) {
     (l: any) => l.route?.path === path && l.route?.methods[method],
   );
   if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
-  return layer.route.stack[0].handle;
+  // The final layer is the withRoute business handler; any preceding layers are
+  // guard middleware (e.g. requirePermission). Grab the last so the test drives
+  // the handler directly without an Express `next`.
+  const stack = layer.route.stack;
+  return stack[stack.length - 1].handle;
 }
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
@@ -431,7 +435,7 @@ describe('POST /messages (create)', () => {
 
     const req = mockReq({
       body: {
-        recipientOrgId: 'system',
+        recipientOrgId: '000000000000000000000001',
         messageType: 'conversation',
         subject: 'New message',
         content: 'Hello system',
@@ -445,7 +449,7 @@ describe('POST /messages (create)', () => {
     expect(mockCreate).toHaveBeenCalled();
     // Verify SSE notification was sent to recipient org
     expect(mockSseManager.send).toHaveBeenCalledWith(
-      'system',
+      '000000000000000000000001',
       'MESSAGE',
       'New message',
       expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-new' }),
@@ -543,7 +547,7 @@ describe('POST /messages (create)', () => {
 
     const req = mockReq({
       body: {
-        recipientOrgId: 'system',
+        recipientOrgId: '000000000000000000000001',
         messageType: 'conversation',
         subject: 'Test',
         content: 'Content',
@@ -573,11 +577,11 @@ describe('POST /messages (create)', () => {
 
     expect(res.status).toHaveBeenCalledWith(201);
     expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientOrgId: 'system' }),
+      expect.objectContaining({ recipientOrgId: '000000000000000000000001' }),
       'user-1',
     );
     expect(mockSseManager.send).toHaveBeenCalledWith(
-      'system',
+      '000000000000000000000001',
       'MESSAGE',
       'New message',
       expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-alias' }),
@@ -601,7 +605,7 @@ describe('POST /messages (create)', () => {
 
     expect(res.status).toHaveBeenCalledWith(201);
     expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientOrgId: 'system' }),
+      expect.objectContaining({ recipientOrgId: '000000000000000000000001' }),
       'user-1',
     );
   });
@@ -611,7 +615,7 @@ describe('POST /messages (create)', () => {
 
     const req = mockReq({
       body: {
-        recipientOrgId: 'system',
+        recipientOrgId: '000000000000000000000001',
         messageType: 'conversation',
         subject: 'Direct message',
         content: 'Directly addressed to system',
@@ -623,7 +627,7 @@ describe('POST /messages (create)', () => {
 
     expect(res.status).toHaveBeenCalledWith(201);
     expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientOrgId: 'system' }),
+      expect.objectContaining({ recipientOrgId: '000000000000000000000001' }),
       'user-1',
     );
   });
@@ -638,7 +642,7 @@ describe('POST /messages/:id/reply', () => {
     const rootMessage = {
       id: 'msg-1',
       orgId: 'org-1',
-      recipientOrgId: 'system',
+      recipientOrgId: '000000000000000000000001',
       messageType: 'conversation',
       subject: 'Original',
       priority: 'normal',
@@ -656,7 +660,7 @@ describe('POST /messages/:id/reply', () => {
     expect(res.status).toHaveBeenCalledWith(201);
     // Verify SSE notification sent to reply recipient
     expect(mockSseManager.send).toHaveBeenCalledWith(
-      'system',
+      '000000000000000000000001',
       'MESSAGE',
       'New reply',
       expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'msg-reply', threadId: 'msg-1' }),
@@ -708,7 +712,7 @@ describe('POST /messages/:id/reply', () => {
     const replyMessage = {
       id: 'msg-2',
       orgId: 'org-1',
-      recipientOrgId: 'system',
+      recipientOrgId: '000000000000000000000001',
       threadId: 'msg-1', // <-- this message IS already a reply
       messageType: 'conversation',
       subject: 'Re: Original',
@@ -857,7 +861,7 @@ describe('DELETE /messages/:id', () => {
 
   it('allows system admin to delete any message', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: 'system' });
+    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: '000000000000000000000001' });
     mockDeleteThread.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { id: 'msg-1' } });
@@ -868,7 +872,7 @@ describe('DELETE /messages/:id', () => {
     expect(mockDelete).toHaveBeenCalledWith('msg-1', 'org-1', 'user-1');
     // Verify SSE notification sent to the other party
     expect(mockSseManager.send).toHaveBeenCalledWith(
-      'system',
+      '000000000000000000000001',
       'MESSAGE',
       'Message deleted',
       expect.objectContaining({ action: 'MESSAGE_DELETED', messageId: 'msg-1' }),
@@ -878,7 +882,7 @@ describe('DELETE /messages/:id', () => {
   it('allows message sender to self-delete', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
     mockFindById.mockResolvedValue({ id: 'msg-1', createdBy: 'user-1' });
-    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: 'system' });
+    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: '000000000000000000000001' });
     mockDeleteThread.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { id: 'msg-1' } });
@@ -888,7 +892,7 @@ describe('DELETE /messages/:id', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     // Verify SSE notification sent to the other party
     expect(mockSseManager.send).toHaveBeenCalledWith(
-      'system',
+      '000000000000000000000001',
       'MESSAGE',
       'Message deleted',
       expect.objectContaining({ action: 'MESSAGE_DELETED', messageId: 'msg-1' }),
@@ -954,7 +958,7 @@ describe('DELETE /messages/:id', () => {
 
   it('does not send SSE notification for broadcast message deletion', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'system', recipientOrgId: '*' });
+    mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: '000000000000000000000001', recipientOrgId: '*' });
     mockDeleteThread.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { id: 'msg-1' } });
@@ -978,7 +982,7 @@ describe('SSE notification resilience', () => {
     const handler = getHandler(createRouter, 'post', '/');
     const req = mockReq({
       body: {
-        recipientOrgId: 'system',
+        recipientOrgId: '000000000000000000000001',
         messageType: 'conversation',
         subject: 'Test',
         content: 'Content',
@@ -1019,7 +1023,7 @@ describe('SSE notification resilience', () => {
         priority: 'normal',
       },
       context: {
-        identity: { orgId: 'system', userId: 'admin' },
+        identity: { orgId: '000000000000000000000001', userId: 'admin' },
         log: jest.fn(),
         requestId: 'req-1',
       },

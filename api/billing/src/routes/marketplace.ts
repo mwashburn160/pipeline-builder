@@ -246,7 +246,6 @@ export function createMarketplaceRoutes(): Router {
         const resolved = await provider.resolveRegistrationToken(token);
         logger.info('Resolved marketplace customer', {
           customerIdentifier: resolved.customerIdentifier,
-          awsAccountId: resolved.customerAWSAccountId,
         });
 
         // Step 2: Check for existing subscription
@@ -265,7 +264,6 @@ export function createMarketplaceRoutes(): Router {
               status: existing.status,
             },
             customerIdentifier: resolved.customerIdentifier,
-            awsAccountId: resolved.customerAWSAccountId,
           });
         }
 
@@ -296,7 +294,11 @@ export function createMarketplaceRoutes(): Router {
             ErrorCode.VALIDATION_ERROR,
           );
         }
-        const orgId = resolved.customerAWSAccountId;
+        // Key the org on AWS Marketplace's opaque `customerIdentifier` token
+        // (also our subscription lookup key), NOT `customerAWSAccountId` — repo
+        // policy forbids persisting AWS account ids, and the account id would
+        // otherwise propagate into quota/audit stores as the tenant key.
+        const orgId = resolved.customerIdentifier;
         const now = new Date();
 
         const subscription = await Subscription.create({
@@ -312,7 +314,6 @@ export function createMarketplaceRoutes(): Router {
           metadata: {
             provider: 'aws-marketplace',
             awsCustomerIdentifier: resolved.customerIdentifier,
-            awsAccountId: resolved.customerAWSAccountId,
             awsProductCode: resolved.productCode,
             dimension: activeEntitlement?.dimension,
           },
@@ -327,7 +328,6 @@ export function createMarketplaceRoutes(): Router {
           tier: plan.tier,
           provider: 'aws-marketplace',
           awsCustomerIdentifier: resolved.customerIdentifier,
-          awsAccountId: resolved.customerAWSAccountId,
         }, subscription._id.toString());
 
         logger.info('Marketplace subscription created', {
@@ -346,7 +346,6 @@ export function createMarketplaceRoutes(): Router {
             status: 'active',
           },
           customerIdentifier: resolved.customerIdentifier,
-          awsAccountId: resolved.customerAWSAccountId,
         });
       } catch (error) {
         logger.error('Failed to resolve marketplace token', { error: errorMessage(error) });

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, isValidPermission } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { Group, GroupMembership, User, UserOrganization } from '../models/index.js';
@@ -21,12 +21,21 @@ export const GRP_LAST_PRIVILEGED_MEMBER = 'GRP_LAST_PRIVILEGED_MEMBER';
  *  group — otherwise a mere org admin of the system org could mint or strip
  *  platform superadmins via `recomputeUserOrgRole`. */
 export const GRP_REQUIRES_SUPERADMIN = 'GRP_REQUIRES_SUPERADMIN';
+/** Seeded (`system`) groups can't be renamed/edited/deleted via the CRUD API. */
+export const GRP_SYSTEM_IMMUTABLE = 'GRP_SYSTEM_IMMUTABLE';
+/** Another group in the org already uses this name. */
+export const GRP_NAME_TAKEN = 'GRP_NAME_TAKEN';
+/** A supplied permission string isn't in the api-core catalog. */
+export const GRP_INVALID_PERMISSION = 'GRP_INVALID_PERMISSION';
 
 /** A group with its current members, for the management UI. */
 export interface GroupWithMembers {
   id: string;
   name: string;
+  description?: string;
   grantsRole: GroupRole;
+  /** Fine-grained permissions this group grants (empty for role-only groups). */
+  permissions: string[];
   system: boolean;
   members: Array<{ id: string; username: string; email: string }>;
 }
@@ -164,10 +173,161 @@ export async function listGroupsWithMembers(orgId: string): Promise<GroupWithMem
   return groups.map((g) => ({
     id: String(g._id),
     name: g.name,
+    ...(g.description ? { description: g.description as string } : {}),
     grantsRole: g.grantsRole as GroupRole,
+    permissions: (g.permissions as string[]) ?? [],
     system: !!g.system,
     members: byGroup.get(String(g._id)) ?? [],
   }));
+}
+
+/**
+ * Flattened, deduped fine-grained permissions granted to a user by their groups
+ * in an org/team. Unioned with the role's base bundle at token-issue time
+ * (`resolveUserPermissions` in api-core) to form the effective permission set.
+ * Invalid/stale permission strings are dropped.
+ */
+export async function getUserGroupPermissions(
+  userId: UserId,
+  organizationId: OrgId,
+  session?: mongoose.ClientSession,
+): Promise<string[]> {
+  const memberships = await GroupMembership.find({ userId, organizationId })
+    .session(session ?? null).select('groupId').lean();
+  const groupIds = memberships.map((m) => m.groupId);
+  if (groupIds.length === 0) return [];
+  const groups = await Group.find({ _id: { $in: groupIds } })
+    .session(session ?? null).select('permissions').lean();
+  const perms = new Set<string>();
+  for (const g of groups) {
+    for (const p of ((g.permissions as string[]) ?? [])) {
+      if (isValidPermission(p)) perms.add(p);
+    }
+  }
+  return [...perms];
+}
+
+/** Validate + normalize a permission list against the api-core catalog. */
+function sanitizePermissions(permissions: unknown): string[] {
+  if (!Array.isArray(permissions)) return [];
+  const out = new Set<string>();
+  for (const p of permissions) {
+    if (typeof p !== 'string' || !isValidPermission(p)) throw new Error(GRP_INVALID_PERMISSION);
+    out.add(p);
+  }
+  return [...out];
+}
+
+/**
+ * Create a custom, user-defined permission group in an org/team. Custom groups
+ * never confer a base role (`grantsRole` stays `'member'`) — they only ADD
+ * fine-grained permissions. Names are unique per org.
+ * Throws `GRP_NAME_TAKEN`, `GRP_INVALID_PERMISSION`.
+ */
+export async function createGroup(
+  orgId: string,
+  input: { name: string; description?: string; permissions?: string[] },
+): Promise<GroupWithMembers> {
+  const oid = toOrgId(orgId);
+  const name = input.name.trim();
+  const permissions = sanitizePermissions(input.permissions ?? []);
+
+  const existing = await Group.findOne({ organizationId: oid, name }).select('_id').lean();
+  if (existing) throw new Error(GRP_NAME_TAKEN);
+
+  const group = await Group.create({
+    organizationId: oid,
+    name,
+    ...(input.description ? { description: input.description.trim() } : {}),
+    grantsRole: 'member',
+    permissions,
+    system: false,
+  });
+  logger.info('Created custom group', { organizationId: orgId, groupId: String(group._id), name, permissions });
+  return {
+    id: String(group._id),
+    name: group.name,
+    ...(group.description ? { description: group.description } : {}),
+    grantsRole: group.grantsRole as GroupRole,
+    permissions,
+    system: false,
+    members: [],
+  };
+}
+
+/**
+ * Update a custom group's name/description/permissions. Seeded (`system`)
+ * groups are immutable here. Bumps `tokenVersion` for every current member when
+ * permissions change so the new grants take effect on their next token refresh.
+ * Throws `GRP_GROUP_NOT_FOUND`, `GRP_SYSTEM_IMMUTABLE`, `GRP_NAME_TAKEN`, `GRP_INVALID_PERMISSION`.
+ */
+export async function updateGroup(
+  orgId: string,
+  groupId: string,
+  input: { name?: string; description?: string; permissions?: string[] },
+): Promise<GroupWithMembers> {
+  const oid = toOrgId(orgId);
+  const group = await Group.findOne({ _id: groupId, organizationId: oid });
+  if (!group) throw new Error(GRP_GROUP_NOT_FOUND);
+  if (group.system) throw new Error(GRP_SYSTEM_IMMUTABLE);
+
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (name !== group.name) {
+      const clash = await Group.findOne({ organizationId: oid, name, _id: { $ne: group._id } }).select('_id').lean();
+      if (clash) throw new Error(GRP_NAME_TAKEN);
+      group.name = name;
+    }
+  }
+  if (input.description !== undefined) group.description = input.description.trim() || undefined;
+
+  let permsChanged = false;
+  if (input.permissions !== undefined) {
+    group.permissions = sanitizePermissions(input.permissions);
+    permsChanged = true;
+  }
+  await group.save();
+
+  // Permission change must reach members' JWTs — invalidate their access tokens.
+  if (permsChanged) {
+    const memberIds = (await GroupMembership.find({ groupId }).select('userId').lean()).map((m) => m.userId);
+    if (memberIds.length > 0) {
+      await User.updateMany({ _id: { $in: memberIds } }, { $inc: { tokenVersion: 1 } });
+    }
+  }
+
+  logger.info('Updated custom group', { organizationId: orgId, groupId, permsChanged });
+  return {
+    id: String(group._id),
+    name: group.name,
+    ...(group.description ? { description: group.description } : {}),
+    grantsRole: group.grantsRole as GroupRole,
+    permissions: group.permissions ?? [],
+    system: !!group.system,
+    members: [],
+  };
+}
+
+/**
+ * Delete a custom group and all its memberships, bumping `tokenVersion` for each
+ * affected member. Seeded (`system`) groups can't be deleted.
+ * Throws `GRP_GROUP_NOT_FOUND`, `GRP_SYSTEM_IMMUTABLE`.
+ */
+export async function deleteGroup(orgId: string, groupId: string): Promise<void> {
+  const oid = toOrgId(orgId);
+  const group = await Group.findOne({ _id: groupId, organizationId: oid }).select('system');
+  if (!group) throw new Error(GRP_GROUP_NOT_FOUND);
+  if (group.system) throw new Error(GRP_SYSTEM_IMMUTABLE);
+
+  await withMongoTransaction(async (session) => {
+    const memberIds = (await GroupMembership.find({ groupId }).session(session).select('userId').lean()).map((m) => m.userId);
+    await GroupMembership.deleteMany({ groupId }, { session });
+    await Group.deleteOne({ _id: groupId }, { session });
+    if (memberIds.length > 0) {
+      await User.updateMany({ _id: { $in: memberIds } }, { $inc: { tokenVersion: 1 } }, { session });
+    }
+  });
+  logger.info('Deleted custom group', { organizationId: orgId, groupId });
 }
 
 /**
@@ -220,6 +380,10 @@ export async function addUserToGroup(
       { upsert: true, session },
     );
     await recomputeUserOrgRole(user._id, oid, session);
+    // A membership change alters the user's effective PERMISSIONS (carried in the
+    // JWT), even when the cached role doesn't flip (custom permission-only group).
+    // Bump tokenVersion so a refresh reissues a token with the new grants.
+    await User.updateOne({ _id: user._id }, { $inc: { tokenVersion: 1 } }, { session });
   });
 
   logger.info('Added user to group', { organizationId: orgId, groupId, userId: String(user._id) });
@@ -281,6 +445,8 @@ export async function removeUserFromGroup(
   await withMongoTransaction(async (session) => {
     await GroupMembership.deleteOne({ userId, groupId }, { session });
     await recomputeUserOrgRole(userId, oid, session);
+    // Membership change alters effective permissions (JWT) — force a reissue.
+    await User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } }, { session });
   });
 
   logger.info('Removed user from group', { organizationId: orgId, groupId, userId });

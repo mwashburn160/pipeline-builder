@@ -39,3 +39,10 @@ export const EXEMPTION_STATUS_STYLES: Record<ExemptionStatus, { bg: string; text
   rejected: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400' },
   expired: { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-500 dark:text-gray-400' },
 };
+
+/** Compliance check result badge classes (pass/warn/block). */
+export const RESULT_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+  pass: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Pass' },
+  warn: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Warn' },
+  block: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Block' },
+};

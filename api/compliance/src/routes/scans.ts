@@ -10,6 +10,7 @@ import {
   getParam,
   parsePaginationParams,
   validateBody,
+  validateQuery,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -27,17 +28,23 @@ const ScanCreateSchema = z.object({
   dryRun: z.boolean().optional(),
 });
 
+// Validate the GET / filter query enums so an invalid value 400s instead of
+// being cast to a union and silently returning an empty page.
+const ScanListQuerySchema = z.object({
+  target: z.enum(['plugin', 'pipeline', 'all']).optional(),
+  status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled']).optional(),
+  triggeredBy: z.enum(['manual', 'scheduled', 'rule-change', 'rule-dry-run']).optional(),
+});
+
 export function createScanRoutes(): Router {
   const router = Router();
 
   // GET / — list scans (paginated, filterable)
   router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
-    const filter = {
-      target: req.query.target as 'plugin' | 'pipeline' | 'all' | undefined,
-      status: req.query.status as 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | undefined,
-      triggeredBy: req.query.triggeredBy as 'manual' | 'scheduled' | 'rule-change' | 'rule-dry-run' | undefined,
-    };
+    const r = validateQuery(req, ScanListQuerySchema);
+    if (!r.ok) return sendBadRequest(res, r.error, ErrorCode.VALIDATION_ERROR);
+    const filter = r.value;
 
     const { scans, total } = await complianceScanService.list(filter, orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed compliance scans', { count: scans.length });

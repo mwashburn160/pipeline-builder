@@ -26,6 +26,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       return { ok: false, error: err.message ?? 'invalid' };
     }
   },
+  validateQuery: (req: any, schema: any) => {
+    try {
+      return { ok: true, value: schema.parse(req.query) };
+    } catch (err: any) {
+      return { ok: false, error: err.message ?? 'invalid' };
+    }
+  },
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
@@ -39,7 +46,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   const insertChain: Record<string, Function> = {
     values: (row: Record<string, unknown>) => {
       insertCalls.push(row);

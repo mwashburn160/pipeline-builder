@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 const logger = createLogger('alert-destination-service');

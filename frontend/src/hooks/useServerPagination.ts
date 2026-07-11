@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { runCancellableFetch } from './internal/fetchCore';
 
 interface PaginationState {
   offset: number;
@@ -64,29 +65,23 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
   }, [filterKey]);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetcherRef
-      .current({ offset: pagination.offset, limit: pagination.limit, filters })
-      .then((result) => {
-        if (cancelled) return;
-        setItems(result.items);
-        setPagination((p) =>
-          p.total === result.pagination.total ? p : { ...p, total: result.pagination.total },
-        );
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err : new Error(String(err)));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    return runCancellableFetch(
+      () => fetcherRef.current({ offset: pagination.offset, limit: pagination.limit, filters }),
+      {
+        onStart: () => {
+          setLoading(true);
+          setError(null);
+        },
+        onSuccess: (result) => {
+          setItems(result.items);
+          setPagination((p) =>
+            p.total === result.pagination.total ? p : { ...p, total: result.pagination.total },
+          );
+        },
+        onError: setError,
+        onSettled: () => setLoading(false),
+      },
+    );
     // filters is read via JSON key (avoids object-identity churn)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagination.offset, pagination.limit, filterKey, tick]);

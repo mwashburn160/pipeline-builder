@@ -54,16 +54,3 @@ export function resolveRecipientAlias(recipientOrgId: string): AliasResolution {
   };
 }
 
-/**
- * Reset the cached aliases.
- *
- * WARNING: TEST-ONLY. This is exported solely so unit tests can clear the
- * module-level cache between cases when they mutate alias env vars. Do NOT
- * call from production code paths — mutating the cache at runtime is
- * unsupported and will cause inconsistent alias resolution under concurrency.
- *
- * @internal
- */
-export function _resetAliasCache(): void {
-  _supportAliases = undefined;
-}

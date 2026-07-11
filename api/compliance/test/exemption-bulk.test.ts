@@ -43,7 +43,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   const insertChain = {
     values: () => insertChain,
     returning: () => Promise.resolve(insertedRowsRef.value),

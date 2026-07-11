@@ -58,7 +58,6 @@ export {
 import { ErrorCode } from '@pipeline-builder/api-core';
 import { resolve as evaluatorResolve, type Scope } from './evaluator.js';
 import { recordResolution } from './metrics.js';
-import { hasTemplate, tokenize, type Token } from './tokenizer.js';
 import { topoSort } from './topo-sort.js';
 import { walkAndBind, type FieldPredicate } from './walker.js';
 
@@ -176,17 +175,3 @@ export function resolveSelfReferencing<T extends object>(
   return { errors };
 }
 
-/**
- * Inline round-trip helper — parses and resolves a single string against
- * a scope. Returns a string unless a whole-field coercion filter was
- * used (in which case the native type from `| number`, `| bool`, or
- * `| json` is returned).
- */
-export function resolveString(
-  source: string,
-  scope: Scope,
-): string | number | boolean | null | unknown[] | Record<string, unknown> {
-  if (!hasTemplate(source)) return source;
-  const tokens: Token[] = tokenize(source);
-  return evaluatorResolve(tokens, scope);
-}

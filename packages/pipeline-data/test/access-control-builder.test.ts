@@ -32,7 +32,7 @@ const ORG_ID = 'org-abc-123';
 describe('AccessControlQueryBuilder - no orgId (anonymous access)', () => {
   it('should produce system-public-only conditions when no orgId', () => {
     const conditions = builder.buildCommonConditions({});
-    // access control (2: orgId='system' + accessModifier='public') + isActive default (1) = 3
+    // access control (2: orgId=SYSTEM_ORG_ID + accessModifier='public') + isActive default (1) = 3
     expect(conditions.length).toBe(3);
   });
 
@@ -157,7 +157,7 @@ describe('AccessControlQueryBuilder - default view shows own-org private', () =>
     // returned for ANY access modifier), while 'public' only gates the
     // system/parent rows. So 'private' must NOT appear anywhere here.
     expect(params).toContain(ORG_ID.toLowerCase());
-    expect(params).toContain('system');
+    expect(params).toContain('000000000000000000000001');
     expect(params).toContain('public');
     expect(params).not.toContain('private');
     // own-org equality is OR'd in, not AND'ed with the public predicate.
@@ -169,7 +169,7 @@ describe('AccessControlQueryBuilder - default view shows own-org private', () =>
 describe('AccessControlQueryBuilder - combined common conditions', () => {
   it('should include access control + isActive default for empty filter', () => {
     const conditions = builder.buildCommonConditions({}, ORG_ID);
-    // access control (1: or(orgId=$org, public AND orgId='system')) + isActive default (1) = 2
+    // access control (1: or(orgId=$org, public AND orgId=SYSTEM_ORG_ID)) + isActive default (1) = 2
     expect(conditions.length).toBe(2);
   });
 

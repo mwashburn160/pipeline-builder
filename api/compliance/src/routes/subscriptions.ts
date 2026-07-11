@@ -10,9 +10,11 @@ import {
   getParam,
   parsePaginationParams,
   validateBody,
+  requirePermission,
+  isServicePrincipal,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
@@ -35,6 +37,20 @@ const PreviewSchema = z.object({
   ruleId: z.string().uuid(),
   sampleAttributes: z.record(z.string(), z.unknown()).optional(),
 });
+
+/**
+ * Reject any caller that isn't a service principal. The upstream mount runs
+ * `requireAuth`, which verifies the JWT; this gate then ensures the token was
+ * minted by `signServiceToken` (peer services use `getServiceAuthHeader`) and
+ * is not a user JWT. Mirrors the guard on the internal entity-events route.
+ */
+function requireServicePrincipal(req: Request, res: Response, next: NextFunction): void {
+  if (!isServicePrincipal(req)) {
+    sendBadRequest(res, 'Internal service calls only', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    return;
+  }
+  next();
+}
 
 /**
  * Routes for browsing the published rules catalog.
@@ -78,28 +94,30 @@ export function createSubscriptionRoutes(): Router {
   // GET / — list this org's active subscriptions with rule details
   router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
-    const subscriptions = await subscriptionService.findByOrg(orgId);
-    const total = subscriptions.length;
-    const paginatedSubs = subscriptions.slice(offset, offset + limit);
+    // Pagination is pushed into SQL (LIMIT/OFFSET + a COUNT) instead of loading
+    // the whole subscription set and slicing in JS.
+    const { subscriptions, total } = await subscriptionService.findByOrg(orgId, limit, offset);
 
-    const ruleIds = paginatedSubs.map(s => s.ruleId);
+    const ruleIds = subscriptions.map(s => s.ruleId);
     const rules = await complianceRuleService.findManyByIds(ruleIds);
     const rulesById = new Map(rules.map(r => [r.id, r]));
 
-    const result = paginatedSubs.map(sub => ({
+    const result = subscriptions.map(sub => ({
       ...sub,
       rule: rulesById.get(sub.ruleId) || null,
     }));
 
     ctx.log('COMPLETED', 'Listed rule subscriptions', { count: result.length });
     return sendPaginatedNested(res, 'subscriptions', result, {
-      total, limit, offset, hasMore: offset + paginatedSubs.length < total,
+      total, limit, offset, hasMore: offset + subscriptions.length < total,
     });
   }));
 
-  // POST /auto-subscribe — subscribe org to all published rules (inactive)
-  // Called internally by platform service during org onboarding.
-  router.post('/auto-subscribe', withRoute(async ({ res, ctx, orgId, userId }) => {
+  // POST /auto-subscribe — subscribe org to all published rules (inactive).
+  // Internal-only: the platform service calls this during org onboarding with a
+  // service JWT (`getServiceAuthHeader`). `requireServicePrincipal` rejects any
+  // interactive user token so a member can't bulk-mint subscriptions.
+  router.post('/auto-subscribe', requireServicePrincipal, withRoute(async ({ res, ctx, orgId, userId }) => {
     const count = await subscriptionService.autoSubscribeToPublished(orgId, userId);
     ctx.log('COMPLETED', 'Auto-subscribed to published rules', { count });
     return sendSuccess(res, 200, { subscribed: count });
@@ -168,7 +186,10 @@ export function createSubscriptionRoutes(): Router {
   // POST /clone — clone a published rule into org scope (one-shot copy, no
   // upstream link). Previously named `/fork`; "fork" carried git connotations
   // (track upstream for merge) we never delivered.
-  router.post('/clone', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // Cloning authors a new org-scoped rule (same write as POST /compliance/rules),
+  // so it requires `compliance:write`. Subscribe/toggle/delete below stay at
+  // member level — those are per-org opt-in, not rule authoring.
+  router.post('/clone', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, SubscribeSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);

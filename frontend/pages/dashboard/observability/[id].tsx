@@ -19,6 +19,7 @@ import { RangePicker } from '@/components/observability/RangePicker';
 import type { RangeKey } from '@/types/observability';
 import type { DashboardWithPanels, DashboardPanel } from '@/types/observability';
 import { api, ApiError } from '@/lib/api';
+import { isSystemAdmin } from '@/lib/auth-helpers';
 
 // Read-side: lazy-load the grid driver so the ~120 KB bundle only ships
 // when a dashboard is actually viewed. Dashboards without saved coords
@@ -108,7 +109,7 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
  * `/dashboard/observability/[id]`).
  */
 export default function DashboardPage() {
-  const { isReady, isAuthenticated, user } = useAuthGuard();
+  const { isReady, isAuthenticated, user, can } = useAuthGuard();
   const router = useRouter();
   const toast = useToast();
   const id = typeof router.query.id === 'string' ? router.query.id : '';
@@ -198,8 +199,8 @@ export default function DashboardPage() {
   // anything — server rejects writes the caller isn't allowed to make — but
   // hides the button from members who can't touch it to reduce noise.
   const mightEdit = !!user
-    && (dashboard.visibility !== 'public' || user.organizationName === 'system')
-    && (dashboard.createdBy === user.id || user.role === 'admin');
+    && (dashboard.visibility !== 'public' || isSystemAdmin(user))
+    && (dashboard.createdBy === user.id || can('dashboards:write'));
 
   return (
     <DashboardLayout

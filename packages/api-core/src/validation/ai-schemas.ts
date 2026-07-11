@@ -35,9 +35,6 @@ export const AIGenerateBodySchema = z.object({
   fallbackProviders: z.array(z.string()).optional(),
 });
 
-/** Validated type for AI generation request body. */
-export type ValidatedAIGenerateBody = z.infer<typeof AIGenerateBodySchema>;
-
 // Plugin Deploy-Generated Request
 
 /**
@@ -85,9 +82,6 @@ export const PluginDeployGeneratedSchema = z.object({
   accessModifier: AccessModifierSchema.default('private'),
 });
 
-/** Validated type for plugin deploy-generated request body. */
-export type ValidatedPluginDeployGenerated = z.infer<typeof PluginDeployGeneratedSchema>;
-
 // AI Generate From URL Request
 
 /**
@@ -110,6 +104,3 @@ export const AIGenerateFromUrlBodySchema = z.object({
   /** Optional authentication token for accessing private repositories. */
   repoToken: z.string().min(1).optional(),
 });
-
-/** Validated type for AI generate-from-URL request body. */
-export type ValidatedAIGenerateFromUrlBody = z.infer<typeof AIGenerateFromUrlBodySchema>;

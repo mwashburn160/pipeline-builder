@@ -76,6 +76,42 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     select: dbSelect,
   }),
 }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+  CrudService: StubCrudService,
+  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 },
+  buildComplianceRuleConditions: jest.fn(() => []),
+  buildPublishedRuleCatalogConditions: jest.fn(() => []),
+  drizzleCount: (r: unknown) => r,
+  schema: {
+    complianceRule: {
+      id: 'col_id',
+      orgId: 'col_orgId',
+      name: 'col_name',
+      target: 'col_target',
+      isActive: 'col_isActive',
+      scope: 'col_scope',
+      priority: 'col_priority',
+      severity: 'col_severity',
+      createdAt: 'col_createdAt',
+      updatedAt: 'col_updatedAt',
+    },
+    complianceRuleSubscription: {
+      id: 'col_sid', orgId: 'col_sorg', ruleId: 'col_sruleId', isActive: 'col_sactive',
+    },
+    complianceRuleHistory: {
+      ruleId: 'col_hr', orgId: 'col_horg', changedAt: 'col_hat',
+    },
+    complianceScan: {},
+  },
+  // After the migration the service uses withTenantTx / runWithTenantContext
+  // for every DB op. Pass through to the same dbInsert / dbSelect spies the
+  // tests already track so assertions remain unchanged.
+  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
+    insert: dbInsert,
+    select: dbSelect,
+  }),
+}));;
 
 jest.unstable_mockModule('../src/helpers/rule-change-notifier.js', () => ({
   notifyPublishedRuleChange: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),

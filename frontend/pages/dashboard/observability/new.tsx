@@ -18,7 +18,8 @@ import { api, ApiError } from '@/lib/api';
  * "empty dashboard with no panels" intermediate state in the API.
  */
 export default function NewDashboardPage() {
-  const { isReady, isAuthenticated } = useAuthGuard();
+  // Creating a dashboard is a `dashboards:write` capability (superadmins bypass).
+  const { isReady, isAuthenticated } = useAuthGuard({ requirePermission: 'dashboards:write' });
   const router = useRouter();
   const toast = useToast();
   const [name, setName] = useState('');

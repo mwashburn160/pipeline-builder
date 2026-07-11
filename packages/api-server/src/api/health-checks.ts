@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getConnection } from '@pipeline-builder/pipeline-core';
+import { getConnection } from '@pipeline-builder/pipeline-data';
 
 type HealthStatus = 'connected' | 'disconnected' | 'unknown';
 type HealthResult = Record<string, HealthStatus>;

@@ -39,10 +39,10 @@ $$ LANGUAGE 'plpgsql';
 
 CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL DEFAULT 'system',
-    created_by TEXT NOT NULL DEFAULT 'system',
+    org_id VARCHAR(255) NOT NULL DEFAULT '000000000000000000000001',
+    created_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     -- Plugin Information
@@ -88,10 +88,10 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
 
 CREATE TABLE IF NOT EXISTS pipelines (    -- Identity & Audit Fields
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL DEFAULT 'system',
-    created_by TEXT NOT NULL DEFAULT 'system',
+    org_id VARCHAR(255) NOT NULL DEFAULT '000000000000000000000001',
+    created_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     -- Pipeline Information
@@ -119,10 +119,10 @@ CREATE TABLE IF NOT EXISTS pipelines (    -- Identity & Audit Fields
 
 CREATE TABLE IF NOT EXISTS messages (    -- Identity & Audit Fields
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL DEFAULT 'system',
-    created_by TEXT NOT NULL DEFAULT 'system',
+    org_id VARCHAR(255) NOT NULL DEFAULT '000000000000000000000001',
+    created_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     -- Threading
@@ -227,10 +227,10 @@ ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100);
 -- present (matches what we do for plugins, pipelines, compliance, etc.).
 
 CREATE TABLE IF NOT EXISTS dashboards (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL DEFAULT 'system',
-    created_by TEXT NOT NULL DEFAULT 'system',
+    org_id VARCHAR(255) NOT NULL DEFAULT '000000000000000000000001',
+    created_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     name VARCHAR(150) NOT NULL,
@@ -607,10 +607,10 @@ CREATE INDEX IF NOT EXISTS message_org_active_idx
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS compliance_policies (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL DEFAULT 'system',
-    created_by TEXT NOT NULL DEFAULT 'system',
+    org_id VARCHAR(255) NOT NULL DEFAULT '000000000000000000000001',
+    created_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     name VARCHAR(255) NOT NULL,
@@ -637,10 +637,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS compliance_policy_name_org_version_unique
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS compliance_rules (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL DEFAULT 'system',
-    created_by TEXT NOT NULL DEFAULT 'system',
+    org_id VARCHAR(255) NOT NULL DEFAULT '000000000000000000000001',
+    created_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT NOT NULL DEFAULT 'system',
+    updated_by TEXT NOT NULL DEFAULT '000000000000000000000001',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     name VARCHAR(255) NOT NULL,
@@ -1151,7 +1151,7 @@ BEGIN
         -- (CREATE POLICY would error on the second run).
         EXECUTE format('DROP POLICY IF EXISTS rls_org_scope ON %I', t);
         EXECUTE format(            'CREATE POLICY rls_org_scope ON %I '
-            'USING (current_is_sysadmin() OR org_id = current_org_id() OR org_id = ''system'') '
+            'USING (current_is_sysadmin() OR org_id = current_org_id() OR org_id = ''000000000000000000000001'') '
             'WITH CHECK (current_is_sysadmin() OR org_id = current_org_id())',
             t
         );
@@ -1166,7 +1166,7 @@ CREATE POLICY rls_org_scope ON dashboard_panels
     USING (        current_is_sysadmin()
         OR EXISTS (            SELECT 1 FROM dashboards d
             WHERE d.id = dashboard_panels.dashboard_id
-              AND (d.org_id = current_org_id() OR d.org_id = 'system')
+              AND (d.org_id = current_org_id() OR d.org_id = '000000000000000000000001')
         )
     )
     WITH CHECK (        current_is_sysadmin()

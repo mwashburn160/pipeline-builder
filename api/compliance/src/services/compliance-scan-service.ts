@@ -1,12 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  buildComplianceScanConditions,
-  drizzleCount,
-  schema,
-  withTenantTx,
-} from '@pipeline-builder/pipeline-core';
+import { buildComplianceScanConditions, drizzleCount, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, sql } from 'drizzle-orm';
 
 export interface ComplianceScanFilter {

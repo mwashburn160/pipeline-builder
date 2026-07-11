@@ -22,6 +22,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
   // Consumed transitively via token.js -> org-hierarchy.js.
   resolveUserFeatures: jest.fn(() => ({})),
+  resolveUserPermissions: jest.fn(() => []),
   resolveOrgLineageWith: jest.fn(),
   isAncestorOrgWith: jest.fn(),
   expandOrgScopeWith: jest.fn(),
@@ -56,7 +57,11 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  User: {}, Organization: {}, UserOrganization: {},
+  User: {},
+  Organization: {},
+  UserOrganization: {},
+  Group: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
+  GroupMembership: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
 }));
 
 const { _resetConsumedJtiForTests, consumeJti } = await import('../src/middleware/consumed-jti.js');

@@ -64,6 +64,13 @@ export const addUserGrant = withController('Add user grant', async (req, res) =>
     }
     user.isSuperAdmin = true;
     await user.save();
+    // Bump tokenVersion (and drop any refresh token) so the promotion takes
+    // effect immediately — the next request re-issues a token carrying the
+    // new grant instead of trusting a stale JWT.
+    await User.updateOne(
+      { _id: userId },
+      { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
+    );
     audit(req, 'admin.superadmin.grant', {
       targetType: 'user',
       targetId: userId,
@@ -104,6 +111,12 @@ export const removeUserGrant = withController('Remove user grant', async (req, r
 
     user.isSuperAdmin = false;
     await user.save();
+    // Invalidate live sessions: bump tokenVersion (so any JWT the demoted user
+    // still holds is rejected by `requireAuth`) and clear their refresh token.
+    await User.updateOne(
+      { _id: userId },
+      { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
+    );
     audit(req, 'admin.superadmin.revoke', {
       targetType: 'user',
       targetId: userId,

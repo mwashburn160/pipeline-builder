@@ -1,34 +1,35 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, DEFAULT_TIER, getServiceAuthHeader, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { seedDefaultGroups } from './groups-service.js';
-import { config } from '../config/index.js';
-import { toOrgId } from '../helpers/controller-helper.js';
-import { expandOrgScope, resolveOrgLineage } from '../helpers/org-hierarchy.js';
-import { pooledSeatUsage } from '../helpers/seats.js';
+import { applyAIProviderKeyUpdates, buildProvidersMap, ORG_AI_KEY_TOO_LONG } from './organization-ai-secrets.js';
 import {
-  getOrganizationQuotaStatus,
-  updateQuotaLimits,
-  type QuotaType,
-} from '../middleware/quota.js';
-import { Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
+  checkTierOvercap,
+  getQuotas,
+  setSeatLimit,
+  setTier,
+  updateQuotas,
+  type QuotaLimitsInput,
+  type QuotaStatus,
+  type QuotaTypeKey,
+} from './organization-quota.js';
+import { toOrgId } from '../helpers/controller-helper.js';
+import { Group, GroupMembership, Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
 import type { QuotaTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
-import { wrapEncrypted } from '../utils/secret-blob.js';
-
-const logger = createLogger('organization-service');
 
 /** Typed error codes thrown by service methods  map to HTTP status in withController. */
 export const ORG_NOT_FOUND = 'ORG_NOT_FOUND';
 export const SYSTEM_ORG_DELETE_FORBIDDEN = 'SYSTEM_ORG_DELETE_FORBIDDEN';
+// Re-exported from organization-ai-secrets.js to preserve the module's public API.
+export { ORG_AI_KEY_TOO_LONG };
 
-/** Supported AI provider identifiers. */
-const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;
-
-const QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls', 'aiCalls'] as const;
-type QuotaTypeKey = (typeof QUOTA_TYPES)[number];
+/** Default / hard cap on the member roster returned by {@link OrganizationService.getById}
+ *  so a large org doesn't return its full membership on this hot read. */
+const MEMBER_ROSTER_DEFAULT_LIMIT = 100;
+const MEMBER_ROSTER_MAX_LIMIT = 500;
 
 interface OrgSummary {
   id: string;
@@ -77,15 +78,6 @@ interface OrgWithMembers extends Omit<OrgSummary, 'memberCount'> {
   rootOrgId: string;
 }
 
-interface QuotaStatus {
-  used: number;
-  limit: number | string;
-  remaining: number | string;
-  resetAt: Date;
-  resetPeriod: string;
-  unlimited: boolean;
-}
-
 interface CreateOrgInput {
   name: string;
   description?: string;
@@ -97,18 +89,6 @@ interface CreateOrgInput {
 interface UpdateOrgInput {
   name?: string;
   description?: string;
-}
-
-interface QuotaLimitsInput {
-  plugins?: number;
-  pipelines?: number;
-  apiCalls?: number;
-  aiCalls?: number;
-}
-
-/** Format a quota limit for API responses. -1 → 'unlimited'. */
-function formatQuotaValue(value: number): number | string {
-  return value === -1 ? 'unlimited': value;
 }
 
 class OrganizationService {
@@ -136,21 +116,26 @@ class OrganizationService {
       Organization.countDocuments(filter),
     ]);
 
-    // Cheap O(page) fan-out for member counts. Plus one extra Mongo
-    // query for the set of orgs (in this page) that have an IdP config
-    // — used to derive the `idpConfigured` facet without a per-row lookup.
+    // Member counts for the whole page in ONE aggregation (single $group over the
+    // page's org ids) instead of a per-org countDocuments fan-out. Plus one extra
+    // Mongo query for the set of orgs (in this page) that have an IdP config —
+    // used to derive the `idpConfigured` facet without a per-row lookup.
     const orgIds = organizations.map((org) => org._id);
-    const [memberCounts, idpOrgIds] = await Promise.all([
-      Promise.all(orgIds.map((id) => UserOrganization.countDocuments({ organizationId: id, isActive: true }))),
+    const [memberCountRows, idpOrgIds] = await Promise.all([
+      UserOrganization.aggregate<{ _id: unknown; count: number }>([
+        { $match: { organizationId: { $in: orgIds }, isActive: true } },
+        { $group: { _id: '$organizationId', count: { $sum: 1 } } },
+      ]),
       OrgIdpConfig.find({ orgId: { $in: orgIds.map((id) => id.toString()) } }).distinct('orgId'),
     ]);
+    const memberCountMap = new Map(memberCountRows.map((r) => [String(r._id), r.count]));
     const idpSet = new Set(idpOrgIds.map((id) => String(id)));
 
     // Resolve parent-org display names for any teams on this page (one batched
     // lookup; no query at all while orgs are flat, i.e. no parentOrgId set).
     const parentIds = [...new Set(
       organizations
-        .map((org) => (org as { parentOrgId?: string | null }).parentOrgId)
+        .map((org) => org.parentOrgId)
         .filter((p): p is string => !!p),
     )];
     const parentNames = parentIds.length
@@ -161,20 +146,20 @@ class OrganizationService {
       : new Map<string, string>();
 
     return {
-      organizations: organizations.map((org, idx) => {
-        const parentOrgId = (org as { parentOrgId?: string | null }).parentOrgId ?? null;
+      organizations: organizations.map((org) => {
+        const parentOrgId = org.parentOrgId ?? null;
         const parentOrgName = parentOrgId ? parentNames.get(parentOrgId) : undefined;
         return {
           id: org._id.toString(),
           name: org.name,
           slug: org.slug,
           description: org.description || '',
-          memberCount: memberCounts[idx],
+          memberCount: memberCountMap.get(org._id.toString()) ?? 0,
           ownerId: org.owner?.toString(),
           createdAt: org.createdAt,
           updatedAt: org.updatedAt,
-          tier: (org as { tier?: QuotaTier }).tier,
-          kmsConfigured: Boolean((org as { kmsConfig?: { keyId?: string } }).kmsConfig?.keyId),
+          tier: org.tier,
+          kmsConfigured: Boolean(org.kmsConfig?.keyId),
           idpConfigured: idpSet.has(org._id.toString()),
           parentOrgId,
           ...(parentOrgName && { parentOrgName }),
@@ -270,53 +255,42 @@ class OrganizationService {
     seats: number,
     features?: string[],
   ): Promise<{ rootOrgId: string; seats: number } | null> {
-    const { rootOrgId } = await resolveOrgLineage(orgId);
-    const set: Record<string, unknown> = { 'quotas.seats': seats };
-    // Account-level purchased feature entitlements (bundles) also live on the
-    // root and are synced by billing alongside the seat limit.
-    if (features !== undefined) set.featureEntitlements = features;
-
-    // Atomic: the root seat/entitlement write and its propagation onto descendant
-    // teams must both land or neither, so a member's token can't carry a stale
-    // entitlement set after a partial failure.
-    return withMongoTransaction(async (session) => {
-      const result = await Organization.updateOne(
-        { _id: toOrgId(rootOrgId) },
-        { $set: set },
-        { session },
-      );
-      if (result.matchedCount === 0) return null;
-
-      // Propagate feature entitlements onto descendant teams so a team member's
-      // token carries them (they're account-level; mirrors tier propagation).
-      if (features !== undefined) {
-        const scope = await expandOrgScope(rootOrgId);
-        const descendantIds = scope.filter((sid) => sid !== rootOrgId);
-        if (descendantIds.length > 0) {
-          await Organization.updateMany(
-            { _id: { $in: descendantIds.map(toOrgId) } },
-            { $set: { featureEntitlements: features } },
-            { session },
-          );
-        }
-      }
-      return { rootOrgId, seats };
-    });
+    return setSeatLimit(orgId, seats, features);
   }
 
-  /** Get a single org with its full member list. Returns null if not found. */
-  async getById(id: string): Promise<OrgWithMembers | null> {
+  /**
+   * Get a single org with a (bounded) page of its member list. Returns null if
+   * not found. The roster is capped/paginated (`membersLimit`/`membersOffset`,
+   * default cap {@link MEMBER_ROSTER_DEFAULT_LIMIT}) so a large org doesn't ship
+   * its entire membership on this hot read; `memberCount` is always the full
+   * count so the UI can page.
+   */
+  async getById(
+    id: string,
+    opts: { membersLimit?: number; membersOffset?: number } = {},
+  ): Promise<OrgWithMembers | null> {
     const org = await Organization.findById(toOrgId(id))
       .populate('owner', 'username email')
       .lean();
     if (!org) return null;
 
-    const parentOrgId = (org as { parentOrgId?: unknown }).parentOrgId;
+    const membersLimit = Math.min(
+      Math.max(1, opts.membersLimit ?? MEMBER_ROSTER_DEFAULT_LIMIT),
+      MEMBER_ROSTER_MAX_LIMIT,
+    );
+    const membersOffset = Math.max(0, opts.membersOffset ?? 0);
+
+    const parentOrgId = org.parentOrgId;
     const isTeam = !!parentOrgId;
     const rootOrgId = isTeam ? String(parentOrgId) : org._id.toString();
 
     const [memberships, memberCount, idpDoc] = await Promise.all([
-      UserOrganization.find({ organizationId: org._id }).populate('userId', 'username email').lean(),
+      UserOrganization.find({ organizationId: org._id })
+        .populate('userId', 'username email')
+        .sort({ joinedAt: 1 })
+        .skip(membersOffset)
+        .limit(membersLimit)
+        .lean(),
       UserOrganization.countDocuments({ organizationId: org._id }),
       OrgIdpConfig.exists({ orgId: org._id.toString() }),
     ]);
@@ -337,8 +311,8 @@ class OrganizationService {
       members,
       createdAt: org.createdAt,
       updatedAt: org.updatedAt,
-      tier: (org as { tier?: QuotaTier }).tier,
-      kmsConfigured: Boolean((org as { kmsConfig?: { keyId?: string } }).kmsConfig?.keyId),
+      tier: org.tier,
+      kmsConfigured: Boolean(org.kmsConfig?.keyId),
       idpConfigured: Boolean(idpDoc),
       // Org → team hierarchy. One-level nesting means a team's parent IS the
       // root, so rootOrgId needs no extra query.
@@ -349,144 +323,25 @@ class OrganizationService {
   }
 
   /**
-   * Change an org's pricing tier and reseed quota limits from the new
-   * tier's config. Sysadmin-only at the route layer. Returns the
-   * previous + new tier so the audit event can record the transition.
-   *
-   * The quota-microservice is NOT updated here — callers that care
-   * about reflecting the new limits in the quota service should call
-   * `updateQuotas` separately. We keep the two operations decoupled
-   * because partial failure of the remote quota service shouldn't
-   * leave the org-doc tier unchanged.
-   */
-  /**
    * Whether changing `orgId`'s account to `newTier` would drop a COUNT quota's
-   * cap below current pooled usage (docs/billing-bundles.md §8) — mirrors the
-   * billing over-cap gate for the sysadmin tier-change path. Guards seats
-   * (pooled), plugins, pipelines (count quotas whose usage lives on the shared
-   * org doc). Rate quotas (apiCalls/aiCalls) aren't guarded — they reset. Empty
-   * array = safe.
+   * cap below current pooled usage — see {@link checkTierOvercap} in
+   * organization-quota.js. Delegates to keep the pooled-usage/tier logic in one
+   * place; the public method signature is unchanged.
    */
   async checkTierOvercap(
     orgId: string,
     newTier: QuotaTier,
   ): Promise<Array<{ quotaType: string; currentUsage: number; targetCap: number; overage: number }>> {
-    const limits = QUOTA_TIERS[newTier].limits;
-    const overages: Array<{ quotaType: string; currentUsage: number; targetCap: number; overage: number }> = [];
-
-    // Resolve the account subtree once (shared by the team-stranding + pooled
-    // usage checks below).
-    const { rootOrgId } = await resolveOrgLineage(orgId);
-    const scope = await expandOrgScope(rootOrgId);
-    const scopeIds = scope.map(toOrgId);
-
-    // Structural guard (mirrors the delete-path block): a team requires its
-    // parent tier to be `team`/`enterprise` (checkParentEligible). Downgrading a
-    // root that HAS teams to a team-forbidding tier (developer/pro) would strand
-    // them, so surface it as an over-cap the sysadmin must `force` past.
-    if (newTier !== 'team' && newTier !== 'enterprise') {
-      const teamCount = scopeIds.length - 1; // subtree minus the root itself
-      if (teamCount > 0) {
-        overages.push({ quotaType: 'teams', currentUsage: teamCount, targetCap: 0, overage: teamCount });
-      }
-    }
-
-    // seats (platform-owned, pooled)
-    if (limits.seats !== -1) {
-      const { used } = await pooledSeatUsage(orgId);
-      if (used > limits.seats) {
-        overages.push({ quotaType: 'seats', currentUsage: used, targetCap: limits.seats, overage: used - limits.seats });
-      }
-    }
-
-    // Persistent COUNT quotas — usage pools across the subtree (a team's usage
-    // counts against the root). These can't auto-shrink on downgrade, so a
-    // downgrade below current usage is blocked. (Rate quotas apiCalls/aiCalls
-    // reset per period, and storageBytes is measured live — not guarded here,
-    // matching billing's checkEntitlementOvercap.)
-    //
-    // Authoritative read: ask the QUOTA SERVICE for each field's pooled usage —
-    // it's the single authority for pooling + expired-period semantics.
-    // `getOrganizationQuotaStatus` already rolls the subtree up to the root and
-    // zeroes expired periods, so one read per field on `rootOrgId` equals the
-    // subtree total. Degraded fallback: if the service is unreachable for a
-    // field, read that field straight off the shared org docs (the prior
-    // behavior — same underlying Mongo counters) so a transient outage doesn't
-    // silently under-count and wave a stranding downgrade through.
-    const COUNT_QUOTAS = ['plugins', 'pipelines', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'] as const;
-    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: rootOrgId, role: 'owner' });
-    const statuses = await Promise.all(
-      COUNT_QUOTAS.map((field) => getOrganizationQuotaStatus(rootOrgId, field as QuotaType, auth)),
-    );
-
-    let fallbackRows: Array<{ usage?: unknown }> | null = null;
-    const usageFor = async (field: string, i: number): Promise<number> => {
-      const status = statuses[i];
-      if (status) return status.used;
-      // Service unavailable for this field: degrade to the shared org-doc sum.
-      if (!fallbackRows) {
-        fallbackRows = await Organization.find({ _id: { $in: scopeIds } })
-          .select('usage.plugins usage.pipelines usage.dashboards usage.alertRules usage.alertDestinations usage.idpConfigs').lean();
-      }
-      return fallbackRows.reduce((sum, r) => {
-        const usage = r.usage as unknown as Record<string, { used?: number } | undefined> | undefined;
-        return sum + (usage?.[field]?.used ?? 0);
-      }, 0);
-    };
-
-    for (let i = 0; i < COUNT_QUOTAS.length; i++) {
-      const field = COUNT_QUOTAS[i];
-      if (limits[field] === -1) continue;
-      const used = await usageFor(field, i);
-      if (used > limits[field]) {
-        overages.push({ quotaType: field, currentUsage: used, targetCap: limits[field], overage: used - limits[field] });
-      }
-    }
-    return overages;
+    return checkTierOvercap(orgId, newTier);
   }
 
+  /**
+   * Change an org's pricing tier and reseed quota limits from the new tier's
+   * config — see {@link setTier} in organization-quota.js. Delegates; the public
+   * method signature is unchanged.
+   */
   async setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier?: QuotaTier; tier: QuotaTier } | null> {
-    const org = await Organization.findById(toOrgId(id));
-    if (!org) return null;
-
-    const previousTier = org.tier as QuotaTier | undefined;
-    if (previousTier === newTier) {
-      return { id: org._id.toString(), previousTier, tier: newTier };
-    }
-
-    org.tier = newTier;
-    if (org.parentOrgId) {
-      // Team: tier is derived (display-only). Its quotas stay pooled (-1) so the
-      // ROOT's cap is the only binding one — do NOT reseed from the preset.
-    } else if (config.quota.tier[newTier]) {
-      // Root: reseed its OWN quotas from the new tier (source from QUOTA_TIERS
-      // so every QuotaTierLimits field stays in lockstep).
-      org.quotas = { ...QUOTA_TIERS[newTier].limits };
-      org.markModified('quotas');
-    }
-
-    // Atomic: the root's tier/quota save and the tier propagation onto its
-    // descendant teams must both land or neither — a failure between them would
-    // otherwise leave the root on the new tier while teams keep the old.
-    await withMongoTransaction(async (session) => {
-      await org.save({ session });
-
-      // Propagate the tier label to descendant teams so their derived tier tracks
-      // the root (their quotas stay pooled at -1). No-op for a flat org / a team.
-      if (!org.parentOrgId) {
-        const scope = await expandOrgScope(org._id.toString());
-        const descendantIds = scope.filter((sid) => sid !== org._id.toString());
-        if (descendantIds.length > 0) {
-          await Organization.updateMany(
-            { _id: { $in: descendantIds.map(toOrgId) } },
-            { $set: { tier: newTier } },
-            { session },
-          );
-        }
-      }
-    });
-
-    return { id: org._id.toString(), previousTier, tier: newTier };
+    return setTier(id, newTier);
   }
 
   /** Update name/description. Returns null if not found. */
@@ -525,6 +380,11 @@ class OrganizationService {
       // doc — and use deleteOne's `deletedCount` as the existence probe so
       // we skip a redundant `findById` round-trip.
       await UserOrganization.deleteMany({ organizationId: queryId }).session(session);
+      // Drop the groups + group memberships seeded on org create
+      // (`seedDefaultGroups`); otherwise they orphan and a future org reusing
+      // this id could inherit stale group state.
+      await GroupMembership.deleteMany({ organizationId: queryId }).session(session);
+      await Group.deleteMany({ organizationId: queryId }).session(session);
       // `lastActiveOrgId` is stored as a string (with a validator that
       // accepts ObjectId-shape strings + the 'system' sentinel); the
       // filter must therefore compare against the stringified org id
@@ -536,92 +396,19 @@ class OrganizationService {
   }
 
   /**
-   * Fetch quota usage/limits per type from the quota microservice, falling back
-   * to the org doc when the service is unavailable. Returns null if the org
-   * doesn't exist.
+   * Fetch quota usage/limits per type from the quota microservice — see
+   * {@link getQuotas} in organization-quota.js. Delegates; signature unchanged.
    */
   async getQuotas(id: string, authHeader: string): Promise<Record<string, QuotaStatus> | null> {
-    const org = await Organization.findById(toOrgId(id));
-    if (!org) return null;
-
-    const tierKey = (org.tier || 'developer') as QuotaTier;
-    const tierConfig = config.quota.tier[tierKey];
-
-    const results = await Promise.all( QUOTA_TYPES.map((type) => getOrganizationQuotaStatus(id, type as QuotaType, authHeader)),
-    );
-
-    const quotas: Record<string, QuotaStatus> = {};
-    for (let i = 0; i < QUOTA_TYPES.length; i++) {
-      const type = QUOTA_TYPES[i];
-      const quotaStatus = results[i];
-
-      if (quotaStatus) {
-        quotas[type] = {
-          used: quotaStatus.used,
-          limit: formatQuotaValue(quotaStatus.limit),
-          remaining: formatQuotaValue(quotaStatus.remaining),
-          resetAt: new Date(quotaStatus.resetAt),
-          resetPeriod: tierConfig.resetPeriod[type],
-          unlimited: quotaStatus.unlimited,
-        };
-      } else {
-        // Service unavailable: read from the org doc as a degraded fallback.
-        const limit = org.quotas?.[type] ?? -1;
-        const used = org.usage?.[type]?.used ?? 0;
-        quotas[type] = {
-          used,
-          limit: formatQuotaValue(limit),
-          remaining: formatQuotaValue(limit === -1 ? -1: Math.max(0, limit - used)),
-          resetAt: org.usage?.[type]?.resetAt || new Date(),
-          resetPeriod: tierConfig.resetPeriod[type],
-          unlimited: limit === -1,
-        };
-      }
-    }
-    return quotas;
+    return getQuotas(id, authHeader);
   }
 
   /**
-   * Update quota limits via the quota service, falling back to direct Mongo
-   * write when the service is unreachable so the limits still take effect.
-   * Returns the final quota limits per type. Returns null if org not found.
+   * Update quota limits via the quota service — see {@link updateQuotas} in
+   * organization-quota.js. Delegates; signature unchanged.
    */
   async updateQuotas(id: string, quotaLimits: QuotaLimitsInput, authHeader: string): Promise<Record<QuotaTypeKey, { limit: number | string; unlimited: boolean }> | null> {
-    const org = await Organization.findById(toOrgId(id));
-    if (!org) return null;
-
-    const serviceUpdated = await updateQuotaLimits(id, quotaLimits, authHeader);
-
-    if (!serviceUpdated) {
-      // Quota service unreachable  write to the org doc directly so the cap
-      // is at least enforceable on the next request via the fallback path.
-      if (!org.quotas) {
-        // Same lockstep rationale as setTier above — spread the full
-        // QuotaTierLimits shape so we don't drop newer fields.
-        const tierKey = (org.tier as QuotaTier | undefined) ?? 'developer';
-        org.quotas = { ...QUOTA_TIERS[tierKey].limits };
-      }
-      for (const [key, value] of Object.entries(quotaLimits)) {
-        if (value !== undefined) {
-          org.quotas[key as keyof typeof org.quotas] = value;
-        }
-      }
-      await org.save();
-      logger.info(`Organization ${id} quotas updated directly (service unavailable)`);
-    } else {
-      await org.save();
-      logger.info(`Organization ${id} quotas updated via service`);
-    }
-
-    // `org.quotas` is the in-memory post-save state — no need to re-fetch.
-    const finalQuotas = org.quotas;
-
-    return {
-      plugins: { limit: formatQuotaValue(finalQuotas.plugins), unlimited: finalQuotas.plugins === -1 },
-      pipelines: { limit: formatQuotaValue(finalQuotas.pipelines), unlimited: finalQuotas.pipelines === -1 },
-      apiCalls: { limit: formatQuotaValue(finalQuotas.apiCalls), unlimited: finalQuotas.apiCalls === -1 },
-      aiCalls: { limit: formatQuotaValue(finalQuotas.aiCalls), unlimited: finalQuotas.aiCalls === -1 },
-    };
+    return updateQuotas(id, quotaLimits, authHeader);
   }
 
   /** Get the AI provider keys for an org as a configured/hint map. Returns null if org not found. */
@@ -629,7 +416,7 @@ class OrganizationService {
     const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys').lean();
     if (!org) return null;
 
-    return this.buildProvidersMap(org.aiProviderKeys || {});
+    return buildProvidersMap(org.aiProviderKeys || {});
   }
 
   /**
@@ -648,36 +435,12 @@ class OrganizationService {
 
     if (!org.aiProviderKeys) org.aiProviderKeys = {};
 
-    const orgIdStr = String(org._id);
-    for (const p of AI_PROVIDERS) {
-      const value = body[p];
-      if (value === undefined) continue;
-      if (value === null || value === '') {
-        org.aiProviderKeys[p] = undefined;
-      } else if (typeof value === 'string') {
-        org.aiProviderKeys[p] = wrapEncrypted(value, orgIdStr);
-      }
-    }
+    applyAIProviderKeyUpdates(org.aiProviderKeys, body, String(org._id));
 
     org.markModified('aiProviderKeys');
     await org.save();
 
-    return this.buildProvidersMap(org.aiProviderKeys);
-  }
-
-  /** Build a `{ provider: { configured, hint? } }` map from a keys object.
-   * All on-disk values are encrypted blobs, so every configured slot
-   * reports the generic `***encrypted` hint — operators only need
-   * "set / not set", not a ciphertext suffix. */
-  private buildProvidersMap(keys: Record<string, string | undefined>): Record<string, { configured: boolean; hint?: string }> {
-    const providers: Record<string, { configured: boolean; hint?: string }> = {};
-    for (const p of AI_PROVIDERS) {
-      const key = keys[p];
-      providers[p] = key
-        ? { configured: true, hint: '***encrypted' }
-        : { configured: false };
-    }
-    return providers;
+    return buildProvidersMap(org.aiProviderKeys);
   }
 }
 

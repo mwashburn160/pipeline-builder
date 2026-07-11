@@ -6,6 +6,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { BuildsTabs } from '@/components/ui/BuildsTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { Button } from '@/components/ui/Button';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { api } from '@/lib/api';
 import { downloadCsv } from '@/lib/csv-export';
@@ -112,7 +113,8 @@ export default function TriagePage() {
           {/* Flatten the grouped samples into a single CSV — one row per
               failure sample. Operators correlating triage with external
               tickets want the raw rows, not the category roll-up. */}
-          <button
+          <Button
+            variant="secondary"
             onClick={() => downloadCsv(
               groups.flatMap((g) =>
                 g.samples.map((s) => ({
@@ -128,19 +130,19 @@ export default function TriagePage() {
               ['category', 'pluginName', 'version', 'error', 'failedAt', 'source', 'jobId'],
               `triage-${new Date().toISOString().slice(0, 10)}`,
             )}
-            className="btn btn-secondary inline-flex items-center gap-1"
+            className="inline-flex items-center gap-1"
             disabled={groups.length === 0}
             title="Export failure samples as CSV"
           >
             <Download className="w-3.5 h-3.5" /> CSV
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() => void load()}
-            className="btn btn-secondary"
             disabled={loading}
           >
             {loading ? 'Loading…' : 'Refresh'}
-          </button>
+          </Button>
         </div>
       }
     >

@@ -19,8 +19,8 @@
 
 import { createHmac } from 'crypto';
 
-import { errorMessage } from '@pipeline-builder/api-core';
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-core';
+import { errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 
 import { config } from '../config/index.js';
 import { emailService } from '../utils/email.js';
@@ -74,10 +74,10 @@ export interface NotificationChannel {
 
 // -- Shared severity mappings (used by more than one channel) -----------------
 
-export const severityToPriority = (s: Severity): 'urgent' | 'high' | 'normal' =>
+const severityToPriority = (s: Severity): 'urgent' | 'high' | 'normal' =>
   s === 'critical' ? 'urgent' : s === 'warning' ? 'high' : 'normal';
 
-export const severityToColor = (s: Severity): string =>
+const severityToColor = (s: Severity): string =>
   s === 'critical' ? '#dc2626' : s === 'warning' ? '#eab308' : '#3b82f6';
 
 /**
@@ -166,7 +166,7 @@ const inAppChannel: NotificationChannel = {
   async deliver(msg) {
     try {
       await withTenantTx(async (tx) => tx.insert(schema.message).values({
-        orgId: 'system',
+        orgId: SYSTEM_ORG_ID,
         recipientOrgId: msg.recipientOrgId,
         createdBy: 'alert-relay',
         updatedBy: 'alert-relay',
@@ -235,6 +235,3 @@ const CHANNELS: Record<string, NotificationChannel> = {
 export function getNotificationChannel(channel: string): NotificationChannel | null {
   return CHANNELS[channel] ?? null;
 }
-
-// Exported for unit tests of the shared rendering.
-export const __test = { plainTextBody, slackPayload, subjectLine };
