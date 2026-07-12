@@ -64,7 +64,7 @@ export default function OrgDetailPage() {
         api.getOrgKmsConfig(orgId),
         api.getOrgIdpConfig(orgId).catch(() => null),
       ]);
-      if (orgRes.success && orgRes.data?.organization) setOrg(orgRes.data.organization);
+      if (orgRes.success && orgRes.data) setOrg(orgRes.data);
       else throw new Error(orgRes.message || 'Failed to load organization');
       if (kmsRes.success && kmsRes.data) setKms(kmsRes.data);
       if (idpRes?.success && idpRes.data?.config) setIdp(idpRes.data.config);

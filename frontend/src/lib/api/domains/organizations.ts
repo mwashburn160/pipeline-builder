@@ -39,9 +39,11 @@ export function organizationsApi(core: ApiCore) {
       );
     },
 
-    /** Get a single org by id. Used by the sysadmin org-detail page. */
+    /** Get a single org by id. Used by the sysadmin org-detail page.
+     *  The backend (`getOrganizationById`) returns the org object flat as the
+     *  response `data`, not wrapped in `{ organization }`. */
     getOrganization: async (id: string) => {
-      return core.request<ApiResponse<{ organization: Organization }>>(`/api/organization/${id}`);
+      return core.request<ApiResponse<Organization>>(`/api/organization/${id}`);
     },
 
     /** Org → team subtree: returns `[self, ...descendantOrgIds]` for an org the
