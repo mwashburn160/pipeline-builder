@@ -94,6 +94,11 @@
       "type": "build"
     },
     {
+      "name": "mongodb-memory-server",
+      "version": "11.2.0",
+      "type": "build"
+    },
+    {
       "name": "ts-jest",
       "version": "^29",
       "type": "build"
@@ -120,6 +125,11 @@
     },
     {
       "name": "@pipeline-builder/pipeline-core",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
+      "name": "@pipeline-builder/pipeline-data",
       "version": "workspace:*",
       "type": "runtime"
     },

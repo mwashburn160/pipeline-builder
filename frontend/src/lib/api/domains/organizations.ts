@@ -103,6 +103,18 @@ export function organizationsApi(core: ApiCore) {
       });
     },
 
+    /** Transfer org ownership to another member. Backend body is `{ newOwnerId }`
+     *  (PATCH /organization/:id/transfer-owner). Step-up gated (`requireStepUp`) —
+     *  the caller obtains a token via `stepUpVerify` and forwards it here, exactly
+     *  like `deleteOrganization`. Only the current owner or a system admin may call. */
+    transferOrgOwnership: async (orgId: string, newOwnerUserId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/organization/${orgId}/transfer-owner`, {
+        method: 'PATCH',
+        body: JSON.stringify({ newOwnerId: newOwnerUserId }),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
     // ============================================
     // Permission groups (first-class RBAC). Group membership drives the cached
     // org role: Administrators → org-admin, Superadmins (system org only) →
@@ -183,6 +195,48 @@ export function organizationsApi(core: ApiCore) {
     // ============================================
     listInvitations: async (params?: { status?: string; offset?: number; limit?: number }) => {
       return core.request<ApiResponse<{ invitations: Invitation[]; pagination?: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/invitation${buildQuery(params)}`);
+    },
+
+    /** Public preview of an invitation by its token (GET /invitation/:token).
+     *  No auth required — powers the accept page before the user signs in. The
+     *  `organization` field is the inviting org's id. */
+    getInvitationByToken: async (token: string) => {
+      return core.request<ApiResponse<{ invitation: {
+        email: string;
+        role: 'owner' | 'admin' | 'member';
+        status: 'pending' | 'accepted' | 'expired' | 'revoked';
+        expiresAt: string;
+        organization: string;
+        invitedBy: string;
+        isValid: boolean;
+        invitationType?: string;
+        allowedOAuthProviders?: string[];
+        canAcceptViaEmail: boolean;
+        canAcceptViaGoogle: boolean;
+      } }>>(`/api/invitation/${token}`);
+    },
+
+    /** Accept an invitation as the currently logged-in user (POST /invitation/accept).
+     *  Body is just `{ token }`; the backend matches the invite email against the
+     *  authenticated user. An OAuth provider (when the invite came in via OAuth)
+     *  is forwarded via the `X-OAuth-Provider` header, mirroring the controller. */
+    acceptInvitation: async (token: string, oauthProvider?: string) => {
+      return core.request<ApiResponse<undefined>>('/api/invitation/accept', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+        headers: oauthProvider ? { 'X-OAuth-Provider': oauthProvider } : undefined,
+      });
+    },
+
+    /** First-time OAuth-based accept (POST /invitation/accept-oauth, public). Creates
+     *  the user if needed. Requires the OAuth authorization `code` + `state` obtained
+     *  from the provider redirect (the identity is verified server-side) — NOT a
+     *  client-supplied profile. Reachable only after completing the OAuth dance. */
+    acceptInvitationOAuth: async (data: { token: string; oauthProvider: 'google'; code: string; state: string }) => {
+      return core.request<ApiResponse<undefined>>('/api/invitation/accept-oauth', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
     },
 
     sendInvitation: async (data: { email: string; role?: 'admin' | 'member'; invitationType?: string }) => {

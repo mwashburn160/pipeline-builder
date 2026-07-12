@@ -60,6 +60,28 @@ export function pipelinesApi(core: ApiCore) {
       });
     },
 
+    /**
+     * Trigger a new AWS CodePipeline execution for a deployed pipeline.
+     * Resolves the pipeline's registered CodePipeline name/region server-side
+     * and calls StartPipelineExecution. Returns the new execution id (202).
+     */
+    triggerPipelineExecution: async (pipelineId: string) => {
+      return core.request<ApiResponse<{ executionId: string }>>(`/api/pipelines/${pipelineId}/executions`, {
+        method: 'POST',
+      });
+    },
+
+    /**
+     * Stop an in-flight AWS CodePipeline execution (StopPipelineExecution).
+     * `abandon` skips graceful completion of in-progress actions.
+     */
+    stopPipelineExecution: async (pipelineId: string, executionId: string, body?: { reason?: string; abandon?: boolean }) => {
+      return core.request<ApiResponse<{ stopped: boolean }>>(`/api/pipelines/${pipelineId}/executions/${executionId}/stop`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+      });
+    },
+
     getAIProviders: async () => {
       return core.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/pipeline/providers');
     },

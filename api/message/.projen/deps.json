@@ -89,6 +89,11 @@
       "type": "runtime"
     },
     {
+      "name": "@pipeline-builder/pipeline-data",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
       "name": "drizzle-orm",
       "version": "0.45.2",
       "type": "runtime"

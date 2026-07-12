@@ -16,6 +16,11 @@ export function reportingApi(core: ApiCore) {
       return core.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; organization: string; pipeline_name: string | null; total: number; succeeded: number; failed: number; canceled: number; first_execution: string | null; last_execution: string | null }> }>>(`/api/reports/execution/count${buildQuery(params)}`);
     },
 
+    /** Per-pipeline execution history — recent runs for a single pipeline, newest first. */
+    listPipelineExecutions: async (pipelineId: string, params?: { from?: string; to?: string; limit?: number; includeDescendants?: boolean }) => {
+      return core.request<ApiResponse<{ executions: Array<{ execution_id: string; status: string; started_at: string | null; ended_at: string | null; duration_ms: number | null; failing_stage: string | null; failing_action: string | null }> }>>(`/api/reports/execution/list${buildQuery({ pipelineId, ...params })}`);
+    },
+
     /** Pipeline success rate over time. */
     getSuccessRate: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean }) => {
       return core.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; canceled: number; success_pct: number }> }>>(`/api/reports/execution/success-rate${buildQuery(params)}`);

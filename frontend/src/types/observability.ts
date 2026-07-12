@@ -143,6 +143,53 @@ export interface AlertDestinationWrite {
   enabled?: boolean;
 }
 
+/** Per-org operator-authored alert rule as returned by the API. The stored
+ *  `expr` already carries the auto-injected `org_id="<orgId>"` matcher — the
+ *  service scopes the rule to the caller's org before persisting. */
+export interface AlertRule {
+  id: string;
+  orgId: string;
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+  /** Operator-supplied rule name (letters, digits, space, _, -; <= 100 chars). */
+  name: string;
+  /** PromQL expression. The service injects/validates the `org_id` matcher. */
+  expr: string;
+  /** Prometheus `for:` duration (e.g. `5m`). */
+  forDuration: string;
+  severity: 'warning' | 'critical';
+  /** Alertmanager `summary` annotation (required, <= 500 chars). */
+  summary: string;
+  /** Alertmanager `description` annotation. `''` when unset. */
+  description: string;
+  /** Disabled rules don't materialize into Prometheus. */
+  enabled: boolean;
+}
+
+export interface AlertRulesResponse {
+  rules: AlertRule[];
+}
+
+export interface AlertRuleResponse {
+  rule: AlertRule;
+}
+
+/** Body for POST/PUT on alert rules. `name`, `expr`, and `summary` are
+ *  required on create; PUT is a partial patch of the same fields. The backend
+ *  auto-injects the `org_id` matcher into `expr` and returns 400s on malformed
+ *  PromQL / cross-tenant matchers / invalid durations. */
+export interface AlertRuleWrite {
+  name?: string;
+  expr?: string;
+  forDuration?: string;
+  severity?: 'warning' | 'critical';
+  summary?: string;
+  description?: string;
+  enabled?: boolean;
+}
+
 /** A single panel inside a DB-stored dashboard. */
 export interface DashboardPanel {
   id: string;

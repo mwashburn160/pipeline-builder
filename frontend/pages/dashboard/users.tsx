@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { formatError } from '@/lib/constants';
-import { Search, Users, Trash2 } from 'lucide-react';
+import { Search, Users, Trash2, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -77,6 +78,9 @@ export default function UsersPage() {
   );
 
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
+  const [editUsername, setEditUsername] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editOrgId, setEditOrgId] = useState('');
   const [editRole, setEditRole] = useState<'owner' | 'admin' | 'member'>('member');
   const [newPassword, setNewPassword] = useState('');
   const editForm = useFormState();
@@ -84,6 +88,84 @@ export default function UsersPage() {
   // calls the captured action on password-verify success.
   const [pendingGrant, setPendingGrant] = useState<UserListItem | null>(null);
   const [impersonateTarget, setImpersonateTarget] = useState<UserListItem | null>(null);
+
+  // Create-user modal. Sysadmin-only server-side; the whole page is already
+  // gated to sysadmins so no extra guard here. Org list is fetched lazily on
+  // open to populate the optional org assignment.
+  const [showCreate, setShowCreate] = useState(false);
+  const createForm = useFormState();
+  const [newUser, setNewUser] = useState<{
+    username: string; email: string; password: string;
+    organizationId: string; role: 'owner' | 'admin' | 'member'; isSuperAdmin: boolean;
+  }>({ username: '', email: '', password: '', organizationId: '', role: 'member', isSuperAdmin: false });
+  const [orgOptions, setOrgOptions] = useState<Array<{ id: string; name: string }>>([]);
+  // Groups of the currently-selected org (org-scoped; empty until an org is
+  // picked) + the subset checked for assignment. Groups require an org, so
+  // selecting/clearing the org refetches + resets this.
+  const [orgGroups, setOrgGroups] = useState<Array<{ id: string; name: string; grantsRole: string }>>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
+
+  // Load an org's groups for the assignment picker; clears when no org.
+  const loadOrgGroups = useCallback((orgId: string) => {
+    if (!orgId) { setOrgGroups([]); return; }
+    api.getOrganizationGroups(orgId)
+      .then((res) => { if (res.success && res.data) setOrgGroups(res.data.groups.map((g) => ({ id: g.id, name: g.name, grantsRole: g.grantsRole }))); })
+      .catch(() => setOrgGroups([]));
+  }, []);
+
+  // Org change: update the field, reset any group selection (groups are
+  // org-scoped), and refetch the new org's groups.
+  const handleCreateOrgChange = useCallback((orgId: string) => {
+    setNewUser((s) => ({ ...s, organizationId: orgId }));
+    setSelectedGroupIds(new Set());
+    loadOrgGroups(orgId);
+  }, [loadOrgGroups]);
+
+  const toggleGroup = useCallback((id: string) => {
+    setSelectedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const openCreate = useCallback(() => {
+    setNewUser({ username: '', email: '', password: '', organizationId: '', role: 'member', isSuperAdmin: false });
+    setOrgGroups([]);
+    setSelectedGroupIds(new Set());
+    createForm.reset();
+    setShowCreate(true);
+    // Populate the org picker. Best-effort — a failure just leaves the
+    // "— No organization —" default (users can still be created org-less).
+    api.listOrganizations({ limit: 100 })
+      .then((res) => { if (res.success && res.data) setOrgOptions(res.data.organizations.map((o) => ({ id: o.id, name: o.name }))); })
+      .catch(() => setOrgOptions([]));
+  }, [createForm]);
+
+  const handleCreateUser = async () => {
+    if (newUser.username.trim().length < 2) { createForm.setError('Username must be at least 2 characters'); return; }
+    if (!newUser.email.trim()) { createForm.setError('Email is required'); return; }
+    if (newUser.password.length < 8) { createForm.setError('Password must be at least 8 characters'); return; }
+
+    const result = await createForm.run(
+      () => api.createUser({
+        username: newUser.username.trim(),
+        email: newUser.email.trim(),
+        password: newUser.password,
+        ...(newUser.isSuperAdmin && { isSuperAdmin: true }),
+        ...(newUser.organizationId && { organizationId: newUser.organizationId, role: newUser.role }),
+        // Groups are org-scoped — only send them alongside an org.
+        ...(newUser.organizationId && selectedGroupIds.size > 0 && { groupIds: Array.from(selectedGroupIds) }),
+      }),
+      { successMessage: 'User created successfully' },
+    );
+
+    if (result !== null) {
+      list.refresh();
+      setTimeout(() => setShowCreate(false), 1200);
+    }
+  };
 
   const executeImpersonate = useCallback(async (stepUpToken: string) => {
     if (!impersonateTarget) return;
@@ -158,16 +240,45 @@ export default function UsersPage() {
 
   const handleEditUser = (userItem: UserListItem) => {
     setEditingUser(userItem);
+    setEditUsername(userItem.username);
+    setEditEmail(userItem.email);
+    setEditOrgId(userItem.organizationId || '');
     setEditRole(userItem.role);
     setNewPassword('');
     editForm.reset();
+    // Populate the org picker (shared with the create modal). Best-effort —
+    // a failure just leaves the current org selectable via its own value.
+    api.listOrganizations({ limit: 100 })
+      .then((res) => { if (res.success && res.data) setOrgOptions(res.data.organizations.map((o) => ({ id: o.id, name: o.name }))); })
+      .catch(() => setOrgOptions([]));
   };
 
   const handleSaveUser = async () => {
     if (!editingUser) return;
 
-    const updates: { role?: string; password?: string } = {};
+    // Build the body from only the fields that actually changed so an
+    // untouched email/username/org isn't re-sent (and re-validated) server-side.
+    const updates: { username?: string; email?: string; role?: string; organizationId?: string | null; password?: string } = {};
+
+    const trimmedUsername = editUsername.trim();
+    if (trimmedUsername !== editingUser.username) {
+      if (trimmedUsername.length < 2) { editForm.setError('Username must be at least 2 characters'); return; }
+      updates.username = trimmedUsername;
+    }
+
+    const trimmedEmail = editEmail.trim();
+    if (trimmedEmail !== editingUser.email) {
+      if (!trimmedEmail) { editForm.setError('Email is required'); return; }
+      updates.email = trimmedEmail;
+    }
+
     if (editRole !== editingUser.role) updates.role = editRole;
+
+    // Empty selection => "— No organization —"; send null to remove from org.
+    if (editOrgId !== (editingUser.organizationId || '')) {
+      updates.organizationId = editOrgId === '' ? null : editOrgId;
+    }
+
     if (newPassword && newPassword.length >= 8) {
       updates.password = newPassword;
     } else if (newPassword && newPassword.length < 8) {
@@ -307,7 +418,15 @@ export default function UsersPage() {
   if (!isSuperAdmin) return null;
 
   return (
-    <DashboardLayout title="All Users" subtitle="System-wide user administration">
+    <DashboardLayout
+      title="All Users"
+      subtitle="System-wide user administration"
+      actions={
+        <Button onClick={openCreate} className="inline-flex items-center gap-1">
+          <UserPlus className="h-4 w-4" /> Add User
+        </Button>
+      }
+    >
       <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       <div className="filter-bar">
@@ -411,6 +530,119 @@ export default function UsersPage() {
         />
       )}
 
+      {showCreate && (
+        <Modal
+          title="Add User"
+          onClose={() => !createForm.loading && setShowCreate(false)}
+          maxWidth="max-w-md"
+          footer={
+            <ModalFooter
+              onCancel={() => setShowCreate(false)}
+              onConfirm={handleCreateUser}
+              confirmLabel="Create User"
+              loading={createForm.loading}
+            />
+          }
+        >
+          <ErrorAlert message={createForm.error} />
+          {createForm.success && <div className="alert-success"><p>{createForm.success}</p></div>}
+
+          <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
+            <div>
+              <label className="label">Username</label>
+              <Input
+                type="text"
+                value={newUser.username}
+                onChange={(e) => setNewUser((s) => ({ ...s, username: e.target.value }))}
+                placeholder="jane-doe"
+                autoComplete="off"
+                disabled={createForm.loading}
+              />
+            </div>
+            <div>
+              <label className="label">Email</label>
+              <Input
+                type="email"
+                value={newUser.email}
+                onChange={(e) => setNewUser((s) => ({ ...s, email: e.target.value }))}
+                placeholder="jane@example.com"
+                autoComplete="off"
+                disabled={createForm.loading}
+              />
+            </div>
+            <div>
+              <label className="label">Password</label>
+              <Input
+                type="password"
+                value={newUser.password}
+                onChange={(e) => setNewUser((s) => ({ ...s, password: e.target.value }))}
+                placeholder="Minimum 8 characters"
+                autoComplete="new-password"
+                disabled={createForm.loading}
+              />
+            </div>
+            <div>
+              <label className="label">Organization</label>
+              <Select
+                value={newUser.organizationId}
+                onChange={(e) => handleCreateOrgChange(e.target.value)}
+                disabled={createForm.loading}
+              >
+                <option value="">— No organization —</option>
+                {orgOptions.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </Select>
+            </div>
+            {newUser.organizationId && (
+              <div>
+                <label className="label">Role</label>
+                <Select
+                  value={newUser.role}
+                  onChange={(e) => setNewUser((s) => ({ ...s, role: e.target.value as 'owner' | 'admin' | 'member' }))}
+                  disabled={createForm.loading}
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                  <option value="owner">Owner</option>
+                </Select>
+              </div>
+            )}
+            {/* Groups are org-scoped — only shown once an org is selected. */}
+            {newUser.organizationId && orgGroups.length > 0 && (
+              <div>
+                <label className="label">
+                  Groups <span className="text-gray-400 font-normal">({selectedGroupIds.size} selected)</span>
+                </label>
+                <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
+                  {orgGroups.map((g) => (
+                    <label key={g.id} className="flex items-center gap-2 p-2.5 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={selectedGroupIds.has(g.id)}
+                        onChange={() => toggleGroup(g.id)}
+                        disabled={createForm.loading}
+                      />
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{g.name}</span>
+                      {g.grantsRole !== 'member' && (
+                        <Badge color={g.grantsRole === 'superadmin' ? 'red' : 'purple'}>{g.grantsRole}</Badge>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <Checkbox
+                checked={newUser.isSuperAdmin}
+                onChange={(e) => setNewUser((s) => ({ ...s, isSuperAdmin: e.target.checked }))}
+                disabled={createForm.loading}
+              />
+              Platform super admin
+            </label>
+          </form>
+        </Modal>
+      )}
+
       {editingUser && (
         <Modal
           title={`Edit User: ${editingUser.username}`}
@@ -444,15 +676,42 @@ export default function UsersPage() {
 
           <div className="space-y-4">
             <div>
-              <label className="label">Email</label>
-              <Input type="text" value={editingUser.email} disabled className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
+              <label className="label">Username</label>
+              <Input
+                type="text"
+                value={editUsername}
+                onChange={(e) => setEditUsername(e.target.value)}
+                placeholder="jane-doe"
+                autoComplete="off"
+                disabled={editForm.loading}
+              />
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
                 User ID: <CopyableId value={editingUser.id} size="sm" />
               </p>
             </div>
             <div>
+              <label className="label">Email</label>
+              <Input
+                type="email"
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+                placeholder="jane@example.com"
+                autoComplete="off"
+                disabled={editForm.loading}
+              />
+            </div>
+            <div>
               <label className="label">Organization</label>
-              <Input type="text" value={editingUser.organizationName || 'None'} disabled className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400" />
+              <Select
+                value={editOrgId}
+                onChange={(e) => setEditOrgId(e.target.value)}
+                disabled={editForm.loading}
+              >
+                <option value="">— No organization —</option>
+                {orgOptions.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </Select>
             </div>
             <div>
               <label className="label">Role</label>

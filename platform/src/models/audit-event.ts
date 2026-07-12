@@ -46,6 +46,7 @@ export type AuditAction =
   | 'org.group.update'
   | 'org.group.delete'
   // Admin actions (controllers/user-admin.ts)
+  | 'admin.user.create'
   | 'admin.user.delete'
   | 'admin.org.delete'
   // GDPR portability export. Emitted from controllers/organization.ts
@@ -61,6 +62,7 @@ export type AuditAction =
   | 'alert.destination.create'
   | 'alert.destination.update'
   | 'alert.destination.delete'
+  | 'alert.destination.test'
   // per-org operator-authored alert rules (controllers/alert-rules.ts).
   | 'alert.rule.create'
   | 'alert.rule.update'
@@ -140,6 +142,7 @@ const ALL_AUDIT_ACTIONS = [
   'org.group.create',
   'org.group.update',
   'org.group.delete',
+  'admin.user.create',
   'admin.user.delete',
   'admin.org.delete',
   'admin.org.export',
@@ -150,6 +153,7 @@ const ALL_AUDIT_ACTIONS = [
   'alert.destination.create',
   'alert.destination.update',
   'alert.destination.delete',
+  'alert.destination.test',
   'alert.rule.create',
   'alert.rule.update',
   'alert.rule.delete',

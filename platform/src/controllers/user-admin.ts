@@ -18,8 +18,10 @@ import {
   UA_ORG_NOT_FOUND,
   UA_SEAT_LIMIT,
   UA_CANNOT_CHANGE_OWNER,
+  UA_GROUPS_NEED_ORG,
+  GRP_GROUP_NOT_FOUND,
 } from '../services/index.js';
-import { adminUpdateUserSchema, validateBody } from '../utils/validation.js';
+import { adminCreateUserSchema, adminUpdateUserSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('user-admin-controller');
 
@@ -141,6 +143,37 @@ export const getUserById = withController('Get user', async (req, res) => {
     }),
   });
 }, adminErrorMap);
+
+/**
+ * POST /users — create a user (system admin only).
+ *
+ * Sysadmin-only: org-admins are refused with 403 even though the route grants
+ * `members:manage`. Creating a user out-of-band — optionally pre-flagged as a
+ * platform super-admin and/or assigned to an existing org — is a
+ * platform-operator concern, not an org-scoped one. The account is created
+ * pre-verified (no email round-trip); password strength is enforced by the
+ * schema and again by the User model pre-save hook.
+ */
+export const createUserByAdmin = withController('Create user', async (req, res) => {
+  const admin = requireAdminContext(req, res);
+  if (!admin) return;
+  if (!admin.isSuperAdmin) return sendError(res, 403, 'Forbidden: system admin required to create users');
+
+  const body = validateBody(adminCreateUserSchema, req.body, res);
+  if (!body) return;
+
+  const user = await userAdminService.createUser(body);
+
+  logger.info('Create user by admin', { id: user.id, by: req.user!.sub, org: body.organizationId });
+  audit(req, 'admin.user.create', { targetType: 'user', targetId: user.id, affectedOrgId: body.organizationId });
+  sendSuccess(res, 201, { user }, 'User created');
+}, {
+  [UA_USERNAME_TAKEN]: { status: 409, message: 'A user with this username already exists' },
+  [UA_EMAIL_TAKEN]: { status: 409, message: 'A user with this email already exists' },
+  [UA_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
+  [UA_GROUPS_NEED_ORG]: { status: 400, message: 'Select an organization to assign groups' },
+  [GRP_GROUP_NOT_FOUND]: { status: 404, message: 'One or more selected groups were not found' },
+});
 
 /** PUT /users/:id — admin update. Org-admin restricted to own-org members. */
 export const updateUserById = withController('Update user', async (req, res) => {

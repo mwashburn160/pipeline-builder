@@ -1,11 +1,36 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
+import { getNotificationChannel, type NotificationMessage } from './notification-channels.js';
+
 const logger = createLogger('alert-destination-service');
+
+/**
+ * Bounded timeout for a single test-notification send. Mirrors alert-relay's
+ * per-destination `ALERT_DELIVERY_TIMEOUT_MS` so a slow/unreachable target
+ * fails fast with a clear error instead of hanging the request.
+ */
+const TEST_DELIVERY_TIMEOUT_MS = parseInt(process.env.ALERT_DELIVERY_TIMEOUT_MS || '5000', 10);
+
+/** Thrown when a test send targets a destination that doesn't exist in the
+ *  caller's org. The controller maps this to a 404 (not a 500). */
+export class DestinationNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Alert destination not found: ${id}`);
+    this.name = 'DestinationNotFoundError';
+  }
+}
+
+/** Result of a manual test send. `delivered:false` carries a human-readable
+ *  `error` so the UI can toast the reason instead of a generic failure. */
+export interface TestNotificationResult {
+  delivered: boolean;
+  error?: string;
+}
 
 type OrgAlertDestination = typeof schema.orgAlertDestination.$inferSelect;
 type OrgAlertDestinationInsert = typeof schema.orgAlertDestination.$inferInsert;
@@ -121,6 +146,76 @@ export class AlertDestinationService {
         .limit(1);
       return rows[0] ?? null;
     });
+  }
+
+  /**
+   * Send a clearly-labeled TEST notification to a destination so an operator
+   * can verify delivery without waiting for a real alert to fire.
+   *
+   * The destination is looked up org-scoped (via {@link findById}) — you can
+   * never test another org's destination. Delivery goes through the SAME
+   * `getNotificationChannel(...).deliver(...)` path the real alert relay uses,
+   * so the identical transport + guards apply: the stored `target` was already
+   * validated at create/update time against the channel allowlist (Slack must
+   * be a `hooks.slack.com` URL, generic webhooks must be HTTPS, email a valid
+   * address), and the send inherits the same bounded-timeout AbortController.
+   * We do NOT open a second, unguarded send path.
+   *
+   * Returns `{ delivered: true }` on success or `{ delivered: false, error }`
+   * on a transport failure/timeout — a failed send is a structured result, not
+   * a throw. The only throw is {@link DestinationNotFoundError} (missing /
+   * wrong-org destination), which the controller surfaces as a 404.
+   */
+  async sendTestNotification(
+    orgId: string,
+    destinationId: string,
+    actor: { userId: string; email?: string },
+  ): Promise<TestNotificationResult> {
+    const dest = await this.findById(destinationId, orgId);
+    if (!dest) throw new DestinationNotFoundError(destinationId);
+
+    const channel = getNotificationChannel(dest.channel);
+    if (!channel) {
+      // DB data can hold an unknown channel value — report it as a structured
+      // failure (same as the relay's unknown-channel handling) rather than throw.
+      return { delivered: false, error: `Unknown notification channel "${dest.channel}"` };
+    }
+
+    const now = new Date().toISOString();
+    const actorLabel = actor.email || actor.userId;
+    const msg: NotificationMessage = {
+      severity: 'info',
+      status: 'firing',
+      timestamp: now,
+      title: 'Pipeline Builder — test alert',
+      summary: `Manual test notification sent by ${actorLabel} at ${now}.`,
+      detail: 'If you can see this message, this alert destination is configured correctly. No real alert is firing.',
+      labels: { alertname: 'PipelineBuilderTestAlert', severity: 'info' },
+      recipientOrgId: dest.orgId,
+      // Body forwarded unchanged by the generic `webhook` channel.
+      raw: { test: true, message: 'Pipeline Builder test alert', destinationId, sentBy: actorLabel, sentAt: now },
+    };
+
+    // Reuse the relay's cross-cutting concern: a bounded-timeout AbortController
+    // so an unreachable target fails fast instead of hanging the HTTP request.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TEST_DELIVERY_TIMEOUT_MS);
+    try {
+      const res = await channel.deliver(msg, { value: dest.target, orgId: dest.orgId }, controller.signal);
+      if (res.ok && !res.skipped) return { delivered: true };
+      if (res.skipped) return { delivered: false, error: res.error || 'Delivery skipped' };
+      return {
+        delivered: false,
+        error: res.error || (res.code ? `Delivery failed (HTTP ${res.code})` : 'Delivery failed'),
+      };
+    } catch (err) {
+      if ((err as { name?: string }).name === 'AbortError') {
+        return { delivered: false, error: `Delivery timed out after ${TEST_DELIVERY_TIMEOUT_MS}ms` };
+      }
+      return { delivered: false, error: errorMessage(err) };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async create(input: DestinationCreate, caller: { orgId: string; userId: string }): Promise<OrgAlertDestination> {

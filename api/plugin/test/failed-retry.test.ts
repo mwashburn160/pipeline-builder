@@ -2,37 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for POST /dlq/:jobId/replay  operator endpoint to re-enqueue
- * a single dead-letter job.
+ * Tests for POST /failed/:jobId/retry — operator endpoint to re-enqueue a
+ * single FAILED build from the per-tier failed set (distinct from the DLQ).
  *
- * Verifies * - 403 for non-admin/owner roles.
- * - 404 when the DLQ job does not exist.
- * - System admin can replay any job (cross-org).
- * - Org admin/owner can replay only their own org's jobs (tenant isolation).
- * - Successful replay returns the new job id and removes the DLQ entry.
+ * Verifies:
+ * - 403 for non-admin/owner roles.
+ * - 404 when no failed job with that id exists.
+ * - System admin can retry any job (cross-org).
+ * - Org admin/owner can retry only their own org's jobs (tenant isolation).
+ * - Successful retry returns the new job id.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const dlqGetJob = jest.fn();
-const dlqAdd = jest.fn();
-const queueAdd = jest.fn();
-const replayHelper = jest.fn();
+const findFailed = jest.fn();
+const retryHelper = jest.fn();
 
 jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
-  // route uses getAllTierQueues; expose one entry for the single-tier
-  // assertions to remain valid.
-  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: jest.fn(), getJobCounts: jest.fn() } }],
-  getDeadLetterQueue: () => ({ getJob: dlqGetJob, add: dlqAdd, getJobs: jest.fn(), getJobCounts: jest.fn() }),
+  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: jest.fn(), getJobs: jest.fn(), getJobCounts: jest.fn() } }],
+  getDeadLetterQueue: () => ({ getJob: jest.fn(), add: jest.fn(), getJobs: jest.fn(), getJobCounts: jest.fn() }),
   purgeDlq: jest.fn(),
-  // replayDlqJob now takes (jobId, quotaService); the test only cares about the id.
-  replayDlqJob: (id: string, _qs: unknown) => replayHelper(id),
-  findFailedJob: jest.fn(),
-  retryFailedJob: jest.fn(),
+  replayDlqJob: jest.fn(),
+  // findFailedJob(jobId) → the failed job (for the tenant-isolation check).
+  findFailedJob: (id: string) => findFailed(id),
+  // retryFailedJob(jobId, quotaService); the test only cares about the id.
+  retryFailedJob: (id: string, _qs: unknown) => retryHelper(id),
 }));
 
-// Quota service stub  required by createQueueStatusRoutes since.
+// Quota service stub — required by createQueueStatusRoutes.
 const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -40,7 +38,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn(),
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
-    return isNaN(n) ? def: n;
+    return isNaN(n) ? def : n;
   },
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
   sendError: jest.fn((res: any, status: number, message: string) => res.status(status).json({ success: false, statusCode: status, message })),
@@ -55,11 +53,12 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 const { isSystemAdmin } = await import('@pipeline-builder/api-core');
 const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
-function getReplayHandler() {
+function getRetryHandler() {
   const router = createQueueStatusRoutes(mockQuotaService);
-  const layer = (router.stack as any[]).find( (l) => l.route?.path === '/dlq/:jobId/replay' && l.route?.methods?.post,
+  const layer = (router.stack as any[]).find(
+    (l) => l.route?.path === '/failed/:jobId/retry' && l.route?.methods?.post,
   );
-  if (!layer) throw new Error('replay handler not registered');
+  if (!layer) throw new Error('retry handler not registered');
   return layer.route.stack[0].handle;
 }
 
@@ -69,15 +68,15 @@ function makeRes() {
   return { res: { status, json } as any, json };
 }
 
-describe('POST /dlq/:jobId/replay', () => {
+describe('POST /failed/:jobId/retry', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    replayHelper.mockResolvedValue('new-job-99');
+    retryHelper.mockResolvedValue('new-job-77');
   });
 
   it('rejects non-admin/owner roles with 403', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    const handler = getReplayHandler();
+    const handler = getRetryHandler();
     const { res, json } = makeRes();
     await handler({
       __orgId: 'org-a',
@@ -85,13 +84,14 @@ describe('POST /dlq/:jobId/replay', () => {
       params: { jobId: 'j-1' },
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
-    expect(replayHelper).not.toHaveBeenCalled();
+    expect(findFailed).not.toHaveBeenCalled();
+    expect(retryHelper).not.toHaveBeenCalled();
   });
 
-  it('returns 404 when DLQ job does not exist', async () => {
+  it('returns 404 when no failed job with that id exists', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    dlqGetJob.mockResolvedValue(undefined);
-    const handler = getReplayHandler();
+    findFailed.mockResolvedValue(null);
+    const handler = getRetryHandler();
     const { res, json } = makeRes();
     await handler({
       __orgId: '000000000000000000000001',
@@ -99,42 +99,43 @@ describe('POST /dlq/:jobId/replay', () => {
       params: { jobId: 'missing' },
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
+    expect(retryHelper).not.toHaveBeenCalled();
   });
 
-  it('system admin can replay a job from a different org', async () => {
+  it('system admin can retry a job from a different org', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-x', pluginRecord: { name: 'p' } } });
-    const handler = getReplayHandler();
+    findFailed.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-x', pluginRecord: { name: 'p' } } });
+    const handler = getRetryHandler();
     const { res, json } = makeRes();
     await handler({
       __orgId: '000000000000000000000001',
       user: { role: 'admin', organizationId: '000000000000000000000001', organizationName: 'system' },
       params: { jobId: 'j-1' },
     } as any, res);
-    expect(replayHelper).toHaveBeenCalledWith('j-1');
+    expect(retryHelper).toHaveBeenCalledWith('j-1');
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ replayed: true, newJobId: 'new-job-99' }),
+      data: expect.objectContaining({ retried: true, newJobId: 'new-job-77' }),
     }));
   });
 
-  it('org admin can replay their own org’s job', async () => {
+  it('org admin can retry their own org’s job', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
-    const handler = getReplayHandler();
+    findFailed.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
+    const handler = getRetryHandler();
     const { res, json } = makeRes();
     await handler({
       __orgId: 'org-a',
       user: { role: 'admin', organizationId: 'org-a' },
       params: { jobId: 'j-1' },
     } as any, res);
-    expect(replayHelper).toHaveBeenCalledWith('j-1');
+    expect(retryHelper).toHaveBeenCalledWith('j-1');
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 200 }));
   });
 
-  it('org admin CANNOT replay a job from a different org (tenant isolation)', async () => {
+  it('org admin CANNOT retry a job from a different org (tenant isolation)', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-other', pluginRecord: { name: 'p' } } });
-    const handler = getReplayHandler();
+    findFailed.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-other', pluginRecord: { name: 'p' } } });
+    const handler = getRetryHandler();
     const { res, json } = makeRes();
     await handler({
       __orgId: 'org-a',
@@ -142,13 +143,13 @@ describe('POST /dlq/:jobId/replay', () => {
       params: { jobId: 'j-1' },
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
-    expect(replayHelper).not.toHaveBeenCalled();
+    expect(retryHelper).not.toHaveBeenCalled();
   });
 
   it('falls back to pluginRecord.orgId for older jobs without top-level orgId', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    dlqGetJob.mockResolvedValue({ id: 'j-old', data: { pluginRecord: { orgId: 'org-a', name: 'p' } } });
-    const handler = getReplayHandler();
+    findFailed.mockResolvedValue({ id: 'j-old', data: { pluginRecord: { orgId: 'org-a', name: 'p' } } });
+    const handler = getRetryHandler();
     const { res, json } = makeRes();
     await handler({
       __orgId: 'org-a',
@@ -160,8 +161,8 @@ describe('POST /dlq/:jobId/replay', () => {
 
   it('rejects when both orgId fields are missing for non-system admin', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    dlqGetJob.mockResolvedValue({ id: 'j-orphan', data: {} });
-    const handler = getReplayHandler();
+    findFailed.mockResolvedValue({ id: 'j-orphan', data: {} });
+    const handler = getRetryHandler();
     const { res, json } = makeRes();
     await handler({
       __orgId: 'org-a',
@@ -169,5 +170,6 @@ describe('POST /dlq/:jobId/replay', () => {
       params: { jobId: 'j-orphan' },
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+    expect(retryHelper).not.toHaveBeenCalled();
   });
 });

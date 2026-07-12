@@ -82,6 +82,24 @@ export function authApi(core: ApiCore) {
       });
     },
 
+    /** Send (or re-send) an email-verification link to the current user
+     *  (POST /auth/send-verification, authenticated, no body). The link points
+     *  at `/auth/verify-email?token=…`. Returns 200 even when already verified. */
+    sendVerificationEmail: async () => {
+      return core.request<ApiResponse<undefined>>('/api/auth/send-verification', {
+        method: 'POST',
+      });
+    },
+
+    /** Verify an email address with the token from the emailed link
+     *  (POST /auth/verify-email, public). Body is `{ token }`. */
+    verifyEmail: async (token: string) => {
+      return core.request<ApiResponse<undefined>>('/api/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+    },
+
     changePassword: async (currentPassword: string, newPassword: string) => {
       return core.request<ApiResponse<{ message: string }>>('/api/user/change-password', {
         method: 'POST',

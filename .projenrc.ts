@@ -607,6 +607,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
       'express-rate-limit@8.5.2', 'jsonwebtoken@9.0.3', 'helmet@8.2.0', 'cors@2.8.6',
       'pg@8.21.0', 'drizzle-orm@0.45.2', 'uuid@14.0.0', 'yaml@2.9.0',
       `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
+      '@aws-sdk/client-codepipeline@3.1064.0',
     ],
     devDeps: ['@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19', '@types/pg@8.20.0'],
   },

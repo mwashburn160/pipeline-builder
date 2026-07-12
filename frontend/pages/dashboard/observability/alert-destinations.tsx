@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 // lucide-react v1 removed brand icons (e.g. Slack); use a generic messaging glyph.
-import { Bell, Plus, Trash2, Edit2, MessageSquare, Webhook, Mail, Bell as BellIcon } from 'lucide-react';
+import { Bell, Plus, Trash2, Edit2, MessageSquare, Webhook, Mail, Bell as BellIcon, Send } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';
@@ -67,6 +67,21 @@ export default function AlertDestinationsPage() {
       await refresh();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+    }
+  };
+
+  // Per-destination "send test" — id of the row currently sending (for the
+  // spinner/disabled state); a delivery failure toasts the downstream reason.
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const onTest = async (d: AlertDestination) => {
+    setTestingId(d.id);
+    try {
+      await api.testAlertDestination(d.id);
+      toast.success('Test sent');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setTestingId(null);
     }
   };
 
@@ -220,6 +235,15 @@ export default function AlertDestinationsPage() {
                     {d.channel === 'in-app' ? '(in-app messages)' : (d.hasTarget ? d.target : '— no target set —')}
                   </div>
                 </div>
+                <button
+                  onClick={() => void onTest(d)}
+                  disabled={testingId === d.id}
+                  aria-label="Send test notification"
+                  title="Send a test notification to this destination"
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" /> {testingId === d.id ? 'Sending…' : 'Send test'}
+                </button>
                 <button
                   onClick={() => setEditing(d)}
                   aria-label="Edit destination"

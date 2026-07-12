@@ -66,10 +66,17 @@ Route 53, and EKS Pod Identity for SES.
    validation record, waits for `ISSUED`; exports `ACM_CERT_ARN` for the Ingress.
 4. **Secrets/ConfigMaps** — generates `.env` (random secrets, once), then creates the
    same secret/configmap set the ec2 target uses (mirrors [../ec2/bin/startup.sh](../ec2/bin/startup.sh)).
-5. **SES + Pod Identity** (when email is enabled) — provisions the SES domain identity
+5. **SES + Pod Identity IAM** — provisions (when email is enabled) the SES domain identity
    (Easy DKIM) + the 3 Route 53 CNAMEs, a configuration set, and a bounce/complaint SNS
-   topic, then associates a **scoped** `ses:SendEmail` policy (on this identity + From
-   address) with the platform's ServiceAccount. Full parity with the ec2 target.
+   topic, then binds the namespace `default` ServiceAccount to **scoped** IAM policies via a
+   single Pod Identity association (one IAM role per SA):
+   - `ses:SendEmail` on this identity + From address (email only — full parity with ec2), and
+   - `codepipeline:Start/StopPipelineExecution` + `Get*` on this account's pipelines (**always**),
+     which backs the pipeline service's run/re-run/cancel endpoints
+     (`api/pipeline` → `pipeline-execution-service`; it resolves the CodePipeline name from the
+     registry). Scoped to `codepipeline:*:<account>:*` — pipeline names vary per org/project, so
+     an account+service bound is the tightest possible. Re-runs back-fill the policy onto an
+     existing SES-only role (attach is idempotent).
 6. **KEDA** — installs the operator (the plugin `ScaledObject` autoscaler).
 7. **Apply** — `kubectl kustomize k8s | envsubst | kubectl apply` (restricted token expansion).
 8. **Route 53** — upserts an A-alias `--domain → ALB` once the Ingress reports its address.
@@ -93,6 +100,12 @@ real account on first deploy. Specifically:
 - [ ] Confirm the `aws-efs-csi-driver` addon's node DaemonSet schedules on Auto Mode nodes.
 - [ ] First-deploy run of the SES phase (DKIM verification is async; the sandbox still
       applies — request production access + verify a real recipient to smoke-test).
+- [ ] Pod Identity CodePipeline grant: confirm the `default` SA role carries
+      `${CLUSTER_NAME}-eks-pipeline-exec` after `setup.sh`, then hit the pipeline detail
+      page's **Run pipeline** / **Cancel** actions against a deployed pipeline and confirm the
+      `StartPipelineExecution`/`StopPipelineExecution` calls succeed (no `AccessDenied` /
+      `PipelineNotFoundException` — the latter would mean a registry `pipelineName` ≠ the live
+      CodePipeline name).
 
 The Kubernetes version defaults to **1.36** for fresh installs (`setup.sh`/`cluster.yaml`).
 Override with `--eks-version <X>` / `$EKS_VERSION`, or pass `--eks-version latest` to resolve

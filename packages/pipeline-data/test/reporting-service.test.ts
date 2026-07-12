@@ -87,6 +87,37 @@ describe('ReportingService', () => {
     });
   });
 
+  describe('listPipelineExecutions', () => {
+    it('returns per-execution rolled-up rows for a pipeline (single query)', async () => {
+      // The GROUP BY execution_id + CASE roll-up happens in SQL; the service
+      // just maps the driver rows through. One execution rolled up to `failed`
+      // with its failing stage surfaced.
+      const mockRows = [
+        { execution_id: 'exec-2', status: 'failed', started_at: '2026-07-02T10:00:00Z', ended_at: '2026-07-02T10:05:00Z', duration_ms: 300000, failing_stage: 'Deploy', failing_action: 'Terraform' },
+        { execution_id: 'exec-1', status: 'succeeded', started_at: '2026-07-01T10:00:00Z', ended_at: '2026-07-01T10:03:00Z', duration_ms: 180000, failing_stage: null, failing_action: null },
+      ];
+      mockExecute.mockResolvedValue({ rows: mockRows });
+
+      const result = await service.listPipelineExecutions('acme', 'p1');
+
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(mockRows);
+    });
+
+    it('runs a rollup (multi-org) read under sysadmin context when given an org subtree', async () => {
+      // With orgIds spanning the org→team subtree the query uses an IN (...)
+      // predicate; passing only the subtree ids is how cross-org executions are
+      // excluded. runWithTenantContext is mocked to pass-through, so we just
+      // assert the query still fires with the rollup arg.
+      mockExecute.mockResolvedValue({ rows: [] });
+
+      const result = await service.listPipelineExecutions('acme', 'p1', ['acme', 'team-child'], { from: '2026-06-01', to: '2026-07-01' }, 10);
+
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(result).toEqual([]);
+    });
+  });
+
   describe('getAverageDuration', () => {
     it('should return duration stats per pipeline', async () => {
       const mockRows = [

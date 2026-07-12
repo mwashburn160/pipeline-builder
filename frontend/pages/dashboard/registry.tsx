@@ -3,10 +3,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
+import { Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Modal } from '@/components/ui/Modal';
+import { ModalFooter } from '@/components/ui/ModalFooter';
+import { Input } from '@/components/ui/Input';
+import { Checkbox } from '@/components/ui/Checkbox';
+import { Button } from '@/components/ui/Button';
 import { RepositoryList, type RepositoryListHandle } from '@/components/registry/RepositoryList';
 import { TagTable } from '@/components/registry/TagTable';
 import { ManifestDetail } from '@/components/registry/ManifestDetail';
@@ -96,6 +102,44 @@ export default function RegistryPage() {
   const [narrowViewport, setNarrowViewport] = useState(false);
   const [narrowDismissed, setNarrowDismissed] = useState(false);
   const repoListRef = useRef<RepositoryListHandle>(null);
+
+  // Manual registry GC (sysadmin ops). Defaults to dry-run so an operator
+  // validates the candidate set before issuing real DELETEs.
+  const [gcOpen, setGcOpen] = useState(false);
+  const [gcPrefix, setGcPrefix] = useState('');
+  const [gcDryRun, setGcDryRun] = useState(true);
+  const [gcRunning, setGcRunning] = useState(false);
+
+  const handleRunGc = useCallback(async () => {
+    const prefix = gcPrefix.trim();
+    if (!prefix) return;
+    // Real runs delete manifests — gate behind an explicit confirm. Dry-runs
+    // only walk + count, so they skip the confirm.
+    if (!gcDryRun && !window.confirm(
+      `Run garbage collection under "${prefix}" and DELETE manifests older than the retention window? This cannot be undone.`,
+    )) return;
+    setGcRunning(true);
+    try {
+      const res = await api.runRegistryGc({ prefix, dryRun: gcDryRun });
+      const r = res.data;
+      if (r) {
+        toast.success(
+          gcDryRun
+            ? `Dry-run: ${r.candidates} candidate${r.candidates === 1 ? '' : 's'} across ${r.reposScanned} repo${r.reposScanned === 1 ? '' : 's'} (nothing deleted)`
+            : `GC complete: deleted ${r.deleted} of ${r.candidates} candidate${r.candidates === 1 ? '' : 's'} across ${r.reposScanned} repo${r.reposScanned === 1 ? '' : 's'}`,
+        );
+      }
+      // Close + refresh the repo list only after a real run may have emptied repos.
+      if (!gcDryRun) {
+        setGcOpen(false);
+        refresh();
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Registry GC failed');
+    } finally {
+      setGcRunning(false);
+    }
+  }, [gcPrefix, gcDryRun, toast, refresh]);
 
   /** Push a new entry to the recent-actions ring buffer (most-recent first, capped). */
   const recordAction = useCallback((a: RecentAction) => {
@@ -333,6 +377,9 @@ export default function RegistryPage() {
       subtitle="Docker image repository browser"
       actions={
         <div className="flex items-center gap-3">
+          <Button variant="secondary" size="sm" onClick={() => setGcOpen(true)} title="Run manual registry garbage collection">
+            <Trash2 className="w-3.5 h-3.5 mr-1" /> Run GC
+          </Button>
           <button
             onClick={() => setShortcutsOpen(true)}
             title="Keyboard shortcuts (?)"
@@ -455,6 +502,57 @@ export default function RegistryPage() {
           onProgress={onBulkProgress}
           onDone={onBulkDone}
         />
+      )}
+
+      {gcOpen && (
+        <Modal
+          title="Run registry garbage collection"
+          onClose={() => !gcRunning && setGcOpen(false)}
+          footer={
+            <ModalFooter
+              onCancel={() => setGcOpen(false)}
+              onConfirm={handleRunGc}
+              confirmLabel={gcDryRun ? 'Run dry-run' : 'Run GC'}
+              confirmVariant={gcDryRun ? 'primary' : 'danger'}
+              loading={gcRunning}
+              confirmDisabled={!gcPrefix.trim()}
+            />
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Prunes manifests older than the retention window under a single repo
+              namespace prefix (e.g. <code className="font-mono">org-acme/</code>). The
+              trailing slash is added automatically.
+            </p>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Namespace prefix</label>
+              <Input
+                type="text"
+                placeholder="org-acme/"
+                value={gcPrefix}
+                onChange={(e) => setGcPrefix(e.target.value)}
+                className="text-sm"
+                autoFocus
+                disabled={gcRunning}
+              />
+            </div>
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <Checkbox
+                checked={gcDryRun}
+                onChange={() => setGcDryRun((v) => !v)}
+                disabled={gcRunning}
+                className="mt-0.5"
+              />
+              <span className="min-w-0">
+                <span className="font-medium text-gray-800 dark:text-gray-200">Dry run</span>
+                <span className="block text-gray-400 dark:text-gray-500">
+                  Walk the namespace and count deletion candidates without deleting anything.
+                </span>
+              </span>
+            </label>
+          </div>
+        </Modal>
       )}
 
       {shortcutsOpen && (

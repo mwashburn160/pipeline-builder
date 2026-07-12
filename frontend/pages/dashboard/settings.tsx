@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatError } from '@/lib/constants';
 import { motion } from 'framer-motion';
+import { CheckCircle, MailWarning } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -23,6 +24,15 @@ export default function SettingsPage() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const profile = useFormState();
+
+  // Email-verification resend (surfaced next to the Unverified state below).
+  const verify = useFormState();
+  const handleResendVerification = async () => {
+    await verify.run(
+      () => api.sendVerificationEmail(),
+      { successMessage: 'Verification email sent — check your inbox for the link.' },
+    );
+  };
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -126,6 +136,22 @@ export default function SettingsPage() {
             <div>
               <label htmlFor="email" className="label">Email</label>
               <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={profile.loading} />
+              {user.isEmailVerified ? (
+                <p className="mt-1.5 text-xs text-green-600 dark:text-green-400 inline-flex items-center gap-1">
+                  <CheckCircle className="w-3.5 h-3.5" /> Email verified
+                </p>
+              ) : (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+                  <span className="inline-flex items-center gap-1.5">
+                    <MailWarning className="w-4 h-4 shrink-0" /> Your email address is unverified.
+                  </span>
+                  <Button type="button" variant="secondary" size="sm" loading={verify.loading} onClick={handleResendVerification}>
+                    Resend verification email
+                  </Button>
+                </div>
+              )}
+              {verify.error && <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{verify.error}</p>}
+              {verify.success && <p className="mt-1.5 text-xs text-green-600 dark:text-green-400">{verify.success}</p>}
             </div>
 
             <SessionStartedRow />

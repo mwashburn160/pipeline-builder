@@ -42,6 +42,12 @@ jest.unstable_mockModule('drizzle-orm', () => ({
   sql: (() => undefined) as unknown,
 }));
 
+// The service now imports notification-channels (for sendTestNotification);
+// stub it so this suite doesn't drag in the real config/email/schema graph.
+jest.unstable_mockModule('../src/services/notification-channels.js', () => ({
+  getNotificationChannel: () => null,
+}));
+
 const { alertDestinationService } = await import('../src/services/alert-destination-service.js');
 
 

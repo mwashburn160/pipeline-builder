@@ -129,6 +129,11 @@
       "type": "runtime"
     },
     {
+      "name": "@pipeline-builder/pipeline-data",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
       "name": "compression",
       "version": "1.8.1",
       "type": "runtime"

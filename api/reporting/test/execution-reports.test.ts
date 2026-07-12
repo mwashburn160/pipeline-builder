@@ -9,6 +9,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetExecutionCount = jest.fn();
+const mockListPipelineExecutions = jest.fn();
 const mockGetSuccessRate = jest.fn();
 const mockGetAverageDuration = jest.fn();
 const mockGetStageFailures = jest.fn();
@@ -62,6 +63,7 @@ jest.unstable_mockModule('../src/helpers.js', () => {
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
     getExecutionCount: mockGetExecutionCount,
+    listPipelineExecutions: mockListPipelineExecutions,
     getSuccessRate: mockGetSuccessRate,
     getAverageDuration: mockGetAverageDuration,
     getStageFailures: mockGetStageFailures,
@@ -153,6 +155,42 @@ describe('Execution Report Routes', () => {
       await handler({ query: { includeDescendants: 'true' }, user: { role: 'member' } }, {});
       expect(mockResolveOrgRollup).not.toHaveBeenCalled();
       expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', undefined);
+    });
+  });
+
+  describe('GET /list (per-pipeline executions)', () => {
+    it('400s when pipelineId is missing', async () => {
+      const handler = getHandler('/list');
+      await handler({ query: {} }, {});
+      expect(sendBadRequest).toHaveBeenCalled();
+      expect(mockListPipelineExecutions).not.toHaveBeenCalled();
+    });
+
+    it('passes pipelineId, org, range and limit (no rollup by default)', async () => {
+      mockListPipelineExecutions.mockResolvedValue([
+        { executionId: 'e1', status: 'succeeded', startedAt: '2026-07-01', endedAt: '2026-07-01', durationMs: 1000, failingStage: null, failingAction: null },
+      ]);
+      const handler = getHandler('/list');
+      await handler({ query: { pipelineId: 'p1', from: '2026-06-01', to: '2026-07-01', limit: '25' } }, {});
+      // (orgId, pipelineId, orgIds=undefined, range, limit)
+      expect(mockListPipelineExecutions).toHaveBeenCalledWith(
+        'acme', 'p1', undefined, { from: '2026-06-01', to: '2026-07-01' }, 25,
+      );
+      expect(sendSuccess).toHaveBeenCalled();
+    });
+
+    // ORG-SCOPING: an admin's ?includeDescendants rollup passes the resolved
+    // org→team subtree as `orgIds`; the service's `IN (...)` predicate then
+    // bounds the query to those orgs, so another org's executions are excluded.
+    it('scopes to the org subtree for an admin rollup', async () => {
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
+      mockListPipelineExecutions.mockResolvedValue([]);
+      const handler = getHandler('/list');
+      await handler({ query: { pipelineId: 'p1', includeDescendants: 'true' }, user: { role: 'admin' } }, {});
+      expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
+      expect(mockListPipelineExecutions).toHaveBeenCalledWith(
+        'acme', 'p1', ['acme', 'team-child'], expect.any(Object), expect.any(Number),
+      );
     });
   });
 

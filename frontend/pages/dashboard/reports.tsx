@@ -358,14 +358,20 @@ export default function ReportsPage() {
                         ) : <ReportEmpty text="No execution data yet" />}
                       </div>
                       <div className="card">
-                        <SectionHeading>Pipeline Duration</SectionHeading>
+                        <div className="flex items-center justify-between mb-3">
+                          <SectionHeading>Pipeline Duration</SectionHeading>
+                          <ExportCSVButton data={durations.map(d => ({ pipeline: d.pipeline_name || d.project, avg_ms: d.avg_ms, min_ms: d.min_ms, max_ms: d.max_ms, p95_ms: d.p95_ms, executions: d.executions }))} filename="pipeline-duration" />
+                        </div>
                         {durations.length > 0 ? (
                           <table className="w-full text-sm"><thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700"><th className="pb-2 font-medium">Pipeline</th><th className="pb-2 font-medium text-right">Avg</th><th className="pb-2 font-medium text-right">P95</th><th className="pb-2 font-medium text-right">Runs</th></tr></thead><tbody className="divide-y divide-gray-100 dark:divide-gray-800">{durations.slice(0, 10).map((d) => (<tr key={d.id}><td className="py-1.5 text-gray-900 dark:text-gray-100 truncate max-w-[200px]">{d.pipeline_name || d.project}</td><td className="py-1.5 text-right tabular-nums">{fmtMs(d.avg_ms)}</td><td className="py-1.5 text-right tabular-nums">{fmtMs(d.p95_ms)}</td><td className="py-1.5 text-right tabular-nums">{d.executions}</td></tr>))}</tbody></table>
                         ) : <ReportEmpty text="No duration data yet" />}
                       </div>
                     </div>
                     <div className="card">
-                      <SectionHeading>Stage Bottlenecks</SectionHeading>
+                      <div className="flex items-center justify-between mb-3">
+                        <SectionHeading>Stage Bottlenecks</SectionHeading>
+                        <ExportCSVButton data={bottlenecks.map(b => ({ stage: b.stage_name, pipeline: b.pipeline_name || '', avg_ms: b.avg_ms, max_ms: b.max_ms }))} filename="stage-bottlenecks" />
+                      </div>
                       {bottlenecks.length > 0 ? (
                         <table className="w-full text-sm"><thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700"><th className="pb-2 font-medium">Stage</th><th className="pb-2 font-medium text-right">Avg</th><th className="pb-2 font-medium text-right">Max</th></tr></thead><tbody className="divide-y divide-gray-100 dark:divide-gray-800">{bottlenecks.slice(0, 8).map((b) => (<tr key={`${b.id}-${b.stage_name}`}><td className="py-1.5"><span className="text-gray-900 dark:text-gray-100 truncate block max-w-[160px]">{b.stage_name}</span>{b.pipeline_name && <span className="text-xs text-gray-400 dark:text-gray-500">{b.pipeline_name}</span>}</td><td className="py-1.5 text-right tabular-nums text-amber-600 dark:text-amber-400">{fmtMs(b.avg_ms)}</td><td className="py-1.5 text-right tabular-nums">{fmtMs(b.max_ms)}</td></tr>))}</tbody></table>
                       ) : <ReportEmpty text="No bottleneck data yet" />}
@@ -383,14 +389,20 @@ export default function ReportsPage() {
                 {hasFailData && (
                   <>
                     <div className="card">
-                      <SectionHeading>Stage Failures</SectionHeading>
+                      <div className="flex items-center justify-between mb-3">
+                        <SectionHeading>Stage Failures</SectionHeading>
+                        <ExportCSVButton data={stageFailures.map(s => ({ stage: s.stage_name, failures: s.failures, total: s.total, failure_pct: s.failure_pct }))} filename="stage-failures" />
+                      </div>
                       {stageFailures.length > 0 ? (
                         <div className="space-y-2.5">{stageFailures.slice(0, 8).map((s) => (<div key={s.stage_name}><div className="flex justify-between text-sm mb-1"><span className="text-gray-700 dark:text-gray-300 truncate">{s.stage_name}</span><span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums ml-2 shrink-0">{s.failure_pct}%</span></div><div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-red-500 rounded-full" style={{ width: `${Math.min(s.failure_pct, 100)}%` }} /></div></div>))}</div>
                       ) : <ReportEmpty text="No stage failures" />}
                     </div>
                     {actionFailures.length > 0 && (
                       <div className="card">
-                        <SectionHeading>Action Failures</SectionHeading>
+                        <div className="flex items-center justify-between mb-3">
+                          <SectionHeading>Action Failures</SectionHeading>
+                          <ExportCSVButton data={actionFailures.map(a => ({ action: a.action_name, failures: a.failures, total: a.total, failure_pct: a.failure_pct }))} filename="action-failures" />
+                        </div>
                         <div className="space-y-2.5">{actionFailures.slice(0, 8).map((a) => (<div key={a.action_name}><div className="flex justify-between text-sm mb-1"><span className="text-gray-700 dark:text-gray-300 truncate font-mono text-xs">{a.action_name}</span><span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums ml-2 shrink-0">{a.failures}/{a.total} ({a.failure_pct}%)</span></div><div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-orange-500 rounded-full" style={{ width: `${Math.min(a.failure_pct, 100)}%` }} /></div></div>))}</div>
                       </div>
                     )}
@@ -485,13 +497,19 @@ export default function ReportsPage() {
                     )}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       <div className="card">
-                        <SectionHeading>Build Duration</SectionHeading>
+                        <div className="flex items-center justify-between mb-3">
+                          <SectionHeading>Build Duration</SectionHeading>
+                          <ExportCSVButton data={buildDurations.map(d => ({ plugin: d.plugin_name, avg_ms: d.avg_ms, max_ms: d.max_ms, builds: d.builds }))} filename="build-duration" />
+                        </div>
                         {buildDurations.length > 0 ? (
                           <table className="w-full text-sm"><thead><tr className="text-left text-xs text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700"><th className="pb-2 font-medium">Plugin</th><th className="pb-2 font-medium text-right">Avg</th><th className="pb-2 font-medium text-right">Max</th><th className="pb-2 font-medium text-right">Builds</th></tr></thead><tbody className="divide-y divide-gray-100 dark:divide-gray-800">{buildDurations.slice(0, 10).map((d) => (<tr key={d.plugin_name}><td className="py-1.5 text-gray-900 dark:text-gray-100 truncate max-w-[200px]">{d.plugin_name}</td><td className="py-1.5 text-right tabular-nums">{fmtMs(d.avg_ms)}</td><td className="py-1.5 text-right tabular-nums">{fmtMs(d.max_ms)}</td><td className="py-1.5 text-right tabular-nums">{d.builds}</td></tr>))}</tbody></table>
                         ) : <ReportEmpty text="No build duration data yet" />}
                       </div>
                       <div className="card">
-                        <SectionHeading>Recent Build Failures</SectionHeading>
+                        <div className="flex items-center justify-between mb-3">
+                          <SectionHeading>Recent Build Failures</SectionHeading>
+                          <ExportCSVButton data={buildFailures.map(f => ({ plugin: f.plugin_name, error_message: f.error_message, occurrences: f.occurrences, last_seen: f.last_seen }))} filename="build-failures" />
+                        </div>
                         {buildFailures.length > 0 ? (
                           <div className="space-y-3">{buildFailures.slice(0, 6).map((f, i) => (<div key={i} className="border-l-2 border-red-400 pl-3"><p className="text-sm text-gray-900 dark:text-gray-100">{f.plugin_name}</p><p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mt-0.5">{f.error_message}</p><p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{f.occurrences}x &middot; {fmtDate(f.last_seen)}</p></div>))}</div>
                         ) : <ReportEmpty text="No build failures" />}

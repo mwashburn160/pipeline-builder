@@ -8,6 +8,7 @@ import {
   createAlertDestination,
   updateAlertDestination,
   deleteAlertDestination,
+  testAlertDestination,
   alertWebhook,
 } from '../controllers/alert-destinations.js';
 import {
@@ -59,6 +60,8 @@ router.get('/alert-destinations/all', requireAuth, listAllAlertDestinations);
 router.post('/alert-destinations', requireAuth, createAlertDestination);
 router.put('/alert-destinations/:id', requireAuth, updateAlertDestination);
 router.delete('/alert-destinations/:id', requireAuth, deleteAlertDestination);
+// Send a labeled test notification to a destination (org-scoped, observability:write).
+router.post('/alert-destinations/:id/test', requireAuth, testAlertDestination);
 
 /**
  * Alertmanager webhook relay  shared-secret auth, not JWT. Mounted on the

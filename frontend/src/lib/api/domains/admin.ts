@@ -176,6 +176,13 @@ export function adminApi(core: ApiCore) {
       return core.request<ApiResponse<{ users: User[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/users${buildQuery(params)}`);
     },
 
+    createUser: async (data: { username: string; email: string; password: string; isSuperAdmin?: boolean; organizationId?: string; role?: 'owner' | 'admin' | 'member'; groupIds?: string[] }) => {
+      return core.request<ApiResponse<{ user: { id: string; username: string; email: string } }>>(`/api/users`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
     updateUserById: async (id: string, data: { username?: string; email?: string; role?: string; organizationId?: string | null; password?: string }) => {
       return core.request<ApiResponse<{ user: User }>>(`/api/users/${id}`, {
         method: 'PUT',

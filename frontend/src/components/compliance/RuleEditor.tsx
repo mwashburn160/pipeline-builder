@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle, BarChart3, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
@@ -103,6 +103,11 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   const [error, setError] = useState<string | null>(null);
   const [dryRunResult, setDryRunResult] = useState<ComplianceCheckResult | null>(null);
   const [dryRunAttrs, setDryRunAttrs] = useState('{}');
+  const [impactResult, setImpactResult] = useState<{
+    total: number; wouldPass: number; wouldFail: number;
+    samples: Array<{ entityId: string; entityName: string | null; messages: string[] }>;
+  } | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
 
   const isEdit = !!rule;
 
@@ -193,6 +198,33 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
       const res = await fn.call(api, attrs);
       if (res.success && res.data) setDryRunResult(res.data);
     } catch { setError('Invalid JSON for dry-run attributes'); }
+  };
+
+  // Preview how many of the org's existing entities would fail this rule right
+  // now. Only available for a saved rule (the API keys off the rule id), so the
+  // count reflects the rule's persisted state, not unsaved form edits.
+  const handlePreviewImpact = async () => {
+    if (!rule) return;
+    setImpactLoading(true);
+    setImpactResult(null);
+    setError(null);
+    try {
+      const res = await api.previewRuleImpact(rule.id);
+      if (res.success && res.data) {
+        setImpactResult({
+          total: res.data.total,
+          wouldPass: res.data.wouldPass,
+          wouldFail: res.data.wouldFail,
+          samples: res.data.samples.map(s => ({ entityId: s.entityId, entityName: s.entityName, messages: s.messages })),
+        });
+      } else {
+        setError(res.message || 'Failed to preview impact');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to preview impact');
+    } finally {
+      setImpactLoading(false);
+    }
   };
 
   const inputCls = 'rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm w-full';
@@ -417,6 +449,63 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             </div>
           )}
         </div>
+
+        {/* Impact preview — how many existing org entities the (saved) rule would fail */}
+        {isEdit && (
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 text-indigo-600" />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Impact Preview</span>
+              </div>
+              <button
+                onClick={handlePreviewImpact}
+                disabled={impactLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {impactLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BarChart3 className="h-3.5 w-3.5" />}
+                Preview impact
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+              Counts your existing {form.target}s that would fail this rule as currently saved.
+            </p>
+            {impactResult && (
+              <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-sm border border-indigo-200 dark:border-indigo-800">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">Impact on your existing entities</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400">
+                    <span className={impactResult.wouldFail > 0 ? 'text-red-600 dark:text-red-400 font-medium' : 'text-green-600 dark:text-green-400'}>
+                      {impactResult.wouldFail}
+                    </span>
+                    {' / '}{impactResult.total}{' would fail'}
+                  </span>
+                </div>
+                {impactResult.samples.length > 0 && (
+                  <ul className="space-y-1">
+                    {impactResult.samples.map((s) => (
+                      <li key={s.entityId} className="flex items-start gap-1.5 text-xs text-red-700 dark:text-red-300">
+                        <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span>
+                          <span className="font-medium">{s.entityName ?? s.entityId.slice(0, 8)}</span>
+                          {s.messages[0] && <span className="text-gray-600 dark:text-gray-400"> — {s.messages[0]}</span>}
+                        </span>
+                      </li>
+                    ))}
+                    {impactResult.wouldFail > impactResult.samples.length && (
+                      <li className="text-xs text-gray-500 italic">+ {impactResult.wouldFail - impactResult.samples.length} more</li>
+                    )}
+                  </ul>
+                )}
+                {impactResult.wouldFail === 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400">
+                    <CheckCircle className="h-3.5 w-3.5" /> No existing entities would fail this rule.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Actions */}

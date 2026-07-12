@@ -378,6 +378,9 @@ importers:
 
   api/pipeline:
     dependencies:
+      '@aws-sdk/client-codepipeline':
+        specifier: 3.1064.0
+        version: 3.1064.0
       '@pipeline-builder/ai-core':
         specifier: workspace:*
         version: link:../../packages/ai-core

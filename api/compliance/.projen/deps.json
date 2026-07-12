@@ -84,6 +84,11 @@
       "type": "runtime"
     },
     {
+      "name": "@pipeline-builder/pipeline-data",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
       "name": "bullmq",
       "version": "5.78.0",
       "type": "runtime"

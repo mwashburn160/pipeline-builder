@@ -13,6 +13,8 @@ import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { ModalFooter } from '@/components/ui/ModalFooter';
 import { IconButton } from '@/components/ui/IconButton';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ActionBar } from '@/components/ui/ActionBar';
@@ -22,6 +24,7 @@ import { PasswordResetModal } from '@/components/members/PasswordResetModal';
 import { CreateOrgModal } from '@/components/members/CreateOrgModal';
 import { ManageTeamsModal } from '@/components/members/ManageTeamsModal';
 import { AddToTeamModal } from '@/components/members/AddToTeamModal';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
 import type { OrganizationMember, MemberTeam } from '@/types';
 
@@ -203,6 +206,34 @@ export default function MembersPage() {
       setTeamsError(err instanceof Error ? err.message : 'Failed to update teams');
     } finally {
       setTeamsSaving(false);
+    }
+  };
+
+  // Transfer ownership. Click-through path mirrors the delete-org flow:
+  // confirm modal → step-up (backend `requireStepUp`) → executeTransfer with
+  // the returned token. Only offered on non-owner, non-self rows.
+  const [transferConfirm, setTransferConfirm] = useState<OrganizationMember | null>(null);
+  const [pendingTransfer, setPendingTransfer] = useState<OrganizationMember | null>(null);
+
+  const confirmTransfer = () => {
+    setPendingTransfer(transferConfirm);
+    setTransferConfirm(null);
+  };
+
+  const executeTransfer = async (stepUpToken: string) => {
+    if (!orgId || !pendingTransfer) return;
+    const target = pendingTransfer;
+    try {
+      const res = await api.transferOrgOwnership(orgId, target.id, stepUpToken);
+      if (!res.success) throw new Error(res.message || 'Transfer failed');
+      toast.success(`Ownership transferred to ${target.username}`);
+      // The current user is no longer owner — refresh their role + the roster.
+      await refreshUser();
+      fetchMembers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to transfer ownership');
+    } finally {
+      setPendingTransfer(null);
     }
   };
 
@@ -411,6 +442,18 @@ export default function MembersPage() {
                 <Network className="w-4 h-4" />
               </IconButton>
             )}
+            {/* Ownership transfer is backend-gated to the current owner or a
+                sysadmin — only surface it to them so others don't hit a 403. */}
+            {(user?.role === 'owner' || isSuperAdmin) && (
+              <IconButton
+                tone="success"
+                onClick={() => setTransferConfirm(m)}
+                title="Make owner (transfers organization ownership)"
+                aria-label={`Transfer organization ownership to ${m.username}`}
+              >
+                <Crown className="w-4 h-4" />
+              </IconButton>
+            )}
             <IconButton
               tone="primary"
               onClick={() => setRoleChangeTarget(m)}
@@ -447,7 +490,7 @@ export default function MembersPage() {
         );
       },
     },
-  ], [user, canManageTeams, openManageTeams]);
+  ], [user, isSuperAdmin, canManageTeams, openManageTeams]);
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -650,6 +693,38 @@ export default function MembersPage() {
         onSubmit={handleAddToTeam}
         onClose={() => setAddToTeam(null)}
       />
+
+      {/* Transfer ownership — confirm, then step-up before the PATCH runs */}
+      {transferConfirm && (
+        <Modal
+          title="Transfer Ownership"
+          onClose={() => setTransferConfirm(null)}
+          maxWidth="max-w-md"
+          footer={
+            <ModalFooter
+              onCancel={() => setTransferConfirm(null)}
+              onConfirm={confirmTransfer}
+              confirmLabel="Transfer ownership"
+            />
+          }
+        >
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Make <strong className="text-gray-900 dark:text-gray-100">{transferConfirm.username}</strong> the
+            owner of this organization?
+          </p>
+          <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+            You will be demoted to admin and lose owner-only controls. You&apos;ll re-enter your
+            password to confirm.
+          </p>
+        </Modal>
+      )}
+      {pendingTransfer && (
+        <StepUpModal
+          action={`Transfer ownership of this organization to ${pendingTransfer.username}`}
+          onConfirmed={executeTransfer}
+          onClose={() => setPendingTransfer(null)}
+        />
+      )}
 
       {/* Remove confirmation */}
       {removeMember.target && (

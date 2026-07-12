@@ -114,6 +114,11 @@
       "type": "runtime"
     },
     {
+      "name": "@pipeline-builder/pipeline-data",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
       "name": "adm-zip",
       "version": "0.5.17",
       "type": "runtime"

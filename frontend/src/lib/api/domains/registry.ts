@@ -104,5 +104,23 @@ export function registryApi(core: ApiCore) {
         throw err;
       }
     },
+
+    /**
+     * Run application-level registry GC — prunes manifests older than
+     * `maxAgeDays` (default 30 server-side) under one repo namespace `prefix`.
+     * Maps to POST /api/admin/gc (system-admin only; 403 otherwise). Pass
+     * `dryRun: true` to walk + count candidates without issuing any DELETEs.
+     */
+    runRegistryGc: async (body: { prefix: string; maxAgeDays?: number; dryRun?: boolean }) => {
+      return core.request<ApiResponse<{
+        reposScanned: number;
+        candidates: number;
+        deleted: number;
+        perRepo: Array<{ repo: string; scanned: number; deleted: number }>;
+      }>>('/api/admin/gc', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
   };
 }

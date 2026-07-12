@@ -118,11 +118,6 @@
       "type": "runtime"
     },
     {
-      "name": "swr",
-      "version": "2.4.1",
-      "type": "runtime"
-    },
-    {
       "name": "tailwindcss",
       "version": "4.3.0",
       "type": "runtime"

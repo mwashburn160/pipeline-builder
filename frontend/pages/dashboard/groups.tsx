@@ -224,6 +224,11 @@ export default function GroupsPage() {
         <div className="card text-center py-10">
           <Users className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
           <p className="text-sm text-gray-500 dark:text-gray-400">No permission groups in this organization yet.</p>
+          <div className="mt-4">
+            <Button onClick={openCreate}>
+              <Plus className="w-4 h-4 mr-1.5" /> Create your first group
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="space-y-4">

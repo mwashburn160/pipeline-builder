@@ -79,6 +79,11 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-codepipeline",
+      "version": "3.1064.0",
+      "type": "runtime"
+    },
+    {
       "name": "@pipeline-builder/ai-core",
       "version": "workspace:*",
       "type": "runtime"
@@ -95,6 +100,11 @@
     },
     {
       "name": "@pipeline-builder/pipeline-core",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
+      "name": "@pipeline-builder/pipeline-data",
       "version": "workspace:*",
       "type": "runtime"
     },

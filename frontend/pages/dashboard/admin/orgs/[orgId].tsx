@@ -23,6 +23,11 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { OrgKmsConfigModal } from '@/components/admin/OrgKmsConfigModal';
 import { OrgIdpConfigModal } from '@/components/admin/OrgIdpConfigModal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { Modal } from '@/components/ui/Modal';
+import { ModalFooter } from '@/components/ui/ModalFooter';
+import { Input } from '@/components/ui/Input';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { useFormState } from '@/hooks/useFormState';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { formatError } from '@/lib/constants';
@@ -52,6 +57,13 @@ export default function OrgDetailPage() {
   // Tier the operator selected in the dropdown; only applied after step-up.
   const [pendingTier, setPendingTier] = useState<'developer' | 'pro' | 'team' | 'enterprise' | null>(null);
 
+  // Identity edit (name + slug). Backed by the quota service's PUT which accepts
+  // name/slug/tier/quotas — NOT description, so description stays read-only here.
+  const [showEdit, setShowEdit] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editSlug, setEditSlug] = useState('');
+  const editForm = useFormState();
+
   const reload = useCallback(async () => {
     if (!orgId) return;
     setLoading(true);
@@ -77,6 +89,34 @@ export default function OrgDetailPage() {
   }, [orgId]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  const openEdit = useCallback(() => {
+    if (!org) return;
+    setEditName(org.name ?? '');
+    setEditSlug(org.slug ?? '');
+    editForm.reset();
+    setShowEdit(true);
+  }, [org, editForm]);
+
+  const handleSaveIdentity = useCallback(async () => {
+    if (!org) return;
+    const changes: { name?: string; slug?: string } = {};
+    const name = editName.trim();
+    const slug = editSlug.trim();
+    if (name && name !== org.name) changes.name = name;
+    if (slug && slug !== (org.slug ?? '')) changes.slug = slug;
+    if (Object.keys(changes).length === 0) {
+      editForm.setError('No changes to save');
+      return;
+    }
+    const result = await editForm.run(() => api.updateOrgQuotas(org.id, changes));
+    if (result !== null && result.success) {
+      setShowEdit(false);
+      await reload();
+    } else if (result !== null) {
+      editForm.setError(result.message || 'Failed to update organization');
+    }
+  }, [org, editName, editSlug, editForm, reload]);
 
   const executeDownloadNamespaceYaml = useCallback(async (stepUpToken: string) => {
     if (!org) return;
@@ -181,6 +221,8 @@ export default function OrgDetailPage() {
                 <Building2 className="w-5 h-5 text-gray-500" />
                 <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Identity</h3>
               </div>
+              <div className="flex items-center gap-3">
+              <button onClick={openEdit} className="action-link text-sm">Edit</button>
               {/* Sysadmin tier change. The select fires the step-up flow, then
                   the actual PATCH runs via executeTierChange. Disabled on the
                   current tier (no-op) so accidental clicks don't trigger a
@@ -200,6 +242,7 @@ export default function OrgDetailPage() {
                   <option key={tier} value={tier}>{getTierMeta(tier).label}</option>
                 ))}
               </select>
+              </div>
             </div>
             <dl className="text-sm space-y-2">
               <div>
@@ -328,6 +371,46 @@ export default function OrgDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {showEdit && org && (
+        <Modal
+          title="Edit organization"
+          onClose={() => setShowEdit(false)}
+          maxWidth="max-w-md"
+          footer={
+            <ModalFooter
+              onCancel={() => setShowEdit(false)}
+              onConfirm={handleSaveIdentity}
+              confirmLabel="Save"
+              loading={editForm.loading}
+            />
+          }
+        >
+          <div className="space-y-4">
+            <ErrorAlert message={editForm.error} />
+            <div>
+              <label htmlFor="org-name" className="label">Name</label>
+              <Input id="org-name" value={editName} onChange={(e) => setEditName(e.target.value)} disabled={editForm.loading} />
+            </div>
+            <div>
+              <label htmlFor="org-slug" className="label">Slug</label>
+              <Input
+                id="org-slug"
+                value={editSlug}
+                onChange={(e) => setEditSlug(e.target.value)}
+                disabled={editForm.loading}
+                placeholder="my-org"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Lowercase alphanumeric with hyphens (e.g. <code>my-org</code>).
+              </p>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Description isn&apos;t editable here — the update endpoint only accepts name and slug.
+            </p>
+          </div>
+        </Modal>
       )}
 
       {showKms && org && (

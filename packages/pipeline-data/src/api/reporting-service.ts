@@ -51,6 +51,18 @@ interface DurationStats {
   executions: number;
 }
 
+interface PipelineExecution {
+  executionId: string;
+  /** Rolled-up terminal status: succeeded | failed | canceled | in-progress. */
+  status: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+  /** First failing stage/action for the execution (null when it didn't fail). */
+  failingStage: string | null;
+  failingAction: string | null;
+}
+
 interface StageFailure {
   stageName: string;
   failures: number;
@@ -333,6 +345,58 @@ export class ReportingService {
         ORDER BY total DESC
       `).then(r => drizzleRows<ExecutionCount>(r.rows)));
     return this.runReport(`${orgId}:exec-count`, multi, exec);
+  }
+
+  /**
+   * 1.1b Per-pipeline execution history — DISTINCT executions for one pipeline,
+   * newest first. Groups all events by `execution_id` in a single scan and
+   * rolls each execution up to one row:
+   *   - status: derived from the PIPELINE-type events. FAILED wins, then
+   *     SUCCEEDED, then CANCELED; an execution with no terminal PIPELINE event
+   *     is still `in-progress`.
+   *   - startedAt/endedAt/durationMs: from the PIPELINE lifecycle events.
+   *   - failingStage/failingAction: the first FAILED STAGE/ACTION event (cheap —
+   *     same scan, no extra query).
+   *
+   * ORG-SCOPING: identical to the sibling execution reports — joins the pipeline
+   * registry table (`pipeline`) and gates on `p.org_id ${pred}`, where `pred` is
+   * the single-org `= $org` or (with a rollup) an `IN (...)` over the org→team
+   * subtree. A pipelineId belonging to another org yields zero rows.
+   */
+  async listPipelineExecutions(
+    orgId: string,
+    pipelineId: string,
+    orgIds?: string[],
+    range?: { from?: string; to?: string },
+    limit: number = 50,
+  ): Promise<PipelineExecution[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const rangeClause = range?.from && range?.to
+      ? sql`AND e.started_at >= ${range.from}::timestamptz AND e.started_at <= ${range.to}::timestamptz`
+      : sql``;
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
+        SELECT
+          e.execution_id,
+          CASE
+            WHEN bool_or(e.event_type = 'PIPELINE' AND e.status = 'FAILED') THEN 'failed'
+            WHEN bool_or(e.event_type = 'PIPELINE' AND e.status = 'SUCCEEDED') THEN 'succeeded'
+            WHEN bool_or(e.event_type = 'PIPELINE' AND e.status = 'CANCELED') THEN 'canceled'
+            ELSE 'in-progress'
+          END AS status,
+          MIN(e.started_at) FILTER (WHERE e.event_type = 'PIPELINE')::text AS started_at,
+          MAX(e.completed_at) FILTER (WHERE e.event_type = 'PIPELINE')::text AS ended_at,
+          MAX(e.duration_ms) FILTER (WHERE e.event_type = 'PIPELINE')::int AS duration_ms,
+          (ARRAY_AGG(e.stage_name) FILTER (WHERE e.event_type = 'STAGE' AND e.status = 'FAILED'))[1] AS failing_stage,
+          (ARRAY_AGG(e.action_name) FILTER (WHERE e.event_type = 'ACTION' AND e.status = 'FAILED'))[1] AS failing_action
+        FROM ${schema.pipelineEvent} e
+        JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
+        WHERE p.org_id ${pred} AND e.pipeline_id = ${pipelineId} AND e.execution_id IS NOT NULL
+          ${rangeClause}
+        GROUP BY e.execution_id
+        ORDER BY MAX(e.created_at) DESC
+        LIMIT ${limit}
+      `).then(r => drizzleRows<PipelineExecution>(r.rows)));
+    return this.runReport(`${orgId}:pipeline-executions:${pipelineId}:${range?.from ?? ''}:${range?.to ?? ''}:${limit}`, multi, exec);
   }
 
   /** 1.2 Success rate over time for an org. */

@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { ArrowLeft, GitBranch, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Ban, GitBranch, Pencil, Play, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { useToast } from '@/components/ui/Toast';
@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { Modal } from '@/components/ui/Modal';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import { formatError } from '@/lib/constants';
 import { canModify } from '@/lib/resource-helpers';
@@ -39,6 +40,34 @@ interface ExecutionRow {
   canceled: number;
   first_execution: string | null;
   last_execution: string | null;
+}
+
+interface PipelineExecution {
+  execution_id: string;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  failing_stage: string | null;
+  failing_action: string | null;
+}
+
+/** Map a rolled-up execution status to a Badge color. */
+function statusColor(status: string): 'green' | 'red' | 'gray' | 'yellow' {
+  if (status === 'succeeded') return 'green';
+  if (status === 'failed') return 'red';
+  if (status === 'in-progress') return 'yellow';
+  return 'gray'; // canceled / unknown
+}
+
+/** Human-friendly duration from milliseconds. */
+function formatDuration(ms: number | null): string {
+  if (ms == null || ms < 0) return '—';
+  if (ms < 1000) return `${ms}ms`;
+  const totalSec = Math.round(ms / 1000);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
 export default function PipelineDetailPage() {
@@ -76,6 +105,70 @@ export default function PipelineDetailPage() {
       .catch(() => { /* non-blocking — panel just won't render */ });
     return () => { cancelled = true; };
   }, [id]);
+
+  // Per-pipeline execution history — list of recent runs from the reporting
+  // service (the events the pipeline-events Lambda persists). The read is a
+  // query against already-ingested data; the trigger/cancel actions below call
+  // AWS CodePipeline directly, then refetch this list to surface the change.
+  const [executions, setExecutions] = useState<PipelineExecution[] | null>(null);
+  const [execLoading, setExecLoading] = useState(false);
+  const [execError, setExecError] = useState<string | null>(null);
+  const loadExecutions = useCallback(async () => {
+    if (!id) return;
+    setExecLoading(true);
+    setExecError(null);
+    try {
+      const r = await api.listPipelineExecutions(id, { limit: 50 });
+      if (!r.success) throw new Error(r.message || 'Failed to load executions');
+      setExecutions(r.data?.executions ?? []);
+    } catch (e) {
+      setExecError(formatError(e, 'Failed to load executions'));
+    } finally {
+      setExecLoading(false);
+    }
+  }, [id]);
+  useEffect(() => { void loadExecutions(); }, [loadExecutions]);
+
+  // Write actions (AWS CodePipeline trigger / cancel). Ingestion of the new
+  // event is asynchronous, so we refetch after a short delay to let the
+  // pipeline-events Lambda persist the run before we re-query.
+  const [triggering, setTriggering] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState(false);
+  const REFETCH_DELAY_MS = 2500;
+
+  const handleTrigger = useCallback(async () => {
+    if (!id) return;
+    setTriggering(true);
+    setActionError(null);
+    try {
+      const res = await api.triggerPipelineExecution(id);
+      if (!res.success) throw new Error(res.message || 'Failed to trigger execution');
+      toast.success(`Started execution ${res.data?.executionId ?? ''}`.trim());
+      setTimeout(() => { void loadExecutions(); }, REFETCH_DELAY_MS);
+    } catch (e) {
+      setActionError(formatError(e, 'Failed to trigger execution'));
+    } finally {
+      setTriggering(false);
+    }
+  }, [id, loadExecutions, toast]);
+
+  const confirmCancel = useCallback(async () => {
+    if (!id || !cancelTarget) return;
+    setCanceling(true);
+    setActionError(null);
+    try {
+      const res = await api.stopPipelineExecution(id, cancelTarget, { reason: 'Canceled from dashboard' });
+      if (!res.success) throw new Error(res.message || 'Failed to cancel execution');
+      toast.success('Execution canceled');
+      setTimeout(() => { void loadExecutions(); }, REFETCH_DELAY_MS);
+    } catch (e) {
+      setActionError(formatError(e, 'Failed to cancel execution'));
+    } finally {
+      setCanceling(false);
+      setCancelTarget(null);
+    }
+  }, [id, cancelTarget, loadExecutions, toast]);
 
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -229,6 +322,87 @@ export default function PipelineDetailPage() {
             )}
           </div>
 
+          {/* Executions card — per-pipeline run history from the reporting
+              service, plus the AWS CodePipeline trigger / cancel write path.
+              "Run pipeline" calls StartPipelineExecution; per-row "Cancel"
+              (in-progress only) calls StopPipelineExecution. Both refetch the
+              list after a short delay so the change surfaces. */}
+          <div className="card lg:col-span-2">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Executions</h3>
+              <button
+                onClick={handleTrigger}
+                disabled={!canEdit || triggering}
+                className="btn btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title={canEdit ? undefined : 'Read-only (public catalog entry)'}
+              >
+                {triggering ? <LoadingSpinner size="sm" /> : <Play className="w-4 h-4" />}
+                {executions && executions.length > 0 ? 'Re-run' : 'Run pipeline'}
+              </button>
+            </div>
+            {execLoading && !executions && <LoadingSpinner />}
+            {execError && (
+              <div className="alert-error">
+                <p>{execError}</p>
+              </div>
+            )}
+            {!execLoading && !execError && executions && executions.length === 0 && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">No executions recorded yet.</p>
+            )}
+            {!execError && executions && executions.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                      <th className="py-2 pr-4 font-medium">Status</th>
+                      <th className="py-2 pr-4 font-medium">Started</th>
+                      <th className="py-2 pr-4 font-medium">Duration</th>
+                      <th className="py-2 pr-4 font-medium">Failing step</th>
+                      <th className="py-2 pr-4 font-medium">Execution</th>
+                      <th className="py-2 font-medium text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {executions.map((ex) => (
+                      <tr key={ex.execution_id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                        <td className="py-2 pr-4">
+                          <Badge color={statusColor(ex.status)}>{ex.status}</Badge>
+                        </td>
+                        <td className="py-2 pr-4">
+                          {ex.started_at ? <RelativeTime value={ex.started_at} /> : <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="py-2 pr-4 font-mono text-xs">{formatDuration(ex.duration_ms)}</td>
+                        <td className="py-2 pr-4">
+                          {ex.failing_stage || ex.failing_action
+                            ? <span className="text-red-600 dark:text-red-400">{ex.failing_stage || ex.failing_action}</span>
+                            : <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="py-2 pr-4"><CopyableId value={ex.execution_id} size="sm" /></td>
+                        <td className="py-2 text-right">
+                          {ex.status === 'in-progress' ? (
+                            <button
+                              onClick={() => setCancelTarget(ex.execution_id)}
+                              disabled={!canEdit || (canceling && cancelTarget === ex.execution_id)}
+                              className="btn btn-secondary inline-flex items-center gap-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={canEdit ? 'Cancel this execution' : 'Read-only (public catalog entry)'}
+                            >
+                              {canceling && cancelTarget === ex.execution_id
+                                ? <LoadingSpinner size="sm" />
+                                : <Ban className="w-3.5 h-3.5" />}
+                              Cancel
+                            </button>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {/* Operations card */}
           <div className="card lg:col-span-2">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Operations</h3>
@@ -262,6 +436,29 @@ export default function PipelineDetailPage() {
           onClose={() => setShowEdit(false)}
           onSaved={() => { setShowEdit(false); void router.replace(router.asPath); }}
         />
+      )}
+
+      {cancelTarget && (
+        <Modal
+          title="Cancel execution"
+          onClose={() => { if (!canceling) setCancelTarget(null); }}
+          footer={(
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setCancelTarget(null)} disabled={canceling} className="btn btn-secondary">
+                Keep running
+              </button>
+              <button onClick={confirmCancel} disabled={canceling} className="btn btn-danger inline-flex items-center gap-2">
+                {canceling ? <LoadingSpinner size="sm" /> : <Ban className="w-4 h-4" />}
+                Cancel execution
+              </button>
+            </div>
+          )}
+        >
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Stop the in-progress execution <code className="text-xs">{cancelTarget}</code>? In-progress
+            stages will be halted. This cannot be undone.
+          </p>
+        </Modal>
       )}
 
       {showDelete && pipeline && (

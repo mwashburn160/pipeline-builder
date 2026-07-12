@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, createRemoteAuditClient, decrementQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, createRemoteAuditClient, decrementQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, reserveQuota, VALID_TIERS } from '@pipeline-builder/api-core';
 import type { QuotaService, QuotaTier, RemoteAuditClient } from '@pipeline-builder/api-core';
 import { incCounter, observe } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -207,6 +207,77 @@ export function getAllTierQueues(): Array<{ tier: QuotaTier; queue: Queue<Plugin
 
 export async function enqueueBuild(tier: QuotaTier, jobName: string, jobData: PluginBuildJobData): Promise<void> {
   await getTierQueue(tier).add(jobName, jobData);
+}
+
+/**
+ * Re-reserve a `plugins` quota slot for a fresh build re-enqueue (DLQ replay or
+ * failed-build retry). The source job already RELEASED its slot on terminal
+ * failure, so a re-run must re-reserve one and hand ownership to the new job.
+ *
+ * Returns the `quotaReleased` flag for the NEW job: `false` when a slot was
+ * reserved (new job owns it and will release it on its own terminal), `true`
+ * when the org is at its plugin cap or the reservation call failed (the job
+ * carries no slot, keeping accounting balanced with no double-credit). The
+ * re-enqueue always proceeds — it's an explicit admin action.
+ */
+export async function reserveReplaySlot(quotaService: QuotaService, orgId: string, authHeader: string, jobId: string): Promise<boolean> {
+  try {
+    const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
+    if (reservation.exceeded) {
+      logger.warn('Re-enqueue proceeding without a plugin-quota slot (org at cap)', { jobId, orgId });
+      return true;
+    }
+    return false;
+  } catch (err) {
+    logger.warn('Re-enqueue quota reservation failed; proceeding without slot', { jobId, orgId, error: errorMessage(err) });
+    return true;
+  }
+}
+
+/**
+ * Locate a FAILED build job by id across the per-tier queues. BullMQ job ids
+ * are unique per queue, and the failed set is spread across every tier queue,
+ * so we probe each queue and return the first job that both exists and is in
+ * the `failed` state. Returns null if no failed job with that id is found.
+ */
+export async function findFailedJob(jobId: string): Promise<Job<PluginBuildJobData> | null> {
+  for (const { queue } of getAllTierQueues()) {
+    const job = await queue.getJob(jobId);
+    if (job && await job.isFailed()) return job;
+  }
+  return null;
+}
+
+/**
+ * Retry a single FAILED build by re-enqueuing its original job data onto the
+ * build queue matching the org's tier. Resets retry counters so the retry gets
+ * a fresh budget and removes the original failed entry after a successful
+ * enqueue so it doesn't show up twice. Returns the new job id, or null when no
+ * failed job with that id exists.
+ *
+ * This is the failed-build counterpart to `replayDlqJob` (which sources from
+ * the dead-letter queue). Both funnel through the same enqueue path.
+ */
+export async function retryFailedJob(jobId: string, quotaService: QuotaService): Promise<string | null> {
+  const failedJob = await findFailedJob(jobId);
+  if (!failedJob) return null;
+
+  const { orgId } = failedJob.data;
+  const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
+  const quotaReleased = await reserveReplaySlot(quotaService, orgId, authHeader, jobId);
+
+  const freshData: PluginBuildJobData = {
+    ...failedJob.data,
+    totalAttempts: 0,
+    quotaReleased,
+  };
+  delete (freshData as { lastError?: string }).lastError;
+  delete (freshData as { failureCategory?: string }).failureCategory;
+
+  const tier = await getOrgTier(quotaService, orgId, authHeader);
+  const requeued = await getTierQueue(tier).add(`retry-${failedJob.name}`, freshData);
+  await failedJob.remove();
+  return String(requeued.id);
 }
 
 // ---------------------------------------------------------------------------

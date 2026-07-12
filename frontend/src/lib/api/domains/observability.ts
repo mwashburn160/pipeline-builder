@@ -203,6 +203,58 @@ export function observabilityApi(core: ApiCore) {
       );
     },
 
+    /** Send a labeled test notification to a destination to verify delivery.
+     *  Resolves `{ delivered: true }` on success; a send failure comes back as
+     *  a non-2xx ApiError whose message carries the downstream reason. */
+    testAlertDestination: async (id: string) => {
+      return core.request<ApiResponse<{ delivered: boolean }>>(
+        `/api/observability/alert-destinations/${encodeURIComponent(id)}/test`,
+        { method: 'POST' },
+      );
+    },
+
+    // ==========================================================================
+    // Alert rules (per-org operator-authored PromQL alert rules)
+    //
+    // Rules define *what fires* (destinations define *where alerts go*). The
+    // backend auto-injects an `org_id="<orgId>"` matcher into `expr` and
+    // validates PromQL / tenancy / durations server-side (400 on failure), so
+    // the frontend passes raw PromQL and surfaces the returned error message.
+    // ==========================================================================
+
+    /** List this org's alert rules (sorted by name server-side). */
+    listAlertRules: async (signal?: AbortSignal) => {
+      return core.request<ApiResponse<import('@/types/observability').AlertRulesResponse>>(
+        '/api/observability/alert-rules',
+        { signal },
+      );
+    },
+
+    /** Create an alert rule. `name`, `expr`, and `summary` are required
+     *  (observability:write server-side gate). */
+    createAlertRule: async (body: import('@/types/observability').AlertRuleWrite) => {
+      return core.request<ApiResponse<import('@/types/observability').AlertRuleResponse>>(
+        '/api/observability/alert-rules',
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+    },
+
+    /** Update an alert rule (partial patch of the create fields). */
+    updateAlertRule: async (id: string, body: import('@/types/observability').AlertRuleWrite) => {
+      return core.request<ApiResponse<import('@/types/observability').AlertRuleResponse>>(
+        `/api/observability/alert-rules/${encodeURIComponent(id)}`,
+        { method: 'PUT', body: JSON.stringify(body) },
+      );
+    },
+
+    /** Delete (soft) an alert rule. */
+    deleteAlertRule: async (id: string) => {
+      return core.request<ApiResponse<undefined>>(
+        `/api/observability/alert-rules/${encodeURIComponent(id)}`,
+        { method: 'DELETE' },
+      );
+    },
+
     // ============================================
     // Log endpoints
     // ============================================

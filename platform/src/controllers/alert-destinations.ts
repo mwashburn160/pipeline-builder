@@ -24,7 +24,7 @@ import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
-import { alertDestinationService, toApiDestination } from '../services/alert-destination-service.js';
+import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
 import { isReasonableString } from '../utils/string-guards.js';
 
@@ -242,6 +242,48 @@ export const deleteAlertDestination = withController('Delete alert destination',
 
   audit(req, 'alert.destination.delete', { targetType: 'alert-destination', targetId: id });
   sendSuccess(res, 200, undefined, 'Destination deleted');
+});
+
+/**
+ * POST /api/observability/alert-destinations/:id/test — send a labeled TEST
+ * notification to the destination so an operator can verify delivery without
+ * waiting for a real alert. Same `observability:write` gate as the other
+ * mutations; the lookup is org-scoped so you can't test another org's
+ * destination. The send reuses the guarded channel path (see the service).
+ */
+export const testAlertDestination = withController('Test alert destination', async (req, res) => {
+  const ctx = requireAuthContext(req, res);
+  if (!ctx) return;
+  const { userId, orgId } = ctx;
+
+  if (!userHasPermission(req, 'observability:write')) {
+    return sendError(res, 403, 'Org admin or system admin required');
+  }
+
+  const id = req.params.id as string;
+
+  let result;
+  try {
+    result = await alertDestinationService.sendTestNotification(orgId, id, { userId, email: req.user?.email });
+  } catch (err) {
+    if (err instanceof DestinationNotFoundError) return sendError(res, 404, 'Destination not found');
+    throw err;
+  }
+
+  audit(req, 'alert.destination.test', {
+    targetType: 'alert-destination',
+    targetId: id,
+    outcome: result.delivered ? 'success' : 'failure',
+    details: { delivered: result.delivered, ...(result.error ? { error: result.error } : {}) },
+  });
+
+  if (!result.delivered) {
+    // Surface a delivery failure as a clean 502 with the reason — not a 500
+    // stack. The destination exists and the request was well-formed; the
+    // downstream transport (Slack/webhook/email) is what failed.
+    return sendError(res, 502, result.error || 'Test notification failed to send');
+  }
+  sendSuccess(res, 200, { delivered: true }, 'Test notification sent');
 });
 
 /**

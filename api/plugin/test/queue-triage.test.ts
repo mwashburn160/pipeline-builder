@@ -21,6 +21,8 @@ jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   getDeadLetterQueue: () => ({ getJobs: dlqGetJobs, getJobCounts: jest.fn() }),
   purgeDlq: jest.fn(),
   replayDlqJob: jest.fn(),
+  findFailedJob: jest.fn(),
+  retryFailedJob: jest.fn(),
 }));
 
 // Quota service stub  required by createQueueStatusRoutes since.

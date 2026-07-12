@@ -6,7 +6,7 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 
-import { getAllTierQueues, getDeadLetterQueue, purgeDlq, replayDlqJob } from '../queue/plugin-build-queue.js';
+import { findFailedJob, getAllTierQueues, getDeadLetterQueue, purgeDlq, replayDlqJob, retryFailedJob } from '../queue/plugin-build-queue.js';
 
 /**
  * Register queue status routes.
@@ -98,6 +98,46 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     }));
 
     return sendSuccess(res, 200, { jobs, total: jobs.length });
+  }));
+
+  /**
+   * POST /failed/:jobId/retry — re-enqueue a single FAILED build onto the main
+   * build queue from its retained job data. Mirrors /dlq/:jobId/replay but
+   * sources from the per-tier failed set (distinct from the DLQ).
+   *
+   * Visibility:
+   * - System admins: can retry any failed job.
+   * - Org admins/owners: can retry only jobs that belong to their own org.
+   * - All other users: 403.
+   *
+   * Returns 404 if no failed job with that id exists. The retry carries fresh
+   * retry counters; the original failed entry is removed on success.
+   */
+  router.post('/failed/:jobId/retry', withRoute(async ({ req, res, ctx, orgId }) => {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'owner') {
+      return sendError(res, 403, 'Only administrators can retry failed builds', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+
+    const jobId = getParam(req.params, 'jobId');
+    if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+
+    // Tenant-isolation: non-system admins can only retry jobs owned by their org.
+    const failedJob = await findFailedJob(jobId);
+    if (!failedJob) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
+
+    if (!isSystemAdmin(req)) {
+      const jobOrg = (failedJob.data?.orgId ?? (failedJob.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
+      if (typeof jobOrg !== 'string' || jobOrg.toLowerCase() !== orgId.toLowerCase()) {
+        return sendError(res, 403, 'Cannot retry a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
+      }
+    }
+
+    const newJobId = await retryFailedJob(jobId, quotaService);
+    if (!newJobId) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
+
+    ctx.log('COMPLETED', 'Retried failed build', { failedJobId: jobId, newJobId });
+    return sendSuccess(res, 200, { retried: true, failedJobId: jobId, newJobId });
   }));
 
   // -- DLQ endpoints --------------------------------------------------------

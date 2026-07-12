@@ -1,12 +1,30 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Loader2, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertTriangle, CheckCircle, XCircle, Square, ShieldOff } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
+import { Modal } from '@/components/ui/Modal';
+import { useToast } from '@/components/ui/Toast';
 import { useServerPagination } from '@/hooks/useServerPagination';
-import type { ComplianceScan, ComplianceAuditEntry } from '@/types/compliance';
+import type { ComplianceScan, ComplianceAuditEntry, RuleTarget } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RESULT_STYLES } from '@/lib/compliance-styles';
+
+/** The subset of an audit row needed to pre-fill an exemption request. */
+interface ExemptTarget {
+  entityId: string;
+  entityType: RuleTarget;
+  entityName: string;
+  /** The rules this entity violated in the scan — the user picks which to exempt. */
+  rules: { ruleId: string; ruleName: string }[];
+}
+
+/** Pull the violated rules (ruleId + ruleName) off an audit entry's opaque violations. */
+function violatedRules(entry: ComplianceAuditEntry): { ruleId: string; ruleName: string }[] {
+  return (entry.violations as Array<{ ruleId?: unknown; ruleName?: unknown }>)
+    .filter((v) => typeof v.ruleId === 'string' && v.ruleId)
+    .map((v) => ({ ruleId: String(v.ruleId), ruleName: v.ruleName ? String(v.ruleName) : String(v.ruleId) }));
+}
 
 interface ScanDetailProps {
   scanId: string;
@@ -14,9 +32,16 @@ interface ScanDetailProps {
 }
 
 export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
+  const toast = useToast();
   const [scan, setScan] = useState<ComplianceScan | null>(null);
   const [scanLoading, setScanLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  // Exemption request modal, opened from a violating row.
+  const [exemptTarget, setExemptTarget] = useState<ExemptTarget | null>(null);
+  const [exemptForm, setExemptForm] = useState<{ ruleId: string; reason: string; expiresAt: string }>({ ruleId: '', reason: '', expiresAt: '' });
+  const [exemptSubmitting, setExemptSubmitting] = useState(false);
 
   // The scan-detail page has two parallel fetches: the scan record itself
   // (one-shot, no pagination) and the per-entity audit log (paginated).
@@ -42,6 +67,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
     pagination: auditPagination,
     loading: auditLoading,
     setOffset: setAuditOffset,
+    refetch: refetchAudit,
   } = useServerPagination<ComplianceAuditEntry, { scanId: string }>(
     async ({ offset, limit, filters }) => {
       const res = await api.getComplianceAuditLog({ scanId: filters.scanId, limit, offset });
@@ -64,6 +90,63 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
   // Page-size changes are not currently supported by useServerPagination's
   // public surface; keep the Pagination wired but treat resize as a reset.
   const handleAuditPageSizeChange = (_limit: number) => { setAuditOffset(0); };
+
+  // Cancel a running scan (mirrors ScanManager's cancel + confirm, then refetches).
+  const handleCancel = async () => {
+    if (!scan || !window.confirm('Cancel this running scan? Entities not yet processed will be skipped.')) return;
+    setCancelling(true);
+    try {
+      const res = await api.cancelScan(scan.id);
+      if (res.success) {
+        toast.success('Scan cancelled');
+        await fetchScan();
+      } else {
+        toast.error(res.message || 'Failed to cancel scan');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to cancel scan');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  // Open the exemption request modal, pre-filled from a violating row.
+  const openExempt = (entry: ComplianceAuditEntry) => {
+    const rules = violatedRules(entry);
+    setExemptTarget({
+      entityId: entry.entityId ?? '',
+      entityType: entry.target,
+      entityName: entry.entityName ?? '',
+      rules,
+    });
+    setExemptForm({ ruleId: rules[0]?.ruleId ?? '', reason: '', expiresAt: '' });
+  };
+
+  const handleExemptSubmit = async () => {
+    if (!exemptTarget || !exemptForm.ruleId || !exemptForm.reason.trim()) return;
+    setExemptSubmitting(true);
+    try {
+      const res = await api.createExemption({
+        ruleId: exemptForm.ruleId,
+        entityType: exemptTarget.entityType,
+        entityId: exemptTarget.entityId,
+        entityName: exemptTarget.entityName || undefined,
+        reason: exemptForm.reason.trim(),
+        expiresAt: exemptForm.expiresAt || undefined,
+      });
+      if (res.success) {
+        toast.success('Exemption requested');
+        setExemptTarget(null);
+        refetchAudit();
+      } else {
+        toast.error(res.message || 'Failed to request exemption');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to request exemption');
+    } finally {
+      setExemptSubmitting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -98,6 +181,15 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Scan Details</h2>
+        {scan.status === 'running' && (
+          <button
+            onClick={handleCancel}
+            disabled={cancelling}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+          >
+            <Square className="h-3.5 w-3.5" /> {cancelling ? 'Cancelling...' : 'Cancel scan'}
+          </button>
+        )}
       </div>
 
       {/* Scan summary card */}
@@ -161,11 +253,16 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rules</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Violations</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
                   {auditEntries.map(entry => {
                     const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
+                    // Only block/warn rows with an entity + a violated rule can be exempted.
+                    const canExempt = (entry.result === 'block' || entry.result === 'warn')
+                      && !!entry.entityId
+                      && violatedRules(entry).length > 0;
                     return (
                       <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                         <td className="px-4 py-3">
@@ -176,6 +273,17 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{entry.ruleCount}</td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{entry.violations?.length || 0}</td>
                         <td className="px-4 py-3 text-xs text-gray-500">{new Date(entry.createdAt).toLocaleTimeString()}</td>
+                        <td className="px-4 py-3 text-right">
+                          {canExempt && (
+                            <button
+                              onClick={() => openExempt(entry)}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
+                              title="Request an exemption for this violation"
+                            >
+                              <ShieldOff className="h-3.5 w-3.5" /> Exempt
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -192,6 +300,73 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
           </>
         )}
       </div>
+
+      {exemptTarget && (
+        <Modal
+          title="Request Exemption"
+          onClose={() => setExemptTarget(null)}
+          footer={
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setExemptTarget(null)} className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg">Cancel</button>
+              <button
+                onClick={handleExemptSubmit}
+                disabled={exemptSubmitting || !exemptForm.ruleId || !exemptForm.reason.trim()}
+                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {exemptSubmitting ? 'Submitting...' : 'Submit Request'}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Entity</label>
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white truncate" title={exemptTarget.entityName || exemptTarget.entityId}>
+                  {exemptTarget.entityName || exemptTarget.entityId}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Entity Type</label>
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white capitalize">
+                  {exemptTarget.entityType}
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Rule *</label>
+              <select
+                value={exemptForm.ruleId}
+                onChange={e => setExemptForm(f => ({ ...f, ruleId: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+              >
+                {exemptTarget.rules.map(rule => (
+                  <option key={rule.ruleId} value={rule.ruleId}>{rule.ruleName}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Reason *</label>
+              <textarea
+                value={exemptForm.reason}
+                onChange={e => setExemptForm(f => ({ ...f, reason: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                rows={3}
+                placeholder="Why should this violation be exempted?"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Expires (optional)</label>
+              <input
+                type="date"
+                value={exemptForm.expiresAt}
+                onChange={e => setExemptForm(f => ({ ...f, expiresAt: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

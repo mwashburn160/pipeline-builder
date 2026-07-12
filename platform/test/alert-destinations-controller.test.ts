@@ -60,6 +60,9 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
     req.user?.sub && req.user?.organizationId ? { userId: req.user.sub, orgId: req.user.organizationId } : null,
 }));
 
+class DestinationNotFoundError extends Error {
+  constructor(id: string) { super(`Alert destination not found: ${id}`); this.name = 'DestinationNotFoundError'; }
+}
 jest.unstable_mockModule('../src/services/alert-destination-service.js', () => ({
   alertDestinationService: {
     listAllAcrossOrgs: (...a: unknown[]) => mockListAll(...a),
@@ -69,7 +72,9 @@ jest.unstable_mockModule('../src/services/alert-destination-service.js', () => (
     delete: jest.fn(),
     findById: jest.fn(),
     findForDelivery: jest.fn(),
+    sendTestNotification: jest.fn(),
   },
+  DestinationNotFoundError,
   // The real mask returns "••••<last 12 chars>". Match so we can assert the
   // controller actually invoked toApiDestination (and didn't leak raw target).
   toApiDestination: (d: { target: string }) => ({ ...d, target: '••••' + d.target.slice(-12), hasTarget: !!d.target }),

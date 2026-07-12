@@ -82,6 +82,20 @@ export default function ObservabilityIndexPage() {
           </p>
         </Link>
 
+        {/* Per-org alert rules — the PromQL conditions that fire alerts. */}
+        <Link
+          href="/dashboard/observability/alert-rules"
+          className="block rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 hover:border-blue-500 hover:shadow-sm transition-colors"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <Activity className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Alert rules</h2>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Author PromQL conditions that fire alerts — auto-scoped to your org&apos;s metrics.
+          </p>
+        </Link>
+
         {/* Per-org notification destinations — where this org's alerts go. */}
         <Link
           href="/dashboard/observability/alert-destinations"

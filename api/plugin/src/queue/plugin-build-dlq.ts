@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { createLogger, errorMessage, getServiceAuthHeader, reserveQuota } from '@pipeline-builder/api-core';
+import { createLogger, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Queue, Worker } from 'bullmq';
@@ -17,6 +17,7 @@ import {
   getOrgTier,
   cleanupContextDir,
   releasePluginQuota,
+  reserveReplaySlot,
 } from './plugin-build-queue.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 
@@ -117,17 +118,7 @@ export async function replayDlqJob(jobId: string, quotaService: QuotaService): P
   // successful replay deploys a plugin the org's usage never counts. If the org
   // is at its plugin cap we still replay (an admin action) but the job carries
   // no slot to release, keeping accounting balanced (no double-credit).
-  let quotaReleased = true;
-  try {
-    const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
-    if (reservation.exceeded) {
-      logger.warn('DLQ replay proceeding without a plugin-quota slot (org at cap)', { jobId, orgId });
-    } else {
-      quotaReleased = false;
-    }
-  } catch (err) {
-    logger.warn('DLQ replay quota reservation failed; proceeding without slot', { jobId, orgId, error: errorMessage(err) });
-  }
+  const quotaReleased = await reserveReplaySlot(quotaService, orgId, authHeader, jobId);
 
   const freshData: PluginBuildJobData = {
     ...dlqJob.data,

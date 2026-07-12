@@ -62,6 +62,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   updateProfileSchema: {},
   changePasswordSchema: {},
   adminUpdateUserSchema: {},
+  adminCreateUserSchema: {},
 }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
@@ -86,6 +87,8 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   UA_ORG_NOT_FOUND: 'UA_ORG_NOT_FOUND',
   UA_SEAT_LIMIT: 'UA_SEAT_LIMIT',
   UA_CANNOT_CHANGE_OWNER: 'UA_CANNOT_CHANGE_OWNER',
+  UA_GROUPS_NEED_ORG: 'UA_GROUPS_NEED_ORG',
+  GRP_GROUP_NOT_FOUND: 'GRP_GROUP_NOT_FOUND',
   // Consumed transitively via user-admin.js -> user-profile.js.
   PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
   PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',

@@ -38,6 +38,7 @@
     "typescript": "6.0.3"
   },
   "dependencies": {
+    "@aws-sdk/client-codepipeline": "3.1064.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
@@ -68,7 +69,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.109",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

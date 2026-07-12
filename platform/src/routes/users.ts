@@ -6,6 +6,7 @@ import { Router } from 'express';
 import {
   listAllUsers,
   getUserById,
+  createUserByAdmin,
   updateUserById,
   deleteUserById,
   bulkDeleteUsers,
@@ -17,6 +18,9 @@ const router = Router();
 
 /** GET /users - List all users (system admin only) */
 router.get('/', requireAuth, requirePermission('members:manage'), listAllUsers);
+
+/** POST /users - Create a user (system admin only; enforced in the controller) */
+router.post('/', requireAuth, requirePermission('members:manage'), createUserByAdmin);
 
 /** GET /users/:id - Get user by ID (system admin only) */
 router.get('/:id', requireAuth, requirePermission('members:manage'), getUserById);

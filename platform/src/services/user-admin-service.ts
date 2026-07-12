@@ -3,10 +3,11 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
+import { GRP_GROUP_NOT_FOUND, recomputeUserOrgRole } from './groups-service.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { seatCapacityAvailable } from '../helpers/seats.js';
-import { User, Organization, UserOrganization, GroupMembership, type OrgMemberRole } from '../models/index.js';
+import { User, Organization, UserOrganization, Group, GroupMembership, type OrgMemberRole } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -25,6 +26,9 @@ export const UA_CANNOT_CHANGE_OWNER = 'UA_CANNOT_CHANGE_OWNER';
 /** Target org is at its seat cap (`org.quotas.seats`) — assigning this user
  *  would exceed it. Same limit the invite/add paths enforce. */
 export const UA_SEAT_LIMIT = 'UA_SEAT_LIMIT';
+/** Group assignment was requested without an organization. Groups are
+ *  org-scoped, so `createUser` can't attach them to an org-less user. */
+export const UA_GROUPS_NEED_ORG = 'UA_GROUPS_NEED_ORG';
 
 interface ListFilter {
   /** Restrict to a specific org (system-admin only); narrows the userId set. */
@@ -166,6 +170,101 @@ class UserAdminService {
     const membership = await UserOrganization.findOne({ userId, isActive: true })
       .select('organizationId').lean();
     return membership?.organizationId.toString();
+  }
+
+  /**
+   * Create a new user (system-admin only). Mirrors auth-service.register()'s
+   * transaction + user-construction pattern, but skips org creation: an admin
+   * either leaves the user org-less or assigns them to an EXISTING org. The
+   * account is created pre-verified (`isEmailVerified: true`) — admin-created
+   * users skip the email round-trip.
+   *
+   * The password is hashed by the User model's `pre('save')` hook (same as
+   * register()); NEVER hash here. Uniqueness is checked per-field so the 409
+   * tells the admin which field collided. Throws UA_USERNAME_TAKEN /
+   * UA_EMAIL_TAKEN / UA_ORG_NOT_FOUND.
+   */
+  async createUser(input: {
+    username: string;
+    email: string;
+    password: string;
+    isSuperAdmin?: boolean;
+    organizationId?: string;
+    role?: OrgMemberRole;
+    groupIds?: string[];
+  }): Promise<{ id: string; username: string; email: string; isSuperAdmin: boolean; isEmailVerified: boolean; organizationId?: string; role?: OrgMemberRole }> {
+    const username = input.username.trim().toLowerCase();
+    const email = input.email.trim().toLowerCase();
+
+    // Groups are org-scoped — there's no org to attach them to when the user is
+    // created org-less. Fail fast before any DB work. (The zod schema enforces
+    // the same rule; this guards direct service callers.)
+    if (input.groupIds?.length && !input.organizationId) throw new Error(UA_GROUPS_NEED_ORG);
+
+    // User + (optional) membership + group memberships are written together so a
+    // failed insert (e.g. bad org/group) can't leave an orphaned user behind.
+    // Mirrors register().
+    return withMongoTransaction(async (session) => {
+      // Separate existence checks — a combined `$or` can't tell the caller
+      // WHICH field is taken, and the two collisions map to distinct 409s.
+      if (await User.exists({ username }).session(session)) throw new Error(UA_USERNAME_TAKEN);
+      if (await User.exists({ email }).session(session)) throw new Error(UA_EMAIL_TAKEN);
+
+      const user = new User({
+        username,
+        email,
+        password: input.password,
+        isSuperAdmin: !!input.isSuperAdmin,
+        isEmailVerified: true,
+      });
+
+      let orgObjectId: Types.ObjectId | undefined;
+      if (input.organizationId) {
+        const org = await Organization.findById(toOrgId(input.organizationId)).session(session);
+        if (!org) throw new Error(UA_ORG_NOT_FOUND);
+        await UserOrganization.create(
+          [{ userId: user._id, organizationId: org._id, role: input.role ?? 'member' }],
+          { session },
+        );
+        user.lastActiveOrgId = String(org._id);
+        orgObjectId = org._id;
+      }
+
+      // Persist the user before group assignment so recomputeUserOrgRole can
+      // read/flip its `isSuperAdmin` + tokenVersion (it queries the User doc).
+      await user.save({ session });
+
+      // Optional group assignment. Guarded above to require an org; each group
+      // must belong to that org. Mirrors addUserToGroup's upsert + recompute.
+      if (input.groupIds?.length && orgObjectId) {
+        for (const groupId of input.groupIds) {
+          const group = await Group.findOne({ _id: groupId, organizationId: orgObjectId }).session(session);
+          if (!group) throw new Error(GRP_GROUP_NOT_FOUND);
+          // Superadmin role-ceiling (addUserToGroup's GRP_REQUIRES_SUPERADMIN) is
+          // already satisfied: this endpoint is hard-gated to platform superadmins
+          // in the controller, so no extra actor check is needed here.
+          await GroupMembership.updateOne(
+            { userId: user._id, groupId },
+            { $setOnInsert: { userId: user._id, groupId, organizationId: orgObjectId } },
+            { upsert: true, session },
+          );
+        }
+        // Derives the cached UserOrganization.role, flips User.isSuperAdmin for a
+        // Superadmins group, and bumps tokenVersion once — do NOT set the role
+        // manually or double-bump tokenVersion for this path.
+        await recomputeUserOrgRole(user._id, orgObjectId, session);
+      }
+
+      return {
+        id: String(user._id),
+        username: user.username,
+        email: user.email,
+        isSuperAdmin: user.isSuperAdmin ?? false,
+        isEmailVerified: user.isEmailVerified,
+        organizationId: input.organizationId,
+        role: input.organizationId ? (input.role ?? 'member') : undefined,
+      };
+    });
   }
 
   /**

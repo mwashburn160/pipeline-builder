@@ -38,6 +38,21 @@ export function createExecutionReportRoutes(): Router {
     sendSuccess(res, 200, { pipelines: await reportingService.getExecutionCount(orgId, orgIds) });
   }));
 
+  // Per-pipeline execution history. `pipelineId` is required (400 otherwise).
+  // Org-scoping is enforced in reportingService.listPipelineExecutions via the
+  // `p.org_id ${pred}` join — a pipelineId owned by another org returns [].
+  router.get('/list', withRoute(async ({ req, res, orgId }) => {
+    const pipelineId = typeof req.query.pipelineId === 'string' ? req.query.pipelineId : '';
+    if (!pipelineId) return sendBadRequest(res, 'pipelineId is required', ErrorCode.VALIDATION_ERROR);
+    const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
+    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
+    const limit = parseQueryIntClamped(req.query.limit, 50, MAX_REPORT_LIMIT);
+    const orgIds = await rollupIds(req, orgId);
+    sendSuccess(res, 200, {
+      executions: await reportingService.listPipelineExecutions(orgId, pipelineId, orgIds, range, limit),
+    });
+  }));
+
   router.get('/success-rate', withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);

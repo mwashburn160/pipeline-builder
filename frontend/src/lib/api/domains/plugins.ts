@@ -90,12 +90,27 @@ export function pluginsApi(core: ApiCore) {
       }>>(`/api/plugins/queue/triage${buildQuery(params)}`);
     },
 
+    /** Re-enqueue a single failed build onto the main build queue. Removes the failed entry on success. */
+    retryFailedJob: async (jobId: string) => {
+      return core.request<ApiResponse<{ retried: boolean; failedJobId: string; newJobId: string }>>(
+        `/api/plugins/queue/failed/${encodeURIComponent(jobId)}/retry`,
+        { method: 'POST' },
+      );
+    },
+
     /** Re-enqueue a single DLQ job onto the main build queue. Removes the DLQ entry on success. */
     replayDlqJob: async (jobId: string) => {
       return core.request<ApiResponse<{ replayed: boolean; dlqJobId: string; newJobId: string }>>(
         `/api/plugins/queue/dlq/${encodeURIComponent(jobId)}/replay`,
         { method: 'POST' },
       );
+    },
+
+    /** Purge the entire plugin-build dead-letter queue. Destructive; system-admin only (403 otherwise). */
+    purgeDlq: async () => {
+      return core.request<ApiResponse<{ message: string }>>('/api/plugins/queue/dlq', {
+        method: 'DELETE',
+      });
     },
 
     updatePlugin: async (id: string, data: {

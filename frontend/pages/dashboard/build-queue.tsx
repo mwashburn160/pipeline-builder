@@ -12,6 +12,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { useToast } from '@/components/ui/Toast';
 import type { QueueStatus } from '@/types';
 import api from '@/lib/api';
 
@@ -130,9 +131,18 @@ interface FailedJobsTableProps {
   jobs: FailedJob[];
   title: string;
   showCategory?: boolean;
+  /** When provided, renders a per-row action button (DLQ Replay / failed-build Retry). */
+  onAction?: (jobId: string) => void;
+  /** Job IDs with an in-flight action — disables their button. */
+  actionPendingIds?: Set<string>;
+  /** Button label for the idle / pending states. */
+  actionLabel?: string;
+  actionPendingLabel?: string;
+  /** Tooltip for the action button. */
+  actionTitle?: string;
 }
 
-function FailedJobsTable({ jobs, title, showCategory }: FailedJobsTableProps) {
+function FailedJobsTable({ jobs, title, showCategory, onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle }: FailedJobsTableProps) {
   const [sortBy, setSortBy] = useState<SortField>('failedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(0);
@@ -191,6 +201,9 @@ function FailedJobsTable({ jobs, title, showCategory }: FailedJobsTableProps) {
                 <SortHeader label="Attempts" field="attemptsMade" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Failed At" field="failedAt" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                 <SortHeader label="Error" field="error" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                {onAction && (
+                  <th className="px-4 py-2.5 text-right font-medium text-gray-700 dark:text-gray-300">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -218,6 +231,19 @@ function FailedJobsTable({ jobs, title, showCategory }: FailedJobsTableProps) {
                   <td className="px-4 py-2.5 text-red-600 dark:text-red-400 text-xs max-w-xs">
                     <span className="line-clamp-2" title={job.error}>{job.error || '—'}</span>
                   </td>
+                  {onAction && (
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onAction(job.id)}
+                        disabled={actionPendingIds?.has(job.id)}
+                        title={actionTitle}
+                      >
+                        {actionPendingIds?.has(job.id) ? (actionPendingLabel ?? 'Working…') : (actionLabel ?? 'Retry')}
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -243,12 +269,16 @@ function FailedJobsTable({ jobs, title, showCategory }: FailedJobsTableProps) {
 // ---------------------------------------------------------------------------
 
 export default function BuildQueuePage() {
-  const { user, isReady } = useAuthGuard({ requireSystemAdmin: true });
+  const { user, isReady, isSuperAdmin } = useAuthGuard({ requireSystemAdmin: true });
+  const toast = useToast();
   const [status, setStatus] = useState<QueueStatus | null>(null);
   const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
   const [dlqJobs, setDlqJobs] = useState<DlqJob[]>([]);
   const [showFailed, setShowFailed] = useState(false);
   const [showDlq, setShowDlq] = useState(false);
+  const [replayingIds, setReplayingIds] = useState<Set<string>>(new Set());
+  const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
+  const [purging, setPurging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -294,6 +324,70 @@ export default function BuildQueuePage() {
       if (mountedRef.current) setError(formatError(err, 'Failed to fetch DLQ jobs'));
     }
   }, []);
+
+  // Re-enqueue a single DLQ job onto the main build queue, then refetch the
+  // DLQ list so the replayed row drops out. Mirrors the triage page's replay.
+  const handleReplayDlq = useCallback(async (jobId: string) => {
+    if (!window.confirm('Re-enqueue this job onto the main build queue?')) return;
+    setReplayingIds((prev) => new Set(prev).add(jobId));
+    try {
+      const res = await api.replayDlqJob(jobId);
+      const newJobId = res.data?.newJobId ?? '?';
+      toast.success(`Re-enqueued as job ${newJobId}`);
+      await fetchDlq();
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to replay DLQ job'));
+    } finally {
+      if (mountedRef.current) {
+        setReplayingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(jobId);
+          return next;
+        });
+      }
+    }
+  }, [toast, fetchDlq]);
+
+  // Re-enqueue a single failed build onto the main build queue, then refetch
+  // the failed list + aggregate status so the retried row drops out. Mirrors
+  // the DLQ replay handler above.
+  const handleRetryFailed = useCallback(async (jobId: string) => {
+    if (!window.confirm('Re-enqueue this failed build onto the main build queue?')) return;
+    setRetryingIds((prev) => new Set(prev).add(jobId));
+    try {
+      const res = await api.retryFailedJob(jobId);
+      const newJobId = res.data?.newJobId ?? '?';
+      toast.success(`Re-enqueued as job ${newJobId}`);
+      await Promise.all([fetchFailed(), fetchStatus()]);
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to retry build'));
+    } finally {
+      if (mountedRef.current) {
+        setRetryingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(jobId);
+          return next;
+        });
+      }
+    }
+  }, [toast, fetchFailed, fetchStatus]);
+
+  // Purge the ENTIRE dead-letter queue — destructive, sysadmin-only. Strong
+  // confirm, then refresh the aggregate status + (if open) the DLQ list.
+  const handlePurgeDlq = useCallback(async () => {
+    if (!window.confirm('Purge the ENTIRE dead-letter queue? This permanently deletes every DLQ entry and cannot be undone.')) return;
+    setPurging(true);
+    try {
+      await api.purgeDlq();
+      toast.success('Dead-letter queue purged');
+      setDlqJobs([]);
+      await fetchStatus();
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to purge DLQ'));
+    } finally {
+      if (mountedRef.current) setPurging(false);
+    }
+  }, [toast, fetchStatus]);
 
   useEffect(() => {
     if (!isReady || !user) return;
@@ -418,7 +512,17 @@ export default function BuildQueuePage() {
               </Button>
             )}
           </div>
-          {showFailed && <FailedJobsTable jobs={failedJobs} title="failed jobs" />}
+          {showFailed && (
+            <FailedJobsTable
+              jobs={failedJobs}
+              title="failed jobs"
+              onAction={handleRetryFailed}
+              actionPendingIds={retryingIds}
+              actionLabel="Retry"
+              actionPendingLabel="Retrying…"
+              actionTitle="Re-enqueue this failed build onto the main build queue"
+            />
+          )}
         </motion.div>
       )}
 
@@ -438,13 +542,31 @@ export default function BuildQueuePage() {
                 ({dlqTotal})
               </span>
             </h2>
-            {!showDlq && (
-              <Button onClick={fetchDlq} variant="secondary" size="sm">
-                View DLQ Jobs
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {!showDlq && (
+                <Button onClick={fetchDlq} variant="secondary" size="sm">
+                  View DLQ Jobs
+                </Button>
+              )}
+              {isSuperAdmin && (
+                <Button onClick={handlePurgeDlq} variant="danger" size="sm" disabled={purging}>
+                  {purging ? 'Purging…' : 'Purge DLQ'}
+                </Button>
+              )}
+            </div>
           </div>
-          {showDlq && <FailedJobsTable jobs={dlqJobs} title="DLQ jobs" showCategory />}
+          {showDlq && (
+            <FailedJobsTable
+              jobs={dlqJobs}
+              title="DLQ jobs"
+              showCategory
+              onAction={handleReplayDlq}
+              actionPendingIds={replayingIds}
+              actionLabel="Replay"
+              actionPendingLabel="Replaying…"
+              actionTitle="Re-enqueue this DLQ job onto the main build queue"
+            />
+          )}
         </motion.div>
       )}
     </DashboardLayout>

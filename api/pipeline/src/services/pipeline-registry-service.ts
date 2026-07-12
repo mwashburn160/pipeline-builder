@@ -99,6 +99,39 @@ class PipelineRegistryService {
     });
   }
 
+  /**
+   * Resolve a pipelineId to its CodePipeline physical name + region, scoped to
+   * the caller's org. Returns null when no registry row exists for the pipeline
+   * in the caller's org (a pipelineId owned by another org resolves to null —
+   * the org filter is part of the WHERE, so a cross-org id is indistinguishable
+   * from an absent one). This is the lookup the trigger/cancel write path uses
+   * to address the live CodePipeline directly.
+   */
+  async findByPipelineId(
+    pipelineId: string,
+    orgId: string,
+  ): Promise<{ pipelineName: string; region: string; stackName?: string } | null> {
+    return withTenantTx(async (tx) => {
+      const [row] = await tx
+        .select({
+          pipelineName: schema.pipelineRegistry.pipelineName,
+          region: schema.pipelineRegistry.region,
+          stackName: schema.pipelineRegistry.stackName,
+        })
+        .from(schema.pipelineRegistry)
+        .where(and(
+          eq(schema.pipelineRegistry.pipelineId, pipelineId),
+          eq(schema.pipelineRegistry.orgId, orgId),
+        ));
+      if (!row) return null;
+      return {
+        pipelineName: row.pipelineName,
+        region: row.region ?? '',
+        stackName: row.stackName ?? undefined,
+      };
+    });
+  }
+
   /** Hard-delete a registry row scoped to the caller's org. Returns the deleted row or null. */
   async delete(id: string, orgId: string) {
     const [deleted] = await withTenantTx(async (tx) => tx

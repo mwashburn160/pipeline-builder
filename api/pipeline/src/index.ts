@@ -8,6 +8,7 @@ import { runMigrations } from '@pipeline-builder/pipeline-data';
 import { createBulkPipelineRoutes } from './routes/bulk-pipeline.js';
 import { createCreatePipelineRoutes } from './routes/create-pipeline.js';
 import { createDeletePipelineRoutes } from './routes/delete-pipeline.js';
+import { createExecutionRoutes } from './routes/executions.js';
 import { createGeneratePipelineRoutes } from './routes/generate-pipeline.js';
 import { createReadPipelineRoutes } from './routes/read-pipelines.js';
 import { createRegistryRoutes } from './routes/registry.js';
@@ -35,6 +36,11 @@ app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createRegistryRoutes
 // -- Bulk routes — auth + orgId + bulk_operations feature gate ---------------
 //    Also before read routes — `/bulk/create` must not hit `/:id`.
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireFeature('bulk_operations'), createBulkPipelineRoutes(quotaService));
+
+// -- Execution write routes (trigger / cancel via AWS CodePipeline) ----------
+//    auth + orgId + pipelines:write. POST-only paths (`/:pipelineId/executions`
+//    and `.../:executionId/stop`) — won't collide with the read GET `/:id`.
+app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), createExecutionRoutes());
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));

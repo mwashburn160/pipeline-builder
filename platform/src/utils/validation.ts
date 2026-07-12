@@ -116,6 +116,26 @@ export const adminUpdateUserSchema = z.object({
   password: passwordSchema.optional(),
 }).strict();
 
+/** Admin user creation (POST /users, system-admin only). Username/email/password
+ *  reuse the same rules as registration (register + the User model pre-save hook)
+ *  so an admin-created account is subject to the identical constraints. `role`
+ *  only applies when `organizationId` is supplied. `.strict()` rejects unknown
+ *  fields so nothing extra (e.g. tokenVersion) can be slipped in. */
+export const adminCreateUserSchema = z.object({
+  username: z.string().min(2).max(30).regex(/^[a-z0-9_-]+$/i, 'Username must contain only letters, numbers, hyphens, and underscores'),
+  email: emailSchema,
+  password: passwordSchema,
+  isSuperAdmin: z.boolean().optional(),
+  organizationId: z.string().min(1).optional(),
+  role: z.enum(['owner', 'admin', 'member']).optional(),
+  // Groups are org-scoped, so any group assignment requires an organizationId
+  // (enforced by the refine below + again in the service).
+  groupIds: z.array(z.string()).max(50).optional(),
+}).strict().refine(
+  d => !(d.groupIds?.length) || !!d.organizationId,
+  { message: 'organizationId is required when assigning groups', path: ['groupIds'] },
+);
+
 // Invitation Schemas
 
 /** Invitation send request schema. */
