@@ -60,8 +60,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {},
   Organization: {},
   UserOrganization: {},
-  Group: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
-  GroupMembership: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
+  Role: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
+  RoleAssignment: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
 }));
 
 const { _resetConsumedJtiForTests, consumeJti } = await import('../src/middleware/consumed-jti.js');

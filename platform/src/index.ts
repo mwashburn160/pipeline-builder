@@ -411,6 +411,20 @@ async function initDependencies(): Promise<void> {
     });
   }
 
+  // Backfill the single-source RBAC "Roles" model (idempotent, cheap on a
+  // no-op): populate built-in Roles' permission bundles and ensure every active
+  // member holds the Role matching their coarse role, so users who relied on the
+  // now-removed role baseline keep their permissions. Guarded — a partial
+  // failure logs and boot continues (this is never fatal).
+  const { backfillRbacRoles } = await import('./services/rbac-backfill.js');
+  try {
+    await backfillRbacRoles();
+  } catch (err) {
+    logger.error('RBAC Roles backfill failed (service will still come ready)', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // Install the per-org KMS provider if SECRET_ENCRYPTION_PER_ORG_KMS=true.
   // Must run AFTER Mongo connects (resolver reads Organization docs) and BEFORE
   // the service goes ready (the guard then lets secret-touching requests

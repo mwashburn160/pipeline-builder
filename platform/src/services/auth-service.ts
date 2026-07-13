@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG } from '@pipeline-builder/api-core';
-import { seedDefaultGroups } from './groups-service.js';
+import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
@@ -103,10 +103,10 @@ class AuthService {
       user.lastActiveOrgId = String(org._id);
       await user.save({ session });
 
-      // Seed default permission groups. The system org also gets Superadmins,
-      // and its first user joins Superadmins + Administrators (→ isSuperAdmin),
+      // Seed default permission Roles. The system org also gets Super Admin,
+      // and its first user joins Super Admin + Admin (→ isSuperAdmin),
       // which bootstraps platform admin without the env-var list.
-      await seedDefaultGroups(org._id, user._id, { isSystemOrg }, session);
+      await seedDefaultRoles(org._id, user._id, { isSystemOrg }, session);
 
       return {
         sub: user._id.toString(),
@@ -240,9 +240,9 @@ class AuthService {
       oauth: { [providerName]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, linkedAt: new Date() } },
     });
 
-    // Auto-create personal org + owner membership + default groups in a single
+    // Auto-create personal org + owner membership + default Roles in a single
     // transaction (mirrors register()): a partial apply would leave an org with
-    // no owner membership or no permission groups. `save()` happens inside the
+    // no owner membership or no permission Roles. `save()` happens inside the
     // tx so the whole identity lands atomically.
     await withMongoTransaction(async (session) => {
       // Same well-known-slug handling as register(): if the derived org name is
@@ -268,9 +268,9 @@ class AuthService {
       newUser.lastActiveOrgId = String(org._id);
       await newUser.save({ session });
 
-      // Seed default permission groups so an OAuth-created org has the same
-      // Administrators/Developers groups as an email-registered one.
-      await seedDefaultGroups(org._id, newUser._id, { isSystemOrg }, session);
+      // Seed default permission Roles so an OAuth-created org has the same
+      // Admin/Member Roles as an email-registered one.
+      await seedDefaultRoles(org._id, newUser._id, { isSystemOrg }, session);
     });
 
     return newUser;

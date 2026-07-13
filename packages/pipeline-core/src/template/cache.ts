@@ -60,6 +60,3 @@ export class TokenCache {
     return this.map.size;
   }
 }
-
-// Shared default cache for callers that don't want to own one.
-export const defaultTokenCache = new TokenCache();

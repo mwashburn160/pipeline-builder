@@ -101,7 +101,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Organization',
     items: [
       { title: 'Members', href: '/dashboard/members', icon: UsersRound, requiredPermission: 'members:manage' },
-      { title: 'Groups', href: '/dashboard/groups', icon: ShieldCheck, requiredPermission: 'groups:manage' },
+      { title: 'Roles', href: '/dashboard/roles', icon: ShieldCheck, requiredPermission: 'roles:manage' },
       { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, requiredPermission: 'invitations:manage' },
       { title: 'Quotas', href: '/dashboard/quotas', icon: Gauge, requiredPermission: 'quotas:read' },
       { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredPermission: 'billing:read', requiredFeature: 'billing' },

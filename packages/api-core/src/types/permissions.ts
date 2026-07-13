@@ -10,7 +10,7 @@ import type { OrgRole } from './common.js';
 /**
  * Canonical fine-grained permission identifiers, in `resource:action` form.
  *
- * These are the ORG-SCOPED capabilities a group can grant (RBAC). Coarse by
+ * These are the ORG-SCOPED capabilities a Role can grant (RBAC). Coarse by
  * design — `:write` covers create/update/delete for a resource — so the catalog
  * and permission-picker UI stay small; split a `:write` into `:create`/`:delete`
  * later if a resource needs it.
@@ -32,7 +32,7 @@ export type Permission =
   | 'compliance:write'
   // Members & access
   | 'members:manage'
-  | 'groups:manage'
+  | 'roles:manage'
   | 'invitations:manage'
   // Observability
   | 'dashboards:read'
@@ -59,7 +59,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'pipelines:read', 'pipelines:write',
   'plugins:read', 'plugins:write',
   'compliance:read', 'compliance:write',
-  'members:manage', 'groups:manage', 'invitations:manage',
+  'members:manage', 'roles:manage', 'invitations:manage',
   'dashboards:read', 'dashboards:write',
   'observability:read', 'observability:write',
   'reports:read',
@@ -76,15 +76,21 @@ export function isValidPermission(value: string): value is Permission {
 }
 
 // =============================================================================
-// Role → permission bundles
+// Built-in Role seed bundles
 // =============================================================================
 
 /**
- * Default permission bundle for each org role. Seeds the built-in groups and
- * provides a user's baseline permissions (unioned with any custom-group grants).
+ * Permission bundles used to SEED the built-in Roles ("Admin", "Member").
+ *
+ * This is the single definition of what those built-in Roles grant — it is used
+ * when a Role record is created (and by the startup backfill) to populate that
+ * Role's own `permissions[]`. It is NOT a runtime permission source: a user's
+ * effective permissions come ONLY from the Roles assigned to them (see
+ * {@link resolveUserPermissions}). The coarse `role` label (owner/admin/member)
+ * survives only for `isAdmin`/ownership/display, never to grant permissions.
  *
  * - `member`  — day-to-day builder: read + write on pipelines/plugins, read
- *   elsewhere. No member/group/billing management, no compliance/alert authoring.
+ *   elsewhere. No member/role/billing management, no compliance/alert authoring.
  * - `admin`   — full org administration (everything below).
  * - `owner`   — same as admin (ownership itself — transfer/delete — is gated
  *   separately, not via a permission).
@@ -104,6 +110,12 @@ const MEMBER_PERMISSIONS: readonly Permission[] = [
 
 const ADMIN_PERMISSIONS: readonly Permission[] = [...ALL_PERMISSIONS];
 
+/**
+ * Seed bundle for each built-in Role, keyed by the coarse role it grants.
+ * Consumed by the Role seeder + the startup backfill to populate a built-in
+ * Role's `permissions[]`. NOT consulted at request time — see
+ * {@link resolveUserPermissions}.
+ */
 export const ROLE_PERMISSIONS: Record<OrgRole, readonly Permission[]> = {
   member: MEMBER_PERMISSIONS,
   admin: ADMIN_PERMISSIONS,
@@ -115,28 +127,31 @@ export const ROLE_PERMISSIONS: Record<OrgRole, readonly Permission[]> = {
 // =============================================================================
 
 /**
- * Resolve a user's effective org permissions.
+ * Resolve a user's effective org permissions from the Roles assigned to them.
  *
- * 1. Platform superadmins (isSuperAdmin) always get ALL permissions.
- * 2. Start from the base role's bundle ({@link ROLE_PERMISSIONS}).
- * 3. Union in every permission granted by the user's custom groups.
- * 4. Invalid permission strings are silently ignored.
+ * Single-source model: a user's abilities are EXACTLY the union of the
+ * permissions carried by the Roles they hold (a Role = a named permission set;
+ * built-in Roles carry their bundle explicitly, seeded from
+ * {@link ROLE_PERMISSIONS}). There is no separate role-derived baseline — the
+ * coarse `role` label no longer grants anything on its own.
  *
- * @param role - The user's org role (owner/admin/member)
- * @param groupPermissions - Flattened permissions from all of the user's groups
+ * 1. Platform superadmins (`isSuperAdmin`) always get ALL permissions.
+ * 2. Otherwise, union every permission granted by the user's assigned Roles.
+ * 3. Invalid/unknown permission strings are silently ignored.
+ *
+ * @param assignedPermissions - Flattened permissions from every Role the user holds
  * @param isSuperAdmin - Whether the user has the global super-admin flag
- * @returns Sorted array of effective permissions (canonical order)
+ * @returns Effective permissions in canonical order
  */
 export function resolveUserPermissions(
-  role: OrgRole,
-  groupPermissions?: readonly string[] | null,
+  assignedPermissions?: readonly string[] | null,
   isSuperAdmin?: boolean,
 ): Permission[] {
   if (isSuperAdmin) return [...ALL_PERMISSIONS];
 
-  const perms = new Set<Permission>(ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS.member);
-  if (groupPermissions) {
-    for (const p of groupPermissions) {
+  const perms = new Set<Permission>();
+  if (assignedPermissions) {
+    for (const p of assignedPermissions) {
       if (isValidPermission(p)) perms.add(p);
     }
   }

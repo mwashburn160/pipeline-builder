@@ -10,17 +10,6 @@ import { z } from 'zod';
 
 /** The capability scope the AWS event-ingestion machine credential must carry. */
 const INGEST_SCOPE = 'reporting:ingest';
-/**
- * During rollout, legacy (non-scoped) user tokens are still accepted with a
- * warning so ingestion keeps working until every deployment re-provisions its
- * events credential (`store-token --scope reporting:ingest`). Set
- * `REPORTING_INGEST_ALLOW_LEGACY=false` to ENFORCE the scope (reject any token
- * without it) — do this once all deployments are migrated. Without enforcement,
- * any authenticated JWT can still post events (the pre-existing behavior).
- */
-function legacyIngestAllowed(): boolean {
-  return (process.env.REPORTING_INGEST_ALLOW_LEGACY || '').toLowerCase() !== 'false';
-}
 
 /**
  * Status values accepted per-eventSource. AWS pipelines use uppercase
@@ -73,12 +62,7 @@ export function createEventIngestRoutes(): Router {
     // Without this, any authenticated user JWT could forge events for any org,
     // since the org is resolved from the pipeline registry, not the caller.
     if (!hasScope(req, INGEST_SCOPE)) {
-      if (!legacyIngestAllowed()) {
-        return sendError(res, 403, `Token must carry the '${INGEST_SCOPE}' scope`, ErrorCode.INSUFFICIENT_PERMISSIONS);
-      }
-      ctx.log('WARN', `Event ingest used a legacy (non-'${INGEST_SCOPE}') token — re-provision with 'store-token --scope ${INGEST_SCOPE}', then set REPORTING_INGEST_ALLOW_LEGACY=false`, {
-        sub: req.user?.sub,
-      });
+      return sendError(res, 403, `Token must carry the '${INGEST_SCOPE}' scope`, ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     const parsed = ingestBatchSchema.safeParse(req.body);

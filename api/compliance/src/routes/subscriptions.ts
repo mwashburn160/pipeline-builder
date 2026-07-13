@@ -5,6 +5,7 @@ import {
   sendSuccess,
   sendPaginatedNested,
   sendBadRequest,
+  sendError,
   ErrorCode,
   errorMessage,
   getParam,
@@ -18,7 +19,38 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
-import { subscriptionService } from '../services/subscription-service.js';
+import {
+  subscriptionService,
+  CS_RULE_NOT_FOUND,
+  CS_SUBSCRIPTION_NOT_FOUND,
+  CS_NOT_PUBLISHED,
+  CS_SYSTEM_ORG,
+} from '../services/subscription-service.js';
+
+/**
+ * Maps typed subscription-service error codes (`CS_*`) to HTTP responses.
+ * Keyed on the exact thrown code — a reworded message can never silently
+ * degrade a 4xx into a 500. The raw `CS_*` code is never surfaced to the
+ * client; only the mapped message is. Unmapped errors rethrow (→ 500).
+ */
+const SUB_ERROR_MAP: Record<string, { status: number; message: string; code: ErrorCode }> = {
+  [CS_RULE_NOT_FOUND]: { status: 400, message: 'Rule not found', code: ErrorCode.VALIDATION_ERROR },
+  [CS_SUBSCRIPTION_NOT_FOUND]: { status: 400, message: 'Subscription not found', code: ErrorCode.VALIDATION_ERROR },
+  [CS_NOT_PUBLISHED]: { status: 400, message: 'Only published rules can be subscribed to', code: ErrorCode.VALIDATION_ERROR },
+  [CS_SYSTEM_ORG]: { status: 403, message: 'System org cannot manage rule subscriptions', code: ErrorCode.INSUFFICIENT_PERMISSIONS },
+};
+
+/**
+ * Translate a caught subscription-service error into an HTTP response.
+ * Returns `true` when the error was mapped (response already sent); returns
+ * `false` when the caller should rethrow (unmapped → propagates to 500).
+ */
+function handleSubError(res: Response, err: unknown): boolean {
+  const mapped = SUB_ERROR_MAP[errorMessage(err)];
+  if (!mapped) return false;
+  sendError(res, mapped.status, mapped.message, mapped.code);
+  return true;
+}
 
 const SubscribeSchema = z.object({
   ruleId: z.string().uuid(),
@@ -140,10 +172,7 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', `Subscription ${validation.value.isActive ? 'activated' : 'deactivated'}`, { ruleId });
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
-      const message = errorMessage(err);
-      if (message.includes('not found')) {
-        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
-      }
+      if (handleSubError(res, err)) return;
       throw err;
     }
   }));
@@ -162,15 +191,12 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Subscribed to published rule (inactive)', { ruleId });
       return sendSuccess(res, 201, { subscription });
     } catch (err) {
-      const message = errorMessage(err);
-      if (message.includes('not found') || message.includes('published')) {
-        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
-      }
+      if (handleSubError(res, err)) return;
       throw err;
     }
   }));
 
-  // POST /bulk — bulk activate/deactivate subscriptions (Feature #4)
+  // POST /bulk — bulk activate/deactivate subscriptions
   router.post('/bulk', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, BulkSetActiveSchema);
     if (!validation.ok) {
@@ -208,7 +234,7 @@ export function createSubscriptionRoutes(): Router {
     }
   }));
 
-  // GET /enforced — merged view of all enforced rules (org + active subscriptions) (Feature #6)
+  // GET /enforced — merged view of all enforced rules (org + active subscriptions)
   router.get('/enforced', withRoute(async ({ req, res, ctx, orgId }) => {
     const target = req.query.target as 'plugin' | 'pipeline' | undefined;
     // Include the parent's `propagateToChildren` rules for a team, matching what
@@ -271,7 +297,7 @@ export function createSubscriptionRoutes(): Router {
     });
   }));
 
-  // POST /preview — dry-run preview of how a rule would affect existing entities (Feature #10)
+  // POST /preview — dry-run preview of how a rule would affect existing entities
   router.post('/preview', withRoute(async ({ req, res, ctx }) => {
     const validation = validateBody(req, PreviewSchema);
     if (!validation.ok) {
@@ -293,7 +319,7 @@ export function createSubscriptionRoutes(): Router {
     return sendSuccess(res, 200, { rule });
   }));
 
-  // POST /:ruleId/pin — pin subscription to current rule version (Feature #5)
+  // POST /:ruleId/pin — pin subscription to current rule version
   router.post('/:ruleId/pin', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
@@ -303,15 +329,12 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Pinned subscription version', { ruleId });
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
-      const message = errorMessage(err);
-      if (message.includes('not found')) {
-        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
-      }
+      if (handleSubError(res, err)) return;
       throw err;
     }
   }));
 
-  // DELETE /:ruleId/pin — unpin subscription (use latest rule version) (Feature #5)
+  // DELETE /:ruleId/pin — unpin subscription (use latest rule version)
   router.delete('/:ruleId/pin', withRoute(async ({ req, res, ctx, orgId }) => {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
@@ -321,10 +344,7 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Unpinned subscription version', { ruleId });
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
-      const message = errorMessage(err);
-      if (message.includes('not found')) {
-        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
-      }
+      if (handleSubError(res, err)) return;
       throw err;
     }
   }));
@@ -341,10 +361,7 @@ export function createSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Unsubscribed from published rule', { ruleId });
       return sendSuccess(res, 200, { message: 'Unsubscribed successfully' });
     } catch (err) {
-      const message = errorMessage(err);
-      if (message.includes('not found')) {
-        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
-      }
+      if (handleSubError(res, err)) return;
       throw err;
     }
   }));

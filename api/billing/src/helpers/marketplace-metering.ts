@@ -24,10 +24,11 @@ export type MeteringOutcome =
  *
  * Best-effort and idempotent-ish: AWS BatchMeterUsage dedupes records by
  * (customer, dimension, hour), so re-reporting within the same hour is safe.
- * Intended to be driven on a CADENCE (a periodic usage job or an entitlement
- * webhook) — NOT synchronously on an add-on mutation, since Marketplace add-ons
- * are not self-service in-app. Wiring that trigger is the remaining integration
- * step; this helper is the unit it calls.
+ * Driven on a CADENCE — NOT synchronously on an add-on mutation, since
+ * Marketplace add-ons are not self-service in-app. The cadence driver is the
+ * `marketplace-metering` scheduler (via {@link reportAllMarketplaceAddonUsage},
+ * started by {@link startMarketplaceMetering} and gated on
+ * `BILLING_METERING_ENABLED`); this helper is the per-account unit it calls.
  *
  * @param orgId The account (root) org whose add-on usage to report.
  */

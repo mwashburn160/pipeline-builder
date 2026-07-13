@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Bell, Plus, Trash2, Edit2, Activity } from 'lucide-react';
+import { Plus, Trash2, Edit2, Activity } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { useToast } from '@/components/ui/Toast';

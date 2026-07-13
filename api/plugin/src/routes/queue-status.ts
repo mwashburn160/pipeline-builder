@@ -8,6 +8,21 @@ import { Router } from 'express';
 
 import { findFailedJob, getAllTierQueues, getDeadLetterQueue, purgeDlq, replayDlqJob, retryFailedJob } from '../queue/plugin-build-queue.js';
 
+/** Resolve a build job's owning org: the top-level `orgId`, falling back to the
+ *  embedded `pluginRecord.orgId` for older jobs that predate the top-level field. */
+const jobOrgId = (data: { orgId?: string; pluginRecord?: { orgId?: string } } | undefined): string | undefined =>
+  data?.orgId ?? data?.pluginRecord?.orgId;
+
+/** True when a job belongs to `orgId` (case-insensitive). Used for the
+ *  non-system-admin tenant-isolation filter across the failed/DLQ endpoints. */
+const jobBelongsToOrg = (
+  data: { orgId?: string; pluginRecord?: { orgId?: string } } | undefined,
+  orgId: string,
+): boolean => {
+  const oid = jobOrgId(data);
+  return typeof oid === 'string' && oid.toLowerCase() === orgId.toLowerCase();
+};
+
 /**
  * Register queue status routes.
  *
@@ -81,10 +96,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const callerIsSysAdmin = isSystemAdmin(req);
     const visibleJobs = (callerIsSysAdmin
       ? failedJobs
-      : failedJobs.filter((job) => {
-        const jobOrg = (job.data?.orgId ?? (job.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
-        return typeof jobOrg === 'string' && jobOrg.toLowerCase() === orgId.toLowerCase();
-      })).slice(0, limit);
+      : failedJobs.filter((job) => jobBelongsToOrg(job.data, orgId))).slice(0, limit);
 
     const jobs = visibleJobs.map((job) => ({
       id: job.id,
@@ -126,11 +138,8 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const failedJob = await findFailedJob(jobId);
     if (!failedJob) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
-    if (!isSystemAdmin(req)) {
-      const jobOrg = (failedJob.data?.orgId ?? (failedJob.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
-      if (typeof jobOrg !== 'string' || jobOrg.toLowerCase() !== orgId.toLowerCase()) {
-        return sendError(res, 403, 'Cannot retry a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      }
+    if (!isSystemAdmin(req) && !jobBelongsToOrg(failedJob.data, orgId)) {
+      return sendError(res, 403, 'Cannot retry a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     const newJobId = await retryFailedJob(jobId, quotaService);
@@ -160,10 +169,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const callerIsSysAdmin = isSystemAdmin(req);
     const visibleJobs = (callerIsSysAdmin
       ? allJobs
-      : allJobs.filter((job) => {
-        const jobOrg = (job.data?.orgId ?? (job.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
-        return typeof jobOrg === 'string' && jobOrg.toLowerCase() === orgId.toLowerCase();
-      })).slice(0, limit);
+      : allJobs.filter((job) => jobBelongsToOrg(job.data, orgId))).slice(0, limit);
 
     const jobs = visibleJobs.map((job) => ({
       id: job.id,
@@ -215,11 +221,8 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const dlqJob = await dlq.getJob(jobId);
     if (!dlqJob) return sendError(res, 404, `DLQ job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
-    if (!isSystemAdmin(req)) {
-      const jobOrg = (dlqJob.data?.orgId ?? (dlqJob.data?.pluginRecord as { orgId?: string } | undefined)?.orgId);
-      if (typeof jobOrg !== 'string' || jobOrg.toLowerCase() !== orgId.toLowerCase()) {
-        return sendError(res, 403, 'Cannot replay a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      }
+    if (!isSystemAdmin(req) && !jobBelongsToOrg(dlqJob.data, orgId)) {
+      return sendError(res, 403, 'Cannot replay a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     const newJobId = await replayDlqJob(jobId, quotaService);
@@ -244,7 +247,6 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     }
 
     const isSuperAdmin = isSystemAdmin(req);
-    const callerOrgId = orgId.toLowerCase();
 
     const sampleLimit = Math.min(parseQueryInt(req.query.samples, 5), 20);
     // failed jobs sit in the per-tier queue that ran them; union.
@@ -257,14 +259,8 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const failedAll = tierFailedLists.flat();
 
     // Filter to caller's org for non-system admins (tenant isolation).
-    // Falls back to pluginRecord.orgId for older jobs that predate the top-level field.
-    const jobOrgId = (data: { orgId?: string; pluginRecord?: { orgId?: string } } | undefined): string | undefined =>
-      data?.orgId ?? data?.pluginRecord?.orgId;
-    const ownsJob = (job: { data?: { orgId?: string; pluginRecord?: { orgId?: string } } }): boolean => {
-      if (isSuperAdmin) return true;
-      const oid = jobOrgId(job.data);
-      return typeof oid === 'string' && oid.toLowerCase() === callerOrgId;
-    };
+    const ownsJob = (job: { data?: { orgId?: string; pluginRecord?: { orgId?: string } } }): boolean =>
+      isSuperAdmin || jobBelongsToOrg(job.data, orgId);
     const failed = failedAll.filter(ownsJob);
     const dlqJobs = dlqAll.filter(ownsJob);
 

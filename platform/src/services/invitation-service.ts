@@ -3,6 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
+import { ensureBaselineRole } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { seatCapacityAvailable } from '../helpers/seats.js';
@@ -80,6 +81,14 @@ class InvitationService {
     await UserOrganization.create([{
       userId: user._id, organizationId: org._id, role: memberRole,
     }], { session });
+
+    // Single-source RBAC: a plain member holds no permissions unless assigned a
+    // Role, so give them the built-in Member Role floor. Admin invitees are
+    // placed into their role via the Roles UI / backfill — adding the
+    // Member-only baseline here would let recompute demote them.
+    if (memberRole === 'member') {
+      await ensureBaselineRole(user._id, org._id, session);
+    }
 
     if (!user.lastActiveOrgId) {
       user.lastActiveOrgId = String(org._id);

@@ -56,6 +56,9 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    // Default no-op so route modules importing `sendError` link under ESM. A
+    // suite asserting on responses can override with its own res-writing spy.
+    sendError: jest.fn(),
     // `requirePermission(...perms)` is a factory that RETURNS middleware, so
     // the stub is a function producing the pass-through guard.
     requirePermission: () => passThroughMiddleware,

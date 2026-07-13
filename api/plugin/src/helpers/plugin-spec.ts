@@ -207,18 +207,6 @@ export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
 }
 
 // -----------------------------------------------------------------------------
-// Build args validation
-// -----------------------------------------------------------------------------
-
-/**
- * Validate Docker build arguments.
- * Must be a plain object with string keys/values, max 20 entries,
- * keys up to 1000 characters and values up to 4096 characters.
- *
- * @param buildArgs - Build arguments to validate
- * @throws ValidationError if build arguments are invalid
- */
-// -----------------------------------------------------------------------------
 // Template validation
 // -----------------------------------------------------------------------------
 
@@ -328,6 +316,14 @@ export function validatePluginTemplates(pluginSpec: PluginSpec): void {
   if (problems.length) throw new ValidationError(problems.join('\n\n'));
 }
 
+/**
+ * Validate Docker build arguments.
+ * Must be a plain object with string keys/values, max 20 entries,
+ * keys up to 1000 characters and values up to 4096 characters.
+ *
+ * @param buildArgs - Build arguments to validate
+ * @throws ValidationError if build arguments are invalid
+ */
 export function validateBuildArgs(buildArgs: unknown): asserts buildArgs is Record<string, string> {
   if (buildArgs === undefined || buildArgs === null) return;
   if (typeof buildArgs !== 'object' || Array.isArray(buildArgs)) {

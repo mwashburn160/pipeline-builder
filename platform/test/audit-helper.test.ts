@@ -105,7 +105,7 @@ describe('audit helper', () => {
 
   it('should promote groupId to a first-class field', () => {
     const req = mockReq({ user: { sub: 'u1', organizationId: 'org-1' } });
-    audit(req, 'org.group.member.add', { targetType: 'user', targetId: 'u2', groupId: 'grp-7' });
+    audit(req, 'org.role.member.add', { targetType: 'user', targetId: 'u2', groupId: 'grp-7' });
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ groupId: 'grp-7' }));
   });
 

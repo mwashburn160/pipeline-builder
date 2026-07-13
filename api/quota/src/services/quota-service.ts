@@ -93,7 +93,8 @@ export interface DecrementOptions {
 /**
  * Quota service encapsulating all Mongoose operations for organizations.
  *
- * Provides * - findAll()  list every organisation with quotas (admin view)
+ * Provides:
+ * - findAll()  list every organisation with quotas (admin view)
  * - findByOrgId()  single-org quota summary
  * - getQuotaStatus()  per-type status for an org
  * - update()  update name/slug/tier/limits
@@ -250,14 +251,6 @@ export class QuotaService {
   }
 
   /**
-   * Org → team hierarchy shared-cap check. When `orgId` belongs to a hierarchy
-   * (its root has descendants), the root org's limit for `quotaType` is shared
-   * across the whole subtree. Returns an `exceeded` result when the rolled-up
-   * usage + `amount` would breach the root's limit; otherwise `null` (proceed
-   * with the normal per-org atomic increment). Returns `null` for flat orgs and
-   * for unlimited (`-1`) root limits.
-   */
-  /**
    * Pooled (root) limit + subtree-aggregate usage for a quota type, or `null`
    * when the org is flat (no hierarchy), the root limit is missing, or the type
    * is carved out of pooling. Shared by the gate read ({@link getQuotaStatus})
@@ -270,7 +263,7 @@ export class QuotaService {
   ): Promise<{ limit: number; used: number; resetAt?: Date } | null> {
     // storageBytes is measured live by the image-registry, not tracked in
     // org.usage — aggregating usage counters would be meaningless. Carve it out;
-    // storage is enforced by the registry push-gate over the subtree instead.
+    // storage is enforced by the registry push-gate per-org namespace instead.
     if (quotaType === 'storageBytes') return null;
 
     const rootOrgId = await resolveRootOrgId(orgId);
@@ -319,7 +312,8 @@ export class QuotaService {
   /**
    * Increment usage for a quota type.
    *
-   * Handles three distinct flows   * 1. **Sysadmin bypass**  increment without limit check.
+   * Handles these distinct flows:
+   * 1. **Sysadmin bypass**  increment without limit check.
    * 2. **Auto-reset**  atomically resets expired periods before incrementing.
    * 3. **Atomic increment**  single query that only succeeds when quota allows.
    * 4. **Shared root cap**  for hierarchy orgs, a pre-check rolls usage up to

@@ -128,12 +128,12 @@ export const adminCreateUserSchema = z.object({
   isSuperAdmin: z.boolean().optional(),
   organizationId: z.string().min(1).optional(),
   role: z.enum(['owner', 'admin', 'member']).optional(),
-  // Groups are org-scoped, so any group assignment requires an organizationId
+  // Roles are org-scoped, so any role assignment requires an organizationId
   // (enforced by the refine below + again in the service).
-  groupIds: z.array(z.string()).max(50).optional(),
+  roleIds: z.array(z.string()).max(50).optional(),
 }).strict().refine(
-  d => !(d.groupIds?.length) || !!d.organizationId,
-  { message: 'organizationId is required when assigning groups', path: ['groupIds'] },
+  d => !(d.roleIds?.length) || !!d.organizationId,
+  { message: 'organizationId is required when assigning roles', path: ['roleIds'] },
 );
 
 // Invitation Schemas
@@ -190,28 +190,23 @@ export const bulkAddMemberSchema = z.object({
   message: 'Either userId or email is required',
 });
 
-/** Member role update schema. `owner` excluded — use transferOwnership. */
-export const updateMemberRoleSchema = z.object({
-  role: z.enum(['admin', 'member']),
-});
-
-/** Add an existing org member to a permission group (by id or email). */
-export const addGroupMemberSchema = z.object({
+/** Add an existing org member to a permission role (by id or email). */
+export const addRoleMemberSchema = z.object({
   userId: z.string().optional(),
   email: emailSchema.optional(),
 }).refine(data => data.userId || data.email, {
   message: 'Either userId or email is required',
 });
 
-/** Create a custom permission group (name + optional description + permission set). */
-export const createGroupSchema = z.object({
+/** Create a custom permission role (name + optional description + permission set). */
+export const createRoleSchema = z.object({
   name: z.string().trim().min(2).max(60),
   description: z.string().trim().max(200).optional(),
   permissions: z.array(z.string()).max(100).optional(),
 });
 
-/** Update a custom group. All fields optional (partial update). */
-export const updateGroupSchema = z.object({
+/** Update a custom role. All fields optional (partial update). */
+export const updateRoleSchema = z.object({
   name: z.string().trim().min(2).max(60).optional(),
   description: z.string().trim().max(200).optional(),
   permissions: z.array(z.string()).max(100).optional(),

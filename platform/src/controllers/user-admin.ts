@@ -18,8 +18,8 @@ import {
   UA_ORG_NOT_FOUND,
   UA_SEAT_LIMIT,
   UA_CANNOT_CHANGE_OWNER,
-  UA_GROUPS_NEED_ORG,
-  GRP_GROUP_NOT_FOUND,
+  UA_ROLES_NEED_ORG,
+  RL_ROLE_NOT_FOUND,
 } from '../services/index.js';
 import { adminCreateUserSchema, adminUpdateUserSchema, validateBody } from '../utils/validation.js';
 
@@ -171,8 +171,8 @@ export const createUserByAdmin = withController('Create user', async (req, res) 
   [UA_USERNAME_TAKEN]: { status: 409, message: 'A user with this username already exists' },
   [UA_EMAIL_TAKEN]: { status: 409, message: 'A user with this email already exists' },
   [UA_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
-  [UA_GROUPS_NEED_ORG]: { status: 400, message: 'Select an organization to assign groups' },
-  [GRP_GROUP_NOT_FOUND]: { status: 404, message: 'One or more selected groups were not found' },
+  [UA_ROLES_NEED_ORG]: { status: 400, message: 'Select an organization to assign roles' },
+  [RL_ROLE_NOT_FOUND]: { status: 404, message: 'One or more selected roles were not found' },
 });
 
 /** PUT /users/:id — admin update. Org-admin restricted to own-org members. */

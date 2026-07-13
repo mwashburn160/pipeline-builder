@@ -29,7 +29,7 @@ const KNOWN_IDS = [
   'compliance:read',
   'compliance:write',
   'members:manage',
-  'groups:manage',
+  'roles:manage',
   'invitations:manage',
   'dashboards:read',
   'dashboards:write',

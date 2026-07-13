@@ -96,7 +96,10 @@ export function createAdminSubscriptionRoutes(): Router {
         // Sync tier via service-to-service auth (avoid forwarding the
         // admin's bearer to the quota service).
         const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-        await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId);
+        // Preserve purchased add-on bundles: effective caps = tier base + addons.
+        // Passing no addons here would push tier-base-only limits and silently
+        // drop the customer's bundle entitlements until the next add-on mutation.
+        await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId, subscription.addons ?? []);
         await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId);
       }
 

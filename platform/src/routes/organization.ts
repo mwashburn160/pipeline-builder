@@ -23,18 +23,17 @@ import {
   addMemberToOrganization,
   bulkAddMemberToTeams,
   removeMemberFromOrganization,
-  updateMemberRole,
   transferOrganizationOwnership,
   deactivateMember,
   activateMember,
   deleteOrganization,
   exportOrganization,
-  getOrganizationGroups,
-  createOrganizationGroup,
-  updateOrganizationGroup,
-  deleteOrganizationGroup,
-  addGroupMember,
-  removeGroupMember,
+  getOrganizationRoles,
+  createOrganizationRole,
+  updateOrganizationRole,
+  deleteOrganizationRole,
+  addRoleMember,
+  removeRoleMember,
 } from '../controllers/index.js';
 import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
 
@@ -142,9 +141,6 @@ router.get('/:id/member/:memberId/teams', requireAuth, getMemberTeams);
 /** DELETE /organization/:id/members/:userId - Remove member from organization (admin only) */
 router.delete('/:id/members/:userId', requireAuth, requirePermission('members:manage'), removeMemberFromOrganization);
 
-/** PATCH /organization/:id/members/:userId - Update member role (admin only) */
-router.patch('/:id/members/:userId', requireAuth, requirePermission('members:manage'), updateMemberRole);
-
 /** PATCH /organization/:id/members/:userId/deactivate - Deactivate member (admin only) */
 router.patch('/:id/members/:userId/deactivate', requireAuth, requirePermission('members:manage'), deactivateMember);
 
@@ -152,28 +148,28 @@ router.patch('/:id/members/:userId/deactivate', requireAuth, requirePermission('
 router.patch('/:id/members/:userId/activate', requireAuth, requirePermission('members:manage'), activateMember);
 
 /*
- * Permission Groups (first-class RBAC). Membership drives the cached
- * UserOrganization.role; Administrators → org-admin, Superadmins (system org
+ * Permission Roles (first-class RBAC). Membership drives the cached
+ * UserOrganization.role; Admin → org-admin, Super Admin (system org
  * only) → platform admin.
  */
 
-/** GET /organization/:id/groups - List groups + members */
-router.get('/:id/groups', requireAuth, getOrganizationGroups);
+/** GET /organization/:id/roles - List roles + members */
+router.get('/:id/roles', requireAuth, getOrganizationRoles);
 
-/** POST /organization/:id/groups - Create a custom permission group (admin only) */
-router.post('/:id/groups', requireAuth, requirePermission('groups:manage'), createOrganizationGroup);
+/** POST /organization/:id/roles - Create a custom permission role (admin only) */
+router.post('/:id/roles', requireAuth, requirePermission('roles:manage'), createOrganizationRole);
 
-/** PUT /organization/:id/groups/:groupId - Update a custom group (admin only) */
-router.put('/:id/groups/:groupId', requireAuth, requirePermission('groups:manage'), updateOrganizationGroup);
+/** PUT /organization/:id/roles/:roleId - Update a custom role (admin only) */
+router.put('/:id/roles/:roleId', requireAuth, requirePermission('roles:manage'), updateOrganizationRole);
 
-/** DELETE /organization/:id/groups/:groupId - Delete a custom group (admin only) */
-router.delete('/:id/groups/:groupId', requireAuth, requirePermission('groups:manage'), deleteOrganizationGroup);
+/** DELETE /organization/:id/roles/:roleId - Delete a custom role (admin only) */
+router.delete('/:id/roles/:roleId', requireAuth, requirePermission('roles:manage'), deleteOrganizationRole);
 
-/** POST /organization/:id/groups/:groupId/members - Add member to a group (admin only) */
-router.post('/:id/groups/:groupId/members', requireAuth, requirePermission('groups:manage'), addGroupMember);
+/** POST /organization/:id/roles/:roleId/members - Add member to a role (admin only) */
+router.post('/:id/roles/:roleId/members', requireAuth, requirePermission('roles:manage'), addRoleMember);
 
-/** DELETE /organization/:id/groups/:groupId/members/:userId - Remove member from a group (admin only) */
-router.delete('/:id/groups/:groupId/members/:userId', requireAuth, requirePermission('groups:manage'), removeGroupMember);
+/** DELETE /organization/:id/roles/:roleId/members/:userId - Remove member from a role (admin only) */
+router.delete('/:id/roles/:roleId/members/:userId', requireAuth, requirePermission('roles:manage'), removeRoleMember);
 
 /*
  * Ownership Transfer

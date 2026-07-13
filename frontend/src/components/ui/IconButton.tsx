@@ -14,7 +14,7 @@ interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 // Base is a muted gray icon; the tone only drives the hover colour, matching
-// the row-action pattern repeated across members/groups/etc.
+// the row-action pattern repeated across members/roles/etc.
 const TONE_CLASS: Record<IconButtonTone, string> = {
   default: 'hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-300 dark:hover:bg-gray-800',
   primary: 'hover:text-blue-600 hover:bg-blue-50 dark:hover:text-blue-400 dark:hover:bg-blue-900/20',

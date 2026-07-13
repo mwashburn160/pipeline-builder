@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import { ApiError, ConflictError, toRegistryError } from '../errors';
+import { ApiError, toRegistryError } from '../errors';
 import type { ApiResponse, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
 
 export function registryApi(core: ApiCore) {

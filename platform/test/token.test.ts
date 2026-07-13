@@ -22,7 +22,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 }));
 
 // Chainable `find(...).session(...).select(...).lean()` that resolves to [] —
-// getUserGroupPermissions short-circuits on no memberships, so tokens resolve
+// getUserRolePermissions short-circuits on no assignments, so tokens resolve
 // to the role's base permission bundle with no group grants in these tests.
 const emptyFindChain = () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) });
 
@@ -32,8 +32,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
   Organization: {},
   UserOrganization: {},
-  Group: { find: jest.fn(emptyFindChain) },
-  GroupMembership: { find: jest.fn(emptyFindChain) },
+  Role: { find: jest.fn(emptyFindChain) },
+  RoleAssignment: { find: jest.fn(emptyFindChain) },
 }));
 
 jest.unstable_mockModule('crypto', () => {

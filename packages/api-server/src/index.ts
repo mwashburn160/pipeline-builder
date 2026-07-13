@@ -13,10 +13,10 @@
  * **Middleware**
  * - attachRequestContext / createRequestContext — attaches identity + logging to each request
  * - requireOrgId — validates organization ID is present on the request
+ * - withTenantContext — opens the RLS tenant scope for the request
  * - checkQuota — quota enforcement middleware
- * - etagMiddleware — ETag-based conditional response support
  * - idempotencyMiddleware — idempotent request handling
- * - middlewareFactory — composable middleware builder
+ * - createProtectedRoute / createAuthenticatedWithOrgRoute — composable middleware chains
  *
  * **Route Helpers**
  * - withRoute — wraps async route handlers with context extraction, orgId validation, and error handling

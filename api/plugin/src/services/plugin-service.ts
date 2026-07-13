@@ -4,14 +4,14 @@
 import { entityEvents, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { CoreConstants, AccessModifier, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPluginConditions, getTenantContext, schema, withTenantTx, type PluginFilter } from '@pipeline-builder/pipeline-data';
+import { and, eq, sql, SQL } from 'drizzle-orm';
+import type { AnyColumn } from 'drizzle-orm/column';
+import type { PgTable } from 'drizzle-orm/pg-core';
 
 const logger = createLogger('plugin-service');
 
 /** Server-side cache for plugin reads. */
 const pluginCache = createCacheService('plugin:', CoreConstants.CACHE_TTL_ENTITY);
-import { and, eq, sql, SQL } from 'drizzle-orm';
-import type { AnyColumn } from 'drizzle-orm/column';
-import type { PgTable } from 'drizzle-orm/pg-core';
 
 export type Plugin = typeof schema.plugin.$inferSelect;
 export type PluginInsert = typeof schema.plugin.$inferInsert;

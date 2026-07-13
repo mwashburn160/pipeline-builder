@@ -72,7 +72,8 @@ const LIBRARY_NAMESPACE_PREFIX = 'library/';
  * permits issuing a token with no `access` entries — the registry will
  * deny the operation).
  *
- * Policy * - **management** (internal only): anything; in-process self-issue
+ * Policy:
+ * - **management** (internal only): anything; in-process self-issue
  * - **jwt** (org user / api/plugin service token): pull on `system/*`;
  * pull,push on `org-{orgId}/*`; pull,push on `system/*` ONLY for the system
  * org (which owns that namespace); only super-admins (platform sysadmin) push
@@ -220,7 +221,8 @@ export async function authorizeAndIssue( identity: Identity,
   for (const scope of requestedScopes) {
     let granted = authorizeScope(identity, scope);
 
-    // Storage budget gate. Only relevant when    // 1. We've granted `push` (no point checking on pull-only),
+    // Storage budget gate. Only relevant when:
+    // 1. We've granted `push` (no point checking on pull-only),
     // 2. The scope is an `org-X/*` repo (system images are platform-managed),
     // 3. The identity is a JWT identity (management bypasses the cap).
     // `overBudget` is computed at most once per token-issuance call.

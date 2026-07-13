@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import { UserPlus, Users, Shield, ShieldOff, UserMinus, UserCheck, UserX, Crown, Search, KeyRound, Building2, Network } from 'lucide-react';
+import { UserPlus, Users, ShieldCheck, UserMinus, UserCheck, UserX, Crown, Search, KeyRound, Building2, Network } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
 import { useFormState } from '@/hooks/useFormState';
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { IconButton } from '@/components/ui/IconButton';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ActionBar } from '@/components/ui/ActionBar';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -25,13 +26,14 @@ import { CreateOrgModal } from '@/components/members/CreateOrgModal';
 import { ManageTeamsModal } from '@/components/members/ManageTeamsModal';
 import { AddToTeamModal } from '@/components/members/AddToTeamModal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { roleDisplayName } from '@/lib/permissions';
 import api from '@/lib/api';
-import type { OrganizationMember, MemberTeam } from '@/types';
+import type { OrganizationMember, MemberTeam, OrganizationRole } from '@/types';
 
 export default function MembersPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'members:manage' });
   // Capability to manage members — role admins/owners hold it via their bundle,
-  // and so do custom-group members granted `members:manage`. Gates the page's
+  // and so do custom-role members granted `members:manage`. Gates the page's
   // data fetches + controls (the page itself is guarded on this permission).
   const canManageMembers = can('members:manage');
   const { refreshUser, organizations, switchOrganization } = useAuth();
@@ -54,9 +56,20 @@ export default function MembersPage() {
   const [addTeamRoster, setAddTeamRoster] = useState<{ orgId: string; orgName: string }[]>([]);
   const [addSelectedTeams, setAddSelectedTeams] = useState<Set<string>>(new Set());
 
-  // Role change
-  const [roleChangeTarget, setRoleChangeTarget] = useState<OrganizationMember | null>(null);
-  const [roleChangeLoading, setRoleChangeLoading] = useState(false);
+  // Roles (org permission-set assignments). A member's access is the union of
+  // their assigned Roles; the coarse owner/admin/member `role` is derived from
+  // them by the backend and shown as a read-only badge. Editing access = adding
+  // or removing Roles, which maps to the role-assignment API under the hood.
+  // Gated on `roles:manage` so members-only admins see chips but can't 403 on
+  // an assignment they aren't allowed to make.
+  const canManageRoles = can('roles:manage');
+  const [roles, setRoles] = useState<OrganizationRole[]>([]);
+
+  // Manage-Roles modal (multi-select of the org's Roles for one member).
+  const [rolesTarget, setRolesTarget] = useState<OrganizationMember | null>(null);
+  const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
+  const [rolesSaving, setRolesSaving] = useState(false);
+  const [rolesError, setRolesError] = useState<string | null>(null);
 
   // Create organization
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
@@ -266,6 +279,71 @@ export default function MembersPage() {
     if (isAuthenticated && canManageMembers && orgId) fetchMembers();
   }, [isAuthenticated, canManageMembers, orgId, fetchMembers]);
 
+  // The org's Roles (permission sets), each carrying its member list — used to
+  // render each member's assigned-Role chips and to drive the manage-Roles
+  // picker. Best-effort: without `roles:manage` the chips simply don't show.
+  const fetchRoles = useCallback(async () => {
+    if (!orgId || !canManageRoles) return;
+    try {
+      const res = await api.getOrganizationRoles(orgId);
+      setRoles(res.data?.roles ?? []);
+    } catch { /* best-effort — role chips just hide */ }
+  }, [orgId, canManageRoles]);
+
+  useEffect(() => {
+    if (isAuthenticated && canManageRoles && orgId) fetchRoles();
+  }, [isAuthenticated, canManageRoles, orgId, fetchRoles]);
+
+  // The Roles a given member currently holds (role assignment by user id).
+  const rolesForMember = useCallback(
+    (memberId: string) => roles.filter((r) => r.members.some((mm) => mm.id === memberId)),
+    [roles],
+  );
+
+  const openManageRoles = useCallback((m: OrganizationMember) => {
+    setRolesTarget(m);
+    setSelectedRoleIds(new Set(rolesForMember(m.id).map((r) => r.id)));
+    setRolesError(null);
+  }, [rolesForMember]);
+
+  const toggleRoleSelection = (roleId: string) => setSelectedRoleIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(roleId)) next.delete(roleId); else next.add(roleId);
+    return next;
+  });
+
+  // Diff the desired Role set against the member's current one and apply the
+  // adds/removes via the role-assignment API. The coarse role badge is derived
+  // server-side, so we refetch members afterwards to reflect any change.
+  const handleSaveRoles = async () => {
+    if (!orgId || !rolesTarget) return;
+    const member = rolesTarget;
+    const currentIds = new Set(rolesForMember(member.id).map((r) => r.id));
+    const toAdd = [...selectedRoleIds].filter((id) => !currentIds.has(id));
+    const toRemove = [...currentIds].filter((id) => !selectedRoleIds.has(id));
+    if (toAdd.length === 0 && toRemove.length === 0) { setRolesTarget(null); return; }
+    setRolesSaving(true);
+    setRolesError(null);
+    try {
+      for (const roleId of toAdd) {
+        const res = await api.addRoleMember(orgId, roleId, { userId: member.id });
+        if (!res.success) throw new Error(res.message || 'Failed to assign a role');
+      }
+      for (const roleId of toRemove) {
+        const res = await api.removeRoleMember(orgId, roleId, member.id);
+        if (!res.success) throw new Error(res.message || 'Failed to remove a role');
+      }
+      toast.success(`Updated ${member.username}'s roles`);
+      setRolesTarget(null);
+      await fetchRoles();
+      fetchMembers();
+    } catch (err) {
+      setRolesError(err instanceof Error ? err.message : 'Failed to update roles');
+    } finally {
+      setRolesSaving(false);
+    }
+  };
+
   const filteredMembers = useMemo(() => {
     let result = members;
     if (roleFilter !== 'all') result = result.filter(m => m.role === roleFilter);
@@ -311,21 +389,6 @@ export default function MembersPage() {
       setAddSelectedTeams(new Set());
       setAddModalOpen(false);
       fetchMembers();
-    }
-  };
-
-  const handleRoleChange = async () => {
-    if (!orgId || !roleChangeTarget) return;
-    const newRole = roleChangeTarget.role === 'admin' ? 'member' : 'admin';
-    setRoleChangeLoading(true);
-    try {
-      await api.updateMemberRole(orgId, roleChangeTarget.id, newRole);
-      setMembers(prev => prev.map(m => m.id === roleChangeTarget.id ? { ...m, role: newRole } : m));
-      setRoleChangeTarget(null);
-    } catch {
-      setError('Failed to update role');
-    } finally {
-      setRoleChangeLoading(false);
     }
   };
 
@@ -396,6 +459,8 @@ export default function MembersPage() {
       id: 'role',
       header: 'Role',
       sortValue: (m) => m.role,
+      // Derived, read-only badge — the backend computes this coarse role from the
+      // member's assigned Roles. Access is edited via the Roles column, not here.
       render: (m) => (
         <div className="flex items-center gap-2">
           <Badge color={m.role === 'admin' ? 'purple' : 'gray'}>{m.role}</Badge>
@@ -403,6 +468,24 @@ export default function MembersPage() {
         </div>
       ),
     },
+    ...(canManageRoles ? [{
+      id: 'roles',
+      header: 'Roles',
+      // Assigned Roles as chips. Editing (add/remove) is the ShieldCheck action.
+      render: (m: OrganizationMember) => {
+        const assigned = rolesForMember(m.id);
+        if (assigned.length === 0) return <span className="text-xs text-gray-400 dark:text-gray-500 italic">No roles</span>;
+        return (
+          <div className="flex flex-wrap items-center gap-1">
+            {assigned.map((r) => (
+              <span key={r.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                <ShieldCheck className="w-2.5 h-2.5 text-gray-400" />{roleDisplayName(r.name)}
+              </span>
+            ))}
+          </div>
+        );
+      },
+    } as Column<OrganizationMember>] : []),
     {
       id: 'status',
       header: 'Status',
@@ -454,14 +537,16 @@ export default function MembersPage() {
                 <Crown className="w-4 h-4" />
               </IconButton>
             )}
-            <IconButton
-              tone="primary"
-              onClick={() => setRoleChangeTarget(m)}
-              title={m.role === 'admin' ? 'Demote to user' : 'Promote to admin'}
-              aria-label={`${m.role === 'admin' ? 'Demote' : 'Promote'} ${m.username}`}
-            >
-              {m.role === 'admin' ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
-            </IconButton>
+            {canManageRoles && (
+              <IconButton
+                tone="primary"
+                onClick={() => openManageRoles(m)}
+                title="Manage roles"
+                aria-label={`Manage roles for ${m.username}`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+              </IconButton>
+            )}
             <IconButton
               tone="warn"
               onClick={() => { setPasswordTarget(m); setNewPassword(''); passwordForm.reset(); }}
@@ -490,7 +575,7 @@ export default function MembersPage() {
         );
       },
     },
-  ], [user, isSuperAdmin, canManageTeams, openManageTeams]);
+  ], [user, isSuperAdmin, canManageTeams, openManageTeams, canManageRoles, rolesForMember, openManageRoles]);
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -639,15 +724,47 @@ export default function MembersPage() {
         onClose={() => setAddModalOpen(false)}
       />
 
-      {/* Role change confirmation */}
-      {roleChangeTarget && (
-        <DeleteConfirmModal
-          title={roleChangeTarget.role === 'admin' ? 'Demote to User' : 'Promote to Admin'}
-          itemName={roleChangeTarget.username}
-          loading={roleChangeLoading}
-          onConfirm={handleRoleChange}
-          onCancel={() => setRoleChangeTarget(null)}
-        />
+      {/* Manage Roles — assign/remove the org's Roles for one member. Editing
+          access happens here; the coarse Role badge is derived from the result. */}
+      {rolesTarget && (
+        <Modal
+          title={`Manage roles for ${rolesTarget.username}`}
+          onClose={() => !rolesSaving && setRolesTarget(null)}
+          maxWidth="max-w-md"
+          footer={
+            <ModalFooter
+              onCancel={() => setRolesTarget(null)}
+              onConfirm={handleSaveRoles}
+              confirmLabel="Save roles"
+              loading={rolesSaving}
+            />
+          }
+        >
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+            A member&apos;s access is the union of their Roles. The Owner/Admin/Member badge is derived from these.
+          </p>
+          {roles.length === 0 ? (
+            <p className="text-sm text-gray-400 dark:text-gray-500 italic">No roles exist in this organization yet.</p>
+          ) : (
+            <div className="max-h-72 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
+              {roles.map((r) => (
+                <label key={r.id} className="flex items-start gap-2 p-2.5 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={selectedRoleIds.has(r.id)}
+                    onChange={() => toggleRoleSelection(r.id)}
+                    disabled={rolesSaving}
+                    className="mt-0.5"
+                  />
+                  <span className="min-w-0">
+                    <span className="font-medium text-gray-800 dark:text-gray-200">{roleDisplayName(r.name)}</span>
+                    {r.description && <span className="block text-xs text-gray-400 dark:text-gray-500">{r.description}</span>}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          {rolesError && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{rolesError}</p>}
+        </Modal>
       )}
 
       {/* Password reset modal */}

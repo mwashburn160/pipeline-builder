@@ -31,7 +31,7 @@ const ALL_PERMISSIONS: readonly string[] = [
   'pipelines:read', 'pipelines:write',
   'plugins:read', 'plugins:write',
   'compliance:read', 'compliance:write',
-  'members:manage', 'groups:manage', 'invitations:manage',
+  'members:manage', 'roles:manage', 'invitations:manage',
   'dashboards:read', 'dashboards:write',
   'observability:read', 'observability:write',
   'reports:read',
@@ -41,6 +41,42 @@ const ALL_PERMISSIONS: readonly string[] = [
   'registry:read', 'registry:write',
   'org:settings',
 ];
+
+/** Mirrors api-core's MEMBER seed bundle (a read-heavy subset of ALL_PERMISSIONS). */
+const MEMBER_PERMISSIONS: readonly string[] = [
+  'pipelines:read', 'pipelines:write',
+  'plugins:read', 'plugins:write',
+  'compliance:read',
+  'dashboards:read',
+  'observability:read',
+  'reports:read',
+  'messages:read', 'messages:write',
+  'billing:read',
+  'quotas:read',
+  'registry:read',
+];
+
+/**
+ * Seed bundles for the built-in Roles, keyed by coarse role (mirrors api-core
+ * `ROLE_PERMISSIONS`). Consumed by `seedDefaultRoles` + the backfill to
+ * populate a built-in Role's own `permissions[]`. owner == admin == all.
+ */
+const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
+  member: MEMBER_PERMISSIONS,
+  admin: ALL_PERMISSIONS,
+  owner: ALL_PERMISSIONS,
+};
+
+/**
+ * Faithful single-source resolver (mirrors api-core `resolveUserPermissions`):
+ * superadmin ⇒ ALL; otherwise exactly the union of the passed Role permissions,
+ * in canonical order. No role-derived baseline.
+ */
+function resolveUserPermissions(assignedPermissions?: readonly string[] | null, isSuperAdmin?: boolean): string[] {
+  if (isSuperAdmin) return [...ALL_PERMISSIONS];
+  const set = new Set((assignedPermissions ?? []).filter((p) => ALL_PERMISSIONS.includes(p)));
+  return ALL_PERMISSIONS.filter((p) => set.has(p));
+}
 
 /** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
 class NotFoundError extends Error {
@@ -82,10 +118,14 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     NotFoundError,
-    // Permission catalog — groups-service / organization-service import these to
+    // Permission catalog — roles-service / organization-service import these to
     // validate/filter group-granted permissions. Mirrors api-core's real list so
     // the mock's `isValidPermission` accepts exactly the canonical identifiers.
     ALL_PERMISSIONS,
+    // Seed bundles for built-in Roles + the single-source resolver. seedDefaultRoles
+    // / the backfill read ROLE_PERMISSIONS; token issuance reads resolveUserPermissions.
+    ROLE_PERMISSIONS,
+    resolveUserPermissions,
     isValidPermission: (value: string) => ALL_PERMISSIONS.includes(value),
     // Fine-grained RBAC helpers (faithful to api-core): superadmins hold all;
     // otherwise the resolved `permissions` claim must include it.

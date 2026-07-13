@@ -145,7 +145,8 @@ export async function listRepositories(opts: { n?: number; last?: string } = {})
     params: { ...(opts.n && { n: opts.n }), ...(opts.last && { last: opts.last }) },
   });
 
-  // The registry signals more pages via a Link header (RFC 5988) like  // `Link: </v2/_catalog?n=10&last=foo>; rel="next"`
+  // The registry signals more pages via a Link header (RFC 5988) like
+  // `Link: </v2/_catalog?n=10&last=foo>; rel="next"`
   // We extract the `last` parameter so callers can paginate naturally.
   const linkHeader = headers.link as string | undefined;
   const nextMatch = linkHeader?.match(/last=([^&>]+)/);

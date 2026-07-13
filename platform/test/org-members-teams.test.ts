@@ -17,8 +17,16 @@ const mockUserOrgFind = jest.fn();
 const mockUserOrgFindOne = jest.fn();
 const mockUserOrgCreate = jest.fn();
 const mockExpandOrgScope = jest.fn();
+const mockEnsureBaselineRole = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+// org-members-service now assigns the built-in Member Role to plain members via
+// roles-service.ensureBaselineRole — mock it as a no-op so these tests stay
+// focused on the membership writes (and avoid loading the real roles-service).
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({
+  ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
+}));
 
 jest.unstable_mockModule('mongoose', () => {
   class Schema {

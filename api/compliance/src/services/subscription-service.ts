@@ -10,6 +10,17 @@ import { complianceRuleService } from './compliance-rule-service.js';
 const logger = createLogger('subscription-service');
 
 /**
+ * Typed error codes thrown by this service. Routes map these to HTTP responses
+ * via a code-keyed table (see routes/subscriptions.ts), so rewording a
+ * user-facing message never silently turns a 4xx into a 500. Mirrors the
+ * `RL_*` (roles-service) / `PR_*` (pipeline-registry) convention.
+ */
+export const CS_RULE_NOT_FOUND = 'CS_RULE_NOT_FOUND';
+export const CS_SUBSCRIPTION_NOT_FOUND = 'CS_SUBSCRIPTION_NOT_FOUND';
+export const CS_NOT_PUBLISHED = 'CS_NOT_PUBLISHED';
+export const CS_SYSTEM_ORG = 'CS_SYSTEM_ORG';
+
+/**
  * Invalidate the per-org rules cache after a subscription mutation.
  * `findActiveByOrgAndTarget` is cached per `orgId:target` and otherwise has no
  * way to learn that the subscription set changed.
@@ -38,7 +49,7 @@ export class ComplianceRuleSubscriptionService {
    */
   async subscribe(orgId: string, ruleId: string, userId: string): Promise<ComplianceRuleSubscription> {
     if (isSystemOrgId(orgId)) {
-      throw new Error('System org cannot subscribe to published rules');
+      throw new Error(CS_SYSTEM_ORG);
     }
 
     const sub = await withTenantTx(async (tx) => {
@@ -54,8 +65,8 @@ export class ComplianceRuleSubscriptionService {
           isNull(schema.complianceRule.deletedAt),
         ));
 
-      if (!rule) throw new Error('Rule not found');
-      if (rule.scope !== 'published') throw new Error('Only published rules can be subscribed to');
+      if (!rule) throw new Error(CS_RULE_NOT_FOUND);
+      if (rule.scope !== 'published') throw new Error(CS_NOT_PUBLISHED);
 
       // Atomic upsert: insert (inactive) or re-subscribe on conflict
       const [result] = await tx
@@ -86,7 +97,7 @@ export class ComplianceRuleSubscriptionService {
    */
   async setActive(orgId: string, ruleId: string, isActive: boolean, userId: string): Promise<ComplianceRuleSubscription> {
     if (isSystemOrgId(orgId)) {
-      throw new Error('System org cannot manage subscriptions');
+      throw new Error(CS_SYSTEM_ORG);
     }
 
     const updated = await withTenantTx(async (tx) => {
@@ -99,7 +110,7 @@ export class ComplianceRuleSubscriptionService {
           isNull(schema.complianceRuleSubscription.unsubscribedAt),
         ));
 
-      if (!existing) throw new Error('Subscription not found');
+      if (!existing) throw new Error(CS_SUBSCRIPTION_NOT_FOUND);
 
       const [row] = await tx
         .update(schema.complianceRuleSubscription)
@@ -119,7 +130,7 @@ export class ComplianceRuleSubscriptionService {
    */
   async unsubscribe(orgId: string, ruleId: string, userId: string): Promise<void> {
     if (isSystemOrgId(orgId)) {
-      throw new Error('System org cannot manage subscriptions');
+      throw new Error(CS_SYSTEM_ORG);
     }
 
     await withTenantTx(async (tx) => {
@@ -132,7 +143,7 @@ export class ComplianceRuleSubscriptionService {
           isNull(schema.complianceRuleSubscription.unsubscribedAt),
         ));
 
-      if (!existing) throw new Error('Subscription not found');
+      if (!existing) throw new Error(CS_SUBSCRIPTION_NOT_FOUND);
 
       await tx
         .update(schema.complianceRuleSubscription)
@@ -236,7 +247,7 @@ export class ComplianceRuleSubscriptionService {
   /** Bulk activate/deactivate subscriptions. */
   async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, _userId: string): Promise<number> {
     if (isSystemOrgId(orgId)) {
-      throw new Error('System org cannot manage subscriptions');
+      throw new Error(CS_SYSTEM_ORG);
     }
 
     // Single batch update instead of N individual queries
@@ -259,7 +270,7 @@ export class ComplianceRuleSubscriptionService {
   /** Pin a subscription to a specific rule version snapshot. */
   async pinVersion(orgId: string, ruleId: string, userId: string): Promise<ComplianceRuleSubscription> {
     if (isSystemOrgId(orgId)) {
-      throw new Error('System org cannot manage subscriptions');
+      throw new Error(CS_SYSTEM_ORG);
     }
 
     const updated = await withTenantTx(async (tx) => {
@@ -272,14 +283,14 @@ export class ComplianceRuleSubscriptionService {
           eq(schema.complianceRuleSubscription.ruleId, ruleId),
           isNull(schema.complianceRuleSubscription.unsubscribedAt),
         ));
-      if (!sub) throw new Error('Subscription not found');
+      if (!sub) throw new Error(CS_SUBSCRIPTION_NOT_FOUND);
 
       // Fetch current rule state as snapshot
       const [rule] = await tx
         .select()
         .from(schema.complianceRule)
         .where(eq(schema.complianceRule.id, ruleId));
-      if (!rule) throw new Error('Rule not found');
+      if (!rule) throw new Error(CS_RULE_NOT_FOUND);
 
       // Snapshot the entire rule row so any field the engine cares about
       // (effectiveFrom/Until, priority, tags, target, etc.) survives even
@@ -315,7 +326,7 @@ export class ComplianceRuleSubscriptionService {
       ))
       .returning());
 
-    if (!updated) throw new Error('Subscription not found');
+    if (!updated) throw new Error(CS_SUBSCRIPTION_NOT_FOUND);
     await invalidateRulesFor(orgId);
     return updated;
   }

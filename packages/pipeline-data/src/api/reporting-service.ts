@@ -184,11 +184,11 @@ export class ReportingService {
   /**
    * Resolve incoming events against the pipeline registry, batch-insert the
    * matched ones, and invalidate reporting caches for affected orgs.
-   * Events for unregistered pipeline ARNs are dropped (and logged at WARN
-   * with sample ARNs so an operator can see when EventBridge is delivering
+   * Events for unregistered pipeline ids are dropped (and logged at WARN
+   * with sample ids so an operator can see when EventBridge is delivering
    * events for pipelines that haven't called POST /pipelines/registry yet).
    *
-   * Returns counts + a sample of unregistered ARNs for observability.
+   * Returns counts + a sample of unregistered pipeline ids for observability.
    */
   async ingestEvents(events: IngestEvent[]): Promise<IngestResult> {
     // Multi-org batch insert: the caller resolves to multiple orgs via the

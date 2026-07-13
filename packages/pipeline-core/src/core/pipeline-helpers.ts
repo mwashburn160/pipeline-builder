@@ -147,48 +147,6 @@ function toSecretEnvVars(
 }
 
 /**
- * Create a CodeBuild step or Shell step based on plugin configuration.
- *
- * Metadata merge order (last wins):
- *   1. Plugin metadata (from plugin.metadata in database) — the plugin
- *      author's baked-in defaults
- *   2. Step-level metadata (from options.metadata) — the pipeline author's
- *      per-step overrides, which are more specific and must win
- *
- * Environment merge order (last wins):
- *   1. Plugin env vars (from plugin.env)
- *   2. Custom env vars (from options.env)
- *   3. WORKDIR from merged metadata
- *
- * CDK prop spread order (last wins):
- *   programmatic defaults (input, commands, env, network) → metadata overrides
- *
- * This means metadata keys like `aws:cdk:pipelines:codebuildstep:commands`
- * will override the plugin-derived commands when explicitly set.
- */
-/**
- * Resolve the CodeBuild image to use for a plugin.
- *
- * Strategy:
- *   1. If the plugin sets `aws:cdk:codebuild:buildenvironment:buildImage`
- *      explicitly in metadata, the metadata-builder passthrough handles it
- *      (via `metadataForBuildEnvironment`). This function returns
- *      `undefined` and the metadata wins.
- *   2. Otherwise, if the plugin has a `name`+`version` AND the registry
- *      config is populated, build a `LinuxBuildImage.fromDockerRegistry()`
- *      image pointing at `<registry-host>:<port>/<ns>/<name>:<version>`
- *      where `<ns>` is `system` or `org-<orgId>`. CodeBuild authenticates by
- *      sending the per-org platform Secret as Basic auth to
- *      `pipeline-image-registry`'s `/token` endpoint; the JWT in `password`
- *      resolves to a registry token scoped to the org.
- *   3. If `metadata_only`, return `undefined` so CodeBuild uses its default
- *      (`standard:7.0`).
- *
- * `scope` and `orgId` are required: the per-org platform Secret is named
- * `pipeline-builder/<orgId>/platform`, and `Secret.fromSecretNameV2()`
- * needs a Construct to anchor the imported secret to.
- */
-/**
  * In-cluster / local registry hostnames that AWS CodeBuild (out-of-cluster)
  * cannot resolve. Baking one of these into a CodeBuild image URI guarantees a
  * `BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE` failure at build time, so we fail the
@@ -256,6 +214,28 @@ function resolveExternalPullTarget(
   return { host, portPart };
 }
 
+/**
+ * Resolve the CodeBuild image to use for a plugin.
+ *
+ * Strategy:
+ *   1. If the plugin sets `aws:cdk:codebuild:buildenvironment:buildImage`
+ *      explicitly in metadata, the metadata-builder passthrough handles it
+ *      (via `metadataForBuildEnvironment`). This function returns
+ *      `undefined` and the metadata wins.
+ *   2. Otherwise, if the plugin has a `name`+`version` AND the registry
+ *      config is populated, build a `LinuxBuildImage.fromDockerRegistry()`
+ *      image pointing at `<registry-host>:<port>/<ns>/<name>:<version>`
+ *      where `<ns>` is `system` or `org-<orgId>`. CodeBuild authenticates by
+ *      sending the per-org platform Secret as Basic auth to
+ *      `pipeline-image-registry`'s `/token` endpoint; the JWT in `password`
+ *      resolves to a registry token scoped to the org.
+ *   3. If `metadata_only`, return `undefined` so CodeBuild uses its default
+ *      (`standard:7.0`).
+ *
+ * `scope` and `orgId` are required: the per-org platform Secret is named
+ * `pipeline-builder/<orgId>/platform`, and `Secret.fromSecretNameV2()`
+ * needs a Construct to anchor the imported secret to.
+ */
 export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin, orgId?: string): IBuildImage | undefined {
   // `metadata_only` plugins legitimately have no image — their work runs
   // in the default CodeBuild image. Quiet skip.
@@ -458,6 +438,26 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
   });
 }
 
+/**
+ * Create a CodeBuild step or Shell step based on plugin configuration.
+ *
+ * Metadata merge order (last wins):
+ *   1. Plugin metadata (from plugin.metadata in database) — the plugin
+ *      author's baked-in defaults
+ *   2. Step-level metadata (from options.metadata) — the pipeline author's
+ *      per-step overrides, which are more specific and must win
+ *
+ * Environment merge order (last wins):
+ *   1. Plugin env vars (from plugin.env)
+ *   2. Custom env vars (from options.env)
+ *   3. WORKDIR from merged metadata
+ *
+ * CDK prop spread order (last wins):
+ *   programmatic defaults (input, commands, env, network) → metadata overrides
+ *
+ * This means metadata keys like `aws:cdk:pipelines:codebuildstep:commands`
+ * will override the plugin-derived commands when explicitly set.
+ */
 export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | CodeBuildStep | ManualApprovalStep {
   const {
     id, input, metadata, network, scope,

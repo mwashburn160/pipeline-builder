@@ -135,8 +135,7 @@ async function getAuthToken(): Promise<string> {
   const secret = JSON.parse(response.SecretString) as Record<string, string>;
   // store-token writes the JWT in `password` (the canonical field — also used by
   // CodeBuild secretsManagerCredentials, the plugin-lookup Lambda, and token-renew).
-  // Accept legacy `accessToken` as a fallback.
-  const token = secret.password || secret.accessToken;
+  const token = secret.password;
   if (!token) {
     throw new Error('Secret missing JWT (password) — run "pipeline-manager store-token" to generate');
   }

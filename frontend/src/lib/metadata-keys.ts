@@ -111,8 +111,3 @@ export const METADATA_KEY_GROUPS: MetadataKeyGroup[] = [
     ],
   },
 ];
-
-/** Flat lookup: key string → MetadataKeyOption */
-export const METADATA_KEY_MAP = new Map<string, MetadataKeyOption>(
-  METADATA_KEY_GROUPS.flatMap((g) => g.keys.map((k) => [k.key, k] as const)),
-);

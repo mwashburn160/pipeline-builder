@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests that the six organization-member mutation handlers emit the
+ * Tests that the organization-member mutation handlers emit the
  * right audit events. Each privilege change MUST land in the audit log
  * with `affectedOrgId` set, so reviewers can answer "what was done
  * inside org X, by whom".
@@ -13,7 +13,6 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockAudit = jest.fn();
 const mockAddMember = jest.fn();
 const mockRemoveMember = jest.fn();
-const mockUpdateRole = jest.fn();
 const mockTransferOwnership = jest.fn();
 const mockDeactivateMember = jest.fn();
 const mockActivateMember = jest.fn();
@@ -48,7 +47,6 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   orgMembersService: {
     addMember: (...a: unknown[]) => mockAddMember(...a),
     removeMember: (...a: unknown[]) => mockRemoveMember(...a),
-    updateRole: (...a: unknown[]) => mockUpdateRole(...a),
     transferOwnership: (...a: unknown[]) => mockTransferOwnership(...a),
     deactivateMember: (...a: unknown[]) => mockDeactivateMember(...a),
     activateMember: (...a: unknown[]) => mockActivateMember(...a),
@@ -59,7 +57,6 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   OM_ALREADY_MEMBER: 'OM_ALREADY_MEMBER',
   OM_NOT_A_MEMBER: 'OM_NOT_A_MEMBER',
   OM_CANNOT_REMOVE_OWNER: 'OM_CANNOT_REMOVE_OWNER',
-  OM_CANNOT_CHANGE_OWNER: 'OM_CANNOT_CHANGE_OWNER',
   OM_OWNER_MEMBERSHIP_NOT_FOUND: 'OM_OWNER_MEMBERSHIP_NOT_FOUND',
   OM_NEW_OWNER_MUST_BE_MEMBER: 'OM_NEW_OWNER_MUST_BE_MEMBER',
   OM_MEMBERSHIP_NOT_FOUND: 'OM_MEMBERSHIP_NOT_FOUND',
@@ -73,14 +70,12 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (schema: unknown, body: unknown, _res: unknown) => mockValidateBody(schema, body),
   addMemberSchema: {},
   bulkAddMemberSchema: {},
-  updateMemberRoleSchema: {},
   transferOwnershipSchema: {},
 }));
 
 const {
   addMemberToOrganization,
   removeMemberFromOrganization,
-  updateMemberRole,
   transferOrganizationOwnership,
   deactivateMember,
   activateMember,
@@ -97,7 +92,6 @@ beforeEach(() => {
   mockAudit.mockReset();
   mockAddMember.mockReset();
   mockRemoveMember.mockReset();
-  mockUpdateRole.mockReset();
   mockTransferOwnership.mockReset();
   mockDeactivateMember.mockReset();
   mockActivateMember.mockReset();
@@ -154,25 +148,6 @@ describe('removeMember audit', () => {
       targetId: 'u1',
       affectedOrgId: 'org-acme',
     });
-  });
-});
-
-describe('updateMemberRole audit', () => {
-  it('records org.member.role.update with newRole in details', async () => {
-    mockUpdateRole.mockResolvedValue({ user: { _id: 'u1' }, role: 'admin' });
-    const req: any = {
-      params: { id: 'org-acme', userId: 'u1' },
-      body: { role: 'admin' },
-      user: { sub: 'sysadmin', organizationId: 'org-acme' },
-    };
-    await (updateMemberRole as unknown as (req: any, res: any) => Promise<void>)(req, mockRes());
-
-    expect(mockAudit).toHaveBeenCalledWith(req, 'org.member.role.update', expect.objectContaining({
-      targetType: 'user',
-      targetId: 'u1',
-      affectedOrgId: 'org-acme',
-      details: { newRole: 'admin' },
-    }));
   });
 });
 

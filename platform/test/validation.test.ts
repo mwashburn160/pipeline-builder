@@ -20,7 +20,6 @@ const {
   sendInvitationSchema,
   updateOrganizationSchema,
   addMemberSchema,
-  updateMemberRoleSchema,
   transferOwnershipSchema,
   updateQuotasSchema,
   orgIdpCreateSchema,
@@ -233,21 +232,6 @@ describe('addMemberSchema', () => {
 
   it('should reject empty body (neither userId nor email)', () => {
     expect(addMemberSchema.safeParse({}).success).toBe(false);
-  });
-});
-
-describe('updateMemberRoleSchema', () => {
-  it('should accept valid roles', () => {
-    expect(updateMemberRoleSchema.safeParse({ role: 'admin' }).success).toBe(true);
-    expect(updateMemberRoleSchema.safeParse({ role: 'member' }).success).toBe(true);
-  });
-
-  it('should reject owner (ownership only moves via transferOwnership)', () => {
-    expect(updateMemberRoleSchema.safeParse({ role: 'owner' }).success).toBe(false);
-  });
-
-  it('should reject invalid role', () => {
-    expect(updateMemberRoleSchema.safeParse({ role: 'superadmin' }).success).toBe(false);
   });
 });
 

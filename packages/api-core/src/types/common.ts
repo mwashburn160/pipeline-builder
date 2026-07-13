@@ -157,7 +157,14 @@ export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
  * Use `POST /auth/switch-org` to change the active organization, which
  * re-issues tokens with the new org's role and context.
  */
-/** Per-org role in a single organization/team. Not a global role. */
+/**
+ * Coarse per-org membership label, DERIVED from the Roles a user is assigned
+ * (the highest `grantsRole` among them; `owner` is set only by ownership
+ * transfer). It is a display/authority label — driving `isAdmin`, ownership,
+ * and seat accounting — NOT a permission source. Effective permissions come
+ * solely from the user's assigned Roles (see `resolveUserPermissions`). Not a
+ * global role.
+ */
 export type OrgRole = 'owner' | 'admin' | 'member';
 
 export interface JwtPayload {
@@ -173,7 +180,7 @@ export interface JwtPayload {
   isAdmin?: boolean;
   /**
    * Resolved fine-grained permissions for the active org/team — the union of
-   * the role's base bundle and every group the user belongs to (see
+   * the permissions carried by every Role the user is assigned (see
    * `resolveUserPermissions`). Absent on machine/scoped tokens. Superadmins are
    * granted all permissions implicitly and may omit this. Endpoints enforce via
    * `requirePermission(...)`.

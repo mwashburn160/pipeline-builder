@@ -56,8 +56,8 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({
   toOrgId: (v: unknown) => v,
 }));
 
-jest.unstable_mockModule('../src/services/groups-service.js', () => ({
-  seedDefaultGroups: (...a: unknown[]) => mockSeedDefaultGroups(...a),
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({
+  seedDefaultRoles: (...a: unknown[]) => mockSeedDefaultGroups(...a),
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({

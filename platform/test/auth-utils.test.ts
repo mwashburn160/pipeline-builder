@@ -33,8 +33,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
   User: {},
   UserOrganization: {},
-  Group: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
-  GroupMembership: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
+  Role: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
+  RoleAssignment: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
 }));
 
 const { hashRefreshToken, issueStepUpToken, verifyStepUpToken } = await import('../src/utils/token.js');

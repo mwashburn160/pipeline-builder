@@ -9,7 +9,7 @@
  *   node --import @pipeline-builder/api-server/lib/otel-bootstrap.js index.js
  * (see each service's Dockerfile CMD).
  *
- * Why a preload and not `initTracing()` from createApp/index.ts:
+ * Why a preload and not a programmatic SDK start from createApp/index.ts:
  * OpenTelemetry auto-instrumentation patches modules as they load. If
  * `http`/`express` are already loaded when the SDK starts, the HTTP server is
  * never wrapped, so no inbound server span — and therefore no trace id — is ever
@@ -22,8 +22,8 @@
  * `process.env` directly. It must NOT import this package's own barrel (or
  * api-core / pipeline-core), because those transitively require express — which
  * would load express before the SDK starts and defeat the preload. This is why
- * the bootstrap lives in its own entrypoint file rather than reusing
- * `initTracing()` from `api/tracing.ts`.
+ * the bootstrap lives in its own entrypoint file rather than starting the SDK
+ * from within `api/tracing.ts`.
  *
  * No-op unless `OTEL_TRACING_ENABLED=true`. Service name comes from
  * `OTEL_SERVICE_NAME` (falling back to `SERVICE_NAME`), which every service

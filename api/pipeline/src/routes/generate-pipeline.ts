@@ -367,15 +367,16 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
             // Phase 3: Auto-create missing plugins
             if (!sse.aborted()) {
               await autoCreateMissingPlugins(res, props, orgId, {
-                provider,
-                model,
-                apiKey,
                 authToken: req.headers.authorization || '',
                 requestId: ctx.requestId,
               });
             }
           }
           res.write('data: [DONE]\n\n');
+          // Quota policy: a COMPLETED stream keeps the reserved `aiCalls` slot even
+          // when `finalOutput` is empty/unparseable — the provider round-trip (and
+          // its external $ cost) was incurred. Only an ABORT (client disconnect /
+          // pre-provider failure) refunds the slot, below.
         } else {
           decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
@@ -448,15 +449,12 @@ function extractPluginNames(props: Record<string, unknown>): string[] {
  * @param res - Express response (SSE stream)
  * @param props - Generated pipeline props
  * @param orgId - Organization ID
- * @param context - AI provider and auth context for plugin generation
+ * @param context - Auth context (bearer + request id) forwarded to the plugin service
  */
 async function autoCreateMissingPlugins( res: import('express').Response,
   props: Record<string, unknown>,
   orgId: string,
   context: {
-    provider: string;
-    model: string;
-    apiKey?: string;
     authToken: string;
     requestId: string;
   },

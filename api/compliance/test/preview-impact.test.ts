@@ -118,6 +118,10 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
 
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
   subscriptionService: {},
+  CS_RULE_NOT_FOUND: 'CS_RULE_NOT_FOUND',
+  CS_SUBSCRIPTION_NOT_FOUND: 'CS_SUBSCRIPTION_NOT_FOUND',
+  CS_NOT_PUBLISHED: 'CS_NOT_PUBLISHED',
+  CS_SYSTEM_ORG: 'CS_SYSTEM_ORG',
 }));
 
 const { createSubscriptionRoutes } = await import('../src/routes/subscriptions.js');

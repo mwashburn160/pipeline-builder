@@ -95,7 +95,7 @@ Access tokens expire after 2 hours by default (configurable via `JWT_EXPIRES_IN`
 
 ### Organization & Access Service
 
-Base path `/api/organization` (and `/api/invitation`). Management endpoints enforce **fine-grained permissions** via `requirePermission('resource:action')` — a user passes if their effective permissions (role bundle ∪ custom-group grants) include it, or they're a super-admin. The required permission is in the last column; endpoints marked *system admin* require the global super-admin flag instead.
+Base path `/api/organization` (and `/api/invitation`). Management endpoints enforce **fine-grained permissions** via `requirePermission('resource:action')` — a user passes if their effective permissions (the union of the Roles assigned to them) include it, or they're a super-admin. The required permission is in the last column; endpoints marked *system admin* require the global super-admin flag instead.
 
 | Method | Endpoint | Description | Permission |
 |--------|----------|-------------|------------|
@@ -110,15 +110,15 @@ Base path `/api/organization` (and `/api/invitation`). Management endpoints enfo
 | `GET` | `/organization/:id/members` | List members | — (member) |
 | `POST` \| `DELETE` \| `PATCH` | `/organization/:id/members[/:userId[/activate\|deactivate]]` | Add / remove / change-role / (de)activate a member | `members:manage` |
 | `GET` | `/organization/:id/teams` | List descendant teams | — (member) |
-| `GET` | `/organization/:id/groups` | List permission groups + members | — (member) |
-| `POST` | `/organization/:id/groups` | Create a custom permission group | `groups:manage` |
-| `PUT` \| `DELETE` | `/organization/:id/groups/:groupId` | Update / delete a custom group | `groups:manage` |
-| `POST` \| `DELETE` | `/organization/:id/groups/:groupId/members[/:userId]` | Add / remove a group member | `groups:manage` |
+| `GET` | `/organization/:id/groups` | List Roles (permission sets) + members | — (member) |
+| `POST` | `/organization/:id/groups` | Create a custom Role | `roles:manage` |
+| `PUT` \| `DELETE` | `/organization/:id/groups/:groupId` | Update / delete a custom Role | `roles:manage` |
+| `POST` \| `DELETE` | `/organization/:id/groups/:groupId/members[/:userId]` | Add / remove a Role member | `roles:manage` |
 | `POST` | `/invitation/send` | Send an invitation | `invitations:manage` |
 | `GET` | `/invitation` | List invitations | `invitations:manage` |
 | `DELETE` \| `POST` | `/invitation/:id[/resend]` | Revoke / resend an invitation | `invitations:manage` |
 
-The full permission catalog (`pipelines:write`, `plugins:write`, `compliance:write`, `billing:manage`, `dashboards:write`, `observability:write`, `org:settings`, …) lives in `@pipeline-builder/api-core` (`types/permissions.ts`). Custom groups grant any subset; a member's effective permissions are the union of their role's base bundle and every group they belong to.
+The full permission catalog (`pipelines:write`, `plugins:write`, `compliance:write`, `billing:manage`, `dashboards:write`, `observability:write`, `org:settings`, …) lives in `@pipeline-builder/api-core` (`types/permissions.ts`). Custom Roles grant any subset; a member's effective permissions are the union of the Roles assigned to them. (Managing Roles is gated by `roles:manage`. The endpoint **paths** still spell `/groups` — the underlying collection was not renamed — but the permission id and all user-facing naming use "Role".)
 
 ### Common Query Parameters
 

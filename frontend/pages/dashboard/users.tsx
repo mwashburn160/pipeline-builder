@@ -23,6 +23,7 @@ import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { FeatureOverridesEditor } from '@/components/admin/FeatureOverridesEditor';
+import { roleDisplayName } from '@/lib/permissions';
 import api from '@/lib/api';
 
 interface UserListItem {
@@ -99,30 +100,30 @@ export default function UsersPage() {
     organizationId: string; role: 'owner' | 'admin' | 'member'; isSuperAdmin: boolean;
   }>({ username: '', email: '', password: '', organizationId: '', role: 'member', isSuperAdmin: false });
   const [orgOptions, setOrgOptions] = useState<Array<{ id: string; name: string }>>([]);
-  // Groups of the currently-selected org (org-scoped; empty until an org is
-  // picked) + the subset checked for assignment. Groups require an org, so
+  // Roles of the currently-selected org (org-scoped; empty until an org is
+  // picked) + the subset checked for assignment. Roles require an org, so
   // selecting/clearing the org refetches + resets this.
-  const [orgGroups, setOrgGroups] = useState<Array<{ id: string; name: string; grantsRole: string }>>([]);
-  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
+  const [orgRoles, setOrgRoles] = useState<Array<{ id: string; name: string; grantsRole: string }>>([]);
+  const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
 
-  // Load an org's groups for the assignment picker; clears when no org.
-  const loadOrgGroups = useCallback((orgId: string) => {
-    if (!orgId) { setOrgGroups([]); return; }
-    api.getOrganizationGroups(orgId)
-      .then((res) => { if (res.success && res.data) setOrgGroups(res.data.groups.map((g) => ({ id: g.id, name: g.name, grantsRole: g.grantsRole }))); })
-      .catch(() => setOrgGroups([]));
+  // Load an org's roles for the assignment picker; clears when no org.
+  const loadOrgRoles = useCallback((orgId: string) => {
+    if (!orgId) { setOrgRoles([]); return; }
+    api.getOrganizationRoles(orgId)
+      .then((res) => { if (res.success && res.data) setOrgRoles(res.data.roles.map((g) => ({ id: g.id, name: g.name, grantsRole: g.grantsRole }))); })
+      .catch(() => setOrgRoles([]));
   }, []);
 
-  // Org change: update the field, reset any group selection (groups are
-  // org-scoped), and refetch the new org's groups.
+  // Org change: update the field, reset any role selection (roles are
+  // org-scoped), and refetch the new org's roles.
   const handleCreateOrgChange = useCallback((orgId: string) => {
     setNewUser((s) => ({ ...s, organizationId: orgId }));
-    setSelectedGroupIds(new Set());
-    loadOrgGroups(orgId);
-  }, [loadOrgGroups]);
+    setSelectedRoleIds(new Set());
+    loadOrgRoles(orgId);
+  }, [loadOrgRoles]);
 
-  const toggleGroup = useCallback((id: string) => {
-    setSelectedGroupIds((prev) => {
+  const toggleRole = useCallback((id: string) => {
+    setSelectedRoleIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -132,8 +133,8 @@ export default function UsersPage() {
 
   const openCreate = useCallback(() => {
     setNewUser({ username: '', email: '', password: '', organizationId: '', role: 'member', isSuperAdmin: false });
-    setOrgGroups([]);
-    setSelectedGroupIds(new Set());
+    setOrgRoles([]);
+    setSelectedRoleIds(new Set());
     createForm.reset();
     setShowCreate(true);
     // Populate the org picker. Best-effort — a failure just leaves the
@@ -155,8 +156,8 @@ export default function UsersPage() {
         password: newUser.password,
         ...(newUser.isSuperAdmin && { isSuperAdmin: true }),
         ...(newUser.organizationId && { organizationId: newUser.organizationId, role: newUser.role }),
-        // Groups are org-scoped — only send them alongside an org.
-        ...(newUser.organizationId && selectedGroupIds.size > 0 && { groupIds: Array.from(selectedGroupIds) }),
+        // Roles are org-scoped — only send them alongside an org.
+        ...(newUser.organizationId && selectedRoleIds.size > 0 && { roleIds: Array.from(selectedRoleIds) }),
       }),
       { successMessage: 'User created successfully' },
     );
@@ -608,21 +609,21 @@ export default function UsersPage() {
                 </Select>
               </div>
             )}
-            {/* Groups are org-scoped — only shown once an org is selected. */}
-            {newUser.organizationId && orgGroups.length > 0 && (
+            {/* Roles are org-scoped — only shown once an org is selected. */}
+            {newUser.organizationId && orgRoles.length > 0 && (
               <div>
                 <label className="label">
-                  Groups <span className="text-gray-400 font-normal">({selectedGroupIds.size} selected)</span>
+                  Roles <span className="text-gray-400 font-normal">({selectedRoleIds.size} selected)</span>
                 </label>
                 <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
-                  {orgGroups.map((g) => (
+                  {orgRoles.map((g) => (
                     <label key={g.id} className="flex items-center gap-2 p-2.5 text-sm cursor-pointer">
                       <Checkbox
-                        checked={selectedGroupIds.has(g.id)}
-                        onChange={() => toggleGroup(g.id)}
+                        checked={selectedRoleIds.has(g.id)}
+                        onChange={() => toggleRole(g.id)}
                         disabled={createForm.loading}
                       />
-                      <span className="font-medium text-gray-800 dark:text-gray-200">{g.name}</span>
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{roleDisplayName(g.name)}</span>
                       {g.grantsRole !== 'member' && (
                         <Badge color={g.grantsRole === 'superadmin' ? 'red' : 'purple'}>{g.grantsRole}</Badge>
                       )}

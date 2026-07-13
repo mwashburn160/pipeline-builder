@@ -43,7 +43,7 @@ export function setupEvents(program: Command): void {
     .option('-p, --password <password>', 'Login password (used with --email)')
     .option('--region <region>', 'AWS region (default: us-east-1, or AWS_REGION env)')
     .option('--profile <profile>', 'AWS CLI profile', 'default')
-    .option('--scoped-ingest', 'Point the ingestion Lambda at the dedicated least-privilege reporting-ingest secret (provision it first: `store-token --scope reporting:ingest --schedule`, then set REPORTING_INGEST_ALLOW_LEGACY=false on the reporting service)')
+    .option('--scoped-ingest', 'Point the ingestion Lambda at the dedicated least-privilege reporting-ingest secret (provision it first: `store-token --scope reporting:ingest --schedule`). The reporting service always requires the `reporting:ingest` scope on POST /reports/events.')
     .action(async (options) => {
       const executionId = printCommandHeader('Setup Event Ingestion');
 

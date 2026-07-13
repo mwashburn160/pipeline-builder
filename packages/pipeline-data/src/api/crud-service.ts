@@ -187,12 +187,6 @@ export abstract class CrudService<
   protected async onAfterDelete(_id: string, _entity: TEntity, _userId: string): Promise<void> {}
 
   /**
-   * Find entities matching filter criteria
-   *
-   * @param filter - Filter criteria
-   * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
-   */
-  /**
    * Org → team hierarchy: when a read is widened to a parent org (`parentOrgId`
    * set), the parent's rows are outside the caller's RLS scope, so the read must
    * run under sysadmin context — the access-control WHERE clause (own + parent +
@@ -215,6 +209,12 @@ export abstract class CrudService<
     return parentOrgId ? runWithTenantContext({ isSuperAdmin: true }, fn) : fn();
   }
 
+  /**
+   * Find entities matching filter criteria
+   *
+   * @param filter - Filter criteria
+   * @param orgId - User's organization ID (optional — omit for anonymous/system-public-only access)
+   */
   async find(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): Promise<TEntity[]> {
     const conditions = this.buildConditions(filter, orgId, parentOrgId);
 

@@ -22,6 +22,7 @@ const mockUserOrgCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockGroupFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockGroupMembershipUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRecomputeUserOrgRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockEnsureBaselineRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 // Recording constructor for `new User(...)` — captures the last-built instance.
 let lastUser: any;
@@ -61,24 +62,25 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn(fakeSession),
 }));
 
-// groups-service is reused by createUser for the group path — mock it so we
-// assert the orchestration (upsert per group + a single recompute) without the
+// roles-service is reused by createUser for the role path — mock it so we
+// assert the orchestration (upsert per role + a single recompute) without the
 // real role-derivation machinery.
-const GRP_GROUP_NOT_FOUND = 'GRP_GROUP_NOT_FOUND';
-jest.unstable_mockModule('../src/services/groups-service.js', () => ({
-  GRP_GROUP_NOT_FOUND,
+const RL_ROLE_NOT_FOUND = 'RL_ROLE_NOT_FOUND';
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({
+  RL_ROLE_NOT_FOUND,
   recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
+  ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: MockUser,
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
   UserOrganization: { create: (...a: unknown[]) => mockUserOrgCreate(...a) },
-  Group: { findOne: (...a: unknown[]) => mockGroupFindOne(...a) },
-  GroupMembership: { updateOne: (...a: unknown[]) => mockGroupMembershipUpdateOne(...a) },
+  Role: { findOne: (...a: unknown[]) => mockGroupFindOne(...a) },
+  RoleAssignment: { updateOne: (...a: unknown[]) => mockGroupMembershipUpdateOne(...a) },
 }));
 
-const { userAdminService, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_GROUPS_NEED_ORG } =
+const { userAdminService, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_ROLES_NEED_ORG } =
   await import('../src/services/user-admin-service.js');
 
 /** `User.exists(...)` returns a query with a `.session()` that resolves to `val`. */
@@ -93,7 +95,8 @@ beforeEach(() => {
   mockUserOrgCreate.mockResolvedValue(undefined);
   mockGroupMembershipUpdateOne.mockResolvedValue(undefined);
   mockRecomputeUserOrgRole.mockResolvedValue(undefined);
-  // Default: every looked-up group exists.
+  mockEnsureBaselineRole.mockResolvedValue(undefined);
+  // Default: every looked-up role exists.
   mockGroupFindOne.mockReturnValue(findByIdResolving({ _id: 'grp', grantsRole: 'member' }));
   // Default: neither username nor email exists.
   mockUserExists.mockReturnValue(existsResolving(null));
@@ -180,36 +183,36 @@ describe('UserAdminService.createUser', () => {
     expect(mockUserSave).not.toHaveBeenCalled();
   });
 
-  it('upserts a GroupMembership per groupId then recomputes the org role ONCE', async () => {
+  it('upserts a RoleAssignment per roleId then recomputes the org role ONCE', async () => {
     mockOrgFindById.mockReturnValue(findByIdResolving({ _id: 'org-9' }));
 
-    await userAdminService.createUser({ ...base, organizationId: 'org-9', groupIds: ['g1', 'g2'] });
+    await userAdminService.createUser({ ...base, organizationId: 'org-9', roleIds: ['g1', 'g2'] });
 
-    // Each group is looked up (scoped to the org) and upserted; user saved first.
+    // Each role is looked up (scoped to the org) and upserted; user saved first.
     expect(mockUserSave).toHaveBeenCalledTimes(1);
     expect(mockGroupFindOne).toHaveBeenCalledTimes(2);
     expect(mockGroupMembershipUpdateOne).toHaveBeenCalledTimes(2);
-    expect((mockGroupMembershipUpdateOne.mock.calls[0] as any)[0]).toMatchObject({ groupId: 'g1' });
-    expect((mockGroupMembershipUpdateOne.mock.calls[1] as any)[0]).toMatchObject({ groupId: 'g2' });
+    expect((mockGroupMembershipUpdateOne.mock.calls[0] as any)[0]).toMatchObject({ roleId: 'g1' });
+    expect((mockGroupMembershipUpdateOne.mock.calls[1] as any)[0]).toMatchObject({ roleId: 'g2' });
     // Role derivation is delegated to recomputeUserOrgRole — called exactly once.
     expect(mockRecomputeUserOrgRole).toHaveBeenCalledTimes(1);
     expect((mockRecomputeUserOrgRole.mock.calls[0] as any)[1]).toBe('org-9');
   });
 
-  it('throws UA_GROUPS_NEED_ORG when groupIds are given without an org (no DB work)', async () => {
-    await expect(userAdminService.createUser({ ...base, groupIds: ['g1'] }))
-      .rejects.toThrow(UA_GROUPS_NEED_ORG);
+  it('throws UA_ROLES_NEED_ORG when roleIds are given without an org (no DB work)', async () => {
+    await expect(userAdminService.createUser({ ...base, roleIds: ['g1'] }))
+      .rejects.toThrow(UA_ROLES_NEED_ORG);
     expect(lastUser).toBeUndefined();
     expect(mockUserSave).not.toHaveBeenCalled();
     expect(mockGroupMembershipUpdateOne).not.toHaveBeenCalled();
   });
 
-  it('throws GRP_GROUP_NOT_FOUND for an unknown group (no recompute)', async () => {
+  it('throws RL_ROLE_NOT_FOUND for an unknown role (no recompute)', async () => {
     mockOrgFindById.mockReturnValue(findByIdResolving({ _id: 'org-9' }));
     mockGroupFindOne.mockReturnValue(findByIdResolving(null));
 
-    await expect(userAdminService.createUser({ ...base, organizationId: 'org-9', groupIds: ['ghost'] }))
-      .rejects.toThrow(GRP_GROUP_NOT_FOUND);
+    await expect(userAdminService.createUser({ ...base, organizationId: 'org-9', roleIds: ['ghost'] }))
+      .rejects.toThrow(RL_ROLE_NOT_FOUND);
     expect(mockGroupMembershipUpdateOne).not.toHaveBeenCalled();
     expect(mockRecomputeUserOrgRole).not.toHaveBeenCalled();
   });

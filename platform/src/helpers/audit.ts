@@ -58,8 +58,9 @@ export function audit(
     /** Override when the action affects a different org than the actor's
      *  (sysadmin acting on another org). Defaults to the actor's own org. */
     affectedOrgId?: string;
-    /** Permission group involved (org.group.* actions). Stored as a
-     *  first-class, indexed field rather than buried in `details`. */
+    /** Permission role involved (org.role.* actions). Stored as a
+     *  first-class, indexed field rather than buried in `details`. Field name
+     *  kept as `groupId` for audit-log backward compatibility. */
     groupId?: string;
     /** Did the action succeed? Defaults to 'success'; pass 'failure' on
      *  failure paths (e.g. login.failed) so reviewers can filter outcomes. */

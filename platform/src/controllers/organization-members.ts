@@ -14,7 +14,7 @@ import {
 import {
   orgMembersService,
   OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER,
-  OM_CANNOT_REMOVE_OWNER, OM_CANNOT_CHANGE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND,
+  OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND,
   OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE,
   OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT,
 } from '../services/index.js';
@@ -22,7 +22,6 @@ import {
   validateBody,
   addMemberSchema,
   bulkAddMemberSchema,
-  updateMemberRoleSchema,
   transferOwnershipSchema,
 } from '../utils/validation.js';
 
@@ -155,43 +154,6 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
 }, {
   [OM_NOT_A_MEMBER]: { status: 400, message: 'User is not a member of this organization' },
   [OM_CANNOT_REMOVE_OWNER]: { status: 400, message: 'Cannot remove organization owner. Transfer ownership first.' },
-});
-
-/** PATCH /organization/:id/members/:userId */
-export const updateMemberRole = withController('Update member role', async (req, res) => {
-  if (!requireAuth(req, res)) return;
-
-  const id = req.params.id as string;
-  const userId = req.params.userId as string;
-  const body = validateBody(updateMemberRoleSchema, req.body, res);
-  if (!body) return;
-
-  const admin = getAdminContext(req);
-  if (!(await requireOrgAdmin(req, res, id))) return;
-  if (admin.isOrgAdmin && userId === req.user!.sub) {
-    return sendError(res, 400, 'Cannot change your own role');
-  }
-
-  const { user, role } = await orgMembersService.updateRole(id, userId, body.role);
-  logger.info(`[UPDATE MEMBER ROLE] User ${userId} role updated to ${body.role} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
-  audit(req, 'org.member.role.update', {
-    targetType: 'user',
-    targetId: userId,
-    affectedOrgId: id,
-    details: { newRole: body.role },
-  });
-
-  sendSuccess(res, 200, {
-    user: {
-      id: user?._id.toString() ?? userId,
-      username: user?.username,
-      email: user?.email,
-      role,
-    },
-  }, 'Member role updated successfully');
-}, {
-  [OM_NOT_A_MEMBER]: { status: 400, message: 'User is not a member of this organization' },
-  [OM_CANNOT_CHANGE_OWNER]: { status: 400, message: 'Cannot change organization owner role. Transfer ownership first.' },
 });
 
 /** PATCH /organization/:id/transfer-owner */

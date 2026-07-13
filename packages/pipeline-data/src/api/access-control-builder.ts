@@ -188,20 +188,6 @@ export class AccessControlQueryBuilder<
   }
 
   /**
-   * Build explicit accessModifier filter
-   *
-   * Note: This is separate from access control logic - it filters by the exact
-   * accessModifier value rather than applying multi-tenant access rules.
-   *
-   * @param accessModifier - Access modifier filter value
-   * @returns SQL condition or null if no accessModifier filter
-   */
-  protected buildAccessModifierFilter(accessModifier: unknown): SQL | null {
-    if (accessModifier === undefined) return null;
-    return sql`${this.schema.accessModifier} = ${normalizeStringFilter(accessModifier)}`;
-  }
-
-  /**
    * Build all common conditions (access control + ID + booleans)
    *
    * This combines all the generic filters that apply to any access-controlled entity.

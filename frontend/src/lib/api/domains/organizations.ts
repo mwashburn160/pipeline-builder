@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationGroup, OrgAIConfig, Invitation } from '@/types';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation } from '@/types';
 
 export function organizationsApi(core: ApiCore) {
   return {
@@ -96,13 +96,6 @@ export function organizationsApi(core: ApiCore) {
       });
     },
 
-    updateMemberRole: async (orgId: string, userId: string, role: 'owner' | 'admin' | 'member') => {
-      return core.request<ApiResponse<OrganizationMember>>(`/api/organization/${orgId}/members/${userId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ role }),
-      });
-    },
-
     /** Transfer org ownership to another member. Backend body is `{ newOwnerId }`
      *  (PATCH /organization/:id/transfer-owner). Step-up gated (`requireStepUp`) —
      *  the caller obtains a token via `stepUpVerify` and forwards it here, exactly
@@ -116,51 +109,51 @@ export function organizationsApi(core: ApiCore) {
     },
 
     // ============================================
-    // Permission groups (first-class RBAC). Group membership drives the cached
+    // Permission roles (first-class RBAC). Role membership drives the cached
     // org role: Administrators → org-admin, Superadmins (system org only) →
     // platform admin.
     // ============================================
 
-    /** List the org's permission groups, each with its current members. */
-    getOrganizationGroups: async (orgId: string) => {
-      return core.request<ApiResponse<{ groups: OrganizationGroup[] }>>(`/api/organization/${orgId}/groups`);
+    /** List the org's permission roles, each with its current members. */
+    getOrganizationRoles: async (orgId: string) => {
+      return core.request<ApiResponse<{ roles: OrganizationRole[] }>>(`/api/organization/${orgId}/roles`);
     },
 
-    /** Create a custom permission group (name + optional description + permissions). */
-    createGroup: async (orgId: string, data: { name: string; description?: string; permissions?: string[] }) => {
-      return core.request<ApiResponse<{ group: OrganizationGroup }>>(`/api/organization/${orgId}/groups`, {
+    /** Create a custom permission role (name + optional description + permissions). */
+    createRole: async (orgId: string, data: { name: string; description?: string; permissions?: string[] }) => {
+      return core.request<ApiResponse<{ role: OrganizationRole }>>(`/api/organization/${orgId}/roles`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
     },
 
-    /** Update a custom group's name/description/permissions (built-in groups are immutable). */
-    updateGroup: async (orgId: string, groupId: string, data: { name?: string; description?: string; permissions?: string[] }) => {
-      return core.request<ApiResponse<{ group: OrganizationGroup }>>(`/api/organization/${orgId}/groups/${groupId}`, {
+    /** Update a custom role's name/description/permissions (built-in roles are immutable). */
+    updateRole: async (orgId: string, roleId: string, data: { name?: string; description?: string; permissions?: string[] }) => {
+      return core.request<ApiResponse<{ role: OrganizationRole }>>(`/api/organization/${orgId}/roles/${roleId}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
     },
 
-    /** Delete a custom group (built-in groups can't be deleted). */
-    deleteGroup: async (orgId: string, groupId: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/groups/${groupId}`, {
+    /** Delete a custom role (built-in roles can't be deleted). */
+    deleteRole: async (orgId: string, roleId: string) => {
+      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/roles/${roleId}`, {
         method: 'DELETE',
       });
     },
 
-    /** Add an existing org member (by id or email) to a group. */
-    addGroupMember: async (orgId: string, groupId: string, data: { userId?: string; email?: string }) => {
-      return core.request<ApiResponse<{ userId: string }>>(`/api/organization/${orgId}/groups/${groupId}/members`, {
+    /** Add an existing org member (by id or email) to a role. */
+    addRoleMember: async (orgId: string, roleId: string, data: { userId?: string; email?: string }) => {
+      return core.request<ApiResponse<{ userId: string }>>(`/api/organization/${orgId}/roles/${roleId}/members`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
     },
 
-    /** Remove a user from a group. Recomputes their role; leaving Superadmins
+    /** Remove a user from a role. Recomputes their role; leaving Superadmins
      *  (system org) also clears their platform-admin flag. */
-    removeGroupMember: async (orgId: string, groupId: string, userId: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/groups/${groupId}/members/${userId}`, {
+    removeRoleMember: async (orgId: string, roleId: string, userId: string) => {
+      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${orgId}/roles/${roleId}/members/${userId}`, {
         method: 'DELETE',
       });
     },

@@ -4,10 +4,10 @@
 export { default as User, type UserDocument } from './user.js';
 export { default as Organization, type OrganizationDocument } from './organization.js';
 export { default as UserOrganization, type UserOrganizationDocument, type OrgMemberRole, MEMBER_ROLES } from './user-organization.js';
-export { default as Group, GROUP_ROLES } from './group.js';
-export type { GroupDocument, GroupRole } from './group.js';
-export { default as GroupMembership } from './group-membership.js';
-export type { GroupMembershipDocument } from './group-membership.js';
+export { default as Role, ROLE_GRANTS } from './role.js';
+export type { RoleDocument, RoleGrant } from './role.js';
+export { default as RoleAssignment } from './role-assignment.js';
+export type { RoleAssignmentDocument } from './role-assignment.js';
 export { default as Invitation, type InvitationDocument, type InvitationStatus } from './invitation.js';
 export { default as AuditEvent } from './audit-event.js';
 export type { AuditEventDocument, AuditAction } from './audit-event.js';

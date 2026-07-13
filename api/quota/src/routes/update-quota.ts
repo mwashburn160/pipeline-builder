@@ -46,7 +46,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     }),
   );
 
-  // DELETE /quotas/:orgId � cascade hook (system admin only). Drops the
+  // DELETE /quotas/:orgId — cascade hook (system admin only). Drops the
   // org's quota document. Idempotent: returns 200 with `deleted: false` when
   // the org was already gone, which lets the platform cascade run repeatedly
   // without orchestration babysitting.

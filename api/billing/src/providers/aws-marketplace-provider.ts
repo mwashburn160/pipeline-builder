@@ -268,12 +268,4 @@ export class AWSMarketplaceProvider implements PaymentProvider {
       };
     });
   }
-
-  getProductCode(): string {
-    return this.marketplaceConfig.productCode;
-  }
-
-  getSnsTopicArn(): string {
-    return this.marketplaceConfig.snsTopicArn;
-  }
 }

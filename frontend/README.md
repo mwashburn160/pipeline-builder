@@ -12,7 +12,7 @@ developers use to manage the platform. It provides:
 - **Insights** — reports, executions, logs, audit trail, compliance, and an
   observability section (DB-stored dashboards, alerts, silences) backed by the
   platform's Prometheus/Loki/Alertmanager catalog.
-- **Organization & platform admin** — members, permission groups, invitations,
+- **Organization & platform admin** — members, Roles, invitations,
   quotas, billing, plus sysadmin-only views for all organizations, all users,
   the OCI registry, the plugin build queue, and platform settings.
 - **Command palette** (`⌘K`) and a **sidebar**, both driven by a single nav
@@ -35,7 +35,7 @@ Routes live under `pages/`. The main ones:
 | `/dashboard/reports`, `/dashboard/executions`, `/dashboard/logs` | Build reports, run health, logs |
 | `/dashboard/audit`, `/dashboard/compliance` | Audit trail and compliance policies/rules (admin) |
 | `/dashboard/observability/*` | Dashboards, alerts, alert destinations, audit activity |
-| `/dashboard/members`, `/dashboard/groups`, `/dashboard/invitations` | Org members, permission groups, invitations (admin) |
+| `/dashboard/members`, `/dashboard/roles`, `/dashboard/invitations` | Org members, Roles, invitations (admin) |
 | `/dashboard/quotas`, `/dashboard/billing` | Quota management and billing |
 | `/dashboard/messages`, `/dashboard/notifications` | In-app messages and notification settings |
 | `/dashboard/registry`, `/dashboard/build-queue`, `/dashboard/triage` | OCI registry, plugin build queue, DLQ triage (sysadmin) |

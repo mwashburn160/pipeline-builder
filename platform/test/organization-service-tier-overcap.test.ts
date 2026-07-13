@@ -88,8 +88,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { countDocuments: jest.fn(), create: jest.fn(), distinct: () => ({ session: () => Promise.resolve([]) }) },
   Invitation: { distinct: () => ({ session: () => Promise.resolve([]) }) },
   OrgIdpConfig: { find: jest.fn(), exists: jest.fn() },
-  Group: { create: jest.fn(), find: jest.fn(), findOne: jest.fn(), exists: jest.fn() },
-  GroupMembership: { create: jest.fn(), find: jest.fn(), exists: jest.fn(), countDocuments: jest.fn() },
+  Role: { create: jest.fn(), find: jest.fn(), findOne: jest.fn(), exists: jest.fn() },
+  RoleAssignment: { create: jest.fn(), find: jest.fn(), exists: jest.fn(), countDocuments: jest.fn() },
 }));
 
 const { organizationService } = await import('../src/services/organization-service.js');

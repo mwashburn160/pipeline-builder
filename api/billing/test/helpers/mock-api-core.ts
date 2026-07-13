@@ -59,6 +59,8 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       idpConfigs: 1,
     }),
     VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'],
+    // Service-to-service auth header minted for the quota/platform entitlement sync.
+    getServiceAuthHeader: (_opts?: unknown) => 'Bearer test-service-token',
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Plugin, Pipeline } from '@/types';
+import type { ApiResponse } from '@/types';
 
 export function reportingApi(core: ApiCore) {
   return {

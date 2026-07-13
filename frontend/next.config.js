@@ -20,6 +20,14 @@ const nextConfig = {
     minimumCacheTTL: 60,
   },
 
+  async redirects() {
+    // The "Groups" page was renamed to "Roles" (UI-facing only — the API still
+    // speaks /groups). Redirect any old bookmarks/deep links to the new route.
+    return [
+      { source: '/dashboard/groups', destination: '/dashboard/roles', permanent: true },
+    ];
+  },
+
   async headers() {
     // CSP for the Next.js app. `unsafe-inline` on scripts is required by
     // Next.js for its inline runtime bootstrap; `unsafe-eval` would NOT be

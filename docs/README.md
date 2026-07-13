@@ -244,16 +244,16 @@ curl -X POST https://localhost:8443/api/organization \
 
 Invite members via email from the dashboard or API. A user can belong to multiple organizations.
 
-### Permission Groups
+### Roles
 
-Beyond the three base roles, an admin can create **custom permission groups** — a named set of fine-grained `resource:action` permissions (e.g. `pipelines:write`, `plugins:write`, `members:manage`, `groups:manage`, `compliance:write`, `billing:manage`, `dashboards:write`, `org:settings`). A user's **effective permissions** are their role's base bundle unioned with every group they belong to; superadmins hold all. Endpoints enforce them via `requirePermission(...)`.
+Access is granted through **Roles** — a Role is a named set of fine-grained `resource:action` permissions (e.g. `pipelines:write`, `plugins:write`, `members:manage`, `roles:manage`, `compliance:write`, `billing:manage`, `dashboards:write`, `org:settings`). A user's **effective permissions** are the **union of the Roles assigned to them** — there is no separate role-based baseline. Every org seeds built-in Roles (**Admin**, **Member**; the system org also gets **Super Admin**), and admins can add custom Roles (e.g. "Billing Manager"); Super Admins hold all. Endpoints enforce them via `requirePermission(...)`. ("Role" is the user-facing name for what the API calls a permission *group*.)
 
-Manage groups from the dashboard, or via the API:
+Manage Roles from the dashboard, or via the API:
 
 ```bash
-GET|POST    /api/organization/:id/groups                       # list / create groups
-PUT|DELETE  /api/organization/:id/groups/:groupId              # update / delete a group
-POST|DELETE /api/organization/:id/groups/:groupId/members/...  # add / remove a group member
+GET|POST    /api/organization/:id/groups                       # list / create Roles
+PUT|DELETE  /api/organization/:id/groups/:groupId              # update / delete a Role
+POST|DELETE /api/organization/:id/groups/:groupId/members/...  # add / remove a Role member
 ```
 
 ### Teams (Org → Team Hierarchy)

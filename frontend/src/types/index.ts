@@ -92,25 +92,25 @@ export interface MemberTeam {
   isActive?: boolean;
 }
 
-/** Role a permission group grants its members (mirrors backend GROUP_ROLES). */
-export type GroupRole = 'superadmin' | 'admin' | 'member';
+/** Coarse role a permission Role grants its members (mirrors backend ROLE_GRANTS). */
+export type RoleGrant = 'superadmin' | 'admin' | 'member';
 
 /**
- * A permission group within an org, with its current members. Group membership
+ * A permission Role within an org, with its current members. Role membership
  * drives the cached org role: Administrators → org-admin, Superadmins (system
- * org only) → platform admin. Returned by `getOrganizationGroups`.
+ * org only) → platform admin. Returned by `getOrganizationRoles`.
  */
-export interface OrganizationGroup {
+export interface OrganizationRole {
   id: string;
   name: string;
-  /** Operator-facing description (custom groups). */
+  /** Operator-facing description (custom roles). */
   description?: string;
-  grantsRole: GroupRole;
-  /** Fine-grained permissions this group grants (empty for role-only groups). */
+  grantsRole: RoleGrant;
+  /** Fine-grained permissions this Role grants (empty for role-only Roles). */
   permissions: string[];
-  /** Seeded default group (Administrators / Developers / Superadmins) — these
+  /** Seeded default Role (Administrators / Developers / Superadmins) — these
    *  can't be edited or deleted from the UI; only their membership is editable.
-   *  Custom, user-created groups are fully editable. */
+   *  Custom, user-created Roles are fully editable. */
   system: boolean;
   members: Array<{ id: string; username: string; email: string }>;
 }

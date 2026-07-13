@@ -73,7 +73,7 @@ export function auditTokens(program: Command): void {
             continue;
           }
 
-          let parsed: { accessToken?: string; expiresAt?: string };
+          let parsed: { password?: string; expiresAt?: string };
           try {
             parsed = JSON.parse(raw);
           } catch {
@@ -88,8 +88,9 @@ export function auditTokens(program: Command): void {
             const d = new Date(parsed.expiresAt);
             if (!Number.isNaN(d.getTime())) expiresAt = d;
           }
-          if (!expiresAt && parsed.accessToken) {
-            const payload = decodeTokenPayload(parsed.accessToken);
+          // `store-token` writes the JWT to the canonical `password` field.
+          if (!expiresAt && parsed.password) {
+            const payload = decodeTokenPayload(parsed.password);
             if (payload?.exp && typeof payload.exp === 'number') {
               expiresAt = new Date(payload.exp * 1000);
             }

@@ -7,8 +7,8 @@ The identity, authentication, and organization service at the center of the plat
 - **Authentication & JWT issuance** — registration, login, refresh, logout, org switching, email verification, and step-up re-authentication; issues the access/refresh token pair every other service verifies.
 - **User management** — self-service profile, password changes, API-token issuance/revocation, plus system-admin user administration.
 - **Organizations** — multi-tenant containers for pipelines, plugins, and quotas; org-to-team hierarchy (descendants/subtree), tier and quota management, GDPR export, and cascading deletion.
-- **RBAC / roles & write-access enforcement** — per-org roles (`owner` | `admin` | `member`) resolved from the `UserOrganization` junction, platform `superadmin`, and a read-only impersonation gate that blocks state-changing requests.
-- **Groups & memberships** — first-class permission groups (e.g. Administrators, Developers, the system org's Superadmins) whose membership drives the cached `UserOrganization.role`.
+- **RBAC / roles & write-access enforcement** — the coarse per-org label (`owner` | `admin` | `member`) is *derived* from a user's Roles and resolved from the `UserOrganization` junction (it governs ownership, seat accounting, and `isAdmin`, not permissions), plus platform `superadmin`, and a read-only impersonation gate that blocks state-changing requests.
+- **Roles & memberships** — first-class Roles (e.g. Admin, Member, the system org's Super Admin) that carry explicit `resource:action` permissions; a user's effective permissions are the union of their assigned Roles, and Role membership still drives the derived, cached `UserOrganization.role` label. (The API calls a Role a permission *group*.)
 - **Audit events** — tamper-resistant, org-scoped audit log (TTL-retained in MongoDB) with an internal service-token ingest endpoint for non-platform emitters.
 - **Email delivery** — owns the SMTP/SES transport (invitations, verification) and exposes an internal service-token endpoint (`POST /internal/notify-email`) so other services (e.g. compliance) can email an org's users without their own mail stack; resolves recipients (`targetUsers`, or all org admins) from the user directory.
 
@@ -77,13 +77,15 @@ The API gateway strips the `/api` prefix before proxying; paths below are as mou
 | PATCH | `/organization/:id/transfer-owner` | Transfer ownership (admin/owner, step-up) |
 | GET | `/organizations` | List all organizations (system admin) |
 
-### Groups (`/organization/:id/groups/*`)
+### Roles (`/organization/:id/groups/*`)
+
+("Role" is the user-facing name for what the API calls a permission *group*; the endpoint paths keep the literal `groups` spelling.)
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/organization/:id/groups` | List permission groups and their members |
-| POST | `/organization/:id/groups/:groupId/members` | Add a member to a group (admin/owner) |
-| DELETE | `/organization/:id/groups/:groupId/members/:userId` | Remove a member from a group (admin/owner) |
+| GET | `/organization/:id/groups` | List Roles (permission sets) and their members |
+| POST | `/organization/:id/groups/:groupId/members` | Add a member to a Role (admin/owner) |
+| DELETE | `/organization/:id/groups/:groupId/members/:userId` | Remove a member from a Role (admin/owner) |
 
 ### Audit (`/audit/*`)
 

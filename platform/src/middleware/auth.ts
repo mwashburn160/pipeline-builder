@@ -79,11 +79,12 @@ async function populateRequestUser(req: Request, user: UserLike, activeOrgId?: s
     }
   }
 
-  // Role's base permission bundle (superadmins implicitly hold all). The refresh
-  // handler re-issues tokens via `issueTokens`, which re-resolves the full
-  // permission set (role bundle ∪ group grants) at issue time — so this middleware
-  // needn't flatten group permissions again here.
-  const permissions = resolveUserPermissions(role, [], user.isSuperAdmin === true);
+  // Effective permissions (single-source): superadmins implicitly hold all;
+  // otherwise the union of the user's assigned Roles' permissions. The refresh
+  // handler re-issues tokens via `issueTokens`, which re-resolves that full set
+  // from the user's Roles at issue time — so this middleware needn't flatten Role
+  // permissions again here (it passes none and lets the reissue carry them).
+  const permissions = resolveUserPermissions([], user.isSuperAdmin === true);
 
   const payload: AccessTokenPayload = {
     type: 'access',

@@ -36,7 +36,6 @@ export {
 
 export {
   TokenCache,
-  defaultTokenCache,
 } from './cache.js';
 
 export {

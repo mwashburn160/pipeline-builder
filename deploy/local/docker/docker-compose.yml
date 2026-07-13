@@ -587,11 +587,6 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env]
       SERVICE_NAME: reporting
-      # Event-ingest auth: when 'false', /reports/events REQUIRES a
-      # reporting:ingest-scoped token (reject any other). Leave unset/true during
-      # rollout, then set false once the ingestion Lambda is re-provisioned with
-      # `store-token --scope reporting:ingest`.
-      REPORTING_INGEST_ALLOW_LEGACY: ${REPORTING_INGEST_ALLOW_LEGACY:-true}
     networks:
       - backend-network
     depends_on:

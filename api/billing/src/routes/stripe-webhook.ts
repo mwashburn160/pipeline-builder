@@ -7,7 +7,9 @@ import {
   ErrorCode,
   createLogger,
   errorMessage,
+  getServiceAuthHeader,
 } from '@pipeline-builder/api-core';
+import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import { config } from '../config.js';
@@ -19,6 +21,25 @@ import { getPaymentProvider } from '../providers/provider-factory.js';
 import { StripeProvider } from '../providers/stripe-provider.js';
 
 const logger = createLogger('billing-stripe-webhook');
+
+/**
+ * Reverse the configured `{planId}_{interval}` → Stripe-price-id map to recover
+ * the plan + interval a Stripe price belongs to. Used to detect a plan change
+ * made directly in Stripe (dashboard/API) from a `customer.subscription.updated`
+ * webhook. Returns null for an unknown price (e.g. a bundle price — bundles are
+ * reconciled separately) or a malformed map key.
+ */
+export function planFromStripePrice(priceId: string): { planId: string; interval: 'monthly' | 'annual' } | null {
+  for (const [key, id] of Object.entries(config.stripe?.priceToPlanMap ?? {})) {
+    if (id !== priceId) continue;
+    const idx = key.lastIndexOf('_');
+    if (idx <= 0) continue;
+    const planId = key.slice(0, idx);
+    const interval = key.slice(idx + 1);
+    if (interval === 'monthly' || interval === 'annual') return { planId, interval };
+  }
+  return null;
+}
 
 /**
  * Create the Stripe webhook router.
@@ -197,7 +218,9 @@ async function handleInvoiceUpcoming(invoice: Stripe.Invoice): Promise<void> {
 
 /**
  * Handle subscription updates from Stripe.
- * Syncs status changes, plan changes, and cancellation state.
+ * Syncs status + cancellation state AND plan/interval changes made directly in
+ * Stripe (dashboard/API) — the latter recovered by reversing the price map and
+ * re-syncing tier entitlements (preserving purchased add-ons).
  */
 async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription): Promise<void> {
   const externalId = stripeSubscription.id;
@@ -212,20 +235,53 @@ async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription
   const newStatus = mapStripeStatus(stripeSubscription.status);
   const cancelAtPeriodEnd = stripeSubscription.cancel_at_period_end ?? false;
 
-  let statusChanged = false;
+  let dirty = false;
   if (newStatus !== subscription.status) {
     subscription.status = newStatus;
-    statusChanged = true;
+    dirty = true;
   }
-
   if (cancelAtPeriodEnd !== subscription.cancelAtPeriodEnd) {
     subscription.cancelAtPeriodEnd = cancelAtPeriodEnd;
-    statusChanged = true;
+    dirty = true;
+  }
+  const statusChanged = dirty;
+
+  // Plan/interval change made directly in Stripe: the base line item (item[0])
+  // carries the plan price; reverse it to the local planId/interval and, if it
+  // moved, update the record + re-sync the tier's entitlements (with add-ons).
+  const basePriceId = stripeSubscription.items?.data?.[0]?.price?.id;
+  const mapped = basePriceId ? planFromStripePrice(basePriceId) : null;
+  const oldPlanId = subscription.planId;
+  let syncedTier: QuotaTier | null = null;
+  if (mapped && (mapped.planId !== subscription.planId || mapped.interval !== subscription.interval)) {
+    const plan = await Plan.findOne({ _id: mapped.planId, isActive: true });
+    if (plan) {
+      subscription.planId = mapped.planId;
+      subscription.interval = mapped.interval;
+      syncedTier = plan.tier;
+      dirty = true;
+    } else {
+      logger.warn('Stripe price mapped to an unknown/inactive plan; tier not synced', {
+        externalId, mappedPlanId: mapped.planId,
+      });
+    }
+  }
+
+  if (dirty) await subscription.save();
+
+  if (syncedTier) {
+    // Preserve purchased add-ons: effective caps = tier base + addons.
+    const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
+    await syncEntitlements(subscription.orgId, syncedTier, serviceAuth, subscription._id.toString(), subscription.addons ?? []);
+    await createBillingEvent(subscription.orgId, 'plan_changed', {
+      provider: 'stripe', source: 'stripe_webhook', oldPlanId, newPlanId: subscription.planId, interval: subscription.interval,
+    }, subscription._id.toString());
+    logger.info('Stripe subscription plan synced', {
+      orgId: subscription.orgId, externalId, oldPlanId, newPlanId: subscription.planId, interval: subscription.interval,
+    });
   }
 
   if (statusChanged) {
-    await subscription.save();
-
     await createBillingEvent(subscription.orgId, 'subscription_updated', {
       provider: 'stripe',
       previousStatus,

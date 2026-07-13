@@ -3,6 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
+import { ensureBaselineRole } from './roles-service.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap } from '../helpers/seats.js';
@@ -17,7 +18,6 @@ export const OM_USER_NOT_FOUND = 'OM_USER_NOT_FOUND';
 export const OM_ALREADY_MEMBER = 'OM_ALREADY_MEMBER';
 export const OM_NOT_A_MEMBER = 'OM_NOT_A_MEMBER';
 export const OM_CANNOT_REMOVE_OWNER = 'OM_CANNOT_REMOVE_OWNER';
-export const OM_CANNOT_CHANGE_OWNER = 'OM_CANNOT_CHANGE_OWNER';
 export const OM_OWNER_MEMBERSHIP_NOT_FOUND = 'OM_OWNER_MEMBERSHIP_NOT_FOUND';
 export const OM_NEW_OWNER_MUST_BE_MEMBER = 'OM_NEW_OWNER_MUST_BE_MEMBER';
 export const OM_MEMBERSHIP_NOT_FOUND = 'OM_MEMBERSHIP_NOT_FOUND';
@@ -159,10 +159,18 @@ class OrgMembersService {
         throw new Error(OM_SEAT_LIMIT);
       }
 
+      const addedRole = body.role || 'member';
       await UserOrganization.create(
-        [{ userId: user._id, organizationId: toOrgId(orgId), role: body.role || 'member' }],
+        [{ userId: user._id, organizationId: toOrgId(orgId), role: addedRole }],
         { session },
       );
+
+      // Single-source RBAC: give a plain member the built-in Member Role floor
+      // so they resolve to the member bundle (they'd hold zero permissions
+      // otherwise). Admin adds get their Role elsewhere.
+      if (addedRole === 'member') {
+        await ensureBaselineRole(user._id, toOrgId(orgId), session);
+      }
 
       // G5: re-validate the pooled cap AFTER the write, inside the same tx, so a
       // concurrent add/invite that slipped in between our pre-check and this
@@ -251,6 +259,7 @@ class OrgMembersService {
         throw new Error(OM_SEAT_LIMIT);
       }
 
+      const addedRole = body.role || 'member';
       const results: BulkAddResult[] = [];
       for (const orgId of body.orgIds) {
         const existing = await UserOrganization.findOne({
@@ -261,9 +270,14 @@ class OrgMembersService {
           continue;
         }
         await UserOrganization.create(
-          [{ userId: user._id, organizationId: toOrgId(orgId), role: body.role || 'member' }],
+          [{ userId: user._id, organizationId: toOrgId(orgId), role: addedRole }],
           { session },
         );
+        // Single-source RBAC: plain members get the built-in Member Role floor
+        // per team so they resolve to the member bundle.
+        if (addedRole === 'member') {
+          await ensureBaselineRole(user._id, toOrgId(orgId), session);
+        }
         results.push({ orgId, status: 'added' });
       }
       return { results };
@@ -305,43 +319,6 @@ class OrgMembersService {
         { $unset: { lastActiveOrgId: '' } },
         { session },
       );
-    });
-  }
-
-  /**
-   * Change a member's role within an org. Refuses to touch the owner role
-   * (use transferOwnership). Returns the user details + new role for the
-   * controller's response.
-   *
-   * Bumps the target user's `tokenVersion` on every successful role change
-   * so role claims baked into outstanding JWTs (`role: admin` vs `member`)
-   * can't outlive the demotion. Same defensive rationale as removeMember:
-   * server-side authorization is the source of truth, but the JWT cache
-   * needs to follow the DB.
-   */
-  async updateRole(orgId: string, userId: string, role: OrgMemberRole) {
-    return withMongoTransaction(async (session) => {
-      const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) }).session(session);
-      if (!membership) throw new Error(OM_NOT_A_MEMBER);
-      if (membership.role === 'owner') throw new Error(OM_CANNOT_CHANGE_OWNER);
-      if (membership.role === role) {
-        // No-op when caller passes the existing role — don't churn tokens.
-        const user = await User.findById(userId).select('_id username email').session(session).lean();
-        return { user, role: membership.role };
-      }
-
-      membership.role = role;
-      await membership.save({ session });
-      // Role save + tokenVersion bump must be atomic — a crash between them
-      // would leave the DB role changed but stale role claims trusted in JWTs.
-      await User.updateOne(
-        { _id: userId },
-        { $inc: { tokenVersion: 1 } },
-        { session },
-      );
-
-      const user = await User.findById(userId).select('_id username email').session(session).lean();
-      return { user, role: membership.role };
     });
   }
 

@@ -15,7 +15,6 @@ export type RuleConditionMode = 'all' | 'any';
 export type RuleScope = 'org' | 'published';
 export type ExemptionStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type ComplianceRoleType = 'compliance-viewer' | 'compliance-editor' | 'compliance-admin';
 
 export interface RuleCondition {
   field: string;

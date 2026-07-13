@@ -267,29 +267,3 @@ export interface ComplianceScanFilter {
   readonly limit?: number;
   readonly offset?: number;
 }
-
-/**
- * Validates message filter properties.
- * Returns a result object with `valid` flag and `errors` array.
- */
-export function validateMessageFilter(filter: Partial<MessageFilter>): {
-  valid: boolean;
-  errors: string[];
-} {
-  const errors: string[] = [];
-
-  if (filter.messageType && !['announcement', 'conversation'].includes(filter.messageType)) {
-    errors.push(`Invalid messageType: "${filter.messageType}". Must be "announcement" or "conversation"`);
-  }
-  if (filter.priority && !['normal', 'high', 'urgent'].includes(filter.priority)) {
-    errors.push(`Invalid priority: "${filter.priority}". Must be "normal", "high", or "urgent"`);
-  }
-  if (filter.threadId !== undefined && filter.threadId !== null && typeof filter.threadId !== 'string') {
-    errors.push('threadId must be a string UUID or null');
-  }
-  if (filter.channel !== undefined && filter.channel !== null && typeof filter.channel !== 'string') {
-    errors.push('channel must be a string or null');
-  }
-
-  return { valid: errors.length === 0, errors };
-}

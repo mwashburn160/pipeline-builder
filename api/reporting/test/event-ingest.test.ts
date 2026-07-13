@@ -103,7 +103,7 @@ describe('POST /reports/events', () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
     expect(handler).toBeDefined();
 
-    const req = { body: { events: [] } };
+    const req = { body: { events: [] }, user: { sub: 'svc', scope: 'reporting:ingest' } };
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
     await handler(req, res);
@@ -128,7 +128,7 @@ describe('POST /reports/events', () => {
 
     expect(events).toHaveLength(101); // guard: must actually exceed MAX_EVENTS_PER_BATCH (100)
 
-    const req = { body: { events } };
+    const req = { body: { events }, user: { sub: 'svc', scope: 'reporting:ingest' } };
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
     await handler(req, res);
@@ -144,7 +144,7 @@ describe('POST /reports/events', () => {
   it('should reject request without events field', async () => {
     const handler = router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
 
-    const req = { body: {} };
+    const req = { body: {}, user: { sub: 'svc', scope: 'reporting:ingest' } };
     const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
 
     await handler(req, res);
@@ -163,24 +163,14 @@ describe('POST /reports/events', () => {
   const getHandler = () => router.stack.find((l: any) => l.route?.path === '/')?.route?.stack[0]?.handle;
   const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
 
-  afterEach(() => { delete process.env.REPORTING_INGEST_ALLOW_LEGACY; });
-
-  it('rejects a non-scoped token with 403 when enforcement is on', async () => {
-    process.env.REPORTING_INGEST_ALLOW_LEGACY = 'false';
+  it('rejects a non-scoped token with 403 (scope is always enforced)', async () => {
     await getHandler()({ body: { events: [validEvent] }, user: { sub: 'u-1' } }, res());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.stringContaining('reporting:ingest'), expect.anything());
     expect(mockIngestEvents).not.toHaveBeenCalled();
   });
 
-  it('accepts a reporting:ingest-scoped token under enforcement', async () => {
-    process.env.REPORTING_INGEST_ALLOW_LEGACY = 'false';
+  it('accepts a reporting:ingest-scoped token', async () => {
     await getHandler()({ body: { events: [validEvent] }, user: { sub: 'svc', scope: 'reporting:ingest' } }, res());
-    expect(mockSendError).not.toHaveBeenCalled();
-    expect(mockIngestEvents).toHaveBeenCalled();
-  });
-
-  it('allows a legacy non-scoped token by default (transition), still ingesting', async () => {
-    await getHandler()({ body: { events: [validEvent] }, user: { sub: 'u-1' } }, res());
     expect(mockSendError).not.toHaveBeenCalled();
     expect(mockIngestEvents).toHaveBeenCalled();
   });

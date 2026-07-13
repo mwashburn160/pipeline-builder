@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { seedDefaultGroups } from './groups-service.js';
 import { applyAIProviderKeyUpdates, buildProvidersMap, ORG_AI_KEY_TOO_LONG } from './organization-ai-secrets.js';
 import {
   checkTierOvercap,
@@ -14,8 +13,9 @@ import {
   type QuotaStatus,
   type QuotaTypeKey,
 } from './organization-quota.js';
+import { seedDefaultRoles } from './roles-service.js';
 import { toOrgId } from '../helpers/controller-helper.js';
-import { Group, GroupMembership, Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
+import { Role, RoleAssignment, Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
 import type { QuotaTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
@@ -214,9 +214,9 @@ class OrganizationService {
 
       const [org] = await Organization.create([orgData], { session });
       await UserOrganization.create([{ userId, organizationId: org._id, role: 'owner' }], { session });
-      // Seed the default permission groups (Administrators/Developers) and add
-      // the creator to Administrators. The creator's role stays 'owner'.
-      await seedDefaultGroups(org._id, userId, {}, session);
+      // Seed the default permission Roles (Admin/Member) and add
+      // the creator to Admin. The creator's role stays 'owner'.
+      await seedDefaultRoles(org._id, userId, {}, session);
       await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: String(org._id) } }, { session });
 
       return {
@@ -380,11 +380,11 @@ class OrganizationService {
       // doc — and use deleteOne's `deletedCount` as the existence probe so
       // we skip a redundant `findById` round-trip.
       await UserOrganization.deleteMany({ organizationId: queryId }).session(session);
-      // Drop the groups + group memberships seeded on org create
-      // (`seedDefaultGroups`); otherwise they orphan and a future org reusing
-      // this id could inherit stale group state.
-      await GroupMembership.deleteMany({ organizationId: queryId }).session(session);
-      await Group.deleteMany({ organizationId: queryId }).session(session);
+      // Drop the Roles + role assignments seeded on org create
+      // (`seedDefaultRoles`); otherwise they orphan and a future org reusing
+      // this id could inherit stale Role state.
+      await RoleAssignment.deleteMany({ organizationId: queryId }).session(session);
+      await Role.deleteMany({ organizationId: queryId }).session(session);
       // `lastActiveOrgId` is stored as a string (with a validator that
       // accepts ObjectId-shape strings + the 'system' sentinel); the
       // filter must therefore compare against the stringified org id

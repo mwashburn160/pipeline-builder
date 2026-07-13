@@ -26,7 +26,7 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { id: 'compliance:read', label: 'View compliance', description: 'View compliance rules, policies, and scans', category: 'Compliance' },
   { id: 'compliance:write', label: 'Manage compliance', description: 'Create and edit rules, policies, and exemptions', category: 'Compliance' },
   { id: 'members:manage', label: 'Manage members', description: 'Add, remove, and change roles of org members', category: 'Members & Access' },
-  { id: 'groups:manage', label: 'Manage groups', description: 'Create, edit, and delete permission groups', category: 'Members & Access' },
+  { id: 'roles:manage', label: 'Manage roles', description: 'Create, edit, and delete roles', category: 'Members & Access' },
   { id: 'invitations:manage', label: 'Manage invitations', description: 'Send, resend, and revoke invitations', category: 'Members & Access' },
   { id: 'dashboards:read', label: 'View dashboards', description: 'View custom dashboards', category: 'Observability' },
   { id: 'dashboards:write', label: 'Manage dashboards', description: 'Create and edit custom dashboards', category: 'Observability' },
@@ -59,4 +59,22 @@ const LABELS = new Map(PERMISSION_CATALOG.map((p) => [p.id, p.label]));
 /** Human label for a permission id (falls back to the raw id). */
 export function permissionLabel(id: string): string {
   return LABELS.get(id) ?? id;
+}
+
+/**
+ * The built-in Roles are now seeded (and existing docs migrated at boot) with
+ * their canonical names — `Admin`, `Member`, `Super Admin` — so no remapping is
+ * normally needed. This map is a defensive fallback that only rewrites the
+ * pre-rename LEGACY names, in case a Role is read before the startup migration
+ * has renamed it. Custom Roles pass through unchanged.
+ */
+const LEGACY_ROLE_NAMES: Record<string, string> = {
+  Administrators: 'Admin',
+  Developers: 'Member',
+  Superadmins: 'Super Admin',
+};
+
+/** Display label for a Role name (canonical names pass through; legacy names softened). */
+export function roleDisplayName(name: string): string {
+  return LEGACY_ROLE_NAMES[name] ?? name;
 }

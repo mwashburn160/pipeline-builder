@@ -24,7 +24,8 @@ export interface AuditFilter {
   action?: string;
   targetType?: string;
   targetId?: string;
-  /** Permission group involved (org.group.* actions). */
+  /** Permission role involved (org.role.* actions). Field name kept as
+   *  `groupId` for audit-log backward compatibility. */
   groupId?: string;
   /** Sysadmin behind an impersonated action — "what was done under
    *  impersonation by X". */

@@ -66,7 +66,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   drizzleCount: (r: unknown) => r,
 }));
 
-const { ComplianceRuleSubscriptionService } = await import('../src/services/subscription-service.js');
+const {
+  ComplianceRuleSubscriptionService,
+  CS_RULE_NOT_FOUND,
+  CS_SUBSCRIPTION_NOT_FOUND,
+  CS_NOT_PUBLISHED,
+  CS_SYSTEM_ORG,
+} = await import('../src/services/subscription-service.js');
 
 describe('ComplianceRuleSubscriptionService', () => {
   let svc: InstanceType<typeof ComplianceRuleSubscriptionService>;
@@ -128,17 +134,17 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('subscribe', () => {
     it('rejects system org', async () => {
-      await expect(svc.subscribe('000000000000000000000001', 'rule-1', 'u1')).rejects.toThrow(/System org/);
+      await expect(svc.subscribe('000000000000000000000001', 'rule-1', 'u1')).rejects.toThrow(CS_SYSTEM_ORG);
     });
 
     it('rejects when rule not found', async () => {
       nextSelectResult = [];
-      await expect(svc.subscribe('org-1', 'rule-1', 'u1')).rejects.toThrow('Rule not found');
+      await expect(svc.subscribe('org-1', 'rule-1', 'u1')).rejects.toThrow(CS_RULE_NOT_FOUND);
     });
 
     it('rejects when rule is not published', async () => {
       nextSelectResult = [{ id: 'rule-1', scope: 'org' }];
-      await expect(svc.subscribe('org-1', 'rule-1', 'u1')).rejects.toThrow(/published/);
+      await expect(svc.subscribe('org-1', 'rule-1', 'u1')).rejects.toThrow(CS_NOT_PUBLISHED);
     });
 
     it('inserts subscription as inactive when rule is published', async () => {
@@ -153,12 +159,12 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('setActive', () => {
     it('rejects system org', async () => {
-      await expect(svc.setActive('000000000000000000000001', 'r', true, 'u')).rejects.toThrow(/System org/);
+      await expect(svc.setActive('000000000000000000000001', 'r', true, 'u')).rejects.toThrow(CS_SYSTEM_ORG);
     });
 
     it('rejects when subscription not found', async () => {
       nextSelectResult = [];
-      await expect(svc.setActive('org-1', 'r', true, 'u')).rejects.toThrow('Subscription not found');
+      await expect(svc.setActive('org-1', 'r', true, 'u')).rejects.toThrow(CS_SUBSCRIPTION_NOT_FOUND);
     });
 
     it('updates active flag when subscription exists', async () => {
@@ -173,12 +179,12 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('unsubscribe', () => {
     it('rejects system org', async () => {
-      await expect(svc.unsubscribe('000000000000000000000001', 'r', 'u')).rejects.toThrow(/System org/);
+      await expect(svc.unsubscribe('000000000000000000000001', 'r', 'u')).rejects.toThrow(CS_SYSTEM_ORG);
     });
 
     it('rejects when subscription not found', async () => {
       nextSelectResult = [];
-      await expect(svc.unsubscribe('org-1', 'r', 'u')).rejects.toThrow('Subscription not found');
+      await expect(svc.unsubscribe('org-1', 'r', 'u')).rejects.toThrow(CS_SUBSCRIPTION_NOT_FOUND);
     });
 
     it('soft-deletes subscription when found', async () => {
@@ -216,7 +222,7 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('bulkSetActive', () => {
     it('rejects system org', async () => {
-      await expect(svc.bulkSetActive('000000000000000000000001', ['r1'], true, 'u')).rejects.toThrow(/System org/);
+      await expect(svc.bulkSetActive('000000000000000000000001', ['r1'], true, 'u')).rejects.toThrow(CS_SYSTEM_ORG);
     });
 
     it('returns count of updated rows', async () => {
@@ -229,19 +235,19 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('pinVersion', () => {
     it('rejects system org', async () => {
-      await expect(svc.pinVersion('000000000000000000000001', 'r', 'u')).rejects.toThrow(/System org/);
+      await expect(svc.pinVersion('000000000000000000000001', 'r', 'u')).rejects.toThrow(CS_SYSTEM_ORG);
     });
 
     it('throws when subscription is missing', async () => {
       nextSelectResult = [];
-      await expect(svc.pinVersion('org-1', 'r', 'u')).rejects.toThrow('Subscription not found');
+      await expect(svc.pinVersion('org-1', 'r', 'u')).rejects.toThrow(CS_SUBSCRIPTION_NOT_FOUND);
     });
   });
 
   describe('unpinVersion', () => {
     it('throws when subscription not found', async () => {
       nextReturningResult = [];
-      await expect(svc.unpinVersion('org-1', 'r')).rejects.toThrow('Subscription not found');
+      await expect(svc.unpinVersion('org-1', 'r')).rejects.toThrow(CS_SUBSCRIPTION_NOT_FOUND);
     });
 
     it('returns updated subscription', async () => {

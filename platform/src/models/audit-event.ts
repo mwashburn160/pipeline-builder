@@ -36,15 +36,15 @@ export type AuditAction =
   | 'org.member.deactivate'
   | 'org.member.activate'
   | 'org.ownership.transfer'
-  // Permission-group membership mutations (controllers/organization-groups.ts).
+  // Permission-role assignment mutations (controllers/organization-roles.ts).
   // `affectedOrgId` is the org; `targetId` is the user added/removed; `details`
-  // carries the group name + the role it grants. Adding to Administrators or
-  // Superadmins is a privilege escalation, so these are surfaced distinctly.
-  | 'org.group.member.add'
-  | 'org.group.member.remove'
-  | 'org.group.create'
-  | 'org.group.update'
-  | 'org.group.delete'
+  // carries the role name + the coarse role it grants. Adding to Admin or
+  // Super Admin is a privilege escalation, so these are surfaced distinctly.
+  | 'org.role.member.add'
+  | 'org.role.member.remove'
+  | 'org.role.create'
+  | 'org.role.update'
+  | 'org.role.delete'
   // Admin actions (controllers/user-admin.ts)
   | 'admin.user.create'
   | 'admin.user.delete'
@@ -137,11 +137,11 @@ const ALL_AUDIT_ACTIONS = [
   'org.member.deactivate',
   'org.member.activate',
   'org.ownership.transfer',
-  'org.group.member.add',
-  'org.group.member.remove',
-  'org.group.create',
-  'org.group.update',
-  'org.group.delete',
+  'org.role.member.add',
+  'org.role.member.remove',
+  'org.role.create',
+  'org.role.update',
+  'org.role.delete',
   'admin.user.create',
   'admin.user.delete',
   'admin.org.delete',
@@ -199,8 +199,9 @@ export interface AuditEventDocument extends Document {
   affectedOrgId?: string;
   targetType?: string;
   targetId?: string;
-  /** Permission group involved (org.group.* actions). Promoted out of
-   *  `details` so reviewers can filter "who touched group X". */
+  /** Permission role involved (org.role.* actions). Promoted out of
+   *  `details` so reviewers can filter "who touched role X". Field name kept
+   *  as `groupId` for audit-log backward compatibility. */
   groupId?: string;
   /** Sysadmin who initiated an impersonation session, when the actor is
    *  acting under an impersonation token. Lets reviewers unmask "viewed-as". */

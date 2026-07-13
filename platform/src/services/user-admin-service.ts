@@ -3,11 +3,11 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
-import { GRP_GROUP_NOT_FOUND, recomputeUserOrgRole } from './groups-service.js';
+import { RL_ROLE_NOT_FOUND, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { seatCapacityAvailable } from '../helpers/seats.js';
-import { User, Organization, UserOrganization, Group, GroupMembership, type OrgMemberRole } from '../models/index.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment, type OrgMemberRole } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -20,15 +20,14 @@ export const UA_OWNER_HAS_ORGS = 'UA_OWNER_HAS_ORGS';
 export const UA_ORG_NOT_FOUND = 'UA_ORG_NOT_FOUND';
 /** Refused an attempt to change the role of an org OWNER's membership. The owner
  *  role can only move via `transferOwnership` (which atomically re-homes it);
- *  a plain role edit would demote/orphan the org. Mirrors `org-members-service`'s
- *  `OM_CANNOT_CHANGE_OWNER`. */
+ *  a plain role edit would demote/orphan the org. */
 export const UA_CANNOT_CHANGE_OWNER = 'UA_CANNOT_CHANGE_OWNER';
 /** Target org is at its seat cap (`org.quotas.seats`) — assigning this user
  *  would exceed it. Same limit the invite/add paths enforce. */
 export const UA_SEAT_LIMIT = 'UA_SEAT_LIMIT';
-/** Group assignment was requested without an organization. Groups are
+/** Role assignment was requested without an organization. Roles are
  *  org-scoped, so `createUser` can't attach them to an org-less user. */
-export const UA_GROUPS_NEED_ORG = 'UA_GROUPS_NEED_ORG';
+export const UA_ROLES_NEED_ORG = 'UA_ROLES_NEED_ORG';
 
 interface ListFilter {
   /** Restrict to a specific org (system-admin only); narrows the userId set. */
@@ -191,18 +190,18 @@ class UserAdminService {
     isSuperAdmin?: boolean;
     organizationId?: string;
     role?: OrgMemberRole;
-    groupIds?: string[];
+    roleIds?: string[];
   }): Promise<{ id: string; username: string; email: string; isSuperAdmin: boolean; isEmailVerified: boolean; organizationId?: string; role?: OrgMemberRole }> {
     const username = input.username.trim().toLowerCase();
     const email = input.email.trim().toLowerCase();
 
-    // Groups are org-scoped — there's no org to attach them to when the user is
+    // Roles are org-scoped — there's no org to attach them to when the user is
     // created org-less. Fail fast before any DB work. (The zod schema enforces
     // the same rule; this guards direct service callers.)
-    if (input.groupIds?.length && !input.organizationId) throw new Error(UA_GROUPS_NEED_ORG);
+    if (input.roleIds?.length && !input.organizationId) throw new Error(UA_ROLES_NEED_ORG);
 
-    // User + (optional) membership + group memberships are written together so a
-    // failed insert (e.g. bad org/group) can't leave an orphaned user behind.
+    // User + (optional) membership + role assignments are written together so a
+    // failed insert (e.g. bad org/role) can't leave an orphaned user behind.
     // Mirrors register().
     return withMongoTransaction(async (session) => {
       // Separate existence checks — a combined `$or` can't tell the caller
@@ -234,25 +233,31 @@ class UserAdminService {
       // read/flip its `isSuperAdmin` + tokenVersion (it queries the User doc).
       await user.save({ session });
 
-      // Optional group assignment. Guarded above to require an org; each group
-      // must belong to that org. Mirrors addUserToGroup's upsert + recompute.
-      if (input.groupIds?.length && orgObjectId) {
-        for (const groupId of input.groupIds) {
-          const group = await Group.findOne({ _id: groupId, organizationId: orgObjectId }).session(session);
-          if (!group) throw new Error(GRP_GROUP_NOT_FOUND);
-          // Superadmin role-ceiling (addUserToGroup's GRP_REQUIRES_SUPERADMIN) is
+      // Optional role assignment. Guarded above to require an org; each role
+      // must belong to that org. Mirrors addUserToRole's upsert + recompute.
+      if (input.roleIds?.length && orgObjectId) {
+        for (const roleId of input.roleIds) {
+          const role = await Role.findOne({ _id: roleId, organizationId: orgObjectId }).session(session);
+          if (!role) throw new Error(RL_ROLE_NOT_FOUND);
+          // Superadmin role-ceiling (addUserToRole's RL_REQUIRES_SUPERADMIN) is
           // already satisfied: this endpoint is hard-gated to platform superadmins
           // in the controller, so no extra actor check is needed here.
-          await GroupMembership.updateOne(
-            { userId: user._id, groupId },
-            { $setOnInsert: { userId: user._id, groupId, organizationId: orgObjectId } },
+          await RoleAssignment.updateOne(
+            { userId: user._id, roleId },
+            { $setOnInsert: { userId: user._id, roleId, organizationId: orgObjectId } },
             { upsert: true, session },
           );
         }
         // Derives the cached UserOrganization.role, flips User.isSuperAdmin for a
-        // Superadmins group, and bumps tokenVersion once — do NOT set the role
+        // Super Admin role, and bumps tokenVersion once — do NOT set the role
         // manually or double-bump tokenVersion for this path.
         await recomputeUserOrgRole(user._id, orgObjectId, session);
+      } else if (orgObjectId && (input.role ?? 'member') === 'member') {
+        // No explicit Roles supplied: single-source RBAC gives a plain member the
+        // built-in Member Role floor so they resolve to the member bundle. (When
+        // roleIds ARE supplied the user gets exactly those Roles —
+        // no hidden baseline — so this branch is intentionally skipped then.)
+        await ensureBaselineRole(user._id, orgObjectId, session);
       }
 
       return {
@@ -383,6 +388,9 @@ class UserAdminService {
               [{ userId: user._id, organizationId: toOrgId(body.organizationId), role: 'member' }],
               { session },
             );
+            // Single-source RBAC: give the newly-assigned plain member the
+            // built-in Member Role floor.
+            await ensureBaselineRole(user._id, toOrgId(body.organizationId), session);
           }
           user.lastActiveOrgId = String(body.organizationId);
           changes.push('organizationId');
@@ -409,12 +417,12 @@ class UserAdminService {
     const ownerCount = await UserOrganization.countDocuments({ userId: user._id, role: 'owner' });
     if (ownerCount > 0) throw new Error(UA_OWNER_HAS_ORGS);
 
-    // Delete memberships + group memberships + the user atomically so a partial
-    // failure can't leave orphaned GroupMembership docs behind (which would
+    // Delete memberships + role assignments + the user atomically so a partial
+    // failure can't leave orphaned RoleAssignment docs behind (which would
     // corrupt the last-privileged-member guard).
     await withMongoTransaction(async (session) => {
       await UserOrganization.deleteMany({ userId: user._id }, { session });
-      await GroupMembership.deleteMany({ userId: user._id }, { session });
+      await RoleAssignment.deleteMany({ userId: user._id }, { session });
       await User.findByIdAndDelete(id, { session });
     });
     logger.info('User deleted by admin', { userId: id });

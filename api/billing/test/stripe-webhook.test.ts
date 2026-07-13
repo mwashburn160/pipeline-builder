@@ -40,6 +40,13 @@ jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
 jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     paymentGracePeriodDays: 7,
+    stripe: {
+      priceToPlanMap: {
+        team_monthly: 'price_team_m',
+        pro_annual: 'price_pro_a',
+        seat_pack_monthly: 'price_bundle_seat',
+      },
+    },
   },
 }));
 
@@ -77,7 +84,7 @@ jest.unstable_mockModule('../src/providers/stripe-provider.js', () => {
 });
 
 const { sendError } = await import('@pipeline-builder/api-core');
-const { createStripeWebhookRoutes } = await import('../src/routes/stripe-webhook.js');
+const { createStripeWebhookRoutes, planFromStripePrice } = await import('../src/routes/stripe-webhook.js');
 
 // Since we can't easily test instanceof with mocks, we test the handler logic directly.
 // Extract the route handler from the router.
@@ -166,6 +173,27 @@ describe('Stripe Webhook Route', () => {
 
       await mockFindByStripeId('sub_test_123');
       expect(mockFindByStripeId).toHaveBeenCalledWith('sub_test_123');
+    });
+  });
+
+  // Reverse of config.stripe.priceToPlanMap — powers plan-change sync when a
+  // subscription is edited directly in Stripe (customer.subscription.updated).
+  describe('planFromStripePrice', () => {
+    it('maps a known monthly plan price to its planId + interval', () => {
+      expect(planFromStripePrice('price_team_m')).toEqual({ planId: 'team', interval: 'monthly' });
+    });
+
+    it('maps a known annual plan price', () => {
+      expect(planFromStripePrice('price_pro_a')).toEqual({ planId: 'pro', interval: 'annual' });
+    });
+
+    it('splits only the trailing interval token (bundle ids with underscores survive)', () => {
+      // A bundle price still reverses; the handler discards it via the Plan lookup.
+      expect(planFromStripePrice('price_bundle_seat')).toEqual({ planId: 'seat_pack', interval: 'monthly' });
+    });
+
+    it('returns null for a price id not in the map', () => {
+      expect(planFromStripePrice('price_unknown')).toBeNull();
     });
   });
 });
