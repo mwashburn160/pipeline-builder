@@ -130,6 +130,7 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
 // incrementUsage short-circuits (no DB walk). Hierarchy logic is covered by
 // its own helper tests; these route tests stay focused on per-org increment.
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  getParentOrgId: async () => undefined,
   resolveRootOrgId: async (id: string) => id,
   expandOrgScope: async (id: string) => [id],
 }));

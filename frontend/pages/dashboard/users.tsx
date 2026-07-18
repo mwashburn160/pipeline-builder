@@ -1,46 +1,25 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
 import { Search, Users, Trash2, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
+import { useOrgOptions } from '@/hooks/useOrgOptions';
+import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { ModalFooter } from '@/components/ui/ModalFooter';
-import { DataTable, type Column } from '@/components/ui/DataTable';
+import { DataTable } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { ActionBar } from '@/components/ui/ActionBar';
-import { CopyableId } from '@/components/ui/CopyableId';
-import { RelativeTime } from '@/components/ui/RelativeTime';
 import { StepUpModal } from '@/components/admin/StepUpModal';
-import { FeatureOverridesEditor } from '@/components/admin/FeatureOverridesEditor';
-import { roleDisplayName } from '@/lib/permissions';
+import { CreateUserModal } from '@/components/users/CreateUserModal';
+import { EditUserModal } from '@/components/users/EditUserModal';
+import { buildUserColumns } from '@/components/users/userColumns';
+import type { UserListItem, NewUserState, OrgRoleOption } from '@/components/users/types';
 import api from '@/lib/api';
-
-interface UserListItem {
-  id: string;
-  username: string;
-  email: string;
-  role: 'owner' | 'admin' | 'member';
-  /** Global super-admin flag (Pipeline Builder operator). Cross-org. */
-  isSuperAdmin?: boolean;
-  isEmailVerified: boolean;
-  organizationId?: string;
-  organizationName?: string;
-  createdAt?: string;
-  /** Per-user feature-flag overrides. Absent on rows with no overrides.
-   *  Edited via the FeatureOverridesEditor inside the user-edit modal. */
-  featureOverrides?: Record<string, boolean>;
-}
 
 /** System-admin-only page for managing users across all organizations. */
 export default function UsersPage() {
@@ -78,6 +57,9 @@ export default function UsersPage() {
     (err) => list.setError(formatError(err, 'Failed to delete user')),
   );
 
+  // Shared org picker for both the create- and edit-user modals.
+  const { orgOptions, loadOrgOptions } = useOrgOptions();
+
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [editUsername, setEditUsername] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -90,20 +72,14 @@ export default function UsersPage() {
   const [pendingGrant, setPendingGrant] = useState<UserListItem | null>(null);
   const [impersonateTarget, setImpersonateTarget] = useState<UserListItem | null>(null);
 
-  // Create-user modal. Sysadmin-only server-side; the whole page is already
-  // gated to sysadmins so no extra guard here. Org list is fetched lazily on
-  // open to populate the optional org assignment.
+  // Create-user modal state.
   const [showCreate, setShowCreate] = useState(false);
   const createForm = useFormState();
-  const [newUser, setNewUser] = useState<{
-    username: string; email: string; password: string;
-    organizationId: string; role: 'owner' | 'admin' | 'member'; isSuperAdmin: boolean;
-  }>({ username: '', email: '', password: '', organizationId: '', role: 'member', isSuperAdmin: false });
-  const [orgOptions, setOrgOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [newUser, setNewUser] = useState<NewUserState>({ username: '', email: '', password: '', organizationId: '', role: 'member', isSuperAdmin: false });
   // Roles of the currently-selected org (org-scoped; empty until an org is
   // picked) + the subset checked for assignment. Roles require an org, so
   // selecting/clearing the org refetches + resets this.
-  const [orgRoles, setOrgRoles] = useState<Array<{ id: string; name: string; grantsRole: string }>>([]);
+  const [orgRoles, setOrgRoles] = useState<OrgRoleOption[]>([]);
   const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
 
   // Load an org's roles for the assignment picker; clears when no org.
@@ -139,10 +115,8 @@ export default function UsersPage() {
     setShowCreate(true);
     // Populate the org picker. Best-effort — a failure just leaves the
     // "— No organization —" default (users can still be created org-less).
-    api.listOrganizations({ limit: 100 })
-      .then((res) => { if (res.success && res.data) setOrgOptions(res.data.organizations.map((o) => ({ id: o.id, name: o.name }))); })
-      .catch(() => setOrgOptions([]));
-  }, [createForm]);
+    loadOrgOptions();
+  }, [createForm, loadOrgOptions]);
 
   const handleCreateUser = async () => {
     if (newUser.username.trim().length < 2) { createForm.setError('Username must be at least 2 characters'); return; }
@@ -249,9 +223,7 @@ export default function UsersPage() {
     editForm.reset();
     // Populate the org picker (shared with the create modal). Best-effort —
     // a failure just leaves the current org selectable via its own value.
-    api.listOrganizations({ limit: 100 })
-      .then((res) => { if (res.success && res.data) setOrgOptions(res.data.organizations.map((o) => ({ id: o.id, name: o.name }))); })
-      .catch(() => setOrgOptions([]));
+    loadOrgOptions();
   };
 
   const handleSaveUser = async () => {
@@ -325,95 +297,18 @@ export default function UsersPage() {
     }
   }, [list, pendingGrant]);
 
-  const userColumns: Column<UserListItem>[] = useMemo(() => [
-    {
-      id: 'select',
-      // Header checkbox toggles all visible (non-self) rows. Indeterminate
-      // state isn't surfaced — partial selection just shows unchecked.
-      header: (
-        <input
-          type="checkbox"
-          aria-label="Select all visible users"
-          checked={allVisibleSelected}
-          onChange={toggleSelectAllVisible}
-          className="h-4 w-4 cursor-pointer"
-        />
-      ),
-      headerClassName: 'w-10',
-      cellClassName: 'w-10',
-      render: (u) => (
-        u.id === user?.id ? null : (
-          <input
-            type="checkbox"
-            aria-label={`Select ${u.email}`}
-            checked={selectedIds.has(u.id)}
-            onChange={() => toggleSelected(u.id)}
-            className="h-4 w-4 cursor-pointer"
-          />
-        )
-      ),
-    },
-    {
-      id: 'user',
-      header: 'User',
-      sortValue: (u) => u.username,
-      render: (u) => (
-        <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{u.username}</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">{u.email}</div>
-        </div>
-      ),
-    },
-    {
-      id: 'role',
-      header: 'Role',
-      sortValue: (u) => u.role,
-      render: (u) => (
-        <span className="inline-flex items-center gap-1">
-          <Badge color={u.role === 'admin' ? 'purple' : 'gray'}>{u.role}</Badge>
-          {u.isSuperAdmin && <Badge color="red">platform-admin</Badge>}
-        </span>
-      ),
-    },
-    {
-      id: 'organization',
-      header: 'Organization',
-      cellClassName: 'text-sm text-gray-500 dark:text-gray-400',
-      sortValue: (u) => u.organizationName || '',
-      render: (u) => <>{u.organizationName || 'None'}</>,
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      sortValue: (u) => u.isEmailVerified,
-      render: (u) => (
-        <Badge color={u.isEmailVerified ? 'green' : 'yellow'}>{u.isEmailVerified ? 'Verified' : 'Unverified'}</Badge>
-      ),
-    },
-    {
-      id: 'actions',
-      header: 'Actions',
-      headerClassName: 'text-right',
-      cellClassName: 'text-right text-sm font-medium',
-      render: (userItem) => (
-        <div className="flex justify-end gap-3">
-          <button onClick={() => handleEditUser(userItem)} className="action-link">Edit</button>
-          {userItem.id !== user?.id && (
-            <>
-              <button
-                onClick={() => toggleSuperAdmin(userItem)}
-                className="action-link"
-                title={userItem.isSuperAdmin ? 'Revoke platform-admin grant' : 'Grant platform-admin'}
-              >
-                {userItem.isSuperAdmin ? 'Revoke admin' : 'Grant admin'}
-              </button>
-              <button onClick={() => del.open(userItem)} className="action-link-danger">Delete</button>
-            </>
-          )}
-        </div>
-      ),
-    },
-  ], [user, toggleSuperAdmin, selectedIds, toggleSelected, allVisibleSelected, toggleSelectAllVisible, del]);
+  const userColumns = useMemo(() => buildUserColumns({
+    currentUserId: user?.id,
+    allVisibleSelected,
+    onToggleSelectAllVisible: toggleSelectAllVisible,
+    selectedIds,
+    onToggleSelected: toggleSelected,
+    onEdit: handleEditUser,
+    onToggleSuperAdmin: toggleSuperAdmin,
+    onDelete: (u) => del.open(u),
+  }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user, toggleSuperAdmin, selectedIds, toggleSelected, allVisibleSelected, toggleSelectAllVisible, del]);
 
   if (!isReady || !user) return <LoadingPage />;
   if (!isSuperAdmin) return null;
@@ -531,298 +426,40 @@ export default function UsersPage() {
         />
       )}
 
-      {showCreate && (
-        <Modal
-          title="Add User"
-          onClose={() => !createForm.loading && setShowCreate(false)}
-          maxWidth="max-w-md"
-          footer={
-            <ModalFooter
-              onCancel={() => setShowCreate(false)}
-              onConfirm={handleCreateUser}
-              confirmLabel="Create User"
-              loading={createForm.loading}
-            />
-          }
-        >
-          <ErrorAlert message={createForm.error} />
-          {createForm.success && <div className="alert-success"><p>{createForm.success}</p></div>}
+      <CreateUserModal
+        open={showCreate}
+        form={createForm}
+        newUser={newUser}
+        setNewUser={setNewUser}
+        orgOptions={orgOptions}
+        orgRoles={orgRoles}
+        selectedRoleIds={selectedRoleIds}
+        onOrgChange={handleCreateOrgChange}
+        onToggleRole={toggleRole}
+        onSubmit={handleCreateUser}
+        onClose={() => setShowCreate(false)}
+      />
 
-          <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
-            <div>
-              <label className="label">Username</label>
-              <Input
-                type="text"
-                value={newUser.username}
-                onChange={(e) => setNewUser((s) => ({ ...s, username: e.target.value }))}
-                placeholder="jane-doe"
-                autoComplete="off"
-                disabled={createForm.loading}
-              />
-            </div>
-            <div>
-              <label className="label">Email</label>
-              <Input
-                type="email"
-                value={newUser.email}
-                onChange={(e) => setNewUser((s) => ({ ...s, email: e.target.value }))}
-                placeholder="jane@example.com"
-                autoComplete="off"
-                disabled={createForm.loading}
-              />
-            </div>
-            <div>
-              <label className="label">Password</label>
-              <Input
-                type="password"
-                value={newUser.password}
-                onChange={(e) => setNewUser((s) => ({ ...s, password: e.target.value }))}
-                placeholder="Minimum 8 characters"
-                autoComplete="new-password"
-                disabled={createForm.loading}
-              />
-            </div>
-            <div>
-              <label className="label">Organization</label>
-              <Select
-                value={newUser.organizationId}
-                onChange={(e) => handleCreateOrgChange(e.target.value)}
-                disabled={createForm.loading}
-              >
-                <option value="">— No organization —</option>
-                {orgOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </Select>
-            </div>
-            {newUser.organizationId && (
-              <div>
-                <label className="label">Role</label>
-                <Select
-                  value={newUser.role}
-                  onChange={(e) => setNewUser((s) => ({ ...s, role: e.target.value as 'owner' | 'admin' | 'member' }))}
-                  disabled={createForm.loading}
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                  <option value="owner">Owner</option>
-                </Select>
-              </div>
-            )}
-            {/* Roles are org-scoped — only shown once an org is selected. */}
-            {newUser.organizationId && orgRoles.length > 0 && (
-              <div>
-                <label className="label">
-                  Roles <span className="text-gray-400 font-normal">({selectedRoleIds.size} selected)</span>
-                </label>
-                <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
-                  {orgRoles.map((g) => (
-                    <label key={g.id} className="flex items-center gap-2 p-2.5 text-sm cursor-pointer">
-                      <Checkbox
-                        checked={selectedRoleIds.has(g.id)}
-                        onChange={() => toggleRole(g.id)}
-                        disabled={createForm.loading}
-                      />
-                      <span className="font-medium text-gray-800 dark:text-gray-200">{roleDisplayName(g.name)}</span>
-                      {g.grantsRole !== 'member' && (
-                        <Badge color={g.grantsRole === 'superadmin' ? 'red' : 'purple'}>{g.grantsRole}</Badge>
-                      )}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <Checkbox
-                checked={newUser.isSuperAdmin}
-                onChange={(e) => setNewUser((s) => ({ ...s, isSuperAdmin: e.target.checked }))}
-                disabled={createForm.loading}
-              />
-              Platform super admin
-            </label>
-          </form>
-        </Modal>
-      )}
-
-      {editingUser && (
-        <Modal
-          title={`Edit User: ${editingUser.username}`}
-          onClose={() => !editForm.loading && setEditingUser(null)}
-          maxWidth="max-w-md"
-          footer={
-            <ModalFooter
-              onCancel={() => setEditingUser(null)}
-              onConfirm={handleSaveUser}
-              confirmLabel="Save Changes"
-              loading={editForm.loading}
-            >
-              {/* "View as user" — sysadmin impersonation (read-only). Disabled
-                  for sysadmin targets (you can't impersonate another sysadmin)
-                  and for the actor themselves. */}
-              {editingUser.id !== user?.id && !editingUser.isSuperAdmin && (
-                <Button
-                  variant="secondary"
-                  onClick={() => setImpersonateTarget(editingUser)}
-                  disabled={editForm.loading}
-                  title="View the app as this user (read-only)"
-                >
-                  View as user
-                </Button>
-              )}
-            </ModalFooter>
-          }
-        >
-          <ErrorAlert message={editForm.error} />
-          {editForm.success && <div className="alert-success"><p>{editForm.success}</p></div>}
-
-          <div className="space-y-4">
-            <div>
-              <label className="label">Username</label>
-              <Input
-                type="text"
-                value={editUsername}
-                onChange={(e) => setEditUsername(e.target.value)}
-                placeholder="jane-doe"
-                autoComplete="off"
-                disabled={editForm.loading}
-              />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
-                User ID: <CopyableId value={editingUser.id} size="sm" />
-              </p>
-            </div>
-            <div>
-              <label className="label">Email</label>
-              <Input
-                type="email"
-                value={editEmail}
-                onChange={(e) => setEditEmail(e.target.value)}
-                placeholder="jane@example.com"
-                autoComplete="off"
-                disabled={editForm.loading}
-              />
-            </div>
-            <div>
-              <label className="label">Organization</label>
-              <Select
-                value={editOrgId}
-                onChange={(e) => setEditOrgId(e.target.value)}
-                disabled={editForm.loading}
-              >
-                <option value="">— No organization —</option>
-                {orgOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <label className="label">Role</label>
-              <Select value={editRole} onChange={(e) => setEditRole(e.target.value as 'owner' | 'admin' | 'member')} disabled={editForm.loading || editingUser.id === user?.id}>
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-                <option value="owner">Owner</option>
-              </Select>
-              {editingUser.id === user?.id && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Cannot change your own role</p>
-              )}
-            </div>
-            {/* Wrapped in a <form> with a username field + autocomplete hints
-                so browsers/password managers treat this as a credential change
-                (silences Chrome's "Password field is not contained in a form"
-                warning). onSubmit is a no-op — saving goes through the explicit
-                "Save Changes" button below; this just prevents an Enter keypress
-                from reloading the page. */}
-            <form onSubmit={(e) => e.preventDefault()}>
-              <label className="label">New Password (leave blank to keep current)</label>
-              <input type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
-              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" disabled={editForm.loading} />
-            </form>
-
-            <SysadminGrantHistory userId={editingUser.id} isSuperAdmin={editingUser.isSuperAdmin === true} />
-
-            <FeatureOverridesEditor
-              userId={editingUser.id}
-              initial={editingUser.featureOverrides ?? {}}
-              onSaved={() => list.refresh()}
-            />
-          </div>
-        </Modal>
-      )}
+      <EditUserModal
+        editingUser={editingUser}
+        form={editForm}
+        currentUserId={user?.id}
+        editUsername={editUsername}
+        onEditUsernameChange={setEditUsername}
+        editEmail={editEmail}
+        onEditEmailChange={setEditEmail}
+        editOrgId={editOrgId}
+        onEditOrgIdChange={setEditOrgId}
+        editRole={editRole}
+        onEditRoleChange={setEditRole}
+        newPassword={newPassword}
+        onNewPasswordChange={setNewPassword}
+        orgOptions={orgOptions}
+        onImpersonate={() => setImpersonateTarget(editingUser)}
+        onSubmit={handleSaveUser}
+        onClose={() => setEditingUser(null)}
+        onFeatureSaved={() => list.refresh()}
+      />
     </DashboardLayout>
   );
 }
-
-/**
- * Inline timeline of platform-admin grant/revoke events for a user. Queries
- * the audit log filtered to `targetId = userId + action LIKE
- * admin.superadmin.*`. Shows the most recent few entries with date,
- * action, and source ('admin-api' vs 'bootstrap-env').
- *
- * Renders nothing until expanded — keeps the modal lean for the common
- * case (non-sysadmin user edits).
- */
-function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string; isSuperAdmin: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [events, setEvents] = useState<Array<{ _id: string; action: string; actorId: string; actorEmail?: string; details?: Record<string, unknown>; createdAt: string }>>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!expanded) return;
-    let cancelled = false;
-    setLoading(true);
-    api.listAuditEvents({
-      targetId: userId,
-      // Two actions to fetch; substring match against the regex filter.
-      action: 'admin.superadmin',
-      limit: 10,
-    }).then((res) => {
-      if (cancelled) return;
-      if (res.success && res.data) setEvents(res.data.events);
-      else setError(res.message || 'Failed to load grant history');
-    }).catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
-  }, [userId, expanded]);
-
-  return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between text-left font-medium text-gray-700 dark:text-gray-300"
-      >
-        <span>Platform-admin grant history {isSuperAdmin && <Badge color="red">currently granted</Badge>}</span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">{expanded ? '▾' : '▸'}</span>
-      </button>
-      {expanded && (
-        <div className="mt-2">
-          {loading && <LoadingSpinner size="sm" />}
-          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-          {!loading && events.length === 0 && (
-            <p className="text-xs text-gray-500 dark:text-gray-400">No grant events on file.</p>
-          )}
-          {events.length > 0 && (
-            <ul className="space-y-1.5 text-xs text-gray-600 dark:text-gray-400">
-              {events.map((e) => {
-                const source = (e.details as { source?: string } | undefined)?.source;
-                const verb = e.action.endsWith('.grant') ? 'Granted' : 'Revoked';
-                return (
-                  <li key={e._id} className="flex items-baseline justify-between gap-2">
-                    <span>
-                      <strong className="text-gray-700 dark:text-gray-300">{verb}</strong>
-                      {' '}by{' '}<code>{e.actorEmail || e.actorId}</code>
-                      {source && <> · <code>{source}</code></>}
-                    </span>
-                    <span className="text-gray-500 dark:text-gray-500 whitespace-nowrap">
-                      <RelativeTime value={e.createdAt} />
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-

@@ -15,6 +15,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockQueueAdd = jest.fn<(...args: any[]) => any>();
 const mockQueueClose = jest.fn().mockResolvedValue(undefined);
+const mockQueueGetJob = jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined);
 const mockQueueGetJobs = jest.fn().mockResolvedValue([]);
 const mockQueueGetJobCounts = jest.fn().mockResolvedValue({});
 const mockQueueObliterate = jest.fn().mockResolvedValue(undefined);
@@ -30,6 +31,10 @@ const mockWorkerCtor = jest.fn();
 const capturedProcessors: Record<string, (job: any) => Promise<any>> = {};
 
 const mockIncrementQuota = jest.fn();
+// DLQ replay / failed-retry re-reserve a plugin slot; default to capacity
+// available. Hoisted so individual tests can override (e.g. org-at-cap).
+const mockReserveQuota = jest.fn<(...args: any[]) => any>(() =>
+  Promise.resolve({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99 } }));
 const mockExistsSync = jest.fn<(...args: any[]) => any>().mockReturnValue(false);
 const mockRmSync = jest.fn();
 const mockUtimesSync = jest.fn();
@@ -60,6 +65,7 @@ function registerMocks() {
     class MockQueue {
       add = mockQueueAdd;
       close = mockQueueClose;
+      getJob = mockQueueGetJob;
       getJobs = mockQueueGetJobs;
       getJobCounts = mockQueueGetJobCounts;
       obliterate = mockQueueObliterate;
@@ -154,8 +160,8 @@ function registerMocks() {
     extractDbError: jest.fn(() => ({})),
     incrementQuota: mockIncrementQuota,
     decrementQuota: mockIncrementQuota,
-    // DLQ replay re-reserves a plugin slot; default to capacity available.
-    reserveQuota: jest.fn(() => Promise.resolve({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99 } })),
+    // DLQ replay / failed-retry re-reserves a plugin slot; default to capacity available.
+    reserveQuota: mockReserveQuota,
     getServiceAuthHeader: () => 'Bearer test-service-token',
     createRemoteAuditClient: () => ({ record: jest.fn() }),
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
@@ -442,6 +448,149 @@ describe('plugin-build-queue', () => {
 
       expect(() => failedHandler(null, new Error('Connection lost'))).not.toThrow();
       expect(sse.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('retryFailedJob() atomicity', () => {
+    function makeFailedJob(overrides: Record<string, any> = {}) {
+      return {
+        id: 'failed-1',
+        name: 'build-plugin',
+        data: makeJobData(),
+        isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(true),
+        remove: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+        ...overrides,
+      };
+    }
+
+    it('releases the reserved slot and rethrows when add() throws (no orphan slot leak)', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob();
+      mockQueueGetJob.mockResolvedValue(failedJob);
+      // Slot successfully reserved for the new job (quotaReleased === false).
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99 } });
+      mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
+
+      await expect(queueModule.retryFailedJob('failed-1', quota)).rejects.toThrow('redis add failed');
+
+      // decrementQuota (aliased to mockIncrementQuota) must release the reserved slot.
+      expect(mockIncrementQuota).toHaveBeenCalledWith(
+        quota, 'org-1', 'plugins', expect.any(String), expect.any(Function),
+      );
+      // The original failed entry must NOT be removed — the retry did not succeed.
+      expect(failedJob.remove).not.toHaveBeenCalled();
+    });
+
+    it('does not decrement when add() throws and no slot was reserved (org at cap)', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob();
+      mockQueueGetJob.mockResolvedValue(failedJob);
+      // Org already at cap → reserveReplaySlot returns quotaReleased = true (no slot handed over).
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
+      mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
+
+      await expect(queueModule.retryFailedJob('failed-1', quota)).rejects.toThrow('redis add failed');
+
+      // Nothing was reserved, so nothing must be released (no over-decrement).
+      expect(mockIncrementQuota).not.toHaveBeenCalled();
+      expect(failedJob.remove).not.toHaveBeenCalled();
+    });
+
+    it('remove() failure is non-fatal: the op still returns the new job id (no second enqueue on this op)', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob({
+        remove: jest.fn<() => Promise<void>>().mockRejectedValue(new Error('remove failed')),
+        // Re-check reports the job genuinely lingers in the failed set.
+        isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(true),
+      });
+      mockQueueGetJob.mockResolvedValue(failedJob);
+      mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-1' });
+
+      const newId = await queueModule.retryFailedJob('failed-1', quota);
+
+      // Op succeeds (does NOT throw) — the build is already enqueued exactly once.
+      expect(newId).toBe('new-job-1');
+      expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+      // The lingering-entry branch was exercised (isFailed re-checked).
+      expect(failedJob.isFailed).toHaveBeenCalled();
+    });
+
+    it('tolerates an already-removed original (idempotent) after add() succeeds', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob({
+        remove: jest.fn<() => Promise<void>>().mockRejectedValue(new Error('job not in set')),
+        // First call (findFailedJob locate) → true; post-remove re-check → false
+        // (a concurrent remove already dropped it).
+        isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValueOnce(true).mockResolvedValue(false),
+      });
+      mockQueueGetJob.mockResolvedValue(failedJob);
+      mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-2' });
+
+      const newId = await queueModule.retryFailedJob('failed-1', quota);
+
+      expect(newId).toBe('new-job-2');
+      expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('happy path: enqueues once and removes the original failed entry', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob();
+      mockQueueGetJob.mockResolvedValue(failedJob);
+      mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-3' });
+
+      const newId = await queueModule.retryFailedJob('failed-1', quota);
+
+      expect(newId).toBe('new-job-3');
+      expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+      expect(failedJob.remove).toHaveBeenCalledTimes(1);
+      // add() succeeded → no slot release.
+      expect(mockIncrementQuota).not.toHaveBeenCalled();
+    });
+
+    it('returns null when no failed job with that id exists (no enqueue, no reserve)', async () => {
+      const quota = makeQuotaService();
+      mockQueueGetJob.mockResolvedValue(undefined);
+
+      const result = await queueModule.retryFailedJob('missing', quota);
+
+      expect(result).toBeNull();
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(mockReserveQuota).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('intFromEnv()', () => {
+    afterEach(() => { delete process.env.PLUGIN_TEST_INT; });
+
+    it('falls back to the default for a non-numeric env value', () => {
+      process.env.PLUGIN_TEST_INT = 'not-a-number';
+      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 42)).toBe(42);
+    });
+
+    it('falls back for unset, empty, zero, and negative values', () => {
+      delete process.env.PLUGIN_TEST_INT;
+      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
+      process.env.PLUGIN_TEST_INT = '';
+      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
+      process.env.PLUGIN_TEST_INT = '0';
+      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
+      process.env.PLUGIN_TEST_INT = '-5';
+      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
+    });
+
+    it('parses a valid positive integer', () => {
+      process.env.PLUGIN_TEST_INT = '99';
+      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(99);
+    });
+
+    it('TIER_CACHE_TTL_MS is a real positive number even when the env is garbage', async () => {
+      process.env.PLUGIN_TIER_CACHE_TTL_MS = 'garbage';
+      jest.resetModules();
+      registerMocks();
+      const mod = await import('../src/queue/plugin-build-queue.js');
+      expect(Number.isFinite(mod.TIER_CACHE_TTL_MS)).toBe(true);
+      expect(mod.TIER_CACHE_TTL_MS).toBe(300000);
+      delete process.env.PLUGIN_TIER_CACHE_TTL_MS;
     });
   });
 

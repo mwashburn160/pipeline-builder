@@ -71,8 +71,11 @@ export function OrgAdminHome({ organizationId }: Props) {
     // The subscription fetch is gated on the `billing` feature flag served
     // from /api/config — when billing is disabled we skip the call entirely
     // so we don't pile up 503s from a deliberately-disabled service.
+    // Only the count is needed here — ask for a 1-row page and read the total
+    // from pagination (the roster is now server-paginated, so `members.length`
+    // would be just the page size).
     const memberPromise = organizationId
-      ? api.getOrganizationMembers(organizationId).catch(() => null)
+      ? api.getOrganizationMembers(organizationId, { limit: 1 }).catch(() => null)
       : Promise.resolve(null);
     const subscriptionPromise = billingEnabled
       ? api.getSubscription().catch(() => null)
@@ -102,7 +105,7 @@ export function OrgAdminHome({ organizationId }: Props) {
         setSubscription(subRes.value.data.subscription);
       }
       if (memberRes.status === 'fulfilled' && memberRes.value && memberRes.value.success && memberRes.value.data) {
-        setMemberCount(memberRes.value.data.members.length);
+        setMemberCount(memberRes.value.data.pagination?.total ?? memberRes.value.data.members.length);
       }
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

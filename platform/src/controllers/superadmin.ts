@@ -31,6 +31,7 @@ import { sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { User } from '../models/index.js';
+import { grantPlatformAdmin, revokePlatformAdmin } from '../services/roles-service.js';
 
 /** All grant names this endpoint understands. */
 type GrantName = 'platform-admin';
@@ -54,29 +55,22 @@ export const addUserGrant = withController('Add user grant', async (req, res) =>
   const parsed = parseBody(req.body);
   if ('error' in parsed) return sendError(res, 400, parsed.error);
 
-  const user = await User.findById(userId).select('email isSuperAdmin');
+  const user = await User.findById(userId).select('email');
   if (!user) return sendError(res, 404, 'User not found');
 
   if (parsed.grant === 'platform-admin') {
-    if (user.isSuperAdmin === true) {
-      // Idempotent — no state change, no audit event.
-      return sendSuccess(res, 200, { userId, grant: parsed.grant, changed: false });
+    // Single-source: the system-org Super Admin Role is authoritative. This
+    // assigns it + recomputes (which flips isSuperAdmin + bumps tokenVersion +
+    // drops the refresh token) atomically, so a later recompute can't revert it.
+    const { changed } = await grantPlatformAdmin(userId);
+    if (changed) {
+      audit(req, 'admin.superadmin.grant', {
+        targetType: 'user',
+        targetId: userId,
+        details: { email: user.email, source: 'admin-api', grant: parsed.grant },
+      });
     }
-    user.isSuperAdmin = true;
-    await user.save();
-    // Bump tokenVersion (and drop any refresh token) so the promotion takes
-    // effect immediately — the next request re-issues a token carrying the
-    // new grant instead of trusting a stale JWT.
-    await User.updateOne(
-      { _id: userId },
-      { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
-    );
-    audit(req, 'admin.superadmin.grant', {
-      targetType: 'user',
-      targetId: userId,
-      details: { email: user.email, source: 'admin-api', grant: parsed.grant },
-    });
-    return sendSuccess(res, 200, { userId, grant: parsed.grant, changed: true });
+    return sendSuccess(res, 200, { userId, grant: parsed.grant, changed });
   }
 
   // Defensive — `parseBody` should have caught unknown grants.
@@ -102,27 +96,21 @@ export const removeUserGrant = withController('Remove user grant', async (req, r
       );
     }
 
-    const user = await User.findById(userId).select('email isSuperAdmin');
+    const user = await User.findById(userId).select('email');
     if (!user) return sendError(res, 404, 'User not found');
 
-    if (user.isSuperAdmin !== true) {
-      return sendSuccess(res, 200, { userId, grant: parsed.grant, changed: false });
+    // Remove the system-org Super Admin Role + recompute (clears isSuperAdmin,
+    // bumps tokenVersion, drops the refresh token) atomically. Works even for a
+    // legacy user who had the flag set directly but never held the Role.
+    const { changed } = await revokePlatformAdmin(userId);
+    if (changed) {
+      audit(req, 'admin.superadmin.revoke', {
+        targetType: 'user',
+        targetId: userId,
+        details: { email: user.email, source: 'admin-api', grant: parsed.grant },
+      });
     }
-
-    user.isSuperAdmin = false;
-    await user.save();
-    // Invalidate live sessions: bump tokenVersion (so any JWT the demoted user
-    // still holds is rejected by `requireAuth`) and clear their refresh token.
-    await User.updateOne(
-      { _id: userId },
-      { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
-    );
-    audit(req, 'admin.superadmin.revoke', {
-      targetType: 'user',
-      targetId: userId,
-      details: { email: user.email, source: 'admin-api', grant: parsed.grant },
-    });
-    return sendSuccess(res, 200, { userId, grant: parsed.grant, changed: true });
+    return sendSuccess(res, 200, { userId, grant: parsed.grant, changed });
   }
 
   return sendError(res, 400, `unsupported grant: ${parsed.grant}`);

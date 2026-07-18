@@ -41,8 +41,10 @@ interface AtRiskCacheEntry {
 export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
 
-  // Per-router memo so each test/app gets its own cache.
-  const atRiskCache = new Map<number, AtRiskCacheEntry>();
+  // Per-router memo so each test/app gets its own cache. Keyed by
+  // `threshold:limit:offset` so each distinct page memoizes independently —
+  // a shared key would let one page's cached slice satisfy another page's request.
+  const atRiskCache = new Map<string, AtRiskCacheEntry>();
 
   // GET /quotas — own org quotas (orgId from JWT / header)
 
@@ -85,15 +87,17 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   // is suitable for an alerting cron (call this hourly, page if response
   // non-empty for tier=Pro/Team/Enterprise).
   //
-  // The full at-risk scan is memoized for 60s per threshold so the alerting
-  // cron and the dashboard can hammer this without re-scanning the org
-  // collection every call. Pagination is applied to the cached result.
+  // The scan is bounded by pagination (findAll only loads this page of orgs,
+  // never the whole collection) and memoized for 60s per (threshold, limit,
+  // offset) so the alerting cron and the dashboard can hammer a given page
+  // without re-scanning it every call.
   //
   // Query params:
   //   - threshold (number, default 80): percent threshold (1-99) above which
   //     an org is considered at-risk. Caps at 99 — to find already-exhausted
   //     orgs use threshold=100.
-  //   - limit, offset: pagination over the sorted at-risk list.
+  //   - limit, offset: pagination over the org collection (by name), matching
+  //     GET /quotas/all; at-risk rows are computed from that page.
 
   router.get(
     '/at-risk',
@@ -114,9 +118,13 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
       const offset = parseQueryIntClamped(req.query.offset, 1, Number.MAX_SAFE_INTEGER) - 1;
 
       const now = Date.now();
-      let cached = atRiskCache.get(threshold);
+      const cacheKey = `${threshold}:${limit}:${offset}`;
+      let cached = atRiskCache.get(cacheKey);
       if (!cached || cached.expires <= now) {
-        const organizations = await svc.findAll();
+        // Bound the scan at the DB level — findAll() with no args pulls the
+        // entire organizations collection into memory. Only this page of orgs
+        // is loaded and evaluated for at-risk status.
+        const organizations = await svc.findAll({ limit, offset });
         const computed: AtRiskEntry[] = [];
         for (const org of organizations) {
           for (const type of VALID_QUOTA_TYPES) {
@@ -143,17 +151,19 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
         }
         computed.sort((a, b) => b.percent - a.percent);
         cached = { expires: now + config.quota.atRiskCacheTtlMs, entries: computed };
-        atRiskCache.set(threshold, cached);
+        atRiskCache.set(cacheKey, cached);
       }
 
-      const page = cached.entries.slice(offset, offset + limit);
+      // `entries` are the at-risk rows for this page of orgs (already bounded by
+      // the paginated findAll above), sorted by percent desc — return as-is.
+      const entries = cached.entries;
       ctx.log('COMPLETED', 'Listed at-risk orgs', {
-        threshold, count: page.length, total: cached.entries.length,
+        threshold, count: entries.length, total: entries.length,
       });
       return sendSuccess(res, 200, {
-        atRisk: page,
-        count: page.length,
-        total: cached.entries.length,
+        atRisk: entries,
+        count: entries.length,
+        total: entries.length,
         threshold,
         limit,
         offset,

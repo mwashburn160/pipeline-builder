@@ -1,34 +1,34 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import { UserPlus, Users, ShieldCheck, UserMinus, UserCheck, UserX, Crown, Search, KeyRound, Building2, Network } from 'lucide-react';
+import { UserPlus, Users, Search, Building2, Network } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
+import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
 import { useDelete } from '@/hooks/useDelete';
+import { useMemberRoles } from '@/hooks/useMemberRoles';
+import { useMemberTeams } from '@/hooks/useMemberTeams';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
-import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { DataTable, type Column } from '@/components/ui/DataTable';
+import { DataTable } from '@/components/ui/DataTable';
+import { Pagination } from '@/components/ui/Pagination';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { ModalFooter } from '@/components/ui/ModalFooter';
-import { IconButton } from '@/components/ui/IconButton';
-import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ActionBar } from '@/components/ui/ActionBar';
-import { RelativeTime } from '@/components/ui/RelativeTime';
 import { AddMemberModal } from '@/components/members/AddMemberModal';
 import { PasswordResetModal } from '@/components/members/PasswordResetModal';
 import { CreateOrgModal } from '@/components/members/CreateOrgModal';
 import { ManageTeamsModal } from '@/components/members/ManageTeamsModal';
 import { AddToTeamModal } from '@/components/members/AddToTeamModal';
+import { ManageRolesModal } from '@/components/members/ManageRolesModal';
+import { TransferOwnershipModal } from '@/components/members/TransferOwnershipModal';
+import { buildMemberColumns } from '@/components/members/memberColumns';
 import { StepUpModal } from '@/components/admin/StepUpModal';
-import { roleDisplayName } from '@/lib/permissions';
 import api from '@/lib/api';
-import type { OrganizationMember, MemberTeam, OrganizationRole } from '@/types';
+import type { OrganizationMember } from '@/types';
 
 export default function MembersPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'members:manage' });
@@ -41,11 +41,28 @@ export default function MembersPage() {
   const router = useRouter();
   const orgId = user?.organizationId;
 
-  const [members, setMembers] = useState<OrganizationMember[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'member' | 'admin'>('all');
+  // Server-paginated, server-filtered roster. Search + role filter are pushed
+  // to the backend (never an in-memory scan of a whole roster), and each member
+  // arrives with its assigned Role names embedded — so role chips render without
+  // fetching all roles and running an O(members×roles) membership scan.
+  const list = useListPage<OrganizationMember>({
+    fields: [
+      { key: 'search', type: 'text', defaultValue: '', primary: true },
+      { key: 'role', type: 'select', defaultValue: 'all' },
+    ],
+    fetcher: async (params) => {
+      if (!orgId) return { items: [] };
+      const res = await api.getOrganizationMembers(orgId, {
+        ...(params.search ? { search: params.search } : {}),
+        ...(params.role && params.role !== 'all' ? { role: params.role as 'admin' | 'member' } : {}),
+        offset: Number(params.offset || 0),
+        limit: Number(params.limit || 25),
+      });
+      return { items: res.data?.members || [], pagination: res.data?.pagination };
+    },
+    enabled: isAuthenticated && canManageMembers && !!orgId,
+  });
+  const members = list.data;
 
   // Add member
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -63,13 +80,12 @@ export default function MembersPage() {
   // Gated on `roles:manage` so members-only admins see chips but can't 403 on
   // an assignment they aren't allowed to make.
   const canManageRoles = can('roles:manage');
-  const [roles, setRoles] = useState<OrganizationRole[]>([]);
-
-  // Manage-Roles modal (multi-select of the org's Roles for one member).
-  const [rolesTarget, setRolesTarget] = useState<OrganizationMember | null>(null);
-  const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
-  const [rolesSaving, setRolesSaving] = useState(false);
-  const [rolesError, setRolesError] = useState<string | null>(null);
+  const memberRoles = useMemberRoles({
+    orgId,
+    canManageRoles,
+    isAuthenticated,
+    onRolesChanged: () => list.refresh(),
+  });
 
   // Create organization
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
@@ -86,6 +102,7 @@ export default function MembersPage() {
   // Descendant teams this org parents (org → team hierarchy) — drives the Teams
   // list + the "Manage teams" gate. Best-effort; admins of a root org only.
   const [teams, setTeams] = useState<{ orgId: string; orgName: string }[]>([]);
+  const [teamsLoadWarning, setTeamsLoadWarning] = useState(false);
   const childTeamCount = teams.length;
   // Bumped after creating a team so the list (and the "Manage teams" button it
   // gates) refresh without a full page reload.
@@ -95,9 +112,10 @@ export default function MembersPage() {
     // itself a team (the banner shows the "is a team" branch regardless).
     if (!user?.organizationId || !canManageMembers || !activeOrgIsRoot) return;
     let cancelled = false;
+    setTeamsLoadWarning(false);
     void api.getOrganizationTeams(user.organizationId)
       .then((res) => { if (!cancelled) setTeams(res.data?.teams ?? []); })
-      .catch(() => { /* best-effort */ });
+      .catch(() => { if (!cancelled) setTeamsLoadWarning(true); }); // best-effort — surface a brief note
     return () => { cancelled = true; };
   }, [user?.organizationId, canManageMembers, activeOrgIsRoot, teamCountTick]);
 
@@ -105,14 +123,17 @@ export default function MembersPage() {
   // across the subtree vs the root's seat limit). Endpoint resolves to root, so
   // this is account-wide even when viewing a team. Best-effort; admins only.
   const [seatUsage, setSeatUsage] = useState<{ limit: number; used: number } | null>(null);
+  const [seatLoadWarning, setSeatLoadWarning] = useState(false);
   useEffect(() => {
     if (!user?.organizationId || !canManageMembers) return;
     let cancelled = false;
+    setSeatLoadWarning(false);
     void api.getOrganizationSeatUsage(user.organizationId)
       .then((res) => { if (!cancelled && res.data) setSeatUsage(res.data); })
-      .catch(() => { /* best-effort — seat pill just hides */ });
+      .catch(() => { if (!cancelled) setSeatLoadWarning(true); }); // best-effort — surface a brief note
     return () => { cancelled = true; };
-  }, [user?.organizationId, canManageMembers, members.length]);
+    // Re-check on any membership change (total shifts on add/remove/reactivate).
+  }, [user?.organizationId, canManageMembers, list.pagination.total]);
 
   // Switch the active org context to a team so its members can be managed
   // directly (mirrors the org switcher). The page re-renders in the new scope.
@@ -158,69 +179,7 @@ export default function MembersPage() {
   // Manage teams (org → team hierarchy: a member can belong to multiple teams).
   // Only meaningful when the active org is a root that parents teams.
   const canManageTeams = activeOrgIsRoot && childTeamCount > 0;
-  const [manageTeamsTarget, setManageTeamsTarget] = useState<OrganizationMember | null>(null);
-  const [teamRoster, setTeamRoster] = useState<MemberTeam[]>([]);
-  const [teamsLoading, setTeamsLoading] = useState(false);
-  const [teamsSaving, setTeamsSaving] = useState(false);
-  const [teamsError, setTeamsError] = useState<string | null>(null);
-  // Desired membership set — initialized from the roster's current membership,
-  // diffed against it on save to compute adds (bulk) and removes (per team).
-  const [selectedTeamIds, setSelectedTeamIds] = useState<Set<string>>(new Set());
-
-  const openManageTeams = useCallback(async (m: OrganizationMember) => {
-    if (!orgId) return;
-    setManageTeamsTarget(m);
-    setTeamRoster([]);
-    setSelectedTeamIds(new Set());
-    setTeamsError(null);
-    setTeamsLoading(true);
-    try {
-      const res = await api.getMemberTeams(orgId, m.id);
-      const teams = res.data?.teams ?? [];
-      setTeamRoster(teams);
-      setSelectedTeamIds(new Set(teams.filter(t => t.isMember).map(t => t.orgId)));
-    } catch {
-      setTeamsError('Failed to load teams');
-    } finally {
-      setTeamsLoading(false);
-    }
-    // orgId is captured; openManageTeams is only called for the active org's members.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId]);
-
-  const toggleTeam = (teamId: string) => setSelectedTeamIds(prev => {
-    const next = new Set(prev);
-    if (next.has(teamId)) next.delete(teamId); else next.add(teamId);
-    return next;
-  });
-
-  const handleSaveTeams = async () => {
-    if (!orgId || !manageTeamsTarget) return;
-    const member = manageTeamsTarget;
-    const toAdd = teamRoster.filter(t => !t.isMember && selectedTeamIds.has(t.orgId)).map(t => t.orgId);
-    // Owners can't be removed via this flow (transfer ownership first), so they're
-    // excluded from removals even if unchecked.
-    const toRemove = teamRoster.filter(t => t.isMember && t.role !== 'owner' && !selectedTeamIds.has(t.orgId)).map(t => t.orgId);
-    if (toAdd.length === 0 && toRemove.length === 0) { setManageTeamsTarget(null); return; }
-    setTeamsSaving(true);
-    setTeamsError(null);
-    try {
-      if (toAdd.length > 0) {
-        const res = await api.bulkAddMemberToTeams(orgId, { userId: member.id, orgIds: toAdd, role: 'member' });
-        if (!res.success) throw new Error(res.message || 'Failed to add to teams');
-      }
-      for (const teamId of toRemove) {
-        const res = await api.removeMemberFromOrganization(teamId, member.id);
-        if (!res.success) throw new Error(res.message || 'Failed to remove from a team');
-      }
-      toast.success(`Updated ${member.username}'s teams`);
-      setManageTeamsTarget(null);
-    } catch (err) {
-      setTeamsError(err instanceof Error ? err.message : 'Failed to update teams');
-    } finally {
-      setTeamsSaving(false);
-    }
-  };
+  const memberTeams = useMemberTeams({ orgId });
 
   // Transfer ownership. Click-through path mirrors the delete-org flow:
   // confirm modal → step-up (backend `requireStepUp`) → executeTransfer with
@@ -242,9 +201,9 @@ export default function MembersPage() {
       toast.success(`Ownership transferred to ${target.username}`);
       // The current user is no longer owner — refresh their role + the roster.
       await refreshUser();
-      fetchMembers();
+      list.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to transfer ownership');
+      list.setError(err instanceof Error ? err.message : 'Failed to transfer ownership');
     } finally {
       setPendingTransfer(null);
     }
@@ -255,104 +214,11 @@ export default function MembersPage() {
     async (m) => {
       if (!orgId) return; // same guard the other handlers use — avoid sending `undefined` as the org id
       await api.removeMemberFromOrganization(orgId, m.id);
-      setMembers(prev => prev.filter(x => x.id !== m.id));
+      list.refresh();
     },
     undefined,
-    () => setError('Failed to remove member'),
+    () => list.setError('Failed to remove member'),
   );
-
-  const fetchMembers = useCallback(async () => {
-    if (!orgId) return;
-    try {
-      setIsLoading(true);
-      const res = await api.getOrganizationMembers(orgId);
-      setMembers(res.data?.members || []);
-      setError(null);
-    } catch {
-      setError('Failed to load team members');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => {
-    if (isAuthenticated && canManageMembers && orgId) fetchMembers();
-  }, [isAuthenticated, canManageMembers, orgId, fetchMembers]);
-
-  // The org's Roles (permission sets), each carrying its member list — used to
-  // render each member's assigned-Role chips and to drive the manage-Roles
-  // picker. Best-effort: without `roles:manage` the chips simply don't show.
-  const fetchRoles = useCallback(async () => {
-    if (!orgId || !canManageRoles) return;
-    try {
-      const res = await api.getOrganizationRoles(orgId);
-      setRoles(res.data?.roles ?? []);
-    } catch { /* best-effort — role chips just hide */ }
-  }, [orgId, canManageRoles]);
-
-  useEffect(() => {
-    if (isAuthenticated && canManageRoles && orgId) fetchRoles();
-  }, [isAuthenticated, canManageRoles, orgId, fetchRoles]);
-
-  // The Roles a given member currently holds (role assignment by user id).
-  const rolesForMember = useCallback(
-    (memberId: string) => roles.filter((r) => r.members.some((mm) => mm.id === memberId)),
-    [roles],
-  );
-
-  const openManageRoles = useCallback((m: OrganizationMember) => {
-    setRolesTarget(m);
-    setSelectedRoleIds(new Set(rolesForMember(m.id).map((r) => r.id)));
-    setRolesError(null);
-  }, [rolesForMember]);
-
-  const toggleRoleSelection = (roleId: string) => setSelectedRoleIds((prev) => {
-    const next = new Set(prev);
-    if (next.has(roleId)) next.delete(roleId); else next.add(roleId);
-    return next;
-  });
-
-  // Diff the desired Role set against the member's current one and apply the
-  // adds/removes via the role-assignment API. The coarse role badge is derived
-  // server-side, so we refetch members afterwards to reflect any change.
-  const handleSaveRoles = async () => {
-    if (!orgId || !rolesTarget) return;
-    const member = rolesTarget;
-    const currentIds = new Set(rolesForMember(member.id).map((r) => r.id));
-    const toAdd = [...selectedRoleIds].filter((id) => !currentIds.has(id));
-    const toRemove = [...currentIds].filter((id) => !selectedRoleIds.has(id));
-    if (toAdd.length === 0 && toRemove.length === 0) { setRolesTarget(null); return; }
-    setRolesSaving(true);
-    setRolesError(null);
-    try {
-      for (const roleId of toAdd) {
-        const res = await api.addRoleMember(orgId, roleId, { userId: member.id });
-        if (!res.success) throw new Error(res.message || 'Failed to assign a role');
-      }
-      for (const roleId of toRemove) {
-        const res = await api.removeRoleMember(orgId, roleId, member.id);
-        if (!res.success) throw new Error(res.message || 'Failed to remove a role');
-      }
-      toast.success(`Updated ${member.username}'s roles`);
-      setRolesTarget(null);
-      await fetchRoles();
-      fetchMembers();
-    } catch (err) {
-      setRolesError(err instanceof Error ? err.message : 'Failed to update roles');
-    } finally {
-      setRolesSaving(false);
-    }
-  };
-
-  const filteredMembers = useMemo(() => {
-    let result = members;
-    if (roleFilter !== 'all') result = result.filter(m => m.role === roleFilter);
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(m => m.username.toLowerCase().includes(q) || m.email.toLowerCase().includes(q));
-    }
-    return result;
-  }, [members, roleFilter, searchQuery]);
 
   // Open the Add Member modal, resetting form state and (for orgs that parent
   // teams) loading the team roster so the admin can also place the new member
@@ -388,7 +254,7 @@ export default function MembersPage() {
       setAddEmail('');
       setAddSelectedTeams(new Set());
       setAddModalOpen(false);
-      fetchMembers();
+      list.refresh();
     }
   };
 
@@ -416,9 +282,9 @@ export default function MembersPage() {
       } else {
         await api.activateMember(orgId, member.id);
       }
-      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, isActive: !m.isActive } : m));
+      list.refresh();
     } catch {
-      setError(`Failed to ${member.isActive ? 'deactivate' : 'activate'} member`);
+      list.setError(`Failed to ${member.isActive ? 'deactivate' : 'activate'} member`);
     }
   };
 
@@ -443,139 +309,22 @@ export default function MembersPage() {
     }
   };
 
-  const columns: Column<OrganizationMember>[] = useMemo(() => [
-    {
-      id: 'username',
-      header: 'User',
-      sortValue: (m) => m.username,
-      render: (m) => (
-        <div>
-          <span className="font-medium text-gray-900 dark:text-gray-100">{m.username}</span>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{m.email}</p>
-        </div>
-      ),
-    },
-    {
-      id: 'role',
-      header: 'Role',
-      sortValue: (m) => m.role,
-      // Derived, read-only badge — the backend computes this coarse role from the
-      // member's assigned Roles. Access is edited via the Roles column, not here.
-      render: (m) => (
-        <div className="flex items-center gap-2">
-          <Badge color={m.role === 'admin' ? 'purple' : 'gray'}>{m.role}</Badge>
-          {m.isOwner && <span title="Owner"><Crown className="w-3.5 h-3.5 text-yellow-500" /></span>}
-        </div>
-      ),
-    },
-    ...(canManageRoles ? [{
-      id: 'roles',
-      header: 'Roles',
-      // Assigned Roles as chips. Editing (add/remove) is the ShieldCheck action.
-      render: (m: OrganizationMember) => {
-        const assigned = rolesForMember(m.id);
-        if (assigned.length === 0) return <span className="text-xs text-gray-400 dark:text-gray-500 italic">No roles</span>;
-        return (
-          <div className="flex flex-wrap items-center gap-1">
-            {assigned.map((r) => (
-              <span key={r.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
-                <ShieldCheck className="w-2.5 h-2.5 text-gray-400" />{roleDisplayName(r.name)}
-              </span>
-            ))}
-          </div>
-        );
-      },
-    } as Column<OrganizationMember>] : []),
-    {
-      id: 'status',
-      header: 'Status',
-      sortValue: (m) => m.isActive,
-      render: (m) => (
-        <div className="flex items-center gap-1.5">
-          <Badge color={m.isActive ? 'green' : 'red'}>{m.isActive ? 'Active' : 'Inactive'}</Badge>
-          {!m.isEmailVerified && <Badge color="yellow">Unverified</Badge>}
-        </div>
-      ),
-    },
-    {
-      id: 'joined',
-      header: 'Joined',
-      sortValue: (m) => m.createdAt,
-      render: (m) => (
-        <span className="text-sm text-gray-500 dark:text-gray-400">
-          <RelativeTime value={m.createdAt} />
-        </span>
-      ),
-    },
-    {
-      id: 'actions',
-      header: '',
-      render: (m) => {
-        const isSelf = m.id === user?.id;
-        if (isSelf || m.isOwner) return null;
-        return (
-          <div className="flex items-center gap-1 justify-end">
-            {canManageTeams && (
-              <IconButton
-                tone="indigo"
-                onClick={() => openManageTeams(m)}
-                title="Manage team memberships"
-                aria-label={`Manage team memberships for ${m.username}`}
-              >
-                <Network className="w-4 h-4" />
-              </IconButton>
-            )}
-            {/* Ownership transfer is backend-gated to the current owner or a
-                sysadmin — only surface it to them so others don't hit a 403. */}
-            {(user?.role === 'owner' || isSuperAdmin) && (
-              <IconButton
-                tone="success"
-                onClick={() => setTransferConfirm(m)}
-                title="Make owner (transfers organization ownership)"
-                aria-label={`Transfer organization ownership to ${m.username}`}
-              >
-                <Crown className="w-4 h-4" />
-              </IconButton>
-            )}
-            {canManageRoles && (
-              <IconButton
-                tone="primary"
-                onClick={() => openManageRoles(m)}
-                title="Manage roles"
-                aria-label={`Manage roles for ${m.username}`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-              </IconButton>
-            )}
-            <IconButton
-              tone="warn"
-              onClick={() => { setPasswordTarget(m); setNewPassword(''); passwordForm.reset(); }}
-              title="Reset password"
-              aria-label={`Reset password for ${m.username}`}
-            >
-              <KeyRound className="w-4 h-4" />
-            </IconButton>
-            <IconButton
-              tone={m.isActive ? 'orange' : 'success'}
-              onClick={() => handleToggleActive(m)}
-              title={m.isActive ? 'Deactivate member' : 'Reactivate member'}
-              aria-label={`${m.isActive ? 'Deactivate' : 'Reactivate'} ${m.username}`}
-            >
-              {m.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-            </IconButton>
-            <IconButton
-              tone="danger"
-              onClick={() => removeMember.open(m)}
-              title="Remove from organization"
-              aria-label={`Remove ${m.username} from the organization`}
-            >
-              <UserMinus className="w-4 h-4" />
-            </IconButton>
-          </div>
-        );
-      },
-    },
-  ], [user, isSuperAdmin, canManageTeams, openManageTeams, canManageRoles, rolesForMember, openManageRoles]);
+  const columns = useMemo(() => buildMemberColumns({
+    currentUserId: user?.id,
+    currentUserRole: user?.role,
+    isSuperAdmin,
+    canManageTeams,
+    canManageRoles,
+    rolesForMember: memberRoles.rolesForMember,
+    onManageTeams: memberTeams.openManageTeams,
+    onTransfer: (m) => setTransferConfirm(m),
+    onManageRoles: memberRoles.openManageRoles,
+    onResetPassword: (m) => { setPasswordTarget(m); setNewPassword(''); passwordForm.reset(); },
+    onToggleActive: handleToggleActive,
+    onRemove: (m) => removeMember.open(m),
+  }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user, isSuperAdmin, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles]);
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -669,18 +418,24 @@ export default function MembersPage() {
         </div>
       )}
 
-      <ErrorAlert message={error} onDismiss={() => setError(null)} />
+      {(teamsLoadWarning || seatLoadWarning) && (
+        <div className="mb-3 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-500 dark:text-gray-400">
+          Couldn&apos;t load {teamsLoadWarning && seatLoadWarning ? 'the teams list and seat usage' : teamsLoadWarning ? 'the teams list' : 'seat usage'} — that section is hidden. Everything else works normally.
+        </div>
+      )}
+
+      <ErrorAlert message={list.error} onDismiss={() => list.setError(null)} />
 
       <div className="filter-bar">
         <ActionBar
           left={
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
-              <input type="text" placeholder="Search by name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="filter-input" />
+              <input type="text" placeholder="Search by name or email..." value={list.filters.search} onChange={(e) => list.updateFilter('search', e.target.value)} className="filter-input" />
             </div>
           }
           right={
-            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as 'all' | 'member' | 'admin')} className="filter-select">
+            <select value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} className="filter-select">
               <option value="all">All Roles</option>
               <option value="member">Members</option>
               <option value="admin">Admins</option>
@@ -690,15 +445,15 @@ export default function MembersPage() {
       </div>
 
       <DataTable<OrganizationMember>
-        data={filteredMembers}
+        data={members}
         columns={columns}
         getRowKey={(m) => m.id}
-        isLoading={isLoading}
+        isLoading={list.isLoading}
         emptyState={{
           icon: Users,
           title: 'No team members found',
-          description: searchQuery ? 'Try adjusting your search.' : 'Add members to your organization to get started.',
-          action: searchQuery ? undefined : (
+          description: list.hasActiveFilters ? 'Try adjusting your search or filter.' : 'Add members to your organization to get started.',
+          action: list.hasActiveFilters ? undefined : (
             <Button onClick={openAddModal}>
               <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
             </Button>
@@ -706,6 +461,10 @@ export default function MembersPage() {
         }}
         defaultSortColumn="username"
       />
+
+      {!list.isLoading && list.pagination.total > 0 && (
+        <Pagination pagination={list.pagination} onPageChange={list.handlePageChange} onPageSizeChange={list.handlePageSizeChange} />
+      )}
 
       {/* Add member modal */}
       <AddMemberModal
@@ -726,46 +485,18 @@ export default function MembersPage() {
 
       {/* Manage Roles — assign/remove the org's Roles for one member. Editing
           access happens here; the coarse Role badge is derived from the result. */}
-      {rolesTarget && (
-        <Modal
-          title={`Manage roles for ${rolesTarget.username}`}
-          onClose={() => !rolesSaving && setRolesTarget(null)}
-          maxWidth="max-w-md"
-          footer={
-            <ModalFooter
-              onCancel={() => setRolesTarget(null)}
-              onConfirm={handleSaveRoles}
-              confirmLabel="Save roles"
-              loading={rolesSaving}
-            />
-          }
-        >
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-            A member&apos;s access is the union of their Roles. The Owner/Admin/Member badge is derived from these.
-          </p>
-          {roles.length === 0 ? (
-            <p className="text-sm text-gray-400 dark:text-gray-500 italic">No roles exist in this organization yet.</p>
-          ) : (
-            <div className="max-h-72 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
-              {roles.map((r) => (
-                <label key={r.id} className="flex items-start gap-2 p-2.5 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={selectedRoleIds.has(r.id)}
-                    onChange={() => toggleRoleSelection(r.id)}
-                    disabled={rolesSaving}
-                    className="mt-0.5"
-                  />
-                  <span className="min-w-0">
-                    <span className="font-medium text-gray-800 dark:text-gray-200">{roleDisplayName(r.name)}</span>
-                    {r.description && <span className="block text-xs text-gray-400 dark:text-gray-500">{r.description}</span>}
-                  </span>
-                </label>
-              ))}
-            </div>
-          )}
-          {rolesError && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{rolesError}</p>}
-        </Modal>
-      )}
+      <ManageRolesModal
+        target={memberRoles.rolesTarget}
+        roles={memberRoles.roles}
+        rolesListError={memberRoles.rolesListError}
+        selectedRoleIds={memberRoles.selectedRoleIds}
+        saving={memberRoles.rolesSaving}
+        error={memberRoles.rolesError}
+        onToggleRole={memberRoles.toggleRoleSelection}
+        onRetry={memberRoles.fetchRoles}
+        onSubmit={memberRoles.handleSaveRoles}
+        onClose={memberRoles.closeRoles}
+      />
 
       {/* Password reset modal */}
       <PasswordResetModal
@@ -790,15 +521,15 @@ export default function MembersPage() {
 
       {/* Manage teams modal — a member can belong to multiple teams */}
       <ManageTeamsModal
-        target={manageTeamsTarget}
-        roster={teamRoster}
-        loading={teamsLoading}
-        saving={teamsSaving}
-        error={teamsError}
-        selectedTeamIds={selectedTeamIds}
-        onToggleTeam={toggleTeam}
-        onSubmit={handleSaveTeams}
-        onClose={() => setManageTeamsTarget(null)}
+        target={memberTeams.manageTeamsTarget}
+        roster={memberTeams.teamRoster}
+        loading={memberTeams.teamsLoading}
+        saving={memberTeams.teamsSaving}
+        error={memberTeams.teamsError}
+        selectedTeamIds={memberTeams.selectedTeamIds}
+        onToggleTeam={memberTeams.toggleTeam}
+        onSubmit={memberTeams.handleSaveTeams}
+        onClose={memberTeams.closeManageTeams}
       />
 
       {/* Add a member straight to one team (no context switch) */}
@@ -812,29 +543,11 @@ export default function MembersPage() {
       />
 
       {/* Transfer ownership — confirm, then step-up before the PATCH runs */}
-      {transferConfirm && (
-        <Modal
-          title="Transfer Ownership"
-          onClose={() => setTransferConfirm(null)}
-          maxWidth="max-w-md"
-          footer={
-            <ModalFooter
-              onCancel={() => setTransferConfirm(null)}
-              onConfirm={confirmTransfer}
-              confirmLabel="Transfer ownership"
-            />
-          }
-        >
-          <p className="text-sm text-gray-600 dark:text-gray-300">
-            Make <strong className="text-gray-900 dark:text-gray-100">{transferConfirm.username}</strong> the
-            owner of this organization?
-          </p>
-          <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
-            You will be demoted to admin and lose owner-only controls. You&apos;ll re-enter your
-            password to confirm.
-          </p>
-        </Modal>
-      )}
+      <TransferOwnershipModal
+        target={transferConfirm}
+        onConfirm={confirmTransfer}
+        onClose={() => setTransferConfirm(null)}
+      />
       {pendingTransfer && (
         <StepUpModal
           action={`Transfer ownership of this organization to ${pendingTransfer.username}`}

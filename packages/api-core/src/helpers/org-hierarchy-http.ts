@@ -79,12 +79,19 @@ export async function fetchParentOrgId(orgId: string, opts: OrgHierarchyHttpOpti
  * larger than the org itself (a real subtree), else `undefined`; also
  * `undefined` on a non-2xx response. Throws on a transport failure so the
  * caller can apply its own fallback.
+ *
+ * This is a trust boundary: the response is validated element-by-element rather
+ * than cast — every entry must be a string, and any non-string is dropped — so
+ * a malformed payload can never smuggle a non-string into the returned
+ * `string[]`.
  */
 export async function fetchOrgDescendants(orgId: string, opts: OrgHierarchyHttpOptions): Promise<string[] | undefined> {
   const { client, path, headers } = buildRequest(orgId, 'descendants', opts);
   const res = await client.get<{ data?: { orgIds?: unknown } }>(path, { headers, timeout: opts.timeout });
   if (res.statusCode >= 400) return undefined;
   const ids = res.body?.data?.orgIds;
-  // Only meaningful when the subtree is larger than the org itself.
-  return Array.isArray(ids) && ids.length > 1 ? (ids as string[]) : undefined;
+  if (!Array.isArray(ids)) return undefined;
+  const orgIds = ids.filter((id): id is string => typeof id === 'string');
+  // Only meaningful when the (validated) subtree is larger than the org itself.
+  return orgIds.length > 1 ? orgIds : undefined;
 }

@@ -385,9 +385,13 @@ export function createMarketplaceRoutes(): Router {
           return sendError(res, 403, 'Invalid SNS signature', ErrorCode.INSUFFICIENT_PERMISSIONS);
         }
 
-        // Verify topic ARN matches config (if configured)
-        if (config.marketplace.snsTopicArn && snsMessage.TopicArn !== config.marketplace.snsTopicArn) {
-          logger.warn('SNS message from unexpected topic', {
+        // Verify topic ARN matches config — FAIL CLOSED. If the expected topic
+        // is unset, a valid signature from ANY attacker-owned SNS topic would
+        // otherwise be accepted (they could publish e.g. unsubscribe-success for
+        // a guessable customerIdentifier and downgrade that org). Reject unless a
+        // topic is configured AND the message came from exactly that topic.
+        if (!config.marketplace.snsTopicArn || snsMessage.TopicArn !== config.marketplace.snsTopicArn) {
+          logger.warn('marketplace SNS topic not configured / mismatch — rejecting', {
             expected: config.marketplace.snsTopicArn,
             received: snsMessage.TopicArn,
           });

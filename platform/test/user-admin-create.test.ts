@@ -23,6 +23,8 @@ const mockGroupFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockGroupMembershipUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRecomputeUserOrgRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockEnsureBaselineRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockAssignBuiltinAdminRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockRemoveBuiltinAdminRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 // Recording constructor for `new User(...)` — captures the last-built instance.
 let lastUser: any;
@@ -70,6 +72,8 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   RL_ROLE_NOT_FOUND,
   recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
+  assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),
+  removeBuiltinAdminRole: (...a: unknown[]) => mockRemoveBuiltinAdminRole(...a),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -96,6 +100,8 @@ beforeEach(() => {
   mockGroupMembershipUpdateOne.mockResolvedValue(undefined);
   mockRecomputeUserOrgRole.mockResolvedValue(undefined);
   mockEnsureBaselineRole.mockResolvedValue(undefined);
+  mockAssignBuiltinAdminRole.mockResolvedValue(true);
+  mockRemoveBuiltinAdminRole.mockResolvedValue(undefined);
   // Default: every looked-up role exists.
   mockGroupFindOne.mockReturnValue(findByIdResolving({ _id: 'grp', grantsRole: 'member' }));
   // Default: neither username nor email exists.
@@ -148,6 +154,38 @@ describe('UserAdminService.createUser', () => {
 
     expect((mockUserOrgCreate.mock.calls[0] as any)[0][0].role).toBe('member');
     expect(result.role).toBe('member');
+  });
+
+  it('gives an admin-created member the Member floor and NO Admin Role (member perms only)', async () => {
+    mockOrgFindById.mockReturnValue(findByIdResolving({ _id: 'org-9' }));
+
+    await userAdminService.createUser({ ...base, organizationId: 'org-9', role: 'member' });
+
+    expect(mockEnsureBaselineRole).toHaveBeenCalledTimes(1);
+    expect(mockAssignBuiltinAdminRole).not.toHaveBeenCalled();
+  });
+
+  it('grants an admin (no roleIds) the built-in Admin Role so their PERMISSIONS match the coarse role', async () => {
+    mockOrgFindById.mockReturnValue(findByIdResolving({ _id: 'org-9' }));
+
+    await userAdminService.createUser({ ...base, organizationId: 'org-9', role: 'admin' });
+
+    // Member floor + Admin Role are both assigned THROUGH Role assignment, then
+    // recompute derives the coarse role (no manual membership.role split-brain).
+    expect(mockEnsureBaselineRole).toHaveBeenCalledTimes(1);
+    expect(mockAssignBuiltinAdminRole).toHaveBeenCalledTimes(1);
+    expect((mockAssignBuiltinAdminRole.mock.calls[0] as any)[1]).toBe('org-9');
+    expect(mockRecomputeUserOrgRole).toHaveBeenCalled();
+  });
+
+  it('grants an owner the built-in Admin Role too (owner == admin bundle)', async () => {
+    mockOrgFindById.mockReturnValue(findByIdResolving({ _id: 'org-9' }));
+
+    await userAdminService.createUser({ ...base, organizationId: 'org-9', role: 'owner' });
+
+    expect(mockAssignBuiltinAdminRole).toHaveBeenCalledTimes(1);
+    // The membership is still created as 'owner' so recompute preserves the label.
+    expect((mockUserOrgCreate.mock.calls[0] as any)[0][0].role).toBe('owner');
   });
 
   it('honors the isSuperAdmin flag', async () => {

@@ -14,7 +14,7 @@ import { Router } from 'express';
 import { addUserGrant, removeUserGrant } from '../controllers/superadmin.js';
 import { requireAuth, requireStepUp } from '../middleware/index.js';
 
-const router = Router({ mergeParams: true });
+const router: Router = Router({ mergeParams: true });
 
 router.post('/', requireAuth, requireStepUp, addUserGrant);
 router.delete('/', requireAuth, requireStepUp, removeUserGrant);

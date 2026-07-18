@@ -22,7 +22,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.9.2",
+      "version": "26.1.1",
       "type": "build"
     },
     {
@@ -70,22 +70,22 @@
     },
     {
       "name": "@asteasolutions/zod-to-openapi",
-      "version": "8.5.0",
+      "version": "9.0.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-kms",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sts",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/credential-providers",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "runtime"
     },
     {

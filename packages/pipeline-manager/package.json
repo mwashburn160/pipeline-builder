@@ -40,18 +40,18 @@
     "typescript": "6.0.3"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudformation": "3.1064.0",
-    "@aws-sdk/client-lambda": "3.1064.0",
-    "@aws-sdk/client-secrets-manager": "3.1064.0",
-    "@aws-sdk/client-sts": "3.1064.0",
+    "@aws-sdk/client-cloudformation": "3.1089.0",
+    "@aws-sdk/client-lambda": "3.1089.0",
+    "@aws-sdk/client-secrets-manager": "3.1089.0",
+    "@aws-sdk/client-sts": "3.1089.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
-    "aws-cdk-lib": "2.258.1",
-    "axios": "1.17.0",
+    "aws-cdk-lib": "2.261.0",
+    "axios": "1.18.1",
     "commander": "15.0.0",
-    "figlet": "1.11.0",
-    "form-data": "4.0.5",
-    "ora": "9.4.0",
+    "figlet": "1.11.2",
+    "form-data": "4.0.6",
+    "ora": "9.4.1",
     "picocolors": "1.1.1",
     "progress": "2.0.3",
     "typescript": "6.0.3",
@@ -111,7 +111,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.4.142",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

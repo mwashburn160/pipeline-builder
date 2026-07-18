@@ -12,7 +12,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.9.2",
+      "version": "26.1.1",
       "type": "build"
     },
     {
@@ -60,32 +60,32 @@
     },
     {
       "name": "@ai-sdk/amazon-bedrock",
-      "version": "4.0.113",
+      "version": "5.0.24",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/anthropic",
-      "version": "3.0.81",
+      "version": "4.0.16",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/google",
-      "version": "3.0.80",
+      "version": "4.0.18",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai-compatible",
-      "version": "2.0.48",
+      "version": "3.0.12",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai",
-      "version": "3.0.68",
+      "version": "4.0.16",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/xai",
-      "version": "3.0.93",
+      "version": "4.0.16",
       "type": "runtime"
     },
     {
@@ -95,7 +95,7 @@
     },
     {
       "name": "ai",
-      "version": "6.0.198",
+      "version": "7.0.31",
       "type": "runtime"
     }
   ],

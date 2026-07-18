@@ -8,7 +8,7 @@ import { login, logout, register, refresh, switchOrg, sendVerificationEmail, ver
 import { stepUpVerify } from '../controllers/step-up.js';
 import { requireAuth, isValidRefreshToken } from '../middleware/index.js';
 
-const router = Router();
+const router: Router = Router();
 
 /**
  * Tight per-user limiter for /auth/step-up.

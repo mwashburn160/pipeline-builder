@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
-import { RL_ROLE_NOT_FOUND, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
+import { RL_ROLE_NOT_FOUND, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole, removeBuiltinAdminRole } from './roles-service.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { seatCapacityAvailable } from '../helpers/seats.js';
@@ -252,12 +252,19 @@ class UserAdminService {
         // Super Admin role, and bumps tokenVersion once — do NOT set the role
         // manually or double-bump tokenVersion for this path.
         await recomputeUserOrgRole(user._id, orgObjectId, session);
-      } else if (orgObjectId && (input.role ?? 'member') === 'member') {
-        // No explicit Roles supplied: single-source RBAC gives a plain member the
-        // built-in Member Role floor so they resolve to the member bundle. (When
-        // roleIds ARE supplied the user gets exactly those Roles —
-        // no hidden baseline — so this branch is intentionally skipped then.)
+      } else if (orgObjectId) {
+        // No explicit Roles supplied. Single-source RBAC: a role-less membership
+        // resolves to ZERO permissions, so give EVERY membership the built-in
+        // Member Role floor. An admin/owner ALSO gets the built-in Admin Role so
+        // their effective PERMISSIONS match the coarse role — setting
+        // `membership.role='admin'` alone yields coarse-admin/zero-perms and is
+        // reverted by the next recomputeUserOrgRole. We assign Roles and let
+        // recompute DERIVE the cached role (it preserves the 'owner' label).
         await ensureBaselineRole(user._id, orgObjectId, session);
+        if (input.role === 'admin' || input.role === 'owner') {
+          await assignBuiltinAdminRole(user._id, orgObjectId, session);
+          await recomputeUserOrgRole(user._id, orgObjectId, session);
+        }
       }
 
       return {
@@ -332,8 +339,9 @@ class UserAdminService {
           ? options.adminOrgId
           : (body.organizationId || user.lastActiveOrgId?.toString());
         if (targetOrgId) {
+          const oid = toOrgId(targetOrgId);
           const membership = await UserOrganization.findOne({
-            userId: user._id, organizationId: toOrgId(targetOrgId),
+            userId: user._id, organizationId: oid,
           }).session(session);
           if (membership) {
             // Owner guard: refuse to change the role of an org OWNER's membership
@@ -342,13 +350,23 @@ class UserAdminService {
             // here and orphan the org.
             if (membership.role === 'owner') throw new Error(UA_CANNOT_CHANGE_OWNER);
             if (membership.role !== body.role) {
-              membership.role = body.role as OrgMemberRole;
-              await membership.save({ session });
-              // Bump tokenVersion so the role change (a privilege change) takes
-              // effect immediately — outstanding JWTs carrying the old role are
-              // rejected on the next request. Same rationale as the password
-              // branch below and org-members-service.updateRole.
-              user.tokenVersion = (user.tokenVersion || 0) + 1;
+              // Single-source RBAC: route the coarse-role change THROUGH Role
+              // assignment rather than setting `membership.role` directly (a
+              // split-brain we retired in updateMemberRole — a direct set gives
+              // coarse-admin with member-level perms and is reverted by the next
+              // recompute). Promote → grant the built-in Admin Role; demote →
+              // strip it. The Member floor is always re-asserted so a demoted
+              // user still resolves to the member bundle. recomputeUserOrgRole
+              // (run inside ensureBaselineRole) then DERIVES the cached coarse
+              // role AND bumps tokenVersion on the privilege change — so we set
+              // neither manually here (leaving user.tokenVersion untouched also
+              // keeps user.save() from clobbering that $inc).
+              if (body.role === 'admin') {
+                await assignBuiltinAdminRole(user._id, oid, session);
+              } else if (body.role === 'member') {
+                await removeBuiltinAdminRole(user._id, oid, session);
+              }
+              await ensureBaselineRole(user._id, oid, session);
               changes.push('role');
             }
           }

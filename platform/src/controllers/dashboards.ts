@@ -124,11 +124,9 @@ export const createDashboard = withController('Create dashboard', async (req, re
   if (!ctx) return;
   const { userId, orgId } = ctx;
 
-  // Org-admin or sysadmin can create. Anyone else gets 403 — keeps random
-  // members from churning out org/public dashboards.
-  if (!userHasPermission(req, 'dashboards:write')) {
-    return sendError(res, 403, 'Org admin or system admin required to create dashboards');
-  }
+  // The static `dashboards:write` capability gate now lives at the route
+  // (`requirePermission('dashboards:write')`), so it's visible in the route
+  // table. The `public`-visibility check below is a separate, finer gate.
 
   const body = req.body as { name?: unknown; description?: unknown; visibility?: unknown; layoutJson?: unknown };
   if (!isReasonableString(body.name, MAX_NAME)) {
@@ -190,6 +188,9 @@ export const updateDashboard = withController('Update dashboard', async (req, re
   const existing = await dashboardService.findById(getParam(req.params, 'id')!);
   if (!existing) return sendError(res, 404, 'Dashboard not found');
 
+  // Handler-gated on purpose: canWrite is DYNAMIC (creator | org-admin |
+  // sysadmin) and must resolve the target dashboard first, so it can't be a
+  // route-level requirePermission.
   const canWrite = dashboardService.canWrite(existing, {
     orgId,
     userId,
@@ -253,6 +254,9 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
   const existing = await dashboardService.findById(getParam(req.params, 'id')!);
   if (!existing) return sendError(res, 404, 'Dashboard not found');
 
+  // Handler-gated on purpose: canWrite is DYNAMIC (creator | org-admin |
+  // sysadmin) and must resolve the target dashboard first, so it can't be a
+  // route-level requirePermission.
   const canWrite = dashboardService.canWrite(existing, {
     orgId,
     userId,
@@ -286,11 +290,9 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
   if (!ctx) return;
   const { userId, orgId } = ctx;
 
-  // Same gate as create — needs at least org-admin to land a new dashboard
-  // in the org's namespace.
-  if (!userHasPermission(req, 'dashboards:write')) {
-    return sendError(res, 403, 'Org admin or system admin required to clone');
-  }
+  // Same static gate as create — `requirePermission('dashboards:write')` at the
+  // route ensures at least org-admin before a new dashboard lands in the org's
+  // namespace. Source visibility (canRead) is still checked below.
 
   const sourceId = getParam(req.params, 'id')!;
 

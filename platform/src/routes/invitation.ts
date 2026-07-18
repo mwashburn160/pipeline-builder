@@ -14,7 +14,7 @@ import {
 } from '../controllers/index.js';
 import { requireAuth } from '../middleware/index.js';
 
-const router = Router();
+const router: Router = Router();
 
 /*
  * Public Endpoints

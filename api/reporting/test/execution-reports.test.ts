@@ -52,6 +52,17 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
+// helpers.js now imports `Config` from pipeline-core (to resolve the platform
+// host/port for the shared org-descendants client). requireActual('../src/helpers.js')
+// below loads that module, so stub pipeline-core here to keep its full config
+// graph (aws-cdk-lib, etc.) out of this api-core-mocking suite. resolveOrgRollup
+// itself is mocked, so Config.get is never actually invoked.
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  Config: {
+    get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }),
+  },
+}));
+
 jest.unstable_mockModule('../src/helpers.js', () => {
   const actual = jest.requireActual('../src/helpers.js') as Record<string, unknown>;
   return {

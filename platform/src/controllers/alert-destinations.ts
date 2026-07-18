@@ -18,7 +18,7 @@
  * create/update/delete (org admins own their notification surface).
  */
 
-import { createLogger, sendError, sendQuotaExceeded, sendSuccess, userHasPermission } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
@@ -106,9 +106,8 @@ export const createAlertDestination = withController('Create alert destination',
   if (!ctx) return;
   const { userId, orgId } = ctx;
 
-  if (!userHasPermission(req, 'observability:write')) {
-    return sendError(res, 403, 'Org admin or system admin required');
-  }
+  // Static `observability:write` gate now enforced at the route
+  // (`requirePermission('observability:write')`), auditable in the route table.
 
   const body = req.body as { channel?: unknown; target?: unknown; label?: unknown; minSeverity?: unknown; enabled?: unknown };
 
@@ -166,9 +165,7 @@ export const updateAlertDestination = withController('Update alert destination',
   if (!ctx) return;
   const { userId, orgId } = ctx;
 
-  if (!userHasPermission(req, 'observability:write')) {
-    return sendError(res, 403, 'Org admin or system admin required');
-  }
+  // Static `observability:write` gate now enforced at the route.
 
   const id = req.params.id as string;
   const body = req.body as { channel?: unknown; target?: unknown; label?: unknown; minSeverity?: unknown; enabled?: unknown };
@@ -228,9 +225,7 @@ export const deleteAlertDestination = withController('Delete alert destination',
   if (!ctx) return;
   const { userId, orgId } = ctx;
 
-  if (!userHasPermission(req, 'observability:write')) {
-    return sendError(res, 403, 'Org admin or system admin required');
-  }
+  // Static `observability:write` gate now enforced at the route.
 
   const id = req.params.id as string;
   const ok = await alertDestinationService.delete(id, { orgId, userId });
@@ -256,9 +251,8 @@ export const testAlertDestination = withController('Test alert destination', asy
   if (!ctx) return;
   const { userId, orgId } = ctx;
 
-  if (!userHasPermission(req, 'observability:write')) {
-    return sendError(res, 403, 'Org admin or system admin required');
-  }
+  // Static `observability:write` gate now enforced at the route. The lookup
+  // below is org-scoped so you still can't test another org's destination.
 
   const id = req.params.id as string;
 

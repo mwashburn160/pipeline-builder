@@ -12,7 +12,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.9.2",
+      "version": "26.1.1",
       "type": "build"
     },
     {
@@ -80,7 +80,7 @@
     },
     {
       "name": "pg",
-      "version": "8.21.0",
+      "version": "8.22.0",
       "type": "runtime"
     }
   ],

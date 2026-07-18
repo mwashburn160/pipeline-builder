@@ -76,6 +76,9 @@ export interface OrganizationMember {
   isEmailVerified: boolean;
   createdAt: string;
   updatedAt?: string;
+  /** The permission Roles this member holds (id + name), embedded in the roster
+   *  payload so chips render without an all-roles O(members×roles) client scan. */
+  roles?: Array<{ id: string; name: string }>;
 }
 
 /**

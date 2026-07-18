@@ -14,7 +14,7 @@ import {
 } from '../controllers/index.js';
 import { requireAuth, requireStepUp } from '../middleware/index.js';
 
-const router = Router();
+const router: Router = Router();
 
 /** GET /user/profile - Get current user's profile */
 router.get('/profile', requireAuth, getUser);

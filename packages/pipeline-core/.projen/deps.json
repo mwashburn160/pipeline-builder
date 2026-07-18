@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@aws-sdk/client-secrets-manager",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "build"
     },
     {
@@ -27,7 +27,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.9.2",
+      "version": "26.1.1",
       "type": "build"
     },
     {
@@ -90,17 +90,17 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "2.258.1",
+      "version": "2.261.0",
       "type": "runtime"
     },
     {
       "name": "axios",
-      "version": "1.17.0",
+      "version": "1.18.1",
       "type": "runtime"
     },
     {
       "name": "constructs",
-      "version": "10.6.0",
+      "version": "10.7.0",
       "type": "runtime"
     },
     {
@@ -110,7 +110,7 @@
     },
     {
       "name": "uuid",
-      "version": "14.0.0",
+      "version": "14.0.1",
       "type": "runtime"
     }
   ],

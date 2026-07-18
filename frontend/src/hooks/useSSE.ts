@@ -63,7 +63,6 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
     eventSource.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data);
-        retryCountRef.current = 0;
         const shouldClose = onMessageRef.current(parsed);
         if (shouldClose) eventSource.close();
       } catch {

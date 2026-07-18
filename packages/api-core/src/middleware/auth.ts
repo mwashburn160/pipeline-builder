@@ -16,6 +16,9 @@ const logger = createLogger('auth-middleware');
 /** Cached JWT secret with periodic refresh from env var. */
 let _jwtSecret: string | undefined;
 let _jwtSecretRefreshedAt = 0;
+/** Cached PREVIOUS JWT secret (optional) — enables zero-downtime rotation. */
+let _jwtSecretPrevious: string | undefined;
+let _jwtSecretPreviousRefreshedAt = 0;
 const JWT_SECRET_REFRESH_INTERVAL_MS = 300_000; // 5 minutes
 
 function getJwtSecret(): string {
@@ -33,6 +36,63 @@ function getJwtSecret(): string {
     _jwtSecretRefreshedAt = now;
   }
   return _jwtSecret;
+}
+
+/**
+ * The optional PREVIOUS JWT secret (`JWT_SECRET_PREVIOUS`), cached with the same
+ * TTL as the primary. Returns `undefined` when unset. During a `JWT_SECRET`
+ * rotation, operators set `JWT_SECRET_PREVIOUS` to the old value so tokens signed
+ * with EITHER secret keep verifying — closing the auth-outage window where
+ * still-valid old-signed (or freshly new-signed) tokens would otherwise be
+ * rejected. `undefined` is a valid cached value, so this refreshes purely on the
+ * time interval (not on emptiness).
+ */
+function getJwtSecretPrevious(): string | undefined {
+  const now = Date.now();
+  if (now - _jwtSecretPreviousRefreshedAt > JWT_SECRET_REFRESH_INTERVAL_MS) {
+    _jwtSecretPrevious = process.env.JWT_SECRET_PREVIOUS || undefined;
+    _jwtSecretPreviousRefreshedAt = now;
+  }
+  return _jwtSecretPrevious;
+}
+
+/**
+ * Verify a JWT against the primary secret, falling back to the previous secret
+ * (when `JWT_SECRET_PREVIOUS` is configured) ONLY on a signature/verification
+ * failure. This makes token verification survive a secret rotation with zero
+ * downtime: a token valid under EITHER secret passes.
+ *
+ * jsonwebtoken's `verify` takes a single secret, so this is try-primary-then-
+ * previous — NOT a secret array. No existing check is weakened:
+ *   - `verifyOptions` (algorithm pinning + optional issuer/audience) is applied
+ *     identically on BOTH attempts, so alg-confusion / `alg:none` stay blocked.
+ *   - Expiry / not-before from the PRIMARY attempt are authoritative and are
+ *     re-thrown without a previous-secret retry, so a `TokenExpiredError` is
+ *     never masked into an "invalid signature".
+ *   - When no previous secret is set, behaviour is byte-for-byte the original:
+ *     the primary error propagates unchanged.
+ */
+function verifyJwtWithRotation(token: string, verifyOptions: jwt.VerifyOptions): JwtPayload {
+  try {
+    return jwt.verify(token, getJwtSecret(), verifyOptions) as JwtPayload;
+  } catch (err) {
+    const previous = getJwtSecretPrevious();
+    // Fall back to the previous secret only for a signature/verification failure
+    // (a plain JsonWebTokenError). Expiry / not-before are enforced regardless of
+    // which secret signed the token, so those errors must surface as-is.
+    if (
+      previous
+      && err instanceof jwt.JsonWebTokenError
+      && !(err instanceof jwt.TokenExpiredError)
+      && !(err instanceof jwt.NotBeforeError)
+    ) {
+      // A token signed by the previous secret verifies here; if it is instead
+      // expired/invalid under the previous secret, that error propagates and is
+      // handled by the caller exactly like a primary failure.
+      return jwt.verify(token, previous, verifyOptions) as JwtPayload;
+    }
+    throw err;
+  }
 }
 
 export interface RequireAuthOptions {
@@ -104,7 +164,7 @@ function _requireAuth(
     const expectedAudience = process.env.JWT_AUDIENCE;
     if (expectedIssuer) verifyOptions.issuer = expectedIssuer;
     if (expectedAudience) verifyOptions.audience = expectedAudience;
-    const decoded = jwt.verify(parts[1], getJwtSecret(), verifyOptions) as JwtPayload;
+    const decoded = verifyJwtWithRotation(parts[1], verifyOptions);
 
     if (decoded.type !== 'access') {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Only access tokens can be used for API requests', ErrorCode.TOKEN_INVALID);
@@ -390,7 +450,7 @@ export function verifyServicePrincipal(req: Request): boolean {
     const verifyOptions: jwt.VerifyOptions = { algorithms: [(process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm] };
     if (process.env.JWT_ISSUER) verifyOptions.issuer = process.env.JWT_ISSUER;
     if (process.env.JWT_AUDIENCE) verifyOptions.audience = process.env.JWT_AUDIENCE;
-    const decoded = jwt.verify(parts[1], getJwtSecret(), verifyOptions) as JwtPayload;
+    const decoded = verifyJwtWithRotation(parts[1], verifyOptions);
     return decoded.type === 'access' && typeof decoded.sub === 'string' && decoded.sub.startsWith('service:');
   } catch {
     return false;

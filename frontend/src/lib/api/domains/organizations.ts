@@ -52,8 +52,18 @@ export function organizationsApi(core: ApiCore) {
       return core.request<ApiResponse<{ orgIds: string[] }>>(`/api/organization/${id}/descendants`);
     },
 
-    getOrganizationMembers: async (orgId: string) => {
-      return core.request<ApiResponse<{ members: OrganizationMember[] }>>(`/api/organization/${orgId}/members`);
+    /** A bounded, filterable page of an org's members. `search` matches
+     *  username/email and `role` narrows the coarse role — both applied
+     *  server-side. Each member carries its assigned Role names, so the UI needs
+     *  no all-roles O(members×roles) scan to render chips. */
+    getOrganizationMembers: async (
+      orgId: string,
+      params?: { limit?: number; offset?: number; search?: string; role?: 'owner' | 'admin' | 'member' },
+    ) => {
+      return core.request<ApiResponse<{
+        members: OrganizationMember[];
+        pagination: { total: number; offset: number; limit: number; hasMore: boolean };
+      }>>(`/api/organization/${orgId}/members${buildQuery(params)}`);
     },
 
     addMemberToOrganization: async (orgId: string, data: { userId?: string; email?: string }) => {

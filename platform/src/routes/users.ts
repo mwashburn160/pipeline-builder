@@ -14,7 +14,7 @@ import {
 } from '../controllers/index.js';
 import { requireAuth, requireStepUp } from '../middleware/index.js';
 
-const router = Router();
+const router: Router = Router();
 
 /** GET /users - List all users (system admin only) */
 router.get('/', requireAuth, requirePermission('members:manage'), listAllUsers);

@@ -21,7 +21,7 @@
   "devDependencies": {
     "@jest/globals": "30.2.0",
     "@stylistic/eslint-plugin": "^2",
-    "@types/node": "25.9.2",
+    "@types/node": "26.1.1",
     "@types/pg": "8.20.0",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
@@ -37,7 +37,7 @@
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
     "drizzle-orm": "0.45.2",
-    "pg": "8.21.0"
+    "pg": "8.22.0"
   },
   "keywords": [
     "ci-cd",
@@ -93,7 +93,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.4.89",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

@@ -27,6 +27,7 @@ const mockGmExists = jest.fn();
 const mockGmCount = jest.fn();
 const mockUoFindOne = jest.fn();
 const mockUserUpdateOne = jest.fn();
+const mockUserUpdateMany = jest.fn();
 const mockUserFindById = jest.fn();
 const mockUserFindOne = jest.fn();
 
@@ -64,6 +65,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
   User: {
     updateOne: (...a: unknown[]) => mockUserUpdateOne(...a),
+    updateMany: (...a: unknown[]) => mockUserUpdateMany(...a),
     findById: (...a: unknown[]) => mockUserFindById(...a),
     findOne: (...a: unknown[]) => mockUserFindOne(...a),
   },
@@ -72,9 +74,11 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 
 const {
   seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, getUserRolePermissions,
-  addUserToRole, removeUserFromRole,
+  addUserToRole, removeUserFromRole, updateRole,
+  grantPlatformAdmin, revokePlatformAdmin,
   RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER,
   RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN,
+  RL_SUPERADMIN_ROLE_MISSING,
 } = await import('../src/services/roles-service.js');
 
 // The single-source resolver, from the (mocked) api-core — faithful: superadmin
@@ -471,5 +475,130 @@ describe('removeUserFromRole', () => {
     await expect(removeUserFromRole('000000000000000000000001', 'gS', 'victim', { actorUserId: 'admin', actorIsSuperAdmin: false }))
       .rejects.toThrow(RL_REQUIRES_SUPERADMIN);
     expect(mockGmDeleteOne).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateRole (atomic permission edit + member tokenVersion bump)', () => {
+  /** A custom (non-system) Role doc with a spyable `.save()`. */
+  const roleDoc = () => ({
+    _id: 'gCustom',
+    name: 'Deployers',
+    system: false,
+    permissions: ['pipelines:read'],
+    save: jest.fn().mockResolvedValue(undefined),
+  });
+
+  it('wraps role.save + the members tokenVersion bump in ONE transaction (session threaded)', async () => {
+    const doc = roleDoc();
+    mockGroupFindOne.mockResolvedValue(doc);
+    // RoleAssignment.find({ roleId }).session().select('userId').lean() → members.
+    findReturns(mockGmFind, [{ userId: 'm1' }, { userId: 'm2' }]);
+
+    await updateRole('org-1', 'gCustom', { permissions: ['pipelines:write'] });
+
+    // The Role edit is persisted WITH the transaction session ...
+    expect(doc.save).toHaveBeenCalledTimes(1);
+    expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
+    // ... and the members' access tokens are invalidated in the SAME session,
+    // so the new grants can't diverge from the persisted permissions.
+    expect(mockUserUpdateMany).toHaveBeenCalledWith(
+      { _id: { $in: ['m1', 'm2'] } },
+      { $inc: { tokenVersion: 1 } },
+      { session: expect.anything() },
+    );
+  });
+
+  it('does NOT bump tokenVersion when permissions are unchanged (name-only edit)', async () => {
+    const doc = roleDoc();
+    mockGroupFindOne.mockResolvedValue(doc);
+
+    await updateRole('org-1', 'gCustom', { description: 'renamed' });
+
+    expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin Role is authoritative)', () => {
+  const SYS = '000000000000000000000001'; // SYSTEM_ORG_ID (matches the api-core mock)
+
+  // Role.findOne(...superadmin...).session().select('_id').lean() → the system Super Admin Role.
+  const superAdminRoleFound = (id: string | null) =>
+    mockGroupFindOne.mockReturnValue({ session: () => ({ select: () => ({ lean: () => Promise.resolve(id ? { _id: id } : null) }) }) });
+  // User.findById(...).select('+isSuperAdmin').session() — awaited by recompute AND .lean()'d by grant/revoke's before-read.
+  const userIsSuperAdmin = (value: boolean) => mockUserFindById.mockReturnValue({
+    select: () => ({
+      session: () => {
+        const p = Promise.resolve({ isSuperAdmin: value }) as Promise<{ isSuperAdmin: boolean }> & { lean?: () => Promise<{ isSuperAdmin: boolean }> };
+        p.lean = () => Promise.resolve({ isSuperAdmin: value });
+        return p;
+      },
+    }),
+  });
+
+  it('grant: assigns the system Super Admin Role, recompute flips the flag + bumps tokenVersion, drops refresh', async () => {
+    superAdminRoleFound('sa-role');
+    mockGmUpdateOne.mockResolvedValue({});
+    userIsSuperAdmin(false); // before + recompute current: not yet superadmin
+    findReturns(mockGmFind, [{ roleId: 'sa-role' }]); // recompute: user now holds the Super Admin Role
+    findReturns(mockGroupFind, [{ grantsRole: 'superadmin' }]);
+    mockUoFindOne.mockReturnValue({ session: () => null }); // no UserOrganization membership needed for the flag
+    orgHasSuperadminRole(true); // system org defines a superadmin Role
+    mockUserUpdateOne.mockResolvedValue({});
+
+    const result = await grantPlatformAdmin('u1');
+
+    expect(mockGmUpdateOne).toHaveBeenCalledWith(
+      { userId: 'u1', roleId: 'sa-role' },
+      { $setOnInsert: { userId: 'u1', roleId: 'sa-role', organizationId: SYS } },
+      expect.objectContaining({ upsert: true }),
+    );
+    // recompute flips isSuperAdmin false→true and bumps tokenVersion
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: true } }, expect.anything());
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { tokenVersion: 1 } }, expect.anything());
+    // a real change drops the refresh token
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $unset: { refreshToken: '' } }, expect.anything());
+    expect(result).toEqual({ changed: true });
+  });
+
+  it('grant: idempotent (already superadmin) → no refresh drop, changed:false', async () => {
+    superAdminRoleFound('sa-role');
+    mockGmUpdateOne.mockResolvedValue({});
+    userIsSuperAdmin(true); // already superadmin
+    findReturns(mockGmFind, [{ roleId: 'sa-role' }]);
+    findReturns(mockGroupFind, [{ grantsRole: 'superadmin' }]);
+    mockUoFindOne.mockReturnValue({ session: () => null });
+    orgHasSuperadminRole(true);
+    mockUserUpdateOne.mockResolvedValue({});
+
+    const result = await grantPlatformAdmin('u1');
+
+    expect(result).toEqual({ changed: false });
+    // no flip (current already true) → no tokenVersion bump, no refresh drop
+    expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $unset: { refreshToken: '' } }, expect.anything());
+    expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { tokenVersion: 1 } }, expect.anything());
+  });
+
+  it('revoke: removes the Role, recompute clears the flag, drops refresh', async () => {
+    superAdminRoleFound('sa-role');
+    mockGmDeleteOne.mockResolvedValue({});
+    userIsSuperAdmin(true); // was superadmin
+    findReturns(mockGmFind, []); // recompute: no superadmin assignment now
+    findReturns(mockGroupFind, []);
+    mockUoFindOne.mockReturnValue({ session: () => null });
+    orgHasSuperadminRole(true);
+    mockUserUpdateOne.mockResolvedValue({});
+
+    const result = await revokePlatformAdmin('u1');
+
+    expect(mockGmDeleteOne).toHaveBeenCalledWith({ userId: 'u1', roleId: 'sa-role' }, expect.objectContaining({ session: expect.anything() }));
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: false } }, expect.anything());
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $unset: { refreshToken: '' } }, expect.anything());
+    expect(result).toEqual({ changed: true });
+  });
+
+  it('throws RL_SUPERADMIN_ROLE_MISSING when the system org has no Super Admin Role', async () => {
+    superAdminRoleFound(null);
+    await expect(grantPlatformAdmin('u1')).rejects.toThrow(RL_SUPERADMIN_ROLE_MISSING);
   });
 });

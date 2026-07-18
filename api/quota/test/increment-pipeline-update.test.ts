@@ -43,9 +43,11 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: { findOneAndUpdate, findById },
 }));
 
-// Flat org → `checkSharedRootCap` returns null → incrementUsage takes the
-// atomic pipeline-update path (the one that broke), not the shared-cap branch.
+// Flat org → `getParentOrgId` returns undefined → `pooledLimitAndUsage`
+// short-circuits and `checkSharedRootCap` returns null → incrementUsage takes
+// the atomic pipeline-update path (the one that broke), not the shared-cap branch.
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  getParentOrgId: async () => undefined,
   resolveRootOrgId: async (id: string) => id,
   expandOrgScope: async (id: string) => [id],
 }));

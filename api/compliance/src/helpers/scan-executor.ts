@@ -3,7 +3,7 @@
 
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, gt, asc } from 'drizzle-orm';
 import { logComplianceCheck } from './audit-logger.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
 import { resolveParentOrgId } from './org-hierarchy-client.js';
@@ -246,40 +246,87 @@ async function executeScanInternal(scanId: string): Promise<void> {
   }
 }
 
-/** Hard cap on entities fetched per target per scan. Larger orgs are scanned
- *  truncated — we log a warn so operators can detect this. The scan record
- *  itself has no metadata column for a `truncated: true` flag (would need a
- *  schema change), so the warning is the only signal until that lands. */
-const ENTITY_FETCH_CAP = 1000;
+/** Page size for entity pagination. Entities are fetched in keyset-paginated
+ *  pages of this size and ALL pages are evaluated — there is no truncation.
+ *  Override via `COMPLIANCE_SCAN_ENTITY_PAGE_SIZE`. */
+const ENTITY_PAGE_SIZE = parseIntEnv(process.env.COMPLIANCE_SCAN_ENTITY_PAGE_SIZE, 1000);
+
+/** Absolute safety bound on total entities materialized per target per scan.
+ *  Pagination evaluates every entity; this only guards against pathological
+ *  unbounded memory. Exceeding it FAILS the scan (honest terminal state) rather
+ *  than silently truncating to a green "all pass". Override via
+ *  `COMPLIANCE_SCAN_ENTITY_MAX_TOTAL`. */
+const ENTITY_MAX_TOTAL = parseIntEnv(process.env.COMPLIANCE_SCAN_ENTITY_MAX_TOTAL, 100_000);
 
 /**
- * Fetch entities from plugin or pipeline service via internal HTTP.
- * If the result length equals `ENTITY_FETCH_CAP` we assume truncation and warn.
+ * Fetch ALL active entities for a target via keyset (id-ordered) pagination.
+ *
+ * Previously this issued a single `.limit(1000)` query and silently truncated
+ * larger orgs to the first 1000 rows — the scan then reported `status:'completed'`
+ * with a `totalEntities` that only counted the truncated slice, i.e. an
+ * authoritative green "all pass" that never evaluated the rest. This loops until
+ * a short page signals the end, so every entity is evaluated. `ENTITY_MAX_TOTAL`
+ * is a pathological-memory guard: if an org exceeds it we throw so the caller
+ * marks the scan `failed` — never a green scan that skipped entities.
  */
 async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityRecord[]> {
+  const pageSize = Math.max(1, ENTITY_PAGE_SIZE);
+  const all: EntityRecord[] = [];
+  // Keyset cursor: the id of the last row of the previous page (id-ordered asc).
+  // Keyset (id > cursor) rather than OFFSET so page N doesn't get slower as the
+  // table grows.
+  let cursor: string | undefined;
   try {
     // Only scan the org's own entities — system org entities are exempt from compliance
-    let rows: EntityRecord[];
-    if (target === 'plugin') {
-      rows = await withTenantTx(async (tx) => tx
-        .select({ id: schema.plugin.id, name: schema.plugin.name })
-        .from(schema.plugin)
-        .where(and(eq(schema.plugin.isActive, true), eq(schema.plugin.orgId, orgId)))
-        .limit(ENTITY_FETCH_CAP)) as EntityRecord[];
-    } else {
-      rows = await withTenantTx(async (tx) => tx
-        .select({ id: schema.pipeline.id, name: schema.pipeline.pipelineName })
-        .from(schema.pipeline)
-        .where(and(eq(schema.pipeline.isActive, true), eq(schema.pipeline.orgId, orgId)))
-        .limit(ENTITY_FETCH_CAP)) as EntityRecord[];
-    }
+    for (;;) {
+      let rows: EntityRecord[];
+      if (target === 'plugin') {
+        rows = await withTenantTx(async (tx) => tx
+          .select({ id: schema.plugin.id, name: schema.plugin.name })
+          .from(schema.plugin)
+          .where(and(
+            eq(schema.plugin.isActive, true),
+            eq(schema.plugin.orgId, orgId),
+            ...(cursor === undefined ? [] : [gt(schema.plugin.id, cursor)]),
+          ))
+          .orderBy(asc(schema.plugin.id))
+          .limit(pageSize)) as EntityRecord[];
+      } else {
+        rows = await withTenantTx(async (tx) => tx
+          .select({ id: schema.pipeline.id, name: schema.pipeline.pipelineName })
+          .from(schema.pipeline)
+          .where(and(
+            eq(schema.pipeline.isActive, true),
+            eq(schema.pipeline.orgId, orgId),
+            ...(cursor === undefined ? [] : [gt(schema.pipeline.id, cursor)]),
+          ))
+          .orderBy(asc(schema.pipeline.id))
+          .limit(pageSize)) as EntityRecord[];
+      }
 
-    if (rows.length >= ENTITY_FETCH_CAP) {
-      logger.warn('Scan entity fetch hit cap — results truncated', {
-        orgId, target, cap: ENTITY_FETCH_CAP,
-      });
+      all.push(...rows);
+
+      // A short page (fewer rows than requested) is the last page.
+      if (rows.length < pageSize) break;
+
+      // Advance the cursor to the last id we saw. If for some reason the id is
+      // missing we can't paginate safely — fail rather than loop forever or
+      // silently drop the tail.
+      const lastId = rows[rows.length - 1]?.id;
+      if (!lastId) {
+        throw new Error(`cannot paginate ${target} entities: last row has no id`);
+      }
+      cursor = lastId;
+
+      // Pathological-memory guard. Failing here is deliberate: a truncated green
+      // scan (the old behavior) is a false pass; an honest failure is not.
+      if (all.length > ENTITY_MAX_TOTAL) {
+        throw new Error(
+          `entity count for ${target} exceeded safety bound ${ENTITY_MAX_TOTAL}`,
+        );
+      }
     }
-    return rows;
+    return all;
   } catch (err) {
     // Do NOT swallow to `[]` — that made a failed entity load look like "0
     // entities, all clear" and the scan completed green (false-positive pass).
@@ -302,7 +349,13 @@ async function fetchExemptions(
     // Single source of truth for the active-exemption predicate.
     return await complianceExemptionService.getActiveExemptionsForEntities(orgId, entityIds);
   } catch (err) {
-    logger.warn('Failed to fetch exemptions for scan', { orgId, error: errorMessage(err) });
-    return new Map();
+    // Do NOT swallow to an empty Map. An empty Map means "no entity has an
+    // approved exemption", so a transient DB error here would make every entity
+    // with a VALID approved exemption evaluate as a violation/block and fire
+    // notifyComplianceBlock — fabricated blocks from an infra failure. Rethrow
+    // so the caller marks the scan `failed` (matches fetchEntities' fail-closed
+    // choice) rather than emitting a dishonest report.
+    logger.error('Failed to fetch exemptions for scan', { orgId, error: errorMessage(err) });
+    throw err;
   }
 }

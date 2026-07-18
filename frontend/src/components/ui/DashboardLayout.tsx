@@ -15,6 +15,7 @@ import { OrgSwitcher } from './OrgSwitcher';
 import { LoadingPage } from './Loading';
 import { QuotaBanner } from './QuotaBanner';
 import { ImpersonationBanner } from './ImpersonationBanner';
+import { AuthErrorBanner } from './AuthErrorBanner';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
@@ -206,6 +207,7 @@ export function DashboardLayout({
           </header>
 
           <ImpersonationBanner />
+          <AuthErrorBanner />
           <QuotaBanner />
 
           <main className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>

@@ -8,7 +8,7 @@
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockSyncTier = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
+const mockSyncEntitlements = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -34,7 +34,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
-  syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
+  syncEntitlements: (...args: unknown[]) => mockSyncEntitlements(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
 }));
 
@@ -103,6 +103,8 @@ describe('Subscription Lifecycle Checker', () => {
         status: 'past_due',
         firstFailedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000), // 8 days ago
         failedPaymentAttempts: 3,
+        metadata: {} as Record<string, unknown>,
+        save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
       };
 
       mockFind
@@ -115,14 +117,66 @@ describe('Subscription Lifecycle Checker', () => {
       // Wait for the initial async run
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // 4th arg is subscriptionId — passed for audit correlation in the quota service.
-      expect(mockSyncTier).toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1');
+      // Routes through syncEntitlements (5 args incl. empty addons) with a real
+      // service-auth header, so the seat leg + sync-failure metric also fire.
+      // 4th arg is subscriptionId — passed for audit correlation.
+      expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'developer', 'Bearer test-service-token', 'sub-1', []);
       expect(mockCreateBillingEvent).toHaveBeenCalledWith(
         'org-1',
         'subscription_updated',
         expect.objectContaining({ reason: 'grace_period_expired' }),
         'sub-1',
       );
+      // Durable dedupe marker is stamped + persisted so the row won't re-match.
+      expect(expiredSub.metadata.gracePeriodDowngradedAt).toBeDefined();
+      expect(expiredSub.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('excludes already-downgraded rows from the grace-period query (durable dedupe)', async () => {
+      mockFind.mockResolvedValue([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // The find filter must exclude subs already carrying the downgrade marker.
+      expect(mockFind).toHaveBeenCalledWith(expect.objectContaining({
+        'status': 'past_due',
+        'metadata.gracePeriodDowngradedAt': { $exists: false },
+      }));
+    });
+
+    it('does NOT re-downgrade or re-emit on a SECOND tick (idempotent)', async () => {
+      const expiredSub = {
+        _id: { toString: () => 'sub-1' },
+        orgId: 'org-1',
+        status: 'past_due',
+        firstFailedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+        failedPaymentAttempts: 3,
+        metadata: {} as Record<string, unknown>,
+        save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      };
+
+      // Emulate the Mongo dedupe filter: the grace-period query only returns the
+      // sub while it lacks the marker. Once the first tick stamps + saves it, the
+      // query excludes it — exactly what `metadata.gracePeriodDowngradedAt:
+      // {$exists:false}` does in the real store.
+      mockFind.mockImplementation(async (q: any) => {
+        if (q?.status === 'past_due') {
+          return expiredSub.metadata.gracePeriodDowngradedAt ? [] : [expiredSub];
+        }
+        return []; // expired-subscription + renewal-reminder queries
+      });
+
+      // Tick 1 — downgrades once.
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      // Tick 2 — the marked row is filtered out, so no repeat.
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).toHaveBeenCalledTimes(1);
+      expect(mockCreateBillingEvent).toHaveBeenCalledTimes(1);
+      expect(expiredSub.save).toHaveBeenCalledTimes(1);
     });
 
     it('does not downgrade when no subscriptions have expired grace period', async () => {
@@ -131,7 +185,7 @@ describe('Subscription Lifecycle Checker', () => {
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      expect(mockSyncTier).not.toHaveBeenCalled();
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
     });
   });
 

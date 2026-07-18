@@ -19,12 +19,12 @@
     "projen": "pnpm dlx projen"
   },
   "devDependencies": {
-    "@aws-sdk/client-secrets-manager": "3.1064.0",
+    "@aws-sdk/client-secrets-manager": "3.1089.0",
     "@jest/globals": "30.2.0",
     "@stylistic/eslint-plugin": "^2",
     "@types/aws-lambda": "8.10.162",
     "@types/jsonwebtoken": "9.0.10",
-    "@types/node": "25.9.2",
+    "@types/node": "26.1.1",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "copyfiles": "2.4.1",
@@ -39,11 +39,11 @@
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
-    "aws-cdk-lib": "2.258.1",
-    "axios": "1.17.0",
-    "constructs": "10.6.0",
+    "aws-cdk-lib": "2.261.0",
+    "axios": "1.18.1",
+    "constructs": "10.7.0",
     "jsonwebtoken": "9.0.3",
-    "uuid": "14.0.0"
+    "uuid": "14.0.1"
   },
   "keywords": [
     "ci-cd",
@@ -99,7 +99,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.4.103",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

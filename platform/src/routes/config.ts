@@ -5,7 +5,7 @@ import { sendSuccess } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { config } from '../config/index.js';
 
-const router = Router();
+const router: Router = Router();
 
 /** GET /config - Public endpoint returning service feature flags.
  *  `sendSuccess` uses res.status().json() and never touches Cache-Control,

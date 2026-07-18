@@ -118,4 +118,44 @@ describe('handleNotifyEmail', () => {
     await handleNotifyEmail({ body: { orgId: 'org-1', subject: 'S', text: 'T' } } as any, res);
     expect(res.status).toHaveBeenCalledWith(500);
   });
+
+  it('403s when a non-sysadmin service token targets a different org (no recipient resolution)', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({
+      body: { orgId: 'org-victim', subject: 'S', text: 'T' },
+      user: { sub: 'service:compliance', organizationId: 'org-attacker', isSuperAdmin: false },
+    } as any, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockMembershipFind).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('proceeds when a non-sysadmin service token targets its OWN org', async () => {
+    mockMembershipFind.mockResolvedValue([{ userId: 'u1', role: 'admin' }]);
+    mockUserFind.mockResolvedValue([{ email: 'a@x.com' }]);
+
+    const res = mockRes();
+    await handleNotifyEmail({
+      body: { orgId: 'org-self', subject: 'S', text: 'T' },
+      user: { sub: 'service:compliance', organizationId: 'org-self', isSuperAdmin: false },
+    } as any, res);
+
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: ['a@x.com'] }));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('lets a sysadmin service token target any org (cross-org allowed)', async () => {
+    mockMembershipFind.mockResolvedValue([{ userId: 'u1', role: 'owner' }]);
+    mockUserFind.mockResolvedValue([{ email: 'o@x.com' }]);
+
+    const res = mockRes();
+    await handleNotifyEmail({
+      body: { orgId: 'org-other', subject: 'S', text: 'T' },
+      user: { sub: 'service:platform', organizationId: 'org-home', isSuperAdmin: true },
+    } as any, res);
+
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: ['o@x.com'] }));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
 });

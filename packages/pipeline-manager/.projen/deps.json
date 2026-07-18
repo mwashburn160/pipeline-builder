@@ -75,22 +75,22 @@
     },
     {
       "name": "@aws-sdk/client-cloudformation",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-lambda",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-secrets-manager",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sts",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "runtime"
     },
     {
@@ -105,12 +105,12 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "2.258.1",
+      "version": "2.261.0",
       "type": "runtime"
     },
     {
       "name": "axios",
-      "version": "1.17.0",
+      "version": "1.18.1",
       "type": "runtime"
     },
     {
@@ -120,17 +120,17 @@
     },
     {
       "name": "figlet",
-      "version": "1.11.0",
+      "version": "1.11.2",
       "type": "runtime"
     },
     {
       "name": "form-data",
-      "version": "4.0.5",
+      "version": "4.0.6",
       "type": "runtime"
     },
     {
       "name": "ora",
-      "version": "9.4.0",
+      "version": "9.4.1",
       "type": "runtime"
     },
     {

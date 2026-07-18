@@ -27,7 +27,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.9.2",
+      "version": "26.1.1",
       "type": "build"
     },
     {
@@ -90,7 +90,7 @@
     },
     {
       "name": "axios",
-      "version": "1.17.0",
+      "version": "1.18.1",
       "type": "runtime"
     },
     {
@@ -100,7 +100,7 @@
     },
     {
       "name": "express-rate-limit",
-      "version": "8.5.2",
+      "version": "8.6.0",
       "type": "runtime"
     },
     {
@@ -110,7 +110,7 @@
     },
     {
       "name": "helmet",
-      "version": "8.2.0",
+      "version": "8.3.0",
       "type": "runtime"
     },
     {

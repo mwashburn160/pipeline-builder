@@ -22,18 +22,18 @@
     "docker:verify": "docker buildx imagetools inspect ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-frontend}:$(jq -r .version package.json) --raw | jq -e '[(.manifests // [])[].platform.architecture] as $a | (($a | index(\"amd64\")) and ($a | index(\"arm64\")))'"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "4.3.0",
+    "@tailwindcss/postcss": "4.3.3",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
-    "@types/node": "25.9.2",
+    "@types/node": "26.1.1",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "autoprefixer": "10.5.0",
+    "autoprefixer": "10.5.4",
     "jest": "30.4.2",
     "jest-environment-jsdom": "30.4.1",
     "jest-junit": "^17",
-    "postcss": "8.5.15",
+    "postcss": "8.5.19",
     "ts-jest": "^29.4.11",
     "typescript": "6.0.3"
   },
@@ -41,14 +41,14 @@
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
-    "framer-motion": "12.40.0",
-    "lucide-react": "1.17.0",
+    "framer-motion": "12.42.2",
+    "lucide-react": "1.25.0",
     "next": "^16.1.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-grid-layout": "2.2.3",
-    "react-resizable": "4.0.1",
-    "tailwindcss": "4.3.0"
+    "react-resizable": "4.0.2",
+    "tailwindcss": "4.3.3"
   },
   "engines": {
     "node": ">= 24.14.0"
@@ -65,7 +65,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.135",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

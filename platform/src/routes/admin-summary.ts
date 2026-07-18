@@ -10,7 +10,7 @@ import { Router } from 'express';
 import { getAdminSummary } from '../controllers/admin-summary.js';
 import { requireAuth } from '../middleware/index.js';
 
-const router = Router();
+const router: Router = Router();
 
 router.get('/', requireAuth, getAdminSummary);
 

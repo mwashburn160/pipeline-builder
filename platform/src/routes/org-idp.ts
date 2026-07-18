@@ -19,7 +19,7 @@ import {
 } from '../controllers/org-idp.js';
 import { requireAuth, requireStepUp } from '../middleware/index.js';
 
-const router = Router();
+const router: Router = Router();
 
 router.get('/', requireAuth, listOrgIdpConfigs);
 router.get('/:orgId', requireAuth, getOrgIdpConfig);

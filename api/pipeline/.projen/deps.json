@@ -27,7 +27,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.9.2",
+      "version": "26.1.1",
       "type": "build"
     },
     {
@@ -80,7 +80,7 @@
     },
     {
       "name": "@aws-sdk/client-codepipeline",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "runtime"
     },
     {
@@ -120,7 +120,7 @@
     },
     {
       "name": "express-rate-limit",
-      "version": "8.5.2",
+      "version": "8.6.0",
       "type": "runtime"
     },
     {
@@ -130,7 +130,7 @@
     },
     {
       "name": "helmet",
-      "version": "8.2.0",
+      "version": "8.3.0",
       "type": "runtime"
     },
     {
@@ -140,12 +140,12 @@
     },
     {
       "name": "pg",
-      "version": "8.21.0",
+      "version": "8.22.0",
       "type": "runtime"
     },
     {
       "name": "uuid",
-      "version": "14.0.0",
+      "version": "14.0.1",
       "type": "runtime"
     },
     {

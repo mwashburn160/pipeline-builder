@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { impersonateUser } from '../controllers/impersonate.js';
 import { requireAuth, requireStepUp } from '../middleware/index.js';
 
-const router = Router({ mergeParams: true });
+const router: Router = Router({ mergeParams: true });
 
 /**
  * POST /admin/impersonate/:userId — sysadmin starts a read-only

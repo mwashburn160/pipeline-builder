@@ -110,6 +110,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         <AnimatePresence>
           {toasts.map((t) => {
             const Icon = icons[t.type];
+            // Only errors/warnings interrupt a screen reader (assertive);
+            // success/info are announced politely so they don't cut off
+            // whatever the user is currently reading.
+            const urgent = t.type === 'error' || t.type === 'warning';
             return (
               <motion.div
                 key={t.id}
@@ -117,8 +121,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
                 transition={{ duration: 0.2 }}
-                role="alert"
-                aria-live="assertive"
+                role={urgent ? 'alert' : 'status'}
+                aria-live={urgent ? 'assertive' : 'polite'}
                 className={`flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-sm ${typeStyles[t.type]}`}
               >
                 <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" />

@@ -23,7 +23,7 @@
     "@jest/globals": "30.2.0",
     "@stylistic/eslint-plugin": "^2",
     "@types/express": "5.0.6",
-    "@types/node": "25.9.2",
+    "@types/node": "26.1.1",
     "@types/pg": "8.20.0",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
@@ -42,7 +42,7 @@
     "@pipeline-builder/pipeline-data": "workspace:*",
     "drizzle-orm": "0.45.2",
     "express": "5.2.1",
-    "pg": "8.21.0",
+    "pg": "8.22.0",
     "zod": "4.4.3"
   },
   "engines": {
@@ -59,7 +59,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.110",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

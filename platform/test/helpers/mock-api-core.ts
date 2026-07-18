@@ -127,6 +127,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ROLE_PERMISSIONS,
     resolveUserPermissions,
     isValidPermission: (value: string) => ALL_PERMISSIONS.includes(value),
+    // System-admin check (faithful to api-core): authority is carried solely by
+    // the JWT's `isSuperAdmin` flag. Used by tenant-binding gates (audit ingest,
+    // notify-email) to let a sysadmin service token target any org.
+    isSystemAdmin: (req: { user?: { isSuperAdmin?: boolean } }) => req?.user?.isSuperAdmin === true,
     // Fine-grained RBAC helpers (faithful to api-core): superadmins hold all;
     // otherwise the resolved `permissions` claim must include it.
     userHasPermission: (req: { user?: { isSuperAdmin?: boolean; permissions?: string[] } }, perm: string) =>

@@ -5,12 +5,14 @@
  * Lightweight caching service with TTL support.
  *
  * Two implementations:
- * - In-memory (default): LRU-style Map cache, no external dependencies
+ * - In-memory (default): true-LRU Map cache, no external dependencies
  * - Redis: When a Redis client is provided, uses Redis for cross-process caching
  *
  * Design:
  * - All operations are fail-safe: cache misses/errors return null, never throw
- * - JSON serialization for Redis; direct reference for in-memory
+ * - JSON serialization for Redis; the in-memory backend deep-clones on read so
+ *   both backends return an independent copy (mutating a result is always safe)
+ * - `getOrSet` is single-flight: concurrent misses share one factory() call
  * - Key namespace prefixing to avoid collisions between services
  */
 
@@ -21,6 +23,25 @@
 interface CacheEntry<T> {
   value: T;
   expiresAt: number; // Unix timestamp in ms
+}
+
+/**
+ * Deep-clone a value so the in-memory backend hands back an INDEPENDENT copy on
+ * every read — matching the Redis backend, which returns a fresh `JSON.parse`
+ * clone each time. Without this the in-memory cache returns the same stored
+ * object reference, so a consumer mutating a "cached" object silently corrupts
+ * the shared cache (a footgun that only bites under the memory backend).
+ *
+ * Primitives are returned as-is. Prefers the structured-clone algorithm; falls
+ * back to a JSON round-trip on older runtimes or exotic values.
+ */
+function cloneValue<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  try {
+    return structuredClone(value);
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
 }
 
 /**
@@ -69,6 +90,12 @@ export interface CacheConfig {
  */
 export class CacheService {
   private memory = new Map<string, CacheEntry<unknown>>();
+  /**
+   * In-flight `getOrSet` factory promises, keyed by full cache key. Coalesces
+   * concurrent cold callers onto a single `factory()` invocation (single-flight
+   * / stampede protection); entries are cleared once the promise settles.
+   */
+  private inflight = new Map<string, Promise<unknown>>();
   private readonly prefix: string;
   private readonly defaultTtlMs: number;
   private readonly maxEntries: number;
@@ -90,6 +117,11 @@ export class CacheService {
 
   /**
    * Get a cached value. Returns null on miss or error.
+   *
+   * The returned value is an INDEPENDENT deep copy — mutating it never affects
+   * the cached entry (the in-memory backend clones on read for parity with
+   * Redis, which returns a fresh JSON clone). Callers may still treat results as
+   * immutable, but doing so is no longer load-bearing for cache integrity.
    */
   async get<T>(key: string): Promise<T | null> {
     const fk = this.fullKey(key);
@@ -110,8 +142,14 @@ export class CacheService {
         this.metrics.misses++;
         return null;
       }
+      // LRU touch: delete + re-insert moves this key to the newest position
+      // (Map preserves insertion order), so `set`'s oldest-first eviction is a
+      // true least-recently-USED eviction rather than first-inserted (FIFO).
+      this.memory.delete(fk);
+      this.memory.set(fk, entry);
       this.metrics.hits++;
-      return entry.value as T;
+      // Clone so a caller mutating the result can't corrupt the shared entry.
+      return cloneValue(entry.value) as T;
     } catch {
       this.metrics.misses++;
       return null;
@@ -136,7 +174,11 @@ export class CacheService {
         return;
       }
 
-      // In-memory — evict oldest if at capacity
+      // In-memory — a write counts as a use, so drop any existing entry first
+      // and re-insert below as the newest (Map preserves insertion order). This
+      // keeps the Map ordered oldest-USED → newest-USED so the eviction below is
+      // true LRU, and avoids evicting a victim when merely updating a key.
+      this.memory.delete(fk);
       if (this.memory.size >= this.maxEntries) {
         const firstKey = this.memory.keys().next().value;
         if (firstKey) this.memory.delete(firstKey);
@@ -221,6 +263,11 @@ export class CacheService {
    * Get or compute: returns cached value if available, otherwise calls the
    * factory function, caches the result, and returns it.
    *
+   * Single-flight / stampede protection: when N callers miss concurrently for
+   * the same key, only ONE `factory()` runs — the rest await its shared promise.
+   * The in-flight entry is cleared once it settles (success or failure), so a
+   * failed factory doesn't poison later calls.
+   *
    * @param key - Cache key
    * @param factory - Async function to compute the value on cache miss
    * @param ttlSeconds - Optional TTL override
@@ -230,9 +277,22 @@ export class CacheService {
     const cached = await this.get<T>(key);
     if (cached !== null) return cached;
 
-    const value = await factory();
-    await this.set(key, value, ttlSeconds);
-    return value;
+    const fk = this.fullKey(key);
+    // Coalesce concurrent cold callers onto a single factory() invocation.
+    const existing = this.inflight.get(fk);
+    if (existing) return existing as Promise<T>;
+
+    const flight = (async () => {
+      const value = await factory();
+      await this.set(key, value, ttlSeconds);
+      return value;
+    })();
+    this.inflight.set(fk, flight);
+    try {
+      return await flight;
+    } finally {
+      this.inflight.delete(fk);
+    }
   }
 
   /**

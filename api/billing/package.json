@@ -25,7 +25,7 @@
     "@types/cors": "2.8.19",
     "@types/express": "5.0.6",
     "@types/jsonwebtoken": "9.0.10",
-    "@types/node": "25.9.2",
+    "@types/node": "26.1.1",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "eslint": "^9",
@@ -37,19 +37,19 @@
     "typescript": "6.0.3"
   },
   "dependencies": {
-    "@aws-sdk/client-marketplace-entitlement-service": "3.1064.0",
-    "@aws-sdk/client-marketplace-metering": "3.1064.0",
+    "@aws-sdk/client-marketplace-entitlement-service": "3.1089.0",
+    "@aws-sdk/client-marketplace-metering": "3.1089.0",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
     "cors": "2.8.6",
     "express": "5.2.1",
-    "express-rate-limit": "8.5.2",
-    "helmet": "8.2.0",
+    "express-rate-limit": "8.6.0",
+    "helmet": "8.3.0",
     "jsonwebtoken": "9.0.3",
-    "mongoose": "9.6.3",
-    "stripe": "22.2.0",
+    "mongoose": "9.7.4",
+    "stripe": "22.3.2",
     "winston": "3.19.0",
     "zod": "4.4.3"
   },
@@ -67,7 +67,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.110",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

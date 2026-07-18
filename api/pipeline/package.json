@@ -25,7 +25,7 @@
     "@types/cors": "2.8.19",
     "@types/express": "5.0.6",
     "@types/jsonwebtoken": "9.0.10",
-    "@types/node": "25.9.2",
+    "@types/node": "26.1.1",
     "@types/pg": "8.20.0",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
@@ -38,7 +38,7 @@
     "typescript": "6.0.3"
   },
   "dependencies": {
-    "@aws-sdk/client-codepipeline": "3.1064.0",
+    "@aws-sdk/client-codepipeline": "3.1089.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
@@ -47,11 +47,11 @@
     "cors": "2.8.6",
     "drizzle-orm": "0.45.2",
     "express": "5.2.1",
-    "express-rate-limit": "8.5.2",
-    "helmet": "8.2.0",
+    "express-rate-limit": "8.6.0",
+    "helmet": "8.3.0",
     "jsonwebtoken": "9.0.3",
-    "pg": "8.21.0",
-    "uuid": "14.0.0",
+    "pg": "8.22.0",
+    "uuid": "14.0.1",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
@@ -69,7 +69,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "3.4.111",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

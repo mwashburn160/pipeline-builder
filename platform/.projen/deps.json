@@ -22,7 +22,7 @@
     },
     {
       "name": "@types/express-serve-static-core",
-      "version": "5.1.1",
+      "version": "5.1.2",
       "type": "build"
     },
     {
@@ -37,17 +37,17 @@
     },
     {
       "name": "@types/multer",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "type": "build"
     },
     {
       "name": "@types/node",
-      "version": "25.9.2",
+      "version": "26.1.1",
       "type": "build"
     },
     {
       "name": "@types/nodemailer",
-      "version": "8.0.0",
+      "version": "8.0.1",
       "type": "build"
     },
     {
@@ -110,7 +110,7 @@
     },
     {
       "name": "@aws-sdk/client-sesv2",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "runtime"
     },
     {
@@ -135,7 +135,7 @@
     },
     {
       "name": "adm-zip",
-      "version": "0.5.17",
+      "version": "0.6.0",
       "type": "runtime"
     },
     {
@@ -155,7 +155,7 @@
     },
     {
       "name": "express-rate-limit",
-      "version": "8.5.2",
+      "version": "8.6.0",
       "type": "runtime"
     },
     {
@@ -165,7 +165,7 @@
     },
     {
       "name": "helmet",
-      "version": "8.2.0",
+      "version": "8.3.0",
       "type": "runtime"
     },
     {
@@ -175,22 +175,22 @@
     },
     {
       "name": "mongoose",
-      "version": "9.6.3",
+      "version": "9.7.4",
       "type": "runtime"
     },
     {
       "name": "multer",
-      "version": "2.1.1",
+      "version": "2.2.0",
       "type": "runtime"
     },
     {
       "name": "nodemailer",
-      "version": "8.0.10",
+      "version": "9.0.3",
       "type": "runtime"
     },
     {
       "name": "pg",
-      "version": "8.21.0",
+      "version": "8.22.0",
       "type": "runtime"
     },
     {
@@ -205,7 +205,7 @@
     },
     {
       "name": "uuid",
-      "version": "14.0.0",
+      "version": "14.0.1",
       "type": "runtime"
     },
     {

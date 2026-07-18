@@ -4,20 +4,39 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
+// Small entity page size so the pagination loop is exercised without building
+// 1000-row fixtures. MUST be set before the module under test is imported
+// (below) — it reads the env at load time.
+process.env.COMPLIANCE_SCAN_ENTITY_PAGE_SIZE = '2';
+
+// Records every db.update().set(...) payload so tests can assert the terminal
+// status the executor wrote (completed vs failed) — the shared update chain is
+// otherwise write-only.
+let updateSets: Record<string, unknown>[] = [];
+
 // db chainable helpers
 type ChainTerminal = () => Promise<unknown[]>;
 function makeChain(terminal: ChainTerminal): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const name of ['from', 'innerJoin', 'leftJoin', 'where', 'set', 'orderBy', 'limit', 'offset', 'values', 'returning']) {
+  for (const name of ['from', 'innerJoin', 'leftJoin', 'where', 'orderBy', 'limit', 'offset', 'values', 'returning']) {
     chain[name] = jest.fn(() => chain);
   }
-  (chain as { then: unknown }).then = (resolve: (v: unknown[]) => unknown) => terminal().then(resolve);
+  chain.set = jest.fn((payload: Record<string, unknown>) => {
+    updateSets.push(payload);
+    return chain;
+  });
+  (chain as { then: unknown }).then = (
+    resolve: (v: unknown[]) => unknown,
+    reject?: (e: unknown) => unknown,
+  ) => terminal().then(resolve, reject);
   return chain;
 }
 
-// Stack of selectResults — each db.select() consumes one entry (FIFO).
-let selectResults: unknown[][] = [];
-function nextSelect(): unknown[] {
+// Stack of selectResults — each db.select() consumes one entry (FIFO). An entry
+// may be an Error, in which case that select REJECTS (simulates a transient DB
+// failure for the exemption/entity fetch).
+let selectResults: (unknown[] | Error)[] = [];
+function nextSelect(): unknown[] | Error {
   return selectResults.length > 0 ? selectResults.shift()! : [];
 }
 
@@ -30,7 +49,10 @@ function nextUpdate(): unknown[] {
   return updateReturning.length > 0 ? updateReturning.shift()! : [];
 }
 
-const dbSelect = jest.fn(() => makeChain(() => Promise.resolve(nextSelect())));
+const dbSelect = jest.fn(() => makeChain(() => {
+  const v = nextSelect();
+  return v instanceof Error ? Promise.reject(v) : Promise.resolve(v);
+}));
 const dbInsert = jest.fn(() => makeChain(() => Promise.resolve([])));
 const dbUpdate = jest.fn(() => makeChain(() => Promise.resolve(nextUpdate())));
 
@@ -97,6 +119,7 @@ describe('executeScan', () => {
   beforeEach(() => {
     selectResults = [];
     updateReturning = [];
+    updateSets = [];
     dbSelect.mockClear();
     dbInsert.mockClear();
     dbUpdate.mockClear();
@@ -249,6 +272,67 @@ describe('executeScan', () => {
 
     // Final update with status:'failed' must be present in some db.update call
     expect(dbUpdate).toHaveBeenCalled();
+  });
+
+  it('paginates entities beyond one page and evaluates ALL of them (no silent truncation)', async () => {
+    // Regression: the old fetch used a single .limit(1000) and silently
+    // truncated larger orgs, then reported status:'completed' — an authoritative
+    // green "all pass" that never evaluated the truncated tail. With keyset
+    // pagination every page must be evaluated.
+    updateReturning = [
+      // claim → totalEntities (ignored) → progress .returning (must be non-empty
+      // or the executor aborts) → completion .returning (same).
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+      [{ id: 'scan-1' }],
+      [{ id: 'scan-1' }],
+      [{ id: 'scan-1' }],
+    ];
+    // ENTITY_PAGE_SIZE is 2 for this suite: a full page (2 rows) forces another
+    // fetch; the short page (1 row) ends pagination. 3 entities across 2 pages.
+    selectResults = [
+      [{ id: 'p1', name: 'p1' }, { id: 'p2', name: 'p2' }], // page 1 (full → keep paging)
+      [{ id: 'p3', name: 'p3' }], // page 2 (short → stop)
+      [], // exemptions fetch
+    ];
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'rule-1' }]);
+    mockEvaluateRules.mockReturnValue({ blocked: false, violations: [], warnings: [], rulesEvaluated: 1 });
+
+    await executeScan('scan-1');
+
+    // All THREE paginated entities evaluated — not truncated to the first page.
+    expect(mockEvaluateRules).toHaveBeenCalledTimes(3);
+    // Honest completion carrying the true total, not a truncated count.
+    const completed = updateSets.find((s) => s.status === 'completed');
+    expect(completed).toMatchObject({ status: 'completed', totalEntities: 3, passCount: 3 });
+    // Never a 'failed' terminal state on the happy path.
+    expect(updateSets.some((s) => s.status === 'failed')).toBe(false);
+  });
+
+  it('fails the scan (no fabricated blocks) when exemption fetch throws', async () => {
+    // Regression: fetchExemptions used to swallow errors and return an empty Map,
+    // so a transient DB error made every entity evaluate as if it had NO approved
+    // exemption — fabricating violations/blocks + notifications. It must now
+    // rethrow so the scan fails honestly and evaluation never runs.
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+    ];
+    selectResults = [
+      [{ id: 'p1', name: 'p1' }], // entities (single short page)
+      new Error('exemption store transient error'), // exemption fetch REJECTS
+    ];
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'rule-1' }]);
+
+    await executeScan('scan-1');
+
+    // Rules never evaluated → no entity fabricated as a block.
+    expect(mockEvaluateRules).not.toHaveBeenCalled();
+    // Fire-and-forget notifications get a chance to (not) run.
+    await new Promise((r) => setImmediate(r));
+    expect(mockNotifyComplianceBlock).not.toHaveBeenCalled();
+    expect(mockNotifyComplianceWarnings).not.toHaveBeenCalled();
+    // Terminal state is 'failed', never a green 'completed'.
+    expect(updateSets.some((s) => s.status === 'failed')).toBe(true);
+    expect(updateSets.some((s) => s.status === 'completed')).toBe(false);
   });
 
   it('handles scans with target="all" by iterating both targets', async () => {

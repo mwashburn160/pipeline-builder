@@ -374,6 +374,13 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
   if (wasRecovery) {
     subscription.status = 'active';
 
+    // Clear the grace-period downgrade dedupe marker so a FUTURE lapse can
+    // re-downgrade (the lifecycle cron excludes rows that still carry it).
+    if (subscription.metadata?.gracePeriodDowngradedAt) {
+      const { gracePeriodDowngradedAt: _cleared, ...rest } = subscription.metadata;
+      subscription.metadata = rest;
+    }
+
     // Re-upgrade to their plan's tier, preserving purchased add-on grants.
     const plan = await Plan.findById(subscription.planId);
     if (plan) {

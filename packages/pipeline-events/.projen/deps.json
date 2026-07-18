@@ -2,12 +2,12 @@
   "dependencies": [
     {
       "name": "@aws-sdk/client-codepipeline",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "build"
     },
     {
       "name": "@aws-sdk/client-secrets-manager",
-      "version": "3.1064.0",
+      "version": "3.1089.0",
       "type": "build"
     },
     {
@@ -27,7 +27,7 @@
     },
     {
       "name": "@types/node",
-      "version": "25.9.2",
+      "version": "26.1.1",
       "type": "build"
     },
     {

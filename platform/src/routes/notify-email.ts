@@ -13,7 +13,7 @@
  * Auth: service-token only (rejects user JWTs), same gate as /audit/events.
  */
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, isSystemAdmin, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
 import { toOrgId } from '../helpers/org-id.js';
 import { requireServiceAuth } from '../middleware/index.js';
@@ -21,7 +21,7 @@ import { User, UserOrganization } from '../models/index.js';
 import { emailService } from '../utils/email.js';
 
 const logger = createLogger('notify-email-routes');
-const router = Router();
+const router: Router = Router();
 
 /** Resolve recipient email addresses for an org. `targetUsers` (when non-empty)
  *  is intersected with active membership so a misconfigured list can't email
@@ -50,6 +50,18 @@ export async function handleNotifyEmail(req: Request, res: Response) {
   const targetUsers = Array.isArray(body.targetUsers)
     ? body.targetUsers.filter((u): u is string => typeof u === 'string')
     : null;
+
+  // Tenant binding — mirror /audit/events. `requireServiceAuth` only proves the
+  // caller is *a* service; the service-token's own `organizationId` is the
+  // authoritative tenant. A non-sysadmin service token may only email its OWN
+  // org's users — otherwise any service token could email any org's admins with
+  // an arbitrary subject/body. A sysadmin/system service token (isSuperAdmin)
+  // may legitimately target any org.
+  const tokenOrgId = req.user?.organizationId;
+  const isSysadminService = isSystemAdmin(req);
+  if (tokenOrgId && body.orgId !== tokenOrgId && !isSysadminService) {
+    return sendError(res, 403, 'orgId does not match authenticated service org');
+  }
 
   try {
     const emails = await resolveRecipientEmails(body.orgId, targetUsers);

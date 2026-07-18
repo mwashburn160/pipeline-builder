@@ -52,6 +52,22 @@ export const totalAttemptBudget = () => mainBudget() + dlqBudget();
 
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
 
+/**
+ * Parse a positive integer from an env var, falling back to `def` when the
+ * value is unset, empty, non-numeric, or non-positive. Guards against a
+ * typo'd/garbage env yielding `NaN` — which would otherwise silently break
+ * dependent logic (e.g. a `NaN` cache TTL makes `expiresAt = NaN`, and
+ * `NaN > Date.now()` is always false so the tier cache never hits; a `NaN`
+ * Worker concurrency is likewise nonsensical). Kept local to the plugin
+ * service to avoid a cross-package dependency.
+ */
+export function intFromEnv(name: string, def: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return def;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : def;
+}
+
 // Queue name & singleton state
 
 const QUEUE_NAME = CoreConstants.PLUGIN_BUILD_QUEUE_NAME;
@@ -98,7 +114,7 @@ const tierWorkers = new Map<QuotaTier, Worker<PluginBuildJobData>>();
 // Per-org tier cache
 // ---------------------------------------------------------------------------
 
-const TIER_CACHE_TTL_MS = parseInt(process.env.PLUGIN_TIER_CACHE_TTL_MS || '300000', 10);
+export const TIER_CACHE_TTL_MS = intFromEnv('PLUGIN_TIER_CACHE_TTL_MS', 300000);
 const tierCache = new Map<string, { tier: QuotaTier; expiresAt: number }>();
 
 /** Look up the org's tier with a short-TTL in-process cache. Falls open to
@@ -275,8 +291,44 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService):
   delete (freshData as { failureCategory?: string }).failureCategory;
 
   const tier = await getOrgTier(quotaService, orgId, authHeader);
-  const requeued = await getTierQueue(tier).add(`retry-${failedJob.name}`, freshData);
-  await failedJob.remove();
+
+  let requeued: Job<PluginBuildJobData>;
+  try {
+    requeued = await getTierQueue(tier).add(`retry-${failedJob.name}`, freshData);
+  } catch (err) {
+    // The enqueue failed *after* reserveReplaySlot handed the new job a quota
+    // slot (quotaReleased === false means a slot was reserved). Nothing now
+    // owns that slot, so release it here — mirroring releasePluginQuota's
+    // decrement path — or it leaks until the quota period resets. When the org
+    // was already at cap (quotaReleased === true) there is nothing to release.
+    if (!quotaReleased) {
+      decrementQuota(quotaService, orgId, 'plugins', authHeader, logger.warn.bind(logger));
+    }
+    logger.error('Failed-build retry enqueue failed; released reserved quota slot', {
+      jobId, orgId, error: errorMessage(err),
+    });
+    throw err;
+  }
+
+  // The new job is enqueued and now owns the slot. Removing the original failed
+  // entry is best-effort: a failure here must NOT error the whole op (the build
+  // is already queued, and throwing would make an admin retry — enqueuing a
+  // SECOND concurrent build, each holding a slot). But a lingering failed entry
+  // could itself be retried again later → the same double-enqueue. So tolerate
+  // an already-removed job (idempotent) and log loudly when one genuinely
+  // lingers so it can be cleaned up manually.
+  try {
+    await failedJob.remove();
+  } catch (removeErr) {
+    const stillFailed = await failedJob.isFailed().catch(() => false);
+    if (stillFailed) {
+      logger.warn('Retry enqueued but original failed entry could not be removed; ' +
+        'manual cleanup needed to avoid a duplicate retry', { jobId, orgId, newJobId: String(requeued.id), error: errorMessage(removeErr) });
+    } else {
+      logger.debug('Original failed job already removed after retry enqueue', { jobId });
+    }
+  }
+
   return String(requeued.id);
 }
 
@@ -443,10 +495,10 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
   const { concurrency } = getBuildCfg();
   const tierConcurrency: Record<QuotaTier, number> = {
-    developer: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_DEVELOPER || String(concurrency), 10),
-    pro: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_PRO || String(concurrency), 10),
-    team: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_TEAM || String(concurrency), 10),
-    enterprise: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY_ENTERPRISE || String(concurrency), 10),
+    developer: intFromEnv('PLUGIN_BUILD_CONCURRENCY_DEVELOPER', concurrency),
+    pro: intFromEnv('PLUGIN_BUILD_CONCURRENCY_PRO', concurrency),
+    team: intFromEnv('PLUGIN_BUILD_CONCURRENCY_TEAM', concurrency),
+    enterprise: intFromEnv('PLUGIN_BUILD_CONCURRENCY_ENTERPRISE', concurrency),
   };
 
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {

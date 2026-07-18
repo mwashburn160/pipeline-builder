@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { GripVertical, LayoutGrid, List, Plus, Save, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -60,6 +61,26 @@ export default function DashboardEditPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAddPanel, setShowAddPanel] = useState(false);
+
+  // Draft differs from the loaded doc? Compared field-by-field against
+  // `original` (panels/layoutJson serialized) so an accidental Back / tab
+  // close / sidebar click can warn before discarding edits. Stays false
+  // until the doc has loaded.
+  const dirty = useMemo(() => {
+    if (!original) return false;
+    if (name !== original.name) return true;
+    if (description !== (original.description ?? '')) return true;
+    if (visibility !== original.visibility) return true;
+    const originalPanels = original.panels.map(({ id: _id, dashboardId: _did, ...rest }) => rest);
+    if (JSON.stringify(panels) !== JSON.stringify(originalPanels)) return true;
+    if (JSON.stringify(layoutJson) !== JSON.stringify(original.layoutJson ?? {})) return true;
+    return false;
+  }, [original, name, description, visibility, panels, layoutJson]);
+
+  // Warn on Back / reload / tab-close / in-app navigation while there are
+  // unsaved edits. `allowNavigation()` is called on Save to bypass the guard
+  // for the intentional post-save redirect.
+  const allowNavigation = useUnsavedChangesWarning(dirty);
 
   // Measure the grid container so the static-width GridLayout matches the
   // viewport. ResizeObserver gives us width changes on viewport resize +
@@ -188,6 +209,8 @@ export default function DashboardEditPage() {
       };
       await api.updateDashboard(original.id, body);
       toast.success('Dashboard saved');
+      // Draft is now persisted — let the redirect through without a prompt.
+      allowNavigation();
       void router.push(`/dashboard/observability/${original.id}`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message: (err as Error).message);

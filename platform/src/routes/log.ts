@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { queryLogs, getLogServices, getLogLevels } from '../controllers/index.js';
 import { requireAuth } from '../middleware/index.js';
 
-const router = Router();
+const router: Router = Router();
 
 /**
  * @route GET /logs

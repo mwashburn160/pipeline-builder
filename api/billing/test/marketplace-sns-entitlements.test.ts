@@ -174,7 +174,9 @@ function notification(action: string, over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockConfig.marketplace.snsTopicArn = '';
+  // Fail-closed topic check requires a configured topic that matches the
+  // default envelope's TopicArn; individual tests override to exercise mismatch.
+  mockConfig.marketplace.snsTopicArn = 'arn:aws:sns:us-east-1:0:topic';
   mockGetPaymentProvider.mockReturnValue(new FakeAWSMarketplaceProvider());
   mockVerifySNSSignature.mockResolvedValue(true);
   mockConfirmSNSSubscription.mockResolvedValue(undefined);
@@ -215,6 +217,18 @@ describe('POST /marketplace/sns — validation & security', () => {
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('fails closed: rejects with 403 when no SNS topic is configured', async () => {
+    // An unset expected topic must NOT skip the check — otherwise a validly
+    // signed message from any attacker-owned SNS topic would be accepted.
+    mockConfig.marketplace.snsTopicArn = '';
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: notification('unsubscribe-success') }) }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
   });
 
   it('parses a text/plain (string) SNS body before validating', async () => {

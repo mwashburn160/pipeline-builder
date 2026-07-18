@@ -47,6 +47,9 @@ const SNS_CERT_HOST_RE = /^sns\.[a-z0-9-]+\.amazonaws\.com$/;
 /** Cap the body size we accept from the signing-cert endpoint (PEM files are ~2 KB). */
 const MAX_CERT_BYTES = 64 * 1024;
 
+/** Network timeout for the signing-cert download and subscription-confirm GETs. */
+const HTTP_TIMEOUT_MS = 5000;
+
 /** In-process cache: cert URL → PEM. Certs rotate on a multi-year cadence. */
 const certCache = new Map<string, string>();
 
@@ -64,14 +67,28 @@ function isValidCertUrl(certUrl: string): boolean {
   }
 }
 
+/** Cheap sanity check that a body looks like a PEM certificate before trusting/caching it. */
+function looksLikePemCert(body: string): boolean {
+  return body.includes('-----BEGIN CERTIFICATE-----')
+    && body.includes('-----END CERTIFICATE-----');
+}
+
 /** Download a PEM certificate from the given URL, capped at MAX_CERT_BYTES. */
 function downloadCert(url: string): Promise<string> {
   const cached = certCache.get(url);
   if (cached) return Promise.resolve(cached);
 
   return new Promise((resolve, reject) => {
-    https
+    const req = https
       .get(url, (res) => {
+        // Only trust/cache a 200. A 503/error page must NOT be cached — a single
+        // bad response would otherwise poison the cache forever and reject ALL
+        // marketplace notifications until the process restarts.
+        if (res.statusCode !== 200) {
+          res.resume(); // drain so the socket can be freed
+          reject(new Error(`Cert download failed with status ${res.statusCode}`));
+          return;
+        }
         let data = '';
         let size = 0;
         res.setEncoding('utf8');
@@ -84,12 +101,22 @@ function downloadCert(url: string): Promise<string> {
           data += chunk;
         });
         res.on('end', () => {
+          // Guard the parse: only cache a body that actually looks like a PEM
+          // cert, so a truncated/HTML error body can't be cached or fed to the
+          // verifier.
+          if (!looksLikePemCert(data)) {
+            reject(new Error('Cert response is not a PEM certificate'));
+            return;
+          }
           certCache.set(url, data);
           resolve(data);
         });
         res.on('error', reject);
       })
       .on('error', reject);
+    req.setTimeout(HTTP_TIMEOUT_MS, () => {
+      req.destroy(new Error('Cert download timed out'));
+    });
   });
 }
 
@@ -162,13 +189,16 @@ export async function verifySNSSignature(message: SNSMessage): Promise<boolean> 
  */
 export async function confirmSNSSubscription(subscribeUrl: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    https
+    const req = https
       .get(subscribeUrl, (res) => {
         res.on('data', () => { /* drain */ });
         res.on('end', () => resolve());
         res.on('error', reject);
       })
       .on('error', reject);
+    req.setTimeout(HTTP_TIMEOUT_MS, () => {
+      req.destroy(new Error('SNS subscription confirm timed out'));
+    });
   });
 }
 

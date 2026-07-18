@@ -4,7 +4,7 @@
 import { createLogger, isValidTier, ValidationError } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
-import { expandOrgScope, resolveRootOrgId } from '../helpers/org-hierarchy.js';
+import { expandOrgScope, getParentOrgId, resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import {
   applyQuotaLimits,
   buildOrgQuotaResponse,
@@ -266,9 +266,17 @@ export class QuotaService {
     // storage is enforced by the registry push-gate per-org namespace instead.
     if (quotaType === 'storageBytes') return null;
 
+    // Flat-org fast path. Every org is flat today (`parentOrgId` null), and the
+    // increment path is the hottest in the service, so short-circuit on a single
+    // indexed single-field read BEFORE the two-query hierarchy walk
+    // (`resolveRootOrgId` + `expandOrgScope`). No parent ⇒ no pool: return null
+    // immediately. Only orgs that actually have a parent pay for the walk.
+    const parentOrgId = await getParentOrgId(orgId);
+    if (!parentOrgId) return null; // flat org — no pool
+
     const rootOrgId = await resolveRootOrgId(orgId);
     const scope = await expandOrgScope(rootOrgId);
-    if (scope.length <= 1) return null; // flat org — no pool
+    if (scope.length <= 1) return null; // defensive: resolved root has no subtree
 
     type UsageRow = { quotas?: Record<string, number>; usage?: Record<string, { used?: number; resetAt?: Date }> };
     const root = await Organization.findById(toOrgId(rootOrgId)).select(`quotas.${quotaType} usage.${quotaType}`).lean() as unknown as UsageRow | null;
@@ -350,8 +358,9 @@ export class QuotaService {
     // ----- Org → team hierarchy: shared root cap -----
     // When the org is part of a hierarchy, the root org's limit is shared
     // across the root + all descendant teams. Enforce it as a pre-check before
-    // the team's own atomic increment. Skipped entirely for flat orgs (the vast
-    // majority), so there's no overhead unless a hierarchy actually exists.
+    // the team's own atomic increment. For flat orgs (the vast majority — every
+    // org today) this costs a single-field `parentOrgId` read that short-circuits
+    // before any hierarchy walk; only orgs that actually have a parent pool.
     // Note: the cross-org sum is not part of the single-doc atomic update, so a
     // tiny concurrent overshoot is possible — acceptable for rate-limit quotas.
     // Fail-safe: a hierarchy-resolution error must never block quota

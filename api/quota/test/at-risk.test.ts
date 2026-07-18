@@ -167,4 +167,40 @@ describe('GET /quotas/at-risk', () => {
     await handler({ query: {} } as any, res);
     expect(res.json.mock.calls[0][0].data).toMatchObject({ atRisk: [], count: 0, threshold: 80 });
   });
+
+  it('bounds the scan at the DB layer: passes limit/offset to findAll and keys the cache by them', async () => {
+    // 250 at-risk orgs — a full scan would pull all of them into memory. The
+    // route must instead ask findAll for just the requested page.
+    const many = Array.from({ length: 250 }, (_, i) =>
+      org(`org-${i}`, `Org${String(i).padStart(3, '0')}`, { plugins: { used: 95, limit: 100 } }));
+    findAll.mockImplementation(async (opts: any) => {
+      const { limit, offset } = opts ?? {};
+      return many.slice(offset, offset + limit);
+    });
+
+    // Page 1 (limit=50, offset query=1 → zero-based offset 0).
+    const res1 = makeRes();
+    await handler({ query: { limit: '50', offset: '1' } } as any, res1);
+    expect(findAll).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+    const p1 = res1.json.mock.calls[0][0].data;
+    expect(p1.atRisk).toHaveLength(50); // bounded by limit, not the full 250
+    expect(p1.count).toBe(50);
+    expect(p1.limit).toBe(50);
+    expect(p1.offset).toBe(0);
+    expect(p1.atRisk[0].orgId).toBe('org-0');
+
+    // Same params again → served from the 60s memo, no second scan.
+    const resDup = makeRes();
+    await handler({ query: { limit: '50', offset: '1' } } as any, resDup);
+    expect(findAll).toHaveBeenCalledTimes(1);
+
+    // Different offset → distinct cache key → a fresh scan of the next page.
+    const res2 = makeRes();
+    await handler({ query: { limit: '50', offset: '2' } } as any, res2);
+    expect(findAll).toHaveBeenCalledWith({ limit: 50, offset: 1 });
+    expect(findAll).toHaveBeenCalledTimes(2);
+    const p2 = res2.json.mock.calls[0][0].data;
+    expect(p2.offset).toBe(1);
+    expect(p2.atRisk[0].orgId).toBe('org-1'); // next page, not org-0
+  });
 });

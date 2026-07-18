@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import { getProviders, getAuthUrl, handleCallback } from '../controllers/oauth.js';
 
-const router = Router();
+const router: Router = Router();
 
 /** GET /oauth/providers - List enabled OAuth providers */
 router.get('/providers', getProviders);

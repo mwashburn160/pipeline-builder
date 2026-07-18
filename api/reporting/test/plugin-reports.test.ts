@@ -44,6 +44,16 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
+// The route imports ../helpers.js, which imports `Config` from pipeline-core to
+// resolve the platform host/port for the shared org-descendants client. Stub
+// pipeline-core so this api-core-mocking suite doesn't pull in its full config
+// graph (aws-cdk-lib, etc.); this route never invokes the rollup.
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  Config: {
+    get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }),
+  },
+}));
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
     getPluginSummary: mockGetPluginSummary,

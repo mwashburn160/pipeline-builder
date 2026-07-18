@@ -15,7 +15,7 @@
  * pulls to pick up operator-authored rules at runtime.
  */
 
-import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess, userHasPermission } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { isSystemAdmin, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
@@ -75,9 +75,8 @@ export const createAlertRule = withController('Create alert rule', async (req, r
   const ctx = requireAuthContext(req, res);
   if (!ctx) return;
   const { userId, orgId } = ctx;
-  if (!userHasPermission(req, 'observability:write')) {
-    return sendError(res, 403, 'Org admin required to create alert rules');
-  }
+  // Static `observability:write` gate now enforced at the route
+  // (`requirePermission('observability:write')`), visible in the route table.
 
   const parsed = parseRuleBody(req.body, 'create');
   if ('error' in parsed) return sendError(res, 400, parsed.error);
@@ -124,9 +123,7 @@ export const updateAlertRule = withController('Update alert rule', async (req, r
   const ctx = requireAuthContext(req, res);
   if (!ctx) return;
   const { userId, orgId } = ctx;
-  if (!userHasPermission(req, 'observability:write')) {
-    return sendError(res, 403, 'Org admin required to update alert rules');
-  }
+  // Static `observability:write` gate now enforced at the route.
 
   const id = getParam(req.params, 'id')!;
 
@@ -164,9 +161,7 @@ export const deleteAlertRule = withController('Delete alert rule', async (req, r
   const ctx = requireAuthContext(req, res);
   if (!ctx) return;
   const { userId, orgId } = ctx;
-  if (!userHasPermission(req, 'observability:write')) {
-    return sendError(res, 403, 'Org admin required to delete alert rules');
-  }
+  // Static `observability:write` gate now enforced at the route.
 
   const id = getParam(req.params, 'id')!;
 

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { requirePermission } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   listAlertDestinations,
@@ -29,7 +30,7 @@ import {
   observabilitySilenceDelete,
 } from '../observability/controller.js';
 
-const router = Router();
+const router: Router = Router();
 
 /** GET /observability/query  Prometheus instant/range by catalog key */
 router.get('/query', requireAuth, observabilityQuery);
@@ -57,11 +58,14 @@ router.get('/alert-destinations', requireAuth, listAlertDestinations);
 // Sysadmin cross-tenant viewer — `/all` literal must come before `/:id`
 // so it isn't captured as an id parameter.
 router.get('/alert-destinations/all', requireAuth, listAllAlertDestinations);
-router.post('/alert-destinations', requireAuth, createAlertDestination);
-router.put('/alert-destinations/:id', requireAuth, updateAlertDestination);
-router.delete('/alert-destinations/:id', requireAuth, deleteAlertDestination);
+// Static `observability:write` capability gated at the route so it's auditable
+// from the route table (handlers no longer re-check). The per-org data scoping
+// (findById(id, orgId)) inside the handlers is orthogonal to this gate.
+router.post('/alert-destinations', requireAuth, requirePermission('observability:write'), createAlertDestination);
+router.put('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), updateAlertDestination);
+router.delete('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), deleteAlertDestination);
 // Send a labeled test notification to a destination (org-scoped, observability:write).
-router.post('/alert-destinations/:id/test', requireAuth, testAlertDestination);
+router.post('/alert-destinations/:id/test', requireAuth, requirePermission('observability:write'), testAlertDestination);
 
 /**
  * Alertmanager webhook relay  shared-secret auth, not JWT. Mounted on the
@@ -76,8 +80,11 @@ router.post('/alert-webhook', alertWebhook);
  * literal `materialized.yml` path doesn't get captured as an:id. */
 router.get('/alert-rules/materialized.yml', requireAuth, materializeAlertRules);
 router.get('/alert-rules', requireAuth, listAlertRules);
-router.post('/alert-rules', requireAuth, createAlertRule);
-router.put('/alert-rules/:id', requireAuth, updateAlertRule);
-router.delete('/alert-rules/:id', requireAuth, deleteAlertRule);
+// Static `observability:write` capability gated at the route (auditable); the
+// handlers no longer re-check. Org-scoping (prepareRuleExpr / org-scoped
+// service ops) is separate from this capability gate.
+router.post('/alert-rules', requireAuth, requirePermission('observability:write'), createAlertRule);
+router.put('/alert-rules/:id', requireAuth, requirePermission('observability:write'), updateAlertRule);
+router.delete('/alert-rules/:id', requireAuth, requirePermission('observability:write'), deleteAlertRule);
 
 export default router;

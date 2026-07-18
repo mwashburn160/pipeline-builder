@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, parsePaginationParams } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
@@ -37,13 +37,25 @@ export const getOrganizationMembers = withController('Get members', async (req, 
     return sendError(res, 403, 'Forbidden: Can only view members of your organization');
   }
 
-  const result = await orgMembersService.listMembers(id);
+  // Bound the roster: parse limit/offset + optional search/role, and push them
+  // into the DB query (service-side, never in-memory) so a large org doesn't
+  // ship its whole membership. Mirrors the paginated list endpoints' shape.
+  const { offset, limit } = parsePaginationParams(req.query);
+  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+  const roleRaw = typeof req.query.role === 'string' ? req.query.role : undefined;
+  const role = roleRaw === 'owner' || roleRaw === 'admin' || roleRaw === 'member' ? roleRaw : undefined;
+
+  const result = await orgMembersService.listMembers(id, { offset, limit, search, role });
   if (!result) return sendError(res, 404, 'Organization not found');
 
-  // No pagination here yet — dropping `total` rather than implying a paged
-  // shape. Add `parsePaginationParams` + service-side limit/offset if/when
-  // any org grows large enough to need it.
-  sendSuccess(res, 200, result);
+  const { members, total, offset: off, limit: lim, organizationId, organizationName, ownerId } = result;
+  sendSuccess(res, 200, {
+    organizationId,
+    organizationName,
+    ownerId,
+    members,
+    pagination: { total, offset: off, limit: lim, hasMore: off + lim < total },
+  });
 });
 
 /** POST /organization/:id/members */

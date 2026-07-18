@@ -9,7 +9,7 @@ import { isAuditAction } from '../models/audit-event.js';
 import { auditService, type AuditFilter } from '../services/audit-service.js';
 
 const logger = createLogger('audit-routes');
-const router = Router();
+const router: Router = Router();
 
 /** Actions whose name marks them a failure outcome (e.g. `plugin.build.failed`,
  *  `plugin.build.timeout`). Hoisted so the ingest path doesn't recompile it. */

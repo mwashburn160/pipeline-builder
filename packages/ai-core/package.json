@@ -21,7 +21,7 @@
   "devDependencies": {
     "@jest/globals": "30.2.0",
     "@stylistic/eslint-plugin": "^2",
-    "@types/node": "25.9.2",
+    "@types/node": "26.1.1",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "eslint": "^9",
@@ -33,14 +33,14 @@
     "typescript": "6.0.3"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "4.0.113",
-    "@ai-sdk/anthropic": "3.0.81",
-    "@ai-sdk/google": "3.0.80",
-    "@ai-sdk/openai": "3.0.68",
-    "@ai-sdk/openai-compatible": "2.0.48",
-    "@ai-sdk/xai": "3.0.93",
+    "@ai-sdk/amazon-bedrock": "5.0.24",
+    "@ai-sdk/anthropic": "4.0.16",
+    "@ai-sdk/google": "4.0.18",
+    "@ai-sdk/openai": "4.0.16",
+    "@ai-sdk/openai-compatible": "3.0.12",
+    "@ai-sdk/xai": "4.0.16",
     "@pipeline-builder/api-core": "workspace:*",
-    "ai": "6.0.198"
+    "ai": "7.0.31"
   },
   "keywords": [
     "ci-cd",
@@ -96,7 +96,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.4.86",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

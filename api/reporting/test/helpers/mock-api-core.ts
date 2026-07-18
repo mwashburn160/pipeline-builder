@@ -43,6 +43,10 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    // Shared org-descendants resolver imported by src/helpers.ts (resolveOrgRollup).
+    // A stub is enough for the module to link; suites that exercise the rollup
+    // mock resolveOrgRollup itself at the helpers layer.
+    fetchOrgDescendants: jest.fn(),
     SYSTEM_ORG_ID: '000000000000000000000001',
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },

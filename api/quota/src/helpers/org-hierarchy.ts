@@ -23,8 +23,13 @@ import {
 import { toOrgId } from './org-id.js';
 import { Organization } from '../models/organization.js';
 
-/** Fetch a single org's direct parent id (cast-aware), or undefined. */
-async function getParentOrgId(orgId: string): Promise<string | undefined> {
+/**
+ * Fetch a single org's direct parent id (cast-aware), or undefined when the org
+ * is a root (no `parentOrgId`) or does not exist. Exported so the quota service
+ * can cheaply short-circuit pooling for flat orgs with a single-field read
+ * before ever walking the hierarchy.
+ */
+export async function getParentOrgId(orgId: string): Promise<string | undefined> {
   const org = await Organization.findById(toOrgId(orgId)).select('parentOrgId').lean();
   return toOrgIdString((org as { parentOrgId?: unknown } | null)?.parentOrgId);
 }

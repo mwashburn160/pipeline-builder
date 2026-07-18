@@ -52,7 +52,10 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       const orgId = api.getOrganizationId();
       const [prefRes, memberRes] = await Promise.all([
         api.getComplianceNotificationPreference(),
-        orgId ? api.getOrganizationMembers(orgId) : Promise.resolve(null),
+        // Recipient picker needs the whole active roster — the roster is now
+        // server-paginated, so request the max page (200, the backend cap)
+        // rather than the default 25.
+        orgId ? api.getOrganizationMembers(orgId, { limit: 200 }) : Promise.resolve(null),
       ]);
       if (memberRes?.data?.members) setMembers(memberRes.data.members.filter((m) => m.isActive));
       if (prefRes.data?.preference) apply(prefRes.data.preference);

@@ -19,7 +19,7 @@ import {
 } from '../controllers/org-kms-config.js';
 import { requireAuth, requireStepUp } from '../middleware/index.js';
 
-const router = Router({ mergeParams: true });
+const router: Router = Router({ mergeParams: true });
 
 router.get('/', requireAuth, getOrgKmsConfig);
 // Mutations re-encrypt every per-org secret under a new CMK — gate on

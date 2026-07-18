@@ -4,7 +4,7 @@
 import { createLogger, createSafeClient, createScheduler, type Scheduler, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
-import { createBillingEvent, syncTierToQuotaService } from './billing-helpers.js';
+import { createBillingEvent, syncEntitlements } from './billing-helpers.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 
@@ -53,14 +53,25 @@ async function checkGracePeriodExpiry(): Promise<void> {
   const gracePeriodMs = config.paymentGracePeriodDays * 24 * 60 * 60 * 1000;
   const cutoff = new Date(Date.now() - gracePeriodMs);
 
+  // Exclude subs already downgraded this lapse. Status stays 'past_due' (the
+  // recovery signal handlePaymentSucceeded keys on), so without a durable marker
+  // these rows would re-match every tick — re-emitting billing_events and
+  // re-running the downgrade forever. handlePaymentSucceeded clears the marker
+  // when a sub recovers to 'active', so a future lapse re-downgrades.
   const expired = await Subscription.find({
-    status: 'past_due',
-    firstFailedAt: { $lte: cutoff },
+    'status': 'past_due',
+    'firstFailedAt': { $lte: cutoff },
+    'metadata.gracePeriodDowngradedAt': { $exists: false },
   });
 
   for (const subscription of expired) {
     try {
-      await syncTierToQuotaService(subscription.orgId, 'developer', '', subscription._id.toString());
+      // Route through syncEntitlements (not syncTierToQuotaService directly) so
+      // the seat leg runs too — a lapsed sub must lose paid seats — and so the
+      // billing_quota_sync_failed_total metric + error log fire on failure. Empty
+      // addons: a lapsed sub loses bundle entitlements as well.
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
+      await syncEntitlements(subscription.orgId, 'developer', serviceAuth, subscription._id.toString(), []);
 
       await createBillingEvent(subscription.orgId, 'subscription_updated', {
         reason: 'grace_period_expired',
@@ -68,6 +79,14 @@ async function checkGracePeriodExpiry(): Promise<void> {
         failedAttempts: subscription.failedPaymentAttempts,
         firstFailedAt: subscription.firstFailedAt?.toISOString(),
       }, subscription._id.toString());
+
+      // Durable dedupe marker — set AFTER the side-effects so a mid-run failure
+      // (which throws before this) leaves the row un-marked and retryable next tick.
+      subscription.metadata = {
+        ...subscription.metadata,
+        gracePeriodDowngradedAt: new Date().toISOString(),
+      };
+      await subscription.save();
 
       logger.info('Grace period expired — org downgraded', {
         orgId: subscription.orgId,

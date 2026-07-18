@@ -107,7 +107,11 @@ function isPrivateAddress(ip: string): boolean {
  * SSRF guard for org-supplied webhook URLs: require https and reject any host
  * that is — or resolves to — a private/loopback/link-local/metadata address, so
  * a tenant can't aim a webhook at the cloud metadata endpoint or internal
- * services. DNS is resolved here to also catch rebinding to internal IPs.
+ * services. The up-front DNS resolve covers DNS-rebinding of the *initial* host
+ * only; it does NOT cover a redirect target, because `fetch` re-resolves the
+ * redirected host independently. Redirects are therefore refused outright at the
+ * fetch call (`redirect: 'manual'`, 3xx treated as a failed delivery) rather
+ * than re-validated here.
  */
 async function assertSafeWebhookUrl(rawUrl: string): Promise<void> {
   let u: URL;
@@ -135,7 +139,14 @@ const webhookChannel: NotificationChannel = {
     if (target.secret) {
       headers['X-PB-Signature'] = `sha256=${createHmac('sha256', target.secret).update(body).digest('hex')}`;
     }
-    const resp = await fetch(target.url, { method: 'POST', signal, headers, body });
+    // `redirect: 'manual'` so fetch never follows a 3xx to an unvalidated host:
+    // the up-front SSRF guard only covered the initial URL, and fetch re-resolves
+    // DNS for a redirect target independently. A redirect is a failed delivery,
+    // not a success — recording it green would be a false positive.
+    const resp = await fetch(target.url, { method: 'POST', signal, headers, body, redirect: 'manual' });
+    if (resp.type === 'opaqueredirect' || (resp.status >= 300 && resp.status < 400)) {
+      return { ok: false, code: resp.status, error: 'webhook url redirected (refused)' };
+    }
     return resp.ok ? { ok: true, code: resp.status } : { ok: false, code: resp.status };
   },
 };

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isValidPermission, ROLE_PERMISSIONS } from '@pipeline-builder/api-core';
+import { createLogger, isValidPermission, ROLE_PERMISSIONS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
@@ -27,6 +27,9 @@ export const RL_SYSTEM_IMMUTABLE = 'RL_SYSTEM_IMMUTABLE';
 export const RL_NAME_TAKEN = 'RL_NAME_TAKEN';
 /** A supplied permission string isn't in the api-core catalog. */
 export const RL_INVALID_PERMISSION = 'RL_INVALID_PERMISSION';
+/** The system org has no seeded Super Admin Role — platform-admin can't be
+ *  granted/revoked via Role assignment (should never happen post-seed). */
+export const RL_SUPERADMIN_ROLE_MISSING = 'RL_SUPERADMIN_ROLE_MISSING';
 
 /** A Role with its current members, for the management UI. */
 export interface RoleWithMembers {
@@ -209,6 +212,118 @@ export async function ensureBaselineRole(
   await recomputeUserOrgRole(userId, organizationId, session);
 }
 
+/**
+ * Idempotently assign an org's built-in **Admin** Role to a user (upsert). Used
+ * by the admin-facing create/update paths to grant coarse-admin THROUGH a Role
+ * assignment rather than by setting `UserOrganization.role` directly — under
+ * single-source RBAC the cached coarse role is DERIVED from assigned Roles, so a
+ * direct `role='admin'` gives coarse-admin with zero permissions and is reverted
+ * by the next {@link recomputeUserOrgRole}.
+ *
+ * The Admin Role is located by its stable `grantsRole: 'admin', system: true`
+ * (name-independent). Does NOT recompute — the caller recomputes once after any
+ * companion Role changes (e.g. the Member floor). No-op (with a warning, returns
+ * false) if the org has no built-in Admin Role, which should never happen.
+ */
+export async function assignBuiltinAdminRole(
+  userId: UserId,
+  organizationId: OrgId,
+  session?: mongoose.ClientSession,
+): Promise<boolean> {
+  const adminRole = await Role.findOne({ organizationId, grantsRole: 'admin', system: true })
+    .session(session ?? null).select('_id').lean();
+  if (!adminRole) {
+    logger.warn('assignBuiltinAdminRole: org has no built-in Admin Role; admin Role not applied', {
+      organizationId: String(organizationId),
+    });
+    return false;
+  }
+  await RoleAssignment.updateOne(
+    { userId, roleId: adminRole._id },
+    { $setOnInsert: { userId, roleId: adminRole._id, organizationId } },
+    { upsert: true, session },
+  );
+  return true;
+}
+
+/**
+ * Idempotently REMOVE an org's built-in **Admin** Role assignment from a user
+ * (the demote counterpart of {@link assignBuiltinAdminRole}). Does NOT recompute
+ * — the caller recomputes once (typically after re-asserting the Member floor).
+ * No-op if the org has no built-in Admin Role or the user never held it.
+ */
+export async function removeBuiltinAdminRole(
+  userId: UserId,
+  organizationId: OrgId,
+  session?: mongoose.ClientSession,
+): Promise<void> {
+  const adminRole = await Role.findOne({ organizationId, grantsRole: 'admin', system: true })
+    .session(session ?? null).select('_id').lean();
+  if (!adminRole) return;
+  await RoleAssignment.deleteOne({ userId, roleId: adminRole._id }, { session });
+}
+
+/**
+ * Grant platform-admin by making the **system-org Super Admin Role** the source
+ * of truth (single-source model): assign the user to that Role, then recompute
+ * — which flips `User.isSuperAdmin` from the Role assignment and bumps
+ * `tokenVersion` on a genuine change. This keeps the flag and `recomputeUserOrgRole`
+ * permanently in agreement (a later recompute re-derives `isSuperAdmin=true`
+ * because the assignment persists), closing the direct-flag divergence. Also
+ * drops the refresh token on a real change so the session can't be re-issued.
+ *
+ * Self-healing + idempotent: a legacy user who has the flag but no assignment
+ * gets the assignment added with no session churn (`changed:false`); an already-
+ * granted user is a no-op. Returns whether the effective grant changed (for the
+ * caller's audit + response).
+ */
+export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boolean }> {
+  return withMongoTransaction(async (session) => {
+    const role = await Role.findOne({ organizationId: SYSTEM_ORG_ID, grantsRole: 'superadmin', system: true })
+      .session(session).select('_id').lean();
+    if (!role) throw new Error(RL_SUPERADMIN_ROLE_MISSING);
+    const before = await User.findById(userId).select('+isSuperAdmin').session(session).lean();
+    const wasSuperadmin = before?.isSuperAdmin === true;
+
+    await RoleAssignment.updateOne(
+      { userId, roleId: role._id },
+      { $setOnInsert: { userId, roleId: role._id, organizationId: SYSTEM_ORG_ID } },
+      { upsert: true, session },
+    );
+    // recompute reads the Super Admin Role assignment, sets isSuperAdmin, and
+    // bumps tokenVersion only on a genuine flip.
+    await recomputeUserOrgRole(userId, SYSTEM_ORG_ID, session);
+    if (!wasSuperadmin) {
+      await User.updateOne({ _id: userId }, { $unset: { refreshToken: '' } }, { session });
+    }
+    return { changed: !wasSuperadmin };
+  });
+}
+
+/**
+ * Revoke platform-admin by removing the system-org Super Admin Role assignment,
+ * then recomputing (which clears `User.isSuperAdmin` + bumps `tokenVersion`).
+ * Counterpart of {@link grantPlatformAdmin}; works even for a legacy user who
+ * had the flag set directly but never held the Role (recompute clears the flag
+ * from the now-absent assignment). Drops the refresh token on a real change.
+ */
+export async function revokePlatformAdmin(userId: UserId): Promise<{ changed: boolean }> {
+  return withMongoTransaction(async (session) => {
+    const role = await Role.findOne({ organizationId: SYSTEM_ORG_ID, grantsRole: 'superadmin', system: true })
+      .session(session).select('_id').lean();
+    if (!role) throw new Error(RL_SUPERADMIN_ROLE_MISSING);
+    const before = await User.findById(userId).select('+isSuperAdmin').session(session).lean();
+    const wasSuperadmin = before?.isSuperAdmin === true;
+
+    await RoleAssignment.deleteOne({ userId, roleId: role._id }, { session });
+    await recomputeUserOrgRole(userId, SYSTEM_ORG_ID, session);
+    if (wasSuperadmin) {
+      await User.updateOne({ _id: userId }, { $unset: { refreshToken: '' } }, { session });
+    }
+    return { changed: wasSuperadmin };
+  });
+}
+
 /** List an org's Roles, each with its current members (for the management UI). */
 export async function listRolesWithMembers(orgId: string): Promise<RoleWithMembers[]> {
   const oid = toOrgId(orgId);
@@ -346,15 +461,21 @@ export async function updateRole(
     role.permissions = sanitizePermissions(input.permissions);
     permsChanged = true;
   }
-  await role.save();
 
-  // Permission change must reach members' JWTs — invalidate their access tokens.
-  if (permsChanged) {
-    const memberIds = (await RoleAssignment.find({ roleId }).select('userId').lean()).map((m) => m.userId);
-    if (memberIds.length > 0) {
-      await User.updateMany({ _id: { $in: memberIds } }, { $inc: { tokenVersion: 1 } });
+  // Atomic: the Role edit and the members' tokenVersion bump must commit
+  // together. A crash between them would otherwise persist the new permissions
+  // while leaving members' JWTs carrying the OLD grants until token expiry — a
+  // stale-permission window. Mirrors how `deleteRole` already threads a session.
+  await withMongoTransaction(async (session) => {
+    await role.save({ session });
+    // Permission change must reach members' JWTs — invalidate their access tokens.
+    if (permsChanged) {
+      const memberIds = (await RoleAssignment.find({ roleId }).session(session).select('userId').lean()).map((m) => m.userId);
+      if (memberIds.length > 0) {
+        await User.updateMany({ _id: { $in: memberIds } }, { $inc: { tokenVersion: 1 } }, { session });
+      }
     }
-  }
+  });
 
   logger.info('Updated custom Role', { organizationId: orgId, roleId, permsChanged });
   return {

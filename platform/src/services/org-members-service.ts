@@ -7,11 +7,17 @@ import { ensureBaselineRole } from './roles-service.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap } from '../helpers/seats.js';
-import { Organization, User, UserOrganization } from '../models/index.js';
+import { Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
+import { escapeRegex } from '../utils/regex.js';
 
 const logger = createLogger('org-members-service');
+
+/** Default member-roster page size when the caller omits a limit. */
+const MEMBER_LIST_DEFAULT_LIMIT = 25;
+/** Hard cap on a single member-roster page (bounds a hostile ?limit). */
+const MEMBER_LIST_MAX_LIMIT = 200;
 
 export const OM_ORG_NOT_FOUND = 'OM_ORG_NOT_FOUND';
 export const OM_USER_NOT_FOUND = 'OM_USER_NOT_FOUND';
@@ -65,64 +71,137 @@ interface MemberSummary {
   email: string;
   role: string;
   isEmailVerified: boolean;
+  /** Membership active flag — powers the Active/Inactive status badge and the
+   *  deactivate/reactivate toggle. */
+  isActive: boolean;
   isOwner: boolean;
   joinedAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
+  /** The permission Roles this member holds in the org (id + name), so the UI
+   *  renders role chips WITHOUT an O(members×roles) client-side scan. */
+  roles: Array<{ id: string; name: string }>;
 }
 
-interface OrgWithMembers {
+interface OrgMembersPage {
   organizationId: string;
   organizationName: string;
   ownerId?: string;
   members: MemberSummary[];
+  /** Total memberships matching the (search/role) filter — the full count so
+   *  the client can page; `members` is only the requested window. */
+  total: number;
+  offset: number;
+  limit: number;
 }
 
 class OrgMembersService {
   /**
-   * Find org + populate the full member list (joining UserOrganization +
-   * User). Returns null if the org doesn't exist. Skips memberships whose
-   * user record was deleted out from under them.
+   * A bounded, filterable page of an org's members (joining UserOrganization +
+   * User), each annotated with the permission Roles it holds. Returns null if
+   * the org doesn't exist. Skips memberships whose user record was deleted out
+   * from under them.
+   *
+   * `search` matches username/email (case-insensitive); `role` narrows to a
+   * coarse membership role. Both are applied at the DB level (never in memory),
+   * and `total` reflects the full filtered count so the client can page. The
+   * roster is sorted by join time for a stable window across pages.
    */
-  async listMembers(orgId: string): Promise<OrgWithMembers | null> {
+  async listMembers(
+    orgId: string,
+    opts: { limit?: number; offset?: number; search?: string; role?: OrgMemberRole } = {},
+  ): Promise<OrgMembersPage | null> {
     const org = await Organization.findById(toOrgId(orgId))
       .select('name owner')
-      .populate('owner', '_id username email')
       .lean();
     if (!org) return null;
 
-    const memberships = await UserOrganization.find({ organizationId: toOrgId(orgId) })
-      .populate<{
-      userId: {
-        _id: mongoose.Types.ObjectId;
-        username: string;
-        email: string;
-        isEmailVerified: boolean;
-        createdAt?: Date;
-        updatedAt?: Date;
-      };
-    }>({ path: 'userId', select: '_id username email isEmailVerified createdAt updatedAt' })
-      .lean();
+    const limit = Math.min(Math.max(1, opts.limit ?? MEMBER_LIST_DEFAULT_LIMIT), MEMBER_LIST_MAX_LIMIT);
+    const offset = Math.max(0, opts.offset ?? 0);
 
-    const members = memberships
-      .filter(m => m.userId)
-      .map(m => ({
-        id: m.userId._id.toString(),
+    const filter: Record<string, unknown> = { organizationId: toOrgId(orgId) };
+    if (opts.role) filter.role = opts.role;
+
+    // Search matches username/email. populate() can't be filtered at the DB
+    // level, so resolve matching user ids first and constrain the membership
+    // query by them. No match short-circuits to an empty page (no count needed).
+    if (opts.search && opts.search.trim()) {
+      const rx = new RegExp(escapeRegex(opts.search.trim()), 'i');
+      const matched = await User.find({ $or: [{ username: rx }, { email: rx }] })
+        .select('_id').lean();
+      if (matched.length === 0) {
+        return { organizationId: orgId, organizationName: org.name, ownerId: org.owner?.toString(), members: [], total: 0, offset, limit };
+      }
+      filter.userId = { $in: matched.map((u) => u._id) };
+    }
+
+    const [memberships, total] = await Promise.all([
+      UserOrganization.find(filter)
+        .populate<{
+        userId: {
+          _id: mongoose.Types.ObjectId;
+          username: string;
+          email: string;
+          isEmailVerified: boolean;
+          createdAt?: Date;
+          updatedAt?: Date;
+        };
+      }>({ path: 'userId', select: '_id username email isEmailVerified createdAt updatedAt' })
+        .sort({ joinedAt: 1, _id: 1 })
+        .skip(offset)
+        .limit(limit)
+        .lean(),
+      UserOrganization.countDocuments(filter),
+    ]);
+
+    const present = memberships.filter(m => m.userId);
+
+    // Per-member assigned Role names — one query for the whole page, grouped by
+    // user, so the client renders role chips without an O(members×roles) scan.
+    const pageUserIds = present.map(m => m.userId._id);
+    const rolesByUser = new Map<string, Array<{ id: string; name: string }>>();
+    if (pageUserIds.length > 0) {
+      const assignments = await RoleAssignment.find({
+        organizationId: toOrgId(orgId), userId: { $in: pageUserIds },
+      })
+        .populate<{ roleId: { _id: mongoose.Types.ObjectId; name: string } | null }>(
+          { path: 'roleId', select: '_id name' },
+        )
+        .lean();
+      for (const a of assignments) {
+        if (!a.roleId) continue;
+        const uid = String(a.userId);
+        const list = rolesByUser.get(uid) ?? [];
+        list.push({ id: String(a.roleId._id), name: a.roleId.name });
+        rolesByUser.set(uid, list);
+      }
+    }
+
+    const members = present.map(m => {
+      const uid = m.userId._id.toString();
+      return {
+        id: uid,
         username: m.userId.username,
         email: m.userId.email,
         role: m.role,
         isEmailVerified: m.userId.isEmailVerified,
+        isActive: m.isActive,
         isOwner: m.role === 'owner',
         joinedAt: m.joinedAt,
         createdAt: m.userId.createdAt,
         updatedAt: m.userId.updatedAt,
-      }));
+        roles: (rolesByUser.get(uid) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
+      };
+    });
 
     return {
       organizationId: orgId,
       organizationName: org.name,
       ownerId: org.owner?.toString(),
       members,
+      total,
+      offset,
+      limit,
     };
   }
 
@@ -362,20 +441,43 @@ class OrgMembersService {
    * Soft-deactivate a member: sets isActive=false and clears their
    * lastActiveOrgId if it pointed here. They keep the membership record
    * but lose access. Refuses to touch the owner.
+   *
+   * Bumps the user's `tokenVersion` and clears their refresh token in the same
+   * transaction (mirrors {@link removeMember}). `requireAuth` trusts the JWT
+   * claims and only re-reads `tokenVersion` — it does NOT re-check `isActive` —
+   * so without this bump a deactivated member would keep full read+write access
+   * until their access token expired (~2 h). The bump forces every outstanding
+   * JWT to be rejected on the next request, and unsetting the refresh token
+   * blocks a silent re-issue.
    */
   async deactivateMember(orgId: string, userId: string): Promise<void> {
-    const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) });
-    if (!membership) throw new Error(OM_MEMBERSHIP_NOT_FOUND);
-    if (membership.role === 'owner') throw new Error(OM_CANNOT_REMOVE_OWNER);
-    if (!membership.isActive) throw new Error(OM_ALREADY_INACTIVE);
+    await withMongoTransaction(async (session) => {
+      const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) }).session(session);
+      if (!membership) throw new Error(OM_MEMBERSHIP_NOT_FOUND);
+      if (membership.role === 'owner') throw new Error(OM_CANNOT_REMOVE_OWNER);
+      if (!membership.isActive) throw new Error(OM_ALREADY_INACTIVE);
 
-    membership.isActive = false;
-    await membership.save();
+      membership.isActive = false;
+      await membership.save({ session });
 
-    await User.updateOne(
-      { _id: userId, lastActiveOrgId: String(toOrgId(orgId)) },
-      { $unset: { lastActiveOrgId: '' } },
-    );
+      // Invalidate outstanding access tokens + block refresh re-issue so the
+      // loss of access is immediate, not deferred to token expiry.
+      await User.updateOne(
+        { _id: userId },
+        {
+          $inc: { tokenVersion: 1 },
+          $unset: { refreshToken: '' },
+        },
+        { session },
+      );
+
+      // Clear lastActiveOrgId if it pointed at the just-deactivated org.
+      await User.updateOne(
+        { _id: userId, lastActiveOrgId: String(toOrgId(orgId)) },
+        { $unset: { lastActiveOrgId: '' } },
+        { session },
+      );
+    });
   }
 
   /** Re-activate a previously deactivated member. */

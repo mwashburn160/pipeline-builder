@@ -13,7 +13,7 @@ import { Router } from 'express';
 import { renderOrgNamespace } from '../controllers/org-namespace.js';
 import { requireAuth, requireStepUp } from '../middleware/index.js';
 
-const router = Router({ mergeParams: true });
+const router: Router = Router({ mergeParams: true });
 
 // YAML pins service-account tokens / namespace labels — sensitive enough
 // to warrant step-up. Operators run this rarely (one-time per-org

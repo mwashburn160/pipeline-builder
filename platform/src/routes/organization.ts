@@ -37,7 +37,7 @@ import {
 } from '../controllers/index.js';
 import { requireAuth, requireSystemAdmin, requireStepUp } from '../middleware/index.js';
 
-const router = Router();
+const router: Router = Router();
 
 /*
  * Current User's Organization
