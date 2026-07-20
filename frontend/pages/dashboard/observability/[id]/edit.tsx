@@ -39,8 +39,12 @@ const DashboardLayoutGrid = dynamic(() => import('@/components/observability/Das
  * for other readers if the request fails mid-flight.
  */
 export default function DashboardEditPage() {
-  // Editing a dashboard is a `dashboards:write` capability (superadmins bypass).
-  const { isReady, isAuthenticated } = useAuthGuard({ requirePermission: 'dashboards:write' });
+  // View on `dashboards:read`; persisting edits is a `dashboards:write`
+  // capability gated on `can()` (the backend rejects the PUT otherwise, and
+  // `can()` reports false under read-only impersonation so Save disables).
+  // Superadmins bypass.
+  const { isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'dashboards:read' });
+  const canWrite = can('dashboards:write');
   const router = useRouter();
   const toast = useToast();
   const id = typeof router.query.id === 'string' ? router.query.id: '';
@@ -186,6 +190,7 @@ export default function DashboardEditPage() {
 
   const onSave = async () => {
     if (!original) return;
+    if (!canWrite) { toast.error('Read-only — requires dashboards:write'); return; }
     if (!name.trim()) { toast.error('Name is required'); return; }
     setSaving(true);
     try {
@@ -251,7 +256,8 @@ export default function DashboardEditPage() {
           </Link>
           <button
             onClick={() => void onSave()}
-            disabled={saving || !name.trim()}
+            disabled={saving || !name.trim() || !canWrite}
+            title={canWrite ? undefined : 'Read-only — requires dashboards:write'}
             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
           >
             <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}

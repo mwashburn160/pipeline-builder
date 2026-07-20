@@ -373,7 +373,7 @@ class OrgMembersService {
    * the now-revoked org are rejected on the next request (the JWT carries
    * the issuance-time tokenVersion; `requireAuth` compares it to the
    * current value). Without this bump a kicked user keeps acting as the
-   * org until their access token expires (~2 h default).
+   * org until their access token expires (~15 min default).
    */
   async removeMember(orgId: string, userId: string): Promise<void> {
     await withMongoTransaction(async (session) => {
@@ -412,7 +412,7 @@ class OrgMembersService {
    * Bumps BOTH users' `tokenVersion` in the same transaction (mirrors
    * updateRole/removeMember). The membership `role` is baked into each user's
    * JWT at issue time, so without this the demoted ex-owner would keep an
-   * owner-role token (~2 h) and the new owner's elevation wouldn't take effect
+   * owner-role token (~15 min) and the new owner's elevation wouldn't take effect
    * until their token refreshed. The bump forces `requireAuth` to reject both
    * users' outstanding tokens so a refresh reissues them with the swapped role.
    */
@@ -469,7 +469,7 @@ class OrgMembersService {
    * transaction (mirrors {@link removeMember}). `requireAuth` trusts the JWT
    * claims and only re-reads `tokenVersion` — it does NOT re-check `isActive` —
    * so without this bump a deactivated member would keep full read+write access
-   * until their access token expired (~2 h). The bump forces every outstanding
+   * until their access token expired (~15 min). The bump forces every outstanding
    * JWT to be rejected on the next request, and unsetting the refresh token
    * blocks a silent re-issue.
    */

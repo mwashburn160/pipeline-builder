@@ -18,8 +18,11 @@ import { api, ApiError } from '@/lib/api';
  * "empty dashboard with no panels" intermediate state in the API.
  */
 export default function NewDashboardPage() {
-  // Creating a dashboard is a `dashboards:write` capability (superadmins bypass).
-  const { isReady, isAuthenticated } = useAuthGuard({ requirePermission: 'dashboards:write' });
+  // View on `dashboards:read`; the actual create action is a `dashboards:write`
+  // capability gated via `can()`, which reports false under read-only
+  // impersonation so the Create button disables (superadmins bypass).
+  const { isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'dashboards:read' });
+  const canWrite = can('dashboards:write');
   const router = useRouter();
   const toast = useToast();
   const [name, setName] = useState('');
@@ -28,7 +31,7 @@ export default function NewDashboardPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const onCreate = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || !canWrite) return;
     setSubmitting(true);
     try {
       const res = await api.createDashboard({
@@ -95,7 +98,8 @@ export default function NewDashboardPage() {
           </Link>
           <button
             onClick={() => void onCreate()}
-            disabled={submitting || !name.trim()}
+            disabled={submitting || !name.trim() || !canWrite}
+            title={canWrite ? undefined : 'Read-only — requires dashboards:write'}
             className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded disabled:opacity-50"
           >
             {submitting ? 'Creating…' : 'Create & add panels'}

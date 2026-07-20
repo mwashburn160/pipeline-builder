@@ -114,7 +114,7 @@ describe('ComplianceRuleSubscriptionService', () => {
     });
 
     it('bulkSetActive invalidates only when at least one row was updated', async () => {
-      nextReturningResult = [{ id: 'sub-1' }, { id: 'sub-2' }];
+      nextReturningResult = [{ ruleId: 'r1' }, { ruleId: 'r2' }];
       await svc.bulkSetActive('org-1', ['r1', 'r2'], true, 'u1');
       expect(mockInvalidate).toHaveBeenCalledWith('org-1');
 
@@ -225,11 +225,14 @@ describe('ComplianceRuleSubscriptionService', () => {
       await expect(svc.bulkSetActive('000000000000000000000001', ['r1'], true, 'u')).rejects.toThrow(CS_SYSTEM_ORG);
     });
 
-    it('returns count of updated rows', async () => {
-      nextReturningResult = [{ id: 'a' }, { id: 'b' }];
-      const count = await svc.bulkSetActive('org-1', ['r1', 'r2'], false, 'u');
+    it('returns the ruleIds actually toggled (not the requested set), count derivable from length', async () => {
+      // Requested two, but only one row matched/changed — the service must
+      // return just the affected ruleId so the route audits only real toggles.
+      nextReturningResult = [{ ruleId: 'r1' }];
+      const affected = await svc.bulkSetActive('org-1', ['r1', 'r2'], false, 'u');
       expect(tx.update).toHaveBeenCalled();
-      expect(count).toBe(2);
+      expect(affected).toEqual(['r1']);
+      expect(affected.length).toBe(1);
     });
   });
 

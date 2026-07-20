@@ -35,9 +35,13 @@ export function createRedisTokenRevocationStore(redis: RedisCacheClient): TokenR
     async getCurrentVersion(userId: string): Promise<number | null> {
       try {
         const raw = await redis.get(tokenRevocationKey(userId));
-        if (raw === null || raw === undefined) return null;
-        const n = Number.parseInt(raw, 10);
-        return Number.isFinite(n) ? n : null;
+        if (raw === null || raw === undefined || raw.trim() === '') return null;
+        // Strict integer parse: `Number` (unlike `parseInt`) rejects trailing
+        // garbage ("5abc" → NaN), so a corrupted entry fails open (null → "not
+        // revoked") rather than being read as a bogus version. The empty-string
+        // guard above matters because `Number('')` is 0, not NaN.
+        const n = Number(raw);
+        return Number.isInteger(n) ? n : null;
       } catch (err) {
         logger.debug('Token-revocation read failed (fail-open)', {
           userId, error: err instanceof Error ? err.message : String(err),

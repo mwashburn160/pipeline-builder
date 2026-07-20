@@ -26,9 +26,12 @@ const logger = createLogger('audit-chain');
  * - Events with NO org context at all (anonymous actions, `bootstrap-env`
  *   super-admin grants) share the single {@link GENESIS_CHAIN_KEY} chain.
  * - Digest: `hash = sha256(canonical)` where `canonical` is a STABLE, sorted-key
- *   JSON serialization of the event's immutable fields (action, actorId, orgId,
- *   affectedOrgId, targetType, targetId, outcome, details, createdAt) PLUS the
- *   `prevHash`. Sorted keys + a normalization of every absent field to `null`
+ *   JSON serialization of ALL of the event's immutable, write-once fields
+ *   (action, actorId, actorEmail, actorRole, orgId, affectedOrgId, targetType,
+ *   targetId, groupId, impersonatorId, outcome, details, ip, userAgent,
+ *   requestId, traceId, createdAt) PLUS the `prevHash` — so tampering with any
+ *   forensic-attribution field (e.g. `impersonatorId`, `groupId`) is detectable.
+ *   Sorted keys + a normalization of every absent field to `null`
  *   make re-computation from the stored row reproducible regardless of key order
  *   or undefined-vs-missing quirks in what Mongo returns.
  * - `prevHash` = the `hash` of the most recent PRIOR event in the same chain, or
@@ -73,16 +76,31 @@ function stableStringify(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
 }
 
-/** The immutable fields the hash is computed over (stored fields only). */
+/**
+ * The immutable, write-once fields the hash is computed over (stored fields
+ * only). Every field here is set at event creation and never updated
+ * (`timestamps.updatedAt` is off), so hashing them makes a post-hoc mutation of
+ * ANY of them detectable — notably `impersonatorId` (who really acted, under a
+ * "view-as" token) and `groupId` (which Role was touched), the high-value
+ * forensic-attribution fields an attacker would want to rewrite.
+ */
 export interface AuditHashFields {
   action: string;
   actorId: string;
+  actorEmail?: string | null;
+  actorRole?: string | null;
   orgId?: string | null;
   affectedOrgId?: string | null;
   targetType?: string | null;
   targetId?: string | null;
+  groupId?: string | null;
+  impersonatorId?: string | null;
   outcome?: string | null;
   details?: Record<string, unknown> | null;
+  ip?: string | null;
+  userAgent?: string | null;
+  requestId?: string | null;
+  traceId?: string | null;
   createdAt: Date;
   prevHash: string | null;
 }
@@ -97,12 +115,20 @@ export function computeAuditHash(f: AuditHashFields): string {
   const canonical = stableStringify({
     action: f.action,
     actorId: f.actorId,
+    actorEmail: f.actorEmail ?? null,
+    actorRole: f.actorRole ?? null,
     orgId: f.orgId ?? null,
     affectedOrgId: f.affectedOrgId ?? null,
     targetType: f.targetType ?? null,
     targetId: f.targetId ?? null,
+    groupId: f.groupId ?? null,
+    impersonatorId: f.impersonatorId ?? null,
     outcome: f.outcome ?? null,
     details: f.details ?? null,
+    ip: f.ip ?? null,
+    userAgent: f.userAgent ?? null,
+    requestId: f.requestId ?? null,
+    traceId: f.traceId ?? null,
     createdAt: createdAt.toISOString(),
     prevHash: f.prevHash,
   });
@@ -236,12 +262,20 @@ export async function verifyAuditChain(chainKey: string): Promise<AuditChainVeri
     const recomputed = computeAuditHash({
       action: raw.action as string,
       actorId: raw.actorId as string,
+      actorEmail: raw.actorEmail as string | undefined,
+      actorRole: raw.actorRole as string | undefined,
       orgId: raw.orgId as string | undefined,
       affectedOrgId: raw.affectedOrgId as string | undefined,
       targetType: raw.targetType as string | undefined,
       targetId: raw.targetId as string | undefined,
+      groupId: raw.groupId as string | undefined,
+      impersonatorId: raw.impersonatorId as string | undefined,
       outcome: raw.outcome as string | undefined,
       details: raw.details as Record<string, unknown> | undefined,
+      ip: raw.ip as string | undefined,
+      userAgent: raw.userAgent as string | undefined,
+      requestId: raw.requestId as string | undefined,
+      traceId: raw.traceId as string | undefined,
       createdAt: raw.createdAt as Date,
       prevHash: storedPrev,
     });

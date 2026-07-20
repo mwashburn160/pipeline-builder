@@ -144,8 +144,9 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
   return {
     record(event, serviceName) {
       const authHeader = getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' });
-      // Strip the `Bearer ` prefix for InternalHttpClient  it sets the
-      // Authorization header itself; the value here is raw.
+      // getServiceAuthHeader returns a full `Bearer <token>` value; the
+      // http-client forwards request headers as-is (it does NOT inject its own
+      // Authorization), so pass it straight through as the Authorization header.
       // A stable per-emission Idempotency-Key makes this non-idempotent POST
       // retry-safe in the http-client (so transient 5xx/timeout/429 are retried
       // rather than dropped) and lets the platform ingest dedup a re-delivered
@@ -159,7 +160,10 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
       // /audit, and the internal ingest endpoint lives at /events under that.
       client.post('/audit/events', event, { headers, ...AUDIT_REQUEST_OPTIONS })
         .then((response) => {
-          if (!response || response.statusCode !== 200) {
+          // Any 2xx is an accept (the ingest returns 200 today, but 201/202/204
+          // are equally "stored"); only a non-2xx / missing response warns.
+          const ok = response && response.statusCode >= 200 && response.statusCode < 300;
+          if (!ok) {
             logger.warn('Remote audit ingest non-ok', {
               action: event.action, statusCode: response?.statusCode,
             });

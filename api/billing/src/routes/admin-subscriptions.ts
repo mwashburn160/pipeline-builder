@@ -88,6 +88,13 @@ export function createAdminSubscriptionRoutes(): Router {
       // highest-value attribution surface (a privileged cross-org write).
       const actorId = req.user?.sub;
 
+      // Mutate the in-memory doc and validate up front, but DEFER every side
+      // effect (quota sync + billing_events) until AFTER the subscription is
+      // persisted. Firing them before save() risks billing<->quota drift if
+      // save() throws: the quota service / event log would record a change the
+      // subscription document never kept.
+      const deferred: Array<() => Promise<void>> = [];
+
       if (planId) {
         const plan = await Plan.findOne({ _id: planId, isActive: true });
         if (!plan) {
@@ -102,24 +109,36 @@ export function createAdminSubscriptionRoutes(): Router {
         // Preserve purchased add-on bundles: effective caps = tier base + addons.
         // Passing no addons here would push tier-base-only limits and silently
         // drop the customer's bundle entitlements until the next add-on mutation.
-        await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId, subscription.addons ?? []);
-        await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId, actorId);
+        const addons = subscription.addons ?? [];
+        deferred.push(async () => {
+          await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId, addons);
+          await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId, actorId);
+        });
       }
 
       if (status && status !== subscription.status) {
         subscription.status = status;
-        await createBillingEvent(orgId, 'subscription_updated', { status }, subscriptionId, actorId);
+        deferred.push(async () => {
+          await createBillingEvent(orgId, 'subscription_updated', { status }, subscriptionId, actorId);
+        });
       }
 
       if (interval && interval !== subscription.interval) {
         const oldInterval = subscription.interval;
         subscription.interval = interval;
-        await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId, actorId);
+        deferred.push(async () => {
+          await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId, actorId);
+        });
       }
 
       if (cancelAtPeriodEnd !== undefined) subscription.cancelAtPeriodEnd = cancelAtPeriodEnd;
 
+      // Persist first — only run side effects once the document is durably saved.
       await subscription.save();
+
+      for (const run of deferred) {
+        await run();
+      }
 
       ctx.log('COMPLETED', 'Admin updated subscription', { subscriptionId, planId, status });
 

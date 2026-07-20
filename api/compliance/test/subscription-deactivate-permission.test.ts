@@ -22,7 +22,9 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const setActiveMock = jest.fn(async () => ({ id: 'sub-1', isActive: false }));
-const bulkSetActiveMock = jest.fn(async () => 1);
+// bulkSetActive now returns the ruleIds actually toggled (see FIX #A2); the
+// route iterates that array, so the mock must resolve to an array, not a count.
+const bulkSetActiveMock = jest.fn(async (_orgId: string, ruleIds: string[]) => ruleIds);
 
 // The permission set carried by the current fake request. Mutated per-test.
 let currentPermissions: string[] = [];

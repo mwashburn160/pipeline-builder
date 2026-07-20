@@ -152,6 +152,32 @@ describe('verifyAuditChain', () => {
     expect(result.count).toBe(3);
   });
 
+  it('detects a rewritten impersonatorId (forensic unmask field is hashed)', async () => {
+    await appendAuditEvent({ action: 'user.login', actorId: 'u1', orgId: 'org-1', affectedOrgId: 'org-1' });
+    const tampered = await appendAuditEvent({
+      action: 'admin.user.update', actorId: 'u1', orgId: 'org-1', affectedOrgId: 'org-1', impersonatorId: 'sysadmin-7',
+    });
+    const row = store.find((r) => r._id === tampered._id)!;
+    // Attacker tries to erase who really acted under the "view-as" token.
+    row.impersonatorId = undefined;
+
+    const result = await verifyAuditChain('org-1');
+    expect(result.ok).toBe(false);
+    expect(result.brokenAt).toBe(tampered._id);
+  });
+
+  it('detects a rewritten groupId (which Role was touched is hashed)', async () => {
+    const e1 = await appendAuditEvent({
+      action: 'org.role.member.add', actorId: 'admin', orgId: 'org-1', affectedOrgId: 'org-1', groupId: 'role-viewer',
+    });
+    const row = store.find((r) => r._id === e1._id)!;
+    row.groupId = 'role-admin';
+
+    const result = await verifyAuditChain('org-1');
+    expect(result.ok).toBe(false);
+    expect(result.brokenAt).toBe(e1._id);
+  });
+
   it('detects a mutation buried in the details field', async () => {
     const e1 = await appendAuditEvent({ action: 'admin.org.tier.update', actorId: 'sa', orgId: 'org-1', affectedOrgId: 'org-1', details: { previousTier: 'pro' } });
     const row = store.find((r) => r._id === e1._id)!;

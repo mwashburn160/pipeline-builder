@@ -240,12 +240,20 @@ function _requireAuth(
     // privilege change the platform published). No store registered ⇒ this is a
     // no-op and control passes straight through. Fail-open on any store error.
     if (tokenRevocationStore && decoded.sub && typeof decoded.tokenVersion === 'number') {
-      void isTokenRevoked(decoded).then((revoked) => {
-        if (revoked) {
-          return sendError(res, HttpStatus.UNAUTHORIZED, 'Session has been revoked; please sign in again', ErrorCode.TOKEN_REVOKED);
-        }
-        next();
-      });
+      // `.catch(next)` forwards a DOWNSTREAM synchronous throw from `next()` to
+      // Express's error middleware — without it, that throw would surface as an
+      // unhandled rejection (this `next()` runs in a microtask, outside the
+      // surrounding try/catch and Express's per-layer dispatch). `isTokenRevoked`
+      // itself never rejects (it fail-opens internally), so the catch only ever
+      // sees a genuine downstream error.
+      isTokenRevoked(decoded)
+        .then((revoked) => {
+          if (revoked) {
+            return sendError(res, HttpStatus.UNAUTHORIZED, 'Session has been revoked; please sign in again', ErrorCode.TOKEN_REVOKED);
+          }
+          next();
+        })
+        .catch(next);
       return;
     }
 

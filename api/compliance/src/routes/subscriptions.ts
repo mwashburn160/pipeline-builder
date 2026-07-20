@@ -19,7 +19,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
-import { emitComplianceAudit } from '../services/audit.js';
+import { emitComplianceAudit, getAuditClient } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 import {
   subscriptionService,
@@ -52,6 +52,25 @@ function handleSubError(res: Response, err: unknown): boolean {
   if (!mapped) return false;
   sendError(res, mapped.status, mapped.message, mapped.code);
   return true;
+}
+
+/**
+ * Best-effort `authz.denied` audit for the two INLINE `compliance:write`
+ * deactivate denials (PATCH /:ruleId, POST /bulk). Gate-based denials
+ * (`requirePermission`) already record this via the shared middleware; these
+ * inline branches send their own 403, so without this they'd be invisible to a
+ * reviewer. Fire-and-forget — `record` never throws and is not awaited — so it
+ * can never delay or fail the 403 it precedes.
+ */
+function auditComplianceWriteDenied(req: Request): void {
+  getAuditClient().record({
+    action: 'authz.denied',
+    actorId: req.user?.sub ?? 'anonymous',
+    actorEmail: req.user?.email,
+    orgId: req.user?.organizationId,
+    outcome: 'failure',
+    details: { method: req.method, path: req.originalUrl ?? req.url, required: 'compliance:write' },
+  }, 'compliance');
 }
 
 const SubscribeSchema = z.object({
@@ -175,6 +194,7 @@ export function createSubscriptionRoutes(): Router {
     // gate as rule authoring / exemption approval / clone). See the mount in
     // index.ts: subscriptions run at member level, so this is enforced inline.
     if (!validation.value.isActive && !userHasPermission(req, 'compliance:write')) {
+      auditComplianceWriteDenied(req);
       return sendError(res, 403, 'Missing required permission: compliance:write', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
@@ -231,14 +251,19 @@ export function createSubscriptionRoutes(): Router {
     // PATCH above — reject the whole batch unless the caller holds
     // `compliance:write`. Bulk activate stays member-level (opt-in).
     if (!isActive && !userHasPermission(req, 'compliance:write')) {
+      auditComplianceWriteDenied(req);
       return sendError(res, 403, 'Missing required permission: compliance:write', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
-    const updated = await subscriptionService.bulkSetActive(orgId, ruleIds, isActive, userId);
+    const affectedIds = await subscriptionService.bulkSetActive(orgId, ruleIds, isActive, userId);
+    const updated = affectedIds.length;
     ctx.log('COMPLETED', `Bulk ${isActive ? 'activated' : 'deactivated'} subscriptions`, { requested: ruleIds.length, updated });
 
-    // Best-effort attributed audit — one event per rule toggled, keeping
-    // targetId = rule id consistent with the single-rule PATCH above.
-    for (const ruleId of ruleIds) {
+    // Best-effort attributed audit — one event per rule ACTUALLY toggled (a row
+    // that matched and changed), not per requested id, so posture changes aren't
+    // logged for rules that weren't subscribed or didn't change. Mirrors the
+    // per-row iteration of the pipeline bulk handlers and keeps targetId = rule
+    // id consistent with the single-rule PATCH above.
+    for (const ruleId of affectedIds) {
       emitComplianceAudit({
         action: 'compliance.rule.toggle',
         actorId: userId,

@@ -46,9 +46,12 @@ function styleFor(a: Alert): { bg: string; text: string; chip: string } {
 }
 
 export default function AlertsPage() {
-  // Alert triage (creating/expiring silences) is an `observability:write`
-  // capability (superadmins bypass).
-  const { isReady, isAuthenticated } = useAuthGuard({ requirePermission: 'observability:write' });
+  // Viewing alerts requires only `observability:read` (matches the catalog —
+  // Members hold it). Alert triage (creating/expiring silences) is an
+  // `observability:write` capability gated per-control via `can()`, which also
+  // reports false under read-only impersonation (superadmins bypass).
+  const { isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'observability:read' });
+  const canWrite = can('observability:write');
   const toast = useToast();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [silences, setSilences] = useState<Silence[]>([]);
@@ -181,7 +184,7 @@ export default function AlertsPage() {
                             ))}
                         </div>
                       </div>
-                      {!suppressed && (
+                      {!suppressed && canWrite && (
                         <button
                           onClick={() => setSilenceTarget(a)}
                           className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-white dark:hover:bg-gray-800"
@@ -212,12 +215,14 @@ export default function AlertsPage() {
                         {s.comment} — by {s.createdBy} — expires {formatRelativeTime(s.endsAt)}
                       </div>
                     </div>
-                    <button
-                      onClick={() => void onExpireSilence(s.id)}
-                      className="flex-shrink-0 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
-                    >
-                      Expire
-                    </button>
+                    {canWrite && (
+                      <button
+                        onClick={() => void onExpireSilence(s.id)}
+                        className="flex-shrink-0 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+                      >
+                        Expire
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

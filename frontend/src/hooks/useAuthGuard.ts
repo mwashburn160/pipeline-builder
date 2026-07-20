@@ -6,7 +6,7 @@
  * Redirects unauthenticated users to the login page and optionally
  * enforces admin or system-admin role requirements.
  */
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from './useAuth';
 import { isSystemAdmin, isOrgAdmin, hasPermission, isMutationPermission } from '@/lib/auth-helpers';
@@ -41,6 +41,25 @@ export function useAuthGuard(options?: AuthGuardOptions) {
   const requireSystemAdmin = options?.requireSystemAdmin ?? false;
   const requirePermission = options?.requirePermission;
   const hasRequiredPermission = !requirePermission || hasPermission(user, requirePermission);
+
+  /**
+   * Fine-grained permission check for the active org (RBAC UI gating).
+   *
+   * During a read-only impersonation session, mutation permissions
+   * (`:write`/`:manage`/`org:settings`) always report false so write controls
+   * disable app-wide — the backend rejects every non-GET request under an
+   * impersonation token, so an enabled write button is only a 403 dead-end.
+   * Read permissions are unaffected.
+   *
+   * Memoized so the reference stays stable across renders — consumers pass it
+   * into `useMemo`/`useCallback` dependency arrays (e.g. the pipelines column
+   * builder), which would otherwise recompute every render.
+   */
+  const can = useCallback(
+    (permission: string) =>
+      hasPermission(user, permission) && !(isReadOnly && isMutationPermission(permission)),
+    [user, isReadOnly],
+  );
 
   useEffect(() => {
     if (!isInitialized || isLoading) return;
@@ -77,17 +96,7 @@ export function useAuthGuard(options?: AuthGuardOptions) {
     /** True during a read-only sysadmin impersonation session — writes are
      *  blocked by the backend, so `can()` reports false for every mutation. */
     isReadOnly,
-    /**
-     * Fine-grained permission check for the active org (RBAC UI gating).
-     *
-     * During a read-only impersonation session, mutation permissions
-     * (`:write`/`:manage`/`org:settings`) always report false so write controls
-     * disable app-wide — the backend rejects every non-GET request under an
-     * impersonation token, so an enabled write button is only a 403 dead-end.
-     * Read permissions are unaffected.
-     */
-    can: (permission: string) =>
-      hasPermission(user, permission) && !(isReadOnly && isMutationPermission(permission)),
+    can,
     logout,
     refreshUser,
   };

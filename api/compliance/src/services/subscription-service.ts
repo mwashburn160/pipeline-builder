@@ -244,8 +244,14 @@ export class ComplianceRuleSubscriptionService {
     return subscribed;
   }
 
-  /** Bulk activate/deactivate subscriptions. */
-  async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, _userId: string): Promise<number> {
+  /**
+   * Bulk activate/deactivate subscriptions.
+   * Returns the ruleIds actually toggled (rows that matched and were updated) —
+   * NOT the requested set. Callers deriving a count use `affectedIds.length`;
+   * callers auditing per-rule posture changes (see routes/subscriptions.ts) must
+   * iterate the returned ids so events are emitted only for rules that changed.
+   */
+  async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, _userId: string): Promise<string[]> {
     if (isSystemOrgId(orgId)) {
       throw new Error(CS_SYSTEM_ORG);
     }
@@ -259,12 +265,12 @@ export class ComplianceRuleSubscriptionService {
         inArray(schema.complianceRuleSubscription.ruleId, ruleIds),
         isNull(schema.complianceRuleSubscription.unsubscribedAt),
       ))
-      .returning({ id: schema.complianceRuleSubscription.id }));
+      .returning({ ruleId: schema.complianceRuleSubscription.ruleId }));
 
-    const updated = result.length;
-    logger.info('Bulk subscription state changed', { action: isActive ? 'activated' : 'deactivated', orgId, requested: ruleIds.length, updated });
-    if (updated > 0) await invalidateRulesFor(orgId);
-    return updated;
+    const affectedIds = result.map((r) => r.ruleId);
+    logger.info('Bulk subscription state changed', { action: isActive ? 'activated' : 'deactivated', orgId, requested: ruleIds.length, updated: affectedIds.length });
+    if (affectedIds.length > 0) await invalidateRulesFor(orgId);
+    return affectedIds;
   }
 
   /** Pin a subscription to a specific rule version snapshot. */

@@ -286,6 +286,27 @@ describe('PUT /admin/subscriptions/:id', () => {
     );
   });
 
+  it('fires NO side effects when subscription.save() rejects (drift guard)', async () => {
+    const sub = makeSubscription({
+      planId: 'developer',
+      save: jest.fn<() => Promise<void>>().mockRejectedValue(new Error('write conflict')),
+    });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', status: 'canceled', interval: 'annual' } });
+
+    const req = mockReq({ params: { id: 'sub-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    // save() threw -> the error surfaces and NOTHING was pushed to the quota
+    // service or the billing_events log (no billing<->quota drift).
+    expect(sub.save).toHaveBeenCalled();
+    expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'write conflict');
+  });
+
   it('returns 404 when subscription not found', async () => {
     mockSubscriptionFindById.mockResolvedValue(null);
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });

@@ -27,14 +27,17 @@ import type { AlertDestination, AlertDestinationWrite } from '@/types/observabil
  * here; the platform never logs or returns the raw target back — only a
  * masked `••••XXXX` preview.
  *
- * Managing destinations (add / edit / delete / send-test) is an
+ * Viewing destinations requires `observability:read` (Members hold it per the
+ * catalog). Managing destinations (add / edit / delete / send-test) is an
  * `observability:write` capability — the backend gates every POST/PUT/DELETE
- * and the test endpoint on it. The whole page is gated on it via `useAuthGuard`
- * to match the sibling Alert rules / Alerts pages. Superadmins bypass the
- * permission check, so the read-only cross-tenant view below stays reachable.
+ * and the test endpoint on it, and here each write control is gated on
+ * `can('observability:write')` (which also reports false under read-only
+ * impersonation). Superadmins bypass the permission check, so the read-only
+ * cross-tenant view below stays reachable.
  */
 export default function AlertDestinationsPage() {
-  const { isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requirePermission: 'observability:write' });
+  const { isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard({ requirePermission: 'observability:read' });
+  const canWrite = can('observability:write');
   const toast = useToast();
   const ready = isReady && isAuthenticated;
   const [editing, setEditing] = useState<AlertDestination | null>(null);
@@ -126,7 +129,7 @@ export default function AlertDestinationsPage() {
               All organizations
             </label>
           )}
-          {!viewingAll && (
+          {!viewingAll && canWrite && (
             <button
               onClick={() => setCreating(true)}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -241,29 +244,33 @@ export default function AlertDestinationsPage() {
                     {d.channel === 'in-app' ? '(in-app messages)' : (d.hasTarget ? d.target : '— no target set —')}
                   </div>
                 </div>
-                <button
-                  onClick={() => void onTest(d)}
-                  disabled={testingId === d.id}
-                  aria-label="Send test notification"
-                  title="Send a test notification to this destination"
-                  className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50"
-                >
-                  <Send className="w-3.5 h-3.5" /> {testingId === d.id ? 'Sending…' : 'Send test'}
-                </button>
-                <button
-                  onClick={() => setEditing(d)}
-                  aria-label="Edit destination"
-                  className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => void onDelete(d)}
-                  aria-label="Delete destination"
-                  className="p-1 text-red-500 hover:text-red-700"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {canWrite && (
+                  <>
+                    <button
+                      onClick={() => void onTest(d)}
+                      disabled={testingId === d.id}
+                      aria-label="Send test notification"
+                      title="Send a test notification to this destination"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50"
+                    >
+                      <Send className="w-3.5 h-3.5" /> {testingId === d.id ? 'Sending…' : 'Send test'}
+                    </button>
+                    <button
+                      onClick={() => setEditing(d)}
+                      aria-label="Edit destination"
+                      className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => void onDelete(d)}
+                      aria-label="Delete destination"
+                      className="p-1 text-red-500 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
               </div>
             ))}
           </div>

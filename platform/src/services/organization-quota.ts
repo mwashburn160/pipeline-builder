@@ -30,7 +30,7 @@ export type QuotaTypeKey = (typeof QUOTA_TYPES)[number];
  * `featureEntitlements`) at issue time. On an account-change that REDUCES access
  * — a tier downgrade or a bundle (feature) removal — those already-issued tokens
  * would keep granting the elevated tier / `requireFeature`-gated capabilities
- * (sso, audit_log, …) until natural expiry (~2 h). Bumping `tokenVersion` makes
+ * (sso, audit_log, …) until natural expiry (~15 min). Bumping `tokenVersion` makes
  * `requireAuth` reject them on the next request; a refresh reissues a correctly
  * scoped JWT. Mirrors the bump in org-members-service.removeMember /
  * roles-service.recomputeUserOrgRole.

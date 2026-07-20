@@ -29,13 +29,15 @@ import type { AlertRule, AlertRuleWrite } from '@/types/observability';
  * lets operators write vanilla PromQL and surfaces the server's error message
  * verbatim.
  *
- * Mutations require `observability:write` (superadmins bypass); the whole page
- * is gated on it via `useAuthGuard`.
+ * Viewing rules requires `observability:read` (Members hold it per the
+ * catalog); authoring/editing/deleting requires `observability:write`, gated
+ * per-control via `can()` (which also reports false under read-only
+ * impersonation). Superadmins bypass.
  */
 export default function AlertRulesPage() {
-  // Authoring alert rules is an `observability:write` capability. Gating the
-  // whole page matches the sibling Alerts (triage) page.
-  const { isReady, isAuthenticated } = useAuthGuard({ requirePermission: 'observability:write' });
+  // View on `observability:read`; write controls gated on `observability:write`.
+  const { isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'observability:read' });
+  const canWrite = can('observability:write');
   const toast = useToast();
   const ready = isReady && isAuthenticated;
   const [editing, setEditing] = useState<AlertRule | null>(null);
@@ -76,12 +78,14 @@ export default function AlertRulesPage() {
       title="Alert rules"
       subtitle="Operator-authored PromQL conditions that fire alerts for this org. Rules are auto-scoped to your org's metrics."
       actions={
-        <button
-          onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add rule
-        </button>
+        canWrite ? (
+          <button
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add rule
+          </button>
+        ) : undefined
       }
     >
       <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
@@ -132,20 +136,24 @@ export default function AlertRulesPage() {
                   <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{r.summary}</div>
                 )}
               </div>
-              <button
-                onClick={() => setEditing(r)}
-                aria-label="Edit rule"
-                className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-              >
-                <Edit2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setDeleting(r)}
-                aria-label="Delete rule"
-                className="p-1 text-red-500 hover:text-red-700"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              {canWrite && (
+                <>
+                  <button
+                    onClick={() => setEditing(r)}
+                    aria-label="Edit rule"
+                    className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setDeleting(r)}
+                    aria-label="Delete rule"
+                    className="p-1 text-red-500 hover:text-red-700"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </>
+              )}
             </div>
           ))}
         </div>
