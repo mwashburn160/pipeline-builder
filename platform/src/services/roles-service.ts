@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isValidPermission, ROLE_PERMISSIONS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, isOrgAssignablePermission, isValidPermission, ROLE_PERMISSIONS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { toOrgId } from '../helpers/controller-helper.js';
+import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import type { RoleGrant } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -27,6 +28,11 @@ export const RL_SYSTEM_IMMUTABLE = 'RL_SYSTEM_IMMUTABLE';
 export const RL_NAME_TAKEN = 'RL_NAME_TAKEN';
 /** A supplied permission string isn't in the api-core catalog. */
 export const RL_INVALID_PERMISSION = 'RL_INVALID_PERMISSION';
+/** A supplied permission is valid but NOT assignable through a user-authored
+ *  custom Role — it's superadmin-only (the shared image registry:
+ *  `registry:read`/`registry:write`). Built-in Role seeds are exempt (they carry
+ *  it legitimately); this guards only custom-Role create/update. */
+export const RL_PERMISSION_NOT_ASSIGNABLE = 'RL_PERMISSION_NOT_ASSIGNABLE';
 /** The system org has no seeded Super Admin Role — platform-admin can't be
  *  granted/revoked via Role assignment (should never happen post-seed). */
 export const RL_SUPERADMIN_ROLE_MISSING = 'RL_SUPERADMIN_ROLE_MISSING';
@@ -278,7 +284,7 @@ export async function removeBuiltinAdminRole(
  * caller's audit + response).
  */
 export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boolean }> {
-  return withMongoTransaction(async (session) => {
+  const result = await withMongoTransaction(async (session) => {
     const role = await Role.findOne({ organizationId: SYSTEM_ORG_ID, grantsRole: 'superadmin', system: true })
       .session(session).select('_id').lean();
     if (!role) throw new Error(RL_SUPERADMIN_ROLE_MISSING);
@@ -298,6 +304,9 @@ export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boo
     }
     return { changed: !wasSuperadmin };
   });
+  // Post-commit: on a genuine flip, recompute bumped tokenVersion — publish it.
+  if (result.changed) await publishUserRevocation(String(userId));
+  return result;
 }
 
 /**
@@ -308,7 +317,7 @@ export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boo
  * from the now-absent assignment). Drops the refresh token on a real change.
  */
 export async function revokePlatformAdmin(userId: UserId): Promise<{ changed: boolean }> {
-  return withMongoTransaction(async (session) => {
+  const result = await withMongoTransaction(async (session) => {
     const role = await Role.findOne({ organizationId: SYSTEM_ORG_ID, grantsRole: 'superadmin', system: true })
       .session(session).select('_id').lean();
     if (!role) throw new Error(RL_SUPERADMIN_ROLE_MISSING);
@@ -322,6 +331,9 @@ export async function revokePlatformAdmin(userId: UserId): Promise<{ changed: bo
     }
     return { changed: wasSuperadmin };
   });
+  // Post-commit: on a genuine flip, recompute bumped tokenVersion — publish it.
+  if (result.changed) await publishUserRevocation(String(userId));
+  return result;
 }
 
 /** List an org's Roles, each with its current members (for the management UI). */
@@ -382,12 +394,22 @@ export async function getUserRolePermissions(
   return [...perms];
 }
 
-/** Validate + normalize a permission list against the api-core catalog. */
+/**
+ * Validate + normalize a permission list for a user-authored CUSTOM Role.
+ *
+ * Two gates: (1) every entry must be a known api-core permission
+ * (`RL_INVALID_PERMISSION`), and (2) it must be ORG-ASSIGNABLE — the
+ * superadmin-only registry permissions (`registry:read`/`registry:write`) are
+ * REJECTED (`RL_PERMISSION_NOT_ASSIGNABLE`) so an org admin can't mint a Role
+ * that grants a platform-operator capability. Built-in Role seeds bypass this
+ * entirely (they're created directly from `ROLE_PERMISSIONS`, never through here).
+ */
 function sanitizePermissions(permissions: unknown): string[] {
   if (!Array.isArray(permissions)) return [];
   const out = new Set<string>();
   for (const p of permissions) {
     if (typeof p !== 'string' || !isValidPermission(p)) throw new Error(RL_INVALID_PERMISSION);
+    if (!isOrgAssignablePermission(p)) throw new Error(RL_PERMISSION_NOT_ASSIGNABLE);
     out.add(p);
   }
   return [...out];
@@ -397,7 +419,7 @@ function sanitizePermissions(permissions: unknown): string[] {
  * Create a custom, user-defined permission Role in an org/team. Custom Roles
  * never confer a base role (`grantsRole` stays `'member'`) — they only ADD
  * fine-grained permissions. Names are unique per org.
- * Throws `RL_NAME_TAKEN`, `RL_INVALID_PERMISSION`.
+ * Throws `RL_NAME_TAKEN`, `RL_INVALID_PERMISSION`, `RL_PERMISSION_NOT_ASSIGNABLE`.
  */
 export async function createRole(
   orgId: string,
@@ -434,7 +456,8 @@ export async function createRole(
  * Update a custom Role's name/description/permissions. Seeded (`system`)
  * Roles are immutable here. Bumps `tokenVersion` for every current member when
  * permissions change so the new grants take effect on their next token refresh.
- * Throws `RL_ROLE_NOT_FOUND`, `RL_SYSTEM_IMMUTABLE`, `RL_NAME_TAKEN`, `RL_INVALID_PERMISSION`.
+ * Throws `RL_ROLE_NOT_FOUND`, `RL_SYSTEM_IMMUTABLE`, `RL_NAME_TAKEN`,
+ * `RL_INVALID_PERMISSION`, `RL_PERMISSION_NOT_ASSIGNABLE`.
  */
 export async function updateRole(
   orgId: string,
@@ -466,16 +489,20 @@ export async function updateRole(
   // together. A crash between them would otherwise persist the new permissions
   // while leaving members' JWTs carrying the OLD grants until token expiry — a
   // stale-permission window. Mirrors how `deleteRole` already threads a session.
+  let bumpedMemberIds: mongoose.Types.ObjectId[] = [];
   await withMongoTransaction(async (session) => {
     await role.save({ session });
     // Permission change must reach members' JWTs — invalidate their access tokens.
     if (permsChanged) {
-      const memberIds = (await RoleAssignment.find({ roleId }).session(session).select('userId').lean()).map((m) => m.userId);
-      if (memberIds.length > 0) {
-        await User.updateMany({ _id: { $in: memberIds } }, { $inc: { tokenVersion: 1 } }, { session });
+      bumpedMemberIds = (await RoleAssignment.find({ roleId }).session(session).select('userId').lean()).map((m) => m.userId);
+      if (bumpedMemberIds.length > 0) {
+        await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { tokenVersion: 1 } }, { session });
       }
     }
   });
+  // Post-commit: publish the members' now-current tokenVersion so the stateless
+  // services reject their in-flight tokens immediately (best-effort).
+  await publishUsersRevocation(bumpedMemberIds);
 
   logger.info('Updated custom Role', { organizationId: orgId, roleId, permsChanged });
   return {
@@ -500,14 +527,17 @@ export async function deleteRole(orgId: string, roleId: string): Promise<void> {
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
   if (role.system) throw new Error(RL_SYSTEM_IMMUTABLE);
 
+  let bumpedMemberIds: mongoose.Types.ObjectId[] = [];
   await withMongoTransaction(async (session) => {
-    const memberIds = (await RoleAssignment.find({ roleId }).session(session).select('userId').lean()).map((m) => m.userId);
+    bumpedMemberIds = (await RoleAssignment.find({ roleId }).session(session).select('userId').lean()).map((m) => m.userId);
     await RoleAssignment.deleteMany({ roleId }, { session });
     await Role.deleteOne({ _id: roleId }, { session });
-    if (memberIds.length > 0) {
-      await User.updateMany({ _id: { $in: memberIds } }, { $inc: { tokenVersion: 1 } }, { session });
+    if (bumpedMemberIds.length > 0) {
+      await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { tokenVersion: 1 } }, { session });
     }
   });
+  // Post-commit: publish the affected members' now-current tokenVersion.
+  await publishUsersRevocation(bumpedMemberIds);
   logger.info('Deleted custom Role', { organizationId: orgId, roleId });
 }
 
@@ -566,6 +596,8 @@ export async function addUserToRole(
     // Bump tokenVersion so a refresh reissues a token with the new grants.
     await User.updateOne({ _id: user._id }, { $inc: { tokenVersion: 1 } }, { session });
   });
+  // Post-commit: publish the user's now-current tokenVersion.
+  await publishUserRevocation(String(user._id));
 
   logger.info('Assigned user to Role', { organizationId: orgId, roleId, userId: String(user._id) });
   return { userId: String(user._id) };
@@ -629,6 +661,8 @@ export async function removeUserFromRole(
     // Assignment change alters effective permissions (JWT) — force a reissue.
     await User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } }, { session });
   });
+  // Post-commit: publish the user's now-current tokenVersion.
+  await publishUserRevocation(String(userId));
 
   logger.info('Removed user from Role', { organizationId: orgId, roleId, userId });
 }

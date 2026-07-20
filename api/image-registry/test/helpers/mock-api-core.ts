@@ -49,6 +49,18 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    // Remote audit client factory — the registry's audit wiring
+    // (src/services/audit.ts) links against this. Default returns a no-op
+    // recorder; suites asserting on emitted audit events mock the audit module
+    // (src/services/audit.js) directly instead.
+    createRemoteAuditClient: () => ({ record: jest.fn() }),
+    // Denied-authz auditor sink registered at service boot (src/index.ts).
+    // No-op in tests — nothing asserts on the registration.
+    setAuthzDenialAuditor: () => {},
+    // Token-revocation reader hooks (session-invalidation option b) — stubbed
+    // for parity so suites that transitively load the boot module still link.
+    setTokenRevocationStore: () => {},
+    createRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
     NotFoundError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),

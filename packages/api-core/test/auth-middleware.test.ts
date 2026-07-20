@@ -8,7 +8,10 @@ import jwt from 'jsonwebtoken';
 import {
   requireAuth, requireAdmin, isSystemAdmin, resolveAccessModifier,
   signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal,
+  requirePermission, requireSystemAdmin, setAuthzDenialAuditor,
+  requireAllPermissions, setTokenRevocationStore,
 } from '../src/middleware/auth.js';
+import type { AuthzDenialInfo } from '../src/middleware/auth.js';
 import type { JwtPayload } from '../src/types/common.js';
 
 const TEST_SECRET = 'test-jwt-secret-for-unit-tests';
@@ -469,5 +472,186 @@ describe('verifyServicePrincipal', () => {
     const token = signToken({ type: 'refresh', sub: 'service:billing', role: 'member' });
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     expect(verifyServicePrincipal(req)).toBe(false);
+  });
+});
+
+// Authorization-denial auditor (#5 — failed/denied attempt logging)
+
+describe('setAuthzDenialAuditor', () => {
+  function denialReq(overrides: Partial<Request> = {}): Request {
+    return {
+      headers: {},
+      method: 'POST',
+      originalUrl: '/pipelines/pl-1',
+      user: { sub: 'u1', email: 'u1@example.com', organizationId: 'org-1', permissions: [] },
+      ...overrides,
+    } as unknown as Request;
+  }
+
+  afterEach(() => setAuthzDenialAuditor(undefined));
+
+  it('fires on a requirePermission denial for a non-GET request with the required permission', () => {
+    const seen: AuthzDenialInfo[] = [];
+    setAuthzDenialAuditor((i) => seen.push(i));
+    const res = createMockRes();
+    requirePermission('pipelines:write')(denialReq(), res, jest.fn());
+    expect(res._status).toBe(403);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      actorId: 'u1',
+      orgId: 'org-1',
+      method: 'POST',
+      path: '/pipelines/pl-1',
+      required: 'pipelines:write',
+    });
+  });
+
+  it('does NOT fire for a denied GET (low-signal probing noise)', () => {
+    const fn = jest.fn();
+    setAuthzDenialAuditor(fn);
+    const res = createMockRes();
+    requirePermission('pipelines:write')(denialReq({ method: 'GET' }), res, jest.fn());
+    expect(res._status).toBe(403);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire when the permission is granted', () => {
+    const fn = jest.fn();
+    setAuthzDenialAuditor(fn);
+    const res = createMockRes();
+    const next = jest.fn();
+    const req = denialReq({ user: { sub: 'u1', permissions: ['pipelines:write'] } as unknown as JwtPayload });
+    requirePermission('pipelines:write')(req, res, next);
+    expect(next).toHaveBeenCalled();
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('fires on a requireSystemAdmin denial with required=system-admin', () => {
+    const seen: AuthzDenialInfo[] = [];
+    setAuthzDenialAuditor((i) => seen.push(i));
+    const res = createMockRes();
+    requireSystemAdmin(denialReq(), res, jest.fn());
+    expect(res._status).toBe(403);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].required).toBe('system-admin');
+  });
+
+  it('is best-effort: a throwing auditor does not break the gate', () => {
+    setAuthzDenialAuditor(() => { throw new Error('audit sink down'); });
+    const res = createMockRes();
+    expect(() => requirePermission('pipelines:write')(denialReq(), res, jest.fn())).not.toThrow();
+    expect(res._status).toBe(403);
+  });
+
+  it('does nothing when no auditor is registered', () => {
+    const res = createMockRes();
+    expect(() => requirePermission('pipelines:write')(denialReq(), res, jest.fn())).not.toThrow();
+    expect(res._status).toBe(403);
+  });
+});
+
+// Session-invalidation: token-revocation store (#1 option (b))
+
+describe('setTokenRevocationStore + requireAuth revocation check', () => {
+  const TV_SECRET = 'test-jwt-secret-for-unit-tests';
+  afterEach(() => setTokenRevocationStore(undefined));
+
+  function authReq(tokenVersion?: number) {
+    const token = jwt.sign(
+      { type: 'access', sub: 'user-x', role: 'member', organizationId: 'org1', tokenVersion },
+      TV_SECRET,
+    );
+    return createMockReq({ headers: { authorization: `Bearer ${token}` } });
+  }
+
+  // Resolve once requireAuth reaches a terminal state (next() or a sent error).
+  function runAuth(req: Request) {
+    return new Promise<{ status: number; passed: boolean }>((resolve) => {
+      const res = createMockRes();
+      const origJson = res.json.bind(res);
+      (res as any).json = (b: unknown) => { const r = origJson(b); resolve({ status: res._status, passed: false }); return r; };
+      requireAuth(req, res, () => resolve({ status: 0, passed: true }));
+    });
+  }
+
+  it('rejects a token whose tokenVersion is behind the store (revoked) with 401 TOKEN_REVOKED', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 5 });
+    const out = await runAuth(authReq(3));
+    expect(out.passed).toBe(false);
+    expect(out.status).toBe(401);
+  });
+
+  it('allows a token whose tokenVersion matches the store', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 4 });
+    expect((await runAuth(authReq(4))).passed).toBe(true);
+  });
+
+  it('allows on a store miss (null → no known revocation, fail-open)', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => null });
+    expect((await runAuth(authReq(2))).passed).toBe(true);
+  });
+
+  it('allows when the store throws (fail-open, no lockout on Redis outage)', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => { throw new Error('redis down'); } });
+    expect((await runAuth(authReq(2))).passed).toBe(true);
+  });
+
+  it('does no revocation check when no store is registered (backward compatible)', async () => {
+    expect((await runAuth(authReq(1))).passed).toBe(true);
+  });
+
+  it('skips the check for a token with no tokenVersion (e.g. service tokens)', async () => {
+    const store = { getCurrentVersion: jest.fn(async () => 9) };
+    setTokenRevocationStore(store);
+    expect((await runAuth(authReq(undefined))).passed).toBe(true);
+    expect(store.getCurrentVersion).not.toHaveBeenCalled();
+  });
+});
+
+// requireAllPermissions (AND semantics)
+
+describe('requireAllPermissions', () => {
+  afterEach(() => setAuthzDenialAuditor(undefined));
+
+  function req(permissions: string[], isSuperAdmin = false) {
+    return { method: 'POST', originalUrl: '/x', user: { sub: 'u', permissions, isSuperAdmin } } as unknown as Request;
+  }
+
+  it('passes when the user holds every required permission', () => {
+    const res = createMockRes(); const next = jest.fn();
+    requireAllPermissions('pipelines:read', 'pipelines:write')(req(['pipelines:read', 'pipelines:write']), res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('403s when any one is missing (and lists only the missing one)', () => {
+    const res = createMockRes(); const next = jest.fn();
+    requireAllPermissions('pipelines:read', 'pipelines:write')(req(['pipelines:read']), res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res._status).toBe(403);
+    expect(JSON.stringify(res._json)).toContain('pipelines:write');
+  });
+
+  it('superadmin bypasses even with no explicit permissions', () => {
+    const res = createMockRes(); const next = jest.fn();
+    requireAllPermissions('pipelines:write', 'billing:write')(req([], true), res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('fires the denial auditor on a missing-permission rejection', () => {
+    const seen: unknown[] = [];
+    setAuthzDenialAuditor((i) => seen.push(i));
+    requireAllPermissions('a:write' as any, 'b:write' as any)(req(['a:write']), createMockRes(), jest.fn());
+    expect(seen).toHaveLength(1);
+  });
+});
+
+// signServiceToken hardening
+
+describe('signServiceToken jti', () => {
+  it('mints a unique jti on every call', () => {
+    const a = jwt.decode(signServiceToken({ serviceName: 'billing', orgId: 'o', role: 'member' })) as any;
+    const b = jwt.decode(signServiceToken({ serviceName: 'billing', orgId: 'o', role: 'member' })) as any;
+    expect(typeof a.jti).toBe('string');
+    expect(a.jti).not.toBe(b.jti);
   });
 });

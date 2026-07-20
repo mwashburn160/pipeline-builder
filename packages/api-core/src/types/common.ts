@@ -234,6 +234,16 @@ export interface JwtPayload {
    * sysadmins "view as user X" without risking a destructive action.
    */
   impersonationReadOnly?: boolean;
+  /**
+   * The user's `tokenVersion` at the moment this token was issued. Every
+   * privilege change (deactivate / role or tier downgrade / membership or
+   * ownership change / password change / logout-all) increments the user's
+   * server-side `tokenVersion`, so a token whose embedded version is behind the
+   * current one has been REVOKED. Platform validates this against Mongo; the
+   * stateless services validate it against a Redis-published current-version
+   * store (see `setTokenRevocationStore`). Absent on machine/service tokens.
+   */
+  tokenVersion?: number;
   /** Token type */
   type: 'access' | 'refresh';
   /** Issued at timestamp */

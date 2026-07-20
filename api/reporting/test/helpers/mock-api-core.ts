@@ -53,6 +53,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    // Remote audit client factory — src/services/audit.ts links against this.
+    createRemoteAuditClient: () => ({ record: () => {} }),
+    // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
+    setAuthzDenialAuditor: () => {},
     NotFoundError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),

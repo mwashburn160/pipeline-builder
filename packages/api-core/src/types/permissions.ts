@@ -75,6 +75,32 @@ export function isValidPermission(value: string): value is Permission {
   return (ALL_PERMISSIONS as readonly string[]).includes(value);
 }
 
+/**
+ * Permissions that must NEVER be grantable through a user-authored CUSTOM Role —
+ * they gate platform-operator surfaces (the shared image registry), so allowing
+ * an org admin to mint a Role carrying them would be a latent privilege
+ * escalation the moment those permissions get wired to an endpoint. Built-in
+ * Role seeds (e.g. `member` carrying `registry:read`) are system-created and are
+ * NOT subject to this list; it constrains only custom-Role authoring.
+ */
+export const SUPERADMIN_ONLY_PERMISSIONS: readonly Permission[] = [
+  'registry:read',
+  'registry:write',
+];
+
+/**
+ * Permissions an org may assign via a CUSTOM Role — every permission except the
+ * {@link SUPERADMIN_ONLY_PERMISSIONS}. Custom-Role create/update validates the
+ * requested permission set against this (see platform roles-service).
+ */
+export const ORG_ASSIGNABLE_PERMISSIONS: readonly Permission[] =
+  ALL_PERMISSIONS.filter((p) => !SUPERADMIN_ONLY_PERMISSIONS.includes(p));
+
+/** Whether `permission` may be granted through a user-authored custom Role. */
+export function isOrgAssignablePermission(permission: Permission): boolean {
+  return !SUPERADMIN_ONLY_PERMISSIONS.includes(permission);
+}
+
 // =============================================================================
 // Built-in Role seed bundles
 // =============================================================================

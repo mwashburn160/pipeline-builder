@@ -4,8 +4,8 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, createRemoteAuditClient, decrementQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, reserveQuota, VALID_TIERS } from '@pipeline-builder/api-core';
-import type { QuotaService, QuotaTier, RemoteAuditClient } from '@pipeline-builder/api-core';
+import { createLogger, decrementQuota, DEFAULT_TIER, errorMessage, extractDbError, getServiceAuthHeader, reserveQuota, VALID_TIERS } from '@pipeline-builder/api-core';
+import type { QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import type { PluginBuildConfig } from '@pipeline-builder/pipeline-core';
@@ -28,6 +28,7 @@ import { ORG_SLOT_DELAY_MS, tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } f
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { getAuditClient } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
 // Re-exported so existing `import { ... } from './plugin-build-queue.js'` sites
@@ -135,16 +136,9 @@ export async function getOrgTier(quotaService: QuotaService, orgId: string, auth
   }
 }
 
-/**
- * Lazily-constructed remote-audit client pointed at the platform's
- * `/audit/events` ingest endpoint so `plugin.build.*` events land in the
- * MongoDB audit log alongside platform-emitted actions.
- */
-let auditClient: RemoteAuditClient | null = null;
-function getAuditClient(): RemoteAuditClient {
-  if (!auditClient) auditClient = createRemoteAuditClient();
-  return auditClient;
-}
+// The remote-audit client (pointed at platform's `/audit/events` ingest, where
+// `plugin.build.*` events land) is the shared singleton from services/audit.ts,
+// so build-worker and route-handler emissions go through one client.
 
 // ---------------------------------------------------------------------------
 // Redis connection

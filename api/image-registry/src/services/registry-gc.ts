@@ -3,6 +3,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
+import { emitImageRegistryAudit } from './audit.js';
 import {
   listRepositoriesUnderPrefix,
   listTags,
@@ -26,6 +27,14 @@ export interface GcOptions {
    * flipping to a real run.
    */
   dryRun?: boolean;
+  /**
+   * Audit attribution. The admin `POST /api/admin/gc` route passes the calling
+   * sysadmin's id/email; the in-process scheduler sweep runs with no request
+   * user, so `actorId` defaults to `'system'` on the emitted `registry.gc`
+   * audit event.
+   */
+  actorId?: string;
+  actorEmail?: string;
 }
 
 export interface GcResult {
@@ -61,7 +70,7 @@ export interface GcResult {
  *  - the admin `POST /api/admin/gc` endpoint for manual one-off runs.
  */
 export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
-  const { prefix, maxAgeDays = 30, dryRun = false } = opts;
+  const { prefix, maxAgeDays = 30, dryRun = false, actorId, actorEmail } = opts;
   // defense-in-depth: prefix is required by callers (Zod-validated at the
   // route layer, but this function is also invoked directly by the
   // in-process scheduler).
@@ -142,6 +151,30 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   }
 
   if (deleted > 0) invalidateStorageCache(prefix);
+
+  // Audit the destructive sweep AFTER the deletes land. Only a real run that
+  // actually pruned something is a data-loss event worth a durable trail — a
+  // dry-run mutates nothing, and a 0-delete real run is a no-op. Fire-and-
+  // forget; never blocks or fails the sweep. `actorId` is 'system' for the
+  // scheduler path (no request user). Details carry counts + the org namespace
+  // (no secrets / AWS account ids).
+  if (!dryRun && deleted > 0) {
+    emitImageRegistryAudit({
+      action: 'registry.gc',
+      actorId: actorId ?? 'system',
+      ...(actorEmail && { actorEmail }),
+      outcome: 'success',
+      targetType: 'registry-namespace',
+      targetId: prefix,
+      details: {
+        prefix,
+        reposScanned: repos.length,
+        candidates,
+        deleted,
+        maxAgeDays,
+      },
+    });
+  }
 
   return {
     reposScanned: repos.length,

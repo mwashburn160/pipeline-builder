@@ -182,7 +182,7 @@ export function createSubscriptionRoutes(): Router {
     // Log billing event
     await createBillingEvent(orgId, 'subscription_created', {
       planId, interval, tier: plan.tier,
-    }, subscription._id.toString());
+    }, subscription._id.toString(), req.user?.sub);
 
     logger.info('Subscription created', { orgId, planId, interval });
 
@@ -249,7 +249,7 @@ export function createSubscriptionRoutes(): Router {
       subscription.planId = effectivePlanId;
       await createBillingEvent(orgId, 'plan_changed', {
         oldPlanId, newPlanId: effectivePlanId,
-      }, subscriptionId);
+      }, subscriptionId, req.user?.sub);
     }
 
     if (intervalChanged) {
@@ -259,7 +259,7 @@ export function createSubscriptionRoutes(): Router {
       subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, effectiveInterval);
       await createBillingEvent(orgId, 'interval_changed', {
         oldInterval, newInterval: effectiveInterval,
-      }, subscriptionId);
+      }, subscriptionId, req.user?.sub);
     }
 
     await subscription.save();
@@ -314,7 +314,7 @@ export function createSubscriptionRoutes(): Router {
       planId: subscription.planId,
       cancelAtPeriodEnd: true,
       periodEnd: subscription.currentPeriodEnd.toISOString(),
-    }, subscriptionId);
+    }, subscriptionId, req.user?.sub);
 
     logger.info('Subscription marked for cancellation', { orgId, subscriptionId });
 
@@ -415,7 +415,7 @@ export function createSubscriptionRoutes(): Router {
 
     await createBillingEvent(orgId, 'subscription_reactivated', {
       planId: subscription.planId,
-    }, subscriptionId);
+    }, subscriptionId, req.user?.sub);
 
     logger.info('Subscription reactivated', { orgId, subscriptionId });
 

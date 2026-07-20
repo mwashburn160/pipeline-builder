@@ -13,6 +13,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { emitPipelineAudit } from '../services/audit.js';
 import {
   pipelineExecutionService,
   PipelineExecutionError,
@@ -48,13 +49,24 @@ function awsDetail(err: unknown): Record<string, unknown> | undefined {
 export function createExecutionRoutes(): Router {
   const router = Router();
 
-  router.post('/:pipelineId/executions', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/:pipelineId/executions', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const pipelineId = getParam(req.params, 'pipelineId');
     if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
     try {
       const { executionId } = await pipelineExecutionService.triggerExecution(pipelineId, orgId);
       ctx.log('COMPLETED', 'Triggered pipeline execution', { pipelineId, executionId });
+
+      // Best-effort attributed audit — the AWS CodePipeline start succeeded.
+      emitPipelineAudit({
+        action: 'pipeline.execution.start',
+        actorId: userId || 'system',
+        orgId,
+        targetType: 'pipeline',
+        targetId: pipelineId,
+        details: { executionId },
+      });
+
       return sendSuccess(res, 202, { executionId });
     } catch (err) {
       const code = errorMessage(err);
@@ -74,7 +86,7 @@ export function createExecutionRoutes(): Router {
     }
   }));
 
-  router.post('/:pipelineId/executions/:executionId/stop', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/:pipelineId/executions/:executionId/stop', withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const pipelineId = getParam(req.params, 'pipelineId');
     const executionId = getParam(req.params, 'executionId');
     if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -91,6 +103,20 @@ export function createExecutionRoutes(): Router {
         abandon: validation.value.abandon,
       });
       ctx.log('COMPLETED', 'Stopped pipeline execution', { pipelineId, executionId });
+
+      // Best-effort attributed audit — the AWS CodePipeline stop succeeded.
+      emitPipelineAudit({
+        action: 'pipeline.execution.cancel',
+        actorId: userId || 'system',
+        orgId,
+        targetType: 'pipeline',
+        targetId: pipelineId,
+        details: {
+          executionId,
+          abandon: validation.value.abandon ?? false,
+        },
+      });
+
       return sendSuccess(res, 200, { stopped: true });
     } catch (err) {
       const code = errorMessage(err);

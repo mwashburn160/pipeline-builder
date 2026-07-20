@@ -13,6 +13,7 @@ import {
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router } from 'express';
 import { logger, RegistryMetrics, COPY_PARALLEL_BLOBS } from './shared.js';
+import { emitImageRegistryAudit } from '../../services/audit.js';
 import {
   listTags,
   getManifest,
@@ -46,6 +47,18 @@ export function registerDeleteRoutes(router: Router): void {
         repo: name,
         ref: reference,
         digest,
+      });
+      // Durable audit trail for the destructive delete, emitted only AFTER the
+      // manifest DELETE lands. Fire-and-forget; never blocks/throws.
+      emitImageRegistryAudit({
+        action: 'registry.image.delete',
+        actorId: req.user?.sub ?? 'unknown',
+        ...(req.user?.email && { actorEmail: req.user.email }),
+        ...(req.user?.organizationId && { orgId: req.user.organizationId }),
+        outcome: 'success',
+        targetType: 'registry-image',
+        targetId: name,
+        details: { scope: 'tag', repo: name, ref: reference, digest },
       });
       incCounter(RegistryMetrics.TAG_DELETE);
       return sendSuccess(res, 200, { name, digest, deleted: true });
@@ -111,6 +124,18 @@ export function registerDeleteRoutes(router: Router): void {
       repo: name,
       deletedManifests,
       deletedTags: tags.length,
+    });
+    // Durable audit trail for the whole-repo prune, emitted only AFTER the
+    // manifests are deleted. Fire-and-forget; never blocks/throws.
+    emitImageRegistryAudit({
+      action: 'registry.image.delete',
+      actorId: req.user?.sub ?? 'unknown',
+      ...(req.user?.email && { actorEmail: req.user.email }),
+      ...(req.user?.organizationId && { orgId: req.user.organizationId }),
+      outcome: 'success',
+      targetType: 'registry-image',
+      targetId: name,
+      details: { scope: 'repo', repo: name, deletedManifests, deletedTags: tags.length },
     });
     incCounter(RegistryMetrics.REPO_DELETE);
 

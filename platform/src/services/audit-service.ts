@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { appendAuditEvent } from '../helpers/audit-chain.js';
 import AuditEvent, { type AuditAction, type AuditEventDocument } from '../models/audit-event.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -112,10 +113,14 @@ class AuditService {
    * Create a new audit event. For fire-and-forget writes from request
    * handlers, prefer the `audit()` helper in `helpers/audit.ts` — it
    * also auto-populates `affectedOrgId` from the Express request.
+   *
+   * Delegates to the shared {@link appendAuditEvent} so EVERY event created
+   * through the service (the `POST /audit/events` ingest, the `authz.denied`
+   * sink, bootstrap super-admin grants) is tamper-evidence hash-chained via the
+   * same single write path as the `audit()` helper.
    */
   async createEvent(input: AuditCreateInput): Promise<AuditEventDocument> {
-    const event = await AuditEvent.create(input);
-    return event;
+    return appendAuditEvent(input);
   }
 }
 

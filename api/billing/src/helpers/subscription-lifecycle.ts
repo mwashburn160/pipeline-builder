@@ -80,6 +80,8 @@ async function checkGracePeriodExpiry(): Promise<void> {
       const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
       await syncEntitlements(subscription.orgId, 'developer', serviceAuth, subscription._id.toString(), []);
 
+      // Lifecycle cron — no request user, so actorId is omitted (undefined).
+      // We never fabricate an actor for system-initiated downgrades.
       await createBillingEvent(subscription.orgId, 'subscription_updated', {
         reason: 'grace_period_expired',
         gracePeriodDays: config.paymentGracePeriodDays,

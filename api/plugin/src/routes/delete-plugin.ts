@@ -4,6 +4,7 @@
 import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
 /**
@@ -32,6 +33,20 @@ export function createDeletePluginRoutes(): Router {
     await pluginService.delete(id, orgId, userId || 'system');
 
     ctx.log('COMPLETED', 'Deleted plugin', { id, name: existing.name });
+
+    // Best-effort attributed audit — emitted only after the delete landed.
+    emitPluginAudit({
+      action: 'plugin.delete',
+      actorId: req.user?.sub ?? userId ?? 'system',
+      orgId,
+      targetType: 'plugin',
+      targetId: id,
+      details: {
+        pluginName: existing.name,
+        version: existing.version,
+        accessModifier: existing.accessModifier,
+      },
+    });
 
     return sendSuccess(res, 200, undefined, 'Plugin deleted.');
   }));

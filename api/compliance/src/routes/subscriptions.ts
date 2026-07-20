@@ -12,12 +12,14 @@ import {
   parsePaginationParams,
   validateBody,
   requirePermission,
+  userHasPermission,
   isServicePrincipal,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
+import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 import {
   subscriptionService,
@@ -167,9 +169,30 @@ export function createSubscriptionRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
+    // Activating (opt-in) stays member-level, but DEACTIVATING an active rule
+    // weakens the org's enforced compliance posture at upload/validate time —
+    // that's governance, not opt-in — so it requires `compliance:write` (same
+    // gate as rule authoring / exemption approval / clone). See the mount in
+    // index.ts: subscriptions run at member level, so this is enforced inline.
+    if (!validation.value.isActive && !userHasPermission(req, 'compliance:write')) {
+      return sendError(res, 403, 'Missing required permission: compliance:write', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+
     try {
       const subscription = await subscriptionService.setActive(orgId, ruleId, validation.value.isActive, userId);
       ctx.log('COMPLETED', `Subscription ${validation.value.isActive ? 'activated' : 'deactivated'}`, { ruleId });
+
+      // Best-effort attributed audit — toggling an enforced rule's active
+      // state changes the org's compliance posture at upload/validate time.
+      emitComplianceAudit({
+        action: 'compliance.rule.toggle',
+        actorId: userId,
+        orgId,
+        targetType: 'rule',
+        targetId: ruleId,
+        details: { isActive: validation.value.isActive },
+      });
+
       return sendSuccess(res, 200, { subscription });
     } catch (err) {
       if (handleSubError(res, err)) return;
@@ -204,8 +227,28 @@ export function createSubscriptionRoutes(): Router {
     }
 
     const { ruleIds, isActive } = validation.value;
+    // Bulk deactivate carries the same governance weight as the single-rule
+    // PATCH above — reject the whole batch unless the caller holds
+    // `compliance:write`. Bulk activate stays member-level (opt-in).
+    if (!isActive && !userHasPermission(req, 'compliance:write')) {
+      return sendError(res, 403, 'Missing required permission: compliance:write', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
     const updated = await subscriptionService.bulkSetActive(orgId, ruleIds, isActive, userId);
     ctx.log('COMPLETED', `Bulk ${isActive ? 'activated' : 'deactivated'} subscriptions`, { requested: ruleIds.length, updated });
+
+    // Best-effort attributed audit — one event per rule toggled, keeping
+    // targetId = rule id consistent with the single-rule PATCH above.
+    for (const ruleId of ruleIds) {
+      emitComplianceAudit({
+        action: 'compliance.rule.toggle',
+        actorId: userId,
+        orgId,
+        targetType: 'rule',
+        targetId: ruleId,
+        details: { isActive },
+      });
+    }
+
     return sendSuccess(res, 200, { requested: ruleIds.length, updated });
   }));
 

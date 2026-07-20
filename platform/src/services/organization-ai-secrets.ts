@@ -30,6 +30,16 @@ export function buildProvidersMap(keys: Record<string, string | undefined>): Rec
 }
 
 /**
+ * The AI-provider field NAMES present in an update body (value !== undefined) —
+ * i.e. the provider slots this update would set or clear. Mirrors the skip logic
+ * in {@link applyAIProviderKeyUpdates}. Used for audit `details`: it records
+ * WHICH provider keys changed and never any key value (the values are secrets).
+ */
+export function changedAiProviderFields(body: Record<string, unknown>): string[] {
+  return AI_PROVIDERS.filter((p) => body[p] !== undefined);
+}
+
+/**
  * Apply an AI-provider-key update onto `keys` in place. `null`/`''` clears a
  * key; an unset field is left untouched. String values are bounded then
  * encrypted (JSON-stringified `EncryptedBlob`). Throws {@link ORG_AI_KEY_TOO_LONG}

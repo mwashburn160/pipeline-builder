@@ -7,6 +7,7 @@ import { ensureBaselineRole } from './roles-service.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap } from '../helpers/seats.js';
+import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -399,6 +400,8 @@ class OrgMembersService {
         { session },
       );
     });
+    // Post-commit: publish the removed user's now-current tokenVersion.
+    await publishUserRevocation(userId);
   }
 
   /**
@@ -414,6 +417,7 @@ class OrgMembersService {
    * users' outstanding tokens so a refresh reissues them with the swapped role.
    */
   async transferOwnership(orgId: string, newOwnerId: string): Promise<void> {
+    let oldOwnerId: string | undefined;
     await withMongoTransaction(async (session) => {
       const org = await Organization.findById(toOrgId(orgId)).session(session);
       if (!org) throw new Error(OM_ORG_NOT_FOUND);
@@ -428,6 +432,7 @@ class OrgMembersService {
       }).session(session);
       if (!newOwnerMembership) throw new Error(OM_NEW_OWNER_MUST_BE_MEMBER);
 
+      oldOwnerId = String(oldOwnerMembership.userId);
       oldOwnerMembership.role = 'admin';
       await oldOwnerMembership.save({ session });
       newOwnerMembership.role = 'owner';
@@ -444,6 +449,9 @@ class OrgMembersService {
         { session },
       );
     });
+    // Post-commit: publish BOTH users' now-current tokenVersion so the role swap
+    // takes effect on the stateless services immediately.
+    await publishUsersRevocation([oldOwnerId, newOwnerId].filter((v): v is string => !!v));
   }
 
   /** Check if the caller is the org owner — used by ownership-transfer authz. */
@@ -493,6 +501,8 @@ class OrgMembersService {
         { session },
       );
     });
+    // Post-commit: publish the deactivated user's now-current tokenVersion.
+    await publishUserRevocation(userId);
   }
 
   /** Re-activate a previously deactivated member. */

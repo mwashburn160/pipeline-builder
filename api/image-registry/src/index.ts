@@ -1,16 +1,35 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, requireAuth } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, setAuthzDenialAuditor } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext } from '@pipeline-builder/api-server';
 
 import { config } from './config/index.js';
 import { createAdminRoutes } from './routes/admin.js';
 import { createImageRoutes } from './routes/images.js';
 import { createTokenRoute } from './routes/token.js';
+import { getAuditClient } from './services/audit.js';
 import { startGcScheduler } from './services/gc-scheduler.js';
 
 const logger = createLogger('pipeline-image-registry');
+
+// Forward denied-authorization attempts to the remote audit trail. The shared
+// api-core `requirePermission` / `requireSystemAdmin` gate invokes this ONLY
+// when a state-changing (non-GET) request is actually rejected — probing /
+// privilege-escalation signal that would otherwise be invisible. Best-effort:
+// `record` never throws, and the gate wraps this call in try/catch regardless.
+// (Routes gated purely by bearer-token scopes don't route through the gate, so
+// this simply never fires for those — registering it is still correct.)
+setAuthzDenialAuditor((info) => {
+  getAuditClient().record({
+    action: 'authz.denied',
+    actorId: info.actorId ?? 'anonymous',
+    ...(info.actorEmail && { actorEmail: info.actorEmail }),
+    ...(info.orgId && { orgId: info.orgId }),
+    outcome: 'failure',
+    details: { method: info.method, path: info.path, required: info.required },
+  }, 'image-registry');
+});
 
 const { app, sseManager } = createApp({});
 

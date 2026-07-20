@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import type { ComplianceEvent, LockRedis } from '@pipeline-builder/api-core';
+import type { ComplianceEvent, LockRedis, RedisCacheClient } from '@pipeline-builder/api-core';
 import { Queue, Worker } from 'bullmq';
 
 const logger = createLogger('compliance-event-queue');
@@ -119,6 +119,24 @@ export function getQueueRedis(): Promise<{ ping(): Promise<string> }> {
  */
 export function getLockRedis(): Promise<LockRedis> {
   return queue.client as unknown as Promise<LockRedis>;
+}
+
+/**
+ * The BullMQ connection adapted to api-core's synchronous `RedisCacheClient`
+ * shape, so the boot-time token-revocation reader can REUSE the single redis
+ * connection compliance already maintains rather than opening its own. BullMQ
+ * hands the ioredis client back as a `Promise`; each call resolves it (the
+ * client is memoised after first connect, so this is effectively free). Only
+ * `.get()` is exercised by the revocation reader; the rest satisfy the interface.
+ */
+export function getRevocationRedis(): RedisCacheClient {
+  const client = () => queue.client as unknown as Promise<RedisCacheClient>;
+  return {
+    get: async (key) => (await client()).get(key),
+    set: async (key, value, ...args) => (await client()).set(key, value, ...args),
+    del: async (...keys) => (await client()).del(...keys),
+    keys: async (pattern) => (await client()).keys(pattern),
+  };
 }
 
 /**

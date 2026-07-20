@@ -62,6 +62,19 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // `requirePermission(...perms)` is a factory that RETURNS middleware, so
     // the stub is a function producing the pass-through guard.
     requirePermission: () => passThroughMiddleware,
+    // Inline permission check (e.g. the deactivate gate in subscriptions.ts).
+    // Defaults to "no permission" so route suites see plain-member behavior; a
+    // suite exercising the gate overrides this with its own permission logic.
+    userHasPermission: () => false,
+    // Audit wiring: `services/audit.ts` builds a client over
+    // `createRemoteAuditClient()`; boot registers an `authz.denied` auditor via
+    // `setAuthzDenialAuditor`. Stub both so suites loading `audit.js` link.
+    createRemoteAuditClient: () => ({ record: jest.fn() }),
+    setAuthzDenialAuditor: () => {},
+    // boot-time token-revocation reader registration (session-invalidation
+    // option b) — stubbed so suites that transitively load the boot module link.
+    setTokenRevocationStore: () => {},
+    createRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
     NotFoundError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),

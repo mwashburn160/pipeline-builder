@@ -28,7 +28,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
 import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import { formatError } from '@/lib/constants';
-import { canModify } from '@/lib/resource-helpers';
+import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
 import type { Pipeline } from '@/types';
 
@@ -73,7 +73,7 @@ function formatDuration(ms: number | null): string {
 export default function PipelineDetailPage() {
   const router = useRouter();
   const id = typeof router.query.id === 'string' ? router.query.id : '';
-  const { isReady, user, isSuperAdmin } = useAuthGuard();
+  const { isReady, user, isSuperAdmin, can } = useAuthGuard();
   const toast = useToast();
 
   const fetchPipeline = useCallback(async (pipelineId: string): Promise<Pipeline> => {
@@ -193,7 +193,11 @@ export default function PipelineDetailPage() {
 
   if (!isReady || !user) return <LoadingPage />;
 
-  const canEdit = pipeline ? canModify(isSuperAdmin, pipeline.accessModifier) : false;
+  // Write controls (run / cancel / edit / delete) require BOTH the
+  // `pipelines:write` capability and ownership of the resource — the backend
+  // gates every pipeline mutation on `pipelines:write`, so a read-only member
+  // must not see them enabled (matches the list page).
+  const canEdit = pipeline ? canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) : false;
 
   return (
     <DashboardLayout

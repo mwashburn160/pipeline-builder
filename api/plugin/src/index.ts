@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature, requirePermission } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceEventSubscriber, requireFeature, requirePermission, setAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck, redisHealthCheck, combineHealthChecks } from '@pipeline-builder/api-server';
 
 import { startWorker, waitForWorkerReady, shutdownQueue, getHealthRedisConnection } from './queue/plugin-build-queue.js';
@@ -13,6 +13,7 @@ import { createQueueStatusRoutes } from './routes/queue-status.js';
 import { createReadPluginRoutes } from './routes/read-plugins.js';
 import { createUpdatePluginRoutes } from './routes/update-plugin.js';
 import { createUploadPluginRoutes } from './routes/upload-plugin.js';
+import { getAuditClient } from './services/audit.js';
 
 const logger = createLogger('plugin');
 const quotaService = createQuotaService();
@@ -24,6 +25,34 @@ const { app, sseManager } = createApp({
     redisHealthCheck(() => getHealthRedisConnection()),
   ),
 });
+
+// -- Failed-authorization auditor --------------------------------------------
+// Register a process-wide sink so the shared `requirePermission` /
+// `requireSystemAdmin` gate forwards every denied state-changing request into
+// the platform audit log as an `authz.denied` failure. Best-effort: the gate
+// wraps this in try/catch and `record` never throws.
+setAuthzDenialAuditor((info) => {
+  getAuditClient().record({
+    action: 'authz.denied',
+    actorId: info.actorId ?? 'anonymous',
+    actorEmail: info.actorEmail,
+    orgId: info.orgId,
+    outcome: 'failure',
+    details: {
+      method: info.method,
+      path: info.path,
+      required: info.required,
+    },
+  }, 'plugin');
+});
+
+// -- Token-revocation reader (session-invalidation option b) ------------------
+// Reuse the same pooled ioredis connection (db 0) the BullMQ build queue and the
+// readiness probe already share, so the shared `requireAuth` can reject a token
+// whose `tokenVersion` is behind the version the platform published on a
+// privilege change. Fail-open by contract: a Redis miss/outage yields null and
+// auth degrades to natural token expiry rather than locking users out.
+setTokenRevocationStore(createRedisTokenRevocationStore(getHealthRedisConnection()));
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));

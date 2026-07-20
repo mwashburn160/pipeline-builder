@@ -181,7 +181,14 @@ export const config = {
     passwordSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),
     jwt: {
       secret: requireSecret('JWT_SECRET', 'JWT secret'),
-      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10), // 2 hr
+      // Short access-token TTL (15 min). The frontend silently refreshes off the
+      // token's expiry (see frontend/src/lib/api/core.ts), so a short lifetime is
+      // transparent to users. It also bounds the WORST-CASE revocation window: on
+      // a privilege change we publish the user's new tokenVersion to Redis so the
+      // stateless services reject stale tokens immediately, but if that publish
+      // (or Redis) is unavailable, a stale token can only outlive the change by at
+      // most this TTL before natural expiry forces a refresh.
+      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '900', 10), // 15 min
       algorithm: (process.env.JWT_ALGORITHM || 'HS256') as Algorithm,
       /**
        * Per-tier access-token TTL overrides (seconds). When a tier's
@@ -215,6 +222,29 @@ export const config = {
      * Previously read inline in services/auth-service.ts.
      */
     verificationTokenTtlMs: parseInt(process.env.AUTH_VERIFICATION_TOKEN_TTL_MS || '86400000', 10),
+    /**
+     * TTL (seconds) for a published session-revocation entry (Redis key
+     * `authrev:tv:<userId>`). This is a CEILING/floor: the effective TTL used at
+     * publish time is `max(this, jwt.expiresIn, …jwt.tierExpiresIn)` — see
+     * helpers/session-revocation.ts — so a revocation entry NEVER lapses while an
+     * access token minted before it could still be alive (which would let a
+     * revoked token slip through the services' fail-open read). Defaults to a
+     * safe 1-hour ceiling well above the 15-min base access-token lifetime.
+     */
+    sessionRevocationTtlSeconds: parseInt(process.env.SESSION_REVOCATION_TTL_SECONDS || '3600', 10),
+  },
+
+  /**
+   * Redis connection for cross-process signalling. Currently used ONLY to
+   * PUBLISH session-revocation entries (a user's current `tokenVersion`) that the
+   * stateless services read to reject revoked tokens before natural expiry — see
+   * helpers/session-revocation.ts + utils/redis-client.ts. Optional: when
+   * `REDIS_URL` is unset the publisher is a no-op and revocation degrades to
+   * token expiry (bounded by the short `jwt.expiresIn`). ioredis-style URL, e.g.
+   * `redis://redis:6379`.
+   */
+  redis: {
+    url: process.env.REDIS_URL || '',
   },
 
   mongodb: {

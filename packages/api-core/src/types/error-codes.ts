@@ -15,6 +15,7 @@ export enum ErrorCode {
   TOKEN_EXPIRED = 'TOKEN_EXPIRED',
   TOKEN_INVALID = 'TOKEN_INVALID',
   TOKEN_MISSING = 'TOKEN_MISSING',
+  TOKEN_REVOKED = 'TOKEN_REVOKED',
 
   // Authorization errors (403)
   INSUFFICIENT_PERMISSIONS = 'INSUFFICIENT_PERMISSIONS',
@@ -66,6 +67,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TOKEN_EXPIRED]: 401,
   [ErrorCode.TOKEN_INVALID]: 401,
   [ErrorCode.TOKEN_MISSING]: 401,
+  [ErrorCode.TOKEN_REVOKED]: 401,
   [ErrorCode.INSUFFICIENT_PERMISSIONS]: 403,
   [ErrorCode.ORG_MISMATCH]: 403,
   [ErrorCode.COMPLIANCE_VIOLATION]: 403,

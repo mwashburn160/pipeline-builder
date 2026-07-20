@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature, requirePermission } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature, requirePermission, setAuthzDenialAuditor } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { runMigrations } from '@pipeline-builder/pipeline-data';
 
@@ -13,10 +13,23 @@ import { createGeneratePipelineRoutes } from './routes/generate-pipeline.js';
 import { createReadPipelineRoutes } from './routes/read-pipelines.js';
 import { createRegistryRoutes } from './routes/registry.js';
 import { createUpdatePipelineRoutes } from './routes/update-pipeline.js';
+import { getAuditClient } from './services/audit.js';
 
 const logger = createLogger('pipeline');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
+
+// -- Failed-authorization auditor (#5) ----------------------------------------
+// Forward denials from the shared requirePermission / requireSystemAdmin gate to
+// platform's audit ingest as `authz.denied`, best-effort (the gate try/catches).
+setAuthzDenialAuditor((info) => getAuditClient().record({
+  action: 'authz.denied',
+  actorId: info.actorId ?? 'anonymous',
+  actorEmail: info.actorEmail,
+  orgId: info.orgId,
+  outcome: 'failure',
+  details: { method: info.method, path: info.path, required: info.required },
+}, 'pipeline'));
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));

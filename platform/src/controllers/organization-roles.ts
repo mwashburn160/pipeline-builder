@@ -26,6 +26,7 @@ import {
   RL_SYSTEM_IMMUTABLE,
   RL_NAME_TAKEN,
   RL_INVALID_PERMISSION,
+  RL_PERMISSION_NOT_ASSIGNABLE,
 } from '../services/index.js';
 import { validateBody, addRoleMemberSchema, createRoleSchema, updateRoleSchema } from '../utils/validation.js';
 
@@ -61,6 +62,7 @@ export const createOrganizationRole = withController('Create role', async (req, 
 }, {
   [RL_NAME_TAKEN]: { status: 409, message: 'A role with this name already exists' },
   [RL_INVALID_PERMISSION]: { status: 400, message: 'One or more permissions are not recognized' },
+  [RL_PERMISSION_NOT_ASSIGNABLE]: { status: 400, message: 'One or more permissions cannot be granted through a custom role' },
 });
 
 /** PUT /organization/:id/roles/:roleId — update a custom Role's name/description/permissions. */
@@ -82,6 +84,7 @@ export const updateOrganizationRole = withController('Update role', async (req, 
   [RL_SYSTEM_IMMUTABLE]: { status: 400, message: 'Built-in roles cannot be modified' },
   [RL_NAME_TAKEN]: { status: 409, message: 'A role with this name already exists' },
   [RL_INVALID_PERMISSION]: { status: 400, message: 'One or more permissions are not recognized' },
+  [RL_PERMISSION_NOT_ASSIGNABLE]: { status: 400, message: 'One or more permissions cannot be granted through a custom role' },
 });
 
 /** DELETE /organization/:id/roles/:roleId — delete a custom Role. */

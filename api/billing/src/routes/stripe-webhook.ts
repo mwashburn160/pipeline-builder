@@ -167,6 +167,9 @@ function invoiceSubscriptionId(invoice: Stripe.Invoice): string | undefined {
  * we don't auto-provision a Subscription row because we'd need to know which
  * orgId to bind it to, and Stripe's `metadata.orgId` is the only safe source.
  */
+// NOTE: every createBillingEvent below runs from Stripe's webhook (no request
+// user), so actorId is intentionally left undefined — we never fabricate an
+// actor for provider-driven events.
 async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription): Promise<void> {
   const externalId = stripeSubscription.id;
   const existing = await findSubscriptionByStripeId(externalId);

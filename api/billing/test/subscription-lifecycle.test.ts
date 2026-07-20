@@ -205,6 +205,12 @@ describe('Subscription Lifecycle Checker', () => {
         expect.objectContaining({ reason: 'grace_period_expired' }),
         'sub-1',
       );
+      // System/cron path: NO user actor is fabricated — actorId (5th arg) is
+      // absent/undefined on lifecycle-driven billing events.
+      const graceCall = mockCreateBillingEvent.mock.calls.find(
+        (c) => c[2] && (c[2] as { reason?: string }).reason === 'grace_period_expired',
+      );
+      expect(graceCall?.[4]).toBeUndefined();
       // Durable dedupe marker is stamped + persisted so the row won't re-match.
       expect(expiredSub.metadata.gracePeriodDowngradedAt).toBeDefined();
       expect(expiredSub.save).toHaveBeenCalledTimes(1);

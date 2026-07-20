@@ -50,6 +50,13 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // S2S token minter — routes forward a service token (not the user bearer)
     // to quota/compliance. Suites that assert on the forwarded auth override this.
     getServiceAuthHeader: () => 'Bearer service-token',
+    // Remote audit client factory — the pipeline routes' audit wiring
+    // (src/services/audit.ts) links against this. Default returns a no-op
+    // recorder; suites asserting on emitted audit events mock the audit module
+    // (src/services/audit.js) directly instead.
+    createRemoteAuditClient: () => ({ record: jest.fn() }),
+    // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
+    setAuthzDenialAuditor: () => {},
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

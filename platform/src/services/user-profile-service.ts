@@ -4,6 +4,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
+import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
 
 const logger = createLogger('user-profile-service');
@@ -171,6 +172,9 @@ class UserProfileService {
     user.password = newPassword;
     user.tokenVersion += 1;
     await user.save();
+    // Post-commit: publish the now-current tokenVersion so the stateless services
+    // reject every outstanding token immediately (best-effort).
+    await publishUserRevocation(String(userId));
   }
 
   /** Fetch a user with `tokenVersion` AND `isSuperAdmin` selected, suitable
@@ -221,6 +225,8 @@ class UserProfileService {
     const user = await User.findById(userId).select('+tokenVersion issuedTokens');
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
     await user.invalidateAllSessions();
+    // Post-commit: publish the now-current tokenVersion (best-effort).
+    await publishUserRevocation(String(userId));
     return user;
   }
 }

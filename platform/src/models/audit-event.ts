@@ -58,6 +58,12 @@ export type AuditAction =
   | 'org.role.delete'
   // Admin actions (controllers/user-admin.ts)
   | 'admin.user.create'
+  // Admin edit of ANOTHER user via PUT /users/:id — role/email/password/org
+  // changes. `details.changes` carries the field NAMES that changed (never the
+  // password value or any secret); `affectedOrgId` is the target's org. A
+  // privileged account-takeover (admin resets a victim's password / elevates
+  // their role) must leave this trail.
+  | 'admin.user.update'
   | 'admin.user.delete'
   | 'admin.org.delete'
   // GDPR portability export. Emitted from controllers/organization.ts
@@ -127,7 +133,48 @@ export type AuditAction =
   // the worker via service-to-service JWT and persists them here.
   | 'plugin.build.completed'
   | 'plugin.build.failed'
-  | 'plugin.build.timeout';
+  | 'plugin.build.timeout'
+  // Pipeline mutations — emitted by api/pipeline's route handlers and posted
+  // to the `POST /audit/events` ingest (authenticated via service-to-service
+  // JWT). `targetId` is the pipeline id; `orgId` is the caller's org.
+  // create/update/delete cover the CRUD surface; execution.start /
+  // execution.cancel are the AWS CodePipeline run/cancel path (highest value —
+  // they drive real infra actions).
+  | 'pipeline.create'
+  | 'pipeline.update'
+  | 'pipeline.delete'
+  | 'pipeline.execution.start'
+  | 'pipeline.execution.cancel'
+  // Plugin lifecycle mutations (api/plugin) — the delete/upload/deploy surface
+  // that complements the already-audited builds. Posted to the ingest.
+  | 'plugin.delete'
+  | 'plugin.upload'
+  | 'plugin.deploy'
+  // Quota administration (api/quota) — superadmin usage-counter reset and tier
+  // limit edits. `affectedOrgId` is the org changed.
+  | 'quota.reset'
+  | 'quota.limit.update'
+  // Compliance rule administration (api/compliance) — exemption approval, rule
+  // active toggle, and scan cancellation.
+  | 'compliance.exemption.approve'
+  | 'compliance.rule.toggle'
+  | 'compliance.scan.cancel'
+  // Image-registry destructive ops (api/image-registry) — GC sweeps + explicit
+  // image/tag deletes.
+  | 'registry.gc'
+  | 'registry.image.delete'
+  // Denied authorization attempt — best-effort emission from the shared
+  // requirePermission / requireSystemAdmin gate on a rejected state-changing
+  // request (probing/escalation signal). `outcome` is 'failure'.
+  | 'authz.denied'
+  // Platform admin mutations that were previously unaudited (controllers).
+  // `admin.org.ai-config.update` — org AI-provider config (holds provider API
+  //   keys; details carry field NAMES only, never a key value).
+  // `admin.org.quota.override` — a sysadmin manual quota limit/usage override.
+  // `admin.user.features.update` — a sysadmin editing a user's feature overrides.
+  | 'admin.org.ai-config.update'
+  | 'admin.org.quota.override'
+  | 'admin.user.features.update';
 
 /**
  * Runtime list of every AuditAction. Kept in lockstep with the
@@ -164,6 +211,7 @@ const ALL_AUDIT_ACTIONS = [
   'org.role.update',
   'org.role.delete',
   'admin.user.create',
+  'admin.user.update',
   'admin.user.delete',
   'admin.org.delete',
   'admin.org.export',
@@ -192,6 +240,25 @@ const ALL_AUDIT_ACTIONS = [
   'plugin.build.completed',
   'plugin.build.failed',
   'plugin.build.timeout',
+  'pipeline.create',
+  'pipeline.update',
+  'pipeline.delete',
+  'pipeline.execution.start',
+  'pipeline.execution.cancel',
+  'plugin.delete',
+  'plugin.upload',
+  'plugin.deploy',
+  'quota.reset',
+  'quota.limit.update',
+  'compliance.exemption.approve',
+  'compliance.rule.toggle',
+  'compliance.scan.cancel',
+  'registry.gc',
+  'registry.image.delete',
+  'authz.denied',
+  'admin.org.ai-config.update',
+  'admin.org.quota.override',
+  'admin.user.features.update',
 ] as const satisfies ReadonlyArray<AuditAction>;
 
 /** Runtime predicate: type-narrowing check used by the ingest route. */
@@ -242,6 +309,15 @@ export interface AuditEventDocument extends Document {
   /** Distributed trace id (OpenTelemetry active span) when tracing is on.
    *  Correlates the action across services end-to-end. */
   traceId?: string;
+  /** TAMPER-EVIDENCE: SHA-256 digest of this event's immutable fields plus
+   *  `prevHash` (see `helpers/audit-chain.ts`). Lets a verifier detect any
+   *  post-hoc mutation of a stored row. */
+  hash?: string;
+  /** TAMPER-EVIDENCE: the `hash` of the most recent PRIOR event in the same
+   *  per-tenant chain (chain key = `affectedOrgId ?? orgId`), or `null` for the
+   *  first event in a chain. A missing/re-pointed link reveals a deleted or
+   *  reordered row. */
+  prevHash?: string | null;
   createdAt: Date;
 }
 
@@ -264,6 +340,14 @@ const auditEventSchema = new Schema<AuditEventDocument>( {
   userAgent: { type: String },
   requestId: { type: String, index: { sparse: true } },
   traceId: { type: String },
+  // TAMPER-EVIDENCE hash chain (see helpers/audit-chain.ts). Deliberately NOT
+  // `required`: the append path is best-effort, so a hash/chain failure must
+  // still be able to write the row rather than reject it. The tail lookup that
+  // reads the chain's newest hash is served by the existing
+  // `{ affectedOrgId: 1, createdAt: -1 }` compound index below (the stored
+  // `affectedOrgId` always equals the chain key), so no extra index is needed.
+  hash: { type: String },
+  prevHash: { type: String, default: null },
 },
 {
   timestamps: { createdAt: true, updatedAt: false },

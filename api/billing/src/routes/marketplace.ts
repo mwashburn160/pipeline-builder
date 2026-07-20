@@ -117,6 +117,9 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
   subscription.cancelAtPeriodEnd = statusChange.cancelAtPeriodEnd;
   await subscription.save();
 
+  // These billing events originate from AWS Marketplace SNS notifications, not
+  // a request user — actorId is intentionally left undefined (no fabricated
+  // actor for system-driven events).
   // Determine event type and sync tier.
   // For an immediate cancel ('canceled') we downgrade now. For a soft cancel
   // ('cancelAtPeriodEnd') the org has paid through `currentPeriodEnd` —

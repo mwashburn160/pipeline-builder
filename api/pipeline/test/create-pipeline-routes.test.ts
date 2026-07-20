@@ -27,6 +27,12 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   },
 }));
 
+const mockEmitPipelineAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  emitPipelineAudit: mockEmitPipelineAudit,
+  getAuditClient: () => ({ record: jest.fn() }),
+}));
+
 const mockValidatePipeline = jest.fn<(...args: any[]) => any>().mockResolvedValue({ blocked: false, violations: [] });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -193,6 +199,44 @@ describe('POST /pipelines (create)', () => {
       }),
     }),
     );
+  });
+
+  it('emits an attributed pipeline.create audit event after a successful create', async () => {
+    mockCreateAsDefault.mockResolvedValue({
+      id: 'uuid-1',
+      project: 'my_project',
+      organization: 'my_org',
+      pipelineName: 'my_org-my_project-pipeline',
+      accessModifier: 'private',
+      isDefault: true,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      createdBy: 'user-1',
+    });
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitPipelineAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'pipeline.create',
+        actorId: 'user-1',
+        orgId: 'org-1',
+        targetType: 'pipeline',
+        targetId: 'uuid-1',
+      }),
+    );
+  });
+
+  it('does NOT emit an audit event when the create is blocked / fails', async () => {
+    mockValidatePipeline.mockResolvedValueOnce({
+      blocked: true,
+      violations: [{ message: 'nope' }],
+    });
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
   });
 
   it('returns 400 when body validation fails', async () => {

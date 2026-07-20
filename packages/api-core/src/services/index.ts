@@ -21,4 +21,5 @@ export {
 export type { RetryConfig, RetryDecision } from './retry-strategy.js';
 export * from './quota.js';
 export * from './remote-audit-client.js';
+export * from './token-revocation.js';
 export { enqueueComplianceEvent, registerComplianceQueueBackend, type ComplianceEvent } from './compliance-queue.js';

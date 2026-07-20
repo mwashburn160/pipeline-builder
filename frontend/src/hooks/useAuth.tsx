@@ -19,6 +19,11 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isInitialized: boolean;
+  /** True while the session is a read-only sysadmin impersonation token
+   *  (`impersonationReadOnly` claim). The backend rejects every non-GET request
+   *  under such a token, so the UI must disable write affordances — see the
+   *  `can()` gate in `useAuthGuard` and the ImpersonationBanner. */
+  isReadOnly: boolean;
   /** Set when a profile refresh failed for a transient reason (network / 5xx)
    *  rather than a genuine 401. The prior user is kept; callers can retry
    *  via `refreshUser`. Cleared on the next successful refresh. */
@@ -271,6 +276,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         isInitialized,
+        // Derived from the current access token's `impersonationReadOnly` claim.
+        // Impersonation start/stop performs a full page reload, so reading it at
+        // render time is stable for the session.
+        isReadOnly: api.isImpersonating(),
         authError,
         login,
         register,

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomUUID } from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { HttpStatus } from '../constants/http-status.js';
@@ -132,6 +133,52 @@ export function requireAuth(
   };
 }
 
+/**
+ * A source of the CURRENT `tokenVersion` for a user, backed by a store the
+ * stateless services can read (in practice a Redis key the platform publishes
+ * to on every privilege change). Registered via {@link setTokenRevocationStore}.
+ *
+ * `getCurrentVersion` returns the user's current version, or `null` when the
+ * store has no entry — a miss is treated as "no known revocation" (fail-open):
+ * revocation entries are published with a TTL matching the access-token
+ * lifetime, so a missing entry means any token old enough to predate it has
+ * already expired on its own.
+ */
+export interface TokenRevocationStore {
+  getCurrentVersion(userId: string): Promise<number | null>;
+}
+
+let tokenRevocationStore: TokenRevocationStore | undefined;
+
+/**
+ * Register (or clear, with `undefined`) the process-wide token-revocation store.
+ * When unset (the default), `requireAuth` performs NO revocation check and
+ * behaves exactly as before — so this is fully backward compatible and services
+ * opt in at boot by wiring their Redis client. Platform keeps its own Mongo-
+ * backed check and need not register one.
+ */
+export function setTokenRevocationStore(store: TokenRevocationStore | undefined): void {
+  tokenRevocationStore = store;
+}
+
+/**
+ * Returns true when `decoded` has been revoked per the registered store: its
+ * embedded `tokenVersion` is strictly behind the store's current version.
+ * Fail-open — any store error, a missing entry, or a token/store without a
+ * usable version yields `false` (allow). Never throws.
+ */
+async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
+  const store = tokenRevocationStore;
+  if (!store || !decoded.sub || typeof decoded.tokenVersion !== 'number') return false;
+  try {
+    const current = await store.getCurrentVersion(decoded.sub);
+    return current !== null && decoded.tokenVersion < current;
+  } catch {
+    // Fail-open: a revocation-store outage must not lock every user out.
+    return false;
+  }
+}
+
 function _requireAuth(
   options: RequireAuthOptions,
   req: Request,
@@ -188,6 +235,20 @@ function _requireAuth(
       if (headerOrgName) req.user.organizationName = headerOrgName;
     }
 
+    // Session-invalidation check for the stateless services: reject a token
+    // whose `tokenVersion` is behind the revocation store's current value (a
+    // privilege change the platform published). No store registered ⇒ this is a
+    // no-op and control passes straight through. Fail-open on any store error.
+    if (tokenRevocationStore && decoded.sub && typeof decoded.tokenVersion === 'number') {
+      void isTokenRevoked(decoded).then((revoked) => {
+        if (revoked) {
+          return sendError(res, HttpStatus.UNAUTHORIZED, 'Session has been revoked; please sign in again', ErrorCode.TOKEN_REVOKED);
+        }
+        next();
+      });
+      return;
+    }
+
     next();
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
@@ -232,6 +293,66 @@ export function userHasPermission(req: Request, permission: Permission): boolean
 }
 
 /**
+ * Context passed to a registered authorization-denial auditor when a
+ * state-changing request is rejected by `requirePermission` /
+ * `requireSystemAdmin`.
+ */
+export interface AuthzDenialInfo {
+  /** The denied user's id (`sub`), if authenticated. */
+  actorId?: string;
+  actorEmail?: string;
+  /** The user's active org at denial time. */
+  orgId?: string;
+  /** HTTP method + path of the rejected request. */
+  method: string;
+  path: string;
+  /** What was required: the missing permission(s), or 'system-admin'. */
+  required: string;
+}
+
+/**
+ * Optional sink for denied-authorization events. Left unset by default so
+ * api-core stays decoupled from any audit transport — a service registers one
+ * at boot (typically forwarding to its `RemoteAuditClient` as an
+ * `authz.denied` event, or, on platform, to the local `audit()` helper).
+ * MUST be best-effort: it is invoked inside the request path, so it must never
+ * throw or block (the gate wraps the call in try/catch regardless).
+ */
+let authzDenialAuditor: ((info: AuthzDenialInfo) => void) | undefined;
+
+/**
+ * Register (or clear, with `undefined`) the process-wide authorization-denial
+ * auditor. Idempotent; the last registration wins.
+ */
+export function setAuthzDenialAuditor(fn: ((info: AuthzDenialInfo) => void) | undefined): void {
+  authzDenialAuditor = fn;
+}
+
+/**
+ * Emit a denial event, best-effort. Only fires for state-changing (non-GET,
+ * non-HEAD/OPTIONS) requests — a rejected GET is low-signal probing noise and
+ * would amplify audit volume under a scan. Never throws.
+ */
+function auditAuthzDenial(req: Request, required: string): void {
+  const auditor = authzDenialAuditor;
+  if (!auditor) return;
+  const method = req.method.toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+  try {
+    auditor({
+      actorId: req.user?.sub,
+      actorEmail: req.user?.email,
+      orgId: req.user?.organizationId,
+      method,
+      path: req.originalUrl || req.url,
+      required,
+    });
+  } catch {
+    // Best-effort — a broken auditor must never break the auth gate.
+  }
+}
+
+/**
  * Requires that the user hold AT LEAST ONE of the given permissions (or be a
  * superadmin). Use after requireAuth. Mirrors `requireRole`'s any-of semantics;
  * pass a single permission for a specific action, or several when any one of
@@ -246,9 +367,34 @@ export function requirePermission(...permissions: Permission[]) {
     // permission, so this single check covers both the superadmin bypass and
     // the any-of membership test without re-inlining either.
     if (permissions.some((p) => userHasPermission(req, p))) return next();
+    auditAuthzDenial(req, permissions.join(' or '));
     return sendError(
       res, HttpStatus.FORBIDDEN,
       `Missing required permission: ${permissions.join(' or ')}`,
+      ErrorCode.INSUFFICIENT_PERMISSIONS,
+    );
+  };
+}
+
+/**
+ * Requires that the user hold EVERY one of the given permissions (or be a
+ * superadmin) — the AND counterpart to `requirePermission`'s any-of. Use for a
+ * sensitive action that legitimately demands two distinct capabilities at once
+ * (e.g. a cross-surface operation), so the guarantee is explicit rather than
+ * approximated by chaining two `requirePermission` gates. Superadmins bypass
+ * (they implicitly hold every permission).
+ */
+export function requireAllPermissions(...permissions: Permission[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
+    }
+    const missing = permissions.filter((p) => !userHasPermission(req, p));
+    if (missing.length === 0) return next();
+    auditAuthzDenial(req, permissions.join(' and '));
+    return sendError(
+      res, HttpStatus.FORBIDDEN,
+      `Missing required permission: ${missing.join(' and ')}`,
       ErrorCode.INSUFFICIENT_PERMISSIONS,
     );
   };
@@ -307,6 +453,7 @@ export function requireSystemAdmin(
   next: NextFunction,
 ): void {
   if (!isSystemAdmin(req)) {
+    auditAuthzDenial(req, 'system-admin');
     return sendError(
       res, HttpStatus.FORBIDDEN,
       'Access denied. Only system administrators can perform this action.',
@@ -418,6 +565,13 @@ export function signServiceToken(opts: ServiceTokenOptions): string {
     // Sign with the same configured alg requireAuth pins on verify, so service
     // tokens stay valid under a non-default JWT_ALGORITHM.
     algorithm: (process.env.JWT_ALGORITHM || 'HS256') as jwt.Algorithm,
+    // Unique token id on every mint. Combined with the short (300s default) TTL
+    // this gives each service token a distinct identity — the building block for
+    // replay detection (a verifier can track seen jtis) and the correlation
+    // handle for tracing which mint performed a cross-service action. It does
+    // NOT by itself prevent replay within the TTL window; true replay defence
+    // needs the asymmetric-key work tracked separately.
+    jwtid: randomUUID(),
   };
   if (process.env.JWT_ISSUER) signOptions.issuer = process.env.JWT_ISSUER;
   if (process.env.JWT_AUDIENCE) signOptions.audience = process.env.JWT_AUDIENCE;

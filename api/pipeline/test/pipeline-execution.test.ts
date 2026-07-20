@@ -54,6 +54,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
+const mockEmitPipelineAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  emitPipelineAudit: mockEmitPipelineAudit,
+  getAuditClient: () => ({ record: jest.fn() }),
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
@@ -63,6 +69,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 
 const { sendSuccess, sendError } = await import('@pipeline-builder/api-core');
 const { createExecutionRoutes } = await import('../src/routes/executions.js');
+const { emitPipelineAudit } = await import('../src/services/audit.js');
 
 /** Build an AWS-style error whose `.name` drives the service's classification. */
 function awsError(name: string, message = name): Error {
@@ -104,6 +111,32 @@ describe('pipeline execution write routes', () => {
     expect(cmd).toBeInstanceOf(StartPipelineExecutionCommand);
     expect(cmd.input.name).toBe('acme-pipe');
     expect(sendSuccess).toHaveBeenCalledWith(res, 202, { executionId: 'exec-123' });
+  });
+
+  it('trigger: emits an attributed pipeline.execution.start audit event on success', async () => {
+    mockSend.mockResolvedValue({ pipelineExecutionId: 'exec-123' });
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+
+    expect(emitPipelineAudit).toHaveBeenCalledTimes(1);
+    expect(emitPipelineAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'pipeline.execution.start',
+        actorId: 'user-1',
+        orgId: 'acme',
+        targetType: 'pipeline',
+        targetId: 'p-1',
+        details: expect.objectContaining({ executionId: 'exec-123' }),
+      }),
+    );
+  });
+
+  it('trigger: does NOT emit an audit event when the AWS start fails', async () => {
+    mockSend.mockRejectedValue(awsError('ThrottlingException', 'Rate exceeded'));
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+
+    expect(emitPipelineAudit).not.toHaveBeenCalled();
   });
 
   it('trigger: unregistered / wrong-org pipeline → 404 and no AWS call', async () => {
@@ -156,6 +189,32 @@ describe('pipeline execution write routes', () => {
     expect(cmd.input.pipelineExecutionId).toBe('exec-9');
     expect(cmd.input.reason).toBe('stop it');
     expect(sendSuccess).toHaveBeenCalledWith(res, 200, { stopped: true });
+  });
+
+  it('stop: emits an attributed pipeline.execution.cancel audit event on success', async () => {
+    mockSend.mockResolvedValue({});
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: { reason: 'stop it' } }, res);
+
+    expect(emitPipelineAudit).toHaveBeenCalledTimes(1);
+    expect(emitPipelineAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'pipeline.execution.cancel',
+        actorId: 'user-1',
+        orgId: 'acme',
+        targetType: 'pipeline',
+        targetId: 'p-1',
+        details: expect.objectContaining({ executionId: 'exec-9' }),
+      }),
+    );
+  });
+
+  it('stop: does NOT emit an audit event when the execution is not stoppable', async () => {
+    mockSend.mockRejectedValue(awsError('PipelineExecutionNotStoppableException'));
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
+
+    expect(emitPipelineAudit).not.toHaveBeenCalled();
   });
 
   it('stop: PipelineExecutionNotStoppableException → 409', async () => {

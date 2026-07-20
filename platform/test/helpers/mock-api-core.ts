@@ -42,6 +42,13 @@ const ALL_PERMISSIONS: readonly string[] = [
   'org:settings',
 ];
 
+/** Mirrors api-core's SUPERADMIN_ONLY_PERMISSIONS (the shared image registry). */
+const SUPERADMIN_ONLY_PERMISSIONS: readonly string[] = ['registry:read', 'registry:write'];
+
+/** Mirrors api-core's ORG_ASSIGNABLE_PERMISSIONS (ALL minus the superadmin-only). */
+const ORG_ASSIGNABLE_PERMISSIONS: readonly string[] =
+  ALL_PERMISSIONS.filter((p) => !SUPERADMIN_ONLY_PERMISSIONS.includes(p));
+
 /** Mirrors api-core's MEMBER seed bundle (a read-heavy subset of ALL_PERMISSIONS). */
 const MEMBER_PERMISSIONS: readonly string[] = [
   'pipelines:read', 'pipelines:write',
@@ -127,6 +134,15 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ROLE_PERMISSIONS,
     resolveUserPermissions,
     isValidPermission: (value: string) => ALL_PERMISSIONS.includes(value),
+    // Registry carve-out for custom-Role authoring: roles-service imports these
+    // to reject superadmin-only permissions in a user-supplied permission set.
+    SUPERADMIN_ONLY_PERMISSIONS,
+    ORG_ASSIGNABLE_PERMISSIONS,
+    isOrgAssignablePermission: (p: string) => !SUPERADMIN_ONLY_PERMISSIONS.includes(p),
+    // Session-revocation PUBLISHER contract (helpers/session-revocation.ts).
+    // Default no-op spies; a suite exercising publishing overrides them.
+    publishTokenRevocation: jest.fn(async () => undefined),
+    createRedisTokenRevocationStore: jest.fn(() => ({ getCurrentVersion: jest.fn(async () => null) })),
     // System-admin check (faithful to api-core): authority is carried solely by
     // the JWT's `isSuperAdmin` flag. Used by tenant-binding gates (audit ingest,
     // notify-email) to let a sysadmin service token target any org.

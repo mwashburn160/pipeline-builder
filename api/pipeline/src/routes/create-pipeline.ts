@@ -7,6 +7,7 @@ import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/ap
 import { AccessModifier, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService, type PipelineInsert } from '../services/pipeline-service.js';
 
 const logger = createLogger('create-pipeline');
@@ -135,6 +136,21 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         // below rolls the reservation back.
 
         ctx.log('COMPLETED', 'Pipeline created', { id: result.id });
+
+        // Best-effort attributed audit — emitted only after the create landed.
+        emitPipelineAudit({
+          action: 'pipeline.create',
+          actorId: userId || 'system',
+          orgId,
+          targetType: 'pipeline',
+          targetId: result.id,
+          details: {
+            project: result.project,
+            organization: result.organization,
+            pipelineName: result.pipelineName,
+            accessModifier: result.accessModifier,
+          },
+        });
 
         const message = accessModifier === AccessModifier.PUBLIC
           ? 'Public pipeline created successfully (accessible to all organizations)'

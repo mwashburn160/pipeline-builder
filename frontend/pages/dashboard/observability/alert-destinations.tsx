@@ -26,9 +26,15 @@ import type { AlertDestination, AlertDestinationWrite } from '@/types/observabil
  * incoming-webhook URLs (or generic HTTPS webhooks, or opt into in-app)
  * here; the platform never logs or returns the raw target back — only a
  * masked `••••XXXX` preview.
+ *
+ * Managing destinations (add / edit / delete / send-test) is an
+ * `observability:write` capability — the backend gates every POST/PUT/DELETE
+ * and the test endpoint on it. The whole page is gated on it via `useAuthGuard`
+ * to match the sibling Alert rules / Alerts pages. Superadmins bypass the
+ * permission check, so the read-only cross-tenant view below stays reachable.
  */
 export default function AlertDestinationsPage() {
-  const { isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
+  const { isReady, isAuthenticated, isSuperAdmin } = useAuthGuard({ requirePermission: 'observability:write' });
   const toast = useToast();
   const ready = isReady && isAuthenticated;
   const [editing, setEditing] = useState<AlertDestination | null>(null);

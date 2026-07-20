@@ -14,6 +14,7 @@ import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, validateBuildArgs } from '../helpers/plugin-spec.js';
 import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
+import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('upload-plugin');
@@ -223,6 +224,22 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             pluginId: result.id,
           });
 
+          // Best-effort attributed audit — the source upload landed (deployed
+          // directly, no image build), so we have the persisted plugin id.
+          emitPluginAudit({
+            action: 'plugin.upload',
+            actorId: req.user?.sub ?? userId ?? 'system',
+            orgId,
+            targetType: 'plugin',
+            targetId: result.id,
+            details: {
+              pluginName: s.name,
+              version: s.version,
+              accessModifier,
+              buildType: 'metadata_only',
+            },
+          });
+
           return sendSuccess(res, 201, {
             requestId: ctx.requestId,
             pluginId: result.id,
@@ -267,6 +284,23 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         ctx.log('INFO', 'Build queued', {
           pluginName: s.name,
           version: s.version || '0.0.0',
+        });
+
+        // Best-effort attributed audit — the source upload was accepted and the
+        // build queued. No plugin id exists yet (the worker persists the record
+        // on build completion, where plugin.build.completed carries the id), so
+        // `targetId` is omitted here; name/version identify the artifact.
+        emitPluginAudit({
+          action: 'plugin.upload',
+          actorId: req.user?.sub ?? userId ?? 'system',
+          orgId,
+          targetType: 'plugin',
+          details: {
+            pluginName: s.name,
+            version: s.version || '0.0.0',
+            accessModifier,
+            buildType: plugin.buildType,
+          },
         });
 
         return sendSuccess(res, 202, {

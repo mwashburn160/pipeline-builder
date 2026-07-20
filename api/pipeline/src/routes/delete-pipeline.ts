@@ -4,6 +4,7 @@
 import { getParam, ErrorCode, requirePublicAccess, sendBadRequest, sendSuccess, sendEntityNotFound } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 /**
@@ -32,6 +33,19 @@ export function createDeletePipelineRoutes(): Router {
     await pipelineService.delete(id, orgId, userId || 'system');
 
     ctx.log('COMPLETED', 'Deleted pipeline', { id, name: existing.pipelineName });
+
+    // Best-effort attributed audit — emitted only after the delete landed.
+    emitPipelineAudit({
+      action: 'pipeline.delete',
+      actorId: userId || 'system',
+      orgId,
+      targetType: 'pipeline',
+      targetId: id,
+      details: {
+        pipelineName: existing.pipelineName,
+        accessModifier: existing.accessModifier,
+      },
+    });
 
     return sendSuccess(res, 200, undefined, 'Pipeline deleted.');
   }));

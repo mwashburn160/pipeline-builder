@@ -21,8 +21,11 @@
 import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { db, runWithTenantContext, schema } from '@pipeline-builder/pipeline-data';
 import { eq, sql } from 'drizzle-orm';
+import type { Types } from 'mongoose';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { publishUsersRevocation } from '../helpers/session-revocation.js';
+import ArchivedAuditEvent from '../models/archived-audit-events.js';
 import AuditEvent from '../models/audit-event.js';
 import DeletedOrgSnapshot from '../models/deleted-org-snapshot.js';
 import Invitation from '../models/invitation.js';
@@ -126,6 +129,13 @@ export interface CascadeReport {
   mongo: { invitations: number; auditEvents: number; idpConfigs: number };
   quota: { ok: boolean; statusCode?: number };
   billing: { ok: boolean; statusCode?: number };
+  /** Whether the org's audit trail was durably archived to
+   *  `archived_audit_events` BEFORE the live rows were deleted. This is a HARD
+   *  GATE for the purge sweep exactly like billing/quota — a failed archive
+   *  leaves the audit rows intact and DEFERS the hard delete, so a forensic
+   *  record is never destroyed without a durable copy. `archived` is how many
+   *  events were copied. */
+  auditArchive: { ok: boolean; archived?: number; error?: string };
   /** Present ONLY when the deleted org had a per-org KMS CMK (`kmsConfig`).
    *  The cascade does NOT auto-delete the external AWS key (irreversible) —
    *  it flags the orphan so an operator can schedule the key's deletion
@@ -156,6 +166,7 @@ export async function cascadeDeleteOrg( orgId: string,
     mongo: { invitations: 0, auditEvents: 0, idpConfigs: 0 },
     quota: { ok: false },
     billing: { ok: false },
+    auditArchive: { ok: false },
   };
 
   // -- Postgres: run under sysadmin tenant context so the soft-delete UPDATEs
@@ -198,19 +209,54 @@ export async function cascadeDeleteOrg( orgId: string,
     logger.error('Invitation cleanup failed', { orgId, error: errorMessage(err) });
   }
 
+  // Audit events: ARCHIVE the forensic trail to a durable, TTL-free store
+  // BEFORE deleting the live rows. The purge would otherwise destroy the record
+  // of everything that ever happened to the org.
+  //
+  // FAIL CLOSED (mirrors the billing/quota hard gates below): if the archive
+  // write fails we do NOT delete the audit rows — they're left intact for a
+  // retry, `report.auditArchive.ok` stays false, and the purge sweep DEFERS the
+  // hard delete for this org. A forensic record is never destroyed without a
+  // durable copy.
+  const auditScope = { $or: [{ orgId }, { affectedOrgId: orgId }] };
   try {
-    // Match BOTH orgId (actor's org at action time) AND affectedOrgId so
-    // sysadmin actions against this org (from a different actor org) also
-    // get pruned. Keep the `admin.org.delete` action  it's intentionally
-    // preserved as the audit trail of this very operation; the controller
+    // Archive EVERY matching event (including `admin.org.delete`) — the archive
+    // is a complete copy. The subsequent live-delete still preserves the
+    // in-place `admin.org.delete` trail (see the `$ne` filter below).
+    const events = await AuditEvent.find(auditScope).lean();
+    if (events.length > 0) {
+      // Preserve each event's original `_id` so re-archiving on a purge retry is
+      // an idempotent upsert (no duplicates), and keep the full document
+      // verbatim plus an `archivedAt` stamp.
+      await ArchivedAuditEvent.bulkWrite(
+        events.map((e) => ({
+          replaceOne: {
+            filter: { _id: (e as { _id: unknown })._id },
+            replacement: { ...(e as unknown as Record<string, unknown>), archivedAt: new Date() },
+            upsert: true,
+          },
+        })),
+        { ordered: false },
+      );
+    }
+
+    // Archive succeeded (or there was nothing to archive) — safe to delete the
+    // live rows now. Keep the `admin.org.delete` action: it's intentionally
+    // preserved in-place as the trail of this very operation; the controller
     // emits a fresh one after cascade returns.
     const auditRes = await AuditEvent.deleteMany({
-      $or: [{ orgId }, { affectedOrgId: orgId }],
+      ...auditScope,
       action: { $ne: 'admin.org.delete' },
     });
     report.mongo.auditEvents = auditRes.deletedCount ?? 0;
+    report.auditArchive = { ok: true, archived: events.length };
   } catch (err) {
-    logger.error('AuditEvent cleanup failed', { orgId, error: errorMessage(err) });
+    // Do NOT delete un-archived audit rows. Flag the failure so the sweep defers.
+    logger.error(
+      'Audit-event archive FAILED — live audit rows NOT deleted; purge will be deferred for this org (fail-closed)',
+      { orgId, error: errorMessage(err) },
+    );
+    report.auditArchive = { ok: false, error: errorMessage(err) };
   }
 
   // Per-org IdP config doc (separate collection — would otherwise orphan
@@ -374,6 +420,7 @@ export async function softDeleteOrg(
   const now = new Date();
   const purgeAfter = new Date(now.getTime() + config.organization.deletionRetentionDays * 86400 * 1000);
 
+  let bumpedMemberIds: Types.ObjectId[] = [];
   const membersInvalidated = await withMongoTransaction(async (session) => {
     await Organization.updateOne(
       { _id: toOrgId(orgId) },
@@ -385,15 +432,18 @@ export async function softDeleteOrg(
     // the refresh token blocks a silent re-issue.
     const memberships = await UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true })
       .select('userId').session(session).lean();
-    const userIds = memberships.map((m) => m.userId);
-    if (userIds.length > 0) {
+    bumpedMemberIds = memberships.map((m) => m.userId);
+    if (bumpedMemberIds.length > 0) {
       await User.updateMany(
-        { _id: { $in: userIds } },
+        { _id: { $in: bumpedMemberIds } },
         { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
       ).session(session);
     }
-    return userIds.length;
+    return bumpedMemberIds.length;
   });
+  // Post-commit: publish each member's now-current tokenVersion so the stateless
+  // services cut them off from the tombstoned org immediately (best-effort).
+  await publishUsersRevocation(bumpedMemberIds);
 
   logger.info('Org soft-deleted', { orgId, purgeAfter, snapshotId, membersInvalidated });
   return { orgId, deletedAt: now, purgeAfter, snapshotId, membersInvalidated };

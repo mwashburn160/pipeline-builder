@@ -23,6 +23,12 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   },
 }));
 
+const mockEmitPipelineAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  emitPipelineAudit: mockEmitPipelineAudit,
+  getAuditClient: () => ({ record: jest.fn() }),
+}));
+
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
   res.status(400).json({ success: false, statusCode: 400, message: msg });
 });
@@ -161,6 +167,32 @@ describe('DELETE /pipelines/:id (delete)', () => {
         message: 'Pipeline deleted.',
       }),
     );
+  });
+
+  it('emits an attributed pipeline.delete audit event after a successful delete', async () => {
+    mockFindById.mockResolvedValue(existingPipeline);
+    mockDelete.mockResolvedValue(existingPipeline);
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitPipelineAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'pipeline.delete',
+        actorId: 'user-1',
+        orgId: 'org-1',
+        targetType: 'pipeline',
+        targetId: 'pipeline-uuid-1',
+      }),
+    );
+  });
+
+  it('does NOT emit an audit event when the pipeline is not found', async () => {
+    mockFindById.mockResolvedValue(null);
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
   });
 
   it('returns 400 when ID is missing', async () => {

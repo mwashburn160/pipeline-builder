@@ -31,6 +31,7 @@ import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { validateBuildArgs } from '../helpers/plugin-spec.js';
 import { enqueueBuild, getOrgTier } from '../queue/plugin-build-queue.js';
+import { emitPluginAudit } from '../services/audit.js';
 
 // Fail-closed compliance client (shared with the upload path's contract):
 // an unreachable compliance service rejects the deploy rather than letting it through.
@@ -185,6 +186,23 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         ctx.log('INFO', 'Build queued', {
           pluginName: name,
           version,
+        });
+
+        // Best-effort attributed audit — the deploy action was accepted and the
+        // build queued. No plugin id exists yet (the worker persists the record
+        // on build completion, where plugin.build.completed carries the id), so
+        // `targetId` is omitted here; name/version identify the plugin.
+        emitPluginAudit({
+          action: 'plugin.deploy',
+          actorId: req.user?.sub ?? userId ?? 'system',
+          orgId,
+          targetType: 'plugin',
+          details: {
+            pluginName: name,
+            version,
+            accessModifier,
+            buildType: 'build_image',
+          },
         });
 
         return sendSuccess(res, 202, {

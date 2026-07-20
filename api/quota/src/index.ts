@@ -1,13 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { mongoSanitize, createLogger, DEFAULT_TIER, QUOTA_TIERS, VALID_TIERS, isValidTier } from '@pipeline-builder/api-core';
+import { mongoSanitize, createLogger, DEFAULT_TIER, QUOTA_TIERS, VALID_TIERS, isValidTier, setAuthzDenialAuditor } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import mongoose from 'mongoose';
 
 import { config } from './config.js';
 import { createReadQuotaRoutes } from './routes/read-quotas.js';
 import { createUpdateQuotaRoutes } from './routes/update-quota.js';
+import { getAuditClient } from './services/audit.js';
 
 const logger = createLogger('quota-service');
 
@@ -29,6 +30,21 @@ app.use(attachRequestContext(sseManager));
 
 app.use('/quotas', createReadQuotaRoutes());
 app.use('/quotas', createUpdateQuotaRoutes());
+
+// Forward denied state-changing authorizations (rejected by requirePermission /
+// requireSystemAdmin) into the same remote audit sink as the mutation events,
+// as best-effort `authz.denied` failure records. Registered once at boot; the
+// gate already wraps this call in try/catch and only fires for non-GET requests.
+setAuthzDenialAuditor((info) => {
+  getAuditClient().record({
+    action: 'authz.denied',
+    actorId: info.actorId ?? 'anonymous',
+    actorEmail: info.actorEmail,
+    orgId: info.orgId,
+    outcome: 'failure',
+    details: { method: info.method, path: info.path, required: info.required },
+  }, 'quota');
+});
 
 // -- Startup -------------------------------------------------------------------
 

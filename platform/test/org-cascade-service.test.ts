@@ -64,12 +64,17 @@ const mockInvitationFind = jest.fn();
 const mockAuditDeleteMany = jest.fn();
 const mockAuditFind = jest.fn();
 const mockAuditCreate = jest.fn();
+const mockArchivedBulkWrite = jest.fn();
 const mockIdpDeleteMany = jest.fn();
 const mockOrgFindById = jest.fn();
 
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
   default: { deleteMany: mockAuditDeleteMany, find: mockAuditFind, create: mockAuditCreate },
+}));
+jest.unstable_mockModule('../src/models/archived-audit-events.js', () => ({
+  __esModule: true,
+  default: { bulkWrite: mockArchivedBulkWrite },
 }));
 jest.unstable_mockModule('../src/models/invitation.js', () => ({
   __esModule: true,
@@ -108,6 +113,7 @@ beforeEach(() => {
   mockAuditDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockAuditFind.mockReturnValue({ lean: () => [] });
   mockAuditCreate.mockResolvedValue({});
+  mockArchivedBulkWrite.mockResolvedValue({});
   mockIdpDeleteMany.mockResolvedValue({ deletedCount: 0 });
   // Default: org has no per-org KMS config.
   mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => null }) });
@@ -154,6 +160,50 @@ describe('cascadeDeleteOrg', () => {
     // IdP cleanup scoped to the deleted org's id — orphaned configs were
     // the bug this guards against.
     expect(mockIdpDeleteMany).toHaveBeenCalledWith({ orgId: 'org-acme' });
+  });
+
+  it('ARCHIVES the audit trail to archived_audit_events BEFORE deleting the live rows', async () => {
+    const events = [
+      { _id: 'evt-1', action: 'user.login', orgId: 'org-acme' },
+      { _id: 'evt-2', action: 'admin.user.update', affectedOrgId: 'org-acme' },
+    ];
+    mockAuditFind.mockReturnValue({ lean: () => events });
+    mockAuditDeleteMany.mockResolvedValue({ deletedCount: 2 });
+
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+
+    // Every matching event is upserted into the archive by ORIGINAL _id (so a
+    // purge retry is idempotent) with an archivedAt stamp.
+    expect(mockArchivedBulkWrite).toHaveBeenCalledTimes(1);
+    const ops = mockArchivedBulkWrite.mock.calls[0][0] as Array<{ replaceOne: { filter: unknown; replacement: any; upsert: boolean } }>;
+    expect(ops.map((o) => o.replaceOne.filter)).toEqual([{ _id: 'evt-1' }, { _id: 'evt-2' }]);
+    expect(ops[0].replaceOne.upsert).toBe(true);
+    expect(ops[0].replaceOne.replacement).toMatchObject({ _id: 'evt-1', action: 'user.login' });
+    expect(ops[0].replaceOne.replacement.archivedAt).toBeInstanceOf(Date);
+
+    // Archive succeeded → live rows deleted → report flags the archive ok.
+    expect(report.auditArchive).toEqual({ ok: true, archived: 2 });
+    expect(report.mongo.auditEvents).toBe(2);
+  });
+
+  it('FAIL-CLOSED: does NOT delete audit rows when the archive write fails', async () => {
+    mockAuditFind.mockReturnValue({ lean: () => [{ _id: 'evt-1', action: 'user.login', orgId: 'org-acme' }] });
+    mockArchivedBulkWrite.mockRejectedValue(new Error('archive store down'));
+
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+
+    // The live audit rows were left intact (delete never ran) and the report
+    // flags the failure so the purge sweep defers the hard delete.
+    expect(mockAuditDeleteMany).not.toHaveBeenCalled();
+    expect(report.auditArchive.ok).toBe(false);
+    expect(report.auditArchive.error).toMatch(/archive store down/);
+  });
+
+  it('skips the archive write when there are no audit events, still flags ok', async () => {
+    // Default beforeEach: mockAuditFind returns [].
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+    expect(mockArchivedBulkWrite).not.toHaveBeenCalled();
+    expect(report.auditArchive).toEqual({ ok: true, archived: 0 });
   });
 
   it('reports zero idpConfigs cleanly when none exist', async () => {

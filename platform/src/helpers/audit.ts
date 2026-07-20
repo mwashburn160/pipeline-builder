@@ -5,7 +5,8 @@ import { randomUUID } from 'crypto';
 import { createLogger } from '@pipeline-builder/api-core';
 import { currentTraceId } from '@pipeline-builder/api-server';
 import type { Request } from 'express';
-import AuditEvent, { type AuditAction } from '../models/audit-event.js';
+import { appendAuditEvent } from './audit-chain.js';
+import { type AuditAction } from '../models/audit-event.js';
 
 const logger = createLogger('audit');
 
@@ -94,7 +95,10 @@ export function audit(
     traceId: currentTraceId(),
   };
 
-  AuditEvent.create(event).catch((err) => {
+  // Funnel through the single shared "append to chain" function so every row is
+  // tamper-evidence chained. Still fire-and-forget: a chain/hash error never
+  // drops the event (append is best-effort) and a write error is swallowed here.
+  appendAuditEvent(event).catch((err) => {
     logger.warn('Failed to write audit event', { action, error: err instanceof Error ? err.message : String(err) });
   });
 }

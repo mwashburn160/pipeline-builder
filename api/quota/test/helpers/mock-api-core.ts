@@ -54,6 +54,15 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
       invalidatePattern: () => Promise.resolve(0),
     }),
+    // Audit wiring pulled in transitively via the new `services/audit.js` and the
+    // boot-time `setAuthzDenialAuditor` registration — stubbed so suites that load
+    // that graph still link. `record` is a no-op spy; the auditor sink is dropped.
+    createRemoteAuditClient: () => ({ record: jest.fn() }),
+    setAuthzDenialAuditor: () => {},
+    // Token-revocation reader hooks (session-invalidation option b) — stubbed
+    // for parity so suites that transitively load the boot module still link.
+    setTokenRevocationStore: () => {},
+    createRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
     ...overrides,
   };
 }

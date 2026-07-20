@@ -10,13 +10,14 @@ disableTelemetry();
 // Idempotent — createIndex is a no-op if the index already exists.
 db.getSiblingDB('platform').organizations.createIndex({ parentOrgId: 1 });
 
-// First-class Groups RBAC (Administrators/Developers; + Superadmins for the
-// system org). Schema source of truth: platform/src/models/group.ts +
-// group-membership.ts; mirrored here so a fresh DB has these indexes before the
+// Single-source RBAC Roles (built-in Admin/Member; + Super Admin for the
+// system org). A Role is a named permission set; a user is granted one via a
+// RoleAssignment. Schema source of truth: platform/src/models/role.ts +
+// role-assignment.ts; mirrored here so a fresh DB has these indexes before the
 // platform service first connects.
-db.getSiblingDB('platform').groups.createIndex({ organizationId: 1, name: 1 }, { unique: true });
-db.getSiblingDB('platform').group_memberships.createIndex({ userId: 1, groupId: 1 }, { unique: true });
-db.getSiblingDB('platform').group_memberships.createIndex({ organizationId: 1, userId: 1 });
+db.getSiblingDB('platform').roles.createIndex({ organizationId: 1, name: 1 }, { unique: true });
+db.getSiblingDB('platform').role_assignments.createIndex({ userId: 1, roleId: 1 }, { unique: true });
+db.getSiblingDB('platform').role_assignments.createIndex({ organizationId: 1, userId: 1 });
 
 // Per-tier SEAT enforcement (tier restructure: developer/pro/team/enterprise).
 // Seats are a tier LIMIT (org.quotas.seats), not a tracked counter — the

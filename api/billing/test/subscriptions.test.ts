@@ -256,7 +256,8 @@ describe('POST /subscriptions', () => {
     // Service token, not the user's bearer — see subscriptions.ts comment.
     // 4th arg is subscriptionId so the quota service can audit the trigger.
     expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1');
-    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String));
+    // 5th arg = actorId, the acting user (req.user.sub).
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String), 'user-1');
   });
 
   it('grants entitlements when the provider reports a trialing subscription', async () => {
@@ -294,7 +295,7 @@ describe('POST /subscriptions', () => {
     expect(createdSub.status).toBe('incomplete');
     expect(createdSub.save).toHaveBeenCalled();
     expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
-    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String));
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String), 'user-1');
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 201, expect.any(Object));
   });
 
@@ -421,7 +422,7 @@ describe('PUT /subscriptions/:id', () => {
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'plan_changed',
       { oldPlanId: 'developer', newPlanId: 'enterprise' },
-      'sub-1',
+      'sub-1', 'user-1',
     );
   });
 
@@ -437,7 +438,7 @@ describe('PUT /subscriptions/:id', () => {
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'interval_changed',
       { oldInterval: 'monthly', newInterval: 'annual' },
-      'sub-1',
+      'sub-1', 'user-1',
     );
   });
 

@@ -5,6 +5,7 @@ import { getParam, ErrorCode, requirePublicAccess, resolveAccessModifier, sendBa
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 /**
@@ -82,6 +83,20 @@ export function createUpdatePipelineRoutes(): Router {
     if (!updated) return sendEntityNotFound(res, 'Pipeline');
 
     ctx.log('COMPLETED', 'Updated pipeline', { id: updated.id, name: updated.pipelineName });
+
+    // Best-effort attributed audit — emitted only after the update landed.
+    emitPipelineAudit({
+      action: 'pipeline.update',
+      actorId: userId || 'system',
+      orgId,
+      targetType: 'pipeline',
+      targetId: updated.id,
+      details: {
+        pipelineName: updated.pipelineName,
+        fields: Object.keys(updateData),
+        setDefault: body.isDefault === true,
+      },
+    });
 
     return sendSuccess(res, 200, { pipeline: normalizeArrayFields(updated, ['keywords']) });
   }));

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { applyAIProviderKeyUpdates, buildProvidersMap, ORG_AI_KEY_TOO_LONG } from './organization-ai-secrets.js';
+import type { Types } from 'mongoose';
+import { applyAIProviderKeyUpdates, buildProvidersMap, changedAiProviderFields, ORG_AI_KEY_TOO_LONG } from './organization-ai-secrets.js';
 import {
   checkTierOvercap,
   getQuotas,
@@ -15,6 +16,7 @@ import {
 } from './organization-quota.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { toOrgId } from '../helpers/controller-helper.js';
+import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
 import type { QuotaTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -27,7 +29,7 @@ export const SYSTEM_ORG_DELETE_FORBIDDEN = 'SYSTEM_ORG_DELETE_FORBIDDEN';
  *  with another org. Mapped to 409 in the controller. */
 export const ORG_SLUG_TAKEN = 'ORG_SLUG_TAKEN';
 // Re-exported from organization-ai-secrets.js to preserve the module's public API.
-export { ORG_AI_KEY_TOO_LONG };
+export { ORG_AI_KEY_TOO_LONG, changedAiProviderFields };
 
 /** Default / hard cap on the member roster returned by {@link OrganizationService.getById}
  *  so a large org doesn't return its full membership on this hot read. */
@@ -450,7 +452,8 @@ class OrganizationService {
    * controller can 404 — a purged org is gone and cannot be restored.
    */
   async restore(id: string): Promise<{ id: string; name: string; membersInvalidated: number } | null> {
-    return withMongoTransaction(async (session) => {
+    let bumpedMemberIds: Types.ObjectId[] = [];
+    const result = await withMongoTransaction(async (session) => {
       const org = await Organization.findOne({ _id: toOrgId(id), deletedAt: { $ne: null } }).session(session);
       if (!org) return null;
 
@@ -460,13 +463,17 @@ class OrganizationService {
 
       const memberships = await UserOrganization.find({ organizationId: toOrgId(id), isActive: true })
         .select('userId').session(session).lean();
-      const userIds = memberships.map((m) => m.userId);
-      if (userIds.length > 0) {
-        await User.updateMany({ _id: { $in: userIds } }, { $inc: { tokenVersion: 1 } }).session(session);
+      bumpedMemberIds = memberships.map((m) => m.userId);
+      if (bumpedMemberIds.length > 0) {
+        await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { tokenVersion: 1 } }).session(session);
       }
 
-      return { id: org._id.toString(), name: org.name, membersInvalidated: userIds.length };
+      return { id: org._id.toString(), name: org.name, membersInvalidated: bumpedMemberIds.length };
     });
+    // Post-commit: publish the restored members' now-current tokenVersion so a
+    // re-issued token resolves the org as live again on the stateless services.
+    await publishUsersRevocation(bumpedMemberIds);
+    return result;
   }
 
   /**
@@ -483,6 +490,18 @@ class OrganizationService {
    */
   async updateQuotas(id: string, quotaLimits: QuotaLimitsInput, authHeader: string): Promise<Record<QuotaTypeKey, { limit: number | string; unlimited: boolean }> | null> {
     return updateQuotas(id, quotaLimits, authHeader);
+  }
+
+  /**
+   * Raw numeric quota limits straight off the org doc (no service round-trip, no
+   * formatting). Used to snapshot the BEFORE state of a manual quota override so
+   * the audit trail can record the old→new limits. Returns null when the org
+   * doesn't exist; `{}` when it exists but has no persisted quotas yet.
+   */
+  async getRawQuotaLimits(id: string): Promise<Record<string, number> | null> {
+    const org = await Organization.findById(toOrgId(id)).select('quotas').lean();
+    if (!org) return null;
+    return (org as unknown as { quotas?: Record<string, number> }).quotas ?? {};
   }
 
   /** Get the AI provider keys for an org as a configured/hint map. Returns null if org not found. */

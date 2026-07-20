@@ -18,6 +18,7 @@ import {
   SYSTEM_ORG_DELETE_FORBIDDEN,
   ORG_SLUG_TAKEN,
   ORG_AI_KEY_TOO_LONG,
+  changedAiProviderFields,
 } from '../services/index.js';
 import {
   exportOrg,
@@ -467,8 +468,27 @@ export const updateOrganizationQuotas = withController('Update organization quot
   const parsedAiCalls = parseQuotaValue(body.aiCalls);
   if (parsedAiCalls !== undefined) quotaLimits.aiCalls = parsedAiCalls;
 
+  // Snapshot the pre-override limits so the audit trail can record old→new.
+  // Best-effort — a missing/failed read just yields `from: null`, never blocks.
+  const before = await organizationService.getRawQuotaLimits(id).catch(() => null);
+
   const quotas = await organizationService.updateQuotas(id, quotaLimits, req.headers.authorization || '');
   if (!quotas) return sendError(res, 404, 'Organization not found');
+
+  // Audit the sysadmin manual override AFTER it succeeds. Numeric limits are not
+  // secrets, so recording per-type old→new lets a reviewer reconstruct exactly
+  // what was changed. `affectedOrgId` is the org whose caps were resized.
+  const changes: Record<string, { from: number | null; to: number }> = {};
+  for (const [quotaType, to] of Object.entries(quotaLimits)) {
+    if (to === undefined) continue;
+    changes[quotaType] = { from: before?.[quotaType] ?? null, to };
+  }
+  audit(req, 'admin.org.quota.override', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: { changes },
+  });
 
   sendSuccess(res, 200, { quotas }, 'Organization quotas updated successfully');
 });
@@ -511,6 +531,16 @@ export const updateOrgAIConfig = withController('Update AI config', async (req, 
   if (!providers) return sendError(res, 404, 'Organization not found');
 
   logger.info(`Organization ${orgId} AI config updated by ${req.user!.sub}`);
+  // Audit AFTER the write succeeds. AI-provider keys are secrets, so `details`
+  // records only WHICH provider slots changed (field names), never a key value.
+  // `affectedOrgId` is the actor's own org (defaults there anyway) — passed
+  // explicitly for parity with the other org-config audit sites.
+  audit(req, 'admin.org.ai-config.update', {
+    targetType: 'organization',
+    targetId: orgId as string,
+    affectedOrgId: orgId as string,
+    details: { providers: changedAiProviderFields(req.body as Record<string, unknown>) },
+  });
   sendSuccess(res, 200, { providers }, 'AI provider configuration updated');
 }, {
   [ORG_AI_KEY_TOO_LONG]: { status: 400, message: 'AI provider key exceeds the maximum allowed length' },

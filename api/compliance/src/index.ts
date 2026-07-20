@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, registerComplianceQueueBackend, requirePermission } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceQueueBackend, requirePermission, setAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
 import {
   createApp,
   runServer,
@@ -17,7 +17,7 @@ import { startAuditPruneCron } from './helpers/audit-logger.js';
 import { startDigestScheduler, stopDigestScheduler } from './helpers/digest-scheduler.js';
 import { evaluateEntityEvent } from './helpers/entity-event-handler.js';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler.js';
-import { enqueue, startComplianceWorker, stopComplianceWorker, getQueueRedis } from './queue/compliance-event-queue.js';
+import { enqueue, startComplianceWorker, stopComplianceWorker, getQueueRedis, getRevocationRedis } from './queue/compliance-event-queue.js';
 import { createAuditRoutes } from './routes/audit.js';
 import { createCreatePolicyRoutes } from './routes/create-policies.js';
 import { createCreateRuleRoutes } from './routes/create-rules.js';
@@ -35,6 +35,7 @@ import { createTemplateRoutes } from './routes/templates.js';
 import { createUpdatePolicyRoutes } from './routes/update-policies.js';
 import { createUpdateRuleRoutes } from './routes/update-rules.js';
 import { createValidateRoutes } from './routes/validate.js';
+import { getAuditClient } from './services/audit.js';
 
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();
@@ -98,6 +99,27 @@ app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTem
 app.use('/compliance/events/entity', createEntityEventRoutes());
 
 logger.info('All /compliance routes registered');
+
+// Forward denied state-changing authorizations (rejected by requirePermission /
+// requireSystemAdmin) into the same remote audit sink as the mutation events,
+// as best-effort `authz.denied` failure records. Registered once at boot.
+setAuthzDenialAuditor((info) => {
+  getAuditClient().record({
+    action: 'authz.denied',
+    actorId: info.actorId ?? 'anonymous',
+    actorEmail: info.actorEmail,
+    orgId: info.orgId,
+    outcome: 'failure',
+    details: { method: info.method, path: info.path, required: info.required },
+  }, 'compliance');
+});
+
+// Token-revocation reader (session-invalidation option b). Reuse the single
+// redis connection BullMQ already maintains so the shared `requireAuth` can
+// reject a token whose `tokenVersion` is behind the version the platform
+// published on a privilege change. Fail-open by contract: a Redis miss/outage
+// yields null and auth degrades to natural token expiry, never a lockout.
+setTokenRevocationStore(createRedisTokenRevocationStore(getRevocationRedis()));
 
 // Register BullMQ as the compliance event queue backend (used by plugin/pipeline services)
 registerComplianceQueueBackend(enqueue);

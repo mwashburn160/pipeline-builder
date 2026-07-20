@@ -65,6 +65,15 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // `requirePermission(...perms)` is a factory that RETURNS middleware, so
     // the stub is a function producing the pass-through guard.
     requirePermission: () => passThroughMiddleware,
+    // Route handlers + the build queue import the shared audit client via
+    // services/audit.ts; the boot path also registers an authz-denial sink.
+    // Provide inert stubs so ESM linking against the mock resolves both.
+    createRemoteAuditClient: () => ({ record: () => {} }),
+    setAuthzDenialAuditor: () => {},
+    // boot-time token-revocation reader registration (session-invalidation
+    // option b) — stubbed so suites that transitively load the boot module link.
+    setTokenRevocationStore: () => {},
+    createRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
     NotFoundError,
     ValidationError,
     createCacheService: () => ({

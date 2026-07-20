@@ -23,3 +23,22 @@ export function mapCommonParams(params: Record<string, string>): Record<string, 
 export function canModify(isSuperAdmin: boolean, accessModifier: string): boolean {
   return isSuperAdmin || accessModifier === 'private';
 }
+
+/**
+ * Whether the current user may perform a write (run/stop/edit/delete) on a
+ * pipeline. Requires BOTH the fine-grained `pipelines:write` capability AND
+ * ownership of the resource (`canModify`). Centralizing this keeps the list and
+ * detail pages from diverging — the backend gates every pipeline mutation on
+ * `pipelines:write`, so a read-only member must not see enabled write controls.
+ *
+ * @param can - Permission checker from `useAuthGuard` (`can('pipelines:write')`).
+ * @param isSuperAdmin - Whether the user is a system admin.
+ * @param accessModifier - The pipeline's access modifier ('public' | 'private').
+ */
+export function canWritePipeline(
+  can: (permission: string) => boolean,
+  isSuperAdmin: boolean,
+  accessModifier: string,
+): boolean {
+  return can('pipelines:write') && canModify(isSuperAdmin, accessModifier);
+}

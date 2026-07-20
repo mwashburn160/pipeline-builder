@@ -61,7 +61,8 @@ jest.unstable_mockModule('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
 });
 
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+const mockAudit = jest.fn();
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
@@ -194,5 +195,24 @@ describe('updateUserFeatures — purchased account features', () => {
     expect(payload.user.features).toContain('sso');
     const call = mockResolveUserFeatures.mock.calls[0];
     expect(call[1]?.accountFeatures).toEqual(['sso']);
+  });
+
+  it('audits the privileged feature-override edit with the changed field NAMES only', async () => {
+    mockUpdateFeatures.mockResolvedValue({
+      user: { _id: 'user1', username: 'alice', email: 'a@x.io', isSuperAdmin: false, isEmailVerified: true, lastActiveOrgId: 'org1' },
+      organizationName: 'Acme',
+      activeOrgRole: 'member',
+      tier: 'pro',
+    });
+    mockOrgFindById.mockReturnValue(orgLean({ featureEntitlements: [] }));
+
+    const req: any = { user: { sub: 'admin' }, params: { id: 'user1' }, body: { overrides: { audit_log: true, sso: false } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, mockRes());
+
+    expect(mockAudit).toHaveBeenCalledWith(req, 'admin.user.features.update', expect.objectContaining({
+      targetType: 'user',
+      targetId: 'user1',
+      details: { features: ['audit_log', 'sso'] },
+    }));
   });
 });

@@ -29,7 +29,14 @@ import { api, ApiError } from '@/lib/api';
 const TARGET_DASHBOARD_NAME = 'Audit Activity';
 
 export default function AuditActivityRedirect() {
-  const { isReady, isAuthenticated } = useAuthGuard();
+  // Admin-only, matching the dedicated audit-log viewer at /dashboard/audit
+  // (`useAuthGuard({ requireAdmin: true })`, nav `adminOnly: true`). Audit
+  // events are a privileged surface; a plain member must not reach the Audit
+  // Activity dashboard via the observability path. Server-side, GET /audit is
+  // already admin-gated and org-scoped (platform/src/routes/audit.ts) — this
+  // gate is UI-consistency / defense-in-depth so both audit surfaces share the
+  // same access boundary. Non-admins are redirected to /dashboard by the guard.
+  const { isReady, isAuthenticated } = useAuthGuard({ requireAdmin: true });
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 

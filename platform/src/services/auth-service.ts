@@ -6,6 +6,7 @@ import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG } from '@pipe
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { hashRefreshToken } from '../utils/token.js';
@@ -201,6 +202,9 @@ class AuthService {
       { _id: userId },
       { $inc: { tokenVersion: 1 }, $unset: { refreshToken: '' } },
     );
+    // Post-commit: publish the user's now-current tokenVersion so the stateless
+    // services reject outstanding tokens immediately (best-effort).
+    await publishUserRevocation(userId);
   }
 
   /**

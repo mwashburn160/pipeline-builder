@@ -7,6 +7,7 @@ import { RL_ROLE_NOT_FOUND, assignBuiltinAdminRole, ensureBaselineRole, recomput
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { seatCapacityAvailable } from '../helpers/seats.js';
+import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, Role, RoleAssignment, type OrgMemberRole } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
@@ -203,7 +204,7 @@ class UserAdminService {
     // User + (optional) membership + role assignments are written together so a
     // failed insert (e.g. bad org/role) can't leave an orphaned user behind.
     // Mirrors register().
-    return withMongoTransaction(async (session) => {
+    const created = await withMongoTransaction(async (session) => {
       // Separate existence checks — a combined `$or` can't tell the caller
       // WHICH field is taken, and the two collisions map to distinct 409s.
       if (await User.exists({ username }).session(session)) throw new Error(UA_USERNAME_TAKEN);
@@ -277,6 +278,10 @@ class UserAdminService {
         role: input.organizationId ? (input.role ?? 'member') : undefined,
       };
     });
+    // Post-commit: a role assignment (via recomputeUserOrgRole) may have bumped
+    // the new user's tokenVersion — publish the now-current value (best-effort).
+    await publishUserRevocation(created.id);
+    return created;
   }
 
   /**
@@ -418,6 +423,12 @@ class UserAdminService {
       await user.save({ session });
       return user;
     });
+
+    // Post-commit: a password reset or role change (via recompute) bumps
+    // tokenVersion — publish the now-current value so the stateless services see
+    // it immediately. Unconditional + idempotent (best-effort): a no-bump edit
+    // just re-publishes the unchanged version.
+    await publishUserRevocation(String(updatedUser._id));
 
     const { organizationName, activeOrgRole } = await loadActiveOrgInfo(updatedUser._id, updatedUser.lastActiveOrgId?.toString());
     return { user: updatedUser, changes, organizationName, activeOrgRole };

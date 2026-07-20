@@ -55,6 +55,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // `requirePermission(...perms)` is a factory that RETURNS middleware, so
     // the stub is a function producing the pass-through guard.
     requirePermission: () => passThroughMiddleware,
+    // Remote audit client factory — src/services/audit.ts links against this.
+    createRemoteAuditClient: () => ({ record: () => {} }),
+    // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
+    setAuthzDenialAuditor: () => {},
     NotFoundError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),

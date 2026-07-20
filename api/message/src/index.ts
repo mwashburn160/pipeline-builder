@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 
-import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, setAuthzDenialAuditor } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import type { Request, Response } from 'express';
 
@@ -11,10 +11,23 @@ import { createCreateMessageRoutes } from './routes/create-message.js';
 import { createDeleteMessageRoutes } from './routes/delete-message.js';
 import { createReadMessageRoutes } from './routes/read-messages.js';
 import { createUpdateMessageRoutes } from './routes/update-message.js';
+import { getAuditClient } from './services/audit.js';
 
 const logger = createLogger('message');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
+
+// -- Failed-authorization auditor (#5) ----------------------------------------
+// Forward denials from the shared requirePermission / requireSystemAdmin gate to
+// platform's audit ingest as `authz.denied`, best-effort (the gate try/catches).
+setAuthzDenialAuditor((info) => getAuditClient().record({
+  action: 'authz.denied',
+  actorId: info.actorId ?? 'anonymous',
+  actorEmail: info.actorEmail,
+  orgId: info.orgId,
+  outcome: 'failure',
+  details: { method: info.method, path: info.path, required: info.required },
+}, 'message'));
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));

@@ -20,12 +20,22 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
-  default: { create: (...args: unknown[]) => mockAuditCreate(...args) },
+  // `auditService.createEvent` now delegates to the tamper-evidence chain
+  // append, which reads the chain tail via `findOne(...).sort().select().lean()`
+  // before creating the row. An empty tail → these first grants get prevHash null.
+  default: {
+    create: (...args: unknown[]) => mockAuditCreate(...args),
+    findOne: () => ({ sort: () => ({ select: () => ({ lean: () => Promise.resolve(null) }) }) }),
+  },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const { bootstrapSuperAdmins } = await import('../src/services/superadmin-bootstrap.js');
+
+/** Flush pending microtasks so the fire-and-forget, per-chain-serialized audit
+ *  appends (tail lookup + create) settle before asserting on them. */
+const flush = () => new Promise((r) => setImmediate(r));
 
 
 const ORIGINAL = process.env.BOOTSTRAP_SUPERADMIN_EMAILS;
@@ -168,6 +178,7 @@ describe('bootstrapSuperAdmins', () => {
     });
 
     await bootstrapSuperAdmins();
+    await flush();
 
     expect(mockAuditCreate).toHaveBeenCalledTimes(2);
     expect(mockAuditCreate).toHaveBeenCalledWith(expect.objectContaining({
@@ -198,6 +209,7 @@ describe('bootstrapSuperAdmins', () => {
     });
 
     await bootstrapSuperAdmins();
+    await flush();
 
     expect(mockAuditCreate).toHaveBeenCalledTimes(1);
     expect(mockAuditCreate).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'u-alice' }));

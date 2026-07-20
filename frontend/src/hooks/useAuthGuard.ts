@@ -9,7 +9,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from './useAuth';
-import { isSystemAdmin, isOrgAdmin, hasPermission } from '@/lib/auth-helpers';
+import { isSystemAdmin, isOrgAdmin, hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 
 /** Options for configuring the auth guard's requirements. */
 interface AuthGuardOptions {
@@ -31,7 +31,7 @@ interface AuthGuardOptions {
  */
 export function useAuthGuard(options?: AuthGuardOptions) {
   const router = useRouter();
-  const { user, isAuthenticated, isInitialized, isLoading, logout, refreshUser } = useAuth();
+  const { user, isAuthenticated, isInitialized, isLoading, isReadOnly, logout, refreshUser } = useAuth();
 
   const isSuperAdmin = isSystemAdmin(user);
   const isOrgAdminUser = isOrgAdmin(user);
@@ -74,8 +74,20 @@ export function useAuthGuard(options?: AuthGuardOptions) {
     isSuperAdmin,
     isOrgAdminUser,
     isAdmin,
-    /** Fine-grained permission check for the active org (RBAC UI gating). */
-    can: (permission: string) => hasPermission(user, permission),
+    /** True during a read-only sysadmin impersonation session — writes are
+     *  blocked by the backend, so `can()` reports false for every mutation. */
+    isReadOnly,
+    /**
+     * Fine-grained permission check for the active org (RBAC UI gating).
+     *
+     * During a read-only impersonation session, mutation permissions
+     * (`:write`/`:manage`/`org:settings`) always report false so write controls
+     * disable app-wide — the backend rejects every non-GET request under an
+     * impersonation token, so an enabled write button is only a 403 dead-end.
+     * Read permissions are unaffected.
+     */
+    can: (permission: string) =>
+      hasPermission(user, permission) && !(isReadOnly && isMutationPermission(permission)),
     logout,
     refreshUser,
   };

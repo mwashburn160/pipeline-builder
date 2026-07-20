@@ -3,7 +3,8 @@
 
 import { isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, parsePaginationParams } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
-import { requireAdminContext, withController } from '../helpers/controller-helper.js';
+import { verifyAuditChain } from '../helpers/audit-chain.js';
+import { requireAdminContext, requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { requireAuth, requireServiceAuth } from '../middleware/index.js';
 import { isAuditAction } from '../models/audit-event.js';
 import { auditService, type AuditFilter } from '../services/audit-service.js';
@@ -62,6 +63,26 @@ router.get('/', requireAuth, withController('List audit events', async (req, res
 
   const result = await auditService.findEvents(filter, offset, limitNum);
 
+  sendSuccess(res, 200, result);
+}));
+
+/**
+ * GET /audit/verify?orgId=... — verify a tenant's audit hash chain (sysadmin
+ * only). Walks the chain for `orgId` (the `affectedOrgId ?? orgId` chain key)
+ * and returns `{ ok, brokenAt?, count }`. `ok:false` with `brokenAt` set means a
+ * stored row was ALTERED or DELETED after the fact — a tamper signal. This reads
+ * nothing sensitive back (only hashes + a boolean), but it exposes cross-tenant
+ * chain state, so it's gated to platform sysadmins, not org admins.
+ */
+router.get('/verify', requireAuth, withController('Verify audit chain', async (req, res) => {
+  if (!requireSystemAdmin(req, res)) return;
+
+  const orgId = parseQueryString(req.query.orgId);
+  if (!orgId) {
+    return sendError(res, 400, 'orgId query parameter is required');
+  }
+
+  const result = await verifyAuditChain(orgId);
   sendSuccess(res, 200, result);
 }));
 

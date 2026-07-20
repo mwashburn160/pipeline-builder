@@ -12,11 +12,16 @@ const mockSort = jest.fn(() => ({ skip: mockSkip }));
 const mockFind = jest.fn(() => ({ sort: mockSort }));
 const mockCountDocuments = jest.fn();
 const mockCreate = jest.fn();
+// `createEvent` now delegates to the shared hash-chain append, which reads the
+// chain tail via `findOne(...).sort(...).select(...).lean()`.
+const mockFindOneLean = jest.fn();
+const mockFindOne = jest.fn(() => ({ sort: () => ({ select: () => ({ lean: mockFindOneLean }) }) }));
 
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
   default: {
     find: mockFind,
+    findOne: mockFindOne,
     countDocuments: mockCountDocuments,
     create: mockCreate,
   },
@@ -155,15 +160,34 @@ describe('auditService.findEvents', () => {
 describe('auditService.createEvent', () => {
   beforeEach(() => {
     mockCreate.mockReset();
+    mockFindOne.mockClear();
+    mockFindOneLean.mockReset();
+    // Empty chain by default → first event gets prevHash null.
+    mockFindOneLean.mockResolvedValue(null);
   });
 
-  it('should create and return the event', async () => {
+  it('should create and return the event, tamper-evidence chained', async () => {
     const event = { action: 'user.register', actorId: 'u1' };
     mockCreate.mockResolvedValue(event);
 
     const result = await auditService.createEvent({ action: 'user.register', actorId: 'u1' });
     expect(result).toEqual(event);
-    expect(mockCreate).toHaveBeenCalledWith({ action: 'user.register', actorId: 'u1' });
+    // Delegates to the shared append: the stored row now carries a sha256 hash
+    // and (for a fresh chain) a null prevHash on top of the caller's fields.
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'user.register',
+      actorId: 'u1',
+      hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      prevHash: null,
+    }));
+  });
+
+  it('should link prevHash to the chain tail returned by findOne', async () => {
+    mockFindOneLean.mockResolvedValue({ hash: 'a'.repeat(64) });
+    mockCreate.mockResolvedValue({});
+
+    await auditService.createEvent({ action: 'user.login', actorId: 'u1', orgId: 'org-1' });
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ prevHash: 'a'.repeat(64) }));
   });
 
   it('should propagate create errors', async () => {

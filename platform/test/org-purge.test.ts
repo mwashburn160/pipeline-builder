@@ -37,7 +37,7 @@ function findChain(rows: unknown[]) {
   return { select: () => ({ lean: () => Promise.resolve(rows) }) };
 }
 function okReport() {
-  return { postgres: {}, mongo: {}, quota: { ok: true }, billing: { ok: true } };
+  return { postgres: {}, mongo: {}, quota: { ok: true }, billing: { ok: true }, auditArchive: { ok: true } };
 }
 
 beforeEach(() => {
@@ -76,6 +76,20 @@ describe('purgeExpiredOrgs', () => {
 
     // Cascade ran, but the org was NOT hard-deleted — it stays soft-deleted and
     // retries next sweep (a live subscription must never outlive its org).
+    expect(mockCascade).toHaveBeenCalledTimes(1);
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ purged: 0, deferred: 1 });
+  });
+
+  it('FAIL-CLOSED: defers the hard delete when the audit-trail archive failed', async () => {
+    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockCascade.mockResolvedValue({ ...okReport(), auditArchive: { ok: false } });
+
+    const res = await purgeExpiredOrgs();
+
+    // Cascade ran, but the org was NOT hard-deleted — its audit rows weren't
+    // archived, so destroying them (via the hard delete) is refused; retry next
+    // sweep.
     expect(mockCascade).toHaveBeenCalledTimes(1);
     expect(mockDelete).not.toHaveBeenCalled();
     expect(res).toMatchObject({ purged: 0, deferred: 1 });

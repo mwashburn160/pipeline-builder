@@ -22,7 +22,7 @@ import EditPipelineModal from '@/components/pipeline/EditPipelineModal';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { DeployedPipelinesPanel } from '@/components/pipeline/DeployedPipelinesPanel';
 import api from '@/lib/api';
-import { mapCommonParams, canModify } from '@/lib/resource-helpers';
+import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
 import type { Pipeline, BuilderProps } from '@/types';
 
 // ─── Page ───────────────────────────────────────────────
@@ -169,7 +169,7 @@ export default function PipelinesPage() {
       header: '',
       locked: true,
       render: (pipeline: Pipeline) => (
-        canModify(isSuperAdmin, pipeline.accessModifier) ? (
+        canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) ? (
           <input
             type="checkbox"
             checked={selectedIds.has(pipeline.id)}
@@ -272,18 +272,18 @@ export default function PipelinesPage() {
       cellClassName: 'text-sm',
       render: (pipeline) => (
         <div className="flex items-center space-x-3">
-          {canWrite && canModify(isSuperAdmin, pipeline.accessModifier) ? (
+          {canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) ? (
             <button onClick={() => setEditPipeline(pipeline)} className="action-link">Edit</button>
           ) : (
             <span className="text-gray-400 dark:text-gray-500 text-xs">Read-only</span>
           )}
-          {canWrite && canModify(isSuperAdmin, pipeline.accessModifier) && (
+          {canWritePipeline(can, isSuperAdmin, pipeline.accessModifier) && (
             <button onClick={() => del.open(pipeline)} className="action-link-danger">Delete</button>
           )}
         </div>
       ),
     },
-  ], [isSuperAdmin, canWrite, selectedIds, toggleSelect]);
+  ], [isSuperAdmin, canWrite, can, selectedIds, toggleSelect]);
 
   // ── Render ──
 

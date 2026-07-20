@@ -229,7 +229,7 @@ export function createAddonRoutes(): Router {
     const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
     await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
     await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId);
-    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_added', bundleId, quantity: qty }, subscription._id.toString());
+    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_added', bundleId, quantity: qty }, subscription._id.toString(), req.user?.sub);
     logger.info('Add-on applied', { orgId, bundleId, quantity: qty });
 
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
@@ -268,7 +268,7 @@ export function createAddonRoutes(): Router {
     const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
     await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
     await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId);
-    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId }, subscription._id.toString());
+    await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId }, subscription._id.toString(), req.user?.sub);
     logger.info('Add-on removed', { orgId, bundleId });
 
     const bundles = getBundleCatalog();

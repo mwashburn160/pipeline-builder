@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, getServiceAuthHeader, QUOTA_TIERS, VALID_TIERS } from '@pipeline-builder/api-core';
-import type { ClientSession } from 'mongoose';
+import type { ClientSession, Types } from 'mongoose';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope, resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { pooledSeatUsage } from '../helpers/seats.js';
+import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import {
   getOrganizationQuotaStatus,
   updateQuotaLimits,
@@ -37,20 +38,25 @@ export type QuotaTypeKey = (typeof QUOTA_TYPES)[number];
  * Bounded + idempotent: callers invoke this ONLY on a genuine reduction, and a
  * no-member org is a no-op. An UPGRADE / feature-add never calls it — a stale
  * token that under-grants is safe.
+ *
+ * Returns the affected member ids so the caller can PUBLISH each user's now-
+ * current tokenVersion to the stateless services AFTER the transaction commits
+ * (see `publishUsersRevocation`) — publishing must never run mid-transaction.
  */
 async function bumpActiveMembersTokenVersion(
   organizationId: string,
   session: ClientSession,
-): Promise<void> {
+): Promise<Types.ObjectId[]> {
   const userIds = await UserOrganization
     .distinct('userId', { organizationId: toOrgId(organizationId), isActive: true })
     .session(session);
-  if (userIds.length === 0) return;
+  if (userIds.length === 0) return [];
   await User.updateMany(
     { _id: { $in: userIds } },
     { $inc: { tokenVersion: 1 } },
     { session },
   );
+  return userIds as Types.ObjectId[];
 }
 
 export interface QuotaStatus {
@@ -91,10 +97,13 @@ export async function setSeatLimit(
   // root and are synced by billing alongside the seat limit.
   if (features !== undefined) set.featureEntitlements = features;
 
+  // Members whose tokenVersion was bumped by a feature shrink — published after
+  // commit (never mid-transaction).
+  let bumpedMemberIds: Types.ObjectId[] = [];
   // Atomic: the root seat/entitlement write and its propagation onto descendant
   // teams must both land or neither, so a member's token can't carry a stale
   // entitlement set after a partial failure.
-  return withMongoTransaction(async (session) => {
+  const outcome = await withMongoTransaction(async (session) => {
     // Read the pre-change entitlements FIRST so we can detect a bundle removal
     // (a feature dropped vs the current set) before the $set overwrites them —
     // that's an access REDUCTION whose stale tokens must be invalidated below.
@@ -132,10 +141,13 @@ export async function setSeatLimit(
     // removed feature until expiry, so invalidate them now. No bump when
     // features are only added / unchanged (a stale token then under-grants).
     if (featureShrink) {
-      await bumpActiveMembersTokenVersion(rootOrgId, session);
+      bumpedMemberIds = await bumpActiveMembersTokenVersion(rootOrgId, session);
     }
     return { rootOrgId, seats };
   });
+  // Post-commit: publish the affected members' now-current tokenVersion.
+  await publishUsersRevocation(bumpedMemberIds);
+  return outcome;
 }
 
 /**
@@ -292,6 +304,8 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
     org.markModified('quotas');
   }
 
+  // Members whose tokenVersion was bumped by a downgrade — published post-commit.
+  let bumpedMemberIds: Types.ObjectId[] = [];
   // Atomic: the root's tier/quota save and the tier propagation onto its
   // descendant teams must both land or neither — a failure between them would
   // otherwise leave the root on the new tier while teams keep the old.
@@ -316,9 +330,12 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
     // the reduced tier / lost features take effect immediately rather than at
     // token expiry. Same transaction as the tier write. No bump on an upgrade.
     if (isDowngrade) {
-      await bumpActiveMembersTokenVersion(org._id.toString(), session);
+      bumpedMemberIds = await bumpActiveMembersTokenVersion(org._id.toString(), session);
     }
   });
+  // Post-commit: publish the affected members' now-current tokenVersion so the
+  // reduced tier / lost features take effect on the stateless services now.
+  await publishUsersRevocation(bumpedMemberIds);
 
   return { id: org._id.toString(), previousTier, tier: newTier };
 }

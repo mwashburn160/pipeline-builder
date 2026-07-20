@@ -485,6 +485,10 @@ const platform = new FunctionProject({
     'mongoose@9.7.4', 'helmet@8.3.0', 'cors@2.8.6',
     'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'yaml@2.9.0',
     'adm-zip@0.6.0', 'multer@2.2.0', 'prom-client@15.1.3',
+    // Redis client — used ONLY to publish session-revocation entries the
+    // stateless services read (helpers/session-revocation.ts). Loaded via a
+    // guarded dynamic require (utils/redis-client.ts); optional at runtime.
+    'ioredis@5.11.1',
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.2',

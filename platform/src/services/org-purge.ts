@@ -67,12 +67,15 @@ export async function purgeExpiredOrgs(): Promise<PurgeSweepResult> {
       // delete path did.
       const report = await cascadeDeleteOrg(orgId, SYSTEM_ORG_ID);
 
-      // FAIL CLOSED: if a billing/quota teardown failed, do NOT hard-delete —
-      // leave the org soft-deleted and retry next sweep.
-      if (!report.billing.ok || !report.quota.ok) {
+      // FAIL CLOSED: if a billing/quota teardown OR the audit-trail archive
+      // failed, do NOT hard-delete — leave the org soft-deleted and retry next
+      // sweep. A live subscription must never outlive its org, and the forensic
+      // audit trail must never be destroyed without a durable archive copy.
+      if (!report.billing.ok || !report.quota.ok || !report.auditArchive.ok) {
         const failedLegs = [
           !report.billing.ok ? 'billing' : null,
           !report.quota.ok ? 'quota' : null,
+          !report.auditArchive.ok ? 'audit-archive' : null,
         ].filter(Boolean).join(' + ');
         logger.error(`Org purge deferred for ${orgId} — ${failedLegs} teardown failed; org left soft-deleted, will retry`, {
           orgId, failedLegs,

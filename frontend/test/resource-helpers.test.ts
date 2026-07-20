@@ -4,7 +4,7 @@
 /**
  * Tests for resource-helpers.ts: mapCommonParams and canModify.
  */
-import { mapCommonParams, canModify } from '../src/lib/resource-helpers';
+import { mapCommonParams, canModify, canWritePipeline } from '../src/lib/resource-helpers';
 
 // ---------------------------------------------------------------------------
 // mapCommonParams
@@ -69,5 +69,38 @@ describe('canModify', () => {
 
   it('should deny non-admin from modifying public resources', () => {
     expect(canModify(false, 'public')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canWritePipeline — requires BOTH `pipelines:write` AND ownership (canModify).
+// Guards against the list/detail pages diverging (detail page previously only
+// checked canModify, showing enabled write controls to read-only members).
+// ---------------------------------------------------------------------------
+describe('canWritePipeline', () => {
+  const canWrite = (p: string) => p === 'pipelines:write';
+  const cannotWrite = () => false;
+
+  it('allows a member with pipelines:write on a private (owned) pipeline', () => {
+    expect(canWritePipeline(canWrite, false, 'private')).toBe(true);
+  });
+
+  it('denies a read-only member (no pipelines:write) even on a private pipeline', () => {
+    expect(canWritePipeline(cannotWrite, false, 'private')).toBe(false);
+  });
+
+  it('denies a writer on a public (unowned) pipeline when not a superadmin', () => {
+    expect(canWritePipeline(canWrite, false, 'public')).toBe(false);
+  });
+
+  it('requires the capability even for superadmins on a public pipeline', () => {
+    // canModify would allow a superadmin, but without the capability the write
+    // gate must still be closed — both conditions are required.
+    expect(canWritePipeline(cannotWrite, true, 'public')).toBe(false);
+  });
+
+  it('allows a superadmin holding the capability on any access modifier', () => {
+    expect(canWritePipeline(canWrite, true, 'public')).toBe(true);
+    expect(canWritePipeline(canWrite, true, 'private')).toBe(true);
   });
 });

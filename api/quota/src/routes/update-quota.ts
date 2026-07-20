@@ -17,6 +17,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { authorizeOrg, INTERNAL_AUTH_OPTS } from '../middleware/authorize-org.js';
+import { emitQuotaAudit } from '../services/audit.js';
 import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service.js';
 import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas.js';
 
@@ -38,6 +39,24 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
       try {
         const result = await svc.update(targetOrgId, body);
         ctx.log('COMPLETED', 'Updated quota', { orgId: targetOrgId });
+
+        // Best-effort attributed audit — the tier/limit edit succeeded. The new
+        // limits are read back off the applied result; numeric limits + tier are
+        // safe to record (no secrets / AWS account ids).
+        const changedQuotaTypes = body.quotas ? Object.keys(body.quotas) : [];
+        const newLimits = Object.fromEntries(
+          changedQuotaTypes.map((t) => [t, result.quotas[t as QuotaType]?.limit]),
+        );
+        emitQuotaAudit({
+          action: 'quota.limit.update',
+          actorId: req.user?.sub ?? 'unknown',
+          affectedOrgId: targetOrgId,
+          details: {
+            ...(body.tier !== undefined ? { tier: body.tier } : {}),
+            ...(changedQuotaTypes.length ? { quotaTypes: changedQuotaTypes, newLimits } : {}),
+          },
+        });
+
         return sendSuccess(res, 200, { quota: result }, 'Updated successfully');
       } catch (error) {
         if (error instanceof OrgNotFoundError) throw new NotFoundError('Organization not found.');
@@ -77,6 +96,17 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
       try {
         const result = await svc.resetUsage(targetOrgId, quotaType);
         ctx.log('COMPLETED', 'Reset quota usage', { orgId: targetOrgId, quotaType });
+
+        // Best-effort attributed audit — the usage-counter reset succeeded.
+        // Reset zeroes the affected counter(s); `newUsed: 0` records the applied
+        // value (the pre-reset counter is not read back here).
+        emitQuotaAudit({
+          action: 'quota.reset',
+          actorId: req.user?.sub ?? 'unknown',
+          affectedOrgId: targetOrgId,
+          details: { quotaType: quotaType ?? 'all', newUsed: 0 },
+        });
+
         return sendSuccess( res, 200,
           { quota: result },
           quotaType ? `${quotaType} usage reset successfully`: 'All quota usage reset successfully',

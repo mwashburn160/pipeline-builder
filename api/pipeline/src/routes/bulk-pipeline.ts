@@ -24,6 +24,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
+import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService, type PipelineInsert, type PipelineUpdate } from '../services/pipeline-service.js';
 
 const complianceClient = createComplianceClient();
@@ -133,6 +134,23 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
         if (inserted) results.created++; else results.updated++;
         results.items.push({ index: i, accessModifier, id: pipeline.id });
+
+        // Best-effort attributed audit per successful item — emitted only
+        // after the row landed. `inserted` distinguishes create vs. upsert.
+        emitPipelineAudit({
+          action: inserted ? 'pipeline.create' : 'pipeline.update',
+          actorId: userId || 'system',
+          orgId,
+          targetType: 'pipeline',
+          targetId: pipeline.id,
+          details: {
+            project,
+            organization,
+            pipelineName,
+            accessModifier,
+            bulk: true,
+          },
+        });
       } catch (err) {
         // Roll back the slot we reserved — the action failed.
         decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
@@ -178,6 +196,18 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     const deleted = await pipelineService.bulkDelete(ids, orgId, userId);
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length });
+
+    // Best-effort attributed audit per row actually deleted.
+    for (const d of deleted) {
+      emitPipelineAudit({
+        action: 'pipeline.delete',
+        actorId: userId || 'system',
+        orgId,
+        targetType: 'pipeline',
+        targetId: d.id,
+        details: { bulk: true },
+      });
+    }
 
     sendSuccess(res, 200, { deleted: deleted.length, ids: deleted.map(d => d.id) });
   }));
@@ -253,6 +283,19 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     const updatedCount = updates.filter(u => u !== null).length;
 
     ctx.log('COMPLETED', 'Bulk update complete', { requested: ids.length, updated: updatedCount });
+
+    // Best-effort attributed audit per row actually updated.
+    for (const u of updates) {
+      if (!u) continue;
+      emitPipelineAudit({
+        action: 'pipeline.update',
+        actorId: userId || 'system',
+        orgId,
+        targetType: 'pipeline',
+        targetId: u.id,
+        details: { fields: Object.keys(updateData), bulk: true },
+      });
+    }
 
     sendSuccess(res, 200, { updated: updatedCount });
   }));

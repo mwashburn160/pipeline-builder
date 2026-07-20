@@ -400,6 +400,32 @@ async function initDependencies(): Promise<void> {
   }
   logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
 
+  // Register the process-wide authorization-denial auditor. Platform gates its
+  // state-changing routes with api-core's shared `requirePermission`, which
+  // forwards every DENIED (non-GET) request to this sink. We persist each as an
+  // `authz.denied` failure event so probing/privilege-escalation attempts leave
+  // a trail. Best-effort by contract: the sink must never throw or block the
+  // auth gate (the gate wraps the call in try/catch, and the write is
+  // fire-and-forget with its own catch). Registered after Mongo connects so the
+  // AuditEvent write has a live connection; requests are 503'd until ready.
+  const { setAuthzDenialAuditor } = await import('@pipeline-builder/api-core');
+  const { auditService } = await import('./services/index.js');
+  setAuthzDenialAuditor((info) => {
+    void auditService.createEvent({
+      action: 'authz.denied',
+      actorId: info.actorId ?? 'anonymous',
+      actorEmail: info.actorEmail,
+      orgId: info.orgId,
+      affectedOrgId: info.orgId,
+      outcome: 'failure',
+      details: { method: info.method, path: info.path, required: info.required },
+    }).catch((err) => {
+      logger.warn('Failed to persist authz.denied audit event', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  });
+
   // Bootstrap super-admins from BOOTSTRAP_SUPERADMIN_EMAILS (idempotent,
   // non-fatal — warns rather than fails on missing accounts).
   const { bootstrapSuperAdmins } = await import('./services/superadmin-bootstrap.js');

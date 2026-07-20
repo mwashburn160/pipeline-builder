@@ -47,11 +47,16 @@ router.get('/alerts', requireAuth, observabilityAlerts);
 /** GET /observability/silences  active + recent silences */
 router.get('/silences', requireAuth, observabilitySilencesList);
 
+// Static `observability:write` capability gated at the route so it matches the
+// sibling alerting mutations (`/alert-destinations`, `/alert-rules`). Creating
+// or deleting a silence SUPPRESSES the org's alerts (detection-evasion), so a
+// plain member with only `observability:read` must NOT be able to do it. The
+// in-controller per-org scoping stays orthogonal to this capability gate.
 /** POST /observability/silences  create a silence (auto-scoped to caller's org) */
-router.post('/silences', requireAuth, observabilitySilenceCreate);
+router.post('/silences', requireAuth, requirePermission('observability:write'), observabilitySilenceCreate);
 
 /** DELETE /observability/silences/:id  expire a silence (must own it) */
-router.delete('/silences/:id', requireAuth, observabilitySilenceDelete);
+router.delete('/silences/:id', requireAuth, requirePermission('observability:write'), observabilitySilenceDelete);
 
 /** Per-org alert notification destinations (multi-tenant alerting) */
 router.get('/alert-destinations', requireAuth, listAlertDestinations);

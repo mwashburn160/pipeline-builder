@@ -226,10 +226,11 @@ describe('PUT /admin/subscriptions/:id', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({
       subscription: expect.any(Object),
     }));
+    // The acting sysadmin (req.user.sub) is attributed as the actorId (5th arg).
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'plan_changed',
       { oldPlanId: 'developer', newPlanId: 'pro' },
-      'sub-1',
+      'sub-1', 'admin-1',
     );
     expect(mockSyncTierToQuotaService).toHaveBeenCalled();
   });
@@ -246,7 +247,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'subscription_updated',
       { status: 'canceled' },
-      'sub-1',
+      'sub-1', 'admin-1',
     );
   });
 
@@ -262,7 +263,26 @@ describe('PUT /admin/subscriptions/:id', () => {
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'interval_changed',
       { oldInterval: 'monthly', newInterval: 'annual' },
-      'sub-1',
+      'sub-1', 'admin-1',
+    );
+  });
+
+  it('attributes the override to the acting sysadmin (actorId = caller sub)', async () => {
+    const sub = makeSubscription({ planId: 'developer' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+
+    // A DIFFERENT admin than the default — proves the actorId is threaded from
+    // the request, not hardcoded.
+    const req = mockReq({ params: { id: 'sub-1' }, user: { organizationId: 'org-1', sub: 'sysadmin-42' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'plan_changed',
+      { oldPlanId: 'developer', newPlanId: 'pro' },
+      'sub-1', 'sysadmin-42',
     );
   });
 

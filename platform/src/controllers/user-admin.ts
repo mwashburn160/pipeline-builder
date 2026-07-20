@@ -237,6 +237,19 @@ export const updateUserById = withController('Update user', async (req, res) => 
   );
 
   logger.info('Update user by id', { id, admin: admin.adminType, by: req.user!.sub, changes });
+
+  // Audit privileged admin edits of ANOTHER user (role/email/password/org).
+  // Only emit when something actually changed. `details.changes` is the field
+  // NAMES array only — NEVER the new password (or any secret) value. For a
+  // sysadmin acting cross-tenant, `affectedOrgId` records which org was hit:
+  // the new org when the admin reassigned org, else the target's primary org.
+  if (changes.length > 0) {
+    const affectedOrgId = admin.isOrgAdmin
+      ? req.user!.organizationId!
+      : body.organizationId ?? await userAdminService.lookupPrimaryOrgId(id).catch(() => undefined);
+    audit(req, 'admin.user.update', { targetType: 'user', targetId: id, affectedOrgId, details: { changes } });
+  }
+
   sendSuccess(
     res, 200,
     { user: formatUserResponse(toUserResponseInput(user), { activeOrgRole, activeOrgName: organizationName }), changes },
@@ -382,6 +395,22 @@ export const updateUserFeatures = withController('Update user features', async (
   );
 
   logger.info('Update user features', { id, admin: admin.adminType, by: req.user!.sub });
+
+  // Audit the sysadmin/org-admin feature-override edit AFTER it succeeds. This is
+  // a privileged capability grant/revoke on another user, so it must leave a
+  // trail. `details.features` is the field NAMES touched only (no values needed —
+  // they're booleans, but names are the forensic signal). `affectedOrgId` is the
+  // admin's org for an org-admin, else the target user's active org.
+  const featuresAffectedOrgId = admin.isOrgAdmin
+    ? req.user!.organizationId!
+    : (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString();
+  audit(req, 'admin.user.features.update', {
+    targetType: 'user',
+    targetId: id as string,
+    affectedOrgId: featuresAffectedOrgId,
+    details: { features: Object.keys(overrides as Record<string, boolean>) },
+  });
+
   sendSuccess(
     res, 200,
     { user: formatUserResponse(toUserResponseInput(user), { activeOrgRole, activeOrgName: organizationName, tier: (orgTier as QuotaTier) || 'developer', features }) },

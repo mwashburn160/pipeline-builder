@@ -16,6 +16,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { emitComplianceAudit } from '../services/audit.js';
 import {
   complianceExemptionService,
   CE_NOT_FOUND,
@@ -116,6 +117,19 @@ export function createExemptionRoutes(): Router {
         validation.value.rejectionReason,
       );
       ctx.log('COMPLETED', `Exemption ${validation.value.status}`, { id, status: validation.value.status });
+
+      // Best-effort attributed audit — only the APPROVE direction is a
+      // posture-weakening governance decision worth recording as an approval.
+      if (validation.value.status === 'approved') {
+        emitComplianceAudit({
+          action: 'compliance.exemption.approve',
+          actorId: userId,
+          orgId,
+          targetType: 'exemption',
+          targetId: id,
+        });
+      }
+
       return sendSuccess(res, 200, { exemption: updated });
     } catch (err) {
       const code = errorMessage(err);

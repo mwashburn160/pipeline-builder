@@ -38,15 +38,22 @@ export function calculatePeriodEnd(start: Date, interval: BillingInterval): Date
 
 /**
  * Create a billing event for audit logging.
+ *
+ * `actorId` is the id (JWT `sub`) of the user who initiated the change, threaded
+ * from request-context call sites (subscriptions/addons/admin routes). System /
+ * non-request paths (webhook, lifecycle cron, marketplace SNS) have no user
+ * actor and leave it undefined — we never fabricate one. `details` must never
+ * carry payment tokens or PII (see the model comment).
  */
 export async function createBillingEvent(
   orgId: string,
   type: BillingEventType,
   details: Record<string, unknown> = {},
   subscriptionId?: string,
+  actorId?: string,
 ): Promise<void> {
   try {
-    await BillingEvent.create({ orgId, type, details, subscriptionId });
+    await BillingEvent.create({ orgId, type, details, subscriptionId, actorId });
   } catch (error) {
     logger.error('Failed to create billing event', { orgId, type, error });
     // Surface audit-write failures on a counter so SRE can alert. Don't

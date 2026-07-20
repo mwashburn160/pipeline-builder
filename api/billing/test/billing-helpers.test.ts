@@ -171,6 +171,25 @@ describe('createBillingEvent', () => {
     });
   });
 
+  it('persists actorId when the caller supplies one (request-context attribution)', async () => {
+    mockBillingEventCreate.mockResolvedValue({});
+    await createBillingEvent('org-1', 'plan_changed', { oldPlanId: 'pro' }, 'sub-1', 'user-9');
+    expect(mockBillingEventCreate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      type: 'plan_changed',
+      details: { oldPlanId: 'pro' },
+      subscriptionId: 'sub-1',
+      actorId: 'user-9',
+    });
+  });
+
+  it('leaves actorId undefined for system/non-request paths (no fabricated actor)', async () => {
+    mockBillingEventCreate.mockResolvedValue({});
+    await createBillingEvent('org-1', 'payment_succeeded', { amount: 100 }, 'sub-1');
+    const arg = mockBillingEventCreate.mock.calls[0][0] as { actorId?: string };
+    expect(arg.actorId).toBeUndefined();
+  });
+
   it('does not throw on create failure (logs error instead)', async () => {
     mockBillingEventCreate.mockRejectedValue(new Error('DB down'));
     await expect(createBillingEvent('org-1', 'plan_changed', {})).resolves.toBeUndefined();

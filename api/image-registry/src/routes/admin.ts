@@ -72,6 +72,10 @@ export function createAdminRoutes(): Router {
       prefix: normalizePrefix(prefix),
       ...(maxAgeDays !== undefined && { maxAgeDays }),
       ...(dryRun !== undefined && { dryRun }),
+      // Attribute the manual GC to the calling sysadmin; the scheduler path
+      // leaves these unset so runRegistryGc falls back to actorId 'system'.
+      ...(req.user?.sub && { actorId: req.user.sub }),
+      ...(req.user?.email && { actorEmail: req.user.email }),
     });
 
     logger.info('Registry GC run', {

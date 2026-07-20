@@ -19,6 +19,7 @@ jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: jest.fn() }));
 
 const mockApi = {
   isAuthenticated: jest.fn(() => true),
+  isImpersonating: jest.fn(() => false),
   getProfile: jest.fn(async () => ({
     success: true,
     data: { user: { id: 'u1', username: 'neo', email: 'neo@example.com', role: 'owner', organizationId: 'o1' } },

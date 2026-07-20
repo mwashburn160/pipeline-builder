@@ -84,6 +84,9 @@ export function createAdminSubscriptionRoutes(): Router {
       }
 
       const orgId = subscription.orgId;
+      // Attribute every override row to the acting sysadmin — this is the
+      // highest-value attribution surface (a privileged cross-org write).
+      const actorId = req.user?.sub;
 
       if (planId) {
         const plan = await Plan.findOne({ _id: planId, isActive: true });
@@ -100,18 +103,18 @@ export function createAdminSubscriptionRoutes(): Router {
         // Passing no addons here would push tier-base-only limits and silently
         // drop the customer's bundle entitlements until the next add-on mutation.
         await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId, subscription.addons ?? []);
-        await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId);
+        await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId, actorId);
       }
 
       if (status && status !== subscription.status) {
         subscription.status = status;
-        await createBillingEvent(orgId, 'subscription_updated', { status }, subscriptionId);
+        await createBillingEvent(orgId, 'subscription_updated', { status }, subscriptionId, actorId);
       }
 
       if (interval && interval !== subscription.interval) {
         const oldInterval = subscription.interval;
         subscription.interval = interval;
-        await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId);
+        await createBillingEvent(orgId, 'interval_changed', { oldInterval, newInterval: interval }, subscriptionId, actorId);
       }
 
       if (cancelAtPeriodEnd !== undefined) subscription.cancelAtPeriodEnd = cancelAtPeriodEnd;
@@ -150,6 +153,8 @@ export function createAdminSubscriptionRoutes(): Router {
         orgId: event.orgId,
         subscriptionId: event.subscriptionId,
         type: event.type,
+        // Who initiated it (undefined for system/webhook/cron rows).
+        actorId: event.actorId,
         details: event.details,
         createdAt: event.createdAt.toISOString(),
       }));

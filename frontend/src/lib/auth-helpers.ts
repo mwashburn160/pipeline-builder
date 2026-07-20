@@ -42,3 +42,17 @@ export function isOrgAdmin(user: User | null): boolean {
 export function hasPermission(user: User | null, permission: string): boolean {
   return isSystemAdmin(user) || !!user?.permissions?.includes(permission);
 }
+
+/**
+ * Whether a permission id denotes a MUTATION (a write) rather than a read.
+ *
+ * The catalog is coarse `resource:action` (see api-core `types/permissions.ts`):
+ * `:read` are reads; `:write` and `:manage` (members/roles/invitations/billing)
+ * are writes, and `org:settings` is a write surface too. Used to blanket-disable
+ * write affordances during read-only impersonation, where the backend rejects
+ * every non-GET request — so surfacing an enabled write control just produces a
+ * 403 dead-end.
+ */
+export function isMutationPermission(permission: string): boolean {
+  return /:(write|manage)$/.test(permission) || permission === 'org:settings';
+}
