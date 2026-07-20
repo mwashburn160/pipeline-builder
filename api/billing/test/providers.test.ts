@@ -76,10 +76,12 @@ describe('StubPaymentProvider', () => {
     expect(id).toBe('stub_cus_org-1');
   });
 
-  it('createSubscription returns stub external IDs', async () => {
+  it('createSubscription returns stub external IDs and an active status', async () => {
     const result = await provider.createSubscription('cus-1', 'pro', 'monthly');
     expect(result.externalId).toMatch(/^stub_sub_/);
     expect(result.externalCustomerId).toBe('cus-1');
+    // Stub has no real payment step — always entitlement-worthy.
+    expect(result.status).toBe('active');
   });
 
   it('cancelSubscription resolves without error', async () => {
@@ -87,11 +89,15 @@ describe('StubPaymentProvider', () => {
   });
 
   it('updateSubscription resolves without error', async () => {
-    await expect(provider.updateSubscription('sub-1', 'enterprise')).resolves.toBeUndefined();
+    await expect(provider.updateSubscription('sub-1', 'enterprise', 'annual')).resolves.toBeUndefined();
   });
 
   it('reactivateSubscription resolves without error', async () => {
     await expect(provider.reactivateSubscription('sub-1')).resolves.toBeUndefined();
+  });
+
+  it('getSubscription always reports active (stub never lapses)', async () => {
+    await expect(provider.getSubscription('sub-1')).resolves.toEqual({ status: 'active' });
   });
 });
 
@@ -154,6 +160,8 @@ describe('AWSMarketplaceProvider', () => {
       const result = await provider.createSubscription('cust-abc-123', 'pro', 'monthly');
       expect(result.externalId).toBe('aws_sub_cust-abc-123');
       expect(result.externalCustomerId).toBe('cust-abc-123');
+      // Reached only after confirming an active entitlement — entitlement-worthy.
+      expect(result.status).toBe('active');
     });
 
     it('throws when no active entitlement found', async () => {
@@ -195,7 +203,7 @@ describe('AWSMarketplaceProvider', () => {
     });
 
     it('updateSubscription resolves without error', async () => {
-      await expect(provider.updateSubscription('aws_sub_123', 'pro')).resolves.toBeUndefined();
+      await expect(provider.updateSubscription('aws_sub_123', 'pro', 'monthly')).resolves.toBeUndefined();
     });
 
     it('reactivateSubscription resolves without error', async () => {
@@ -332,11 +340,24 @@ describe('StripeProvider', () => {
       const result = await provider.createSubscription('cus_123', 'pro', 'monthly');
       expect(result.externalId).toBe('sub_stripe_789');
       expect(result.externalCustomerId).toBe('cus_123');
+      // Surfaces Stripe's real status for the entitlement-worthiness gate.
+      expect(result.status).toBe('active');
       expect(mockStripeSubscriptionsCreate).toHaveBeenCalledWith({
         customer: 'cus_123',
         items: [{ price: 'price_pro_mo' }],
         metadata: { planId: 'pro', interval: 'monthly' },
       }, undefined);
+    });
+
+    it('surfaces an incomplete Stripe status (unsettled payment, no card)', async () => {
+      mockStripeSubscriptionsCreate.mockResolvedValue({
+        id: 'sub_stripe_791',
+        status: 'incomplete',
+      });
+
+      const result = await provider.createSubscription('cus_123', 'pro', 'monthly');
+      // The caller uses this to WITHHOLD paid entitlements until payment settles.
+      expect(result.status).toBe('incomplete');
     });
 
     it('forwards an idempotency key as Stripe request options when supplied', async () => {
@@ -375,10 +396,41 @@ describe('StripeProvider', () => {
       });
       mockStripeSubscriptionsUpdate.mockResolvedValue({});
 
-      await provider.updateSubscription('sub_stripe_789', 'developer');
+      await provider.updateSubscription('sub_stripe_789', 'developer', 'monthly');
       expect(mockStripeSubscriptionsUpdate).toHaveBeenCalledWith('sub_stripe_789', {
         items: [{ id: 'si_item_1', price: 'price_dev_mo' }],
         metadata: { planId: 'developer', interval: 'monthly' },
+      });
+    });
+
+    it('uses the CALLER-supplied interval (not the retrieved metadata) to pick the price', async () => {
+      // Stripe still reports the OLD monthly cadence in its metadata, but the
+      // caller is moving the sub to annual — the annual price must be selected
+      // so billing actually re-cadences (the mischarge fix).
+      mockStripeSubscriptionsRetrieve.mockResolvedValue({
+        items: { data: [{ id: 'si_item_1' }] },
+        metadata: { interval: 'monthly' },
+      });
+      mockStripeSubscriptionsUpdate.mockResolvedValue({});
+
+      await provider.updateSubscription('sub_stripe_789', 'developer', 'annual');
+      expect(mockStripeSubscriptionsUpdate).toHaveBeenCalledWith('sub_stripe_789', {
+        items: [{ id: 'si_item_1', price: 'price_dev_yr' }],
+        metadata: { planId: 'developer', interval: 'annual' },
+      });
+    });
+
+    it('applies a combined plan+interval change at the NEW interval price', async () => {
+      mockStripeSubscriptionsRetrieve.mockResolvedValue({
+        items: { data: [{ id: 'si_item_1' }] },
+        metadata: { interval: 'monthly' },
+      });
+      mockStripeSubscriptionsUpdate.mockResolvedValue({});
+
+      await provider.updateSubscription('sub_stripe_789', 'pro', 'annual');
+      expect(mockStripeSubscriptionsUpdate).toHaveBeenCalledWith('sub_stripe_789', {
+        items: [{ id: 'si_item_1', price: 'price_pro_yr' }],
+        metadata: { planId: 'pro', interval: 'annual' },
       });
     });
 
@@ -388,17 +440,17 @@ describe('StripeProvider', () => {
         metadata: {},
       });
 
-      await expect(provider.updateSubscription('sub_stripe_789', 'pro'))
+      await expect(provider.updateSubscription('sub_stripe_789', 'pro', 'monthly'))
         .rejects.toThrow('has no items');
     });
 
-    it('throws when no price configured for the new plan', async () => {
+    it('throws when no price configured for the new plan/interval', async () => {
       mockStripeSubscriptionsRetrieve.mockResolvedValue({
         items: { data: [{ id: 'si_item_1' }] },
         metadata: { interval: 'monthly' },
       });
 
-      await expect(provider.updateSubscription('sub_stripe_789', 'enterprise'))
+      await expect(provider.updateSubscription('sub_stripe_789', 'enterprise', 'monthly'))
         .rejects.toThrow('No Stripe Price ID configured');
     });
   });
@@ -453,6 +505,41 @@ describe('StripeProvider', () => {
         return_url: 'https://app/dashboard/billing',
       });
       expect(url).toBe('https://billing.stripe.com/session/abc');
+    });
+  });
+
+  describe('getSubscription', () => {
+    it('maps status + current_period_end + cancel_at_period_end from Stripe', async () => {
+      const unix = Math.floor(new Date('2026-09-01T00:00:00.000Z').getTime() / 1000);
+      mockStripeSubscriptionsRetrieve.mockResolvedValue({
+        status: 'active', current_period_end: unix, cancel_at_period_end: false,
+      });
+      const view = await provider.getSubscription('sub_stripe_live');
+      expect(view).toEqual({
+        status: 'active',
+        currentPeriodEnd: new Date(unix * 1000),
+        cancelAtPeriodEnd: false,
+      });
+    });
+
+    it('maps a canceled Stripe status to canceled', async () => {
+      mockStripeSubscriptionsRetrieve.mockResolvedValue({
+        status: 'canceled', current_period_end: 1_700_000_000, cancel_at_period_end: false,
+      });
+      const view = await provider.getSubscription('sub_stripe_dead');
+      expect(view?.status).toBe('canceled');
+    });
+
+    it('reports canceled when Stripe returns resource_missing (fully deleted)', async () => {
+      const err = Object.assign(new Error('No such subscription'), { code: 'resource_missing' });
+      mockStripeSubscriptionsRetrieve.mockRejectedValue(err);
+      const view = await provider.getSubscription('sub_gone');
+      expect(view).toEqual({ status: 'canceled' });
+    });
+
+    it('rethrows a transient error so the caller does NOT downgrade', async () => {
+      mockStripeSubscriptionsRetrieve.mockRejectedValue(new Error('network blip'));
+      await expect(provider.getSubscription('sub_x')).rejects.toThrow('network blip');
     });
   });
 });

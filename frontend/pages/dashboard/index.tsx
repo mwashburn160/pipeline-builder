@@ -19,7 +19,7 @@ import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
 import { NewOrgWelcome } from '@/components/dashboard/NewOrgWelcome';
 import { SysadminHome } from '@/components/dashboard/SysadminHome';
 import { OrgAdminHome } from '@/components/dashboard/OrgAdminHome';
-import { dismissKey, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboarding';
+import { dismissKey, isFreshAccount, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboarding';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -114,17 +114,27 @@ export default function DashboardPage() {
   const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
   const [pipelineCount, setPipelineCount] = useState<number | null>(null);
+  const [memberCount, setMemberCount] = useState<number | null>(null);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingVisitedPlugins, setOnboardingVisitedPlugins] = useState(false);
 
   const fetchData = useCallback(async () => {
-    const [execRes, timelineRes, pluginRes, pipelineRes, unreadRes] = await Promise.allSettled([
+    // Org-admin/owner only: a cheap member-count probe (1-row page, read from
+    // pagination.total) so a fresh account can be distinguished from an active
+    // one — an owner who has invited a teammate has "started" and graduates to
+    // the org-admin home. Gated so member-users don't 403 on the roster.
+    const memberPromise = isOrgAdmin && user?.organizationId
+      ? api.getOrganizationMembers(user.organizationId, { limit: 1 }).catch(() => null)
+      : Promise.resolve(null);
+
+    const [execRes, timelineRes, pluginRes, pipelineRes, unreadRes, memberRes] = await Promise.allSettled([
       api.getExecutionCount(),
       api.getSuccessRate({ interval: 'day' }),
       api.getPluginSummary(),
       api.listPipelines({ limit: '1' }),
       api.getUnreadCount(),
+      memberPromise,
     ]);
 
     if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
@@ -132,7 +142,10 @@ export default function DashboardPage() {
     if (pluginRes.status === 'fulfilled') setPluginSummary(pluginRes.value.data?.summary || null);
     if (pipelineRes.status === 'fulfilled') setPipelineCount(pipelineRes.value.data?.pagination?.total ?? 0);
     if (unreadRes.status === 'fulfilled') setUnreadMessageCount(unreadRes.value.data?.count ?? 0);
-  }, []);
+    if (memberRes.status === 'fulfilled' && memberRes.value?.success && memberRes.value.data) {
+      setMemberCount(memberRes.value.data.pagination?.total ?? memberRes.value.data.members.length);
+    }
+  }, [isOrgAdmin, user?.organizationId]);
 
   useEffect(() => {
     if (isAuthenticated) fetchData();
@@ -184,6 +197,33 @@ export default function DashboardPage() {
     () => Math.max(1, ...timeline.map(e => e.succeeded + e.failed + e.canceled)),
     [timeline],
   );
+
+  // Shared onboarding inputs — one source of truth for both the member card and
+  // the new-owner card below.
+  const executionTotal = useMemo(() => executions.reduce((s, p) => s + p.total, 0), [executions]);
+  const onboardingSignals = useMemo(() => ({
+    visitedPlugins: onboardingVisitedPlugins,
+    pipelineCount: pipelineCount ?? 0,
+    executionCount: executionTotal,
+  }), [onboardingVisitedPlugins, pipelineCount, executionTotal]);
+
+  const dismissOnboarding = useCallback(() => {
+    if (typeof window !== 'undefined' && user?.organizationId) {
+      try { localStorage.setItem(dismissKey(user.organizationId), '1'); } catch { /* localStorage may be unavailable */ }
+    }
+    setOnboardingDismissed(true);
+  }, [user?.organizationId]);
+
+  // New owner/admin on a fresh, empty account: show the getting-started guide
+  // (the org-admin home's quota/compliance/billing cards are all empty and
+  // un-actionable on day one). Only decided once pipeline data has loaded, and
+  // it graduates to <OrgAdminHome> as soon as the org has any activity.
+  const showOwnerOnboarding = isOrgAdmin
+    && pipelineCount !== null
+    && isFreshAccount(
+      { pipelineCount: pipelineCount ?? 0, executionCount: executionTotal, memberCount },
+      onboardingDismissed,
+    );
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -282,7 +322,11 @@ export default function DashboardPage() {
         )}
         {isOrgAdmin && (
           <motion.div variants={stagger.item}>
-            <OrgAdminHome organizationId={user.organizationId} />
+            {showOwnerOnboarding ? (
+              <NewOrgWelcome signals={onboardingSignals} onDismiss={dismissOnboarding} />
+            ) : (
+              <OrgAdminHome organizationId={user.organizationId} />
+            )}
           </motion.div>
         )}
 
@@ -292,28 +336,11 @@ export default function DashboardPage() {
         {!isSuperAdmin && !isOrgAdmin && (<>
 
         {/* ─── New-org onboarding (auto-hides once user has both pipelines and executions) ─── */}
-        {pipelineCount !== null && (() => {
-          const signals = {
-            visitedPlugins: onboardingVisitedPlugins,
-            pipelineCount,
-            executionCount: executions.reduce((s, p) => s + p.total, 0),
-          };
-          const show = shouldShowOnboarding(signals, onboardingDismissed);
-          if (!show) return null;
-          return (
-            <motion.div variants={stagger.item}>
-              <NewOrgWelcome
-                signals={signals}
-                onDismiss={() => {
-                  if (typeof window !== 'undefined' && user?.organizationId) {
-                    try { localStorage.setItem(dismissKey(user.organizationId), '1'); } catch { /* localStorage may be unavailable */ }
-                  }
-                  setOnboardingDismissed(true);
-                }}
-              />
-            </motion.div>
-          );
-        })()}
+        {pipelineCount !== null && shouldShowOnboarding(onboardingSignals, onboardingDismissed) && (
+          <motion.div variants={stagger.item}>
+            <NewOrgWelcome signals={onboardingSignals} onDismiss={dismissOnboarding} />
+          </motion.div>
+        )}
 
         {/* ─── Stats Strip ─── */}
         <motion.div variants={stagger.item} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">

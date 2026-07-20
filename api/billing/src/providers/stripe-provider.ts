@@ -3,8 +3,9 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import Stripe from 'stripe';
-import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider.js';
+import type { ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
 import type { StripeConfig } from '../config.js';
+import { mapStripeStatus } from '../helpers/stripe-helpers.js';
 import type { BillingInterval } from '../models/subscription.js';
 
 const logger = createLogger('stripe-provider');
@@ -71,6 +72,9 @@ export class StripeProvider implements PaymentProvider {
     return {
       externalId: subscription.id,
       externalCustomerId: customerId,
+      // Surface Stripe's real status so the caller withholds paid entitlements
+      // for a subscription that hasn't settled payment yet (lands `incomplete`).
+      status: subscription.status,
     };
   }
 
@@ -88,11 +92,15 @@ export class StripeProvider implements PaymentProvider {
   }
 
   /**
-   * Update a Stripe subscription to a new plan.
-   * Replaces the existing subscription item with the new price.
+   * Update a Stripe subscription to a new plan and/or billing interval.
+   * Replaces the existing subscription item with the price for
+   * `{planId}_{interval}`. The `interval` is passed in by the caller (the
+   * effective post-change cadence) rather than re-derived from the retrieved
+   * Stripe metadata — otherwise a monthly→annual change would resolve the OLD
+   * cadence's price and never actually re-cadence the customer's billing.
    */
-  async updateSubscription(externalId: string, planId: string): Promise<void> {
-    logger.info('Updating Stripe subscription plan', { externalId, planId });
+  async updateSubscription(externalId: string, planId: string, interval: BillingInterval): Promise<void> {
+    logger.info('Updating Stripe subscription plan', { externalId, planId, interval });
 
     const subscription = await this.stripe.subscriptions.retrieve(externalId);
     const currentItem = subscription.items.data[0];
@@ -101,8 +109,9 @@ export class StripeProvider implements PaymentProvider {
       throw new Error(`Stripe subscription ${externalId} has no items`);
     }
 
-    // Look up the new price — try monthly first, then annual
-    const interval = (subscription.metadata?.interval as BillingInterval) || 'monthly';
+    // Look up the target price via the same `{planId}_{interval}` reverse the
+    // webhook + createSubscription use — the caller-supplied interval is
+    // authoritative, so plan and cadence changes both land on the right price.
     const priceKey = `${planId}_${interval}`;
     const priceId = this.stripeConfig.priceToPlanMap[priceKey];
 
@@ -117,7 +126,7 @@ export class StripeProvider implements PaymentProvider {
       metadata: { planId, interval },
     });
 
-    logger.info('Stripe subscription updated', { externalId, planId, priceId });
+    logger.info('Stripe subscription updated', { externalId, planId, interval, priceId });
   }
 
   /**
@@ -131,6 +140,38 @@ export class StripeProvider implements PaymentProvider {
     });
 
     logger.info('Stripe subscription reactivated', { externalId });
+  }
+
+  /**
+   * Re-fetch a subscription's current state from Stripe and normalize it. Used
+   * by the lifecycle checker to verify a locally-stale 'active' sub: Stripe's
+   * status (mapped via `mapStripeStatus` — `canceled`/`unpaid` ⇒ 'canceled')
+   * and `current_period_end` are the source of truth for "gone" vs "renewed
+   * (late webhook)". A `resource_missing` error means Stripe has no such sub
+   * (fully deleted) ⇒ report 'canceled'. Any OTHER error is rethrown so the
+   * caller skips the sub this tick rather than false-downgrading on a transient
+   * outage.
+   */
+  async getSubscription(externalId: string): Promise<ProviderSubscriptionView | null> {
+    try {
+      const sub = await this.stripe.subscriptions.retrieve(externalId);
+      // `current_period_end` is a Unix seconds timestamp on the Stripe object.
+      const periodEndUnix = (sub as unknown as { current_period_end?: number }).current_period_end;
+      return {
+        status: mapStripeStatus(sub.status),
+        currentPeriodEnd: typeof periodEndUnix === 'number' ? new Date(periodEndUnix * 1000) : undefined,
+        cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+      };
+    } catch (err) {
+      // Stripe surfaces a fully-deleted subscription as `resource_missing` — the
+      // sub is genuinely gone, so report it canceled.
+      if ((err as { code?: string })?.code === 'resource_missing') {
+        logger.info('Stripe subscription no longer exists — reporting canceled', { externalId });
+        return { status: 'canceled' };
+      }
+      // Transient/unknown error — surface it so the caller does NOT downgrade.
+      throw err;
+    }
   }
 
   /**

@@ -73,7 +73,7 @@ function createAccessTokenPayload(user: UserDocument, membership?: MembershipCon
     tier,
     // A scoped machine token needs no feature flags; interactive users get their
     // tier defaults plus per-user overrides.
-    features: scope ? [] : resolveUserFeatures(tier, overrides, isSuperAdmin, membership?.featureEntitlements),
+    features: scope ? [] : resolveUserFeatures(tier, { overrides, isSuperAdmin, accountFeatures: membership?.featureEntitlements }),
     // Fine-grained RBAC (single-source): effective permissions = the union of
     // the permissions carried by every Role assigned to the user in the active
     // org (superadmin ⇒ all). `rolePermissions` is already that union — there
@@ -139,34 +139,45 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
   if (activeOrgId) {
     const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(activeOrgId), isActive: true }).lean();
     if (membership) {
-      const org = await Organization.findById(toOrgId(activeOrgId)).select('name tier parentOrgId featureEntitlements').lean();
-      return {
-        organizationId: activeOrgId,
-        organizationName: org?.name,
-        role: membership.role as OrgMemberRole,
-        tier: org?.tier,
-        featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
-        rolePermissions: await rolePermissionsFor(userId, toOrgId(activeOrgId)),
-        ...(await hierarchyContext(activeOrgId, org?.parentOrgId)),
-      };
+      const org = await Organization.findById(toOrgId(activeOrgId)).select('name tier parentOrgId featureEntitlements deletedAt').lean();
+      // CHOKEPOINT: refuse to scope a token to a SOFT-DELETED org. The org is
+      // being torn down (retention window) — treat it as gone and fall through
+      // to a still-live membership. Combined with the tokenVersion bump on
+      // soft-delete, this cuts off ALL access to the org without any per-read
+      // `deletedAt` filtering elsewhere.
+      if (org && !org.deletedAt) {
+        return {
+          organizationId: activeOrgId,
+          organizationName: org?.name,
+          role: membership.role as OrgMemberRole,
+          tier: org?.tier,
+          featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
+          rolePermissions: await rolePermissionsFor(userId, toOrgId(activeOrgId)),
+          ...(await hierarchyContext(activeOrgId, org?.parentOrgId)),
+        };
+      }
     }
   }
 
-  // Fall back to first membership
-  const first = await UserOrganization.findOne({ userId, isActive: true }).sort({ joinedAt: 1 }).lean();
-  if (!first) return undefined;
-
-  const orgId = first.organizationId.toString();
-  const org = await Organization.findById(toOrgId(orgId)).select('name tier parentOrgId featureEntitlements').lean();
-  return {
-    organizationId: orgId,
-    organizationName: org?.name,
-    role: first.role as OrgMemberRole,
-    tier: org?.tier,
-    featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
-    rolePermissions: await rolePermissionsFor(userId, toOrgId(orgId)),
-    ...(await hierarchyContext(orgId, org?.parentOrgId)),
-  };
+  // Fall back to the earliest active membership whose org is NOT soft-deleted —
+  // a user whose active org was just soft-deleted must land on another live org
+  // (or nothing), never back on the dying one.
+  const memberships = await UserOrganization.find({ userId, isActive: true }).sort({ joinedAt: 1 }).lean();
+  for (const first of memberships) {
+    const orgId = first.organizationId.toString();
+    const org = await Organization.findById(toOrgId(orgId)).select('name tier parentOrgId featureEntitlements deletedAt').lean();
+    if (!org || org.deletedAt) continue;
+    return {
+      organizationId: orgId,
+      organizationName: org?.name,
+      role: first.role as OrgMemberRole,
+      tier: org?.tier,
+      featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
+      rolePermissions: await rolePermissionsFor(userId, toOrgId(orgId)),
+      ...(await hierarchyContext(orgId, org?.parentOrgId)),
+    };
+  }
+  return undefined;
 }
 
 /**

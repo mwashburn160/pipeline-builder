@@ -183,4 +183,42 @@ describe('POST /marketplace/resolve', () => {
       CUSTOMER_ID, 'team', '', 'sub-created-1', expect.anything(),
     );
   });
+
+  // Interval derivation: the created subscription's cadence must reflect the
+  // marketplace entitlement's term (fixes the hard-coded `interval: 'monthly'`).
+  it('resolves an ANNUAL-term entitlement to interval=annual', async () => {
+    const expiration = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // ~1 year out
+    mockGetEntitlements.mockResolvedValue([
+      { isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: expiration },
+    ]);
+    const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
+    await handler(req, mockRes());
+
+    const createdDoc = mockSubscriptionCreate.mock.calls[0][0] as any;
+    expect(createdDoc.interval).toBe('annual');
+    // Period math uses the derived interval.
+    expect(mockCalculatePeriodEnd).toHaveBeenCalledWith(expect.any(Date), 'annual');
+  });
+
+  it('resolves a MONTHLY-term entitlement to interval=monthly', async () => {
+    const expiration = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // ~1 month out
+    mockGetEntitlements.mockResolvedValue([
+      { isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: expiration },
+    ]);
+    const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
+    await handler(req, mockRes());
+
+    const createdDoc = mockSubscriptionCreate.mock.calls[0][0] as any;
+    expect(createdDoc.interval).toBe('monthly');
+    expect(mockCalculatePeriodEnd).toHaveBeenCalledWith(expect.any(Date), 'monthly');
+  });
+
+  it('defaults to interval=monthly when the entitlement carries no term', async () => {
+    // Default beforeEach entitlement has no expirationDate.
+    const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
+    await handler(req, mockRes());
+
+    const createdDoc = mockSubscriptionCreate.mock.calls[0][0] as any;
+    expect(createdDoc.interval).toBe('monthly');
+  });
 });

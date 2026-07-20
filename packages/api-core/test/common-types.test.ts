@@ -4,6 +4,7 @@
 import { describe, it, expect } from '@jest/globals';
 
 import {
+  effectiveRootOrgId,
   isValidQuotaType,
   validateQuotaType,
   VALID_QUOTA_TYPES,
@@ -18,6 +19,21 @@ describe('VALID_QUOTA_TYPES', () => {
       'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
       'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs',
     ]);
+  });
+});
+
+describe('effectiveRootOrgId', () => {
+  it('returns rootOrganizationId when present (team/child org)', () => {
+    expect(effectiveRootOrgId({ organizationId: 'team-1', rootOrganizationId: 'root-1' }))
+      .toBe('root-1');
+  });
+
+  it('falls back to organizationId when root is absent (flat org)', () => {
+    expect(effectiveRootOrgId({ organizationId: 'org-1' })).toBe('org-1');
+  });
+
+  it('returns undefined when neither field is set', () => {
+    expect(effectiveRootOrgId({})).toBeUndefined();
   });
 });
 

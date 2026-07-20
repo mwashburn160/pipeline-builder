@@ -165,6 +165,29 @@ export const updateOrganizationSchema = z.object({
   description: z.string().max(500).optional(),
 });
 
+/** Reusable org slug rule: lowercase alphanumeric words joined by single
+ *  hyphens (no leading/trailing/double hyphens). Mirrors the shape the
+ *  Organization model auto-generates via `slugify(..., { strict: true })`. */
+export const orgSlugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(2, 'Slug must be at least 2 characters')
+  .max(100, 'Slug must be at most 100 characters')
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug may contain only lowercase letters, numbers, and single hyphens');
+
+/** Owner/admin self-serve org identity update (name and/or slug). At least one
+ *  field must be present so an empty PATCH is rejected rather than silently
+ *  no-op'ing. Reuses the sysadmin name bounds; adds the slug rule. */
+export const updateOrgIdentitySchema = z
+  .object({
+    name: z.string().trim().min(2).max(100).optional(),
+    slug: orgSlugSchema.optional(),
+  })
+  .refine((d) => d.name !== undefined || d.slug !== undefined, {
+    message: 'Provide a name or slug to update',
+  });
+
 /** Add member schema (either userId or email required, with optional role).
  *  `owner` is intentionally excluded — ownership only moves via
  *  transferOwnership (a second `role:'owner'` insert trips the partial-unique

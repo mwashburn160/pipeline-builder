@@ -63,15 +63,21 @@ const mockInvitationDeleteMany = jest.fn();
 const mockInvitationFind = jest.fn();
 const mockAuditDeleteMany = jest.fn();
 const mockAuditFind = jest.fn();
+const mockAuditCreate = jest.fn();
 const mockIdpDeleteMany = jest.fn();
+const mockOrgFindById = jest.fn();
 
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
-  default: { deleteMany: mockAuditDeleteMany, find: mockAuditFind },
+  default: { deleteMany: mockAuditDeleteMany, find: mockAuditFind, create: mockAuditCreate },
 }));
 jest.unstable_mockModule('../src/models/invitation.js', () => ({
   __esModule: true,
   default: { deleteMany: mockInvitationDeleteMany, find: mockInvitationFind },
+}));
+jest.unstable_mockModule('../src/models/organization.js', () => ({
+  __esModule: true,
+  default: { findById: mockOrgFindById },
 }));
 jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   __esModule: true,
@@ -101,8 +107,17 @@ beforeEach(() => {
   mockInvitationFind.mockReturnValue({ lean: () => [] });
   mockAuditDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockAuditFind.mockReturnValue({ lean: () => [] });
+  mockAuditCreate.mockResolvedValue({});
   mockIdpDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  // Default: org has no per-org KMS config.
+  mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => null }) });
 });
+
+/** Build the `Organization.findById(...).select(...).lean()` chain stub for a
+ *  given lean() return value. */
+function orgLean(value: unknown) {
+  return { select: () => ({ lean: () => value }) };
+}
 
 describe('cascadeDeleteOrg', () => {
   it('refuses to delete the system org', async () => {
@@ -193,6 +208,33 @@ describe('cascadeDeleteOrg', () => {
     // Other tables still got their delete chains called.
     expect(mockUpdateChain.where).toHaveBeenCalledTimes(7);
     expect(mockDeleteChain.where).toHaveBeenCalledTimes(13);
+  });
+
+  it('flags an orphaned per-org KMS key (audit event + report) but does NOT auto-delete it', async () => {
+    mockOrgFindById.mockReturnValue(orgLean({ kmsConfig: { keyId: 'arn:aws:kms:us-east-1:key/abc', ciphertextBase64: 'd3JhcHBlZA==' } }));
+
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+
+    // Report carries the operator-actionable flag + key identifier.
+    expect(report.kms).toEqual({ flagged: true, keyRef: 'arn:aws:kms:us-east-1:key/abc' });
+
+    // An audit event was emitted so an operator can follow up manually.
+    expect(mockAuditCreate).toHaveBeenCalledTimes(1);
+    const auditArg = mockAuditCreate.mock.calls[0][0] as {
+      action: string; affectedOrgId: string; targetId: string; details: { keyId?: string };
+    };
+    expect(auditArg.action).toBe('org.kms.orphaned');
+    expect(auditArg.affectedOrgId).toBe('org-acme');
+    expect(auditArg.targetId).toBe('org-acme');
+    expect(auditArg.details.keyId).toBe('arn:aws:kms:us-east-1:key/abc');
+  });
+
+  it('does NOT flag KMS when the org has no per-org key', async () => {
+    // Default beforeEach org has no kmsConfig.
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+
+    expect(report.kms).toBeUndefined();
+    expect(mockAuditCreate).not.toHaveBeenCalled();
   });
 });
 

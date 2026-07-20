@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/Toast';
 import { overallHealthColor } from '@/lib/quota-helpers';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType } from '@/types';
 import { QUOTA_KEYS, TIER_PRESETS } from '@/components/quotas/constants';
-import { QuotasReadOnly } from '@/components/quotas/QuotasReadOnly';
+import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/QuotasReadOnly';
 import { QuotasAdmin } from '@/components/quotas/QuotasAdmin';
 import api from '@/lib/api';
 
@@ -19,7 +19,7 @@ import api from '@/lib/api';
 export default function QuotasPage() {
   // Viewing quotas requires `quotas:read` (superadmins bypass). Members hold it
   // in their base bundle. Mutation controls below stay sysadmin-only.
-  const { user, isReady, isSuperAdmin } = useAuthGuard({ requirePermission: 'quotas:read' });
+  const { user, isReady, isSuperAdmin, isAdmin, can } = useAuthGuard({ requirePermission: 'quotas:read' });
   const { organizations } = useAuth();
   const toast = useToast();
 
@@ -27,6 +27,10 @@ export default function QuotasPage() {
   // already reports the root's shared limit + the whole subtree's usage here,
   // so the numbers are correct — we just label them as pooled and read-only.
   const activeOrgIsTeam = !!organizations.find((o) => o.id === user?.organizationId)?.parentOrgId;
+  // Can this viewer act on billing? (owner/admin role, or a custom group granted
+  // `billing:manage`.) Drives the "Upgrade your plan" link in the read-only view;
+  // a team manages billing at its parent, so the link is suppressed there.
+  const canManageBilling = (isAdmin || can('billing:manage')) && !activeOrgIsTeam;
 
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -59,6 +63,21 @@ export default function QuotasPage() {
       if (res.success && res.data) setAtRisk(res.data.atRisk);
     } catch { /* admin-only diagnostic — silently skip */ }
   }, [isSuperAdmin]);
+
+  // Org owner/admin (non-sysadmin): their OWN org's at-risk dimensions, via the
+  // tenancy-scoped endpoint — powers the "approaching limit" callout in the
+  // read-only view so an owner sees what's near cap without sysadmin. Gated on
+  // the admin/owner role (members don't get the callout).
+  const canViewOwnAtRisk = !isSuperAdmin && isAdmin;
+  const [ownAtRisk, setOwnAtRisk] = useState<AtRiskDimension[]>([]);
+  const fetchOwnAtRisk = useCallback(async () => {
+    if (!canViewOwnAtRisk || !user?.organizationId) return;
+    try {
+      const res = await api.getOrgAtRisk(user.organizationId);
+      if (res.success && res.data) setOwnAtRisk(res.data.atRisk);
+    } catch { /* best-effort admin diagnostic — silently skip */ }
+  }, [canViewOwnAtRisk, user?.organizationId]);
+  useEffect(() => { fetchOwnAtRisk(); }, [fetchOwnAtRisk]);
 
   const fetchAllOrgs = useCallback(async () => {
     if (!isSuperAdmin) return;
@@ -197,6 +216,8 @@ export default function QuotasPage() {
         orgData={orgData}
         loading={loading}
         activeOrgIsTeam={activeOrgIsTeam}
+        canManageBilling={canManageBilling}
+        atRisk={ownAtRisk}
       />
     );
   }

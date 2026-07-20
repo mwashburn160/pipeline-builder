@@ -37,6 +37,27 @@ export function shouldShowOnboarding(
   return true;
 }
 
+/**
+ * True when the account is effectively empty — used to show the getting-started
+ * onboarding to a NEW owner/admin (who otherwise lands on the org-admin home,
+ * all cards empty on a brand-new account) rather than only to invited members.
+ *
+ * Stricter than {@link shouldShowOnboarding}: an owner graduates to the
+ * org-admin home as soon as the org has ANY activity — a first pipeline, a
+ * first execution, or a second member (someone was invited). `memberCount`
+ * is `null` when unknown (not yet loaded / fetch failed) and treated as
+ * non-blocking so the nudge still shows for a fresh account.
+ */
+export function isFreshAccount(
+  signals: Pick<OnboardingSignals, 'pipelineCount' | 'executionCount'> & { memberCount: number | null },
+  dismissed: boolean,
+): boolean {
+  if (dismissed) return false;
+  if (signals.pipelineCount > 0 || signals.executionCount > 0) return false;
+  if (signals.memberCount !== null && signals.memberCount > 1) return false;
+  return true;
+}
+
 /** Compute the current 3-step state. */
 export function buildSteps(signals: OnboardingSignals): OnboardingStep[] {
   return [

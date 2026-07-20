@@ -61,6 +61,22 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     },
     DEFAULT_TIER: 'developer',
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+    // billing-config also derives marketed feature copy from the enforced entitlement
+    // set + labels, so the transitively-loaded graph needs these too (ESM linking).
+    TIER_FEATURES: {
+      developer: [],
+      pro: ['priority_support', 'ai_generation', 'bulk_operations'],
+      team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
+      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso', 'custom_integrations'],
+    },
+    FEATURE_METADATA: {
+      priority_support: { label: 'Priority Support', description: '' },
+      ai_generation: { label: 'AI Generation', description: '' },
+      bulk_operations: { label: 'Bulk Operations', description: '' },
+      audit_log: { label: 'Audit Log', description: '' },
+      sso: { label: 'SSO', description: '' },
+      custom_integrations: { label: 'Custom Integrations', description: '' },
+    },
     isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },

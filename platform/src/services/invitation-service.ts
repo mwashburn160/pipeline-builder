@@ -170,8 +170,15 @@ class InvitationService {
         await existingInvitation.save({ session });
       }
 
+      // Count only GENUINELY-LIVE pending invites toward the per-org cap.
+      // Invitations expire lazily, so a `status:'pending'` row can outlive its
+      // `expiresAt`; without the `expiresAt > now` guard an org whose invites
+      // are never accepted would sit at its pending ceiling forever and be
+      // unable to invite anyone new. (The same-email stale row is already
+      // flipped to 'expired' just above; this guard covers OTHER emails' stale
+      // rows. The reaper backstops the data self-healing.)
       const pendingCount = await Invitation.countDocuments({
-        organizationId: toOrgId(input.orgId), status: 'pending',
+        organizationId: toOrgId(input.orgId), status: 'pending', expiresAt: { $gt: new Date() },
       }).session(session);
       if (pendingCount >= config.invitation.maxPendingPerOrg) {
         throw new Error(INV_MAX_REACHED);

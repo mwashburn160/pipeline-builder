@@ -26,13 +26,41 @@ import {
 } from '../helpers/marketplace-helpers.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
+import type { BillingInterval } from '../models/subscription.js';
 import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
-import { AWSMarketplaceProvider } from '../providers/aws-marketplace-provider.js';
+import { AWSMarketplaceProvider, type EntitlementResult } from '../providers/aws-marketplace-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('billing-marketplace');
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
+/**
+ * A resolved entitlement whose remaining term exceeds this horizon is treated as
+ * an ANNUAL contract, otherwise monthly. At resolve time (immediately after the
+ * customer subscribes) the entitlement's remaining term ≈ the full contract
+ * term, so an annual offer's expiration is ~1 year out and a monthly offer's is
+ * ~1 month out — well separated by a ~6-month threshold.
+ */
+const ANNUAL_TERM_THRESHOLD_MS = 180 * 24 * 60 * 60 * 1000;
+
+/**
+ * Derive the billing interval for a marketplace subscription from the resolved
+ * entitlement. AWS Marketplace SaaS does NOT expose a first-class billing-cadence
+ * field in ResolveCustomer / GetEntitlements, so we infer it from the
+ * entitlement's `ExpirationDate` horizon (see {@link ANNUAL_TERM_THRESHOLD_MS}):
+ * a term more than ~6 months out is annual, otherwise monthly. When the
+ * entitlement carries no expiration we can't tell — default to `'monthly'`.
+ *
+ * TODO(marketplace): if the product listing later exposes a dedicated
+ * billing-term dimension (or ResolveCustomer surfaces the offer cadence), map
+ * that authoritative value here instead of inferring from the expiration horizon.
+ */
+function deriveMarketplaceInterval(entitlement: EntitlementResult | undefined, now: Date): BillingInterval {
+  const exp = entitlement?.expirationDate;
+  if (!exp) return 'monthly';
+  return exp.getTime() - now.getTime() > ANNUAL_TERM_THRESHOLD_MS ? 'annual' : 'monthly';
+}
 
 // Helpers
 
@@ -301,13 +329,19 @@ export function createMarketplaceRoutes(): Router {
         const orgId = resolved.customerIdentifier;
         const now = new Date();
 
+        // Derive the cadence from the entitlement's term rather than assuming
+        // monthly — an annual offer must get an annual period so renewal-reminder
+        // and period math are correct. Defaults to monthly when AWS gives us no
+        // term to key on (see deriveMarketplaceInterval).
+        const interval = deriveMarketplaceInterval(activeEntitlement, now);
+
         const subscription = await Subscription.create({
           orgId,
           planId,
           status: 'active',
-          interval: 'monthly',
+          interval,
           currentPeriodStart: now,
-          currentPeriodEnd: calculatePeriodEnd(now, 'monthly'),
+          currentPeriodEnd: calculatePeriodEnd(now, interval),
           cancelAtPeriodEnd: false,
           externalId: `aws_sub_${resolved.customerIdentifier}`,
           externalCustomerId: resolved.customerIdentifier,

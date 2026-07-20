@@ -46,6 +46,25 @@ export function organizationsApi(core: ApiCore) {
       return core.request<ApiResponse<Organization>>(`/api/organization/${id}`);
     },
 
+    /** GET /organization — the current user's own organization (any member).
+     *  Wrapped in `{ organization }` by the backend (`getMyOrganization`). */
+    getMyOrganization: async () => {
+      return core.request<ApiResponse<{ organization: Organization }>>('/api/organization');
+    },
+
+    /** PATCH /organization/:id/identity — self-serve name/slug edit for an org
+     *  the caller administers (owner/admin, `org:settings`). Distinct from the
+     *  sysadmin-only PUT /organization/:id. Provide at least one of name/slug. */
+    updateOrganizationIdentity: async (id: string, data: { name?: string; slug?: string }) => {
+      return core.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string } }>>(
+        `/api/organization/${id}/identity`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        },
+      );
+    },
+
     /** Org → team subtree: returns `[self, ...descendantOrgIds]` for an org the
      * caller can access (own org, an ancestor admin, or sysadmin). */
     getOrganizationDescendants: async (id: string) => {

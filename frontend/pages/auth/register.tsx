@@ -56,9 +56,12 @@ export default function RegisterPage() {
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
 
     try {
+      // `register` now establishes the session (authenticates immediately after
+      // create) and `useAuth.login` routes to /dashboard. Show the confirmation
+      // and land the new user in the dashboard — NOT back on the login screen.
       await register(username, email, password, organizationName || undefined, billingEnabled ? selectedPlan : undefined);
       setSuccess(true);
-      setTimeout(() => router.push('/'), 1500);
+      router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
     }

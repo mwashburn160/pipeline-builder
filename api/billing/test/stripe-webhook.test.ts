@@ -84,7 +84,7 @@ jest.unstable_mockModule('../src/providers/stripe-provider.js', () => {
 });
 
 const { sendError } = await import('@pipeline-builder/api-core');
-const { createStripeWebhookRoutes, planFromStripePrice } = await import('../src/routes/stripe-webhook.js');
+const { createStripeWebhookRoutes, planFromStripePrice, handleSubscriptionUpdated } = await import('../src/routes/stripe-webhook.js');
 
 // Since we can't easily test instanceof with mocks, we test the handler logic directly.
 // Extract the route handler from the router.
@@ -266,5 +266,59 @@ describe('Payment failure grace period logic', () => {
     // 8 days ago — grace period expired
     const oldFailure = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
     expect(oldFailure.getTime() <= cutoff.getTime()).toBe(true);
+  });
+});
+
+// ============================================
+// handleSubscriptionUpdated → grace-clock start
+// ============================================
+
+describe('handleSubscriptionUpdated past_due grace clock', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeSub(overrides: Record<string, unknown> = {}) {
+    return {
+      _id: { toString: () => 'sub-1' },
+      orgId: 'org-1',
+      planId: 'team',
+      interval: 'monthly',
+      status: 'active',
+      cancelAtPeriodEnd: false,
+      firstFailedAt: undefined as Date | undefined,
+      addons: [],
+      metadata: { provider: 'stripe' },
+      save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      ...overrides,
+    };
+  }
+
+  // A Stripe subscription with no line items so the plan-change branch (which
+  // would hit Plan.findOne) is skipped — we only exercise the status path.
+  function stripeSub(status: string) {
+    return { id: 'sub_ext', status, cancel_at_period_end: false, items: { data: [] } } as any;
+  }
+
+  it('stamps firstFailedAt when transitioning into past_due without a prior failure', async () => {
+    const sub = makeSub({ status: 'active', firstFailedAt: undefined });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('past_due'));
+
+    expect(sub.status).toBe('past_due');
+    expect(sub.firstFailedAt).toBeInstanceOf(Date);
+    expect(sub.save).toHaveBeenCalled();
+  });
+
+  it('leaves an existing firstFailedAt untouched when already past_due', async () => {
+    const existing = new Date('2026-07-01T00:00:00Z');
+    const sub = makeSub({ status: 'past_due', firstFailedAt: existing });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('past_due'));
+
+    // No status/clock change — the in-progress grace window must not reset.
+    expect(sub.firstFailedAt).toBe(existing);
   });
 });

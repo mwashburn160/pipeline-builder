@@ -14,6 +14,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgFind = jest.fn();
 const mockOrgFindById = jest.fn();
+const mockOrgFindOne = jest.fn();
 const mockOrgCount = jest.fn();
 const mockUserOrgCount = jest.fn();
 const mockUserOrgAggregate = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
@@ -43,6 +44,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
         alertRules: 5,
         alertDestinations: 5,
         idpConfigs: 1,
+        seats: 1,
       },
     },
     pro: {
@@ -57,6 +59,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
         alertRules: 500,
         alertDestinations: 50,
         idpConfigs: 5,
+        seats: 3,
       },
     },
     enterprise: {
@@ -71,6 +74,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
         alertRules: -1,
         alertDestinations: -1,
         idpConfigs: -1,
+        seats: -1,
       },
     },
   },
@@ -121,6 +125,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     find: (...a: unknown[]) => mockOrgFind(...a),
     findById: (...a: unknown[]) => mockOrgFindById(...a),
+    findOne: (...a: unknown[]) => mockOrgFindOne(...a),
     countDocuments: (...a: unknown[]) => mockOrgCount(...a),
   },
   User: { updateOne: jest.fn() },
@@ -136,7 +141,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { create: jest.fn(), find: jest.fn(), exists: jest.fn(), countDocuments: jest.fn() },
 }));
 
-const { organizationService } = await import('../src/services/organization-service.js');
+const { organizationService, ORG_SLUG_TAKEN } = await import('../src/services/organization-service.js');
 
 
 // Build a chain matching Organization.find(...).populate(...).sort(...).skip(...).limit(...).lean()
@@ -153,6 +158,7 @@ function makeFindChain(rows: unknown[]) {
 beforeEach(() => {
   mockOrgFind.mockReset();
   mockOrgFindById.mockReset();
+  mockOrgFindOne.mockReset();
   mockOrgCount.mockReset();
   mockUserOrgCount.mockReset();
   mockUserOrgAggregate.mockReset();
@@ -297,9 +303,47 @@ describe('organizationService.setTier', () => {
       alertRules: 500,
       alertDestinations: 50,
       idpConfigs: 5,
+      seats: 3,
     });
     expect(org.markModified).toHaveBeenCalledWith('quotas');
     expect(org.save).toHaveBeenCalled();
+  });
+
+  it('preserves a bundle-raised seat cap while lowering non-purchased dims on a tier change', async () => {
+    // Team account carrying a seat_pack bundle: pooled seat cap raised to 15 on
+    // the org doc (team base 10 + 5 purchased). Downgrading the tier to pro must
+    // NOT strand those paid-for seats, but must still reseed the other dims.
+    const org = makeOrgDoc({ _id: 'o1', tier: 'team', quotas: { plugins: 999, seats: 15 } });
+    mockOrgFindById.mockResolvedValue(org);
+
+    const result = await organizationService.setTier('o1', 'pro');
+
+    expect(result?.tier).toBe('pro');
+    // seats preserved (15 > pro base 3) — purchased capacity survives the reseed.
+    expect((org.quotas as { seats: number }).seats).toBe(15);
+    // a non-purchased dim reseeds down to the new tier base (pro plugins = 100).
+    expect((org.quotas as { plugins: number }).plugins).toBe(100);
+    expect(org.markModified).toHaveBeenCalledWith('quotas');
+  });
+
+  it('preserves an unlimited (-1) seat cap across a tier reseed', async () => {
+    const org = makeOrgDoc({ _id: 'o1', tier: 'enterprise', quotas: { plugins: 5, seats: -1 } });
+    mockOrgFindById.mockResolvedValue(org);
+
+    await organizationService.setTier('o1', 'pro');
+    // -1 (unlimited) outranks pro's finite base of 3 → stays unlimited.
+    expect((org.quotas as { seats: number }).seats).toBe(-1);
+    expect((org.quotas as { plugins: number }).plugins).toBe(100);
+  });
+
+  it('reseeds seats to the new tier base when the current cap holds no purchased capacity', async () => {
+    // developer base seats (1), no bundle. Upgrading to pro should take the new
+    // pro base (3) — nothing purchased to preserve.
+    const org = makeOrgDoc({ _id: 'o1', tier: 'developer', quotas: { plugins: 10, seats: 1 } });
+    mockOrgFindById.mockResolvedValue(org);
+
+    await organizationService.setTier('o1', 'pro');
+    expect((org.quotas as { seats: number }).seats).toBe(3);
   });
 
   it('handles transition from no-tier to a real tier', async () => {
@@ -323,6 +367,7 @@ describe('organizationService.setTier', () => {
       alertRules: -1,
       alertDestinations: -1,
       idpConfigs: -1,
+      seats: -1,
     });
   });
 
@@ -339,6 +384,60 @@ describe('organizationService.setTier', () => {
     expect(org.quotas).toEqual({ plugins: 10 });
     expect(org.markModified).not.toHaveBeenCalledWith('quotas');
     expect(org.save).toHaveBeenCalled();
+  });
+});
+
+describe('organizationService.update — self-serve identity (name/slug)', () => {
+  // Mongoose-shaped org doc with a save() spy; slug uniqueness is probed via
+  // Organization.findOne(...).select('_id').lean().
+  function makeOrgDoc(initial: { _id: string; name?: string; slug?: string; description?: string }) {
+    return {
+      _id: initial._id,
+      name: initial.name ?? 'Acme',
+      slug: initial.slug ?? 'acme',
+      description: initial.description ?? '',
+      save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    };
+  }
+  const findOneReturns = (doc: unknown) =>
+    mockOrgFindOne.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(doc) }) });
+
+  it('returns null when the org does not exist', async () => {
+    mockOrgFindById.mockResolvedValue(null);
+    expect(await organizationService.update('missing', { name: 'New' })).toBeNull();
+  });
+
+  it('updates the name and returns the summary', async () => {
+    const org = makeOrgDoc({ _id: 'o1', name: 'Old', slug: 'old' });
+    mockOrgFindById.mockResolvedValue(org);
+
+    const result = await organizationService.update('o1', { name: 'New Name' });
+
+    expect(org.name).toBe('New Name');
+    expect(org.save).toHaveBeenCalled();
+    expect(result).toEqual({ id: 'o1', name: 'New Name', slug: 'old', description: '' });
+  });
+
+  it('sets an explicit slug (normalized) when it is free', async () => {
+    const org = makeOrgDoc({ _id: 'o1', slug: 'old' });
+    mockOrgFindById.mockResolvedValue(org);
+    findOneReturns(null); // no collision
+
+    const result = await organizationService.update('o1', { slug: '  New-Slug  ' });
+
+    expect(mockOrgFindOne).toHaveBeenCalledWith({ slug: 'new-slug', _id: { $ne: 'o1' } });
+    expect(org.slug).toBe('new-slug');
+    expect(org.save).toHaveBeenCalled();
+    expect(result?.slug).toBe('new-slug');
+  });
+
+  it('throws ORG_SLUG_TAKEN when the slug collides with another org', async () => {
+    const org = makeOrgDoc({ _id: 'o1', slug: 'old' });
+    mockOrgFindById.mockResolvedValue(org);
+    findOneReturns({ _id: 'other' }); // collision
+
+    await expect(organizationService.update('o1', { slug: 'taken' })).rejects.toThrow(ORG_SLUG_TAKEN);
+    expect(org.save).not.toHaveBeenCalled();
   });
 });
 

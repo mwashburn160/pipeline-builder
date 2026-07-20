@@ -439,7 +439,7 @@ export type BillingInterval = 'monthly' | 'annual';
 /**
  * Subscription lifecycle status
  */
-export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete';
+export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'unpaid' | 'trialing' | 'incomplete';
 
 /**
  * Plan definition from the billing API
@@ -530,6 +530,16 @@ export interface UsageEntry {
   resetAt: string;
 }
 
+/**
+ * Pooled seat usage for the account (root). `limit === -1` means unlimited.
+ * Sourced from platform (seats aren't a quota type), so it's `null` on the
+ * rollup when that read fails — the rest of the usage view still renders.
+ */
+export interface SeatUsage {
+  used: number;
+  limit: number;
+}
+
 /** Response shape of `GET /api/billing/usage` (cost attribution surface). */
 export interface UsageRollup {
   period: {
@@ -546,6 +556,8 @@ export interface UsageRollup {
     priceCents: number;
   } | null;
   usage: Record<string, UsageEntry>;
+  /** Pooled seat usage for the account. `null` when the platform read failed. */
+  seats: SeatUsage | null;
   cost: {
     subscriptionCents: number;
     currency: 'USD';

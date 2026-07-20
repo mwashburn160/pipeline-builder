@@ -57,6 +57,26 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       team: { label: 'Team', limits: { seats: 10, plugins: 100, pipelines: 200, apiCalls: -1, aiCalls: 10000 } },
       enterprise: { label: 'Enterprise', limits: { seats: 25, plugins: 250, pipelines: 200, apiCalls: -1, aiCalls: 25000 } },
     },
+    // billing-config.ts also derives marketed "included feature" perks from the
+    // enforced entitlement set at import time, so the mock must expose both the
+    // tier→feature map and the label metadata (must mirror the real api-core).
+    TIER_FEATURES: {
+      developer: [],
+      pro: ['priority_support', 'ai_generation', 'bulk_operations'],
+      team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log'],
+      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
+    },
+    FEATURE_METADATA: {
+      priority_support: { label: 'Priority Support', description: '' },
+      ai_generation: { label: 'AI Generation', description: '' },
+      bulk_operations: { label: 'Bulk Operations', description: '' },
+      custom_integrations: { label: 'Custom Integrations', description: '' },
+      audit_log: { label: 'Audit Log', description: '' },
+      sso: { label: 'SSO / IdP', description: '' },
+    },
+    // billing-config.ts derives its `plans` array from VALID_TIERS (in order) so
+    // the plan set stays compile-bound to QuotaTier; the mock must expose it.
+    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     // billing-config.ts validates BILLING_BUNDLE_<ID>_TIERS entries with this.
     isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },

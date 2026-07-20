@@ -14,7 +14,7 @@
  *
  * All defaults match the original hardcoded seed data for backward compatibility.
  */
-import { QUOTA_TIERS, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { BillingConfig, BillingPlanConfig, BundleConfig } from './config-types.js';
 
 /** Per-unit quota deltas for a bundle — keys constrained to real quota fields
@@ -22,9 +22,16 @@ import type { BillingConfig, BillingPlanConfig, BundleConfig } from './config-ty
 type GrantMap = Partial<Record<keyof QuotaTierLimits, number>>;
 
 // -- Default features ---------------------------------------------------------
-// Derived from each tier's EFFECTIVE quota limits so the marketing copy stays
-// honest when limits change (including via QUOTA_TIER_* env overrides). Per-tier
-// perks (support level, dashboards, etc.) are appended.
+// The marketed feature list is built from two derived sources so it can never
+// drift from what the platform actually enforces:
+//   1. LIMIT lines derived from each tier's EFFECTIVE quota limits (QUOTA_TIERS),
+//      so they track QUOTA_TIER_* env overrides.
+//   2. INCLUDED-FEATURE lines derived from the enforced entitlement set
+//      (TIER_FEATURES) via FEATURE_METADATA labels — so an advertised base
+//      feature is always one `requireFeature` actually grants for that tier.
+// Only genuinely non-gated marketing copy (support level, dashboards, RBAC) is
+// hand-authored, passed as `perks`. Purchasable add-ons (sso, audit_log) are NOT
+// listed as base perks here — they are sold as bundles (see loadBundles()).
 
 /** "Up to N plugins" / "Unlimited plugins" from an effective limit (-1 = unlimited). */
 function limitLine(limit: number, singular: string, plural: string): string {
@@ -40,18 +47,19 @@ function defaultFeatures(tier: QuotaTier, perks: string[]): string[] {
     limitLine(l.pipelines, 'pipeline', 'pipelines'),
     limitLine(l.apiCalls, 'API call', 'API calls'),
     limitLine(l.aiCalls, 'AI call', 'AI calls'),
+    // Enforced entitlements → customer-facing labels (single source of truth).
+    ...TIER_FEATURES[tier].map((f) => FEATURE_METADATA[f].label),
     ...perks,
   ];
 }
 
+// Note: `perks` are non-gated marketing lines only. Enforced features (incl.
+// Priority Support for pro/team/enterprise) come from TIER_FEATURES above.
 const DEFAULT_DEVELOPER_FEATURES = defaultFeatures('developer', ['Community support']);
-const DEFAULT_PRO_FEATURES = defaultFeatures('pro', ['Community support', 'Reporting dashboard']);
-const DEFAULT_TEAM_FEATURES = defaultFeatures('team', [
-  'RBAC & team roles', 'SSO / IdP configs', 'Audit log', 'Priority support',
-]);
+const DEFAULT_PRO_FEATURES = defaultFeatures('pro', ['Reporting dashboard']);
+const DEFAULT_TEAM_FEATURES = defaultFeatures('team', ['RBAC & team roles']);
 const DEFAULT_ENTERPRISE_FEATURES = defaultFeatures('enterprise', [
-  'RBAC & team roles', 'SSO / IdP configs', 'Audit log',
-  'Priority support', 'Reporting dashboard', 'Custom integrations',
+  'RBAC & team roles', 'Reporting dashboard',
 ]);
 
 /**
@@ -82,8 +90,13 @@ function parseFeatures(envVar: string | undefined, fallback: string[]): string[]
  * Load billing plan configuration from environment variables.
  */
 export function loadBillingConfig(): BillingConfig {
-  const plans: BillingPlanConfig[] = [
-    {
+  // Keyed by QuotaTier so the compiler forces a plan for EVERY tier — adding a
+  // 5th QuotaTier without a plan here is now a compile error (was a hand-kept
+  // 4-element array that silently shipped no plan/price for a new tier). The
+  // public `config.plans` shape stays an array, derived below in VALID_TIERS
+  // order (developer, pro, team, enterprise) to preserve consumer ordering.
+  const planByTier: Record<QuotaTier, BillingPlanConfig> = {
+    developer: {
       id: 'developer',
       name: process.env.BILLING_PLAN_DEVELOPER_NAME || 'Developer',
       description: process.env.BILLING_PLAN_DEVELOPER_DESCRIPTION
@@ -101,7 +114,7 @@ export function loadBillingConfig(): BillingConfig {
       isDefault: true,
       sortOrder: 0,
     },
-    {
+    pro: {
       id: 'pro',
       name: process.env.BILLING_PLAN_PRO_NAME || 'Pro',
       description: process.env.BILLING_PLAN_PRO_DESCRIPTION
@@ -119,7 +132,7 @@ export function loadBillingConfig(): BillingConfig {
       isDefault: false,
       sortOrder: 1,
     },
-    {
+    team: {
       id: 'team',
       name: process.env.BILLING_PLAN_TEAM_NAME || 'Team',
       description: process.env.BILLING_PLAN_TEAM_DESCRIPTION
@@ -137,7 +150,7 @@ export function loadBillingConfig(): BillingConfig {
       isDefault: false,
       sortOrder: 2,
     },
-    {
+    enterprise: {
       id: 'enterprise',
       name: process.env.BILLING_PLAN_ENTERPRISE_NAME || 'Enterprise',
       description: process.env.BILLING_PLAN_ENTERPRISE_DESCRIPTION
@@ -155,7 +168,10 @@ export function loadBillingConfig(): BillingConfig {
       isDefault: false,
       sortOrder: 3,
     },
-  ];
+  };
+
+  // Derive the array consumers read (`config.plans`) in canonical tier order.
+  const plans: BillingPlanConfig[] = VALID_TIERS.map((tier) => planByTier[tier]);
 
   return { plans, bundles: loadBundles() };
 }
@@ -248,6 +264,7 @@ function loadBundles(): BundleConfig[] {
     b('ai_pack', 'AI Pack (+5k)', '5,000 additional AI calls / period', { aiCalls: 5000 }, 3000, ALL, 4),
     b('storage_pack', 'Storage Pack (+50 GB)', '50 GB additional registry storage', { storageBytes: 50 * BUNDLE_GB }, 1000, ALL, 5),
     b('audit_log', 'Audit Log', 'Audit log capability', {}, 2000, ['pro'], 6, { features: ['audit_log'], stackable: false }),
-    b('sso', 'SSO / IdP', 'SSO + up to 5 IdP configs', { idpConfigs: 5 }, 4000, ['pro', 'team'], 7, { features: ['sso'], stackable: false }),
+    // SSO is INCLUDED in Team (see TIER_FEATURES.team), so the add-on is Pro-only.
+    b('sso', 'SSO / IdP', 'SSO + up to 5 IdP configs', { idpConfigs: 5 }, 4000, ['pro'], 7, { features: ['sso'], stackable: false }),
   ];
 }

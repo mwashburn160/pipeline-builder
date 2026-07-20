@@ -23,6 +23,9 @@ import { escapeRegex } from '../utils/regex.js';
 /** Typed error codes thrown by service methods  map to HTTP status in withController. */
 export const ORG_NOT_FOUND = 'ORG_NOT_FOUND';
 export const SYSTEM_ORG_DELETE_FORBIDDEN = 'SYSTEM_ORG_DELETE_FORBIDDEN';
+/** Thrown by {@link OrganizationService.update} when an explicit slug collides
+ *  with another org. Mapped to 409 in the controller. */
+export const ORG_SLUG_TAKEN = 'ORG_SLUG_TAKEN';
 // Re-exported from organization-ai-secrets.js to preserve the module's public API.
 export { ORG_AI_KEY_TOO_LONG };
 
@@ -52,6 +55,14 @@ interface OrgSummary {
   /** Parent org's display name, when resolvable — for hierarchy display in the
    *  admin list. Absent for root orgs or when the parent is missing. */
   parentOrgName?: string;
+  /** True when the org is SOFT-DELETED (in its retention window, pending purge).
+   *  Surfaced so sysadmins can see + restore it from the org list — soft-deleted
+   *  orgs are deliberately NOT hidden from the sysadmin listing. */
+  pendingDeletion: boolean;
+  /** When the org was soft-deleted (present only while `pendingDeletion`). */
+  deletedAt?: Date;
+  /** When the purge sweep may hard-delete it (present only while `pendingDeletion`). */
+  purgeAfter?: Date;
 }
 
 interface ListParams {
@@ -89,6 +100,9 @@ interface CreateOrgInput {
 interface UpdateOrgInput {
   name?: string;
   description?: string;
+  /** Explicit URL slug (self-serve identity edit). When present it wins over
+   *  the model's name-derived auto-slug; uniqueness is enforced here. */
+  slug?: string;
 }
 
 class OrganizationService {
@@ -163,6 +177,11 @@ class OrganizationService {
           idpConfigured: idpSet.has(org._id.toString()),
           parentOrgId,
           ...(parentOrgName && { parentOrgName }),
+          // Surface the pending-deletion state so sysadmins can see + restore a
+          // soft-deleted org from the list (they are NOT filtered out here).
+          pendingDeletion: Boolean(org.deletedAt),
+          ...(org.deletedAt ? { deletedAt: org.deletedAt } : {}),
+          ...(org.purgeAfter ? { purgeAfter: org.purgeAfter } : {}),
         };
       }),
       total,
@@ -319,6 +338,9 @@ class OrganizationService {
       parentOrgId: parentOrgId ? String(parentOrgId) : null,
       isTeam,
       rootOrgId,
+      pendingDeletion: Boolean(org.deletedAt),
+      ...(org.deletedAt ? { deletedAt: org.deletedAt } : {}),
+      ...(org.purgeAfter ? { purgeAfter: org.purgeAfter } : {}),
     };
   }
 
@@ -344,13 +366,36 @@ class OrganizationService {
     return setTier(id, newTier);
   }
 
-  /** Update name/description. Returns null if not found. */
+  /**
+   * Update name/description and/or slug. Returns null if not found; throws
+   * {@link ORG_SLUG_TAKEN} when an explicit slug collides with another org.
+   *
+   * An explicit `slug` is normalized (lower/trim), checked for uniqueness
+   * (excluding self), then set directly. Because the model's pre-validate hook
+   * regenerates the slug from `name` whenever `name` changes, an explicitly
+   * modified slug takes precedence there (the hook short-circuits on a dirty
+   * `slug`) so a simultaneous name+slug edit keeps the caller's slug.
+   */
   async update(id: string, body: UpdateOrgInput): Promise<{ id: string; name: string; slug: string; description: string } | null> {
     const org = await Organization.findById(toOrgId(id));
-    if (!org) return null;
+    // A soft-deleted org is being torn down — refuse mutations against it
+    // (treat as not-found). The token chokepoint already cuts off its members;
+    // this is defense-in-depth for the mutation lookups.
+    if (!org || org.deletedAt) return null;
 
     if (body.name !== undefined) org.name = body.name;
     if (body.description !== undefined) org.description = body.description;
+    if (body.slug !== undefined) {
+      const nextSlug = body.slug.trim().toLowerCase();
+      // Pre-empt the unique-index race with a clear typed error (the index is
+      // still the source of truth; handleControllerError maps any E11000 that
+      // slips through concurrently).
+      const clash = await Organization.findOne({ slug: nextSlug, _id: { $ne: org._id } })
+        .select('_id')
+        .lean();
+      if (clash) throw new Error(ORG_SLUG_TAKEN);
+      org.slug = nextSlug;
+    }
     await org.save();
 
     return {
@@ -396,6 +441,35 @@ class OrganizationService {
   }
 
   /**
+   * RESTORE a soft-deleted org within its retention window: clear the
+   * `deletedAt`/`purgeAfter` tombstone and bump every active member's
+   * `tokenVersion` so a re-issued token resolves the org as live again (the
+   * token chokepoint keyed on `deletedAt`, so it needs the org un-tombstoned AND
+   * fresh tokens). Idempotent-safe: returns null when there is no soft-deleted
+   * org with this id (already purged, never deleted, or unknown) so the
+   * controller can 404 — a purged org is gone and cannot be restored.
+   */
+  async restore(id: string): Promise<{ id: string; name: string; membersInvalidated: number } | null> {
+    return withMongoTransaction(async (session) => {
+      const org = await Organization.findOne({ _id: toOrgId(id), deletedAt: { $ne: null } }).session(session);
+      if (!org) return null;
+
+      org.deletedAt = null;
+      org.purgeAfter = null;
+      await org.save({ session });
+
+      const memberships = await UserOrganization.find({ organizationId: toOrgId(id), isActive: true })
+        .select('userId').session(session).lean();
+      const userIds = memberships.map((m) => m.userId);
+      if (userIds.length > 0) {
+        await User.updateMany({ _id: { $in: userIds } }, { $inc: { tokenVersion: 1 } }).session(session);
+      }
+
+      return { id: org._id.toString(), name: org.name, membersInvalidated: userIds.length };
+    });
+  }
+
+  /**
    * Fetch quota usage/limits per type from the quota microservice — see
    * {@link getQuotas} in organization-quota.js. Delegates; signature unchanged.
    */
@@ -431,7 +505,8 @@ class OrganizationService {
    */
   async updateAIConfig(orgId: string, body: Record<string, unknown>): Promise<Record<string, { configured: boolean; hint?: string }> | null> {
     const org = await Organization.findById(toOrgId(orgId));
-    if (!org) return null;
+    // Refuse writes against a soft-deleted org (treat as not-found).
+    if (!org || org.deletedAt) return null;
 
     if (!org.aiProviderKeys) org.aiProviderKeys = {};
 

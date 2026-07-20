@@ -54,6 +54,12 @@ jest.unstable_mockModule('mongoose', () => {
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
+// user-admin now imports the Organization model + toOrgId (to source an org's
+// purchased feature entitlements for the get/update-features responses). Not
+// exercised by bulk-delete, but the import must resolve.
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
+jest.unstable_mockModule('../src/models/index.js', () => ({ Organization: { findById: jest.fn() } }));
+
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
 jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: jest.fn() }));

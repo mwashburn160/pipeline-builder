@@ -120,6 +120,48 @@ class AuthService {
   }
 
   /**
+   * Persist the durable "paid-signup billing bootstrap still pending" marker on
+   * an org (see Organization.pendingBillingPlanId). Called when the fire-and-forget
+   * billing subscription couldn't be provisioned at signup, so the reconcile pass
+   * retries it later — the paid-plan intent is never silently lost.
+   *
+   * `pendingBillingSince` is stamped only on the FIRST set (retries preserve the
+   * original marker age) via `$setOnInsert`-style guard: we only set it when the
+   * field is absent. Idempotent — re-marking an already-marked org just refreshes
+   * the planId.
+   */
+  async setPendingBillingPlan(orgId: string, planId: string): Promise<void> {
+    await Organization.updateOne(
+      { _id: toOrgId(orgId) },
+      [{
+        $set: {
+          pendingBillingPlanId: planId,
+          pendingBillingSince: { $ifNull: ['$pendingBillingSince', '$$NOW'] },
+        },
+      }],
+    );
+  }
+
+  /** Clear the pending-billing marker after billing provisions the subscription. */
+  async clearPendingBillingPlan(orgId: string): Promise<void> {
+    await Organization.updateOne(
+      { _id: toOrgId(orgId) },
+      { $unset: { pendingBillingPlanId: '', pendingBillingSince: '' } },
+    );
+  }
+
+  /**
+   * List orgs carrying a pending-billing marker (for the reconcile pass). Sparse
+   * lookup against the `pendingBillingPlanId` index — empty on the common no-op.
+   */
+  async listPendingBillingOrgs(): Promise<Array<{ orgId: string; planId: string }>> {
+    const orgs = await Organization.find({ pendingBillingPlanId: { $exists: true, $ne: null } })
+      .select('_id pendingBillingPlanId')
+      .lean();
+    return orgs.map((o) => ({ orgId: String(o._id), planId: String(o.pendingBillingPlanId) }));
+  }
+
+  /**
    * Resolve a User by email-or-username + verify the password.
    * Returns null on no-match or wrong password (controller responds 401).
    */

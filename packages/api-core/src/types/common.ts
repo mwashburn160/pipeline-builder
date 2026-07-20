@@ -215,7 +215,8 @@ export interface JwtPayload {
    * Org → team hierarchy (org-team-hierarchy proposal, phase 1).
    * `parentOrganizationId` is the active org's direct parent; `rootOrganizationId`
    * is the top of its ancestry chain. Both are **omitted for flat (root) orgs** —
-   * consumers should treat the effective root as `rootOrganizationId ?? organizationId`.
+   * consumers should treat the effective root as `rootOrganizationId ?? organizationId`
+   * (use the shared {@link effectiveRootOrgId} accessor rather than coalescing inline).
    * Currently every org is flat, so these are absent on all tokens today.
    */
   parentOrganizationId?: string;
@@ -239,6 +240,24 @@ export interface JwtPayload {
   iat?: number;
   /** Expiration timestamp */
   exp?: number;
+}
+
+/**
+ * The account boundary (root org) for a token's active org.
+ *
+ * The account root is `rootOrganizationId ?? organizationId`: a flat (root) org
+ * omits `rootOrganizationId`, so it IS its own root; a team (child) org carries
+ * the top of its ancestry chain. Every account-scoped read (quota/seat/billing
+ * pooling) must resolve through this coalesce rather than reading
+ * `organizationId` directly — the latter silently works today (all orgs flat)
+ * but would bind to the team instead of the account once teams exist.
+ *
+ * @returns the effective root org id, or `undefined` when neither field is set.
+ */
+export function effectiveRootOrgId(
+  payload: Pick<JwtPayload, 'organizationId' | 'rootOrganizationId'>,
+): string | undefined {
+  return payload.rootOrganizationId ?? payload.organizationId;
 }
 
 /**

@@ -57,6 +57,19 @@ export interface AppConfig {
   /** Interval in ms for the subscription lifecycle checker (default 1 hour). */
   lifecycleCheckIntervalMs: number;
   /**
+   * Max ACTIVE subscriptions the entitlement-drift reconciler scans per tick.
+   * Bounds the low-frequency drift pass so a large customer base is amortized
+   * across ticks rather than hammered every run (default 100).
+   */
+  entitlementDriftMaxPerTick: number;
+  /**
+   * Minimum interval (ms) before an already-reconciled subscription is
+   * drift-checked again. Combined with the per-tick cap, this ~daily gate
+   * ensures every sub is checked at most about once per this window
+   * (default 24h).
+   */
+  entitlementDriftIntervalMs: number;
+  /**
    * Whether the AWS Marketplace add-on metering job runs (BatchMeterUsage). Off
    * by default — enable only once the listing's metered dimensions are
    * registered and `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` matches them.
@@ -112,6 +125,8 @@ export const config: AppConfig = {
   paymentGracePeriodDays: parseInt(process.env.PAYMENT_GRACE_PERIOD_DAYS || '7', 10),
   renewalReminderDays: parseInt(process.env.RENEWAL_REMINDER_DAYS || '7', 10),
   lifecycleCheckIntervalMs: parseInt(process.env.BILLING_LIFECYCLE_CHECK_INTERVAL_MS || '3600000', 10),
+  entitlementDriftMaxPerTick: parseInt(process.env.BILLING_ENTITLEMENT_DRIFT_MAX_PER_TICK || '100', 10),
+  entitlementDriftIntervalMs: parseInt(process.env.BILLING_ENTITLEMENT_DRIFT_INTERVAL_MS || '86400000', 10),
   meteringEnabled: (process.env.BILLING_METERING_ENABLED || '').toLowerCase() === 'true',
   meteringIntervalMs: parseInt(process.env.BILLING_METERING_INTERVAL_MS || '3600000', 10),
   frontendUrl: process.env.PLATFORM_FRONTEND_URL || '',

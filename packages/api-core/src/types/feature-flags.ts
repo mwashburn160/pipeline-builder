@@ -35,9 +35,9 @@ export function isValidFeatureFlag(value: string): value is FeatureFlag {
 export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   developer: [],
   pro: ['priority_support', 'ai_generation', 'bulk_operations'],
-  // Team adds audit_log (collaboration/governance); Enterprise unlocks all,
-  // including custom_integrations.
-  team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log'],
+  // Team adds audit_log (collaboration/governance) and sso (SSO/IdP is INCLUDED
+  // in Team, not an add-on); Enterprise unlocks all, incl. custom_integrations.
+  team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
   enterprise: [...ALL_FEATURE_FLAGS],
 };
 
@@ -82,16 +82,24 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
  * 4. Invalid override keys are silently ignored.
  *
  * @param tier - The organization's quota tier
- * @param featureOverrides - Per-user overrides (key = feature flag, value = enabled)
- * @param isSuperAdmin - Whether the user has the global super-admin flag
+ * @param opts - Resolution options:
+ *   - `overrides`: per-user overrides (key = feature flag, value = enabled)
+ *   - `isSuperAdmin`: whether the user has the global super-admin flag
+ *   - `accountFeatures`: account-level entitlements (e.g. purchased add-on
+ *     bundles). A NAMED field so it can never be silently dropped by a caller
+ *     that omits a trailing positional arg.
  * @returns Sorted array of enabled feature flags
  */
 export function resolveUserFeatures(
   tier: QuotaTier,
-  featureOverrides?: Record<string, boolean> | null,
-  isSuperAdmin?: boolean,
-  accountFeatures?: readonly string[] | null,
+  opts?: {
+    overrides?: Record<string, boolean> | null;
+    isSuperAdmin?: boolean;
+    accountFeatures?: readonly string[] | null;
+  },
 ): FeatureFlag[] {
+  const { overrides: featureOverrides, isSuperAdmin, accountFeatures } = opts ?? {};
+
   // Sysadmins get everything regardless of tier.
   if (isSuperAdmin) return [...ALL_FEATURE_FLAGS];
 
@@ -141,5 +149,5 @@ export function hasFeature(
   isSuperAdmin?: boolean,
   accountFeatures?: readonly string[] | null,
 ): boolean {
-  return resolveUserFeatures(tier, featureOverrides, isSuperAdmin, accountFeatures).includes(feature);
+  return resolveUserFeatures(tier, { overrides: featureOverrides, isSuperAdmin, accountFeatures }).includes(feature);
 }

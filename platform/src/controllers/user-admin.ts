@@ -9,6 +9,8 @@ import type { OrgSummary, OrgMembership } from './user-profile.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { requireAdminContext, withController } from '../helpers/controller-helper.js';
+import { toOrgId } from '../helpers/org-id.js';
+import { Organization } from '../models/index.js';
 import {
   userAdminService,
   UA_USER_NOT_FOUND,
@@ -24,6 +26,21 @@ import {
 import { adminCreateUserSchema, adminUpdateUserSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('user-admin-controller');
+
+/**
+ * Fetch an org's account-level purchased feature entitlements (add-on
+ * bundles, e.g. `sso`/`audit_log`). Sourced the same way `utils/token.ts`
+ * sources them for the real access token — off the membership's org
+ * `featureEntitlements` — so admin-facing feature resolution matches the
+ * feature set the user's own token actually carries. Returns undefined for a
+ * missing org id / org so callers pass `undefined` through to
+ * {@link resolveUserFeatures}'s optional `accountFeatures` field unchanged.
+ */
+async function orgFeatureEntitlements(orgId: string | undefined): Promise<string[] | undefined> {
+  if (!orgId) return undefined;
+  const org = await Organization.findById(toOrgId(orgId)).select('featureEntitlements').lean();
+  return (org as { featureEntitlements?: string[] } | null)?.featureEntitlements;
+}
 
 const adminErrorMap = {
   [UA_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
@@ -135,7 +152,11 @@ export const getUserById = withController('Get user', async (req, res) => {
   }
 
   const overrides = toOverridesRecord(user.featureOverrides as Map<string, boolean> | undefined);
-  const features = resolveUserFeatures(tier, overrides, (user as { isSuperAdmin?: boolean }).isSuperAdmin === true);
+  // Pass the active org's purchased account entitlements as the 4th arg so
+  // purchased features (sso/audit_log) are reflected — mirrors token.ts and
+  // keeps the admin view in lockstep with the user's real token.
+  const accountFeatures = await orgFeatureEntitlements(activeOrgId);
+  const features = resolveUserFeatures(tier, { overrides, isSuperAdmin: (user as { isSuperAdmin?: boolean }).isSuperAdmin === true, accountFeatures });
 
   sendSuccess(res, 200, {
     user: formatUserResponse(toUserResponseInput(user), {
@@ -345,10 +366,19 @@ export const updateUserFeatures = withController('Update user features', async (
     id as string, overrides as Record<string, boolean>,
   );
 
+  // Include the active org's purchased account entitlements (accountFeatures) so the
+  // updated-features response reflects sso/audit_log the same way the user's
+  // real token does — see token.ts.
+  const accountFeatures = await orgFeatureEntitlements(
+    (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString(),
+  );
   const features = resolveUserFeatures(
     (orgTier as QuotaTier) || 'developer',
-    overrides as Record<string, boolean>,
-    (user as { isSuperAdmin?: boolean }).isSuperAdmin === true,
+    {
+      overrides: overrides as Record<string, boolean>,
+      isSuperAdmin: (user as { isSuperAdmin?: boolean }).isSuperAdmin === true,
+      accountFeatures,
+    },
   );
 
   logger.info('Update user features', { id, admin: admin.adminType, by: req.user!.sub });

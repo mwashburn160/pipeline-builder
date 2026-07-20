@@ -14,7 +14,12 @@ import { UsageCard } from '@/components/billing/UsageCard';
 import { PlanGrid } from '@/components/billing/PlanGrid';
 import { AddonGrid } from '@/components/billing/AddonGrid';
 import { AddonPreviewModal } from '@/components/billing/AddonPreviewModal';
+import { PlanChangeModal } from '@/components/billing/PlanChangeModal';
 import { BillingHistory } from '@/components/billing/BillingHistory';
+
+// Plan hierarchy (low → high). Used to detect a downgrade so the confirm dialog
+// can warn that caps/features may drop.
+const PLAN_RANK = ['developer', 'pro', 'team', 'enterprise'];
 
 // ---------------------------------------------------------------------------
 // Page
@@ -106,13 +111,30 @@ export default function BillingPage() {
     if (user) fetchData();
   }, [user, fetchData]);
 
-  const handleSubscribe = async (planId: string) => {
+  // A proposed plan switch, held while the user confirms. Unlike add-ons there's
+  // no proration-preview endpoint, so this is a plain confirm (with a downgrade
+  // warning). A brand-new subscription skips the modal — nothing to change yet.
+  const [pendingPlan, setPendingPlan] = useState<Plan | null>(null);
+
+  /** Entry point from the plan grid. Existing subscription → confirm first;
+   *  first-time signup → subscribe straight away. */
+  const requestPlanChange = (planId: string) => {
+    const plan = plans.find((p) => p.id === planId);
+    if (subscription && plan) {
+      setPendingPlan(plan);
+    } else {
+      void doSubscribe(planId);
+    }
+  };
+
+  const doSubscribe = async (planId: string) => {
     setActionLoading(true);
     try {
       if (subscription) {
         const res = await api.changeSubscription(subscription.id, { planId, interval: billingInterval });
         if (res.success) {
           toast.success('Plan changed successfully');
+          setPendingPlan(null);
           await fetchData();
         }
       } else {
@@ -250,8 +272,10 @@ export default function BillingPage() {
             subscription={subscription}
             canChangePlan={canChangePlan}
             actionLoading={actionLoading}
+            portalLoading={portalLoading}
             onReactivate={handleReactivate}
             onCancel={handleCancel}
+            onManageBilling={openBillingPortal}
           />
         )}
 
@@ -293,7 +317,7 @@ export default function BillingPage() {
           billingInterval={billingInterval}
           actionLoading={actionLoading}
           canChangePlan={canChangePlan}
-          onSubscribe={handleSubscribe}
+          onSubscribe={requestPlanChange}
         />
 
         {!canChangePlan && (          <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
@@ -315,6 +339,20 @@ export default function BillingPage() {
             previewLoading={previewLoading}
             addonQty={addonQty}
             requestAddonChange={requestAddonChange}
+          />
+        )}
+
+        {/* Confirm a plan switch before it commits (parity with add-ons, which
+            get a preview + confirm). A downgrade shows a caps/features warning. */}
+        {pendingPlan && subscription && (
+          <PlanChangeModal
+            targetPlan={pendingPlan}
+            currentPlanName={subscription.planName || subscription.planId}
+            interval={billingInterval}
+            isDowngrade={PLAN_RANK.indexOf(pendingPlan.id) < PLAN_RANK.indexOf(subscription.planId)}
+            loading={actionLoading}
+            onConfirm={() => void doSubscribe(pendingPlan.id)}
+            onClose={() => { if (!actionLoading) setPendingPlan(null); }}
           />
         )}
 

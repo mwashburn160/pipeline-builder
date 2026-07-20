@@ -3,7 +3,7 @@
 
 export { auditService } from './audit-service.js';
 export type { AuditFilter, AuditCreateInput, PaginatedAuditResult } from './audit-service.js';
-export { organizationService, ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_AI_KEY_TOO_LONG } from './organization-service.js';
+export { organizationService, ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG } from './organization-service.js';
 export { authService, DUPLICATE_CREDENTIALS } from './auth-service.js';
 export { userProfileService, PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, PROFILE_OWNER_HAS_ORGS } from './user-profile-service.js';
 export { userAdminService, UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_OWNER_HAS_ORGS, UA_ORG_NOT_FOUND, UA_SEAT_LIMIT, UA_CANNOT_CHANGE_OWNER, UA_ROLES_NEED_ORG } from './user-admin-service.js';

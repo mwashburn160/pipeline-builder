@@ -13,3 +13,5 @@ export { default as AuditEvent } from './audit-event.js';
 export type { AuditEventDocument, AuditAction } from './audit-event.js';
 export { default as OrgIdpConfig } from './org-idp-config.js';
 export type { OrgIdpConfigDocument } from './org-idp-config.js';
+export { default as DeletedOrgSnapshot } from './deleted-org-snapshot.js';
+export type { DeletedOrgSnapshotDocument } from './deleted-org-snapshot.js';

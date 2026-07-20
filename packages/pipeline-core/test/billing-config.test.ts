@@ -1,9 +1,26 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { VALID_TIERS } from '@pipeline-builder/api-core';
 import { loadBillingConfig } from '../src/config/billing-config.js';
 
 describe('loadBillingConfig', () => {
+  it('provides a plan for every QuotaTier', () => {
+    const { plans } = loadBillingConfig();
+    // The plan set is compile-bound to QuotaTier (Record<QuotaTier, …>), so this
+    // guards the runtime shape: exactly one plan per tier, none missing/extra.
+    const tiersWithPlans = plans.map((p) => p.tier).sort();
+    expect(tiersWithPlans).toEqual([...VALID_TIERS].sort());
+    for (const tier of VALID_TIERS) {
+      expect(plans.filter((p) => p.tier === tier)).toHaveLength(1);
+    }
+  });
+
+  it('emits plans in canonical tier order', () => {
+    const { plans } = loadBillingConfig();
+    expect(plans.map((p) => p.tier)).toEqual([...VALID_TIERS]);
+  });
+
   const originalEnv = process.env;
 
   beforeEach(() => {
@@ -109,8 +126,18 @@ describe('loadBillingConfig', () => {
 
     expect(developer.features).toContain('Community support');
     expect(pro.features).toContain('Reporting dashboard');
-    expect(team.features).toContain('Audit log');
-    expect(enterprise.features).toContain('Custom integrations');
+    // Feature-flag-backed perks are derived from FEATURE_METADATA labels.
+    expect(team.features).toContain('Audit Log');
+    expect(enterprise.features).toContain('Custom Integrations');
+    // Pro now advertises its enforced Priority Support entitlement (was wrongly
+    // marketed as 'Community support' while TIER_FEATURES.pro grants priority_support).
+    expect(pro.features).toContain('Priority Support');
+    expect(pro.features).not.toContain('Community support');
+    // SSO is INCLUDED in Team (TIER_FEATURES.team grants `sso`), so Team markets it
+    // (derived from FEATURE_METADATA.sso.label). The Pro tier does NOT — SSO is a
+    // Pro-only add-on bundle there.
+    expect(team.features).toContain('SSO / IdP');
+    expect(pro.features).not.toContain('SSO / IdP');
   });
 
   it('derives seat lines from tier limits', () => {

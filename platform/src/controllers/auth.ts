@@ -6,33 +6,24 @@ import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
+import { provisionBillingSubscription } from '../services/billing-provision.js';
 import { authService, DUPLICATE_CREDENTIALS } from '../services/index.js';
 import { issueTokens } from '../utils/token.js';
 import { validateBody, registerSchema, loginSchema, refreshSchema } from '../utils/validation.js';
 
 const logger = createLogger('auth-controller');
 
-/** Create a billing service subscription for a new organization (fire-and-forget). */
+/**
+ * Create a billing service subscription for a new organization (fire-and-forget).
+ *
+ * Delegates to {@link provisionBillingSubscription}, which retries with short
+ * backoff and — if billing is still unreachable — persists a DURABLE marker on
+ * the org so the reconcile pass provisions it later. This closes the old
+ * fail-open gap where a paid-plan signup during a billing outage stayed
+ * silently developer-tier with no subscription and nothing ever retried it.
+ */
 async function createBillingSubscription(orgId: string, planId: string): Promise<void> {
-  try {
-    const client = createSafeClient({
-      host: config.billing.serviceHost,
-      port: config.billing.servicePort,
-      timeout: config.billing.serviceTimeout,
-    });
-
-    await client.post('/billing/subscriptions', { planId, interval: 'monthly' }, {
-      headers: {
-        'x-org-id': orgId,
-        'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' }),
-      },
-    });
-
-    logger.info('Billing subscription created for new org', { orgId, planId });
-  } catch (error) {
-    // Fail-open: don't block registration if billing is unavailable
-    logger.warn('Failed to create billing subscription (non-blocking)', { orgId, planId, error });
-  }
+  await provisionBillingSubscription(orgId, planId);
 }
 
 /** Auto-subscribe a new org to all published compliance rules (inactive, fire-and-forget). */

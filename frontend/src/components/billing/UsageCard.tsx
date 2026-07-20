@@ -47,6 +47,35 @@ export function UsageCard({ rollup }: { rollup: UsageRollup }) {
       </div>
 
       <div className="space-y-3">
+        {/* Seats — pooled across the account (root). Not a quota type, so it's
+            sourced separately and may be absent (`null`) when the platform read
+            failed; the rest of the consumables still render. `limit === -1`
+            means unlimited. */}
+        {rollup.seats && (() => {
+          const { used, limit } = rollup.seats;
+          const isUnlimited = limit < 0;
+          const percent = isUnlimited ? null : (limit === 0 ? 100 : Math.min(100, Math.round((used / limit) * 100)));
+          const barColor = isUnlimited
+            ? 'bg-gray-300 dark:bg-gray-600'
+            : barStyles[statusInfo(used, limit).color];
+          return (
+            <div>
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="font-medium text-gray-900 dark:text-gray-100">Seats</span>
+                <span className="text-gray-500 dark:text-gray-400">
+                  {used.toLocaleString()} / {isUnlimited ? 'Unlimited' : limit.toLocaleString()}
+                  {percent !== null && <span className="ml-2">({percent}%)</span>}
+                </span>
+              </div>
+              <div className="mt-1 h-2 w-full bg-gray-200 dark:bg-gray-700 rounded overflow-hidden">
+                <div
+                  className={`h-2 rounded ${barColor}`}
+                  style={{ width: `${isUnlimited ? 0 : percent ?? 0}%` }}
+                />
+              </div>
+            </div>
+          );
+        })()}
         {Object.entries(rollup.usage).map(([key, entry]) => {
           const cfg = QUOTA_LABELS[key] ?? { label: key };
           const isBytes = cfg.unit === 'bytes';

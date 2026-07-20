@@ -119,6 +119,9 @@ export class AWSMarketplaceProvider implements PaymentProvider {
     return {
       externalId: `aws_sub_${customerId}`,
       externalCustomerId: customerId,
+      // We only reach here after confirming an active AWS Marketplace
+      // entitlement, so the subscription is entitlement-worthy immediately.
+      status: 'active',
     };
   }
 
@@ -131,11 +134,13 @@ export class AWSMarketplaceProvider implements PaymentProvider {
   }
 
   /**
-   * No-op — plan changes are driven by SNS notifications from AWS Marketplace.
+   * No-op — plan/interval changes are driven by SNS notifications from AWS
+   * Marketplace (entitlements are the source of truth). Accepts `interval` to
+   * satisfy the shared PaymentProvider contract, but never pushes it.
    * @see https://docs.aws.amazon.com/marketplace/latest/userguide/saas-notification.html
    */
-  async updateSubscription(externalId: string, planId: string): Promise<void> {
-    logger.debug('AWS Marketplace: updateSubscription handled via SNS', { externalId, planId });
+  async updateSubscription(externalId: string, planId: string, interval: BillingInterval): Promise<void> {
+    logger.debug('AWS Marketplace: updateSubscription handled via SNS', { externalId, planId, interval });
   }
 
   /**

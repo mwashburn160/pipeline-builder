@@ -90,13 +90,13 @@ describe('isValidFeatureFlag', () => {
 
 describe('resolveUserFeatures', () => {
   it('unions account-level feature entitlements (purchased bundles)', () => {
-    const features = resolveUserFeatures('developer', undefined, false, ['audit_log', 'not_a_flag']);
+    const features = resolveUserFeatures('developer', { accountFeatures: ['audit_log', 'not_a_flag'] });
     expect(features).toContain('audit_log'); // granted by an account bundle
     expect(features).not.toContain('not_a_flag'); // invalid flag ignored
   });
 
   it('a per-user override can still disable an account-entitled feature', () => {
-    const features = resolveUserFeatures('developer', { audit_log: false }, false, ['audit_log']);
+    const features = resolveUserFeatures('developer', { overrides: { audit_log: false }, accountFeatures: ['audit_log'] });
     expect(features).not.toContain('audit_log');
   });
 
@@ -120,33 +120,35 @@ describe('resolveUserFeatures', () => {
   });
 
   it('system org always gets all features regardless of tier', () => {
-    const features = resolveUserFeatures('developer', undefined, true);
+    const features = resolveUserFeatures('developer', { isSuperAdmin: true });
     expect(features).toHaveLength(ALL_FEATURE_FLAGS.length);
     expect(features).toEqual([...ALL_FEATURE_FLAGS]);
   });
 
   it('system org ignores overrides', () => {
-    const features = resolveUserFeatures('developer', { ai_generation: false }, true);
+    const features = resolveUserFeatures('developer', { overrides: { ai_generation: false }, isSuperAdmin: true });
     expect(features).toEqual([...ALL_FEATURE_FLAGS]);
   });
 
   it('override true adds a feature to the tier', () => {
-    const features = resolveUserFeatures('pro', { audit_log: true });
+    const features = resolveUserFeatures('pro', { overrides: { audit_log: true } });
     expect(features).toContain('audit_log');
     expect(features).toHaveLength(4);
   });
 
   it('override false removes a feature from the tier', () => {
-    const features = resolveUserFeatures('pro', { priority_support: false });
+    const features = resolveUserFeatures('pro', { overrides: { priority_support: false } });
     expect(features).not.toContain('priority_support');
     expect(features).toHaveLength(2);
   });
 
   it('multiple overrides are applied correctly', () => {
     const features = resolveUserFeatures('pro', {
-      priority_support: false,
-      audit_log: true,
-      custom_integrations: true,
+      overrides: {
+        priority_support: false,
+        audit_log: true,
+        custom_integrations: true,
+      },
     });
     expect(features).not.toContain('priority_support');
     expect(features).toContain('audit_log');
@@ -155,30 +157,32 @@ describe('resolveUserFeatures', () => {
   });
 
   it('invalid override keys are silently ignored', () => {
-    const features = resolveUserFeatures('developer', { not_a_flag: true } as Record<string, boolean>);
+    const features = resolveUserFeatures('developer', { overrides: { not_a_flag: true } as Record<string, boolean> });
     expect(features).toEqual([]);
   });
 
   it('null overrides are treated as no overrides', () => {
-    const features = resolveUserFeatures('pro', null);
+    const features = resolveUserFeatures('pro', { overrides: null });
     expect(features).toHaveLength(3);
   });
 
   it('returns features in canonical order', () => {
     const features = resolveUserFeatures('developer', {
-      audit_log: true,
-      ai_generation: true,
+      overrides: {
+        audit_log: true,
+        ai_generation: true,
+      },
     });
     expect(features.indexOf('ai_generation')).toBeLessThan(features.indexOf('audit_log'));
   });
 
   it('adding an already-included feature via override is a no-op', () => {
-    const features = resolveUserFeatures('pro', { ai_generation: true });
+    const features = resolveUserFeatures('pro', { overrides: { ai_generation: true } });
     expect(features).toHaveLength(3); // unchanged
   });
 
   it('removing a feature not in the tier via override is a no-op', () => {
-    const features = resolveUserFeatures('developer', { audit_log: false });
+    const features = resolveUserFeatures('developer', { overrides: { audit_log: false } });
     expect(features).toEqual([]);
   });
 });

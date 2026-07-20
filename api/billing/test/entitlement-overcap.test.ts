@@ -38,13 +38,19 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: jest.fn() }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const get = (section: string) => {
     if (section === 'server') return { services: { billingTimeout: 5000 } };
     return {}; // 'billing' → no bundles ⇒ empty catalog ⇒ effective = base tier limits
   };
+  // effectiveEntitlements now lives in pipeline-core; pull in the REAL leaf impl
+  // (depends only on the mocked api-core getTierLimits, so base caps stay 10/50/5).
+  const { effectiveEntitlements } = await import(
+    '@pipeline-builder/pipeline-core/lib/config/entitlements.js'
+  );
   return {
     Config: { get, getAny: get },
+    effectiveEntitlements,
     CoreConstants: { IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000, IDEMPOTENCY_TTL_MS: 300_000, IDEMPOTENCY_MAX_STORE_SIZE: 10_000 },
   };
 });

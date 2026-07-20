@@ -3,6 +3,7 @@
 
 import {
   shouldShowOnboarding,
+  isFreshAccount,
   buildSteps,
   completedCount,
   dismissKey,
@@ -40,6 +41,39 @@ describe('shouldShowOnboarding', () => {
 
   it('hides when dismissed even if user has no pipelines', () => {
     expect(shouldShowOnboarding(signals(), true)).toBe(false);
+  });
+});
+
+describe('isFreshAccount (new owner/admin onboarding gate)', () => {
+  const fresh = (overrides: Partial<{ pipelineCount: number; executionCount: number; memberCount: number | null }> = {}) => ({
+    pipelineCount: 0,
+    executionCount: 0,
+    memberCount: 1,
+    ...overrides,
+  });
+
+  it('is fresh for an empty account (0 pipelines, 0 executions, only the owner)', () => {
+    expect(isFreshAccount(fresh(), false)).toBe(true);
+  });
+
+  it('treats an unknown member count (null) as non-blocking', () => {
+    expect(isFreshAccount(fresh({ memberCount: null }), false)).toBe(true);
+  });
+
+  it('is not fresh once a pipeline exists', () => {
+    expect(isFreshAccount(fresh({ pipelineCount: 1 }), false)).toBe(false);
+  });
+
+  it('is not fresh once an execution exists', () => {
+    expect(isFreshAccount(fresh({ executionCount: 1 }), false)).toBe(false);
+  });
+
+  it('is not fresh once a second member has joined (someone was invited)', () => {
+    expect(isFreshAccount(fresh({ memberCount: 2 }), false)).toBe(false);
+  });
+
+  it('is not fresh when the owner dismissed the guide', () => {
+    expect(isFreshAccount(fresh(), true)).toBe(false);
   });
 });
 

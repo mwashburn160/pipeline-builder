@@ -20,6 +20,8 @@ const mockUserSave = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockOrgCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockOrgUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockOrgFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserOrgCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserOrgFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockSeedDefaultGroups = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -74,7 +76,11 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: MockUser,
-  Organization: { create: (...a: unknown[]) => mockOrgCreate(...a) },
+  Organization: {
+    create: (...a: unknown[]) => mockOrgCreate(...a),
+    updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),
+    find: (...a: unknown[]) => mockOrgFind(...a),
+  },
   UserOrganization: {
     create: (...a: unknown[]) => mockUserOrgCreate(...a),
     findOne: (...a: unknown[]) => mockUserOrgFindOne(...a),
@@ -95,6 +101,7 @@ beforeEach(() => {
     const data = arr[0];
     return [{ _id: data._id ?? { toString: () => 'org-1' }, name: data.name }];
   });
+  mockOrgUpdateOne.mockResolvedValue(undefined);
 });
 
 describe('AuthService.register', () => {
@@ -166,6 +173,51 @@ describe('AuthService.register', () => {
     // Membership insert failed → user.save() and group seeding never happened.
     expect(mockUserSave).not.toHaveBeenCalled();
     expect(mockSeedDefaultGroups).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService pending-billing marker (paid-signup fail-open)', () => {
+  it('setPendingBillingPlan writes the planId + stamps `since` only on first set', async () => {
+    await authService.setPendingBillingPlan('org-42', 'pro');
+
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(1);
+    const [filter, update] = mockOrgUpdateOne.mock.calls[0] as any;
+    expect(filter).toEqual({ _id: 'org-42' });
+    // Aggregation-pipeline update: sets planId and keeps the original `since`
+    // (only fills it when absent) so retries don't reset the marker age.
+    expect(Array.isArray(update)).toBe(true);
+    expect(update[0].$set.pendingBillingPlanId).toBe('pro');
+    expect(update[0].$set.pendingBillingSince).toEqual({ $ifNull: ['$pendingBillingSince', '$$NOW'] });
+  });
+
+  it('clearPendingBillingPlan unsets both marker fields', async () => {
+    await authService.clearPendingBillingPlan('org-42');
+
+    const [filter, update] = mockOrgUpdateOne.mock.calls[0] as any;
+    expect(filter).toEqual({ _id: 'org-42' });
+    expect(update).toEqual({ $unset: { pendingBillingPlanId: '', pendingBillingSince: '' } });
+  });
+
+  it('listPendingBillingOrgs returns {orgId, planId} for every marked org', async () => {
+    mockOrgFind.mockReturnValue({
+      select: () => ({
+        lean: () => Promise.resolve([
+          { _id: { toString: () => 'org-a' }, pendingBillingPlanId: 'pro' },
+          { _id: { toString: () => 'org-b' }, pendingBillingPlanId: 'team' },
+        ]),
+      }),
+    });
+
+    const result = await authService.listPendingBillingOrgs();
+
+    // Scan targets only orgs that actually carry the marker.
+    expect((mockOrgFind.mock.calls[0] as any)[0]).toEqual({
+      pendingBillingPlanId: { $exists: true, $ne: null },
+    });
+    expect(result).toEqual([
+      { orgId: 'org-a', planId: 'pro' },
+      { orgId: 'org-b', planId: 'team' },
+    ]);
   });
 });
 

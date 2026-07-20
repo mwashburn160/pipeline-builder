@@ -16,6 +16,16 @@ jest.unstable_mockModule('../src/models/billing-event.js', () => ({
   },
 }));
 
+// syncEntitlements stamps/clears a durable `metadata.entitlementSyncPending`
+// marker on the Subscription so the lifecycle reconciler can re-drive a failed
+// sync. Mock updateOne so we can assert the $set/$unset the marker path issues.
+const mockSubscriptionUpdateOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ modifiedCount: 1 });
+jest.unstable_mockModule('../src/models/subscription.js', () => ({
+  Subscription: {
+    updateOne: (...args: unknown[]) => mockSubscriptionUpdateOne(...args),
+  },
+}));
+
 const mockClientPut = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -34,13 +44,22 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incCounter: jest.fn(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const get = (section: string) => {
     if (section === 'server') return { services: { billingTimeout: 5000 } };
     return {};
   };
+  // `effectiveEntitlements` moved to pipeline-core; billing-helpers imports it
+  // from the barrel (which this suite mocks). Pull in the REAL implementation
+  // from its leaf module — it depends only on the (mocked) api-core
+  // `getTierLimits`, so the bundle math runs against the same base limits the
+  // suite already asserts on, and no heavy pipeline-core graph loads.
+  const { effectiveEntitlements } = await import(
+    '@pipeline-builder/pipeline-core/lib/config/entitlements.js'
+  );
   return {
     Config: { get, getAny: get },
+    effectiveEntitlements,
     // billing-helpers imports incCounter from api-server, whose
     // idempotency-middleware reads these at module load.
     CoreConstants: {
@@ -54,6 +73,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
 jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     quotaService: { host: 'quota', port: 3000 },
+    platformService: { host: 'platform', port: 3000 },
   },
 }));
 
@@ -62,6 +82,7 @@ const {
   createBillingEvent,
   buildSubscriptionResponse,
   syncTierToQuotaService,
+  syncEntitlements,
   effectiveEntitlements,
 } = await import('../src/helpers/billing-helpers.js');
 
@@ -226,5 +247,51 @@ describe('syncTierToQuotaService', () => {
     mockClientPut.mockRejectedValue(new Error('timeout'));
     const result = await syncTierToQuotaService('org-1', 'pro' as any, 'Bearer tok');
     expect(result).toBe(false);
+  });
+});
+
+// syncEntitlements — durable "sync dirty" marker (FIX 2)
+
+describe('syncEntitlements entitlementSyncPending marker', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('clears the marker (unset) when BOTH legs succeed', async () => {
+    // Both quota + platform legs go through the same mocked client.put.
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+
+    expect(ok).toBe(true);
+    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: 'sub-1' },
+      { $unset: { 'metadata.entitlementSyncPending': '' } },
+    );
+  });
+
+  it('sets the marker when a leg fails (fail-open, still returns false)', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 500 });
+
+    const ok = await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+
+    expect(ok).toBe(false);
+    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
+      { _id: 'sub-1' },
+      { $set: { 'metadata.entitlementSyncPending': true } },
+    );
+  });
+
+  it('does not touch the marker when no subscriptionId is supplied', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    await syncEntitlements('org-1', 'pro' as any, 'Bearer tok');
+
+    expect(mockSubscriptionUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('never throws even if the marker write fails (preserves fail-open contract)', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+    mockSubscriptionUpdateOne.mockRejectedValueOnce(new Error('mongo down'));
+
+    await expect(syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1')).resolves.toBe(true);
   });
 });

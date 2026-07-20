@@ -113,6 +113,39 @@ export interface OrganizationDocument extends Document {
     keyId?: string;
     ciphertextBase64?: string;
   };
+  /**
+   * Durable "paid-signup billing bootstrap still pending" marker. Set when a
+   * new org selected a paid `planId` at signup but the fire-and-forget billing
+   * subscription call couldn't be provisioned (billing down/unreachable, all
+   * retries exhausted). The reconcile pass ({@link reconcilePendingBillingSubscriptions})
+   * retries every org carrying this marker and clears it once billing actually
+   * provisions the subscription — closing the fail-open gap where an org would
+   * otherwise stay silently developer-tier with no bill.
+   *
+   * NOT a local tier grant: the org's `tier` is untouched until billing
+   * provisions it (no free-paid-tier). The marker only guarantees the
+   * provisioning eventually happens (or is visible to an operator).
+   */
+  pendingBillingPlanId?: string;
+  /** When {@link pendingBillingPlanId} was first set (marker age, for operators). */
+  pendingBillingSince?: Date;
+  /**
+   * SOFT-DELETE tombstone. Set (with {@link purgeAfter}) when a sysadmin runs
+   * `DELETE /organization/:id`: instead of the immediate destructive cascade the
+   * org enters a retention window. `null`/absent = a live org. Access is cut off
+   * at the token chokepoint (`resolveMembership` refuses to scope a token to a
+   * soft-deleted org) + a tokenVersion bump on every member, NOT via per-read
+   * `deletedAt` filters. Sparse-indexed so the purge sweep's scan is cheap
+   * (only tombstoned docs carry it).
+   */
+  deletedAt?: Date | null;
+  /**
+   * When the purge sweep may run the destructive cascade for this soft-deleted
+   * org (= `deletedAt` + `organization.deletionRetentionDays`). Until then a
+   * sysadmin/owner can restore. Sparse-indexed for the sweep's
+   * `{ purgeAfter: { $lte: now } }` scan.
+   */
+  purgeAfter?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -336,6 +369,31 @@ const organizationSchema = new Schema<OrganizationDocument>(
       // only be decrypted by an identity with kms:Decrypt on `keyId`.
       ciphertextBase64: { type: String, default: undefined },
     },
+    // Durable paid-signup billing-bootstrap marker (see interface docs). Indexed
+    // so the reconcile pass's `{ pendingBillingPlanId: { $exists: true, $ne: null } }`
+    // scan is a cheap targeted lookup (sparse — only failed bootstraps carry it).
+    pendingBillingPlanId: {
+      type: String,
+      default: undefined,
+      index: { sparse: true },
+    },
+    pendingBillingSince: {
+      type: Date,
+      default: undefined,
+    },
+    // Soft-delete tombstone + purge deadline (see interface docs). Both sparse-
+    // indexed so the purge sweep's `{ deletedAt: { $ne: null }, purgeAfter: { $lte } }`
+    // scan touches only the (few) tombstoned docs, not every org.
+    deletedAt: {
+      type: Date,
+      default: null,
+      index: { sparse: true },
+    },
+    purgeAfter: {
+      type: Date,
+      default: null,
+      index: { sparse: true },
+    },
   },
   {
     timestamps: true,
@@ -348,6 +406,10 @@ const organizationSchema = new Schema<OrganizationDocument>(
  * Generate unique slug from organization name
  */
 organizationSchema.pre<OrganizationDocument>('validate', async function () {
+  // An explicitly-set slug (self-serve identity edit) always wins — never
+  // overwrite it with the name-derived auto-slug, even when the name also
+  // changed in the same save.
+  if (this.isModified('slug') && this.slug) return;
   if (!this.isModified('name') && this.slug) return;
 
   const baseSlug = slugify(this.name, { lower: true, strict: true });

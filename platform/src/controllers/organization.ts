@@ -16,10 +16,16 @@ import {
   organizationService,
   ORG_NOT_FOUND,
   SYSTEM_ORG_DELETE_FORBIDDEN,
+  ORG_SLUG_TAKEN,
   ORG_AI_KEY_TOO_LONG,
 } from '../services/index.js';
-import { cascadeDeleteOrg, exportOrg } from '../services/org-cascade-service.js';
-import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateQuotasSchema } from '../utils/validation.js';
+import {
+  exportOrg,
+  softDeleteOrg,
+  ORG_ALREADY_DELETED,
+  ORG_SNAPSHOT_FAILED,
+} from '../services/org-cascade-service.js';
+import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateOrgIdentitySchema, updateQuotasSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-controller');
 
@@ -165,6 +171,49 @@ export const updateOrganization = withController('Update organization', async (r
 });
 
 /**
+ * PATCH /organization/:id/identity — self-serve org identity edit (name/slug).
+ *
+ * Unlike `PUT /organization/:id` (sysadmin-only), this is reachable by an org
+ * owner/admin for their OWN org (or a parent-org admin over a managed team) via
+ * `canAdministerOrg` — the same target-scoped authority gate `exportOrganization`
+ * uses. `requirePermission('org:settings')` is the capability gate at the route;
+ * this is the tenancy gate. A plain member is refused. Reuses the shared
+ * `organizationService.update` logic (name/slug), which enforces slug
+ * uniqueness. Does NOT touch tier/quotas/description-via-sysadmin or DELETE.
+ */
+export const updateOrganizationIdentity = withController('Update organization identity', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const id = getParam(req.params, 'id')!;
+  // Tenancy: sysadmin, own-org admin/owner, or an admin/owner of a parent org
+  // managing this team. Members and unrelated orgs are refused — a non-sysadmin
+  // can only edit an org they administer.
+  if (!(await canAdministerOrg(req, id))) {
+    return sendError(res, 403, 'You can only edit an organization you administer');
+  }
+
+  const body = validateBody(updateOrgIdentitySchema, req.body, res);
+  if (!body) return;
+
+  const updated = await organizationService.update(id, body);
+  if (!updated) return sendError(res, 404, 'Organization not found');
+
+  audit(req, 'org.update', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: {
+      ...(body.name !== undefined ? { name: updated.name } : {}),
+      ...(body.slug !== undefined ? { slug: updated.slug } : {}),
+    },
+  });
+  logger.info(`Organization ${id} identity updated by ${req.user!.sub}`, { fields: Object.keys(body) });
+  sendSuccess(res, 200, { organization: updated }, 'Organization updated successfully');
+}, {
+  [ORG_SLUG_TAKEN]: { status: 409, message: 'That slug is already taken — choose another' },
+});
+
+/**
  * PATCH /organization/:id/tier — sysadmin tier change.
  *
  * Body: `{ tier: 'developer' | 'pro' | 'team' | 'enterprise' }`. Reseeds the
@@ -219,29 +268,75 @@ export const deleteOrganization = withController('Delete organization', async (r
     return sendError(res, 400, 'This organization has teams — delete or move its teams before deleting it');
   }
 
-  // full cascade across Postgres, Mongo, quota, billing BEFORE the
-  // org doc itself is deleted. Cascade returns a report so the audit event
-  // captures what was actually touched. We let cascade failures propagate;
-  // a partial state is worse than retrying the whole sweep.
+  // SOFT-delete instead of the immediate destructive cascade: capture a durable
+  // recovery snapshot, tombstone the org (`deletedAt`/`purgeAfter`) for the
+  // configured retention window, and bump every active member's tokenVersion so
+  // their sessions are cut immediately. The token chokepoint (`resolveMembership`)
+  // then refuses to re-issue a token scoped to the soft-deleted org — access is
+  // gone WITHOUT touching the destructive stores. The purge sweep (org-purge.ts)
+  // runs the existing fail-closed cascade + hard delete once the window lapses.
+  //
+  // If the snapshot can't be produced/persisted, softDeleteOrg throws
+  // ORG_SNAPSHOT_FAILED and the org is NOT tombstoned — we never lose an org
+  // without a recovery snapshot.
   const actorOrgId = (req.user!.organizationId as string) ?? SYSTEM_ORG_ID;
-  const cascadeReport = await cascadeDeleteOrg(id, actorOrgId);
+  const result = await softDeleteOrg(id, actorOrgId, req.user!.sub);
 
-  await organizationService.delete(id);
-
-  logger.info(`Organization ${id} deleted by system admin ${req.user!.sub}`, { cascade: cascadeReport });
-  // `affectedOrgId` is the org being deleted (the action's target), not the
-  // sysadmin's own org. Lets the audit log answer "which orgs has a sysadmin
-  // dissolved" without joining against `details`.
-  audit(req, 'admin.org.delete', {
+  logger.info(`Organization ${id} soft-deleted by system admin ${req.user!.sub}`, {
+    purgeAfter: result.purgeAfter, snapshotId: result.snapshotId, membersInvalidated: result.membersInvalidated,
+  });
+  // `affectedOrgId` is the org being soft-deleted (the action's target), not the
+  // sysadmin's own org.
+  audit(req, 'org.soft_delete', {
     targetType: 'organization',
     targetId: id,
     affectedOrgId: id,
-    details: { cascade: cascadeReport },
+    details: { purgeAfter: result.purgeAfter, snapshotId: result.snapshotId, membersInvalidated: result.membersInvalidated },
   });
-  sendSuccess(res, 200, { cascade: cascadeReport }, 'Organization deleted successfully');
+  sendSuccess(
+    res,
+    202,
+    { deletedAt: result.deletedAt, purgeAfter: result.purgeAfter, snapshotId: result.snapshotId },
+    `Organization scheduled for deletion. It can be restored until ${result.purgeAfter.toISOString()}.`,
+  );
 }, {
   [ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
+  [ORG_ALREADY_DELETED]: { status: 409, message: 'Organization is already scheduled for deletion' },
+  [ORG_SNAPSHOT_FAILED]: { status: 502, message: 'Could not capture the recovery snapshot — the organization was NOT deleted. Retry once the datastore recovers.' },
   [SYSTEM_ORG_DELETE_FORBIDDEN]: { status: 400, message: 'Cannot delete system organization' },
+});
+
+/**
+ * POST /organization/:id/restore — restore a soft-deleted org within its
+ * retention window. Reverses {@link deleteOrganization}: clears the tombstone
+ * and bumps member tokenVersion so re-issued tokens see the org live again.
+ *
+ * Authorized for a sysadmin OR an admin/owner of the org (or a managing parent
+ * org) via `canAdministerOrg` — the same target-scoped authority gate `export`
+ * uses. `requirePermission('org:settings')` is the capability gate at the route.
+ * Refused (404) if the org was already purged (gone — nothing to restore).
+ */
+export const restoreOrganization = withController('Restore organization', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+
+  const id = getParam(req.params, 'id')!;
+  if (!(await canAdministerOrg(req, id))) {
+    return sendError(res, 403, 'You can only restore an organization you administer');
+  }
+
+  const restored = await organizationService.restore(id);
+  if (!restored) {
+    return sendError(res, 404, 'No organization pending deletion with this id (already purged or never deleted)');
+  }
+
+  logger.info(`Organization ${id} restored by ${req.user!.sub}`, { membersInvalidated: restored.membersInvalidated });
+  audit(req, 'org.restore', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: { membersInvalidated: restored.membersInvalidated },
+  });
+  sendSuccess(res, 200, { organization: restored }, 'Organization restored');
 });
 
 /**

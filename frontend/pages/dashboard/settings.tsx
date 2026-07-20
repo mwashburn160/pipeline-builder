@@ -162,6 +162,18 @@ export default function SettingsPage() {
           </form>
         </motion.div>
 
+        {/* Organization Identity (owner/admin self-serve) */}
+        {can('org:settings') && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.04 }}
+            className="card mb-6"
+          >
+            <OrgIdentitySettings onSaved={refreshUser} />
+          </motion.div>
+        )}
+
         {/* AI Providers */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -250,6 +262,103 @@ export default function SettingsPage() {
         />
       )}
     </DashboardLayout>
+  );
+}
+
+/**
+ * Organization identity (name + URL slug) editor for owners/admins.
+ *
+ * Gated by the caller on `can('org:settings')` (the same capability the backend
+ * requires); the backend additionally enforces that the caller administers the
+ * target org. Loads the current org via GET /organization, saves via
+ * PATCH /organization/:id/identity, and refreshes the auth profile on success so
+ * a renamed org is reflected across the shell.
+ */
+function OrgIdentitySettings({ onSaved }: { onSaved: () => Promise<void> }) {
+  const form = useFormState();
+  const [loaded, setLoaded] = useState(false);
+  const [orgId, setOrgId] = useState('');
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [initial, setInitial] = useState<{ name: string; slug: string }>({ name: '', slug: '' });
+
+  useEffect(() => {
+    let active = true;
+    api.getMyOrganization()
+      .then((res) => {
+        if (!active) return;
+        const org = res.data?.organization;
+        if (org) {
+          setOrgId(org.id);
+          setName(org.name ?? '');
+          setSlug(org.slug ?? '');
+          setInitial({ name: org.name ?? '', slug: org.slug ?? '' });
+        }
+      })
+      .catch(() => { /* surfaced on save attempt */ })
+      .finally(() => { if (active) setLoaded(true); });
+    return () => { active = false; };
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const updates: { name?: string; slug?: string } = {};
+    const trimmedName = name.trim();
+    const trimmedSlug = slug.trim().toLowerCase();
+    if (trimmedName !== initial.name) updates.name = trimmedName;
+    if (trimmedSlug !== initial.slug) updates.slug = trimmedSlug;
+
+    if (Object.keys(updates).length === 0) {
+      form.setError('No changes to save');
+      return;
+    }
+    if (updates.name !== undefined && updates.name.length < 2) {
+      form.setError('Organization name must be at least 2 characters');
+      return;
+    }
+    if (updates.slug !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(updates.slug)) {
+      form.setError('Slug may contain only lowercase letters, numbers, and single hyphens');
+      return;
+    }
+
+    const result = await form.run(
+      () => api.updateOrganizationIdentity(orgId, updates),
+      { successMessage: 'Organization updated successfully' },
+    );
+    if (result !== null) {
+      const org = result.data?.organization;
+      if (org) {
+        setName(org.name);
+        setSlug(org.slug);
+        setInitial({ name: org.name, slug: org.slug });
+      }
+      await onSaved();
+    }
+  };
+
+  return (
+    <>
+      <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Organization</h2>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <ErrorAlert message={form.error} />
+        <SuccessAlert message={form.success} />
+
+        <div>
+          <label htmlFor="org-name" className="label">Organization name</label>
+          <Input id="org-name" type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={!loaded || form.loading} />
+        </div>
+
+        <div>
+          <label htmlFor="org-slug" className="label">URL slug</label>
+          <Input id="org-slug" type="text" value={slug} onChange={(e) => setSlug(e.target.value)} disabled={!loaded || form.loading} placeholder="my-organization" />
+          <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">Lowercase letters, numbers, and hyphens. Must be unique.</p>
+        </div>
+
+        <Button type="submit" loading={form.loading} disabled={!loaded}>
+          Save Organization
+        </Button>
+      </form>
+    </>
   );
 }
 

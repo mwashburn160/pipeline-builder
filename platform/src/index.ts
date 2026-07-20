@@ -425,6 +425,31 @@ async function initDependencies(): Promise<void> {
     });
   }
 
+  // Reconcile paid-signup billing bootstraps that failed fail-open: orgs that
+  // selected a paid plan at signup while billing was unavailable carry a durable
+  // `pendingBillingPlanId` marker. Drain once at boot (fire-and-forget so a
+  // billing outage never delays readiness) + on a guarded interval, so the
+  // provisioning eventually happens instead of the org silently staying
+  // developer-tier with no bill. No-ops when billing is disabled. Idempotent.
+  if (config.billing.enabled) {
+    const { reconcilePendingBillingSubscriptions } = await import('./services/billing-provision.js');
+    void reconcilePendingBillingSubscriptions().catch((err) => {
+      logger.error('Billing reconcile (boot drain) failed (service will still come ready)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+    const intervalMs = config.billing.reconcileIntervalMs;
+    if (intervalMs > 0) {
+      setInterval(() => {
+        void reconcilePendingBillingSubscriptions().catch((err) => {
+          logger.error('Billing reconcile (interval) failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }, intervalMs).unref(); // unref'd so the timer never keeps the process alive
+    }
+  }
+
   // Install the per-org KMS provider if SECRET_ENCRYPTION_PER_ORG_KMS=true.
   // Must run AFTER Mongo connects (resolver reads Organization docs) and BEFORE
   // the service goes ready (the guard then lets secret-touching requests
@@ -443,6 +468,24 @@ async function initDependencies(): Promise<void> {
   // Seed default dashboards into Postgres (idempotent, fire-and-forget).
   const { seedDefaultDashboards } = await import('./services/dashboard-seeder.js');
   void seedDefaultDashboards();
+
+  // Start the invitation reaper: periodically flips stale `pending` invites
+  // (past their `expiresAt`) to `expired` so the data self-heals. Runs an
+  // immediate sweep now that Mongo is connected. Non-fatal — the sweep swallows
+  // its own errors, and the capacity/roster queries already exclude stale rows
+  // regardless. Started here (after connect) rather than at module top so the
+  // first sweep isn't a guaranteed miss against a cold datastore.
+  const { startInvitationReaper } = await import('./services/invitation-reaper.js');
+  startInvitationReaper();
+
+  // Start the org purge sweep: periodically hard-deletes (via the existing
+  // fail-closed cascade) any org whose SOFT-DELETE retention window has lapsed
+  // (`purgeAfter <= now`). Immediate first sweep now that Mongo is connected;
+  // unref'd interval. Non-fatal — the sweep swallows its own errors per org and
+  // is idempotent, so a deferred/failed org retries next tick. Coexists with the
+  // invitation reaper + billing reconcile wirings above.
+  const { startOrgPurgeSweep } = await import('./services/org-purge.js');
+  startOrgPurgeSweep();
 
   setReady(true);
   logger.info('Platform ready — dependencies connected');
@@ -494,6 +537,13 @@ async function startServer(): Promise<void> {
 
     server.close(async () => {
       logger.info('HTTP server closed');
+
+      // Stop the invitation reaper + org purge sweep intervals before tearing
+      // down Mongo.
+      const { stopInvitationReaper } = await import('./services/invitation-reaper.js');
+      stopInvitationReaper();
+      const { stopOrgPurgeSweep } = await import('./services/org-purge.js');
+      stopOrgPurgeSweep();
 
       try {
         await mongoose.connection.close(false);

@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import { UserPlus, Users, Search, Building2, Network } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
@@ -94,6 +95,10 @@ export default function MembersPage() {
   // Team" action only appears when the active org is itself a root.
   const activeOrg = organizations.find(o => o.id === user?.organizationId);
   const activeOrgIsRoot = !!activeOrg && !activeOrg.parentOrgId;
+  // Can this viewer buy capacity? Seat packs are purchased at the root (pooled
+  // billing), so only offer the "add a seat pack" link to a root-org admin (or a
+  // custom group granted `billing:manage`). A plain member sees the text, not a link.
+  const canManageBilling = (isAdmin || can('billing:manage')) && activeOrgIsRoot;
   // Teams are a paid feature: the backend only lets a root on the team/enterprise
   // tier parent a team (organizationService.checkParentEligible). Mirror that here
   // so we don't offer a "Create Team" action that would 403 — the create modal's
@@ -370,7 +375,12 @@ export default function MembersPage() {
             <UserPlus className="w-3.5 h-3.5 shrink-0" />
             <span>
               <strong>{seatUsage.used}</strong>{unlimited ? '' : ` of ${seatUsage.limit}`} account {seatUsage.limit === 1 ? 'seat' : 'seats'} used
-              {unlimited ? ' (unlimited)' : atCap ? ' — at capacity; remove a member or add a seat pack to invite more' : ''}
+              {unlimited ? ' (unlimited)' : atCap ? (
+                <> — at capacity; remove a member or{' '}
+                  {canManageBilling ? (
+                    <Link href="/dashboard/billing" className="action-link font-medium underline">add a seat pack</Link>
+                  ) : 'add a seat pack'}{' '}to invite more</>
+              ) : ''}
               {activeOrgIsRoot ? '' : ' (pooled across your organization)'}
             </span>
           </div>

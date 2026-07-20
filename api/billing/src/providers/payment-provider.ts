@@ -1,12 +1,39 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { BillingInterval } from '../models/subscription.js';
+import type { BillingInterval, SubscriptionStatus } from '../models/subscription.js';
+
+/**
+ * Normalized read view of a subscription as the payment provider currently sees
+ * it. Returned by {@link PaymentProvider.getSubscription} so provider-agnostic
+ * lifecycle code (subscription-lifecycle) can reconcile local state against the
+ * provider without knowing provider-specific object shapes.
+ */
+export interface ProviderSubscriptionView {
+  /** The provider's current status, mapped to our internal SubscriptionStatus.
+   *  A `canceled` value means the provider considers the subscription gone. */
+  status: SubscriptionStatus;
+  /** The current period end the provider reports, if it exposes one. A value in
+   *  the future for a locally-stale sub signals the provider RENEWED it (a late
+   *  webhook) rather than canceled it. */
+  currentPeriodEnd?: Date;
+  /** Whether the provider has the subscription set to cancel at period end. */
+  cancelAtPeriodEnd?: boolean;
+}
 
 /** Result of creating an external subscription. */
 export interface ExternalSubscriptionResult {
   externalId: string;
   externalCustomerId: string;
+  /**
+   * The provider's real status for the freshly-created subscription, as a
+   * Stripe-style status string (`active`, `trialing`, `incomplete`,
+   * `past_due`, …). The caller maps it via `mapStripeStatus` and only grants
+   * paid entitlements when it's entitlement-worthy — a subscription created
+   * without a settled payment lands `incomplete` and must NOT get paid caps
+   * until the later `customer.subscription.updated`→active webhook confirms it.
+   */
+  status: string;
 }
 
 /** Payment provider interface (Stripe, AWS Marketplace, or stub for dev). */
@@ -28,11 +55,26 @@ export interface PaymentProvider {
   /** Cancel a subscription in the external payment system. */
   cancelSubscription(externalId: string): Promise<void>;
 
-  /** Update a subscription's plan in the external payment system. */
-  updateSubscription(externalId: string, planId: string): Promise<void>;
+  /** Update a subscription's plan AND/OR billing interval in the external
+   *  payment system. `interval` selects the target price (`{planId}_{interval}`)
+   *  so a monthly→annual (or combined plan+interval) change actually re-cadences
+   *  the provider's billing instead of silently keeping the old price. */
+  updateSubscription(externalId: string, planId: string, interval: BillingInterval): Promise<void>;
 
   /** Reactivate a canceled subscription. */
   reactivateSubscription(externalId: string): Promise<void>;
+
+  /**
+   * Re-fetch a subscription's current state from the provider (the source of
+   * truth), normalized to a {@link ProviderSubscriptionView}. Used by the
+   * lifecycle checker to verify a locally-stale 'active' sub before downgrading —
+   * so a missed cancel webhook is confirmed against the provider, and a merely
+   * late renewal webhook is not mistaken for a cancellation. Returns `null` when
+   * the provider cannot resolve the subscription in a way that is safe to act on
+   * (the caller then leaves the sub untouched for a later tick). Optional:
+   * providers whose state is push/notification-driven (marketplace) omit it.
+   */
+  getSubscription?(externalId: string): Promise<ProviderSubscriptionView | null>;
 
   /**
    * Reconcile the external subscription's add-on line items to match `addons`

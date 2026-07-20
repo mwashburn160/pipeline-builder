@@ -25,6 +25,7 @@ import {
   createBillingEvent,
   syncEntitlements,
 } from '../helpers/billing-helpers.js';
+import { mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -146,18 +147,37 @@ export function createSubscriptionRoutes(): Router {
       const externalResult = await provider.createSubscription(customerId, planId, interval, `sub_${idempotencyKey}`);
       subscription.externalId = externalResult.externalId;
       subscription.externalCustomerId = externalResult.externalCustomerId;
+      // Reconcile the local status to the provider's REAL state. The row was
+      // reserved as `active` purely to trip the {orgId,status:'active'}
+      // uniqueness slot BEFORE any provider call; that reservation must not be
+      // mistaken for a settled subscription. A Stripe sub created with no card
+      // lands `incomplete`, so blindly persisting `active` would hand the org
+      // full paid caps ~23h before Stripe deletes the sub. mapStripeStatus
+      // normalizes the provider's status string (stub/marketplace return
+      // `active`).
+      subscription.status = mapStripeStatus(externalResult.status);
       await subscription.save();
     } catch (err) {
       await Subscription.deleteOne({ _id: subscription._id }).catch(() => { /* best-effort rollback */ });
       throw err;
     }
 
-    // Sync tier to quota service via a freshly-minted service token rather
-    // than forwarding the user's bearer. The quota service trusts billing
-    // as a peer service; forwarding the user token would mean a compromised
-    // quota service receives the user's full session credential.
-    const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-    await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString());
+    // Grant the paid tier ONLY when the provider's status is entitlement-worthy
+    // (active or trialing). For incomplete/past_due/etc. we keep the persisted
+    // subscription row but leave the org on its unprovisioned/developer tier —
+    // the later `customer.subscription.updated`→active webhook (plus the Tier-1
+    // reconciler) grants entitlements once payment settles. Gating on PROVIDER
+    // STATUS (not a blanket card-required check) keeps trials working.
+    //
+    // Sync via a freshly-minted service token rather than forwarding the user's
+    // bearer: the quota service trusts billing as a peer service; forwarding the
+    // user token would leak their full session credential to a compromised quota
+    // service.
+    const entitlementWorthy = subscription.status === 'active' || subscription.status === 'trialing';
+    if (entitlementWorthy) {
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+      await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString());
+    }
 
     // Log billing event
     await createBillingEvent(orgId, 'subscription_created', {
@@ -193,9 +213,12 @@ export function createSubscriptionRoutes(): Router {
       return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
     }
 
-    // If changing plan, verify new plan exists
+    const planChanged = Boolean(planId && planId !== subscription.planId);
+    const intervalChanged = Boolean(interval && interval !== subscription.interval);
+
+    // If changing plan, verify the new plan exists and gate the downgrade.
     let plan;
-    if (planId && planId !== subscription.planId) {
+    if (planChanged && planId) {
       plan = await Plan.findOne({ _id: planId, isActive: true });
       if (!plan) {
         return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
@@ -207,25 +230,35 @@ export function createSubscriptionRoutes(): Router {
       if (overages.length > 0) {
         return sendError(res, 409, 'This plan change would put the account over its limit — remove members/resources first', 'PLAN_OVER_CAP', { overages });
       }
+    }
+
+    // Effective post-change plan + interval. Push BOTH to the provider in a
+    // single call whenever EITHER changes: the provider selects the price via
+    // `{planId}_{interval}`, so an interval-only change actually re-cadences
+    // billing and a combined change applies the new plan AT the new interval's
+    // price (the old split path left the provider on the stale cadence).
+    const effectivePlanId = planChanged && planId ? planId : subscription.planId;
+    const effectiveInterval = intervalChanged && interval ? interval : subscription.interval;
+
+    if (planChanged || intervalChanged) {
+      await getPaymentProvider().updateSubscription(subscription.externalId || '', effectivePlanId, effectiveInterval);
+    }
+
+    if (planChanged) {
       const oldPlanId = subscription.planId;
-      subscription.planId = planId;
-
-      await getPaymentProvider().updateSubscription(subscription.externalId || '', planId);
-
+      subscription.planId = effectivePlanId;
       await createBillingEvent(orgId, 'plan_changed', {
-        oldPlanId, newPlanId: planId,
+        oldPlanId, newPlanId: effectivePlanId,
       }, subscriptionId);
     }
 
-    // If changing interval
-    if (interval && interval !== subscription.interval) {
+    if (intervalChanged) {
       const oldInterval = subscription.interval;
-      subscription.interval = interval;
-      subscription.currentPeriodEnd = calculatePeriodEnd( subscription.currentPeriodStart, interval,
-      );
-
+      subscription.interval = effectiveInterval;
+      // Keep the local period end consistent with the cadence pushed above.
+      subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, effectiveInterval);
       await createBillingEvent(orgId, 'interval_changed', {
-        oldInterval, newInterval: interval,
+        oldInterval, newInterval: effectiveInterval,
       }, subscriptionId);
     }
 

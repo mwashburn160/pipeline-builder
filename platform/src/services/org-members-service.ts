@@ -405,6 +405,13 @@ class OrgMembersService {
    * Atomically swap ownership: demote current owner to admin, promote
    * new owner from member/admin to owner, update Organization.owner.
    * Caller is responsible for verifying the actor (owner or sysadmin).
+   *
+   * Bumps BOTH users' `tokenVersion` in the same transaction (mirrors
+   * updateRole/removeMember). The membership `role` is baked into each user's
+   * JWT at issue time, so without this the demoted ex-owner would keep an
+   * owner-role token (~2 h) and the new owner's elevation wouldn't take effect
+   * until their token refreshed. The bump forces `requireAuth` to reject both
+   * users' outstanding tokens so a refresh reissues them with the swapped role.
    */
   async transferOwnership(orgId: string, newOwnerId: string): Promise<void> {
     await withMongoTransaction(async (session) => {
@@ -428,6 +435,14 @@ class OrgMembersService {
 
       org.owner = new mongoose.Types.ObjectId(newOwnerId);
       await org.save({ session });
+
+      // Invalidate both users' outstanding access tokens so the role swap takes
+      // effect immediately (the JWT carries the issue-time membership role).
+      await User.updateMany(
+        { _id: { $in: [oldOwnerMembership.userId, newOwnerId] } },
+        { $inc: { tokenVersion: 1 } },
+        { session },
+      );
     });
   }
 

@@ -38,6 +38,7 @@
 // Configuration
 export * from './config/app-config.js';
 export * from './config/config-types.js';
+export * from './config/entitlements.js';
 export * from './config/service-client.js';
 export { parsePlatformBaseUrl } from './config/infrastructure-config.js';
 

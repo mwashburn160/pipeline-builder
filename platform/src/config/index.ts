@@ -256,6 +256,23 @@ export const config = {
   invitation: {
     expirationDays: parseInt(process.env.INVITATION_EXPIRATION_DAYS || '7', 10),
     maxPendingPerOrg: parseInt(process.env.INVITATION_MAX_PENDING_PER_ORG || '50', 10),
+    // How often the reaper flips stale `pending` invites (past `expiresAt`) to
+    // `expired`. The capacity/roster queries already exclude stale rows at read
+    // time, so this sweep is durability/hygiene — default hourly.
+    sweepIntervalMs: parseInt(process.env.INVITATION_SWEEP_INTERVAL_MS || '3600000', 10),
+  },
+
+  organization: {
+    // Org SOFT-DELETE retention window. `DELETE /organization/:id` no longer
+    // hard-deletes: it soft-deletes (sets `deletedAt`/`purgeAfter`), snapshots
+    // the org durably, and cuts access at the token chokepoint. The purge sweep
+    // then runs the destructive cascade for any org whose `purgeAfter` has
+    // lapsed. Default 7-day grace so an accidental delete can be restored.
+    deletionRetentionDays: parseInt(process.env.ORG_DELETION_RETENTION_DAYS || '7', 10),
+    // How often the purge sweep scans for expired soft-deleted orgs and runs the
+    // fail-closed cascade. Default hourly; the sweep is idempotent and never
+    // throws (log + continue), so a transient failure retries next tick.
+    purgeSweepIntervalMs: parseInt(process.env.ORG_PURGE_SWEEP_INTERVAL_MS || '3600000', 10),
   },
 
   oauth: {
@@ -319,6 +336,13 @@ export const config = {
     serviceHost: process.env.BILLING_SERVICE_HOST || 'billing',
     servicePort: parseInt(process.env.BILLING_SERVICE_PORT || '3000', 10),
     serviceTimeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000', 10), // 5s
+    // Paid-signup provisioning: retry the billing subscription POST a couple of
+    // times with short backoff before persisting the durable pending marker.
+    provisionRetryAttempts: parseInt(process.env.BILLING_PROVISION_RETRY_ATTEMPTS || '3', 10),
+    provisionRetryBaseMs: parseInt(process.env.BILLING_PROVISION_RETRY_BASE_MS || '200', 10),
+    // Reconcile cadence for orgs whose signup billing bootstrap failed
+    // (pendingBillingPlanId marker). 0 disables the periodic pass (boot drain still runs).
+    reconcileIntervalMs: parseInt(process.env.BILLING_RECONCILE_INTERVAL_MS || '300000', 10), // 5 min
   },
 
   compliance: {

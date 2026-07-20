@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getServiceAuthHeader, QUOTA_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, getServiceAuthHeader, QUOTA_TIERS, VALID_TIERS } from '@pipeline-builder/api-core';
+import type { ClientSession } from 'mongoose';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope, resolveOrgLineage } from '../helpers/org-hierarchy.js';
@@ -11,7 +12,7 @@ import {
   updateQuotaLimits,
   type QuotaType,
 } from '../middleware/quota.js';
-import { Organization } from '../models/index.js';
+import { Organization, User, UserOrganization } from '../models/index.js';
 import type { QuotaTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
@@ -19,6 +20,38 @@ const logger = createLogger('organization-service');
 
 const QUOTA_TYPES = ['plugins', 'pipelines', 'apiCalls', 'aiCalls'] as const;
 export type QuotaTypeKey = (typeof QUOTA_TYPES)[number];
+
+/**
+ * Invalidate every ACTIVE member's outstanding access tokens for `organizationId`
+ * by bumping their `tokenVersion` inside the caller's transaction.
+ *
+ * The JWT bakes in the org's `tier` + resolved `features` (from `tier` +
+ * `featureEntitlements`) at issue time. On an account-change that REDUCES access
+ * — a tier downgrade or a bundle (feature) removal — those already-issued tokens
+ * would keep granting the elevated tier / `requireFeature`-gated capabilities
+ * (sso, audit_log, …) until natural expiry (~2 h). Bumping `tokenVersion` makes
+ * `requireAuth` reject them on the next request; a refresh reissues a correctly
+ * scoped JWT. Mirrors the bump in org-members-service.removeMember /
+ * roles-service.recomputeUserOrgRole.
+ *
+ * Bounded + idempotent: callers invoke this ONLY on a genuine reduction, and a
+ * no-member org is a no-op. An UPGRADE / feature-add never calls it — a stale
+ * token that under-grants is safe.
+ */
+async function bumpActiveMembersTokenVersion(
+  organizationId: string,
+  session: ClientSession,
+): Promise<void> {
+  const userIds = await UserOrganization
+    .distinct('userId', { organizationId: toOrgId(organizationId), isActive: true })
+    .session(session);
+  if (userIds.length === 0) return;
+  await User.updateMany(
+    { _id: { $in: userIds } },
+    { $inc: { tokenVersion: 1 } },
+    { session },
+  );
+}
 
 export interface QuotaStatus {
   used: number;
@@ -62,6 +95,17 @@ export async function setSeatLimit(
   // teams must both land or neither, so a member's token can't carry a stale
   // entitlement set after a partial failure.
   return withMongoTransaction(async (session) => {
+    // Read the pre-change entitlements FIRST so we can detect a bundle removal
+    // (a feature dropped vs the current set) before the $set overwrites them —
+    // that's an access REDUCTION whose stale tokens must be invalidated below.
+    let featureShrink = false;
+    if (features !== undefined) {
+      const current = await Organization.findById(toOrgId(rootOrgId))
+        .select('featureEntitlements').session(session).lean();
+      const nextFeatures = new Set(features);
+      featureShrink = (current?.featureEntitlements ?? []).some((f) => !nextFeatures.has(f));
+    }
+
     const result = await Organization.updateOne(
       { _id: toOrgId(rootOrgId) },
       { $set: set },
@@ -81,6 +125,14 @@ export async function setSeatLimit(
           { session },
         );
       }
+    }
+
+    // A bundle removal strips `requireFeature`-gated capabilities (sso,
+    // audit_log, …) from the account. Members' existing JWTs still carry the
+    // removed feature until expiry, so invalidate them now. No bump when
+    // features are only added / unchanged (a stale token then under-grants).
+    if (featureShrink) {
+      await bumpActiveMembersTokenVersion(rootOrgId, session);
     }
     return { rootOrgId, seats };
   });
@@ -192,6 +244,16 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
     return { id: org._id.toString(), previousTier, tier: newTier };
   }
 
+  // Detect a DOWNGRADE (new tier ranks below the old) from the pre-change tier.
+  // VALID_TIERS is ordered developer < pro < team < enterprise, so a lower index
+  // = a lesser tier. A downgrade drops the baked-in tier + `requireFeature`-gated
+  // capabilities, so members' existing JWTs must be invalidated (below). An
+  // UPGRADE (or a legacy no-tier → tier transition) never bumps: a stale token
+  // then under-grants, which is safe.
+  const previousRank = previousTier ? VALID_TIERS.indexOf(previousTier) : -1;
+  const newRank = VALID_TIERS.indexOf(newTier);
+  const isDowngrade = previousRank !== -1 && newRank !== -1 && newRank < previousRank;
+
   org.tier = newTier;
   if (org.parentOrgId) {
     // Team: tier is derived (display-only). Its quotas stay pooled (-1) so the
@@ -199,7 +261,34 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
   } else if (config.quota.tier[newTier]) {
     // Root: reseed its OWN quotas from the new tier (source from QUOTA_TIERS
     // so every QuotaTierLimits field stays in lockstep).
-    org.quotas = { ...QUOTA_TIERS[newTier].limits };
+    //
+    // PRESERVE purchased seat capacity across the reseed. `seats` is the one
+    // quota dimension a bundle raises DIRECTLY on the org doc: billing's
+    // seat_pack pushes the effective (tier base + bundle) seat limit here via
+    // `setSeatLimit`/`pushSeatLimitToPlatform`. Every OTHER bundle-raised dim is
+    // synced to the quota SERVICE (billing's `syncTierToQuotaService`), so
+    // reseeding those on the org doc to the bare tier base is correct — but
+    // clobbering `seats` with the tier base would silently discard paid-for
+    // seats until (if ever) a later billing sync happened to restore them
+    // (ordering-coupled, no guard). So keep the LARGER of {new tier base,
+    // current seats}, treating -1 (unlimited) as the max. `featureEntitlements`
+    // is a separate top-level field, so this quotas reseed never touches it.
+    //
+    // Only `seats` is preserved (not a blanket per-dim max): a blanket max
+    // would also strand the PREVIOUS tier's higher base for non-bundle dims, so
+    // a downgrade would never actually lower them. A genuine seat REDUCTION
+    // never rides setTier — billing pushes it through `setSeatLimit` — so
+    // keep-max here can't strand a removed seat bundle.
+    const reseeded = { ...QUOTA_TIERS[newTier].limits };
+    const currentSeats = org.quotas?.seats;
+    if (typeof currentSeats === 'number' && typeof reseeded.seats === 'number') {
+      if (currentSeats === -1) {
+        reseeded.seats = -1; // current unlimited seats outrank any finite base
+      } else if (reseeded.seats !== -1 && currentSeats > reseeded.seats) {
+        reseeded.seats = currentSeats; // purchased/bundle-raised cap survives
+      }
+    }
+    org.quotas = reseeded;
     org.markModified('quotas');
   }
 
@@ -221,6 +310,13 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
           { session },
         );
       }
+    }
+
+    // On a downgrade, invalidate active members' outstanding access tokens so
+    // the reduced tier / lost features take effect immediately rather than at
+    // token expiry. Same transaction as the tier write. No bump on an upgrade.
+    if (isDowngrade) {
+      await bumpActiveMembersTokenVersion(org._id.toString(), session);
     }
   });
 

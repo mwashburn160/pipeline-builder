@@ -22,6 +22,18 @@ export interface UsageEntry {
   resetAt: string;
 }
 
+/**
+ * Pooled seat usage for the account (root), sourced from platform.
+ * `limit` is -1 for unlimited. `null` on the rollup when the platform
+ * read fails (fail-soft — the rest of the rollup still returns).
+ */
+export interface SeatUsage {
+  /** Current pooled seat consumption across the account subtree. */
+  used: number;
+  /** Seat cap from tier + seat-pack add-ons. -1 means unlimited. */
+  limit: number;
+}
+
 /** Shape of the GET /billing/usage response. */
 export interface UsageRollup {
   /** Current billing period, derived from the active subscription. */
@@ -43,6 +55,14 @@ export interface UsageRollup {
   } | null;
   /** Per-quota usage. Keys mirror `QuotaType`. */
   usage: Record<string, UsageEntry>;
+  /**
+   * Pooled seat usage for the account. Seats are the primary Team
+   * differentiator (raised by seat-pack add-ons) but are NOT a quota type,
+   * so they're sourced separately from platform. `null` when the platform
+   * seat-usage read failed — the dashboard renders the rest of the rollup
+   * rather than failing the whole page.
+   */
+  seats: SeatUsage | null;
   /** Cost breakdown for the active period. Flat-rate today (no metered overages). */
   cost: {
     subscriptionCents: number;
@@ -91,6 +111,48 @@ async function fetchQuotaSnapshot(orgId: string, authHeader: string): Promise<Qu
   return response.body.data?.quota ?? null;
 }
 
+/**
+ * Fetch the account's pooled seat usage from platform's internal
+ * `GET /organization/:id/seat-usage` (service-principal / account-admin gated).
+ * Mints a billing→platform service auth header the same way the other
+ * billing→platform calls do when the caller's own header is absent.
+ *
+ * Fail-soft: returns null on any transport / status / shape failure so the
+ * usage rollup degrades gracefully (seats omitted) rather than failing the
+ * whole response — seats are enrichment, the quota rollup is the core payload.
+ */
+async function fetchSeatUsage(orgId: string, authHeader: string): Promise<SeatUsage | null> {
+  try {
+    const client = createSafeClient({
+      host: config.platformService.host,
+      port: config.platformService.port,
+      timeout: getBillingTimeout(),
+    });
+
+    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'member' });
+    const response = await client.get<{
+      success?: boolean;
+      data?: { limit?: number; used?: number };
+    }>(`/organization/${encodeURIComponent(orgId)}/seat-usage`, {
+      headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId },
+    });
+
+    if (!response || response.statusCode !== 200 || !response.body?.success) {
+      logger.warn('Seat usage fetch failed', { orgId, statusCode: response?.statusCode });
+      return null;
+    }
+    const data = response.body.data;
+    if (!data || typeof data.limit !== 'number' || typeof data.used !== 'number') {
+      logger.warn('Seat usage response missing limit/used', { orgId });
+      return null;
+    }
+    return { limit: data.limit, used: data.used };
+  } catch (err) {
+    logger.warn('Seat usage fetch threw', { orgId, error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
 /** Build a single UsageEntry from a (limit, used, resetAt) triple. */
 function toUsageEntry(limit: number, used: number, resetAt: Date | string | undefined): UsageEntry {
   const isUnlimited = limit < 0;
@@ -119,6 +181,7 @@ export function buildUsageRollup(
   plan: { name: string; tier: QuotaTier; prices: { monthly: number; annual: number } } | null,
   quotaSnapshot: QuotaSnapshot | null,
   now: Date = new Date(),
+  seats: SeatUsage | null = null,
 ): UsageRollup {
   // Period: prefer the subscription's window. If there's no active sub
   // (free / unsubscribed orgs), default to a 30-day window anchored at now
@@ -162,6 +225,7 @@ export function buildUsageRollup(
     },
     subscription: subSummary,
     usage,
+    seats,
     cost: {
       subscriptionCents: subSummary?.priceCents ?? 0,
       currency: 'USD',
@@ -176,6 +240,12 @@ export async function buildUsageRollupFor(
   subscription: Parameters<typeof buildUsageRollup>[0],
   plan: Parameters<typeof buildUsageRollup>[1],
 ): Promise<UsageRollup> {
-  const snapshot = await fetchQuotaSnapshot(orgId, authHeader);
-  return buildUsageRollup(subscription, plan, snapshot);
+  // Fetch the quota snapshot (core payload) and pooled seat usage (enrichment)
+  // in parallel. Seat usage lives on platform, not the quota service, because
+  // seats deliberately aren't a quota type. Either can fail-soft to null.
+  const [snapshot, seats] = await Promise.all([
+    fetchQuotaSnapshot(orgId, authHeader),
+    fetchSeatUsage(orgId, authHeader),
+  ]);
+  return buildUsageRollup(subscription, plan, snapshot, new Date(), seats);
 }

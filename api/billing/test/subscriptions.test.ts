@@ -235,7 +235,9 @@ describe('POST /subscriptions', () => {
     mockIsSystemAdmin.mockReturnValue(true);
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', interval: 'monthly' } });
     mockCreateCustomer.mockResolvedValue('ext-cust-1');
-    mockCreateSubscription.mockResolvedValue({ externalId: 'ext-sub-1', externalCustomerId: 'ext-cust-1' });
+    // Providers now return the real provider status; `active` is the settled,
+    // entitlement-worthy case used by the happy-path tests.
+    mockCreateSubscription.mockResolvedValue({ externalId: 'ext-sub-1', externalCustomerId: 'ext-cust-1', status: 'active' });
   });
 
   it('creates a subscription successfully', async () => {
@@ -255,6 +257,45 @@ describe('POST /subscriptions', () => {
     // 4th arg is subscriptionId so the quota service can audit the trigger.
     expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1');
     expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String));
+  });
+
+  it('grants entitlements when the provider reports a trialing subscription', async () => {
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockSubscriptionFindOne.mockResolvedValue(null);
+    const createdSub = makeSubscription();
+    mockSubscriptionCreate.mockResolvedValue(createdSub);
+    mockCreateSubscription.mockResolvedValue({ externalId: 'ext-sub-1', externalCustomerId: 'ext-cust-1', status: 'trialing' });
+
+    const req = mockReq();
+    const res = mockRes();
+    await handler(req, res);
+
+    // trialing is entitlement-worthy — paid caps are granted and the local
+    // status reflects the provider's real state.
+    expect(createdSub.status).toBe('trialing');
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1');
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 201, expect.any(Object));
+  });
+
+  it('persists an incomplete subscription WITHOUT granting paid entitlements', async () => {
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockSubscriptionFindOne.mockResolvedValue(null);
+    const createdSub = makeSubscription();
+    mockSubscriptionCreate.mockResolvedValue(createdSub);
+    // No card on file → Stripe returns `incomplete`; we must NOT grant paid caps.
+    mockCreateSubscription.mockResolvedValue({ externalId: 'ext-sub-1', externalCustomerId: 'ext-cust-1', status: 'incomplete' });
+
+    const req = mockReq();
+    const res = mockRes();
+    await handler(req, res);
+
+    // Row is persisted (saved + billing event) but the org stays unprovisioned:
+    // syncEntitlements is skipped until the later updated→active webhook.
+    expect(createdSub.status).toBe('incomplete');
+    expect(createdSub.save).toHaveBeenCalled();
+    expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String));
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 201, expect.any(Object));
   });
 
   it('returns 400 when orgId is missing', async () => {
@@ -398,6 +439,50 @@ describe('PUT /subscriptions/:id', () => {
       { oldInterval: 'monthly', newInterval: 'annual' },
       'sub-1',
     );
+  });
+
+  it('interval-only change pushes the NEW interval to the provider (mischarge fix)', async () => {
+    const sub = makeSubscription({ planId: 'pro', interval: 'monthly' });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'annual' } });
+    mockUpdateSubscription.mockResolvedValue(undefined);
+
+    const req = mockReq({ params: { id: 'sub-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    // Old code skipped the provider entirely on an interval-only change; now the
+    // current plan is re-pushed AT the new interval so billing re-cadences.
+    expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-sub-1', 'pro', 'annual');
+    expect(sub.save).toHaveBeenCalled();
+  });
+
+  it('combined plan+interval change applies the new plan AT the new interval', async () => {
+    const sub = makeSubscription({ planId: 'pro', interval: 'monthly' });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'enterprise', name: 'Enterprise', tier: 'enterprise', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'enterprise', interval: 'annual' } });
+    mockUpdateSubscription.mockResolvedValue(undefined);
+
+    const req = mockReq({ params: { id: 'sub-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-sub-1', 'enterprise', 'annual');
+  });
+
+  it('plan-only change preserves the current interval on the provider call', async () => {
+    const sub = makeSubscription({ planId: 'pro', interval: 'monthly' });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'enterprise', name: 'Enterprise', tier: 'enterprise', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'enterprise' } });
+    mockUpdateSubscription.mockResolvedValue(undefined);
+
+    const req = mockReq({ params: { id: 'sub-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-sub-1', 'enterprise', 'monthly');
   });
 });
 

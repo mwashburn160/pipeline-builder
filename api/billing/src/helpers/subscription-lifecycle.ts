@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, createSafeClient, createScheduler, type Scheduler, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
-import { createBillingEvent, syncEntitlements } from './billing-helpers.js';
+import { createBillingEvent, effectiveEntitlements, getBundleCatalog, syncEntitlements } from './billing-helpers.js';
+import { computeEntitlementDrift, readActualEntitlements } from './entitlement-drift.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
+import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('subscription-lifecycle');
 
@@ -41,6 +44,10 @@ async function runLifecycleCheck(): Promise<void> {
   await checkGracePeriodExpiry();
   await checkExpiredSubscriptions();
   await sendRenewalReminders();
+  await reconcileFailedEntitlementSyncs();
+  // Runs LAST: the low-frequency, bounded silent-drift pass. Kept at the end so
+  // it doesn't disturb the earlier legs' sequential-mock ordering in tests.
+  await reconcileEntitlementDrift();
 }
 
 // ── 1. Grace Period Expiry ────────────────────────────────
@@ -105,9 +112,43 @@ async function checkGracePeriodExpiry(): Promise<void> {
 // ── 2. Expired Subscription Detection ─────────────────────
 
 /**
- * Find subscriptions that are still 'active' but past their currentPeriodEnd.
- * This catches missed webhooks — if Stripe renewed the subscription but we
- * never got the webhook, the subscription appears expired locally.
+ * Record a stale-active subscription for investigation WITHOUT downgrading. Used
+ * whenever the provider can't give us a safe, definitive verdict (marketplace —
+ * SNS-driven; no read capability; an inconclusive lookup; or the provider still
+ * reports it active but hasn't advanced the period). Preserves the original
+ * `period_end_passed_without_renewal` signal and carries a `detail` sub-reason.
+ */
+async function recordStalePeriodEvent(
+  subscription: { orgId: string; currentPeriodEnd: Date; _id: { toString(): string } },
+  now: Date,
+  detail: string,
+): Promise<void> {
+  await createBillingEvent(subscription.orgId, 'subscription_updated', {
+    reason: 'period_end_passed_without_renewal',
+    detail,
+    currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+    detectedAt: now.toISOString(),
+  }, subscription._id.toString());
+}
+
+/**
+ * Find subscriptions that are still 'active' but past their currentPeriodEnd —
+ * the classic missed `customer.subscription.deleted` (or renewal) webhook. A
+ * stale-active row that just sits here would keep the org on a paid tier/seats
+ * forever while the provider has already stopped billing, so we VERIFY each one
+ * against the payment provider (the source of truth) before acting:
+ *
+ * - Provider reports it GONE (`canceled`)  → mark local `canceled` + downgrade
+ *   to developer via `syncEntitlements` (empty add-ons), reusing the grace
+ *   path's dedupe discipline. Flipping status also drops the row from this scan.
+ * - Provider reports it RENEWED (period advanced into the future) → the webhook
+ *   was merely late: advance `currentPeriodEnd` locally, do NOT downgrade.
+ * - Anything else (marketplace/SNS-driven, no read capability, inconclusive
+ *   lookup, or still-active-but-not-advanced) → record for investigation, never
+ *   downgrade. This must NOT false-downgrade a genuinely-renewed sub.
+ *
+ * Idempotent + bounded: the downgrade flips status out of the query and stamps a
+ * durable marker; the renewal advances the period out of the query.
  */
 async function checkExpiredSubscriptions(): Promise<void> {
   const now = new Date();
@@ -125,14 +166,96 @@ async function checkExpiredSubscriptions(): Promise<void> {
     orgIds: stale.map(s => s.orgId),
   });
 
-  // Don't auto-cancel — just log. These likely need the webhook to arrive
-  // or a manual Stripe dashboard check. Mark them for investigation.
+  const provider = getPaymentProvider();
+
   for (const subscription of stale) {
-    await createBillingEvent(subscription.orgId, 'subscription_updated', {
-      reason: 'period_end_passed_without_renewal',
-      currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
-      detectedAt: now.toISOString(),
-    }, subscription._id.toString());
+    try {
+      // Marketplace entitlements are SNS-driven — the app never provider-verifies
+      // or downgrades them here (the SNS handler owns their lifecycle).
+      if (subscription.metadata?.provider === 'aws-marketplace') {
+        await recordStalePeriodEvent(subscription, now, 'marketplace_sns_driven');
+        continue;
+      }
+
+      // Provider can't be read (no capability) or we have no external handle —
+      // can't verify, so record for investigation but never downgrade blindly.
+      if (!provider.getSubscription || !subscription.externalId) {
+        await recordStalePeriodEvent(
+          subscription, now,
+          provider.getSubscription ? 'no_external_id' : 'provider_read_unsupported',
+        );
+        continue;
+      }
+
+      const view = await provider.getSubscription(subscription.externalId);
+      if (!view) {
+        // Provider couldn't resolve it in a safe-to-act-on way — leave it for a
+        // later tick rather than risk a false downgrade.
+        await recordStalePeriodEvent(subscription, now, 'provider_lookup_inconclusive');
+        continue;
+      }
+
+      if (view.status === 'canceled') {
+        // Durable dedupe (belt-and-suspenders alongside the status flip): skip if
+        // a prior tick already reconciled this exact lapse.
+        if (subscription.metadata?.staleDowngradedAt) continue;
+
+        // Provider confirms the sub is gone. Route through syncEntitlements (empty
+        // add-ons) so the seat leg + sync-failure metric fire — same discipline as
+        // the grace path — then flip status so the row leaves this scan.
+        const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
+        await syncEntitlements(subscription.orgId, 'developer', serviceAuth, subscription._id.toString(), []);
+
+        await createBillingEvent(subscription.orgId, 'subscription_canceled', {
+          reason: 'provider_verified_cancel_missed_webhook',
+          previousStatus: subscription.status,
+          currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+          detectedAt: now.toISOString(),
+        }, subscription._id.toString());
+
+        subscription.status = 'canceled';
+        subscription.metadata = {
+          ...subscription.metadata,
+          staleDowngradedAt: new Date().toISOString(),
+        };
+        await subscription.save();
+
+        incCounter('billing_stale_subscription_reconciled_total', { outcome: 'downgraded' });
+        logger.info('Stale-active sub provider-verified as canceled — downgraded to developer', {
+          orgId: subscription.orgId,
+          subscriptionId: subscription._id.toString(),
+        });
+      } else if (view.currentPeriodEnd && view.currentPeriodEnd > now) {
+        // Provider renewed — the webhook was merely late. Advance the local
+        // period (drops the row from this scan) and do NOT downgrade.
+        subscription.currentPeriodEnd = view.currentPeriodEnd;
+        await subscription.save();
+
+        await createBillingEvent(subscription.orgId, 'subscription_updated', {
+          reason: 'provider_verified_renewal_late_webhook',
+          currentPeriodEnd: view.currentPeriodEnd.toISOString(),
+          detectedAt: now.toISOString(),
+        }, subscription._id.toString());
+
+        incCounter('billing_stale_subscription_reconciled_total', { outcome: 'renewed' });
+        logger.info('Stale-active sub provider-verified as renewed — period advanced (late webhook)', {
+          orgId: subscription.orgId,
+          subscriptionId: subscription._id.toString(),
+          currentPeriodEnd: view.currentPeriodEnd.toISOString(),
+        });
+      } else {
+        // Provider still reports it active/trialing but with no advanced period —
+        // genuinely ambiguous. Record for investigation; never downgrade.
+        await recordStalePeriodEvent(subscription, now, 'provider_active_no_period_advance');
+      }
+    } catch (err) {
+      // A transient provider/read error must NOT downgrade — log and retry next tick.
+      logger.error('Failed to reconcile stale-active subscription', {
+        orgId: subscription.orgId,
+        subscriptionId: subscription._id.toString(),
+        error: errorMessage(err),
+      });
+    }
   }
 }
 
@@ -208,6 +331,183 @@ async function sendRenewalReminders(): Promise<void> {
       logger.warn('Failed to send renewal reminder', {
         orgId: subscription.orgId,
         error: errorMessage(err),
+      });
+    }
+  }
+}
+
+// ── 4. Entitlement Sync Reconciliation ────────────────────
+
+/**
+ * Re-drive entitlement syncs that failed-open during a transient quota/platform
+ * outage. `syncEntitlements` fails open (logs + audits + a metric, returns a
+ * swallowed `false`) so a brief outage during an upgrade/add-on leaves local
+ * billing state (e.g. Pro + bundles) diverged from the enforced caps (old tier)
+ * with nothing re-attempting it. Every sync call site stamps
+ * `metadata.entitlementSyncPending = true` on failure (and clears it on the next
+ * success) via syncEntitlements, so this pass simply finds every ACTIVE sub still
+ * carrying the marker and re-syncs it. The marker clear happens inside
+ * syncEntitlements on success — so this pass is idempotent and self-clearing: a
+ * still-failing leg keeps the marker for the next tick, a recovered one drops it.
+ */
+async function reconcileFailedEntitlementSyncs(): Promise<void> {
+  const pending = await Subscription.find({
+    'status': 'active',
+    'metadata.entitlementSyncPending': true,
+  });
+
+  if (pending.length === 0) return;
+
+  logger.info('Reconciling subscriptions with a pending entitlement sync', {
+    count: pending.length,
+    orgIds: pending.map(s => s.orgId),
+  });
+
+  for (const subscription of pending) {
+    try {
+      const plan = await Plan.findById(subscription.planId);
+      if (!plan) {
+        logger.error('Cannot reconcile entitlement sync — plan not found', {
+          orgId: subscription.orgId,
+          subscriptionId: subscription._id.toString(),
+          planId: subscription.planId,
+        });
+        continue;
+      }
+
+      // Re-drive the SAME two-target sync the original mutation attempted:
+      // effective tier + current add-ons, root-scoped, with a fresh service
+      // token. syncEntitlements clears the pending marker on success.
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
+      const ok = await syncEntitlements(
+        subscription.orgId, plan.tier, serviceAuth, subscription._id.toString(), subscription.addons ?? [],
+      );
+
+      if (ok) {
+        logger.info('Entitlement sync reconciled', {
+          orgId: subscription.orgId,
+          subscriptionId: subscription._id.toString(),
+        });
+      } else {
+        logger.warn('Entitlement sync still failing after reconcile attempt — will retry next tick', {
+          orgId: subscription.orgId,
+          subscriptionId: subscription._id.toString(),
+        });
+      }
+    } catch (err) {
+      logger.error('Error reconciling entitlement sync', {
+        orgId: subscription.orgId,
+        error: errorMessage(err),
+      });
+    }
+  }
+}
+
+// ── 5. Cross-Store Entitlement-Drift Reconciliation ───────
+
+/**
+ * Low-frequency, BOUNDED pass that catches SILENT entitlement drift — the case
+ * the Tier-1 reconciler can't see. reconcileFailedEntitlementSyncs re-drives
+ * syncs that KNOWINGLY failed (they carry `metadata.entitlementSyncPending`).
+ * This pass finds subs whose sync returned success but whose ENFORCED state has
+ * since diverged from what the Subscription (tier + add-ons) says it should be:
+ * an out-of-band edit in the quota/platform store, a sync that didn't take
+ * effect, a manual override, etc.
+ *
+ * Billing's Subscription is the source of truth. For each candidate we compute
+ * the EXPECTED entitlements (`effectiveEntitlements`), read the ACTUAL enforced
+ * state (quota limits from the quota service + the seat limit from platform),
+ * and compare. On any mismatch we re-drive the SAME idempotent `syncEntitlements`
+ * path (which also clears the pending marker) + emit
+ * `billing_entitlement_drift_total`. On a clean match we stamp
+ * `metadata.lastReconciledAt` and do nothing else.
+ *
+ * BOUNDED two ways so a large customer base is amortized, not scanned every tick:
+ *   1. a per-tick cap (`config.entitlementDriftMaxPerTick`), and
+ *   2. a per-sub `metadata.lastReconciledAt` gate — a sub reconciled within the
+ *      last `config.entitlementDriftIntervalMs` (~daily) is skipped by the query.
+ * `lastReconciledAt` is stamped after every completed check (match OR drift), so
+ * each sub rotates back into the window at most ~once per interval. A read
+ * failure leaves it UN-stamped, so it's retried next tick (never falsely re-synced).
+ *
+ * FAIL-SOFT: a store read failure for one sub logs + skips that sub — an
+ * unreachable store is NOT "drift". The pass never throws.
+ *
+ * NOTE ON COVERAGE: platform exposes no clean service read for an org's
+ * `featureEntitlements`, so features are NOT compared here — only the 9 tracked
+ * quota limits + seats. A future platform read would close that gap.
+ */
+async function reconcileEntitlementDrift(): Promise<void> {
+  // Gate: only subs never reconciled, or last reconciled before the interval
+  // cutoff. Combined with the per-tick cap this amortizes the whole base.
+  const cutoff = new Date(Date.now() - config.entitlementDriftIntervalMs).toISOString();
+  const candidates = await Subscription.find(
+    {
+      status: 'active',
+      $or: [
+        { 'metadata.lastReconciledAt': { $exists: false } },
+        { 'metadata.lastReconciledAt': { $lte: cutoff } },
+      ],
+    },
+    null,
+    // Bound the scan at the DB level — never pull the whole ACTIVE set.
+    { limit: config.entitlementDriftMaxPerTick },
+  );
+
+  if (candidates.length === 0) return;
+
+  for (const subscription of candidates) {
+    const subscriptionId = subscription._id.toString();
+    try {
+      const plan = await Plan.findById(subscription.planId);
+      if (!plan) {
+        logger.error('Cannot drift-check entitlements — plan not found', {
+          orgId: subscription.orgId, subscriptionId, planId: subscription.planId,
+        });
+        continue;
+      }
+
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
+      const addons = subscription.addons ?? [];
+
+      // EXPECTED (from the sub) vs ACTUAL (enforced) — the compare is pure; the
+      // read is fail-soft (null ⇒ a store was unreachable).
+      const { limits: expected } = effectiveEntitlements(plan.tier, addons, getBundleCatalog());
+      const actual = await readActualEntitlements(subscription.orgId, serviceAuth);
+      if (!actual) {
+        // A store read failed — an outage is NOT drift. Skip WITHOUT stamping so
+        // this sub is retried next tick; never re-sync on an unreachable store.
+        logger.warn('Entitlement drift check skipped — enforced-state read failed', {
+          orgId: subscription.orgId, subscriptionId,
+        });
+        continue;
+      }
+
+      const drift = computeEntitlementDrift(expected, actual);
+
+      if (drift.status === 'drift') {
+        logger.warn('Entitlement drift detected — re-syncing enforced state', {
+          orgId: subscription.orgId, subscriptionId, tier: plan.tier, drifted: drift.drifted,
+        });
+        // Re-drive the SAME idempotent two-target sync (clears the pending marker
+        // on success; sets it on failure for the Tier-1 reconciler to retry).
+        await syncEntitlements(subscription.orgId, plan.tier, serviceAuth, subscriptionId, addons);
+        for (const dimension of drift.dimensions) {
+          incCounter('billing_entitlement_drift_total', { dimension });
+        }
+      }
+
+      // Stamp on a completed check (match OR post-resync) so this sub drops out
+      // of the query for the next interval. Surgical dot-path so a concurrent
+      // metadata write (grace / pending / renewal markers) isn't clobbered.
+      await Subscription.updateOne(
+        { _id: subscriptionId },
+        { $set: { 'metadata.lastReconciledAt': new Date().toISOString() } },
+      );
+    } catch (err) {
+      // Never let one sub's failure abort the pass.
+      logger.error('Error reconciling entitlement drift', {
+        orgId: subscription.orgId, subscriptionId, error: errorMessage(err),
       });
     }
   }

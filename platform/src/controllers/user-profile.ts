@@ -141,7 +141,7 @@ export const getUser = withController('Get user profile', async (req, res) => {
   // Include the active org's account-level entitlements (e.g. add-on bundle
   // grants) so /profile reports the same feature set the JWT carries.
   const activeOrgFeatures = activeOrgId ? orgMap.get(activeOrgId.toString())?.featureEntitlements : undefined;
-  const features = resolveUserFeatures(tier, overrides, (user as { isSuperAdmin?: boolean }).isSuperAdmin === true, activeOrgFeatures);
+  const features = resolveUserFeatures(tier, { overrides, isSuperAdmin: (user as { isSuperAdmin?: boolean }).isSuperAdmin === true, accountFeatures: activeOrgFeatures });
 
   sendSuccess(res, 200, {
     user: formatUserResponse(user as UserResponseInput, {

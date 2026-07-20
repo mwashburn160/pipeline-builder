@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { QuotaTier } from '@pipeline-builder/api-core';
-import { createLogger, createSafeClient, getServiceAuthHeader, getTierLimits, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
-import { Config, type BillingConfig, type BundleConfig } from '@pipeline-builder/pipeline-core';
+import { Config, effectiveEntitlements, type BillingConfig, type BundleConfig } from '@pipeline-builder/pipeline-core';
 import { config } from '../config.js';
 import { BillingEvent } from '../models/billing-event.js';
 import type { BillingEventType } from '../models/billing-event.js';
+import { Subscription } from '../models/subscription.js';
 import type { BillingInterval } from '../models/subscription.js';
 
 const logger = createLogger('billing-helpers');
@@ -178,32 +179,10 @@ export function bundleSelfServiceAllowed(): boolean {
   return bundlesEnabled() && config.billingProvider !== 'aws-marketplace';
 }
 
-/**
- * Compute an account's EFFECTIVE entitlements = tier base limits + Σ(bundle
- * grants × quantity), plus the union of bundle-granted feature flags. A field
- * already `-1` (unlimited) stays `-1`. Pure; the catalog is passed in.
- */
-export function effectiveEntitlements(
-  tier: QuotaTier,
-  addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
-  bundles: readonly BundleConfig[],
-): { limits: Record<string, number>; features: string[] } {
-  const limits: Record<string, number> = { ...getTierLimits(tier) };
-  const features = new Set<string>();
-  const byId = new Map(bundles.map((b) => [b.id, b]));
-  for (const { bundleId, quantity } of addons) {
-    const bundle = byId.get(bundleId);
-    if (!bundle || quantity <= 0) continue;
-    for (const [field, delta] of Object.entries(bundle.grants)) {
-      // `grants` is a Partial map, so a value can be undefined — skip those.
-      if (delta === undefined) continue;
-      if (limits[field] === -1) continue; // already unlimited
-      limits[field] = (limits[field] ?? 0) + delta * quantity;
-    }
-    for (const f of bundle.features ?? []) features.add(f);
-  }
-  return { limits, features: [...features] };
-}
+// The canonical `effectiveEntitlements` (tier base + Σ bundle grants) now lives
+// in pipeline-core alongside the plan/bundle config it operates on. Re-exported
+// here so existing billing importers (routes/addons) keep their import path.
+export { effectiveEntitlements };
 
 /** A count-quota that would be over its (reduced) cap after an add-on change. */
 export interface Overage {
@@ -307,6 +286,29 @@ export async function syncEntitlements(
     });
     incCounter('billing_quota_sync_failed_total', { leg });
   }
+
+  // Persist a durable "sync dirty" signal so the lifecycle reconciler
+  // (subscription-lifecycle.reconcileFailedEntitlementSyncs) can re-drive a
+  // sync that failed-open during a transient quota/platform outage. Set the
+  // marker on failure, clear it on a clean sync — a surgical dot-path update so
+  // a concurrent metadata write (grace/renewal markers) isn't clobbered. Keyed
+  // by subscriptionId; best-effort + swallowed so it can NOT alter the
+  // fail-open contract (this function still returns `ok` and never throws).
+  if (subscriptionId) {
+    try {
+      await Subscription.updateOne(
+        { _id: subscriptionId },
+        ok
+          ? { $unset: { 'metadata.entitlementSyncPending': '' } }
+          : { $set: { 'metadata.entitlementSyncPending': true } },
+      );
+    } catch (err) {
+      logger.warn('Failed to persist entitlementSyncPending marker', {
+        orgId, subscriptionId, error: errorMessage(err),
+      });
+    }
+  }
+
   return ok;
 }
 

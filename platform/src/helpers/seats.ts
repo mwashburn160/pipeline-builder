@@ -47,7 +47,13 @@ export async function seatCapacityAvailable(
   const scopeIds = (await expandOrgScope(rootOrgId)).map(toOrgId);
   const [memberIds, pendingEmails] = await Promise.all([
     UserOrganization.distinct('userId', { organizationId: { $in: scopeIds }, isActive: true }).session(session ?? null),
-    Invitation.distinct('email', { organizationId: { $in: scopeIds }, status: 'pending' }).session(session ?? null),
+    // Only GENUINELY-LIVE invites reserve a seat. Invitations expire lazily
+    // (status flips to 'expired' on re-invite/view/accept or via the reaper),
+    // so a `status:'pending'` row can outlive its `expiresAt`. Guard on
+    // `expiresAt > now` here so an org whose invites are never accepted doesn't
+    // stay pinned at its seat ceiling forever — the reaper backstops the data,
+    // but this query is the load-bearing correctness fix.
+    Invitation.distinct('email', { organizationId: { $in: scopeIds }, status: 'pending', expiresAt: { $gt: new Date() } }).session(session ?? null),
   ]);
 
   const used = memberIds.length + pendingEmails.length;
@@ -109,7 +115,10 @@ export async function pooledSeatUsage(
   const scopeIds = (await expandOrgScope(rootOrgId)).map(toOrgId);
   const [memberIds, pendingEmails] = await Promise.all([
     UserOrganization.distinct('userId', { organizationId: { $in: scopeIds }, isActive: true }),
-    Invitation.distinct('email', { organizationId: { $in: scopeIds }, status: 'pending' }),
+    // Same live-invite guard as seatCapacityAvailable: expired-but-unswept
+    // pending rows must NOT count as used seats (would strand the billing
+    // over-cap gate on phantom usage).
+    Invitation.distinct('email', { organizationId: { $in: scopeIds }, status: 'pending', expiresAt: { $gt: new Date() } }),
   ]);
   return { limit, used: memberIds.length + pendingEmails.length };
 }

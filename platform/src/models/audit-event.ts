@@ -25,6 +25,17 @@ export type AuditAction =
   | 'user.tokens.revoke-all'
   // Organization (controllers/organization.ts)
   | 'org.create'
+  // Owner/admin self-serve org identity edit (name/slug). `affectedOrgId` is
+  // the org changed; `details` carries the fields that were updated.
+  | 'org.update'
+  // Org SOFT-DELETE / restore lifecycle (controllers/organization.ts).
+  // `org.soft_delete` is emitted when a sysadmin runs DELETE — the org enters
+  // its retention window (snapshot taken, sessions cut) instead of being
+  // hard-deleted; `details` carries the `purgeAfter` deadline. `org.restore`
+  // reverses it within the window. The eventual hard delete is still the
+  // `admin.org.delete` event emitted by the purge sweep.
+  | 'org.soft_delete'
+  | 'org.restore'
   // Organization membership mutations (controllers/organization-members.ts).
   // `affectedOrgId` carries the org being mutated; `targetId` is the user
   // being added/removed/modified. Privilege changes are surfaced separately
@@ -83,6 +94,13 @@ export type AuditAction =
   // master fallback. Both emit `affectedOrgId` for cross-org filtering.
   | 'admin.org.kms-config.upsert'
   | 'admin.org.kms-config.delete'
+  // Emitted by the org-delete cascade when the deleted org had a per-org KMS
+  // CMK (`kmsConfig`). Auto-deleting a CMK is IRREVERSIBLE, so the cascade
+  // does NOT schedule the key for deletion — it records this operator-
+  // actionable event (with the org id + key identifier in `details`) so an
+  // operator can manually schedule the external AWS key's deletion. Without
+  // it the key (and anything wrapped under it) silently orphans.
+  | 'org.kms.orphaned'
   // Org tier change. Emitted when a sysadmin moves an org between
   // pricing tiers (developer/pro/team/enterprise); reseeds quota limits as a
   // side-effect. `details` carries the previousTier so the transition
@@ -131,6 +149,9 @@ const ALL_AUDIT_ACTIONS = [
   'user.token.create',
   'user.tokens.revoke-all',
   'org.create',
+  'org.update',
+  'org.soft_delete',
+  'org.restore',
   'org.member.add',
   'org.member.remove',
   'org.member.role.update',
@@ -163,6 +184,7 @@ const ALL_AUDIT_ACTIONS = [
   'admin.superadmin.revoke',
   'admin.org.kms-config.upsert',
   'admin.org.kms-config.delete',
+  'org.kms.orphaned',
   'admin.org.tier.update',
   'admin.org.seatLimit.update',
   'admin.impersonate.start',

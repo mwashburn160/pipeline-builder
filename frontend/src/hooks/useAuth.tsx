@@ -217,15 +217,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const response = await api.register(username, email, password, organizationName, planId);
-      
+
       if (!response.success) {
         throw new Error(response.message || 'Registration failed');
       }
-      
+
+      // `POST /auth/register` creates the user+org but does NOT issue tokens
+      // (it returns `{ user }`, 201 — no accessToken/cookie). Without this the
+      // new user landed back on the login screen and had to re-enter the same
+      // credentials. Authenticate immediately with the same email/password to
+      // establish the session exactly like the login path (stores the token
+      // pair + refreshes the profile). `login` also routes to `/dashboard`.
+      await login(email, password);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [login]);
 
   /**
    * Switch active organization — re-issues tokens and refreshes user profile.

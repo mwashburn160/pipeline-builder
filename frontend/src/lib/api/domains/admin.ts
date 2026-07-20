@@ -316,5 +316,34 @@ export function adminApi(core: ApiCore) {
         threshold: number;
       }>>(`/api/quota/at-risk${qs}`);
     },
+
+    /**
+     * Account-scoped at-risk quota dimensions for a SINGLE org (the caller's
+     * own). Unlike {@link getAtRiskQuotas} (sysadmin, cross-tenant) this is
+     * gated by tenancy on the server — a non-sysadmin can only read their own
+     * org — so an org owner/admin can see what's near cap without sysadmin.
+     * For pooled/hierarchy orgs the numbers are the root's pooled cap + subtree
+     * usage, matching enforcement.
+     * @param threshold integer 1-100 (default 80 server-side)
+     */
+    getOrgAtRisk: async (orgId: string, threshold?: number) => {
+      const qs = threshold ? `?threshold=${threshold}` : '';
+      return core.request<ApiResponse<{
+        atRisk: Array<{
+          orgId: string;
+          name: string;
+          slug: string;
+          tier?: string;
+          type: 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls';
+          used: number;
+          limit: number;
+          percent: number;
+        }>;
+        count: number;
+        total: number;
+        threshold: number;
+        orgId: string;
+      }>>(`/api/quota/${encodeURIComponent(orgId)}/at-risk${qs}`);
+    },
   };
 }

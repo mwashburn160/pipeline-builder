@@ -12,6 +12,7 @@ import {
   getOrganizationDescendants,
   getOrganizationParent,
   updateOrganization,
+  updateOrganizationIdentity,
   updateOrganizationTier,
   getOrganizationQuotas,
   updateOrganizationQuotas,
@@ -27,6 +28,7 @@ import {
   deactivateMember,
   activateMember,
   deleteOrganization,
+  restoreOrganization,
   exportOrganization,
   getOrganizationRoles,
   createOrganizationRole,
@@ -83,12 +85,28 @@ router.get('/:id/parent', requireAuth, getOrganizationParent);
  *  so org admins/owners are rejected here, not deeper in. */
 router.put('/:id', requireAuth, requireSystemAdmin, updateOrganization);
 
+/** PATCH /organization/:id/identity - Self-serve org identity edit (name/slug).
+ *  Owner/admin reachable (NOT sysadmin-only): `requirePermission('org:settings')`
+ *  is the capability gate (admin/owner bundle) and the controller's
+ *  `canAdministerOrg` is the tenancy gate (own org or a managed team). Mirrors
+ *  the export route's gating. */
+router.patch('/:id/identity', requireAuth, requirePermission('org:settings'), updateOrganizationIdentity);
+
 /** PATCH /organization/:id/tier - Change pricing tier (sysadmin only).
  *  Step-up gated because the change resizes quota limits and affects billing. */
 router.patch('/:id/tier', requireAuth, requireSystemAdmin, requireStepUp, updateOrganizationTier);
 
-/** DELETE /organization/:id - Delete organization (sysadmin only). */
+/** DELETE /organization/:id - Soft-delete organization (sysadmin only).
+ *  Enters a retention window (snapshot taken, sessions cut) instead of an
+ *  immediate hard delete; the purge sweep runs the destructive cascade after
+ *  the window. Restorable via POST /:id/restore until then. */
 router.delete('/:id', requireAuth, requireSystemAdmin, requireStepUp, deleteOrganization);
+
+/** POST /organization/:id/restore - Restore a soft-deleted org within its
+ *  retention window. `requirePermission('org:settings')` is the capability gate;
+ *  the controller's `canAdministerOrg` is the tenancy gate (sysadmin or an
+ *  admin/owner of the org / a managing parent). Step-up gated like DELETE. */
+router.post('/:id/restore', requireAuth, requirePermission('org:settings'), requireStepUp, restoreOrganization);
 
 /** GET /organization/:id/export - GDPR portability dump (org admin or sysadmin).
  *  Controller gates with `canAdministerOrg` (target-org scope); `requirePermission`

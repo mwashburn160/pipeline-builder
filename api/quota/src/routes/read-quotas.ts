@@ -171,6 +171,76 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     }),
   );
 
+  // GET /quotas/:orgId/at-risk — ACCOUNT-SCOPED at-risk dims for a SINGLE org.
+  //
+  // Lets an org owner/admin see THEIR OWN org's at-risk quota dimensions
+  // without system-admin. `authorizeOrg()` enforces tenancy: a non-sysadmin
+  // can only ever read their own org — passing another org's id is rejected
+  // (403) by the same middleware the other per-org reads use, so a caller can
+  // never scope this at another tenant. For pooled/hierarchy orgs the numbers
+  // are the ROOT's pooled cap + subtree usage (via `getQuotaStatus`, which
+  // reuses `pooledLimitAndUsage`), matching enforcement; flat orgs report their
+  // own. The cross-org GET /quotas/at-risk (sysadmin-only) above is unchanged.
+  //
+  // MUST be registered before `/:orgId/:quotaType` so `at-risk` is not parsed
+  // as a quota type.
+  //
+  // Query params:
+  //   - threshold (number, default 80): percent threshold (1-100) at/above
+  //     which a dimension is considered at-risk (100 finds exhausted dims).
+
+  router.get(
+    '/:orgId/at-risk',
+    requireAuth as RequestHandler,
+    authorizeOrg() as RequestHandler,
+    withRoute(async ({ req, res, ctx }) => {
+      const targetOrgId = getParam(req.params, 'orgId')!;
+
+      const rawThreshold = parseInt(String(req.query.threshold ?? '80'), 10);
+      const threshold = Number.isFinite(rawThreshold) ? Math.min(100, Math.max(1, rawThreshold)) : 80;
+
+      // Org metadata (name/slug/tier) for the response rows.
+      const summary = await svc.findByOrgId(targetOrgId);
+
+      const entries: AtRiskEntry[] = [];
+      for (const type of VALID_QUOTA_TYPES) {
+        // Pooled-aware status so the numbers match enforcement: for hierarchy
+        // orgs this is the root's shared cap + subtree usage; for flat orgs
+        // it's the org's own.
+        const status = await svc.getQuotaStatus(targetOrgId, type);
+        if (status.unlimited) continue;
+        // limit === 0 ⇒ permanently at-risk (any use is 100%+); report as 100%.
+        const percent = status.limit === 0
+          ? 100
+          : Math.min(100, Math.round((status.used / status.limit) * 100));
+        if (percent >= threshold) {
+          entries.push({
+            orgId: summary.orgId,
+            name: summary.name,
+            slug: summary.slug,
+            tier: summary.tier,
+            type,
+            used: status.used,
+            limit: status.limit,
+            percent,
+          });
+        }
+      }
+      entries.sort((a, b) => b.percent - a.percent);
+
+      ctx.log('COMPLETED', 'Listed own-org at-risk dims', {
+        orgId: targetOrgId, threshold, count: entries.length,
+      });
+      return sendSuccess(res, 200, {
+        atRisk: entries,
+        count: entries.length,
+        total: entries.length,
+        threshold,
+        orgId: summary.orgId,
+      });
+    }),
+  );
+
   // GET /quotas/:orgId — all quotas for a specific org
 
   router.get(

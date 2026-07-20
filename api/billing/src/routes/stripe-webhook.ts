@@ -222,7 +222,7 @@ async function handleInvoiceUpcoming(invoice: Stripe.Invoice): Promise<void> {
  * Stripe (dashboard/API) — the latter recovered by reversing the price map and
  * re-syncing tier entitlements (preserving purchased add-ons).
  */
-async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription): Promise<void> {
+export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription): Promise<void> {
   const externalId = stripeSubscription.id;
   const subscription = await findSubscriptionByStripeId(externalId);
 
@@ -245,6 +245,20 @@ async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription
     dirty = true;
   }
   const statusChanged = dirty;
+
+  // Start the grace clock if Stripe moved us into past_due WITHOUT a preceding
+  // invoice.payment_failed (which is what normally stamps firstFailedAt).
+  // The lifecycle grace cron matches on `firstFailedAt: {$lte: cutoff}`, so a
+  // null firstFailedAt would leave the sub stuck in past_due forever and never
+  // get downgraded. Stamp `now` here so the clock actually starts. Leave an
+  // already-set firstFailedAt untouched (don't reset an in-progress grace
+  // window). Not counted in `statusChanged` — this is a clock start, not a
+  // customer-visible status transition — but it still marks the row dirty so
+  // the stamp persists.
+  if (newStatus === 'past_due' && !subscription.firstFailedAt) {
+    subscription.firstFailedAt = new Date();
+    dirty = true;
+  }
 
   // Plan/interval change made directly in Stripe: the base line item (item[0])
   // carries the plan price; reverse it to the local planId/interval and, if it
