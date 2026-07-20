@@ -114,7 +114,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "3.4.110",
+  "version": "3.4.111",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
