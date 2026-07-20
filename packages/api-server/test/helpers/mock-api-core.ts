@@ -26,6 +26,21 @@ export const loggerMock = () => ({
 /** Mirrors api-core: `ErrorCode.ANY_CODE` resolves to the string `'ANY_CODE'`. */
 const ErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<string, string>;
 
+/**
+ * Per-tier quota limits, shared by the `QUOTA_TIERS` export and `getTierLimits`
+ * below so they can't drift. pipeline-core's `config/entitlements.ts` imports
+ * `getTierLimits` at module load (it derives seat lines / effective entitlements
+ * from a tier's limits), so the transitively-loaded graph needs it or ESM
+ * linking against this mock throws "does not provide an export named
+ * getTierLimits".
+ */
+const TIER_LIMITS: Record<string, Record<string, number>> = {
+  developer: { seats: 1, plugins: 50, pipelines: 5, apiCalls: 25000, aiCalls: 50 },
+  pro: { seats: 3, plugins: 500, pipelines: 50, apiCalls: 500000, aiCalls: 2500 },
+  team: { seats: 10, plugins: 2000, pipelines: 200, apiCalls: -1, aiCalls: 10000 },
+  enterprise: { seats: -1, plugins: 5000, pipelines: 500, apiCalls: -1, aiCalls: 25000 },
+};
+
 /** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
 class NotFoundError extends Error {
   statusCode = 404;
@@ -54,11 +69,13 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // marketing copy from each tier's limits), so the transitively-loaded graph
     // needs these tier exports or ESM linking against the mock throws.
     QUOTA_TIERS: {
-      developer: { label: 'Developer', limits: { seats: 1, plugins: 50, pipelines: 5, apiCalls: 25000, aiCalls: 50 } },
-      pro: { label: 'Pro', limits: { seats: 3, plugins: 500, pipelines: 50, apiCalls: 500000, aiCalls: 2500 } },
-      team: { label: 'Team', limits: { seats: 10, plugins: 2000, pipelines: 200, apiCalls: -1, aiCalls: 10000 } },
-      enterprise: { label: 'Enterprise', limits: { seats: -1, plugins: 5000, pipelines: 500, apiCalls: -1, aiCalls: 25000 } },
+      developer: { label: 'Developer', limits: TIER_LIMITS.developer },
+      pro: { label: 'Pro', limits: TIER_LIMITS.pro },
+      team: { label: 'Team', limits: TIER_LIMITS.team },
+      enterprise: { label: 'Enterprise', limits: TIER_LIMITS.enterprise },
     },
+    // Mirrors api-core: returns a tier's limits, defaulting unknown tiers to developer.
+    getTierLimits: (tier: string) => TIER_LIMITS[tier] ?? TIER_LIMITS.developer,
     DEFAULT_TIER: 'developer',
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     // billing-config also derives marketed feature copy from the enforced entitlement
