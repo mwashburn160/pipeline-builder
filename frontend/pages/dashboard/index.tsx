@@ -12,7 +12,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import type { BuilderProps } from '@/types';
+import type { BuilderProps, ExecutionCountRow } from '@/types';
 import { LoadingPage } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import CreatePipelineModal from '@/components/pipeline/CreatePipelineModal';
@@ -22,20 +22,6 @@ import { OrgAdminHome } from '@/components/dashboard/OrgAdminHome';
 import { dismissKey, isFreshAccount, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboarding';
 
 // ─── Types ──────────────────────────────────────────────
-
-// TODO: ExecutionCount overlaps with `Row` in pages/dashboard/executions.tsx.
-// Both describe `/api/reports/execution/count`'s pipelines[] shape. Consolidate
-// into a shared type once src/types/ ownership permits (see also reports.tsx).
-interface ExecutionCount {
-  id: string;
-  total: number;
-  succeeded: number;
-  failed: number;
-  canceled?: number;
-  project?: string;
-  pipeline_name?: string | null;
-  last_execution?: string | null;
-}
 
 interface TimelineEntry {
   period: string;
@@ -109,7 +95,7 @@ export default function DashboardPage() {
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
 
   // Stats
-  const [executions, setExecutions] = useState<ExecutionCount[]>([]);
+  const [executions, setExecutions] = useState<ExecutionCountRow[]>([]);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
@@ -523,7 +509,7 @@ function MyRecentActivity({
   executions,
   unreadCount,
 }: {
-  executions: ExecutionCount[];
+  executions: ExecutionCountRow[];
   unreadCount: number;
 }) {
   const recent = [...executions]

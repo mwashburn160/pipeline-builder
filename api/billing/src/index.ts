@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, ErrorCode, mongoSanitize, setAuthzDenialAuditor } from '@pipeline-builder/api-core';
+import { createLogger, sendError, ErrorCode, mongoSanitize, setAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -33,6 +33,10 @@ setAuthzDenialAuditor((info) => getAuditClient().record({
   outcome: 'failure',
   details: { method: info.method, path: info.path, required: info.required },
 }, 'billing'));
+
+// Reject tokens whose tokenVersion is behind the platform-published value once
+// Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.
+setTokenRevocationStore(createEnvRedisTokenRevocationStore());
 
 // -- Express app ---------------------------------------------------------------
 

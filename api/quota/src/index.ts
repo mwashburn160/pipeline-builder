@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { mongoSanitize, createLogger, DEFAULT_TIER, QUOTA_TIERS, VALID_TIERS, isValidTier, setAuthzDenialAuditor } from '@pipeline-builder/api-core';
+import { mongoSanitize, createLogger, DEFAULT_TIER, QUOTA_TIERS, VALID_TIERS, isValidTier, setAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import mongoose from 'mongoose';
 
@@ -45,6 +45,10 @@ setAuthzDenialAuditor((info) => {
     details: { method: info.method, path: info.path, required: info.required },
   }, 'quota');
 });
+
+// Reject tokens whose tokenVersion is behind the platform-published value once
+// Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.
+setTokenRevocationStore(createEnvRedisTokenRevocationStore());
 
 // -- Startup -------------------------------------------------------------------
 

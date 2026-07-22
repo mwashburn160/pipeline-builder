@@ -46,11 +46,15 @@ const okQuotaResponse = () => ({
 });
 const mockReadQuota = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve(okQuotaResponse()));
 const mockReadSeat = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { limit: EXPECTED_LIMITS.seats } } }));
+// Platform feature-entitlements read. Default: the empty set, matching the
+// default expected features ([] from mockEffectiveEntitlements).
+const mockReadFeatures = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: [] } } }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({
     post: jest.fn().mockResolvedValue({ statusCode: 201 }),
     get: jest.fn((path: string) => {
+      if (path.includes('/feature-entitlements')) return mockReadFeatures();
       if (path.includes('/seat-usage')) return mockReadSeat();
       if (path.startsWith('/quotas/')) return mockReadQuota();
       return Promise.resolve(null);
@@ -148,6 +152,7 @@ describe('Subscription Lifecycle Checker', () => {
     mockEffectiveEntitlements.mockReturnValue({ limits: { ...EXPECTED_LIMITS }, features: [] });
     mockReadQuota.mockImplementation(() => Promise.resolve(okQuotaResponse()));
     mockReadSeat.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { limit: EXPECTED_LIMITS.seats } } }));
+    mockReadFeatures.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: [] } } }));
   });
 
   afterAll(() => {
@@ -622,6 +627,51 @@ describe('Subscription Lifecycle Checker', () => {
 
       expect(mockSyncEntitlements).toHaveBeenCalledWith('org-d', 'pro', 'Bearer test-service-token', 'sub-d', []);
       expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'quota' });
+    });
+
+    it('FEATURE drift: enforced feature entitlements differ → re-sync + drift metric (dimension features)', async () => {
+      onlyDriftReturns(driftSub());
+      // Expected features grant `sso`; platform enforces the empty set — drift.
+      mockEffectiveEntitlements.mockReturnValue({ limits: { ...EXPECTED_LIMITS }, features: ['sso'] });
+      mockReadFeatures.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: [] } } }));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).toHaveBeenCalledWith('org-d', 'pro', 'Bearer test-service-token', 'sub-d', []);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'features' });
+      expect(mockUpdateOne).toHaveBeenCalledWith(
+        { _id: 'sub-d' },
+        { $set: { 'metadata.lastReconciledAt': expect.any(String) } },
+      );
+    });
+
+    it('FEATURE match is order-independent: same set, different order → no drift', async () => {
+      onlyDriftReturns(driftSub());
+      mockEffectiveEntitlements.mockReturnValue({ limits: { ...EXPECTED_LIMITS }, features: ['sso', 'audit_log'] });
+      mockReadFeatures.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: ['audit_log', 'sso'] } } }));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+      expect(mockIncCounter).not.toHaveBeenCalledWith('billing_entitlement_drift_total', expect.anything());
+    });
+
+    it('FEATURE read failure: platform feature read fails → skip feature compare, NO false drift', async () => {
+      onlyDriftReturns(driftSub());
+      // Expected features grant `sso`, but the platform feature read is unreachable
+      // (null). An outage must NOT be read as "features drifted to empty".
+      mockEffectiveEntitlements.mockReturnValue({ limits: { ...EXPECTED_LIMITS }, features: ['sso'] });
+      mockReadFeatures.mockImplementation(() => Promise.resolve(null));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+      expect(mockIncCounter).not.toHaveBeenCalledWith('billing_entitlement_drift_total', expect.anything());
+      // Un-stamped so it's retried next tick (read failure, not drift).
+      expect(mockUpdateOne).not.toHaveBeenCalled();
     });
 
     it('READ FAILURE: a store read fails → skip, NO false re-sync, NOT stamped', async () => {

@@ -17,6 +17,7 @@ jest.unstable_mockModule('../src/utils/logger.js', () => ({
 const {
   createRedisTokenRevocationStore,
   publishTokenRevocation,
+  createEnvRedisTokenRevocationStore,
   tokenRevocationKey,
   TOKEN_REVOCATION_KEY_PREFIX,
 } = await import('../src/services/token-revocation.js');
@@ -85,5 +86,23 @@ describe('publishTokenRevocation', () => {
   it('never throws when the Redis write fails (best-effort)', async () => {
     const bad = fakeRedis({ set: jest.fn(async () => { throw new Error('redis down'); }) });
     await expect(publishTokenRevocation(bad, 'u1', 4, 900)).resolves.toBeUndefined();
+  });
+});
+
+describe('createEnvRedisTokenRevocationStore', () => {
+  const savedUrl = process.env.REDIS_URL;
+  const savedHost = process.env.REDIS_HOST;
+  afterEach(() => {
+    if (savedUrl === undefined) delete process.env.REDIS_URL; else process.env.REDIS_URL = savedUrl;
+    if (savedHost === undefined) delete process.env.REDIS_HOST; else process.env.REDIS_HOST = savedHost;
+  });
+
+  it('fail-opens (null) when neither REDIS_URL nor REDIS_HOST is configured', async () => {
+    delete process.env.REDIS_URL;
+    delete process.env.REDIS_HOST;
+    const store = createEnvRedisTokenRevocationStore();
+    expect(await store.getCurrentVersion('u1')).toBeNull();
+    // Memoized "unavailable" — a second call is still a safe null (no throw).
+    expect(await store.getCurrentVersion('u2')).toBeNull();
   });
 });

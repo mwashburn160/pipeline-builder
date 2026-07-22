@@ -65,6 +65,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     createRemoteAuditClient: () => ({ record: () => {} }),
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
+    // Token-revocation reader hooks (session-invalidation) — stubbed for parity
+    // so suites that transitively load the boot module still link.
+    setTokenRevocationStore: () => {},
+    createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },

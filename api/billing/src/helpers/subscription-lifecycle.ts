@@ -435,9 +435,10 @@ async function reconcileFailedEntitlementSyncs(): Promise<void> {
  * FAIL-SOFT: a store read failure for one sub logs + skips that sub — an
  * unreachable store is NOT "drift". The pass never throws.
  *
- * NOTE ON COVERAGE: platform exposes no clean service read for an org's
- * `featureEntitlements`, so features are NOT compared here — only the 9 tracked
- * quota limits + seats. A future platform read would close that gap.
+ * COVERAGE: the 9 tracked quota limits + seats + the account FEATURE entitlements
+ * (`featureEntitlements`, read from platform's feature-entitlements endpoint) are
+ * all compared; a drift on any surfaces on its own metric dimension
+ * (`quota` | `seats` | `features`).
  */
 async function reconcileEntitlementDrift(): Promise<void> {
   // Gate: only subs never reconciled, or last reconciled before the interval
@@ -474,7 +475,7 @@ async function reconcileEntitlementDrift(): Promise<void> {
 
       // EXPECTED (from the sub) vs ACTUAL (enforced) — the compare is pure; the
       // read is fail-soft (null ⇒ a store was unreachable).
-      const { limits: expected } = effectiveEntitlements(plan.tier, addons, getBundleCatalog());
+      const { limits: expected, features: expectedFeatures } = effectiveEntitlements(plan.tier, addons, getBundleCatalog());
       const actual = await readActualEntitlements(subscription.orgId, serviceAuth);
       if (!actual) {
         // A store read failed — an outage is NOT drift. Skip WITHOUT stamping so
@@ -485,7 +486,7 @@ async function reconcileEntitlementDrift(): Promise<void> {
         continue;
       }
 
-      const drift = computeEntitlementDrift(expected, actual);
+      const drift = computeEntitlementDrift(expected, expectedFeatures, actual);
 
       if (drift.status === 'drift') {
         logger.warn('Entitlement drift detected — re-syncing enforced state', {

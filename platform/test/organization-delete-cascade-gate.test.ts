@@ -55,7 +55,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   expandOrgScope: (...a: unknown[]) => mockExpandOrgScope(...a),
 }));
 
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn(), pooledFeatureEntitlements: jest.fn() }));
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
   organizationService: { delete: (...a: unknown[]) => mockDelete(...a), restore: (...a: unknown[]) => mockRestore(...a) },

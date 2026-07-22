@@ -29,22 +29,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { downloadCsv } from '@/lib/csv-export';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-
-// TODO: Row overlaps with `ExecutionCount` in pages/dashboard/index.tsx (and
-// the same shape lives inline in pages/dashboard/reports.tsx). Consolidate
-// into a shared type in src/types/ once cross-package ownership permits.
-interface Row {
-  id: string;
-  project: string;
-  organization: string;
-  pipeline_name: string | null;
-  total: number;
-  succeeded: number;
-  failed: number;
-  canceled: number;
-  first_execution: string | null;
-  last_execution: string | null;
-}
+import type { ExecutionCountRow } from '@/types';
 
 type StatusFilter = 'all' | 'failing' | 'succeeding';
 
@@ -63,7 +48,7 @@ export default function ExecutionsPage() {
   // Read-only fetch via the shared useFetch hook (loading/error/cancel-on-unmount
   // handled there). Refetches whenever the rollup toggle or auth-readiness changes.
   const { data, loading, error: fetchError, refetch } = useFetch(
-    async (): Promise<Row[]> => {
+    async (): Promise<ExecutionCountRow[]> => {
       if (!isReady || !user) return [];
       const res = await api.getExecutionCount(includeDescendants ? { includeDescendants: true } : undefined);
       if (!res.success || !res.data) throw new Error(res.message || 'Failed to load executions');
@@ -102,7 +87,7 @@ export default function ExecutionsPage() {
     return { totalRuns, totalFailed, pipelinesWithFailures };
   }, [filtered]);
 
-  const columns: Column<Row>[] = useMemo(() => [
+  const columns: Column<ExecutionCountRow>[] = useMemo(() => [
     {
       id: 'name',
       header: 'Pipeline',

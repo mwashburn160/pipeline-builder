@@ -16,12 +16,14 @@
  * state from the two stores the entitlement sync fans out to:
  *   - quota service  → the 9 tracked quota LIMITS (`GET /quotas/:orgId`)
  *   - platform       → the `seats` LIMIT (`GET /organization/:orgId/seat-usage`)
+ *                       and the account FEATURE entitlements
+ *                       (`GET /organization/:orgId/feature-entitlements`)
  *
- * Feature entitlements (platform `org.featureEntitlements`) are NOT compared:
- * platform exposes no clean service-to-service read that returns them (they ride
- * along on token issuance / user-profile reads, not a dedicated endpoint), so
- * comparing them here would require a new platform route. Documented gap — see
- * `detectEntitlementDrift`.
+ * Feature entitlements (platform `org.featureEntitlements`, e.g. `sso`/`audit_log`)
+ * are compared alongside the numeric limits: the expected set is the union of
+ * bundle-granted features from `effectiveEntitlements`, and the actual set is read
+ * from the platform feature-entitlements endpoint (the feature sibling of
+ * seat-usage). Any set difference is drift on the `features` dimension.
  */
 
 import type { QuotaTier } from '@pipeline-builder/api-core';
@@ -37,6 +39,8 @@ export interface ActualEntitlements {
   quotaLimits: Record<string, number>;
   /** The enforced seat limit (platform-owned). `-1` = unlimited. */
   seats: number;
+  /** The enforced account feature entitlements (platform-owned), e.g. `sso`. */
+  features: string[];
 }
 
 /** Outcome of a drift check for a single subscription. */
@@ -49,7 +53,7 @@ export interface DriftResult {
   status: 'match' | 'drift' | 'read_failed';
   /** Human-readable per-field diffs, for the structured drift log. */
   drifted: string[];
-  /** Low-cardinality metric dimensions that drifted: a subset of `quota` | `seats`. */
+  /** Low-cardinality metric dimensions that drifted: a subset of `quota` | `seats` | `features`. */
   dimensions: string[];
 }
 
@@ -107,10 +111,35 @@ async function readEnforcedSeatLimit(orgId: string, auth: string): Promise<numbe
   }
 }
 
+/** Read the enforced account feature entitlements from platform; `null` on any read failure. */
+async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Promise<string[] | null> {
+  try {
+    const client = createSafeClient({
+      host: config.platformService.host,
+      port: config.platformService.port,
+      timeout: getBillingTimeout(),
+    });
+    const resp = await client.get<{ data?: { featureEntitlements?: unknown } }>(
+      `/organization/${orgId}/feature-entitlements`,
+      { headers: { 'Authorization': auth, 'x-org-id': orgId } },
+    );
+    if (!resp || resp.statusCode >= 400) return null;
+    const features = resp.body?.data?.featureEntitlements;
+    // A missing / non-array payload can't be safely compared — treat the read as
+    // failed so an incomplete response never false-drifts (a features-less account
+    // still returns `[]`, the platform model default).
+    if (!Array.isArray(features) || !features.every((f) => typeof f === 'string')) return null;
+    return features as string[];
+  } catch (err) {
+    logger.warn('Failed to read enforced feature entitlements', { orgId, error: errorMessage(err) });
+    return null;
+  }
+}
+
 /**
- * Read the ACTUAL enforced entitlements (quota limits + seats) for an account.
- * Returns `null` if EITHER store read fails — the caller must treat that as a
- * skip, never as drift (an unreachable store must not trigger a false re-sync).
+ * Read the ACTUAL enforced entitlements (quota limits + seats + features) for an
+ * account. Returns `null` if ANY store read fails — the caller must treat that as
+ * a skip, never as drift (an unreachable store must not trigger a false re-sync).
  * `authHeader` may be `''`; a service token is minted for the target org, the
  * same way syncEntitlements does.
  */
@@ -123,17 +152,22 @@ export async function readActualEntitlements(orgId: string, authHeader: string):
   const seats = await readEnforcedSeatLimit(orgId, auth);
   if (seats === null) return null;
 
-  return { quotaLimits, seats };
+  const features = await readEnforcedFeatureEntitlements(orgId, auth);
+  if (features === null) return null;
+
+  return { quotaLimits, seats, features };
 }
 
 /**
- * Pure comparison of EXPECTED vs ACTUAL enforced limits. Expected values come
- * from `effectiveEntitlements` (tier base + Σ bundle grants). Any tracked-limit
- * or seats mismatch is drift. Feature entitlements are not compared (no clean
- * platform read — see the module header).
+ * Pure comparison of EXPECTED vs ACTUAL enforced entitlements. Expected values
+ * come from `effectiveEntitlements` (tier base + Σ bundle grants): `expectedLimits`
+ * are the numeric limits (+ `seats`) and `expectedFeatures` is the union of
+ * bundle-granted feature flags. Any tracked-limit, seats, or feature-set mismatch
+ * is drift. The feature comparison is order-independent (set equality).
  */
 export function computeEntitlementDrift(
   expectedLimits: Record<string, number>,
+  expectedFeatures: readonly string[],
   actual: ActualEntitlements,
 ): DriftResult {
   const drifted: string[] = [];
@@ -151,6 +185,17 @@ export function computeEntitlementDrift(
   if (expectedLimits.seats !== actual.seats) {
     drifted.push(`seats=${actual.seats} (expected ${expectedLimits.seats})`);
     dimensions.add('seats');
+  }
+
+  // Feature entitlements are an unordered SET — compare membership, not order.
+  const expected = new Set(expectedFeatures);
+  const enforced = new Set(actual.features);
+  const featuresDiffer =
+    expected.size !== enforced.size || [...expected].some((f) => !enforced.has(f));
+  if (featuresDiffer) {
+    const fmt = (s: Set<string>) => `[${[...s].sort().join(',')}]`;
+    drifted.push(`features=${fmt(enforced)} (expected ${fmt(expected)})`);
+    dimensions.add('features');
   }
 
   return {
@@ -172,8 +217,8 @@ export async function detectEntitlementDrift(
   addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
   authHeader: string,
 ): Promise<DriftResult> {
-  const { limits } = effectiveEntitlements(tier, addons, getBundleCatalog());
+  const { limits, features } = effectiveEntitlements(tier, addons, getBundleCatalog());
   const actual = await readActualEntitlements(orgId, authHeader);
   if (!actual) return { status: 'read_failed', drifted: [], dimensions: [] };
-  return computeEntitlementDrift(limits, actual);
+  return computeEntitlementDrift(limits, features, actual);
 }

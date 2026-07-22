@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 
-import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, setAuthzDenialAuditor } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, setAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import type { Request, Response } from 'express';
 
@@ -28,6 +28,10 @@ setAuthzDenialAuditor((info) => getAuditClient().record({
   outcome: 'failure',
   details: { method: info.method, path: info.path, required: info.required },
 }, 'message'));
+
+// Reject tokens whose tokenVersion is behind the platform-published value once
+// Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.
+setTokenRevocationStore(createEnvRedisTokenRevocationStore());
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));

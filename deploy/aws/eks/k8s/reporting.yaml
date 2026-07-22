@@ -99,6 +99,10 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "reporting"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
           resources:
             limits:
               cpu: "350m"

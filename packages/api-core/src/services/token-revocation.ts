@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { createRequire } from 'module';
 import type { RedisCacheClient } from './cache-service.js';
 import type { TokenRevocationStore } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
@@ -48,6 +49,66 @@ export function createRedisTokenRevocationStore(redis: RedisCacheClient): TokenR
         });
         return null;
       }
+    },
+  };
+}
+
+/**
+ * Build a {@link TokenRevocationStore} backed by a Redis client that is lazily
+ * constructed from the standard `REDIS_URL` or `REDIS_HOST`/`REDIS_PORT` env —
+ * for a stateless service that keeps NO Redis client of its own. The client is
+ * built on first `getCurrentVersion` call and memoized; `ioredis` is loaded via
+ * a guarded dynamic require so merely importing this never breaks a build/test
+ * where Redis isn't present.
+ *
+ * FULLY FAIL-OPEN: no env configured, an ioredis load failure, a connect error,
+ * or any read failure all resolve to `null` ("no known revocation"), so a
+ * service degrades to natural token expiry rather than locking users out. A
+ * service opts in with a single boot line:
+ *   `setTokenRevocationStore(createEnvRedisTokenRevocationStore());`
+ */
+export function createEnvRedisTokenRevocationStore(): TokenRevocationStore {
+  // undefined = not yet attempted; null = attempted and unavailable (stay off).
+  let cached: RedisCacheClient | null | undefined;
+
+  function build(): RedisCacheClient | null {
+    try {
+      const url = process.env.REDIS_URL;
+      const host = process.env.REDIS_HOST;
+      if (!url && !host) return null; // Redis not configured — no-op reader.
+      // Dynamic require: ioredis is a runtime-only optional dep, never a static
+      // import, so this module loads cleanly wherever Redis isn't present.
+      const req = createRequire(import.meta.url);
+      const mod = req('ioredis') as {
+        Redis?: new (...args: unknown[]) => unknown;
+        default?: new (...args: unknown[]) => unknown;
+      };
+      const RedisCtor = (mod.Redis ?? mod.default ?? mod) as new (...args: unknown[]) => RedisCacheClient;
+      const opts = { maxRetriesPerRequest: 1, enableOfflineQueue: false };
+      const inst = url
+        ? new RedisCtor(url, opts)
+        : new RedisCtor({ host, port: parseInt(process.env.REDIS_PORT ?? '6379', 10), ...opts });
+      // Swallow connection errors (ioredis auto-reconnects) so an unhandled
+      // 'error' can't crash the process; the reader stays fail-open meanwhile.
+      (inst as unknown as { on: (evt: string, cb: (e: unknown) => void) => void })
+        .on('error', (e) => logger.warn('Redis revocation-reader client error', {
+          error: e instanceof Error ? e.message : String(e),
+        }));
+      logger.info('Redis token-revocation reader initialized');
+      return inst;
+    } catch (err) {
+      logger.warn('Redis unavailable for revocation reader; falling back to token expiry', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  return {
+    async getCurrentVersion(userId: string): Promise<number | null> {
+      if (cached === undefined) cached = build();
+      if (!cached) return null;
+      return createRedisTokenRevocationStore(cached).getCurrentVersion(userId);
     },
   };
 }

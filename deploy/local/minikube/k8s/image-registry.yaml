@@ -110,6 +110,10 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "image-registry"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
             - name: PORT
               value: "3000"
             # Underlying registry the proxy + management API talks to.

@@ -545,6 +545,8 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env, *ai-env]
       SERVICE_NAME: pipeline
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       COMPLIANCE_SERVICE_HOST: ${COMPLIANCE_SERVICE_HOST:-compliance}
       COMPLIANCE_SERVICE_PORT: ${COMPLIANCE_SERVICE_PORT:-3000}
       COMPLIANCE_BYPASS: ${COMPLIANCE_BYPASS:-false}
@@ -567,6 +569,8 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env, *quota-client-env]
       SERVICE_NAME: message
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       SUPPORT_ALIASES: ${SUPPORT_ALIASES:-support@pipeline-builder,help@pipeline-builder}
     networks:
       - backend-network
@@ -591,6 +595,8 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env]
       SERVICE_NAME: reporting
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
     networks:
       - backend-network
     depends_on:
@@ -645,6 +651,8 @@ services:
     environment:
       <<: *common-env
       SERVICE_NAME: quota
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
       LIMITER_MAX: ${LIMITER_MAX:-2000}
@@ -729,6 +737,8 @@ services:
     environment:
       <<: *common-env
       SERVICE_NAME: image-registry
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       PORT: ${PORT:-3000}
       # Underlying registry the proxy + management API talks to.
       IMAGE_REGISTRY_HOST: ${IMAGE_REGISTRY_HOST:-registry}
@@ -772,6 +782,8 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *quota-client-env]
       SERVICE_NAME: billing
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       BILLING_ENABLED: ${BILLING_ENABLED:-true}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}

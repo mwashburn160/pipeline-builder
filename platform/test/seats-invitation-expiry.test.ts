@@ -60,7 +60,9 @@ const mockUoDistinct = jest.fn(() => queryResolving(seededMembers));
 //   findById().select().session().lean()  (seatCapacityAvailable)
 //   findById().select().lean()            (pooledSeatUsage)
 const mockOrgFindById = jest.fn(() => {
-  const leaf = { lean: () => Promise.resolve({ quotas: { seats: seatLimit } }) };
+  // pooledSeatUsage reads `quotas.seats`; pooledFeatureEntitlements reads
+  // `featureEntitlements` off the same (root) doc — both are served here.
+  const leaf = { lean: () => Promise.resolve({ quotas: { seats: seatLimit }, featureEntitlements: seededFeatures }) };
   const withSession = { session: () => leaf, lean: leaf.lean };
   return { select: () => withSession } as unknown;
 });
@@ -75,8 +77,9 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 let seatLimit = 3;
 let seededMembers: string[] = [];
 let seededInvitations: Array<{ email: string; status: string; expiresAt: Date }> = [];
+let seededFeatures: string[] | undefined = [];
 
-const { seatCapacityAvailable, pooledSeatUsage } = await import('../src/helpers/seats.js');
+const { seatCapacityAvailable, pooledSeatUsage, pooledFeatureEntitlements } = await import('../src/helpers/seats.js');
 
 const future = () => new Date(Date.now() + 60_000);
 const past = () => new Date(Date.now() - 60_000);
@@ -87,6 +90,7 @@ beforeEach(() => {
   seatLimit = 3;
   seededMembers = [];
   seededInvitations = [];
+  seededFeatures = [];
   mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
   mockExpandOrgScope.mockResolvedValue(['root-1']);
 });
@@ -133,5 +137,21 @@ describe('seat capacity — expired invitations must not reserve a seat', () => 
     // 1 member + 1 LIVE invite = 2 (the stale invite is not counted).
     expect(used).toBe(2);
     expect(invDistinctFilters[0].expiresAt).toEqual({ $gt: expect.any(Date) });
+  });
+});
+
+describe('pooledFeatureEntitlements — the account (root) feature set', () => {
+  it('resolves to root and returns the root org featureEntitlements', async () => {
+    seededFeatures = ['sso', 'audit_log'];
+    const features = await pooledFeatureEntitlements('org-1');
+    expect(features).toEqual(['sso', 'audit_log']);
+    // Pooled at the ROOT: the passed org id is resolved to its root first.
+    expect(mockResolveOrgLineage).toHaveBeenCalledWith('org-1');
+  });
+
+  it('returns [] for an account with no purchased features (model default absent)', async () => {
+    seededFeatures = undefined; // simulate a doc with no featureEntitlements field
+    const features = await pooledFeatureEntitlements('org-1');
+    expect(features).toEqual([]);
   });
 });

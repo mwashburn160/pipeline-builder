@@ -11,7 +11,7 @@ import {
   withController,
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
-import { pooledSeatUsage } from '../helpers/seats.js';
+import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
 import {
   organizationService,
   ORG_NOT_FOUND,
@@ -449,6 +449,28 @@ export const getOrganizationSeatUsage = withController('Get organization seat us
   }
   const usage = await pooledSeatUsage(id);
   sendSuccess(res, 200, usage);
+});
+
+/**
+ * GET /organization/:id/feature-entitlements — internal: the account's (root)
+ * purchased feature entitlements (`sso`, `audit_log`, …). Used by billing's
+ * entitlement-drift reconciler to compare enforced vs. expected features — the
+ * feature-dimension sibling of `seat-usage`. Same auth/tenancy as seat-usage:
+ * a service principal (the reconciler) or an admin reading their OWN account.
+ * `featureEntitlements` are feature FLAGS, not secrets — the same set already
+ * rides along on this account's token issuance / user-profile reads.
+ */
+export const getOrganizationFeatureEntitlements = withController('Get organization feature entitlements', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const id = getParam(req.params, 'id')!;
+  // Mirror the seat-usage gate exactly: billing calls with a service token; an
+  // account (or ancestor-org) admin may also read their OWN entitlements.
+  // pooledFeatureEntitlements resolves `id` to its root internally.
+  if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
+    return sendError(res, 403, 'Forbidden: service or organization-admin only');
+  }
+  const featureEntitlements = await pooledFeatureEntitlements(id);
+  sendSuccess(res, 200, { featureEntitlements });
 });
 
 export const updateOrganizationQuotas = withController('Update organization quotas', async (req, res) => {

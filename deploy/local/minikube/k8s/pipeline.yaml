@@ -99,6 +99,10 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "pipeline"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
             - name: COMPLIANCE_SERVICE_HOST
               value: "compliance"
             - name: COMPLIANCE_SERVICE_PORT

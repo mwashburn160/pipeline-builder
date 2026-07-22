@@ -99,6 +99,10 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "quota"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
             - name: PORT
               value: "3000"
           resources:

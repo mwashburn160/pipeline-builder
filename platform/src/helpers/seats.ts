@@ -122,3 +122,19 @@ export async function pooledSeatUsage(
   ]);
   return { limit, used: memberIds.length + pendingEmails.length };
 }
+
+/**
+ * The account's purchased feature entitlements (e.g. `sso`, `audit_log`).
+ *
+ * Feature entitlements POOL AT THE ROOT the same way seats do: billing syncs
+ * them onto the ROOT org (and `setSeatLimit` propagates them onto descendants),
+ * so the root's `featureEntitlements` is the authoritative account-level set.
+ * This resolves `orgId` to its root and returns that array (empty for an account
+ * with no purchased features — the model default). Used by billing's
+ * entitlement-drift reconciler to compare enforced vs. expected features.
+ */
+export async function pooledFeatureEntitlements(orgId: string): Promise<string[]> {
+  const { rootOrgId } = await resolveOrgLineage(orgId);
+  const root = await Organization.findById(toOrgId(rootOrgId)).select('featureEntitlements').lean();
+  return root?.featureEntitlements ?? [];
+}

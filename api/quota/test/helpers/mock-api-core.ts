@@ -63,6 +63,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // for parity so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},
     createRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
+    createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
     ...overrides,
   };
 }

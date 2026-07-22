@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAuth, setAuthzDenialAuditor } from '@pipeline-builder/api-core';
+import { requireAuth, setAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 
 import { createEventIngestRoutes } from './routes/event-ingest.js';
@@ -22,6 +22,10 @@ setAuthzDenialAuditor((info) => getAuditClient().record({
   outcome: 'failure',
   details: { method: info.method, path: info.path, required: info.required },
 }, 'reporting'));
+
+// Reject tokens whose tokenVersion is behind the platform-published value once
+// Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.
+setTokenRevocationStore(createEnvRedisTokenRevocationStore());
 
 app.use(attachRequestContext(sseManager));
 

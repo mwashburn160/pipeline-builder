@@ -40,7 +40,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: jest.fn() }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn(), pooledFeatureEntitlements: jest.fn() }));
 
 // The AI-config audit records only the changed provider slot NAMES — mirror the
 // real helper: return the body's keys (never their secret values).

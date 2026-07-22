@@ -4,7 +4,7 @@
 // Quota + tier identifiers come from the api-core source of truth (see below).
 // `import type` is fully erased at build time, so this pulls no server-only
 // runtime code into the Next bundle.
-import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaTier, AccessModifier } from '@pipeline-builder/api-core';
 
 /**
  * User model.
@@ -134,7 +134,7 @@ export interface QuotaSummary {
  * can't drift from the backend's. The local copy previously listed only 4 of
  * the 9 quota types, silently under-typing quota responses.
  */
-export type { QuotaType, QuotaTier };
+export type { QuotaType, QuotaTier, AccessModifier };
 
 /**
  * The quota kinds the dashboard currently surfaces — a curated subset of the
@@ -289,7 +289,7 @@ export interface Plugin {
   dockerfile?: string;
   
   // Access and visibility
-  accessModifier: 'public' | 'private';
+  accessModifier: AccessModifier;
   isDefault: boolean;
   isActive: boolean;
   
@@ -358,7 +358,7 @@ export interface CreatePipelineData {
   description?: string;
   keywords?: string[];
   props: BuilderProps;
-  accessModifier?: 'public' | 'private';
+  accessModifier?: AccessModifier;
 }
 
 /**
@@ -388,7 +388,7 @@ export interface Pipeline {
   props: BuilderProps;
   
   // Access and visibility
-  accessModifier: 'public' | 'private';
+  accessModifier: AccessModifier;
   isDefault: boolean;
   isActive: boolean;
   
@@ -601,7 +601,7 @@ export interface Message {
   createdAt: string;
   updatedBy: string;
   updatedAt: string;
-  accessModifier: 'public' | 'private';
+  accessModifier: AccessModifier;
   isDefault: boolean;
   isActive: boolean;
   deletedAt?: string;
@@ -706,5 +706,23 @@ export interface RegistryCopyResult {
 export interface RegistryRepoGroup {
   namespace: 'system' | `org-${string}`;
   repos: RegistryRepository[];
+}
+
+/**
+ * One pipeline's execution-count row from `/api/reports/execution/count`
+ * (the `pipelines[]` entries). Canonical shape shared by the reports, dashboard,
+ * and executions pages — mirrors the `getExecutionCount` API return type.
+ */
+export interface ExecutionCountRow {
+  id: string;
+  project: string;
+  organization: string;
+  pipeline_name: string | null;
+  total: number;
+  succeeded: number;
+  failed: number;
+  canceled: number;
+  first_execution: string | null;
+  last_execution: string | null;
 }
 

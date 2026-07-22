@@ -18,9 +18,9 @@ import {
   DateRangePicker, AutoRefresh, ExportCSVButton,
 } from '@/components/reports/ReportHelpers';
 import api from '@/lib/api';
+import type { ExecutionCountRow } from '@/types';
 
 // ─── Pipeline Types ─────────────────────────────────────
-interface ExecutionCount { id: string; project: string; organization: string; pipeline_name: string | null; total: number; succeeded: number; failed: number; canceled: number; first_execution: string | null; last_execution: string | null }
 interface TimelineEntry { period: string; succeeded: number; failed: number; canceled: number; success_pct: number }
 interface DurationStat { id: string; project: string; pipeline_name: string | null; avg_ms: number; min_ms: number; max_ms: number; p95_ms: number; executions: number }
 interface StageFailure { stage_name: string; failures: number; total: number; failure_pct: number }
@@ -101,7 +101,7 @@ export default function ReportsPage() {
   const canRollup = user?.role === 'admin' || user?.role === 'owner';
 
   // Pipeline data
-  const [executions, setExecutions] = useState<ExecutionCount[]>([]);
+  const [executions, setExecutions] = useState<ExecutionCountRow[]>([]);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [successRateTrend, setSuccessRateTrend] = useState<SuccessRateEntry[]>([]);
   const [durations, setDurations] = useState<DurationStat[]>([]);

@@ -18,6 +18,7 @@ import {
   updateOrganizationQuotas,
   updateOrganizationSeatLimit,
   getOrganizationSeatUsage,
+  getOrganizationFeatureEntitlements,
   getOrganizationMembers,
   getOrganizationTeams,
   getMemberTeams,
@@ -134,6 +135,11 @@ router.put('/:id/seat-limit', requireAuth, updateOrganizationSeatLimit);
 /** GET /organization/:id/seat-usage — internal pooled seat usage read for
  *  billing's over-cap gate. Service-principal or sysadmin (checked in controller). */
 router.get('/:id/seat-usage', requireAuth, getOrganizationSeatUsage);
+
+/** GET /organization/:id/feature-entitlements — internal account feature-entitlement
+ *  read for billing's entitlement-drift reconciler. Same gate as seat-usage:
+ *  service-principal or organization-admin (checked in controller). */
+router.get('/:id/feature-entitlements', requireAuth, getOrganizationFeatureEntitlements);
 
 /*
  * Organization Members (admin can manage any org)
