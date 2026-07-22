@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
@@ -33,6 +33,11 @@ export default function QuotasPage() {
   const canManageBilling = (isAdmin || can('billing:manage')) && !activeOrgIsTeam;
 
   const [platformOrgs, setPlatformOrgs] = useState<{ id: string; name: string; slug?: string }[]>([]);
+  // Mirror of `platformOrgs` for reads inside `fetchOrg` — keeps that callback
+  // from depending on `platformOrgs`, which would re-create it every time the
+  // org list loads and re-run the selected-org fetch (a redundant double fetch).
+  const platformOrgsRef = useRef(platformOrgs);
+  useEffect(() => { platformOrgsRef.current = platformOrgs; }, [platformOrgs]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
   const [orgHealthColors, setOrgHealthColors] = useState<Record<string, string>>({});
@@ -86,18 +91,21 @@ export default function QuotasPage() {
       const raw = res.data?.organizations || [];
       const orgs = raw.map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
       setPlatformOrgs(orgs);
-      if (orgs.length > 0 && !selectedOrgId) setSelectedOrgId(orgs[0].id);
+      // Seed the default selection with a functional updater so this callback
+      // need not depend on `selectedOrgId` — otherwise picking a different org in
+      // the sidebar would re-create fetchAllOrgs and refetch the whole org list.
+      if (orgs.length > 0) setSelectedOrgId((cur) => cur || orgs[0].id);
     } catch {
       try {
         const res = await api.getAllOrgQuotas();
         const quotaOrgs = (res.data?.organizations || []) as OrgQuotaResponse[];
         setPlatformOrgs(quotaOrgs.map((o) => ({ id: o.orgId, name: o.name, slug: o.slug })));
-        if (quotaOrgs.length > 0 && !selectedOrgId) setSelectedOrgId(quotaOrgs[0].orgId);
+        if (quotaOrgs.length > 0) setSelectedOrgId((cur) => cur || quotaOrgs[0].orgId);
       } catch {
         // Both unavailable
       }
     }
-  }, [isSuperAdmin, selectedOrgId]);
+  }, [isSuperAdmin]);
 
   const fetchOrg = useCallback(async (orgId: string) => {
     setLoading(true);
@@ -107,17 +115,17 @@ export default function QuotasPage() {
         ? await api.getOrgQuotas(orgId)
         : await api.getOwnQuotas();
       const quota = (res.data?.quota || res.data) as OrgQuotaResponse;
-      // Resolve sidebar metadata at fetch time so applyOrgData doesn't read
-      // platformOrgs from its closure. Avoids re-creating fetchOrg every time
-      // platformOrgs updates (which would loop through the selectedOrgId effect).
-      const sidebarOrg = platformOrgs.find((o) => o.id === (orgId || quota.orgId));
+      // Resolve sidebar metadata via the REF (not the closure) so this callback
+      // does not depend on `platformOrgs` — depending on it re-created fetchOrg
+      // when the list loaded and fetched the selected org's quotas twice.
+      const sidebarOrg = platformOrgsRef.current.find((o) => o.id === (orgId || quota.orgId));
       applyOrgData(quota, { orgId, sidebarName: sidebarOrg?.name, sidebarSlug: sidebarOrg?.slug });
     } catch {
       setLoadError('Failed to load quotas. The service may be unavailable.');
     } finally {
       setLoading(false);
     }
-  }, [isSuperAdmin, platformOrgs]);
+  }, [isSuperAdmin]);
 
   function applyOrgData(
     d: OrgQuotaResponse,

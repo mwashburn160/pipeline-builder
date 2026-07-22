@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { FormStep, FormNetworkConfig, FormPluginOptions, CommandGroup, MetadataEntry, EnvEntry } from '@/types/form-types';
 import { FormField } from '@/components/ui/FormField';
 import CollapsibleSection from '../editors/CollapsibleSection';
@@ -45,12 +46,26 @@ export default function StepEditor({
     onChange({ ...step, [field]: group });
   const updateEnv = (env: EnvEntry[]) => onChange({ ...step, env });
   const updateInputArtifact = (inputArtifact: string) => onChange({ ...step, inputArtifact });
+
+  // Stable, client-only row ids for the free-text additional-input rows, kept
+  // in lockstep with step.additionalInputArtifacts so React keys by row identity
+  // (not index). Never serialized — the step's artifacts carry only path/key.
+  const counterRef = useRef(0);
+  const inputIdsRef = useRef<string[]>([]);
+  const inputCount = step.additionalInputArtifacts.length;
+  while (inputIdsRef.current.length < inputCount) inputIdsRef.current.push(`ain-${counterRef.current++}`);
+  if (inputIdsRef.current.length > inputCount) inputIdsRef.current = inputIdsRef.current.slice(0, inputCount);
+  const inputIds = inputIdsRef.current;
+
   const updateAdditionalInput = (index: number, field: 'path' | 'key', value: string) => {
     const updated = step.additionalInputArtifacts.map((a, i) => i === index ? { ...a, [field]: value } : a);
     onChange({ ...step, additionalInputArtifacts: updated });
   };
   const addAdditionalInput = () => onChange({ ...step, additionalInputArtifacts: [...step.additionalInputArtifacts, { path: '', key: '' }] });
-  const removeAdditionalInput = (index: number) => onChange({ ...step, additionalInputArtifacts: step.additionalInputArtifacts.filter((_, i) => i !== index) });
+  const removeAdditionalInput = (index: number) => {
+    inputIdsRef.current = inputIdsRef.current.filter((_, i) => i !== index);
+    onChange({ ...step, additionalInputArtifacts: step.additionalInputArtifacts.filter((_, i) => i !== index) });
+  };
 
   return (
     <div className="space-y-3">
@@ -186,7 +201,7 @@ export default function StepEditor({
             <label className="label">Additional Input Artifacts</label>
             <div className="space-y-2">
               {step.additionalInputArtifacts.map((entry, idx) => (
-                <div key={idx} className="flex gap-2 items-center">
+                <div key={inputIds[idx]} className="flex gap-2 items-center">
                   <input
                     type="text"
                     value={entry.path}

@@ -200,9 +200,11 @@ export default function RolesPage() {
       subtitle="A Role is a named set of permissions. Assign Roles to people to grant them access."
       maxWidth="4xl"
       actions={
-        <Button onClick={openCreate}>
-          <Plus className="w-4 h-4 mr-1.5" /> New Role
-        </Button>
+        canManageRoles ? (
+          <Button onClick={openCreate}>
+            <Plus className="w-4 h-4 mr-1.5" /> New Role
+          </Button>
+        ) : undefined
       }
     >
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="roles" />
@@ -224,11 +226,13 @@ export default function RolesPage() {
         <div className="card text-center py-10">
           <Users className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
           <p className="text-sm text-gray-500 dark:text-gray-400">No roles in this organization yet.</p>
-          <div className="mt-4">
-            <Button onClick={openCreate}>
-              <Plus className="w-4 h-4 mr-1.5" /> Create your first role
-            </Button>
-          </div>
+          {canManageRoles && (
+            <div className="mt-4">
+              <Button onClick={openCreate}>
+                <Plus className="w-4 h-4 mr-1.5" /> Create your first role
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">

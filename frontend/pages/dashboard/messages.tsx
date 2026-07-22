@@ -46,7 +46,7 @@ function EmptyChat() {
 
 /** Message inbox page. Displays conversations in a split-panel layout with compose, thread view, and unread tracking. */
 export default function MessagesPage() {
-  const { user, isReady, isSuperAdmin, can } = useAuthGuard();
+  const { user, isReady, isSuperAdmin, can, isReadOnly } = useAuthGuard();
   // `messages:write` unlocks full compose (address other orgs/teams directly)
   // vs. the support-only contact form. Broadcast-to-all-orgs announcements stay
   // sysadmin-only (see ComposeModal `isSuperAdmin`). Role-admins hold the perm.
@@ -132,7 +132,8 @@ export default function MessagesPage() {
               <Button
                 size="sm"
                 onClick={() => setShowCompose(true)}
-                title={canWrite ? 'New Message' : 'Contact Support'}
+                disabled={isReadOnly}
+                title={isReadOnly ? 'Read-only session' : (canWrite ? 'New Message' : 'Contact Support')}
                 aria-label={canWrite ? 'New Message' : 'Contact Support'}
               >
                 <Plus className="w-4 h-4" />

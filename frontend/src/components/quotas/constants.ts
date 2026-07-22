@@ -37,6 +37,22 @@ const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
   enterprise: { pipelines: 200, plugins: 250, apiCalls: -1, aiCalls: 25000 },
 };
 
+/**
+ * Tailwind classes for a tier "pill" badge (background + text, incl. dark
+ * variants). Shared verbatim by the read-only and admin quota headers so the
+ * rendered pill is identical in both. Distinct from `TIER_META.pillClass`,
+ * which uses a different palette (no dark variants; developer→amber).
+ */
+export function pillClassFor(tier: QuotaTier): string {
+  return tier === 'enterprise'
+    ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
+    : tier === 'pro'
+      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
+      : tier === 'team'
+        ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300'
+        : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300';
+}
+
 export const TIER_PRESETS: Record<QuotaTier, { label: string; description: string; color: string; limits: Record<DisplayedQuotaType, number> }> = {
   developer:  { label: TIER_META.developer.label,  description: TIER_DESCRIPTIONS.developer,  color: TIER_META.developer.dotClass,  limits: TIER_LIMITS.developer },
   pro:        { label: TIER_META.pro.label,        description: TIER_DESCRIPTIONS.pro,        color: TIER_META.pro.dotClass,        limits: TIER_LIMITS.pro },

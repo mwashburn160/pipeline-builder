@@ -75,6 +75,11 @@ spec:
               value: "https://nginx:8443"
             - name: NODE_TLS_REJECT_UNAUTHORIZED
               value: "0"
+            # Public (browser-facing) origin for social-card / Open Graph absolute
+            # URLs, resolved at RUNTIME (frontend/src/lib/site-url.ts). minikube is
+            # reached on localhost via tunnel/port-forward.
+            - name: APP_SITE_URL
+              value: "https://localhost:8443"
           volumeMounts:
             - name: next-cache
               mountPath: /app/.next/cache

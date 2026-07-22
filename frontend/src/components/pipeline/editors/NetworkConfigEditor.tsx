@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { FormNetworkConfig, TagEntry } from '@/types/form-types';
 import StringArrayEditor from './StringArrayEditor';
 
@@ -30,6 +31,15 @@ export default function NetworkConfigEditor({
 }: NetworkConfigEditorProps) {
   const update = (fields: Partial<FormNetworkConfig>) => onNetworkChange({ ...network, ...fields });
 
+  // Stable, client-only ids for the free-text tag rows, kept in lockstep with
+  // network.tags so React keys by row identity (not index). Never serialized —
+  // the tags written back through `update` carry only key/value.
+  const counterRef = useRef(0);
+  const tagIdsRef = useRef<string[]>([]);
+  while (tagIdsRef.current.length < network.tags.length) tagIdsRef.current.push(`tag-${counterRef.current++}`);
+  if (tagIdsRef.current.length > network.tags.length) tagIdsRef.current = tagIdsRef.current.slice(0, network.tags.length);
+  const tagIds = tagIdsRef.current;
+
   const handleTagChange = (index: number, field: 'key' | 'value', val: string) => {
     const tags = [...network.tags];
     tags[index] = { ...tags[index], [field]: val };
@@ -37,7 +47,10 @@ export default function NetworkConfigEditor({
   };
 
   const addTag = () => update({ tags: [...network.tags, { key: '', value: '' }] });
-  const removeTag = (index: number) => update({ tags: network.tags.filter((_, i) => i !== index) });
+  const removeTag = (index: number) => {
+    tagIdsRef.current = tagIdsRef.current.filter((_, i) => i !== index);
+    update({ tags: network.tags.filter((_, i) => i !== index) });
+  };
 
   return (
     <div className="space-y-3">
@@ -150,7 +163,7 @@ export default function NetworkConfigEditor({
             <label className="label">Tags *</label>
             <div className="space-y-2">
               {network.tags.map((tag: TagEntry, idx: number) => (
-                <div key={idx} className="flex items-center space-x-2">
+                <div key={tagIds[idx]} className="flex items-center space-x-2">
                   <input
                     type="text"
                     value={tag.key}

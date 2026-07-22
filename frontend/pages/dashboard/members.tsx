@@ -344,7 +344,7 @@ export default function MembersPage() {
               org (a team can't parent sub-teams). Top-level orgs are created by
               a system admin from the Organizations page. Disabled (not hidden) on
               ineligible tiers so the feature is discoverable as an upsell. */}
-          {activeOrgIsRoot && (
+          {activeOrgIsRoot && canManageMembers && (
             <Button
               variant="secondary"
               onClick={() => { setNewOrgName(''); createOrgForm.reset(); setCreateOrgOpen(true); }}
@@ -355,9 +355,11 @@ export default function MembersPage() {
               <Building2 className="w-4 h-4 mr-1.5" /> Create Team
             </Button>
           )}
-          <Button onClick={openAddModal}>
-            <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
-          </Button>
+          {canManageMembers && (
+            <Button onClick={openAddModal}>
+              <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
+            </Button>
+          )}
         </div>
       }
     >

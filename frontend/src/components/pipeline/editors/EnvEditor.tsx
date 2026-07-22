@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { EnvEntry } from '@/types/form-types';
 
 /** Props for {@link EnvEditor}. */
@@ -17,8 +18,23 @@ interface EnvEditorProps {
  * "Add Variable" button to append new empty entries.
  */
 export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps) {
+  // Stable, client-only row ids kept in lockstep with `value` so React keys by
+  // row identity (not array index) — prevents focus/value glitches on mid-list
+  // removal. These ids are never serialized into the onChange payload.
+  const counterRef = useRef(0);
+  const idsRef = useRef<string[]>([]);
+  // Reconcile length: append ids for rows added here or via the parent, and
+  // truncate on a full external reset. Mid-list removal fixes ids explicitly
+  // in handleRemove so this only ever adjusts the tail.
+  while (idsRef.current.length < value.length) idsRef.current.push(`env-${counterRef.current++}`);
+  if (idsRef.current.length > value.length) idsRef.current = idsRef.current.slice(0, value.length);
+  const ids = idsRef.current;
+
   const handleAdd = () => onChange([...value, { key: '', value: '' }]);
-  const handleRemove = (index: number) => onChange(value.filter((_, i) => i !== index));
+  const handleRemove = (index: number) => {
+    idsRef.current = idsRef.current.filter((_, i) => i !== index);
+    onChange(value.filter((_, i) => i !== index));
+  };
   const handleChange = (index: number, field: 'key' | 'value', val: string) => {
     const updated = [...value];
     updated[index] = { ...updated[index], [field]: val };
@@ -30,7 +46,7 @@ export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps)
       <label className="label">Environment Variables</label>
       <div className="space-y-2">
         {value.map((entry, idx) => (
-          <div key={idx} className="flex items-center space-x-2">
+          <div key={ids[idx]} className="flex items-center space-x-2">
             <input
               type="text"
               value={entry.key}

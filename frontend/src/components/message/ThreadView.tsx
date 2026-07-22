@@ -97,6 +97,7 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onThreadRead, on
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <button
           onClick={onBack}
+          aria-label="Back"
           className="lg:hidden p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
           <ArrowLeft className="w-5 h-5 text-gray-500" />
@@ -183,6 +184,7 @@ export function ThreadView({ rootMessage, currentOrgId, onBack, onThreadRead, on
           <button
             onClick={handleSendReply}
             disabled={!replyContent.trim() || sending}
+            aria-label="Send reply"
             className="p-2.5 rounded-xl bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="w-5 h-5" />

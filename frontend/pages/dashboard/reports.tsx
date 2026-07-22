@@ -1,6 +1,6 @@
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { GitBranch, Puzzle, AlertTriangle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -117,8 +117,14 @@ export default function ReportsPage() {
   const [buildDurations, setBuildDurations] = useState<BuildDurationStat[]>([]);
   const [buildFailures, setBuildFailures] = useState<BuildFailure[]>([]);
   const [pluginVersions, setPluginVersions] = useState<PluginVersion[]>([]);
+  const reqIdRef = useRef(0);
 
   const fetchData = useCallback(async () => {
+    // Request-generation guard: rapidly switching tabs/filters fires overlapping
+    // fetches, and Promise.allSettled resolves regardless of order — without this
+    // a slower, superseded response could overwrite the newer tab's slices. Only
+    // the latest invocation is allowed to write state / clear `loading`.
+    const reqId = ++reqIdRef.current;
     setLoading(true);
     const dateParams: Record<string, string> = {};
     if (dateFrom) dateParams.from = dateFrom;
@@ -136,6 +142,7 @@ export default function ReportsPage() {
           const [execRes, successRateRes] = await Promise.allSettled([
             api.getExecutionCount(rollup), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
           ]);
+          if (reqId !== reqIdRef.current) return;
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (successRateRes.status === 'fulfilled') {
             const trend = successRateRes.value.data?.timeline || [];
@@ -146,6 +153,7 @@ export default function ReportsPage() {
           const [execRes, durationRes, bottleneckRes] = await Promise.allSettled([
             api.getExecutionCount(rollup), api.getPipelineDuration({ ...dateParams, ...rollup }), api.getStageBottlenecks(dateParams),
           ]);
+          if (reqId !== reqIdRef.current) return;
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (durationRes.status === 'fulfilled') setDurations(durationRes.value.data?.pipelines || []);
           if (bottleneckRes.status === 'fulfilled') setBottlenecks(bottleneckRes.value.data?.stages || []);
@@ -153,6 +161,7 @@ export default function ReportsPage() {
           const [stageRes, actionRes, errorRes] = await Promise.allSettled([
             api.getStageFailures(dateParams), api.getActionFailures(dateParams), api.getExecutionErrors({ limit: 10, ...dateParams }),
           ]);
+          if (reqId !== reqIdRef.current) return;
           if (stageRes.status === 'fulfilled') setStageFailures(stageRes.value.data?.stages || []);
           if (actionRes.status === 'fulfilled') setActionFailures(actionRes.value.data?.actions || []);
           if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
@@ -160,22 +169,25 @@ export default function ReportsPage() {
       } else {
         if (pluginTab === 'overview') {
           const [sumRes, distRes] = await Promise.allSettled([api.getPluginSummary(), api.getPluginDistribution()]);
+          if (reqId !== reqIdRef.current) return;
           if (sumRes.status === 'fulfilled') setPluginSummary(sumRes.value.data?.summary || null);
           if (distRes.status === 'fulfilled') setDistribution(distRes.value.data?.distribution || []);
         } else if (pluginTab === 'builds') {
           const [timelineRes, durRes, failRes] = await Promise.allSettled([
             api.getBuildSuccessRate({ interval: timeInterval, ...dateParams }), api.getBuildDuration(dateParams), api.getBuildFailures({ limit: 10, ...dateParams }),
           ]);
+          if (reqId !== reqIdRef.current) return;
           if (timelineRes.status === 'fulfilled') setBuildTimeline(timelineRes.value.data?.timeline || []);
           if (durRes.status === 'fulfilled') setBuildDurations(durRes.value.data?.plugins || []);
           if (failRes.status === 'fulfilled') setBuildFailures(failRes.value.data?.failures || []);
         } else {
           const [verRes] = await Promise.allSettled([api.getPluginVersions()]);
+          if (reqId !== reqIdRef.current) return;
           if (verRes.status === 'fulfilled') setPluginVersions(verRes.value.data?.plugins || []);
         }
       }
     } finally {
-      setLoading(false);
+      if (reqId === reqIdRef.current) setLoading(false);
     }
   }, [topTab, pipelineTab, pluginTab, timeInterval, dateFrom, dateTo, includeDescendants]);
 

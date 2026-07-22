@@ -43,7 +43,13 @@ defaults:
     scope:
       path: ""
     values:
-      image: /assets/og-image.png   # Create this image (1200x630 recommended)
+      # Site-wide default social card (1200x630). Matches the homepage
+      # "Self-Service CI/CD for AWS" message. Governance-themed pages
+      # (compliance, audit-events, organization-benefits) override this with
+      # /assets/og-image-solution.png via their own `image:` front matter.
+      # Alternate solution headlines: og-image-solution-b.png ("Guardrails for
+      # Platform Teams"), og-image-solution-c.png ("Secure by Default").
+      image: /assets/og-image.png
       author: Mark Washburn
 
 exclude:

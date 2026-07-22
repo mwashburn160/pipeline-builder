@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Shield, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter, Bell } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { StatusPill } from '@/components/ui/StatusPill';
 import { formatRelativeTime } from '@/lib/relative-time';
 import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
 import { RESULT_STYLES } from '@/lib/compliance-styles';
@@ -290,7 +291,7 @@ function Overview({ stats, audit, auditTarget, auditResult, onTargetChange, onRe
                 return (
                   <div key={entry.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
                     <div className="flex items-center gap-3">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.bg} ${r.text}`}>{r.label}</span>
+                      <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
                       <span className="text-sm text-gray-900 dark:text-white">{entry.entityName || entry.entityId || 'Unknown'}</span>
                       <span className="text-xs text-gray-400">({entry.target})</span>
                     </div>

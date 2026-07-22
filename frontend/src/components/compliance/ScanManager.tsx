@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { Scan, Play, Square, Loader2, Eye } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
+import { StatusPill } from '@/components/ui/StatusPill';
+import { TextEmptyState } from '@/components/ui/EmptyState';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG } from '@/lib/compliance-styles';
@@ -103,7 +105,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-indigo-600" /></div>
       ) : scans.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">No scans found.</div>
+        <TextEmptyState>No scans found.</TextEmptyState>
       ) : (
         <div>
           <div className="overflow-x-auto">
@@ -126,9 +128,9 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
                   return (
                     <tr key={scan.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cfg.bg} ${cfg.color}`}>
+                        <StatusPill gap className={`${cfg.bg} ${cfg.color}`}>
                           <StatusIcon className={`h-3 w-3 ${scan.status === 'running' ? 'animate-spin' : ''}`} /> {scan.status}
-                        </span>
+                        </StatusPill>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{scan.target}</td>
                       <td className="px-4 py-3">

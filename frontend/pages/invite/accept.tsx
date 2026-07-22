@@ -10,6 +10,7 @@ import { Mail, CheckCircle, XCircle, ArrowLeft, UserPlus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
+import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 
 interface InvitePreview {
   email: string;
@@ -36,7 +37,8 @@ interface InvitePreview {
  * OAuth-only invites can't complete here (the accept-oauth flow needs the full
  * provider code/state exchange); we surface a message pointing at Google sign-in.
  */
-export default function AcceptInvitePage() {
+export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
+  const OG_SOLUTION = `${siteUrl}/og-image-solution.png`;
   const router = useRouter();
   const { user, isInitialized, login, register, refreshUser } = useAuth();
 
@@ -125,7 +127,20 @@ export default function AcceptInvitePage() {
 
   return (
     <>
-      <Head><title>Accept Invitation - Pipeline Builder</title></Head>
+      <Head>
+        <title>Accept Invitation - Pipeline Builder</title>
+        <meta name="description" content="You've been invited to a Pipeline Builder organization — self-service CI/CD for AWS with per-org roles, SSO, and a tamper-evident audit trail." />
+        <meta property="og:title" content="Join your team on Pipeline Builder" />
+        <meta property="og:description" content="Accept your invitation — governed, self-service AWS CI/CD with fine-grained RBAC, SSO, and end-to-end audit." />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content={OG_SOLUTION} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:alt" content="Pipeline Builder — Governance, Built In" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content={OG_SOLUTION} />
+      </Head>
       <div className="min-h-screen px-6 py-10">
         <div className="max-w-sm mx-auto mb-6">
           <Link href="/" className="inline-flex items-center gap-1 text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
@@ -269,3 +284,5 @@ export default function AcceptInvitePage() {
     </>
   );
 }
+
+export const getServerSideProps = siteUrlServerSideProps;

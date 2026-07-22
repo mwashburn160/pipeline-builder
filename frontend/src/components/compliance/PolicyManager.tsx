@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { FileText, Plus, Pencil, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
+import { StatusPill } from '@/components/ui/StatusPill';
+import { TextEmptyState } from '@/components/ui/EmptyState';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import type { CompliancePolicy } from '@/types/compliance';
@@ -136,9 +138,9 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
       )}
 
       {policies.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+        <TextEmptyState>
           No compliance policies found. Create one to group and manage rules.
-        </div>
+        </TextEmptyState>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -164,13 +166,13 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
                     <span className="text-sm text-gray-600 dark:text-gray-400 font-mono">{policy.version}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                    <StatusPill className={
                       policy.isActive
                         ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
-                    }`}>
+                    }>
                       {policy.isActive ? 'Active' : 'Inactive'}
-                    </span>
+                    </StatusPill>
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500">{new Date(policy.createdAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-right">

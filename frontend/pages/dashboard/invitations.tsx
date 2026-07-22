@@ -315,9 +315,11 @@ export default function InvitationsPage() {
       title="Invitations"
       subtitle="Pending and sent invites"
       actions={
-        <Button onClick={() => { setSendModalOpen(true); setSendError(null); }}>
-          Send Invitation
-        </Button>
+        canManageInvitations ? (
+          <Button onClick={() => { setSendModalOpen(true); setSendError(null); }}>
+            Send Invitation
+          </Button>
+        ) : undefined
       }
     >
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="invitations" orgName={user.organizationName} />

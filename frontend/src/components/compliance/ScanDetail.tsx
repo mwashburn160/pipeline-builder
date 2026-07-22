@@ -6,6 +6,7 @@ import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
+import { StatusPill } from '@/components/ui/StatusPill';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan, ComplianceAuditEntry, RuleTarget } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RESULT_STYLES } from '@/lib/compliance-styles';
@@ -197,10 +198,10 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Status</div>
-            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cfg.bg} ${cfg.color}`}>
+            <StatusPill gap className={`${cfg.bg} ${cfg.color}`}>
               <StatusIcon className={`h-3 w-3 ${scan.status === 'running' ? 'animate-spin' : ''}`} />
               {scan.status}
-            </span>
+            </StatusPill>
           </div>
           <div>
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Target</div>
@@ -266,7 +267,7 @@ export default function ScanDetail({ scanId, onBack }: ScanDetailProps) {
                     return (
                       <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                         <td className="px-4 py-3">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.bg} ${r.text}`}>{r.label}</span>
+                          <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{entry.entityName || entry.entityId || '-'}</td>
                         <td className="px-4 py-3 text-xs text-gray-500">{entry.target}</td>

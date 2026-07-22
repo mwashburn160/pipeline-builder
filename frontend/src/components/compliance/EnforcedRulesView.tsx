@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Shield, Loader2 } from 'lucide-react';
+import { TextEmptyState } from '@/components/ui/EmptyState';
 import api from '@/lib/api';
 import type { ComplianceRule, RuleTarget } from '@/types/compliance';
 import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
@@ -60,7 +61,7 @@ export default function EnforcedRulesView() {
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-green-600" /></div>
       ) : rules.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">No rules are currently enforced. Create org rules or activate subscribed rules.</div>
+        <TextEmptyState>No rules are currently enforced. Create org rules or activate subscribed rules.</TextEmptyState>
       ) : (
         <div className="space-y-6">
           {orgRules.length > 0 && (

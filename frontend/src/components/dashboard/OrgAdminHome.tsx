@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useFeatures } from '@/hooks/useFeatures';
 import api from '@/lib/api';
+import { fmtNum } from '@/lib/format';
 import type { OrgQuotaResponse, DisplayedQuotaType, Subscription } from '@/types';
 import type { ComplianceAuditEntry } from '@/types/compliance';
 
@@ -145,9 +146,9 @@ export function OrgAdminHome({ organizationId }: Props) {
                     {pct === null && <Badge color="gray">unlimited</Badge>}
                   </div>
                   <div className="mt-1 text-xl font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                    {q.used.toLocaleString()}
+                    {fmtNum(q.used)}
                     {!q.unlimited && (
-                      <span className="text-sm text-gray-400 dark:text-gray-500 font-normal"> / {q.limit.toLocaleString()}</span>
+                      <span className="text-sm text-gray-400 dark:text-gray-500 font-normal"> / {fmtNum(q.limit)}</span>
                     )}
                   </div>
                   <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">

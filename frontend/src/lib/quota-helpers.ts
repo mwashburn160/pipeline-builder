@@ -3,13 +3,12 @@
 
 import { QUOTA_CRITICAL_THRESHOLD, QUOTA_WARNING_THRESHOLD } from './constants';
 
+// Canonical home is src/lib/format.ts; re-exported here for existing importers.
+export { fmtNum } from './format';
+
 export function pct(used: number, limit: number): number {
   if (limit <= 0) return 0;
   return Math.min(100, Math.round((used / limit) * 100));
-}
-
-export function fmtNum(n: number): string {
-  return n === -1 ? '∞' : n.toLocaleString();
 }
 
 export function daysUntil(iso: string): string {

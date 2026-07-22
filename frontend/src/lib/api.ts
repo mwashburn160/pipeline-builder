@@ -46,4 +46,3 @@ export default api;
 
 export { ApiError, ConflictError, StepUpRequiredError } from './api/errors';
 export { base64UrlDecode } from './api/util';
-export type { StreamEvent } from './api/core';

@@ -137,7 +137,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
             <ShieldCheck className="w-5 h-5" /> IdP Config — {org.name}
           </h2>
-          <button onClick={onClose} className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
+          <button onClick={onClose} aria-label="Close" className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X className="w-5 h-5 text-gray-500" />
           </button>
         </div>

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Zap, Eye, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { TextEmptyState } from '@/components/ui/EmptyState';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
 import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
 
@@ -388,7 +389,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
           </div>
 
           {catalog.length === 0 ? (
-            <div className="text-center py-8 text-gray-500 dark:text-gray-400">No published rules available.</div>
+            <TextEmptyState>No published rules available.</TextEmptyState>
           ) : (
             <>
               {catalog.map(rule => (

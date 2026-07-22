@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Compliance
+image: /assets/og-image-compliance.png
 ---
 
 # Compliance Service

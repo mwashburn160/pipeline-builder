@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Audit Events
+image: /assets/og-image-audit.png
 ---
 
 # Audit Events

@@ -7,6 +7,15 @@
  * displays sizes share the same rounding rules.
  */
 
+/**
+ * Format a count for display: locale-grouped digits, with `-1` (the quota
+ * "unlimited" sentinel) rendered as the infinity glyph. Any non-sentinel
+ * value formats identically to `n.toLocaleString()`.
+ */
+export function fmtNum(n: number): string {
+  return n === -1 ? '∞' : n.toLocaleString();
+}
+
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
 
 /**

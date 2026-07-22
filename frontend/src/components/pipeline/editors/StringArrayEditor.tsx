@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+
 /** Props for {@link StringArrayEditor}. */
 interface StringArrayEditorProps {
   /** Current array of string values. */
@@ -24,8 +26,20 @@ interface StringArrayEditorProps {
 export default function StringArrayEditor({
   value, onChange, placeholder = '', disabled, label, addLabel = '+ Add',
 }: StringArrayEditorProps) {
+  // Stable, client-only row ids kept in lockstep with `value` so React keys by
+  // row identity (not array index). Free-text values may be empty/duplicate, so
+  // a value-derived key is unsafe. These ids are never serialized.
+  const counterRef = useRef(0);
+  const idsRef = useRef<string[]>([]);
+  while (idsRef.current.length < value.length) idsRef.current.push(`str-${counterRef.current++}`);
+  if (idsRef.current.length > value.length) idsRef.current = idsRef.current.slice(0, value.length);
+  const ids = idsRef.current;
+
   const handleAdd = () => onChange([...value, '']);
-  const handleRemove = (index: number) => onChange(value.filter((_, i) => i !== index));
+  const handleRemove = (index: number) => {
+    idsRef.current = idsRef.current.filter((_, i) => i !== index);
+    onChange(value.filter((_, i) => i !== index));
+  };
   const handleChange = (index: number, val: string) => {
     const updated = [...value];
     updated[index] = val;
@@ -37,7 +51,7 @@ export default function StringArrayEditor({
       {label && <label className="label">{label}</label>}
       <div className="space-y-2">
         {value.map((item, idx) => (
-          <div key={idx} className="flex items-center space-x-2">
+          <div key={ids[idx]} className="flex items-center space-x-2">
             <input
               type="text"
               value={item}

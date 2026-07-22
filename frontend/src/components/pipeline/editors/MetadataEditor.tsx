@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { MetadataEntry } from '@/types/form-types';
 import { useCombobox } from '@/hooks/useCombobox';
 import { useTemplateValidation } from '@/hooks/useTemplateValidation';
@@ -151,8 +151,20 @@ function MetadataKeyCombobox({
  * to the selected type. Boolean entries render as a true/false dropdown.
  */
 export default function MetadataEditor({ value, onChange, disabled, label }: MetadataEditorProps) {
+  // Stable, client-only row ids kept in lockstep with `value` so React keys by
+  // row identity (not index) — the key/value fields are free-text and may be
+  // empty/duplicate. These ids are never serialized into the onChange payload.
+  const counterRef = useRef(0);
+  const idsRef = useRef<string[]>([]);
+  while (idsRef.current.length < value.length) idsRef.current.push(`meta-${counterRef.current++}`);
+  if (idsRef.current.length > value.length) idsRef.current = idsRef.current.slice(0, value.length);
+  const ids = idsRef.current;
+
   const handleAdd = () => onChange([...value, { key: '', value: '', type: 'string' }]);
-  const handleRemove = (index: number) => onChange(value.filter((_, i) => i !== index));
+  const handleRemove = (index: number) => {
+    idsRef.current = idsRef.current.filter((_, i) => i !== index);
+    onChange(value.filter((_, i) => i !== index));
+  };
   const handleChange = (index: number, field: keyof MetadataEntry, val: string) => {
     const updated = [...value];
     updated[index] = { ...updated[index], [field]: val };
@@ -178,7 +190,7 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
       {label && <label className="label">{label}</label>}
       <div className="space-y-2">
         {value.map((entry, idx) => (
-          <div key={idx} className="flex items-center space-x-2">
+          <div key={ids[idx]} className="flex items-center space-x-2">
             <MetadataKeyCombobox
               value={entry.key}
               onChange={(v) => handleChange(idx, 'key', v)}

@@ -6,6 +6,8 @@ import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleTarget, RuleSeverity, RuleScope } from '@/types/compliance';
 import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
+import { StatusPill } from '@/components/ui/StatusPill';
+import { TextEmptyState } from '@/components/ui/EmptyState';
 
 interface RuleListProps {
   onEdit?: (rule: ComplianceRule) => void;
@@ -147,9 +149,9 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
 
       {/* Rule Table */}
       {filteredRules.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+        <TextEmptyState>
           {nameSearch || targetFilter || severityFilter || scopeFilter ? 'No rules match your filters.' : 'No compliance rules found. Create one to get started.'}
-        </div>
+        </TextEmptyState>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -184,12 +186,12 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{rule.target}</span>
+                      <StatusPill className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{rule.target}</StatusPill>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${sev.bg} ${sev.color}`}>
+                      <StatusPill gap className={`${sev.bg} ${sev.color}`}>
                         <SevIcon className="h-3 w-3" /> {rule.severity}
-                      </span>
+                      </StatusPill>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 font-mono">
                       {rule.field || (rule.conditions ? `${rule.conditions.length} conditions` : '-')}
@@ -199,9 +201,9 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{rule.priority}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                      <StatusPill className={
                         rule.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-500'
-                      }`}>{rule.isActive ? 'Active' : 'Inactive'}</span>
+                      }>{rule.isActive ? 'Active' : 'Inactive'}</StatusPill>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">

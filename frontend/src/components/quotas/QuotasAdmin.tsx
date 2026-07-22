@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User } from '@/types';
 import { QuotaCard } from './QuotaCard';
 import { OrgListItem } from './OrgListItem';
-import { QUOTA_KEYS, TIER_KEYS, TIER_PRESETS } from './constants';
+import { QUOTA_KEYS, TIER_KEYS, TIER_PRESETS, pillClassFor } from './constants';
 
 /**
  * System-admin master-detail quota view: an org sidebar plus the selected org's
@@ -76,15 +76,7 @@ export function QuotasAdmin({
       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 font-mono">
         {orgData.orgId}
       </span>
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-        editTier === 'enterprise'
-          ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
-          : editTier === 'pro'
-            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
-            : editTier === 'team'
-              ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300'
-              : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
-      }`}>
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${pillClassFor(editTier)}`}>
         <span className={`w-1.5 h-1.5 rounded-full ${TIER_PRESETS[editTier].color}`} />
         {TIER_PRESETS[editTier].label}
       </span>

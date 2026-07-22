@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { formatBytes } from '@/lib/format';
+import { formatBytes, fmtNum } from '@/lib/format';
 import { statusInfo, barStyles } from '@/lib/quota-helpers';
 import type { UsageRollup } from '@/types';
 import { formatDate } from './helpers';
@@ -63,7 +63,7 @@ export function UsageCard({ rollup }: { rollup: UsageRollup }) {
               <div className="flex items-baseline justify-between text-sm">
                 <span className="font-medium text-gray-900 dark:text-gray-100">Seats</span>
                 <span className="text-gray-500 dark:text-gray-400">
-                  {used.toLocaleString()} / {isUnlimited ? 'Unlimited' : limit.toLocaleString()}
+                  {fmtNum(used)} / {isUnlimited ? 'Unlimited' : fmtNum(limit)}
                   {percent !== null && <span className="ml-2">({percent}%)</span>}
                 </span>
               </div>

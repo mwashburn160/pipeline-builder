@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle, BarChart3, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -114,11 +114,23 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm(f => ({ ...f, [key]: val }));
 
+  // Stable, client-only row ids kept in lockstep with form.conditions so React
+  // keys each condition row by identity (not index) — field/value are free-text
+  // and may be empty/duplicate. These ids are UI-only and never serialized into
+  // the RuleCondition[] sent to the API.
+  const condCounterRef = useRef(0);
+  const condIdsRef = useRef<string[]>([]);
+  while (condIdsRef.current.length < form.conditions.length) condIdsRef.current.push(`cond-${condCounterRef.current++}`);
+  if (condIdsRef.current.length > form.conditions.length) condIdsRef.current = condIdsRef.current.slice(0, form.conditions.length);
+  const condIds = condIdsRef.current;
+
   const addCondition = () =>
     set('conditions', [...form.conditions, { field: '', operator: 'eq' as RuleOperator, value: '' }]);
 
-  const removeCondition = (idx: number) =>
+  const removeCondition = (idx: number) => {
+    condIdsRef.current = condIdsRef.current.filter((_, i) => i !== idx);
     set('conditions', form.conditions.filter((_, i) => i !== idx));
+  };
 
   const updateCondition = (idx: number, patch: Partial<{ field: string; operator: RuleOperator; value: string }>) =>
     set('conditions', form.conditions.map((c, i) => i === idx ? { ...c, ...patch } : c));
@@ -246,12 +258,12 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         {/* Basic info */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Name *</label>
-            <input value={form.name} onChange={e => set('name', e.target.value)} className={inputCls} placeholder="Rule name" />
+            <label htmlFor="rule-name" className="block text-xs font-medium text-gray-500 mb-1">Name *</label>
+            <input id="rule-name" value={form.name} onChange={e => set('name', e.target.value)} className={inputCls} placeholder="Rule name" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Target *</label>
-            <select value={form.target} onChange={e => set('target', e.target.value as RuleTarget)} className={inputCls} disabled={isEdit}>
+            <label htmlFor="rule-target" className="block text-xs font-medium text-gray-500 mb-1">Target *</label>
+            <select id="rule-target" value={form.target} onChange={e => set('target', e.target.value as RuleTarget)} className={inputCls} disabled={isEdit}>
               <option value="plugin">Plugin</option>
               <option value="pipeline">Pipeline</option>
             </select>
@@ -259,8 +271,8 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
         </div>
         {isSuperAdmin && (
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Scope</label>
-            <select value={form.scope} onChange={e => set('scope', e.target.value as RuleScope)} className={inputCls} disabled={isEdit}>
+            <label htmlFor="rule-scope" className="block text-xs font-medium text-gray-500 mb-1">Scope</label>
+            <select id="rule-scope" value={form.scope} onChange={e => set('scope', e.target.value as RuleScope)} className={inputCls} disabled={isEdit}>
               <option value="org">Org — private to your organization</option>
               <option value="published">Published — shared catalog, other orgs can subscribe</option>
             </select>
@@ -268,39 +280,39 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           </div>
         )}
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
-          <textarea value={form.description} onChange={e => set('description', e.target.value)} className={inputCls} rows={2} placeholder="Optional description" />
+          <label htmlFor="rule-description" className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+          <textarea id="rule-description" value={form.description} onChange={e => set('description', e.target.value)} className={inputCls} rows={2} placeholder="Optional description" />
         </div>
 
         {/* Severity, priority, tags */}
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Severity</label>
-            <select value={form.severity} onChange={e => set('severity', e.target.value as RuleSeverity)} className={inputCls}>
+            <label htmlFor="rule-severity" className="block text-xs font-medium text-gray-500 mb-1">Severity</label>
+            <select id="rule-severity" value={form.severity} onChange={e => set('severity', e.target.value as RuleSeverity)} className={inputCls}>
               <option value="warning">Warning</option>
               <option value="error">Error</option>
               <option value="critical">Critical</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Priority</label>
-            <input type="number" value={form.priority} onChange={e => set('priority', parseInt(e.target.value) || 0)} className={inputCls} />
+            <label htmlFor="rule-priority" className="block text-xs font-medium text-gray-500 mb-1">Priority</label>
+            <input id="rule-priority" type="number" value={form.priority} onChange={e => set('priority', parseInt(e.target.value) || 0)} className={inputCls} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Tags (comma-separated)</label>
-            <input value={form.tags} onChange={e => set('tags', e.target.value)} className={inputCls} placeholder="security, naming" />
+            <label htmlFor="rule-tags" className="block text-xs font-medium text-gray-500 mb-1">Tags (comma-separated)</label>
+            <input id="rule-tags" value={form.tags} onChange={e => set('tags', e.target.value)} className={inputCls} placeholder="security, naming" />
           </div>
         </div>
 
         {/* Date range & notification */}
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Effective From</label>
-            <input type="date" value={form.effectiveFrom} onChange={e => set('effectiveFrom', e.target.value)} className={inputCls} />
+            <label htmlFor="rule-effective-from" className="block text-xs font-medium text-gray-500 mb-1">Effective From</label>
+            <input id="rule-effective-from" type="date" value={form.effectiveFrom} onChange={e => set('effectiveFrom', e.target.value)} className={inputCls} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Effective Until</label>
-            <input type="date" value={form.effectiveUntil} onChange={e => set('effectiveUntil', e.target.value)} className={inputCls} />
+            <label htmlFor="rule-effective-until" className="block text-xs font-medium text-gray-500 mb-1">Effective Until</label>
+            <input id="rule-effective-until" type="date" value={form.effectiveUntil} onChange={e => set('effectiveUntil', e.target.value)} className={inputCls} />
           </div>
           <div className="flex items-end pb-2">
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -365,7 +377,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                 <div className="text-center py-4 text-sm text-gray-400">No conditions yet. Click &quot;Add Condition&quot; to start.</div>
               )}
               {form.conditions.map((cond, idx) => (
-                <div key={idx} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
+                <div key={condIds[idx]} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
                   <input
                     value={cond.field}
                     onChange={e => updateCondition(idx, { field: e.target.value })}

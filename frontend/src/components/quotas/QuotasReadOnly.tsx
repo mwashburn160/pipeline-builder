@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import type { OrgQuotaResponse, DisplayedQuotaType } from '@/types';
+import { fmtNum } from '@/lib/format';
 import { QuotaCard } from './QuotaCard';
-import { QUOTA_KEYS, QUOTA_META, TIER_PRESETS } from './constants';
+import { QUOTA_KEYS, QUOTA_META, TIER_PRESETS, pillClassFor } from './constants';
 
 /** One at-risk quota dimension for the caller's own org (from `getOrgAtRisk`). */
 export interface AtRiskDimension {
@@ -44,15 +45,7 @@ export function QuotasReadOnly({
       title="Quotas"
       subtitle="Usage limits and consumption"
       titleExtra={orgData ? (
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-          tier === 'enterprise'
-            ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
-            : tier === 'pro'
-              ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'
-              : tier === 'team'
-                ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300'
-                : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300'
-        }`}>
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${pillClassFor(tier)}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${tierPreset.color}`} />
           {tierPreset.label}
         </span>
@@ -70,7 +63,7 @@ export function QuotasReadOnly({
                 <li key={d.type} className="flex items-baseline justify-between gap-2">
                   <span>{QUOTA_META[d.type]?.label ?? d.type}</span>
                   <span className="tabular-nums whitespace-nowrap">
-                    {d.used.toLocaleString()} / {d.limit.toLocaleString()}
+                    {fmtNum(d.used)} / {fmtNum(d.limit)}
                     <span className="ml-2 font-medium">({d.percent}%)</span>
                   </span>
                 </li>

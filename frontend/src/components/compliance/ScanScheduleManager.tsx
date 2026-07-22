@@ -6,6 +6,7 @@ import api from '@/lib/api';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
+import { TextEmptyState } from '@/components/ui/EmptyState';
 
 interface ScanSchedule {
   id: string;
@@ -138,7 +139,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
               {editingId ? 'Edit Schedule' : 'Create Schedule'}
             </h3>
-            <button onClick={closeForm} className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <button onClick={closeForm} aria-label="Close" className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -183,7 +184,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-indigo-600" /></div>
       ) : schedules.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">No scan schedules found.</div>
+        <TextEmptyState>No scan schedules found.</TextEmptyState>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">

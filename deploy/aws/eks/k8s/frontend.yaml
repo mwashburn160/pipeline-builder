@@ -75,6 +75,12 @@ spec:
             # so server-side calls go over http — no TLS-reject override needed.
             - name: PLATFORM_BASE_URL
               value: "http://nginx:8080"
+            # Public (browser-facing) origin for social-card / Open Graph absolute
+            # URLs, resolved at RUNTIME (frontend/src/lib/site-url.ts). This is the
+            # ALB/public HTTPS origin, NOT the internal nginx address — REPLACE with
+            # this deployment's domain.
+            - name: APP_SITE_URL
+              value: "https://app.example.com"
           volumeMounts:
             - name: next-cache
               mountPath: /app/.next/cache

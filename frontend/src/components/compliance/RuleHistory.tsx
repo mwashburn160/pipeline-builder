@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { History, ArrowLeft, Loader2 } from 'lucide-react';
+import { TextEmptyState } from '@/components/ui/EmptyState';
 import api from '@/lib/api';
 import type { ComplianceRuleHistoryEntry } from '@/types/compliance';
 
@@ -66,7 +67,7 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
           <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : history.length === 0 ? (
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">No history entries found.</div>
+        <TextEmptyState>No history entries found.</TextEmptyState>
       ) : (
         <div className="space-y-3">
           {history.map(entry => {

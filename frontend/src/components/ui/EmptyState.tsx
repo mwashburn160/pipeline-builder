@@ -39,6 +39,18 @@ const illustrationColors: Record<IllustrationType, { bg: string; icon: string; r
   },
 };
 
+/**
+ * Minimal text-only empty state.
+ *
+ * Renders the exact `<div>` + class string that was previously hand-rolled
+ * across the compliance components, so migrating a call site produces
+ * byte-identical DOM. For a richer icon/illustration empty state, use
+ * {@link EmptyState} instead.
+ */
+export function TextEmptyState({ children }: { children: React.ReactNode }) {
+  return <div className="text-center py-8 text-gray-500 dark:text-gray-400">{children}</div>;
+}
+
 export function EmptyState({ icon: Icon, title, description, action, illustration = 'default' }: EmptyStateProps) {
   const colors = illustrationColors[illustration];
 

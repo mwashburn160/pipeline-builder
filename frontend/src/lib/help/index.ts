@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export type { ContentBlock, HelpSection, HelpTopic } from './types';
-export type { PluginEntry, PluginCategory } from './plugins';
+export type { PluginCategory } from './plugins';
 export { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES, PLUGIN_CATALOG } from './plugins';
 
 import { gettingStartedTopic } from './getting-started';

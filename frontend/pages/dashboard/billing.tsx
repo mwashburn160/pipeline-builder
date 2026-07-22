@@ -28,7 +28,7 @@ const PLAN_RANK = ['developer', 'pro', 'team', 'enterprise'];
 /** Billing and subscription management page. Displays current subscription status and plan selection with monthly/annual toggle. */
 export default function BillingPage() {
   const router = useRouter();
-  const { user, isReady, isAdmin, isSuperAdmin, can } = useAuthGuard({ requirePermission: 'billing:read' });
+  const { user, isReady, isAdmin, isSuperAdmin, can, isReadOnly } = useAuthGuard({ requirePermission: 'billing:read' });
   const { organizations } = useAuth();
   const features = useFeatures();
   const toast = useToast();
@@ -41,7 +41,11 @@ export default function BillingPage() {
   // Plan/add-on changes unlock on the `billing:manage` capability (or org-admin
   // role, which holds it in its bundle) — so a custom-group member granted the
   // perm can manage billing. Still root-only: teams manage billing at the parent.
-  const canChangePlan = (isAdmin || can('billing:manage')) && (isSuperAdmin || !activeOrgIsTeam);
+  // `!isReadOnly` closes the read-only-impersonation dead-end: the `isAdmin ||`
+  // short-circuit isn't read-only-aware (only `can()` is), so without this a
+  // read-only "view-as" of an admin would keep the plan/add-on/cancel/portal
+  // controls enabled, each of which the backend then 403s.
+  const canChangePlan = (isAdmin || can('billing:manage')) && !isReadOnly && (isSuperAdmin || !activeOrgIsTeam);
 
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);

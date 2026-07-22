@@ -9,12 +9,14 @@ import { useFeatures } from '@/hooks/useFeatures';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import type { Plan } from '@/types';
 import api from '@/lib/api';
+import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/lib/site-url';
 
 function formatPrice(cents: number): string {
   return cents === 0 ? 'Free' : `$${(cents / 100).toFixed(2)}/mo`;
 }
 
-export default function RegisterPage() {
+export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
+  const OG_IMAGE = `${siteUrl}/og-image.png`;
   const router = useRouter();
   const { register, isLoading } = useAuth();
   const features = useFeatures();
@@ -81,7 +83,20 @@ export default function RegisterPage() {
 
   return (
     <>
-      <Head><title>Create Account - Pipeline Builder</title></Head>
+      <Head>
+        <title>Create Account - Pipeline Builder</title>
+        <meta name="description" content="Create your Pipeline Builder account — self-service, production-ready AWS CI/CD from TypeScript, CLI, CDK, or a single AI prompt. Native AWS CodePipeline, no lock-in." />
+        <meta property="og:title" content="Create your Pipeline Builder account" />
+        <meta property="og:description" content="Self-service CI/CD for AWS — 125 plugins, AI generation, per-org compliance. Deploys as native AWS CodePipeline in your account." />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content={OG_IMAGE} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:alt" content="Pipeline Builder — Self-Service CI/CD for AWS" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content={OG_IMAGE} />
+      </Head>
       <div className="min-h-screen px-6 py-10">
         <div className="max-w-sm mx-auto mb-6">
           <Link href="/" className="inline-flex items-center gap-1 text-sm text-[var(--pb-text-muted)] hover:text-[var(--pb-text)] transition-colors">
@@ -154,3 +169,5 @@ export default function RegisterPage() {
     </>
   );
 }
+
+export const getServerSideProps = siteUrlServerSideProps;

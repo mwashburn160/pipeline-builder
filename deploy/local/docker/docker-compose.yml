@@ -279,6 +279,10 @@ services:
     stop_grace_period: 10s
     environment:
       PLATFORM_BASE_URL: ${PLATFORM_BASE_URL}
+      # Public (browser-facing) origin for social-card / Open Graph absolute URLs.
+      # Resolved at RUNTIME by the frontend (see frontend/src/lib/site-url.ts), so
+      # one image works across environments. Local docker serves on :8443.
+      APP_SITE_URL: ${APP_SITE_URL:-https://localhost:8443}
     volumes:
       - './data/cache:/app/.next/cache:rw'
       - './data/tmp:/tmp:rw'

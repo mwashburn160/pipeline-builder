@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Organization Benefits
+image: /assets/og-image-solution.png
 ---
 
 # Organization Benefits
