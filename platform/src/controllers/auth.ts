@@ -223,3 +223,23 @@ export const verifyEmail = withController('Verify email', async (req, res) => {
 
   sendSuccess(res, 200, undefined, 'Email verified successfully');
 });
+
+/**
+ * POST /auth/mark-email-verified
+ *
+ * Directly mark the CURRENT user's email verified WITHOUT the emailed link — a
+ * convenience for privileged operators (e.g. environments with no outbound
+ * email). Gated to admin/owner role or superadmin; a non-privileged user must
+ * still verify via the emailed token. Requires auth (route middleware).
+ */
+export const markEmailVerified = withController('Mark email verified', async (req, res) => {
+  if (!req.user) return sendError(res, 401, 'Authentication required');
+  const privileged = req.user.isSuperAdmin === true || req.user.role === 'admin' || req.user.role === 'owner';
+  if (!privileged) {
+    return sendError(res, 403, 'Only an admin or superadmin can mark an email verified directly');
+  }
+  const user = await authService.markEmailVerifiedById(req.user.sub);
+  if (!user) return sendError(res, 404, 'User not found');
+  audit(req, 'user.email.verified', { targetType: 'user', targetId: req.user.sub });
+  sendSuccess(res, 200, undefined, 'Email marked verified');
+});

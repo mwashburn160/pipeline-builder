@@ -19,7 +19,7 @@ import { decodeJwt } from '@/lib/jwt';
 
 /** User and organization settings page. Manages profile info, AI provider API keys, password changes, and account deletion. */
 export default function SettingsPage() {
-  const { user, isReady, refreshUser, can } = useAuthGuard();
+  const { user, isReady, refreshUser, can, isAdmin, isSuperAdmin } = useAuthGuard();
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -31,6 +31,21 @@ export default function SettingsPage() {
     await verify.run(
       () => api.sendVerificationEmail(),
       { successMessage: 'Verification email sent — check your inbox for the link.' },
+    );
+  };
+
+  // Admin/superadmin can mark their email verified directly (no emailed link).
+  // The backend independently gates this to admin/owner/superadmin.
+  const canMarkVerified = isAdmin || isSuperAdmin;
+  const markVerify = useFormState();
+  const handleMarkVerified = async () => {
+    await markVerify.run(
+      async () => {
+        const res = await api.markEmailVerified();
+        await refreshUser(); // flips the banner to the verified state
+        return res;
+      },
+      { successMessage: 'Email marked verified.' },
     );
   };
 
@@ -145,13 +160,22 @@ export default function SettingsPage() {
                   <span className="inline-flex items-center gap-1.5">
                     <MailWarning className="w-4 h-4 shrink-0" /> Your email address is unverified.
                   </span>
-                  <Button type="button" variant="secondary" size="sm" loading={verify.loading} onClick={handleResendVerification}>
-                    Resend verification email
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {canMarkVerified && (
+                      <Button type="button" variant="secondary" size="sm" loading={markVerify.loading} onClick={handleMarkVerified}>
+                        Mark as verified
+                      </Button>
+                    )}
+                    <Button type="button" variant="secondary" size="sm" loading={verify.loading} onClick={handleResendVerification}>
+                      Resend verification email
+                    </Button>
+                  </div>
                 </div>
               )}
               {verify.error && <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{verify.error}</p>}
               {verify.success && <p className="mt-1.5 text-xs text-green-600 dark:text-green-400">{verify.success}</p>}
+              {markVerify.error && <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">{markVerify.error}</p>}
+              {markVerify.success && <p className="mt-1.5 text-xs text-green-600 dark:text-green-400">{markVerify.success}</p>}
             </div>
 
             <SessionStartedRow />

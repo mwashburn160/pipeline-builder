@@ -344,6 +344,27 @@ class AuthService {
     logger.info('Email verified', { userId: user._id.toString(), email: user.email });
     return user;
   }
+
+  /**
+   * Directly mark a user's email verified WITHOUT the token round-trip — used by
+   * the admin/superadmin self-verify action so a privileged operator can skip the
+   * resend + click-link flow (e.g. in an environment with no outbound email).
+   * Idempotent; returns the user, or `null` when the id doesn't resolve.
+   */
+  async markEmailVerifiedById(userId: string) {
+    const user = await User.findById(userId).select('+emailVerificationToken +emailVerificationExpires');
+    if (!user) return null;
+    if (!user.isEmailVerified) {
+      user.isEmailVerified = true;
+      user.emailVerificationToken = undefined;
+      user.emailVerificationExpires = undefined;
+      await user.save();
+      logger.info('Email marked verified directly (admin self-verify)', {
+        userId: user._id.toString(), email: user.email,
+      });
+    }
+    return user;
+  }
 }
 
 export const authService = new AuthService();

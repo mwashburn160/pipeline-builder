@@ -21,6 +21,9 @@ export type AuditAction =
   | 'user.delete'
   | 'user.profile.update'
   | 'user.password.change'
+  // Admin/superadmin self-verified their email directly (bypassing the emailed
+  // verification link). Recorded because it skips proof-of-ownership.
+  | 'user.email.verified'
   | 'user.token.create'
   | 'user.tokens.revoke-all'
   // Organization (controllers/organization.ts)
@@ -193,6 +196,7 @@ const ALL_AUDIT_ACTIONS = [
   'user.delete',
   'user.profile.update',
   'user.password.change',
+  'user.email.verified',
   'user.token.create',
   'user.tokens.revoke-all',
   'org.create',

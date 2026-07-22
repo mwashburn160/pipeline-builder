@@ -252,3 +252,46 @@ describe('AuthService.switchActiveOrg', () => {
     expect(mockUserFindById).not.toHaveBeenCalled();
   });
 });
+
+describe('AuthService.markEmailVerifiedById', () => {
+  function userDoc(overrides: Record<string, unknown> = {}) {
+    return {
+      _id: { toString: () => 'u1' },
+      email: 'admin@internal',
+      isEmailVerified: false,
+      emailVerificationToken: 'x',
+      emailVerificationExpires: new Date(),
+      save: mockUserSave,
+      ...overrides,
+    };
+  }
+
+  it('marks an unverified user verified, clears the token, and saves', async () => {
+    const doc = userDoc();
+    mockUserFindById.mockReturnValue({ select: () => Promise.resolve(doc) });
+
+    const result = await authService.markEmailVerifiedById('u1');
+
+    expect(result).toBe(doc);
+    expect(doc.isEmailVerified).toBe(true);
+    expect(doc.emailVerificationToken).toBeUndefined();
+    expect(doc.emailVerificationExpires).toBeUndefined();
+    expect(mockUserSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('is idempotent — an already-verified user is not re-saved', async () => {
+    const doc = userDoc({ isEmailVerified: true });
+    mockUserFindById.mockReturnValue({ select: () => Promise.resolve(doc) });
+
+    const result = await authService.markEmailVerifiedById('u1');
+
+    expect(result).toBe(doc);
+    expect(mockUserSave).not.toHaveBeenCalled();
+  });
+
+  it('returns null when the user id does not resolve', async () => {
+    mockUserFindById.mockReturnValue({ select: () => Promise.resolve(null) });
+    expect(await authService.markEmailVerifiedById('missing')).toBeNull();
+    expect(mockUserSave).not.toHaveBeenCalled();
+  });
+});

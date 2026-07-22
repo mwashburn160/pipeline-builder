@@ -4,7 +4,7 @@
 import { ErrorCode, sendError } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail } from '../controllers/index.js';
+import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail, markEmailVerified } from '../controllers/index.js';
 import { stepUpVerify } from '../controllers/step-up.js';
 import { requireAuth, isValidRefreshToken } from '../middleware/index.js';
 
@@ -65,6 +65,9 @@ router.post('/send-verification', requireAuth, sendVerificationEmail);
 
 /** POST /auth/verify-email - Verify email with token (public, no auth needed) */
 router.post('/verify-email', verifyEmail);
+
+/** POST /auth/mark-email-verified - Admin/superadmin self-verify (no token). */
+router.post('/mark-email-verified', requireAuth, markEmailVerified);
 
 /** POST /auth/step-up - Re-verify password before destructive admin actions */
 router.post('/step-up', requireAuth, stepUpLimiter, stepUpVerify);

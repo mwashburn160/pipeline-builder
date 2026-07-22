@@ -91,6 +91,15 @@ export function authApi(core: ApiCore) {
       });
     },
 
+    /** Directly mark the current user's email verified WITHOUT the emailed link
+     *  (POST /auth/mark-email-verified, authenticated). Server-gated to
+     *  admin/owner/superadmin; a non-privileged caller gets 403. */
+    markEmailVerified: async () => {
+      return core.request<ApiResponse<undefined>>('/api/auth/mark-email-verified', {
+        method: 'POST',
+      });
+    },
+
     /** Verify an email address with the token from the emailed link
      *  (POST /auth/verify-email, public). Body is `{ token }`. */
     verifyEmail: async (token: string) => {
