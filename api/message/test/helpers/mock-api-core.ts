@@ -60,6 +60,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     requirePermissionOrService: () => passThroughMiddleware,
     // Remote audit client factory — src/services/audit.ts links against this.
     createRemoteAuditClient: () => ({ record: () => {} }),
+    createEnvRedisAuditSpool: () => null,
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},

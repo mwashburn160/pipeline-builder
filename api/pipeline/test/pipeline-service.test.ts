@@ -110,8 +110,11 @@ jest.unstable_mockModule('drizzle-orm', () => ({
 jest.unstable_mockModule('drizzle-orm/column', () => ({}));
 jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
-const { PipelineService } = await import('../src/services/pipeline-service.js');
+const { PipelineService, toComplianceAttributes } = await import('../src/services/pipeline-service.js');
 const pipelineDataMock = await import('@pipeline-builder/pipeline-data');
+// api-core is NOT mocked — use the real in-process event emitter to capture the
+// event the service emits to the compliance subscriber.
+const { entityEvents } = await import('@pipeline-builder/api-core');
 
 // Tests
 
@@ -160,6 +163,83 @@ describe('PipelineService', () => {
     it('should return null for invalid sortBy value', () => {
       const result = (service as any).getSortColumn('nonexistent');
       expect(result).toBeNull();
+    });
+  });
+
+  // A pipeline row whose serialized `props` embeds secrets: a synth-level env
+  // map, a per-step env map, a step buildArgs map, and a source `token`. The
+  // compliance event must keep structure + keys (compliance traverses
+  // props.stages / $keys(env) / path checks) but NEVER carry plaintext values.
+  const secretPipeline = {
+    id: 'pipeline-1',
+    orgId: 'org-1',
+    project: 'proj',
+    organization: 'org',
+    pipelineName: 'my-pipeline',
+    accessModifier: 'private',
+    props: {
+      project: 'proj',
+      organization: 'org',
+      synth: {
+        env: { NPM_TOKEN: 'SYNTHSECRET1', NODE_VERSION: '24' },
+        source: { token: 'ghp_SOURCESECRET' },
+      },
+      stages: [
+        {
+          stageName: 'build',
+          steps: [
+            { plugin: 'docker', env: { REGISTRY_PASSWORD: 'STEPSECRET2' }, buildArgs: { GH_TOKEN: 'STEPSECRET3' } },
+          ],
+        },
+      ],
+    },
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-02T00:00:00Z'),
+  } as any;
+
+  describe('compliance event emission — secret redaction', () => {
+    it('emits props structure/keys but never secret VALUES', async () => {
+      const captured: any[] = [];
+      const subscriber = { onEntityEvent: async (e: any) => { captured.push(e); } };
+      entityEvents.subscribe(subscriber);
+      try {
+        await (service as any).onAfterCreate(secretPipeline, 'user-1');
+      } finally {
+        entityEvents.unsubscribe(subscriber);
+      }
+
+      expect(captured).toHaveLength(1);
+      const event = captured[0];
+      // Event envelope unchanged.
+      expect(event.eventType).toBe('created');
+      expect(event.target).toBe('pipeline');
+      expect(event.entityId).toBe('pipeline-1');
+      expect(event.orgId).toBe('org-1');
+
+      // No secret VALUE anywhere in the serialized payload.
+      const serialized = JSON.stringify(event.attributes);
+      for (const secret of ['SYNTHSECRET1', 'STEPSECRET2', 'STEPSECRET3', 'ghp_SOURCESECRET']) {
+        expect(serialized).not.toContain(secret);
+      }
+
+      // Compliance-relevant structure + keys survive for rule evaluation.
+      expect(event.attributes.project).toBe('proj');
+      expect(event.attributes.props.stages).toHaveLength(1);
+      expect(event.attributes.props.stages[0].steps[0].plugin).toBe('docker');
+      expect(Object.keys(event.attributes.props.synth.env)).toEqual(['NPM_TOKEN', 'NODE_VERSION']);
+      expect(Object.keys(event.attributes.props.stages[0].steps[0].env)).toEqual(['REGISTRY_PASSWORD']);
+    });
+  });
+
+  describe('toComplianceAttributes', () => {
+    it('redacts nested env/buildArgs values + source token, preserves keys and Dates', () => {
+      const projected: any = toComplianceAttributes(secretPipeline);
+      expect(projected.props.synth.env).toEqual({ NPM_TOKEN: '[REDACTED]', NODE_VERSION: '[REDACTED]' });
+      expect(projected.props.synth.source.token).toBe('[REDACTED]');
+      expect(projected.props.stages[0].steps[0].env).toEqual({ REGISTRY_PASSWORD: '[REDACTED]' });
+      expect(projected.props.stages[0].steps[0].buildArgs).toEqual({ GH_TOKEN: '[REDACTED]' });
+      // Dates must not be corrupted into {} by the recursive walk.
+      expect(projected.createdAt).toBeInstanceOf(Date);
     });
   });
 

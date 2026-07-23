@@ -1,12 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, parsePaginationParams } from '@pipeline-builder/api-core';
+import { isSystemAdmin, isRemoteAuditAction, parseQueryString, sendError, sendSuccess, createLogger, parsePaginationParams } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
 import { verifyAuditChain } from '../helpers/audit-chain.js';
 import { requireAdminContext, requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { requireAuth, requireServiceAuth } from '../middleware/index.js';
-import { isAuditAction } from '../models/audit-event.js';
 import { auditService, type AuditFilter } from '../services/audit-service.js';
 
 const logger = createLogger('audit-routes');
@@ -118,9 +117,20 @@ router.post('/events', requireServiceAuth, async (req: Request, res: Response) =
     requestId?: string;
     traceId?: string;
     outcome?: 'success' | 'failure';
+    // DISPLAY-ONLY emission timestamp the remote-audit client stamps when the
+    // action actually happened (ISO-8601). May arrive much later than it
+    // occurred if the client spooled it through a platform outage. Stored for
+    // reviewers; it never becomes the hash-chain ordering field.
+    occurredAt?: string;
   };
 
-  if (!body.action || typeof body.action !== 'string' || !isAuditAction(body.action)) {
+  // Validate against the REMOTE subset — NOT the full platform union. A
+  // `service:*` token must not be able to forge platform-authority events
+  // (`admin.superadmin.grant`, `org.ownership.transfer`, `user.login`, …) with
+  // an attacker-chosen `actorId`; the ingest is restricted to the legitimate
+  // remote vocabulary (plugin.*/pipeline.*/quota.*/compliance.*/registry.*/
+  // authz.denied). See api-core `REMOTE_AUDIT_ACTIONS`.
+  if (!body.action || typeof body.action !== 'string' || !isRemoteAuditAction(body.action)) {
     return sendError(res, 400, 'Invalid or unknown action');
   }
   if (!body.actorId || typeof body.actorId !== 'string') {
@@ -157,12 +167,33 @@ router.post('/events', requireServiceAuth, async (req: Request, res: Response) =
   const outcome: 'success' | 'failure' = body.outcome
     ?? (FAILURE_ACTION.test(body.action) ? 'failure' : 'success');
 
+  // A stable per-emission `Idempotency-Key` (set by the remote-audit client) lets
+  // a retried 5xx/timeout delivery dedup at the DB instead of writing a duplicate
+  // row / extending the chain twice. Empty/blank header ⇒ undefined (unconstrained).
+  const idempotencyKey = req.header('Idempotency-Key')?.trim() || undefined;
+
+  // occurredAt (optional): the ISO-8601 instant the action actually happened,
+  // as stamped by the remote-audit client. Reject a malformed value with 400
+  // (mirroring the strict body validation above for action/actorId) rather than
+  // silently storing garbage; when absent, leave it unset so reviewers fall
+  // back to the ingest `createdAt`. DISPLAY-ONLY — it never influences the
+  // hash-chain ordering (the chain orders by ingest createdAt).
+  let occurredAt: Date | undefined;
+  if (body.occurredAt !== undefined) {
+    const parsed = typeof body.occurredAt === 'string' ? new Date(body.occurredAt) : new Date(NaN);
+    if (Number.isNaN(parsed.getTime())) {
+      return sendError(res, 400, 'occurredAt must be a valid ISO-8601 date string');
+    }
+    occurredAt = parsed;
+  }
+
   try {
     await auditService.createEvent({
       action: body.action,
       actorId: body.actorId,
       actorEmail: body.actorEmail,
       orgId: effectiveOrgId,
+      idempotencyKey,
       // Mirror the pre-refactor behavior: default affectedOrgId to orgId
       // for in-tenant actions; explicit cross-tenant callers (sysadmin
       // services acting on another org) pass it themselves.
@@ -177,6 +208,8 @@ router.post('/events', requireServiceAuth, async (req: Request, res: Response) =
       userAgent: body.userAgent,
       requestId: body.requestId,
       traceId: body.traceId,
+      // Display-only emission time (undefined when absent/omitted).
+      occurredAt,
     });
     return sendSuccess(res, 200, {});
   } catch (error) {

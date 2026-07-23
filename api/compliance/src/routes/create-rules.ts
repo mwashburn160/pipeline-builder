@@ -5,6 +5,7 @@ import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemAdmin, valid
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleCreateSchema } from './rule-schemas.js';
+import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService, InvalidRuleRegexError } from '../services/compliance-rule-service.js';
 
 export function createCreateRuleRoutes(): Router {
@@ -35,6 +36,19 @@ export function createCreateRuleRoutes(): Router {
       } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
 
       ctx.log('COMPLETED', 'Created compliance rule', { id: rule.id, name: rule.name });
+
+      // Best-effort attributed audit — the rule create succeeded. Only safe
+      // scalar metadata (name/target/scope); never the full rule definition,
+      // which can carry sensitive match config.
+      emitComplianceAudit({
+        action: 'compliance.rule.create',
+        actorId: userId,
+        orgId,
+        targetType: 'rule',
+        targetId: rule.id,
+        details: { name: rule.name, target: rule.target, scope: rule.scope },
+      });
+
       return sendSuccess(res, 201, { rule });
     } catch (err) {
       if (err instanceof InvalidRuleRegexError) {

@@ -121,13 +121,21 @@ jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
 const mockFindById = jest.fn();
 const mockFindOneAndUpdate = jest.fn();
 const mockUpdateOne = jest.fn();
+const mockDeleteOne = jest.fn();
 
 jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: {
     findById: mockFindById,
     findOneAndUpdate: mockFindOneAndUpdate,
     updateOne: mockUpdateOne,
+    deleteOne: mockDeleteOne,
   },
+}));
+
+const mockEmitQuotaAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  emitQuotaAudit: mockEmitQuotaAudit,
+  getAuditClient: () => ({ record: jest.fn() }),
 }));
 
 // Org → team hierarchy: stub as flat so the shared-root-cap pre-check in
@@ -343,6 +351,55 @@ describe('POST /quotas/:orgId/reset', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
+  });
+});
+
+// Tests  DELETE /quotas/:orgId
+
+describe('DELETE /quotas/:orgId', () => {
+  const handler = getHandler('delete', '/:orgId');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('deletes the quota doc and emits an attributed cross-tenant quota.delete audit', async () => {
+    mockDeleteOne.mockResolvedValue({ deletedCount: 1 });
+
+    const req = mockReq({
+      params: { orgId: 'org-123' },
+      user: { organizationId: 'sys-org', sub: 'admin-1' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockDeleteOne).toHaveBeenCalled();
+    expect(mockEmitQuotaAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitQuotaAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'quota.delete',
+        actorId: 'admin-1',
+        affectedOrgId: 'org-123',
+        details: expect.objectContaining({ deleted: true }),
+      }),
+    );
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      res, 200, { deleted: true }, 'Quota org deleted',
+    );
+  });
+
+  it('does NOT emit an audit event on the idempotent no-op (already absent)', async () => {
+    mockDeleteOne.mockResolvedValue({ deletedCount: 0 });
+
+    const req = mockReq({
+      params: { orgId: 'org-gone' },
+      user: { organizationId: 'sys-org', sub: 'admin-1' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockEmitQuotaAudit).not.toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      res, 200, { deleted: false }, 'Quota org was already absent',
+    );
   });
 });
 

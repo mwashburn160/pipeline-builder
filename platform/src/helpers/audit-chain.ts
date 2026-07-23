@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHash } from 'crypto';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, scrubAwsIdentifiers } from '@pipeline-builder/api-core';
 import AuditEvent, { type AuditEventDocument } from '../models/audit-event.js';
 import type { AuditCreateInput } from '../services/audit-service.js';
 
@@ -177,6 +177,21 @@ function errMessage(err: unknown): string {
 }
 
 /**
+ * Whether `err` is a Mongo duplicate-key (E11000) violation OF the
+ * `idempotencyKey` unique index specifically — i.e. this exact event was already
+ * ingested under the same `Idempotency-Key`. Any OTHER duplicate-key violation
+ * (a future unique index) is NOT swallowed here; it propagates as a real error.
+ */
+function isIdempotencyDuplicate(err: unknown): boolean {
+  const e = err as { code?: number; keyPattern?: Record<string, unknown>; message?: string } | null;
+  if (!e || e.code !== 11000) return false;
+  // Prefer the structured keyPattern (present on modern driver errors); fall back
+  // to the message text (some error shapes only carry the index name/message).
+  if (e.keyPattern && Object.prototype.hasOwnProperty.call(e.keyPattern, 'idempotencyKey')) return true;
+  return typeof e.message === 'string' && e.message.includes('idempotencyKey');
+}
+
+/**
  * Append an audit event to its per-tenant hash chain and persist it. This is the
  * SINGLE shared "append to chain" function both write paths funnel through:
  *   - `helpers/audit.ts` `audit()` calls it directly, and
@@ -193,6 +208,17 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEv
   // defaulting both callers already do; harmless when they've set it).
   const affectedOrgId = input.affectedOrgId ?? input.orgId;
   const chainKey = affectedOrgId ?? GENESIS_CHAIN_KEY;
+
+  // Defense-in-depth: scrub AWS account identifiers (bare 12-digit ids and the
+  // account segment of any ARN — e.g. a KMS keyId ARN) out of `details` at this
+  // single choke point BOTH write paths funnel through, BEFORE the hash is
+  // computed. An AWS account id must never be persisted; scrubbing here (rather
+  // than at each call site) covers the KMS-orphaned case and any future leak, and
+  // the hash is then computed over the scrubbed details so verify stays
+  // deterministic.
+  const scrubbedInput: AuditCreateInput = input.details
+    ? { ...input, details: scrubAwsIdentifiers(input.details) }
+    : input;
 
   return withChainLock(chainKey, async () => {
     // Assign createdAt explicitly so the value hashed is exactly the value
@@ -217,7 +243,7 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEv
 
     let hash: string;
     try {
-      hash = computeAuditHash({ ...input, affectedOrgId, createdAt, prevHash });
+      hash = computeAuditHash({ ...scrubbedInput, affectedOrgId, createdAt, prevHash });
     } catch (err) {
       logger.warn('Audit hash computation failed; writing sentinel hash', {
         chainKey, error: errMessage(err),
@@ -225,25 +251,61 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEv
       hash = HASH_ERROR_SENTINEL;
     }
 
-    return AuditEvent.create({ ...input, affectedOrgId, createdAt, prevHash, hash });
+    try {
+      return await AuditEvent.create({ ...scrubbedInput, affectedOrgId, createdAt, prevHash, hash });
+    } catch (err) {
+      // Idempotency-Key collision: this exact event was already ingested (a
+      // retried 5xx/timeout delivery, possibly from another replica). Treat it
+      // as ALREADY-STORED — return the existing row WITHOUT extending the chain a
+      // second time. `create` failed, so nothing was written and the chain tail
+      // is unchanged; we only re-read the winner to return it. Any OTHER error
+      // propagates unchanged.
+      if (scrubbedInput.idempotencyKey && isIdempotencyDuplicate(err)) {
+        const existing = await AuditEvent.findOne({ idempotencyKey: scrubbedInput.idempotencyKey }).lean();
+        if (existing) {
+          logger.info('Audit ingest deduped on Idempotency-Key; not re-chaining', {
+            chainKey, idempotencyKey: scrubbedInput.idempotencyKey,
+          });
+          return existing as unknown as AuditEventDocument;
+        }
+      }
+      throw err;
+    }
   });
 }
 
 /** Result of a chain verification walk. */
 export interface AuditChainVerifyResult {
-  /** True when every event's hash recomputes and links to its predecessor. */
+  /** True when every surviving event's hash recomputes and every non-head event
+   *  links to its predecessor. NOTE: deletion of a contiguous chain HEAD (the
+   *  oldest rows) is indistinguishable from TTL pruning and is therefore NOT
+   *  flagged — the first surviving event's stored prevHash is taken as the
+   *  anchor. */
   ok: boolean;
-  /** `_id` of the first event that failed (broken hash or broken linkage). */
+  /** `_id` of the first event that failed (broken hash or broken forward linkage). */
   brokenAt?: string;
   /** How many events were walked. */
   count: number;
 }
 
 /**
- * Walk a chain in creation order and verify tamper-evidence: for every event,
- * recompute its hash from the stored fields and check that (a) it matches the
- * stored `hash` and (b) its `prevHash` equals the previous event's `hash`. A
- * mismatch at either check means a row was ALTERED or DELETED after the fact.
+ * Walk a chain in creation order and verify tamper-evidence.
+ *
+ * ANCHOR = the FIRST surviving event's STORED `prevHash`. It may be `null` (a
+ * true genesis chain) OR non-null (the true genesis and any number of the oldest
+ * rows have aged out under the TTL retention index, leaving a retention-truncated
+ * HEAD). Either way we ACCEPT that stored value as the anchor and enforce forward
+ * linkage from there: for every SUBSEQUENT event `event.prevHash` must equal the
+ * previous event's `hash`, and for EVERY event we still recompute the hash from
+ * its immutable fields + stored `prevHash` and require it to equal the stored
+ * `hash`.
+ *
+ * This preserves detection of (a) field tampering — the recomputed hash won't
+ * match; (b) reordering; and (c) deletion of any event that HAS a surviving
+ * successor — the successor's `prevHash` no longer links. The ONE thing it can no
+ * longer flag is deletion of a CONTIGUOUS chain HEAD (the oldest rows), because
+ * that is indistinguishable from legitimate TTL pruning — so it is (correctly)
+ * not treated as tampering.
  *
  * @param chainKey the tenant chain to verify (an org id, or {@link GENESIS_CHAIN_KEY}).
  */
@@ -252,11 +314,21 @@ export async function verifyAuditChain(chainKey: string): Promise<AuditChainVeri
     .sort({ createdAt: 1, _id: 1 })
     .lean();
 
-  let expectedPrev: string | null = GENESIS_PREV_HASH;
+  // `expectedPrev` is seeded from the first surviving event's own stored prevHash
+  // (the anchor) rather than forced to null — so a retention-truncated head is
+  // accepted. After the first event it tracks the running predecessor hash.
+  let expectedPrev: string | null = null;
+  let isFirst = true;
   for (const raw of events as unknown as Array<Record<string, unknown>>) {
     const storedPrev = (raw.prevHash ?? null) as string | null;
-    // Broken linkage: a deleted predecessor or a re-pointed prevHash.
-    if (storedPrev !== expectedPrev) {
+    if (isFirst) {
+      // Anchor: accept whatever the surviving head's prevHash is (null=genesis or
+      // non-null=TTL-truncated). No linkage check for the very first event.
+      expectedPrev = storedPrev;
+      isFirst = false;
+    } else if (storedPrev !== expectedPrev) {
+      // Broken forward linkage: a deleted predecessor (that had a successor) or a
+      // re-pointed prevHash.
       return { ok: false, brokenAt: String(raw._id), count: events.length };
     }
     const recomputed = computeAuditHash({

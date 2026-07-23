@@ -85,6 +85,47 @@ function resolveUserPermissions(assignedPermissions?: readonly string[] | null, 
   return ALL_PERMISSIONS.filter((p) => set.has(p));
 }
 
+/**
+ * Faithful mirror of api-core `REMOTE_AUDIT_ACTIONS` — the subset a non-platform
+ * service may emit through `POST /audit/events`. The audit ingest route validates
+ * against this (NOT the full platform union), so any suite loading the route needs
+ * it. Kept as a superset-safe copy; the real drift guard lives in
+ * `audit-remote-subset.test.ts` (which loads the REAL api-core).
+ */
+const REMOTE_AUDIT_ACTIONS: readonly string[] = [
+  'plugin.build.completed', 'plugin.build.failed', 'plugin.build.timeout',
+  'plugin.delete', 'plugin.upload', 'plugin.deploy',
+  'pipeline.create', 'pipeline.update', 'pipeline.delete',
+  'pipeline.execution.start', 'pipeline.execution.cancel',
+  'quota.reset', 'quota.limit.update',
+  'compliance.exemption.approve', 'compliance.rule.toggle', 'compliance.scan.cancel',
+  'registry.gc', 'registry.image.delete',
+  'authz.denied',
+];
+
+/**
+ * Faithful mirror of api-core `scrubAwsIdentifiers` — deep-redacts AWS account
+ * ids (bare 12-digit tokens incl. the account segment of any ARN) and any
+ * account-named key. audit-chain.ts applies this at the append choke point, so
+ * suites that mock api-core and load the appender need it to behave for real.
+ */
+const AWS_ACCOUNT_ID_RE = /(?<!\d)\d{12}(?!\d)/g;
+const ACCOUNT_KEY_RE = /account/i;
+function scrubAwsIdentifiers<T>(value: T): T {
+  if (typeof value === 'string') return value.replace(AWS_ACCOUNT_ID_RE, '[REDACTED]') as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => scrubAwsIdentifiers(v)) as unknown as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = (ACCOUNT_KEY_RE.test(k) && (typeof v === 'string' || typeof v === 'number'))
+        ? '[REDACTED]'
+        : scrubAwsIdentifiers(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 /** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
 class NotFoundError extends Error {
   statusCode = 404;
@@ -147,6 +188,12 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // the JWT's `isSuperAdmin` flag. Used by tenant-binding gates (audit ingest,
     // notify-email) to let a sysadmin service token target any org.
     isSystemAdmin: (req: { user?: { isSuperAdmin?: boolean } }) => req?.user?.isSuperAdmin === true,
+    // Audit ingest allow-list + AWS-id scrub (audit-chain / audit route consume
+    // these). Faithful to api-core so the anti-forgery gate and details scrub
+    // behave for real under the mock.
+    REMOTE_AUDIT_ACTIONS,
+    isRemoteAuditAction: (value: string) => REMOTE_AUDIT_ACTIONS.includes(value),
+    scrubAwsIdentifiers,
     // Fine-grained RBAC helpers (faithful to api-core): superadmins hold all;
     // otherwise the resolved `permissions` claim must include it.
     userHasPermission: (req: { user?: { isSuperAdmin?: boolean; permissions?: string[] } }, perm: string) =>
@@ -162,6 +209,13 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // Service-to-service auth header (checkTierOvercap mints one to read pooled
     // usage from the quota service). Tests only need a stable stub value.
     getServiceAuthHeader: () => 'Bearer service-token',
+    // Query-string collapser (mirrors api-core): normalize Express's
+    // `string | string[] | ParsedQs` to `string | undefined` (first value wins).
+    parseQueryString: (v: unknown) => {
+      if (typeof v === 'string') return v;
+      if (Array.isArray(v)) return typeof v[0] === 'string' ? v[0] : undefined;
+      return undefined;
+    },
     // Pagination parser (controllers migrated off the local shim to this).
     parsePaginationParams: (q: Record<string, unknown> = {}) => {
       const toInt = (v: unknown, d: number) => {

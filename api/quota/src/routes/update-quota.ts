@@ -79,6 +79,19 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
       const targetOrgId = getParam(req.params, 'orgId')!;
       const deleted = await svc.delete(targetOrgId);
       ctx.log('COMPLETED', deleted ? 'Quota org deleted': 'Quota org delete: not found', { orgId: targetOrgId });
+
+      // Best-effort attributed audit — emitted only when a quota document was
+      // actually dropped (the idempotent no-op path mutates nothing). This is a
+      // cross-tenant sysadmin op, so `affectedOrgId` records the target org.
+      if (deleted) {
+        emitQuotaAudit({
+          action: 'quota.delete',
+          actorId: req.user?.sub ?? 'unknown',
+          affectedOrgId: targetOrgId,
+          details: { deleted: true },
+        });
+      }
+
       return sendSuccess(res, 200, { deleted }, deleted ? 'Quota org deleted': 'Quota org was already absent');
     }),
   );

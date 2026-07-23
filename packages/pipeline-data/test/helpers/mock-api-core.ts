@@ -50,6 +50,29 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     NotFoundError,
+    // Real AWS-scrub behavior (small, pure) so suites that persist AWS-derived
+    // event data assert the actual redaction, not a stub. Mirrors
+    // api-core/src/utils/aws-scrub.ts.
+    scrubAwsIdentifiersFromString: (input: string): string =>
+      input.replace(/(?<!\d)\d{12}(?!\d)/g, '[REDACTED]'),
+    scrubAwsIdentifiers: function scrub<T>(value: T): T {
+      if (typeof value === 'string') {
+        return value.replace(/(?<!\d)\d{12}(?!\d)/g, '[REDACTED]') as unknown as T;
+      }
+      if (Array.isArray(value)) {
+        return value.map((v) => scrub(v)) as unknown as T;
+      }
+      if (value && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          out[k] = /account/i.test(k) && (typeof v === 'string' || typeof v === 'number')
+            ? '[REDACTED]'
+            : scrub(v);
+        }
+        return out as T;
+      }
+      return value;
+    },
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
       invalidatePattern: () => Promise.resolve(0),

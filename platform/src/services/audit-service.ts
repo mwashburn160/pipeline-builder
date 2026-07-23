@@ -56,6 +56,18 @@ export interface AuditCreateInput {
   userAgent?: string;
   requestId?: string;
   traceId?: string;
+  /** Ingest dedup key (remote-audit `Idempotency-Key`). When set, a repeat
+   *  emission with the same value is treated as already-stored by the append
+   *  path (unique-index backstop) rather than chained a second time. */
+  idempotencyKey?: string;
+  /** DISPLAY-ONLY emission time (ISO-8601 instant the action actually
+   *  happened, stamped by the remote-audit client). Persisted verbatim on the
+   *  event doc via the shared append's field spread, but NOT part of the
+   *  tamper-evidence hash and NOT the chain-ordering field — the chain still
+   *  orders/appends by ingest `createdAt`, so a spool-delayed re-delivery does
+   *  not perturb ordering or verification. Reviewers fall back to `createdAt`
+   *  when it is unset. */
+  occurredAt?: Date;
 }
 
 export interface PaginatedAuditResult {

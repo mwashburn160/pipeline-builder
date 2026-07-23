@@ -96,7 +96,7 @@ export function useMessageNotifications(orgId: string | null) {
     });
   }, []);
 
-  const { connected } = useSSE({
+  const { connected, everConnected } = useSSE({
     url,
     maxRetries: 0, // fresh ticket per reconnect (see onRetriesExhausted), not stale in-band retries
     onMessage,
@@ -106,5 +106,5 @@ export function useMessageNotifications(orgId: string | null) {
   // Reset the reconnect backoff once a connection succeeds.
   useEffect(() => { if (connected) reconnectAttemptRef.current = 0; }, [connected]);
 
-  return { unreadCount, setUnreadCount, connected, onNotification };
+  return { unreadCount, setUnreadCount, connected, everConnected, onNotification };
 }

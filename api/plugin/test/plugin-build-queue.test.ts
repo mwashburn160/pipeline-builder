@@ -43,6 +43,12 @@ const mockBuildAndPush = jest.fn<(...args: any[]) => any>();
 
 const mockDeployVersion = jest.fn<(...args: any[]) => any>();
 
+// Shared remote-audit `record` spy. services/audit.ts caches a single client,
+// and BOTH the tier queue (getAuditClient().record) and the DLQ
+// (emitPluginAudit) route through it — so one spy captures every
+// `plugin.build.*` terminal/completed event across the whole build lifecycle.
+const mockAuditRecord = jest.fn<(...args: any[]) => any>();
+
 const mockPipelineCoreConfig: Record<string, any> = {
   pluginBuild: {
     concurrency: 1,
@@ -163,7 +169,7 @@ function registerMocks() {
     // DLQ replay / failed-retry re-reserves a plugin slot; default to capacity available.
     reserveQuota: mockReserveQuota,
     getServiceAuthHeader: () => 'Bearer test-service-token',
-    createRemoteAuditClient: () => ({ record: jest.fn() }),
+    createRemoteAuditClient: () => ({ record: mockAuditRecord }),
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     DEFAULT_TIER: 'developer',
   }));
@@ -244,12 +250,55 @@ function makeJob(data: PluginBuildJobData, overrides: Record<string, any> = {}) 
     data,
     attemptsMade: 1,
     opts: { attempts: 2 },
+    // BullMQ Job.updateData — the tier processor persists dedup/hand-off state
+    // through it (plugin-build-queue.ts); mock so it's callable under test.
+    updateData: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined),
     ...overrides,
   };
 }
 
 function getMainProcessor() {
   return capturedProcessors['plugin-build-developer'];
+}
+
+function getDlqProcessor() {
+  return capturedProcessors['plugin-build-dlq'];
+}
+
+// Tier workers register their `failed` handler first (one per tier, same fn ref);
+// the DLQ worker registers its own `failed` handler last, via startDlqWorker.
+function getTierFailedHandler() {
+  const failedCalls = mockWorkerOn.mock.calls.filter((c: any) => c[0] === 'failed');
+  return failedCalls[0][1];
+}
+function getDlqFailedHandler() {
+  const failedCalls = mockWorkerOn.mock.calls.filter((c: any) => c[0] === 'failed');
+  return failedCalls[failedCalls.length - 1][1];
+}
+
+// The tier failed handler moves DLQ-bound jobs via a fire-and-forget promise
+// chain (enforceDlqMaxSize → getDeadLetterQueue().add); drain the microtask/
+// macrotask queue so the enqueue is observable.
+const flush = () => new Promise((r) => setImmediate(r));
+
+// Every `plugin.build.*` action recorded across the lifecycle, in order.
+function auditActions(): string[] {
+  return mockAuditRecord.mock.calls.map((c: any) => c[0].action);
+}
+function terminalFailedEmits(): string[] {
+  return auditActions().filter((a) => a === 'plugin.build.failed' || a === 'plugin.build.timeout');
+}
+
+function makeDlqJob(dataOverrides: Partial<PluginBuildJobData> = {}, jobOverrides: Record<string, any> = {}) {
+  return {
+    id: 'dlq-job-1',
+    name: 'dlq-my-plugin',
+    data: makeJobData(dataOverrides),
+    attemptsMade: 1,
+    opts: { attempts: 3 },
+    updateData: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined),
+    ...jobOverrides,
+  };
 }
 
 // Tests
@@ -610,6 +659,175 @@ describe('plugin-build-queue', () => {
 
     it('handles shutdown when nothing was initialized', async () => {
       await expect(queueModule.shutdownQueue()).resolves.toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Terminal build-failure audit semantics
+  // ---------------------------------------------------------------------------
+  //
+  // Invariant: for any build job the audit trail ends with exactly ONE terminal
+  // event — `plugin.build.completed` if it ever succeeded (tier or DLQ), else
+  // exactly one `plugin.build.failed`/`.timeout` at TRUE exhaustion. A "failed"
+  // must never precede a later "completed" (a DLQ retry can still succeed), and
+  // a build that truly dies in the DLQ must still get its one terminal signal.
+  //
+  // Config here: maxAttempts=2, dlqMaxAttempts=3 → totalAttemptBudget = 8.
+  describe('terminal build-failure audit', () => {
+    it('records plugin.build.completed (and no terminal failed) on a successful build', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
+      mockDeployVersion.mockResolvedValue({ id: 'plugin-1', name: 'my-plugin', version: '1.0.0' });
+
+      await getMainProcessor()(makeJob(makeJobData()));
+
+      expect(auditActions()).toContain('plugin.build.completed');
+      expect(terminalFailedEmits()).toHaveLength(0);
+    });
+
+    it('does NOT emit a terminal failed when a final tier attempt is retryable and hands off to the DLQ', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const failed = getTierFailedHandler();
+      // Final tier attempt (attemptsMade >= opts.attempts=2), retryable error,
+      // totalAttempts (1) well below budget (8) → job goes to the DLQ.
+      await failed(makeJob(makeJobData(), { attemptsMade: 2 }), new Error('Docker build failed'));
+      await flush();
+
+      // No terminal signal yet — the DLQ retry may still succeed.
+      expect(terminalFailedEmits()).toHaveLength(0);
+      // Handed off to the DLQ for more retries.
+      expect(mockQueueAdd).toHaveBeenCalledWith('dlq-job-1', expect.any(Object), expect.any(Object));
+    });
+
+    it('emits exactly one terminal failed at tier budget exhaustion (no DLQ hand-off)', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const failed = getTierFailedHandler();
+      // totalAttempts becomes 7+1=8 === budget → terminal at the tier, no DLQ.
+      await failed(makeJob(makeJobData({ totalAttempts: 7 }), { attemptsMade: 2 }), new Error('Docker build failed'));
+      await flush();
+
+      expect(auditActions()).toEqual(['plugin.build.failed']);
+      // NOT handed to the DLQ.
+      expect(mockQueueAdd).not.toHaveBeenCalledWith('dlq-job-1', expect.anything(), expect.anything());
+    });
+
+    it('emits exactly one terminal failed for a PERMANENT tier failure (never reaches the DLQ)', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const failed = getTierFailedHandler();
+      // Permanent classification even though budget remains → terminal, no DLQ.
+      await failed(makeJob(makeJobData(), { attemptsMade: 2 }), new Error('COMPLIANCE_VIOLATION: blocked'));
+      await flush();
+
+      expect(auditActions()).toEqual(['plugin.build.failed']);
+      expect(mockQueueAdd).not.toHaveBeenCalledWith('dlq-job-1', expect.anything(), expect.anything());
+    });
+
+    it('classifies a timeout at tier exhaustion as plugin.build.timeout', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const failed = getTierFailedHandler();
+      await failed(makeJob(makeJobData({ totalAttempts: 7 }), { attemptsMade: 2 }), new Error('build timed out'));
+      await flush();
+
+      expect(auditActions()).toEqual(['plugin.build.timeout']);
+    });
+
+    it('emits one terminal failed when the DLQ processor gives up (totalAttempts >= budget)', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const dlqProc = getDlqProcessor();
+      await dlqProc(makeDlqJob({ totalAttempts: 8, lastError: 'Docker build failed' }));
+
+      expect(auditActions()).toEqual(['plugin.build.failed']);
+      // Did not re-queue back to a tier.
+      expect(mockQueueAdd).not.toHaveBeenCalledWith(expect.stringMatching(/^retry-/), expect.anything());
+    });
+
+    it('DLQ give-up carries the ORIGINAL build failure and classifies a timeout cause', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const dlqProc = getDlqProcessor();
+      await dlqProc(makeDlqJob({ totalAttempts: 8, lastError: 'the build timed out after 600s' }));
+
+      expect(mockAuditRecord).toHaveBeenCalledTimes(1);
+      expect(mockAuditRecord.mock.calls[0][0]).toEqual(expect.objectContaining({
+        action: 'plugin.build.timeout',
+        actorId: 'user-1',
+        orgId: 'org-1',
+        targetType: 'plugin',
+        details: expect.objectContaining({
+          pluginName: 'my-plugin',
+          pluginVersion: '1.0.0',
+          errorMessage: 'the build timed out after 600s',
+          isTimeout: true,
+        }),
+      }));
+    });
+
+    it('emits one terminal failed when the DLQ worker exhausts its own retries (final attempt)', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const dlqFailed = getDlqFailedHandler();
+      // Final DLQ attempt (attemptsMade 3 >= opts.attempts 3). The handler
+      // prefers the original build failure (lastError) over the DLQ plumbing error.
+      dlqFailed(
+        makeDlqJob({ lastError: 'Docker build failed' }, { attemptsMade: 3, opts: { attempts: 3 } }),
+        new Error('Context dir missing'),
+      );
+
+      expect(terminalFailedEmits()).toEqual(['plugin.build.failed']);
+      expect(mockAuditRecord.mock.calls[0][0].details.errorMessage).toBe('Docker build failed');
+    });
+
+    it('does NOT emit a terminal failed on a non-final DLQ retry failure', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const dlqFailed = getDlqFailedHandler();
+      dlqFailed(
+        makeDlqJob({ lastError: 'Docker build failed' }, { attemptsMade: 1, opts: { attempts: 3 } }),
+        new Error('transient blip'),
+      );
+
+      expect(terminalFailedEmits()).toHaveLength(0);
+    });
+
+    it('across a full retryable-then-give-up journey there is exactly ONE terminal event (no double)', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      // 1) Tier final attempt, retryable → hands to DLQ, NO terminal emit.
+      await getTierFailedHandler()(makeJob(makeJobData(), { attemptsMade: 2 }), new Error('Docker build failed'));
+      await flush();
+      expect(terminalFailedEmits()).toHaveLength(0);
+
+      // 2) DLQ ultimately gives up → the single terminal emit.
+      await getDlqProcessor()(makeDlqJob({ totalAttempts: 8, lastError: 'Docker build failed' }));
+
+      expect(terminalFailedEmits()).toEqual(['plugin.build.failed']);
+      expect(auditActions()).not.toContain('plugin.build.completed');
     });
   });
 });

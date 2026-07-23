@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import type { AuditLogEvent } from '@/types/audit';
 import api from '@/lib/api';
 
 /**
@@ -19,7 +20,7 @@ import api from '@/lib/api';
 export function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string; isSuperAdmin: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [events, setEvents] = useState<Array<{ _id: string; action: string; actorId: string; actorEmail?: string; details?: Record<string, unknown>; createdAt: string }>>([]);
+  const [events, setEvents] = useState<AuditLogEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

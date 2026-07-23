@@ -19,7 +19,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { Activity, Search, ArrowLeft, Download } from 'lucide-react';
+import { Activity, Search, ArrowLeft, Download, ShieldCheck, ShieldAlert, ShieldQuestion, Ban } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -32,35 +32,19 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { formatError } from '@/lib/constants';
 import { downloadCsv, downloadJsonl } from '@/lib/csv-export';
+import { redactDetails } from '@/lib/redact';
+import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 import api from '@/lib/api';
 
-interface AuditEvent {
-  _id: string;
-  action: string;
-  actorId: string;
-  actorEmail?: string;
-  actorRole?: string;
-  orgId?: string;
-  affectedOrgId?: string;
-  targetType?: string;
-  targetId?: string;
-  groupId?: string;
-  impersonatorId?: string;
-  outcome?: 'success' | 'failure';
-  details?: Record<string, unknown>;
-  ip?: string;
-  userAgent?: string;
-  requestId?: string;
-  traceId?: string;
-  createdAt: string;
-}
-
 const DEFAULT_LIMIT = 50;
+
+/** The action string for a denied-authorization audit event. */
+const DENIED_ACTION = 'authz.denied';
 
 export default function AuditPage() {
   const router = useRouter();
   const { isReady, user, isSuperAdmin } = useAuthGuard({ requireAdmin: true });
-  const [selected, setSelected] = useState<AuditEvent | null>(null);
+  const [selected, setSelected] = useState<AuditLogEvent | null>(null);
 
   // Hydrate filters from URL on first render. `action`, `actorId`,
   // `affectedOrgId` are deep-linkable from other admin pages.
@@ -76,17 +60,53 @@ export default function AuditPage() {
     if (!router.isReady) return;
     if (typeof router.query.action === 'string') setAction(router.query.action);
     if (typeof router.query.actorId === 'string') setActorId(router.query.actorId);
-    if (typeof router.query.affectedOrgId === 'string') setAffectedOrgId(router.query.affectedOrgId);
+    // `affectedOrgId` is a sysadmin-only scope: the backend ignores it for
+    // org-admins (they're forced to their own org), so hydrating it for a
+    // non-sysadmin would render a banner asserting a scope that isn't in
+    // effect. Gate the state on `isSuperAdmin` so it only exists when it bites.
+    if (isSuperAdmin && typeof router.query.affectedOrgId === 'string') setAffectedOrgId(router.query.affectedOrgId);
     // `requestId` deep-links from "view related events" affordances; `outcome`
     // lets a dashboard panel link straight to failed logins.
     if (typeof router.query.requestId === 'string') setRequestId(router.query.requestId);
     if (router.query.outcome === 'success' || router.query.outcome === 'failure') setOutcome(router.query.outcome);
-  }, [router.isReady, router.query]);
+  }, [router.isReady, router.query, isSuperAdmin]);
 
-  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [events, setEvents] = useState<AuditLogEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Hash-chain tamper-verify (sysadmin only). Runs against the org currently in
+  // scope — the affected-org filter when set, else the sysadmin's own org.
+  const verifyOrgId = affectedOrgId || user?.organizationId || '';
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<AuditChainVerification | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+
+  const runVerify = async () => {
+    if (!verifyOrgId) return;
+    setVerifying(true);
+    setVerifyResult(null);
+    setVerifyError(null);
+    try {
+      const res = await api.verifyAuditChain(verifyOrgId);
+      if (res.success && res.data) setVerifyResult(res.data);
+      else setVerifyError(res.message || 'Failed to verify audit chain');
+    } catch (e) {
+      setVerifyError(formatError(e, 'Failed to verify audit chain'));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // Reset any stale verify result when the org in scope changes.
+  useEffect(() => { setVerifyResult(null); setVerifyError(null); }, [verifyOrgId]);
+
+  const deniedActive = action === DENIED_ACTION;
+  const toggleDenied = () => {
+    setAction((prev) => (prev === DENIED_ACTION ? '' : DENIED_ACTION));
+    setOffset(0);
+  };
 
   const filters = useMemo(() => ({
     ...(action && { action }),
@@ -126,7 +146,9 @@ export default function AuditPage() {
       subtitle="System-wide action history"
       titleExtra={isSuperAdmin ? <Badge color="red">System Admin</Badge> : <Badge color="purple">Org Admin</Badge>}
     >
-      {affectedOrgId && (
+      {/* Sysadmin-only: the affected-org scope is ignored by the backend for
+          org-admins, so the banner (and its underlying state) is gated too. */}
+      {isSuperAdmin && affectedOrgId && (
         <div className="mb-4">
           <button
             onClick={() => { setAffectedOrgId(''); setOffset(0); }}
@@ -137,7 +159,69 @@ export default function AuditPage() {
         </div>
       )}
 
+      {/* Hash-chain integrity verify — sysadmin only. Unobtrusive: a button
+          plus an inline result badge sitting above the filters. */}
+      {isSuperAdmin && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Button
+            onClick={runVerify}
+            disabled={verifying || !verifyOrgId}
+            variant="secondary"
+            className="inline-flex items-center gap-1.5"
+            title={verifyOrgId
+              ? `Verify the audit hash-chain for org ${verifyOrgId}`
+              : 'No org in scope to verify'}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            {verifying ? 'Verifying…' : 'Verify integrity'}
+          </Button>
+          {verifyOrgId && (
+            <span className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+              org <CopyableId value={verifyOrgId} size="sm" />
+            </span>
+          )}
+          {verifyError && (
+            <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+              <ShieldQuestion className="w-4 h-4" /> {verifyError}
+            </span>
+          )}
+          {verifyResult && (verifyResult.ok ? (
+            <Badge color="green">
+              <span className="inline-flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Chain intact ({verifyResult.count} event{verifyResult.count === 1 ? '' : 's'})
+              </span>
+            </Badge>
+          ) : (
+            <Badge color="red">
+              <span className="inline-flex items-center gap-1">
+                <ShieldAlert className="w-3.5 h-3.5" />
+                TAMPER DETECTED — chain broken at {verifyResult.brokenAt ?? 'unknown'}
+              </span>
+            </Badge>
+          ))}
+        </div>
+      )}
+
       <ErrorAlert message={error} className="mb-4" />
+
+      {/* Quick filters */}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={toggleDenied}
+          aria-pressed={deniedActive}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+            deniedActive
+              ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300'
+              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+          }`}
+          title="Spotlight authz.denied events (probing / privilege-escalation attempts)"
+        >
+          <Ban className="w-3.5 h-3.5" />
+          Denied attempts
+        </button>
+      </div>
 
       {/* Filter bar */}
       <div className="filter-bar grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -227,7 +311,7 @@ export default function AuditPage() {
                 userAgent: e.userAgent ?? '',
                 requestId: e.requestId ?? '',
                 traceId: e.traceId ?? '',
-                details: e.details ? JSON.stringify(e.details) : '',
+                details: e.details ? JSON.stringify(redactDetails(e.details)) : '',
               })),
               ['createdAt', 'action', 'outcome', 'actorId', 'actorEmail', 'actorRole', 'impersonatorId', 'orgId', 'affectedOrgId', 'targetType', 'targetId', 'groupId', 'ip', 'userAgent', 'requestId', 'traceId', 'details'],
               `audit-page-${new Date().toISOString().slice(0, 10)}`,
@@ -239,7 +323,10 @@ export default function AuditPage() {
             <Download className="w-3.5 h-3.5" /> CSV
           </Button>
           <Button
-            onClick={() => downloadJsonl(events, `audit-page-${new Date().toISOString().slice(0, 10)}`)}
+            onClick={() => downloadJsonl(
+              events.map((e) => (e.details ? { ...e, details: redactDetails(e.details) } : e)),
+              `audit-page-${new Date().toISOString().slice(0, 10)}`,
+            )}
             variant="secondary"
             className="inline-flex items-center gap-1"
             title="Export the current page as JSON Lines (preserves nested details)"
@@ -309,7 +396,7 @@ export default function AuditPage() {
                 </div>
                 {event.details && Object.keys(event.details).length > 0 && (
                   <p className="mt-1 text-xs text-gray-400 dark:text-gray-500 font-mono truncate">
-                    {JSON.stringify(event.details)}
+                    {JSON.stringify(redactDetails(event.details))}
                   </p>
                 )}
               </div>
@@ -371,7 +458,7 @@ export default function AuditPage() {
           {selected.details && Object.keys(selected.details).length > 0 && (
             <div className="mt-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Details</p>
-              <pre className="text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 whitespace-pre-wrap break-all max-h-96 overflow-y-auto">{JSON.stringify(selected.details, null, 2)}</pre>
+              <pre className="text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 whitespace-pre-wrap break-all max-h-96 overflow-y-auto">{JSON.stringify(redactDetails(selected.details), null, 2)}</pre>
             </div>
           )}
         </SideDrawer>

@@ -107,10 +107,11 @@ A minimal `{{ ... }}` template language for pipeline configs and plugin specs �
 
 An **organization** is the isolation boundary — every pipeline, plugin, secret, quota, and bill is scoped to it. A **team** is an organization optionally nested one level under a parent org (the org → team hierarchy); nesting is opt-in (orgs are flat roots by default), and a parent-org admin manages its teams while visibility, quotas, compliance, and analytics roll up across them.
 
-- **RBAC** — access via **Roles**: each Role is a named set of fine-grained `resource:action` permissions, and a user's effective permissions are the **union of the Roles assigned to them** (no separate role-based baseline). Built-in Roles (**Admin**, **Member**) plus admin-defined custom Roles; the coarse **Owner / Admin / Member** label is *derived* (governs ownership/seats, not permissions), a global **Super Admin** spans everything, and a parent-org admin inherits admin over its teams
+- **RBAC** — access via **Roles**: each Role is a named set of fine-grained `resource:action` permissions (reads and writes both enforced), and a user's effective permissions are the **union of the Roles assigned to them** (no separate role-based baseline). Built-in Roles (**Admin**, **Member**) plus admin-defined custom Roles; the coarse **Owner / Admin / Member** label is *derived* (governs ownership/seats, not permissions), a global **Super Admin** spans everything, and a parent-org admin inherits admin over its teams. Privilege changes invalidate live sessions (short-TTL tokens + `tokenVersion`). See [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }})
 - **Per-organization quotas** — `plugins`, `pipelines`, `apiCalls`, `aiCalls`, storage, and `seats`; **feature tiers** (Developer / Pro / Team / Enterprise) with stackable [add-on bundles](docs/billing-bundles.md) that raise pooled caps; a parent's caps pool across its teams
 - **Isolated secrets** — AWS Secrets Manager per organization (`pipeline-builder/{orgId}/{secret}`), injected at build time, never stored in images
 - **Execution analytics** — EventBridge-fed success rates, duration percentiles (p50 / p90 / p99), stage-level failure heatmaps, and per-organization cost attribution (rolled up across child teams for parent orgs)
+- **Tamper-evident audit trail** — every privileged action hash-chained per tenant with a sysadmin `/audit/verify`, forgery-locked service ingest, and a durable spool so the security log survives an outage (see [Audit Events]({{ '/docs/audit-events.html' | relative_url }}))
 - **Built for production** — zero-trust internal JWT auth, Kubernetes `health` / `ready` / `warmup` / `metrics` endpoints, graceful degradation
 
 ---
@@ -217,6 +218,8 @@ From there:
 | [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints for pipelines, plugins, compliance, reporting, and AI |
 | [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine with 18 operators, computed fields, audit trail |
+| [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) | Permission catalog, built-in Roles, enforcement, session invalidation |
+| [Audit Events]({{ '/docs/audit-events.html' | relative_url }}) | Tamper-evident trail — hash-chain + verify, ingest security, durable spool |
 | [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time interpolation for pipeline configs and plugin specs |
 | [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | EC2 and EKS deployment, post-deploy setup |

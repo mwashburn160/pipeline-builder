@@ -6,6 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { RULE_TEMPLATES } from '../data/rule-templates.js';
+import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('compliance-templates');
@@ -61,6 +62,18 @@ export function createTemplateRoutes(): Router {
           updatedBy: userId,
         } as unknown as Parameters<typeof complianceRuleService.create>[0], userId);
         created.push(rule.id);
+
+        // Best-effort attributed audit — one event per template ACTUALLY
+        // applied (a rule was minted), never per requested id. targetId is the
+        // new rule; details names the source template only.
+        emitComplianceAudit({
+          action: 'compliance.template.apply',
+          actorId: userId,
+          orgId,
+          targetType: 'rule',
+          targetId: rule.id,
+          details: { templateId: template.id, name: template.name },
+        });
       } catch (err) {
         const reason = errorMessage(err);
         logger.warn('Template application failed', {

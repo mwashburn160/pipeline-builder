@@ -22,6 +22,7 @@ import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYS
 import { db, runWithTenantContext, schema } from '@pipeline-builder/pipeline-data';
 import { eq, sql } from 'drizzle-orm';
 import type { Types } from 'mongoose';
+import { auditService } from './audit-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
@@ -319,18 +320,22 @@ export async function cascadeDeleteOrg( orgId: string,
         { orgId, keyRef },
       );
       try {
-        await AuditEvent.create({
+        // Route through the shared appender (like every other event) so the row
+        // is hash-CHAINED — a raw `AuditEvent.create` produces an unchained row
+        // (no hash/prevHash, unset outcome) that itself fails chain verify.
+        await auditService.createEvent({
           action: 'org.kms.orphaned',
           actorId: 'org-cascade',
           orgId: actorOrgId,
           affectedOrgId: orgId,
           targetType: 'organization',
           targetId: orgId,
+          outcome: 'success',
           details: {
             keyId: keyRef,
             reason: 'per-org KMS CMK requires manual deletion — cascade does not auto-delete (irreversible)',
           },
-        } as never);
+        });
       } catch (auditErr) {
         logger.error('Failed to record org.kms.orphaned audit event', { orgId, keyRef, error: errorMessage(auditErr) });
       }

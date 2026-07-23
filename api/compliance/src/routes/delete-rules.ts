@@ -4,6 +4,7 @@
 import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 export function createDeleteRuleRoutes(): Router {
@@ -17,6 +18,17 @@ export function createDeleteRuleRoutes(): Router {
     if (!deleted) return sendEntityNotFound(res, 'Rule');
 
     ctx.log('COMPLETED', 'Deleted compliance rule', { id, name: deleted.name });
+
+    // Best-effort attributed audit — the rule delete succeeded.
+    emitComplianceAudit({
+      action: 'compliance.rule.delete',
+      actorId: userId,
+      orgId,
+      targetType: 'rule',
+      targetId: id,
+      details: { name: deleted.name },
+    });
+
     return sendSuccess(res, 200, undefined, 'Rule deleted');
   }));
 

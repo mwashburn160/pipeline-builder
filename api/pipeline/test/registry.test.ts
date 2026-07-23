@@ -12,6 +12,13 @@ const mockInsert = jest.fn();
 const mockOnConflictDoUpdate = jest.fn();
 const mockReturning = jest.fn();
 const mockSelect = jest.fn();
+const mockDelete = jest.fn();
+
+const mockEmitPipelineAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  emitPipelineAudit: mockEmitPipelineAudit,
+  getAuditClient: () => ({ record: jest.fn() }),
+}));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn(),
@@ -47,6 +54,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     insert: mockInsert,
     select: mockSelect,
+    delete: mockDelete,
   }),
   schema: {
     pipelineRegistry: {
@@ -98,6 +106,13 @@ describe('POST /pipelines/registry', () => {
         }),
       })),
     }));
+
+    // Default delete chain: delete().where().returning() → one removed row.
+    mockDelete.mockReturnValue({
+      where: jest.fn().mockReturnValue({
+        returning: jest.fn().mockResolvedValue([{ id: 'reg-1', pipelineId: 'p-1' }]),
+      }),
+    });
   });
 
   function getHandler(method: 'post' | 'get' = 'post') {
@@ -269,6 +284,107 @@ describe('POST /pipelines/registry', () => {
       const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
       await runStack('/registry/:id', 'delete', { params: { id: 'reg-1' }, user: { capabilities: ['pipelines:read'] } }, res);
       expect(res.status).toHaveBeenCalledWith(403);
+    });
+  });
+
+  // Attributed audit emissions on the registry write routes. `targetId` must be
+  // the stable pipeline id, and — critically — `details` must never carry the
+  // CodePipeline ARN (which embeds the AWS account id).
+  describe('registry audit emissions', () => {
+    /** Deep-scan any value for an ARN or a 12-digit AWS account id. */
+    function containsArnOrAccountId(value: unknown): boolean {
+      const hay = JSON.stringify(value ?? {});
+      return /arn:aws/i.test(hay) || /\b\d{12}\b/.test(hay);
+    }
+
+    it('POST /registry emits pipeline.registry.register with targetId=pipelineId and NO ARN/account in details', async () => {
+      const handler = getHandler('post');
+      const req = {
+        body: {
+          pipelineId: 'p-1',
+          // These are NOT part of PipelineRegistrySchema and must never surface
+          // in the audit details even when a client sends them.
+          pipelineArn: 'arn:aws:codepipeline:us-east-1:123456789012:acme-pipeline',
+          accountId: '123456789012',
+          pipelineName: 'acme-pipeline',
+          region: 'us-east-1',
+          project: 'webapp',
+          organization: 'acme',
+          stackName: 'webapp-acme',
+        },
+      };
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await handler(req, res);
+
+      expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+      const event: any = mockEmitPipelineAudit.mock.calls[0][0];
+      expect(event).toEqual(
+        expect.objectContaining({
+          action: 'pipeline.registry.register',
+          actorId: 'user-1',
+          orgId: 'acme',
+          targetType: 'pipeline',
+          targetId: 'p-1',
+        }),
+      );
+      // Hard rule: no ARN and no AWS account id anywhere in details.
+      expect(containsArnOrAccountId(event.details)).toBe(false);
+      expect(event.details).not.toHaveProperty('pipelineArn');
+      expect(event.details).not.toHaveProperty('accountId');
+    });
+
+    it('POST /registry does NOT emit when the upsert is rejected (pipeline not owned)', async () => {
+      mockSelect.mockImplementation(() => ({
+        from: jest.fn().mockImplementation(() => ({
+          where: jest.fn().mockResolvedValue([]),
+        })),
+      }));
+      const handler = getHandler('post');
+      const req = { body: { pipelineId: 'p-x', pipelineName: 'x' } };
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await handler(req, res);
+
+      expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    });
+
+    it('DELETE /registry/:id emits pipeline.registry.deregister with targetId=pipelineId and no ARN/account', async () => {
+      const handler = router.stack.find(
+        (l: any) => l.route?.path === '/registry/:id' && l.route?.methods?.delete,
+      )?.route?.stack;
+      const deleteHandler = handler[handler.length - 1].handle;
+
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await deleteHandler({ params: { id: 'reg-1' } }, res);
+
+      expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+      const event: any = mockEmitPipelineAudit.mock.calls[0][0];
+      expect(event).toEqual(
+        expect.objectContaining({
+          action: 'pipeline.registry.deregister',
+          actorId: 'user-1',
+          orgId: 'acme',
+          targetType: 'pipeline',
+          targetId: 'p-1',
+        }),
+      );
+      expect(containsArnOrAccountId(event.details)).toBe(false);
+    });
+
+    it('DELETE /registry/:id does NOT emit when the row is absent (404)', async () => {
+      mockDelete.mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          returning: jest.fn().mockResolvedValue([]),
+        }),
+      });
+      const handler = router.stack.find(
+        (l: any) => l.route?.path === '/registry/:id' && l.route?.methods?.delete,
+      )?.route?.stack;
+      const deleteHandler = handler[handler.length - 1].handle;
+
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await deleteHandler({ params: { id: 'missing' } }, res);
+
+      expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
     });
   });
 });

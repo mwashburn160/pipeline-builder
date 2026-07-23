@@ -39,7 +39,8 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | [Pipeline Manager (CLI)](pipeline-manager.md) | `pipeline-manager` CLI — install the platform (`provision`), build/deploy pipelines, manage plugins, run audits |
 | [CDK Usage](cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
-| [Audit Events](audit-events.md) | Cross-service audit event names + payload schemas (registry, etc.) |
+| [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
+| [Audit Events](audit-events.md) | Tamper-evident audit trail — hash-chain + `/audit/verify`, ingest security, durable spool, action catalog |
 | [Environment Variables](environment-variables.md) | Configuration reference for all services |
 | [Samples](samples.md) | Pipeline configs for 7 languages and CDK patterns |
 
@@ -244,16 +245,18 @@ curl -X POST https://localhost:8443/api/organization \
 
 Invite members via email from the dashboard or API. A user can belong to multiple organizations.
 
-### Roles
+### Permissions
 
-Access is granted through **Roles** — a Role is a named set of fine-grained `resource:action` permissions (e.g. `pipelines:write`, `plugins:write`, `members:manage`, `roles:manage`, `compliance:write`, `billing:manage`, `dashboards:write`, `org:settings`). A user's **effective permissions** are the **union of the Roles assigned to them** — there is no separate role-based baseline. Every org seeds built-in Roles (**Admin**, **Member**; the system org also gets **Super Admin**), and admins can add custom Roles (e.g. "Billing Manager"); Super Admins hold all. Endpoints enforce them via `requirePermission(...)`. ("Role" is the user-facing name for what the API calls a permission *group*.)
+Access is granted through **Roles** — a Role is a named set of fine-grained `resource:action` permissions (e.g. `pipelines:write`, `plugins:publish`, `members:manage`, `roles:manage`, `compliance:write`, `billing:manage`, `reports:rollup`, `org:settings`). A user's **effective permissions** are the **union of the Roles assigned to them** — there is no separate role-based baseline. Every org seeds built-in Roles (**Admin**, **Member**; the system org also gets **Super Admin**), and admins with `roles:manage` can add custom Roles (e.g. "Billing Manager"); Super Admins hold all. Endpoints enforce writes via `requirePermission(...)`, and `:read` permissions are enforced too (withholding e.g. `reports:read` blocks that read). `registry:read/write` are Super-Admin-only and never grantable to a custom Role.
+
+Full catalog, built-in bundles, enforcement, and session-invalidation: see **[Roles & Permissions](permissions.md)**.
 
 Manage Roles from the dashboard, or via the API:
 
 ```bash
-GET|POST    /api/organization/:id/groups                       # list / create Roles
-PUT|DELETE  /api/organization/:id/groups/:groupId              # update / delete a Role
-POST|DELETE /api/organization/:id/groups/:groupId/members/...  # add / remove a Role member
+GET|POST    /api/organization/:id/roles                       # list / create Roles
+PUT|DELETE  /api/organization/:id/roles/:roleId               # update / delete a Role
+POST|DELETE /api/organization/:id/roles/:roleId/members/:uid  # add / remove a Role member
 ```
 
 ### Teams (Org → Team Hierarchy)

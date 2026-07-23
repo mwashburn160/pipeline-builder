@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createRemoteAuditClient } from '@pipeline-builder/api-core';
+import { createRemoteAuditClient, createEnvRedisAuditSpool } from '@pipeline-builder/api-core';
 import type { RemoteAuditClient, RemoteAuditEvent } from '@pipeline-builder/api-core';
 
 /**
@@ -22,7 +22,7 @@ let auditClient: RemoteAuditClient | null = null;
 
 /** Lazily-constructed module singleton, matching api/plugin's accessor. */
 export function getAuditClient(): RemoteAuditClient {
-  if (!auditClient) auditClient = createRemoteAuditClient();
+  if (!auditClient) auditClient = createRemoteAuditClient({ spool: createEnvRedisAuditSpool() ?? undefined });
   return auditClient;
 }
 

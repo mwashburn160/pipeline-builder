@@ -7,6 +7,7 @@ import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
+import { emitComplianceAudit } from '../services/audit.js';
 import { compliancePolicyService } from '../services/policy-service.js';
 
 const CompliancePolicyCreateSchema = z.object({
@@ -64,6 +65,18 @@ export function createCreatePolicyRoutes(): Router {
     });
 
     ctx.log('COMPLETED', 'Created compliance policy', { id: policy.id, name: policy.name });
+
+    // Best-effort attributed audit — the policy create succeeded. Safe scalar
+    // metadata only (name/version/template flag), never linked rule bodies.
+    emitComplianceAudit({
+      action: 'compliance.policy.create',
+      actorId: userId,
+      orgId,
+      targetType: 'policy',
+      targetId: policy.id,
+      details: { name: policy.name, version: policy.version, isTemplate: policy.isTemplate },
+    });
+
     return sendSuccess(res, 201, { policy });
   }));
 

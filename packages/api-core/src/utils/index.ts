@@ -15,3 +15,4 @@ export * from './audit.js';
 export * from './secret-encryption.js';
 export * from './org-aws-credentials.js';
 export * from './metric-emitter.js';
+export * from './aws-scrub.js';

@@ -17,6 +17,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { emitPipelineAudit } from '../services/audit.js';
 import {
   pipelineRegistryService,
   PR_PIPELINE_NOT_OWNED,
@@ -52,7 +53,7 @@ export function createRegistryRoutes(): Router {
     });
   }));
 
-  router.post('/registry', requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/registry', requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, PipelineRegistrySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -75,6 +76,26 @@ export function createRegistryRoutes(): Router {
         stackName: v.stackName,
       });
       ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, pipelineId: v.pipelineId });
+
+      // Best-effort attributed audit — emitted only after the mapping landed.
+      // `targetId` is the stable pipeline id. `details` carries display metadata
+      // ONLY — never the CodePipeline ARN, which embeds the AWS account id.
+      emitPipelineAudit({
+        action: 'pipeline.registry.register',
+        actorId: userId || 'system',
+        orgId,
+        targetType: 'pipeline',
+        targetId: v.pipelineId,
+        details: {
+          registryId: result.id,
+          pipelineName: v.pipelineName,
+          ...(v.region !== undefined ? { region: v.region } : {}),
+          ...(v.project !== undefined ? { project: v.project } : {}),
+          ...(v.organization !== undefined ? { organization: v.organization } : {}),
+          ...(v.stackName !== undefined ? { stackName: v.stackName } : {}),
+        },
+      });
+
       return sendSuccess(res, 200, { registry: result });
     } catch (err) {
       const code = errorMessage(err);
@@ -109,7 +130,7 @@ export function createRegistryRoutes(): Router {
    * pure mapping cache — losing a row never loses information that isn't
    * already in CloudFormation, so there's nothing to recover.
    */
-  router.delete('/registry/:id', requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.delete('/registry/:id', requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Registry id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -117,6 +138,19 @@ export function createRegistryRoutes(): Router {
     if (!deleted) return sendError(res, 404, 'Registry entry not found.', ErrorCode.NOT_FOUND);
 
     ctx.log('COMPLETED', 'Pipeline registry row deleted', { id: deleted.id, pipelineId: deleted.pipelineId });
+
+    // Best-effort attributed audit — emitted only after the row was removed.
+    // `targetId` is the stable pipeline id; `details` carries the registry row
+    // handle (UUID) only — never the CodePipeline ARN / AWS account id.
+    emitPipelineAudit({
+      action: 'pipeline.registry.deregister',
+      actorId: userId || 'system',
+      orgId,
+      targetType: 'pipeline',
+      targetId: deleted.pipelineId,
+      details: { registryId: deleted.id },
+    });
+
     return sendSuccess(res, 200, { id: deleted.id });
   }));
 

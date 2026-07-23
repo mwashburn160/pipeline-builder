@@ -70,6 +70,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // `createRemoteAuditClient()`; boot registers an `authz.denied` auditor via
     // `setAuthzDenialAuditor`. Stub both so suites loading `audit.js` link.
     createRemoteAuditClient: () => ({ record: jest.fn() }),
+    createEnvRedisAuditSpool: () => null,
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
     // boot-time token-revocation reader registration (session-invalidation

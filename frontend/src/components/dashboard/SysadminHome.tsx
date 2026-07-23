@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { formatError } from '@/lib/constants';
+import type { AuditLogEvent } from '@/types/audit';
 import api from '@/lib/api';
 
 interface AdminSummary {
@@ -30,20 +31,6 @@ interface AdminSummary {
   users: { total: number; sysadmins: number };
   encryption: { perOrgKmsEnabled: boolean };
   rls: { contextMode: 'warn' | 'strict' | 'silent' };
-}
-
-interface AuditEvent {
-  _id: string;
-  action: string;
-  actorId: string;
-  actorEmail?: string;
-  orgId?: string;
-  affectedOrgId?: string;
-  targetType?: string;
-  targetId?: string;
-  details?: Record<string, unknown>;
-  ip?: string;
-  createdAt: string;
 }
 
 function StatCard({
@@ -70,7 +57,7 @@ function StatCard({
 
 export function SysadminHome() {
   const [summary, setSummary] = useState<AdminSummary | null>(null);
-  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [events, setEvents] = useState<AuditLogEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 

@@ -7,6 +7,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 
 import { findFailedJob, getAllTierQueues, getDeadLetterQueue, purgeDlq, replayDlqJob, retryFailedJob } from '../queue/plugin-build-queue.js';
+import { emitPluginAudit } from '../services/audit.js';
 
 /** Resolve a build job's owning org: the top-level `orgId`, falling back to the
  *  embedded `pluginRecord.orgId` for older jobs that predate the top-level field. */
@@ -186,7 +187,16 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       return sendError(res, 403, 'Only administrators can purge DLQ', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    await purgeDlq(quotaService);
+    const purgedCount = await purgeDlq(quotaService);
+
+    // Best-effort attributed audit — the purge discards ALL dead-lettered build
+    // jobs cross-org, so this is a sysadmin-only destructive op. `details`
+    // carries only the count (no per-job / cross-org identifiers).
+    emitPluginAudit({
+      action: 'plugin.dlq.purge',
+      actorId: req.user?.sub ?? 'system',
+      details: { purgedCount },
+    });
 
     return sendSuccess(res, 200, { message: 'DLQ purged' });
   }));

@@ -19,6 +19,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 const mockOrgFind = jest.fn();
 const mockCascade = jest.fn<(...a: unknown[]) => Promise<any>>();
 const mockDelete = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockCreateEvent = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: { find: (...a: unknown[]) => mockOrgFind(...a) },
@@ -28,6 +29,9 @@ jest.unstable_mockModule('../src/services/org-cascade-service.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/organization-service.js', () => ({
   organizationService: { delete: (...a: unknown[]) => mockDelete(...a) },
+}));
+jest.unstable_mockModule('../src/services/audit-service.js', () => ({
+  auditService: { createEvent: (...a: unknown[]) => mockCreateEvent(...a) },
 }));
 
 const { purgeExpiredOrgs, startOrgPurgeSweep, stopOrgPurgeSweep } = await import('../src/services/org-purge.js');
@@ -44,6 +48,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCascade.mockResolvedValue(okReport());
   mockDelete.mockResolvedValue(undefined);
+  mockCreateEvent.mockResolvedValue(undefined);
 });
 afterEach(() => stopOrgPurgeSweep());
 
@@ -66,6 +71,65 @@ describe('purgeExpiredOrgs', () => {
     expect(mockDelete).toHaveBeenCalledWith('org-a');
     expect(mockDelete).toHaveBeenCalledWith('org-b');
     expect(res).toMatchObject({ scanned: 2, purged: 2, deferred: 0, failed: 0 });
+  });
+
+  it('writes an admin.org.delete audit event after each successful hard delete', async () => {
+    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockCascade.mockResolvedValue({
+      ...okReport(),
+      postgres: { pipelines: { ok: true, rowCount: 3 }, pipeline_events: { ok: false, error: 'boom' } },
+      mongo: { invitations: 2, auditEvents: 5, idpConfigs: 1 },
+      auditArchive: { ok: true, archived: 5 },
+      // A per-org KMS key was flagged — its keyRef (a key id/ARN that can embed
+      // an AWS account id) must NOT surface in the audit details.
+      kms: { flagged: true, keyRef: 'arn:aws:kms:us-east-1:123456789012:key/abcd' },
+    });
+
+    await purgeExpiredOrgs();
+
+    expect(mockCreateEvent).toHaveBeenCalledTimes(1);
+    const evt = mockCreateEvent.mock.calls[0][0] as any;
+    expect(evt).toMatchObject({
+      action: 'admin.org.delete',
+      actorId: 'org-purge',
+      affectedOrgId: 'org-a',
+      outcome: 'success',
+    });
+    // Safe summary: counts + flags only.
+    expect(evt.details).toMatchObject({
+      trigger: 'purge-sweep',
+      postgres: { pipelines: 3 },
+      postgresFailures: ['pipeline_events'],
+      mongo: { invitations: 2, auditEvents: 5, idpConfigs: 1 },
+      quotaOk: true,
+      billingOk: true,
+      auditArchived: 5,
+      kmsOrphanFlagged: true,
+    });
+    // HARD RULE: no KMS key id / AWS account id ever lands in the audit trail.
+    expect(JSON.stringify(evt.details)).not.toContain('arn:aws:kms');
+    expect(JSON.stringify(evt.details)).not.toContain('123456789012');
+  });
+
+  it('does NOT audit admin.org.delete when the purge is deferred (fail-closed)', async () => {
+    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockCascade.mockResolvedValue({ ...okReport(), billing: { ok: false } });
+
+    await purgeExpiredOrgs();
+
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockCreateEvent).not.toHaveBeenCalled();
+  });
+
+  it('an audit-write failure never fails the purge (fire-and-forget)', async () => {
+    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockCreateEvent.mockRejectedValue(new Error('audit store down'));
+
+    const res = await purgeExpiredOrgs();
+
+    // The hard delete still counts as purged even though the audit write threw.
+    expect(mockDelete).toHaveBeenCalledWith('org-a');
+    expect(res).toMatchObject({ scanned: 1, purged: 1, failed: 0 });
   });
 
   it('FAIL-CLOSED: defers the hard delete when a billing/quota leg failed', async () => {

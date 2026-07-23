@@ -4,6 +4,7 @@
 import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { emitComplianceAudit } from '../services/audit.js';
 import { compliancePolicyService } from '../services/policy-service.js';
 
 export function createDeletePolicyRoutes(): Router {
@@ -17,6 +18,17 @@ export function createDeletePolicyRoutes(): Router {
     if (!deleted) return sendEntityNotFound(res, 'Policy');
 
     ctx.log('COMPLETED', 'Deleted compliance policy', { id, name: deleted.name });
+
+    // Best-effort attributed audit — the policy delete succeeded.
+    emitComplianceAudit({
+      action: 'compliance.policy.delete',
+      actorId: userId,
+      orgId,
+      targetType: 'policy',
+      targetId: id,
+      details: { name: deleted.name },
+    });
+
     return sendSuccess(res, 200, undefined, 'Policy deleted');
   }));
 

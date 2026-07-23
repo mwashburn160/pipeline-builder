@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
+import type { AuditSpool, AuditSpoolEntry } from './audit-spool.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
 import { getServiceAuthHeader, setAuthzDenialAuditor, type AuthzDenialInfo } from '../middleware/auth.js';
 import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
+import { emitCounter } from '../utils/metric-emitter.js';
 
 const logger = createLogger('remote-audit');
 
@@ -24,50 +26,86 @@ const AUDIT_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRe
 };
 
 /**
- * Subset of platform's AuditAction enum that non-platform services emit.
- * Kept in sync manually with platform/src/models/audit-event.ts; mismatched
- * actions are rejected by the platform ingest endpoint (400) so a drift is
- * visible in logs rather than silently dropped.
+ * The exact set of audit actions a NON-PLATFORM (remote) service is permitted to
+ * emit through `POST /audit/events`. This is the SINGLE SOURCE — `RemoteAuditAction`
+ * is derived from it, so the type and the runtime allow-list can never drift.
+ *
+ * SECURITY: platform's ingest validates `action` against this subset (via
+ * {@link isRemoteAuditAction}), NOT the full platform `AuditAction` union — a
+ * `service:*` token must not be able to forge platform-authority events
+ * (`admin.superadmin.grant`, `org.ownership.transfer`, `user.login`, …). Keep
+ * this list free of any platform-only action.
  */
-export type RemoteAuditAction =
-  | 'plugin.build.completed'
-  | 'plugin.build.failed'
-  | 'plugin.build.timeout'
+export const REMOTE_AUDIT_ACTIONS = [
+  'plugin.build.completed',
+  'plugin.build.failed',
+  'plugin.build.timeout',
   // Plugin lifecycle mutations (api/plugin route handlers) — the destructive /
   // publishing surface that builds already audit's counterpart: registry delete,
   // source upload, and deploy-to-cluster. `targetId` is the plugin id.
-  | 'plugin.delete'
-  | 'plugin.upload'
-  | 'plugin.deploy'
+  'plugin.delete',
+  'plugin.upload',
+  'plugin.deploy',
+  // Plugin bulk mutations (api/plugin bulk-plugin route) + DLQ purge (drops all
+  // dead-lettered build jobs, cross-org, sysadmin). `details` carries counts.
+  'plugin.bulk.update',
+  'plugin.bulk.delete',
+  'plugin.dlq.purge',
   // Pipeline mutations — emitted by api/pipeline's route handlers
   // (create/update/delete + CodePipeline execution trigger/cancel) and
   // posted to platform's `POST /audit/events` ingest.
-  | 'pipeline.create'
-  | 'pipeline.update'
-  | 'pipeline.delete'
-  | 'pipeline.execution.start'
-  | 'pipeline.execution.cancel'
+  'pipeline.create',
+  'pipeline.update',
+  'pipeline.delete',
+  'pipeline.execution.start',
+  'pipeline.execution.cancel',
+  // CodePipeline ARN-registry config (api/pipeline registry route) — registering /
+  // deregistering the external CodePipeline that backs a pipeline (deploy-affecting).
+  'pipeline.registry.register',
+  'pipeline.registry.deregister',
   // Quota administration (api/quota) — a superadmin resetting an org's usage
   // counter or editing its tier limits. `affectedOrgId` is the org changed;
   // `details` carries the quotaType + old/new value.
-  | 'quota.reset'
-  | 'quota.limit.update'
-  // Compliance rule administration (api/compliance) — approving an exemption
-  // request, toggling a rule active/inactive, or cancelling a running scan.
-  // `targetId` is the rule/exemption/scan id.
-  | 'compliance.exemption.approve'
-  | 'compliance.rule.toggle'
-  | 'compliance.scan.cancel'
+  'quota.reset',
+  'quota.limit.update',
+  // A superadmin deleting an org's entire quota document.
+  'quota.delete',
+  // Compliance administration (api/compliance) — the enforcement-posture surface.
+  // Approving/revoking an exemption, toggling/authoring/deleting a rule,
+  // authoring/deleting a policy, managing scan schedules, applying a template,
+  // or cancelling a running scan. `targetId` is the rule/policy/exemption/scan id.
+  'compliance.exemption.approve',
+  'compliance.exemption.revoke',
+  'compliance.rule.toggle',
+  'compliance.rule.create',
+  'compliance.rule.update',
+  'compliance.rule.delete',
+  'compliance.policy.create',
+  'compliance.policy.update',
+  'compliance.policy.delete',
+  'compliance.scan-schedule.create',
+  'compliance.scan-schedule.update',
+  'compliance.scan-schedule.delete',
+  'compliance.template.apply',
+  'compliance.scan.cancel',
   // Image-registry destructive ops (api/image-registry) — garbage-collection
   // sweeps and explicit image/tag deletes (previously only a log line).
-  | 'registry.gc'
-  | 'registry.image.delete'
+  'registry.gc',
+  'registry.image.delete',
   // Denied authorization attempt — emitted best-effort by the shared
   // `requirePermission` / `requireSystemAdmin` gate when a state-changing
   // (non-GET) request is rejected, so probing/escalation attempts are visible
   // rather than invisible. `details` carries the required permission + path;
   // `outcome` is 'failure'.
-  | 'authz.denied';
+  'authz.denied',
+] as const;
+
+export type RemoteAuditAction = typeof REMOTE_AUDIT_ACTIONS[number];
+
+/** Whether `value` is an action a remote service may emit (the ingest allow-list). */
+export function isRemoteAuditAction(value: string): value is RemoteAuditAction {
+  return (REMOTE_AUDIT_ACTIONS as readonly string[]).includes(value);
+}
 
 export interface RemoteAuditEvent {
   action: RemoteAuditAction;
@@ -83,6 +121,20 @@ export interface RemoteAuditEvent {
    * 'failure' so a reviewer can filter attempts from completed actions.
    */
   outcome?: 'success' | 'failure';
+  /**
+   * When the audited action actually OCCURRED (ISO-8601), stamped at emission.
+   * The platform stores this for reviewers; it is NOT the chain-ordering field
+   * (the tamper-evident chain orders by ingest/`createdAt`). It matters for
+   * SPOOLED events: one buffered during a platform outage is re-delivered — and
+   * so chained — later, but `occurredAt` preserves when it really happened.
+   */
+  occurredAt?: string;
+  /**
+   * Stable per-emission dedup key (also sent as the `Idempotency-Key` header the
+   * platform ingest dedups on). Stamped by `record()` and carried on the spooled
+   * copy so a live attempt and its later re-delivery collapse to ONE stored row.
+   */
+  idempotencyKey?: string;
   details?: Record<string, unknown>;
 }
 
@@ -96,9 +148,13 @@ export interface RemoteAuditClient {
    * Fire-and-forget audit emission. Failures are logged at warn level but
    * never thrown  the originating action (e.g. a plugin build) has its
    * own success/failure path that shouldn't get polluted by a flaky audit
-   * downstream.
+   * downstream. When a {@link AuditSpool} is configured, an emission that
+   * exhausts its live retries is buffered and re-delivered later instead of
+   * being dropped.
    */
   record(event: RemoteAuditEvent, serviceName: string): void;
+  /** Stop the background spool-drain timer (if any). Safe to call repeatedly. */
+  close(): void;
 }
 
 /**
@@ -111,6 +167,16 @@ export interface RemoteAuditClientConfig {
   port?: number;
   /** Request timeout ms (default 3000  audit shouldn't block the worker). */
   timeout?: number;
+  /**
+   * Optional durable buffer. When set, an emission that exhausts its live retry
+   * budget (sustained platform outage) is spooled and re-delivered — on the next
+   * successful emission and on a periodic timer — instead of being lost.
+   */
+  spool?: AuditSpool;
+  /** Spool-drain interval ms (default 30_000). Only used when `spool` is set. */
+  drainIntervalMs?: number;
+  /** Max entries drained per sweep (default 100). */
+  drainBatchSize?: number;
 }
 
 /**
@@ -140,41 +206,101 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
     timeout: config.timeout ?? 3000,
   };
   const client = createSafeClient(serviceConfig);
+  const spool = config.spool;
+  const drainBatchSize = config.drainBatchSize ?? 100;
+
+  /**
+   * Attempt ONE live delivery. Resolves `true` on a 2xx accept, `false` on any
+   * non-2xx / thrown error (the http-client has already applied the retry
+   * budget). A stable per-emission `Idempotency-Key` makes this non-idempotent
+   * POST retry-safe and lets the platform ingest dedup a re-delivered event
+   * instead of writing a duplicate audit row (and duplicate chain link).
+   * `Idempotency-Key` is derived from the event so a SPOOLED re-delivery reuses
+   * the same key as its original live attempt — the two collapse to one row.
+   */
+  async function deliver(event: RemoteAuditEvent, serviceName: string): Promise<boolean> {
+    const authHeader = getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' });
+    const headers: Record<string, string> = {
+      'Authorization': authHeader,
+      'Idempotency-Key': event.idempotencyKey ?? randomUUID(),
+    };
+    try {
+      const response = await client.post('/audit/events', event, { headers, ...AUDIT_REQUEST_OPTIONS });
+      const ok = !!response && response.statusCode >= 200 && response.statusCode < 300;
+      if (!ok) {
+        logger.warn('Remote audit ingest non-ok', { action: event.action, statusCode: response?.statusCode });
+      }
+      return ok;
+    } catch (err) {
+      logger.warn('Remote audit ingest threw', { action: event.action, error: err instanceof Error ? err.message : String(err) });
+      return false;
+    }
+  }
+
+  // Serialize spool drains so a periodic tick and an on-success drain can't both
+  // pull the same batch. Stops early the moment a re-delivery fails (platform
+  // still down) so we don't hammer it or churn the buffer.
+  let draining = false;
+  async function drain(): Promise<void> {
+    if (!spool || draining) return;
+    draining = true;
+    try {
+      for (;;) {
+        const batch = await spool.take(drainBatchSize);
+        if (batch.length === 0) return;
+        const failed: AuditSpoolEntry[] = [];
+        let platformDown = false;
+        for (const entry of batch) {
+          if (platformDown) { failed.push(entry); continue; }
+          const ok = await deliver(entry.event, entry.serviceName);
+          if (ok) {
+            emitCounter('audit_spool_redelivered_total', { service: entry.serviceName });
+          } else {
+            platformDown = true;
+            failed.push(entry);
+          }
+        }
+        if (failed.length > 0) {
+          await spool.requeue(failed);
+          return; // still down — try again on the next tick
+        }
+      }
+    } catch (err) {
+      logger.warn('Audit spool drain failed', { error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      draining = false;
+    }
+  }
+
+  let drainTimer: ReturnType<typeof setInterval> | undefined;
+  if (spool) {
+    drainTimer = setInterval(() => { void drain(); }, config.drainIntervalMs ?? 30_000);
+    // Don't let the drain timer keep the process alive on shutdown.
+    (drainTimer as unknown as { unref?: () => void }).unref?.();
+  }
 
   return {
     record(event, serviceName) {
-      const authHeader = getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' });
-      // getServiceAuthHeader returns a full `Bearer <token>` value; the
-      // http-client forwards request headers as-is (it does NOT inject its own
-      // Authorization), so pass it straight through as the Authorization header.
-      // A stable per-emission Idempotency-Key makes this non-idempotent POST
-      // retry-safe in the http-client (so transient 5xx/timeout/429 are retried
-      // rather than dropped) and lets the platform ingest dedup a re-delivered
-      // event instead of writing a duplicate audit row. Generated once here so
-      // every retry of THIS emission reuses the same key.
-      const headers: Record<string, string> = {
-        'Authorization': authHeader,
-        'Idempotency-Key': randomUUID(),
+      // Stamp when the action actually occurred (survives spool delay) and pin a
+      // stable idempotency key so a live attempt and its spooled retry dedup.
+      const stamped: RemoteAuditEvent = {
+        ...event,
+        occurredAt: event.occurredAt ?? new Date().toISOString(),
+        idempotencyKey: event.idempotencyKey ?? randomUUID(),
       };
-      // Path is /audit/events  the platform mounts the audit router under
-      // /audit, and the internal ingest endpoint lives at /events under that.
-      client.post('/audit/events', event, { headers, ...AUDIT_REQUEST_OPTIONS })
-        .then((response) => {
-          // Any 2xx is an accept (the ingest returns 200 today, but 201/202/204
-          // are equally "stored"); only a non-2xx / missing response warns.
-          const ok = response && response.statusCode >= 200 && response.statusCode < 300;
-          if (!ok) {
-            logger.warn('Remote audit ingest non-ok', {
-              action: event.action, statusCode: response?.statusCode,
-            });
-          }
-        })
-        .catch((err: unknown) => {
-          logger.warn('Remote audit ingest threw', {
-            action: event.action,
-            error: err instanceof Error ? err.message: String(err),
-          });
-        });
+      void deliver(stamped, serviceName).then((ok) => {
+        if (ok) {
+          emitCounter('audit_emitted_total', { service: serviceName, outcome: stamped.outcome ?? 'success' });
+          if (spool) void drain(); // platform is reachable — flush any backlog
+        } else if (spool) {
+          void spool.enqueue({ event: stamped, serviceName });
+        } else {
+          emitCounter('audit_dropped_total', { service: serviceName });
+        }
+      });
+    },
+    close() {
+      if (drainTimer) { clearInterval(drainTimer); drainTimer = undefined; }
     },
   };
 }

@@ -20,8 +20,41 @@ import {
   reserveReplaySlot,
 } from './plugin-build-queue.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { emitPluginAudit } from '../services/audit.js';
 
 const logger = createLogger('plugin-build-queue');
+
+/**
+ * Emit the SINGLE terminal build-failure audit event at TRUE DLQ exhaustion /
+ * give-up.
+ *
+ * The tier queue deliberately SUPPRESSES its final-attempt terminal emit for
+ * retryable (DLQ-bound) failures — a DLQ retry may still succeed and produce a
+ * `plugin.build.completed`. So for jobs that ultimately die in the DLQ, the one
+ * terminal `plugin.build.failed` / `plugin.build.timeout` is emitted here,
+ * exactly once, only when the build is genuinely abandoned. `causeMessage`
+ * carries the underlying build failure (`job.data.lastError`) so the audit
+ * records why the BUILD died, not the DLQ plumbing; `.timeout` is chosen when
+ * that cause looks like a timeout, mirroring the tier queue's classification.
+ */
+function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMessage: string | undefined): void {
+  const { orgId, userId, pluginRecord } = job.data;
+  const errorMessage = causeMessage ?? 'Build failed after exhausting all retries';
+  const isTimeout = /timed out|timeout/i.test(errorMessage);
+  emitPluginAudit({
+    action: isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed',
+    actorId: userId,
+    orgId,
+    targetType: 'plugin',
+    details: {
+      pluginName: pluginRecord.name,
+      pluginVersion: pluginRecord.version,
+      jobId: job.id,
+      errorMessage,
+      isTimeout,
+    },
+  });
+}
 
 const QUEUE_NAME = CoreConstants.PLUGIN_BUILD_QUEUE_NAME;
 export const DLQ_NAME = `${QUEUE_NAME}-dlq`;
@@ -88,7 +121,7 @@ export async function enforceDlqMaxSize(quotaService: QuotaService): Promise<voi
   }
 }
 
-export async function purgeDlq(quotaService: QuotaService): Promise<void> {
+export async function purgeDlq(quotaService: QuotaService): Promise<number> {
   const q = getDeadLetterQueue();
   const jobs = await q.getJobs(['waiting', 'delayed', 'completed', 'failed']);
   for (const job of jobs) {
@@ -98,6 +131,7 @@ export async function purgeDlq(quotaService: QuotaService): Promise<void> {
     cleanupContextDir(job.data.buildRequest.contextDir);
   }
   await q.obliterate({ force: true });
+  return jobs.length;
 }
 
 /**
@@ -149,6 +183,7 @@ export function startDlqWorker(quotaService: QuotaService): void {
       if ((totalAttempts ?? 0) >= budget) {
         cleanupContextDir(buildRequest.contextDir);
         releasePluginQuota(job, quotaService);
+        emitTerminalBuildFailure(job, job.data.lastError);
         logger.warn('DLQ: max total attempts reached, giving up', {
           jobId: job.id,
           pluginName: pluginRecord.name,
@@ -205,6 +240,10 @@ export function startDlqWorker(quotaService: QuotaService): void {
     if (isFinalAttempt) {
       cleanupContextDir(job.data.buildRequest.contextDir);
       releasePluginQuota(job, quotaService);
+      // The build is genuinely abandoned — emit the single terminal audit
+      // event. Prefer the original build failure (lastError) over this DLQ
+      // processing error so the trail records why the BUILD died.
+      emitTerminalBuildFailure(job, job.data.lastError ?? error.message);
       logger.warn('DLQ exhausted all retries, cleaned up', {
         jobId: job.id,
         pluginName: job.data.pluginRecord.name,

@@ -60,7 +60,10 @@ describe('createRemoteAuditClient.record', () => {
     expect(mockPost).toHaveBeenCalledTimes(1);
     const [path, body, options] = mockPost.mock.calls[0];
     expect(path).toBe('/audit/events');
-    expect(body).toEqual(EVENT);
+    // record() stamps occurredAt + a stable idempotencyKey onto the emitted body.
+    expect(body).toEqual(expect.objectContaining(EVENT));
+    expect(typeof body.occurredAt).toBe('string');
+    expect(typeof body.idempotencyKey).toBe('string');
     // The whole point of the fix: this POST must be allowed to retry.
     expect(options.maxRetries).toBeGreaterThanOrEqual(2);
     expect(options.maxRateLimitRetries).toBeGreaterThanOrEqual(1);
@@ -128,5 +131,65 @@ describe('wireAuthzDenialAuditor', () => {
     const sink = (setAuthzDenialAuditor as any).mock.calls[0][0] as (info: any) => void;
     sink({ method: 'DELETE', path: '/quotas/x', required: 'system-admin' });
     expect(record.mock.calls[0][0].actorId).toBe('anonymous');
+  });
+});
+
+describe('remote-audit spool integration', () => {
+  const flush = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); };
+  function memSpool() {
+    const buf: any[] = [];
+    return {
+      enqueue: async (e: any) => { buf.push(e); },
+      take: async (n: number) => buf.splice(0, n),
+      requeue: async (es: any[]) => { buf.unshift(...es); },
+      depth: async () => buf.length,
+    };
+  }
+
+  afterEach(() => { jest.clearAllMocks(); });
+
+  it('spools an emission when the platform is down, then drains it on the next success', async () => {
+    const spool = memSpool();
+    const client = createRemoteAuditClient({ spool, drainIntervalMs: 1_000_000 });
+
+    // Platform down: the live attempt fails → the event is buffered, not lost.
+    mockPost.mockReset();
+    mockPost.mockRejectedValue(new Error('platform down'));
+    client.record(EVENT, 'pipeline');
+    await flush();
+    expect(await spool.depth()).toBe(1);
+
+    // Platform recovers: the next successful emission drains the backlog too.
+    mockPost.mockReset();
+    mockPost.mockResolvedValue({ statusCode: 200, body: {}, headers: {} });
+    client.record({ ...EVENT, action: 'pipeline.update' as const }, 'pipeline');
+    await flush();
+
+    expect(mockPost.mock.calls.length).toBeGreaterThanOrEqual(2); // new event + drained backlog
+    expect(await spool.depth()).toBe(0);
+    client.close();
+  });
+
+  it('reuses the same Idempotency-Key for a spooled event across its re-delivery', async () => {
+    const spool = memSpool();
+    const client = createRemoteAuditClient({ spool, drainIntervalMs: 1_000_000 });
+
+    mockPost.mockReset();
+    mockPost.mockRejectedValue(new Error('down'));
+    client.record(EVENT, 'pipeline');
+    await flush();
+    const spooled = (await spool.depth()) === 1;
+    expect(spooled).toBe(true);
+
+    mockPost.mockReset();
+    mockPost.mockResolvedValue({ statusCode: 200, body: {}, headers: {} });
+    client.record({ ...EVENT, action: 'pipeline.update' as const }, 'pipeline');
+    await flush();
+
+    // Every post carried a string Idempotency-Key; the drained one keeps its own.
+    for (const call of mockPost.mock.calls) {
+      expect(typeof call[2].headers['Idempotency-Key']).toBe('string');
+    }
+    client.close();
   });
 });

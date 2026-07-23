@@ -49,6 +49,137 @@ describe('ReportingService', () => {
     service = new ReportingService();
   });
 
+  // Event ingest — persistence boundary (registry-bound tenancy + AWS scrub)
+
+  describe('ingestEvents', () => {
+    /**
+     * Wire the mocked tx so `ingestEvents` resolves against a registry and
+     * captures the exact rows handed to `.values(...)`. Returns the captured
+     * insert batch + the `onConflictDoNothing`/`returning` spies so a test can
+     * assert idempotency wiring and the scrubbed persisted payload.
+     */
+    function wireIngest(registryRows: Array<{ pipelineId: string; orgId: string }>) {
+      // tx.select({...}).from(...).where(...) → registry rows (awaited directly)
+      mockSelect.mockReturnValue({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockResolvedValue(registryRows),
+        }),
+      });
+
+      let capturedRows: Array<Record<string, unknown>> = [];
+      const returning = jest.fn().mockImplementation(() =>
+        // echo one inserted row per captured row so `inserted` counts match
+        Promise.resolve(capturedRows.map((r) => ({ orgId: r.orgId }))),
+      );
+      const onConflictDoNothing = jest.fn().mockReturnValue({ returning });
+      const values = jest.fn().mockImplementation((rows: Array<Record<string, unknown>>) => {
+        capturedRows = rows;
+        return { onConflictDoNothing };
+      });
+      mockInsert.mockReturnValue({ values });
+
+      return { getRows: () => capturedRows, values, onConflictDoNothing, returning };
+    }
+
+    it('redacts AWS account ids from detail (incl. ARN account segment) and errorMessage before persisting', async () => {
+      const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+
+      const result = await service.ingestEvents([
+        {
+          pipelineId: 'pl-1',
+          eventSource: 'codepipeline',
+          eventType: 'ACTION',
+          status: 'FAILED',
+          executionId: 'exec-9',
+          errorMessage: 'Access denied for account 123456789012 in region us-east-1',
+          detail: {
+            roleArn: 'arn:aws:iam::123456789012:role/deploy',
+            accountId: '210987654321',
+            nested: { message: 'assumed arn:aws:sts::123456789012:assumed-role/x' },
+            durationMs: 1234567890123, // 13-digit ms timestamp — must survive
+          },
+        },
+      ]);
+
+      expect(result).toEqual({ inserted: 1, skipped: 0, unregisteredPipelineIds: [] });
+
+      const [row] = wire.getRows();
+      // Tenant binding comes from the registry, never the event.
+      expect(row.orgId).toBe('acme');
+      expect(row.pipelineId).toBe('pl-1');
+      // Free-form fields scrubbed.
+      expect(row.errorMessage).toBe('Access denied for account [REDACTED] in region us-east-1');
+      expect(row.detail).toEqual({
+        roleArn: 'arn:aws:iam::[REDACTED]:role/deploy',
+        accountId: '[REDACTED]', // account-named key dropped wholesale
+        nested: { message: 'assumed arn:aws:sts::[REDACTED]:assumed-role/x' },
+        durationMs: 1234567890123,
+      });
+      // Idempotency wiring preserved.
+      expect(wire.onConflictDoNothing).toHaveBeenCalledTimes(1);
+    });
+
+    it('round-trips a clean event unchanged (only account-id-shaped tokens are touched)', async () => {
+      const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+
+      const cleanDetail = { pluginName: 'nodejs-build', region: 'us-east-1', attempts: 3 };
+      await service.ingestEvents([
+        {
+          pipelineId: 'pl-1',
+          eventSource: 'plugin-build',
+          eventType: 'BUILD',
+          status: 'failed',
+          errorMessage: 'Docker build failed: exit code 1',
+          detail: cleanDetail,
+        },
+      ]);
+
+      const [row] = wire.getRows();
+      expect(row.errorMessage).toBe('Docker build failed: exit code 1');
+      expect(row.detail).toEqual(cleanDetail);
+    });
+
+    it('leaves undefined detail/errorMessage undefined (no scrub applied)', async () => {
+      const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+
+      await service.ingestEvents([
+        { pipelineId: 'pl-1', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'SUCCEEDED' },
+      ]);
+
+      const [row] = wire.getRows();
+      expect(row.errorMessage).toBeUndefined();
+      expect(row.detail).toBeUndefined();
+    });
+
+    it('skips events for unregistered pipeline ids and does not insert them (tenant binding unchanged)', async () => {
+      const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+
+      const result = await service.ingestEvents([
+        { pipelineId: 'pl-1', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'SUCCEEDED' },
+        { pipelineId: 'pl-unknown', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'FAILED' },
+      ]);
+
+      expect(result.inserted).toBe(1);
+      expect(result.skipped).toBe(1);
+      expect(result.unregisteredPipelineIds).toEqual(['pl-unknown']);
+      // Only the registered event made it into the insert batch.
+      const rows = wire.getRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].pipelineId).toBe('pl-1');
+    });
+
+    it('does not call insert when no events resolve to a registered pipeline', async () => {
+      const wire = wireIngest([]);
+
+      const result = await service.ingestEvents([
+        { pipelineId: 'pl-unknown', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'FAILED' },
+      ]);
+
+      expect(result).toEqual({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['pl-unknown'] });
+      expect(wire.values).not.toHaveBeenCalled();
+    });
+  });
+
   // Category 1: Pipeline Execution & Performance
 
   describe('getExecutionCount', () => {

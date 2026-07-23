@@ -19,6 +19,13 @@ interface UseMessagesReturn {
   loading: boolean;
   error: string | null;
   unreadCount: number;
+  /**
+   * True when real-time SSE updates have dropped after a healthy connection
+   * (so the inbox is being kept current by polling, not live push). False
+   * during the normal initial connect. Surface a subtle "reconnecting"
+   * indicator on this.
+   */
+  livePaused: boolean;
   fetchMessages: () => Promise<void>;
   fetchUnreadCount: () => Promise<void>;
   sendMessage: (data: { recipientOrgId: string; messageType: MessageType; subject: string; content: string; priority?: MessagePriority; channel?: string }) => Promise<Message | null>;
@@ -49,8 +56,13 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
   const {
     unreadCount: sseUnreadCount,
     connected,
+    everConnected,
     onNotification,
   } = useMessageNotifications(orgId ?? null);
+
+  // Only "paused" once we've been live and then lost it — never during the
+  // benign initial handshake (avoids flashing the indicator on first load).
+  const livePaused = everConnected && !connected;
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -188,22 +200,30 @@ export function useMessages(orgId?: string | null): UseMessagesReturn {
     return unsub;
   }, [connected, onNotification, fetchMessages, fetchUnreadCount]);
 
-  // Polling fallback: only poll when SSE is disconnected
+  // Polling fallback: only poll when SSE is disconnected. Refresh BOTH the
+  // unread count and the message LIST so the inbox stays current during an
+  // outage — not just the badge. The interval is cleared on unmount and as
+  // soon as SSE reconnects (connected → true), so live push never runs
+  // alongside polling.
   useEffect(() => {
     if (connected) return;
 
     fetchUnreadCount();
-    pollRef.current = setInterval(fetchUnreadCount, POLL_INTERVAL);
+    pollRef.current = setInterval(() => {
+      fetchUnreadCount();
+      fetchMessages();
+    }, POLL_INTERVAL);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [fetchUnreadCount, connected]);
+  }, [fetchUnreadCount, fetchMessages, connected]);
 
   return {
     messages,
     loading,
     error,
     unreadCount,
+    livePaused,
     fetchMessages,
     fetchUnreadCount,
     sendMessage,

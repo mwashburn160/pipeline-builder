@@ -148,7 +148,7 @@ export function createExemptionRoutes(): Router {
   // DELETE /:id — revoke an exemption. Admin-gated like PUT /:id/review: revoking
   // re-imposes a rule (can block a previously-compliant entity), so it's an
   // admin action, not something any member should do.
-  router.delete('/:id', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.delete('/:id', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -156,6 +156,20 @@ export function createExemptionRoutes(): Router {
     if (!deleted) return sendEntityNotFound(res, 'Exemption');
 
     ctx.log('COMPLETED', 'Deleted exemption', { id });
+
+    // Best-effort attributed audit — revoking an exemption re-imposes its rule
+    // and can block a previously-compliant entity, so it's a posture change
+    // worth recording. Safe scalar metadata only (the re-imposed rule + the
+    // entity it covered), never the exemption reason text.
+    emitComplianceAudit({
+      action: 'compliance.exemption.revoke',
+      actorId: userId,
+      orgId,
+      targetType: 'exemption',
+      targetId: id,
+      details: { ruleId: deleted.ruleId, entityType: deleted.entityType },
+    });
+
     return sendSuccess(res, 200, undefined, 'Exemption deleted');
   }));
 

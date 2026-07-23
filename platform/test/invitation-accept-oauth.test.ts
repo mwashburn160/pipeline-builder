@@ -14,8 +14,11 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockAcceptViaOAuth = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const ACCEPT_RESULT = { invitationId: 'inv-1', organizationId: 'org-inv', email: 'invitee@x.com', role: 'member', userId: 'user-42' };
+const mockAcceptViaOAuth = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(ACCEPT_RESULT);
 const mockVerifyOAuthCode = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockCreateEvent = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
+const mockAudit = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
@@ -55,8 +58,11 @@ const INV = [
 ];
 jest.unstable_mockModule('../src/services/index.js', () => ({
   invitationService: { acceptViaOAuth: (...a: unknown[]) => mockAcceptViaOAuth(...a) },
+  auditService: { createEvent: (...a: unknown[]) => mockCreateEvent(...a) },
   ...Object.fromEntries(INV.map((k) => [k, k])),
 }));
+
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
 const { acceptInvitationViaOAuth } = await import('../src/controllers/invitation.js');
 
@@ -68,7 +74,7 @@ function makeRes() {
 }
 
 describe('acceptInvitationViaOAuth (server-side verification)', () => {
-  beforeEach(() => { jest.clearAllMocks(); mockAcceptViaOAuth.mockResolvedValue(undefined); });
+  beforeEach(() => { jest.clearAllMocks(); mockAcceptViaOAuth.mockResolvedValue(ACCEPT_RESULT); mockCreateEvent.mockResolvedValue(undefined); });
 
   it('rejects (400) when code/state are missing — no client-supplied profile accepted', async () => {
     const res = makeRes();
@@ -99,6 +105,22 @@ describe('acceptInvitationViaOAuth (server-side verification)', () => {
     // Never the attacker-supplied id.
     expect(mockAcceptViaOAuth).not.toHaveBeenCalledWith('tok', 'google', expect.objectContaining({ id: 'ATTACKER' }));
     expect(res.status).toHaveBeenCalledWith(200);
+
+    // Membership grant is audited via createEvent with the SERVER-RESOLVED actor
+    // (public route → no req.user). affectedOrgId = the invitation's org.
+    expect(mockCreateEvent).toHaveBeenCalledTimes(1);
+    const evt = mockCreateEvent.mock.calls[0][0] as Record<string, unknown>;
+    expect(evt).toMatchObject({
+      action: 'invitation.accept',
+      actorId: 'user-42',
+      affectedOrgId: 'org-inv',
+      targetType: 'invitation',
+      targetId: 'inv-1',
+      outcome: 'success',
+      details: { email: 'invitee@x.com', role: 'member', via: 'google' },
+    });
+    // The invitation TOKEN must never leak into the audit event.
+    expect(JSON.stringify(evt)).not.toContain('tok');
   });
 
   it('maps a failed state check to 403 and never touches the service', async () => {

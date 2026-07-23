@@ -42,8 +42,24 @@ function sortDocs(arr: Row[], spec: Record<string, 1 | -1>): Row[] {
   });
 }
 
+/** Mimic the Mongo E11000 duplicate-key error the unique idempotencyKey index
+ *  raises when a re-delivered event carries an already-stored key. */
+function makeDupKeyError(key: string): Error & { code: number; keyPattern: Record<string, number>; keyValue: Record<string, string> } {
+  const err = new Error(`E11000 duplicate key error collection: audit_events index: idempotencyKey_1 dup key: { idempotencyKey: "${key}" }`) as Error & { code: number; keyPattern: Record<string, number>; keyValue: Record<string, string> };
+  err.code = 11000;
+  err.keyPattern = { idempotencyKey: 1 };
+  err.keyValue = { idempotencyKey: key };
+  return err;
+}
+
 const mockModel = {
   create: async (doc: Record<string, unknown>): Promise<Row> => {
+    // Enforce the UNIQUE SPARSE idempotencyKey index: a second insert with the
+    // same key throws E11000 (the correctness backstop the appender catches).
+    const key = (doc as Row).idempotencyKey as string | undefined;
+    if (key && store.some((r) => r.idempotencyKey === key)) {
+      throw makeDupKeyError(key);
+    }
     idSeq += 1;
     const row: Row = { ...(doc as Row), _id: String(idSeq) };
     store.push(row);
@@ -201,6 +217,138 @@ describe('verifyAuditChain', () => {
     expect(result.ok).toBe(false);
     expect(result.brokenAt).toBe(last._id);
     expect(result.count).toBe(2);
+  });
+
+  it('verifies OK when the genesis head has aged out of the TTL window (first surviving prevHash != null)', async () => {
+    // Build a full chain, then delete the CONTIGUOUS HEAD (the oldest row) to
+    // simulate TTL retention pruning. The new first surviving event carries a
+    // NON-null prevHash (it pointed at the pruned genesis). That must be accepted
+    // as the chain anchor — not falsely flagged as a broken/deleted link.
+    const genesis = await appendAuditEvent({ action: 'user.login', actorId: 'u1', orgId: 'org-ttl', affectedOrgId: 'org-ttl' });
+    const mid = await appendAuditEvent({ action: 'dashboard.update', actorId: 'u1', orgId: 'org-ttl', affectedOrgId: 'org-ttl' });
+    await appendAuditEvent({ action: 'user.logout', actorId: 'u1', orgId: 'org-ttl', affectedOrgId: 'org-ttl' });
+
+    // TTL expires the oldest row.
+    store = store.filter((r) => r._id !== genesis._id);
+    // Sanity: the new head's prevHash is non-null (points at the pruned genesis).
+    expect(store.find((r) => r._id === mid._id)!.prevHash).not.toBeNull();
+
+    const result = await verifyAuditChain('org-ttl');
+    expect(result).toEqual({ ok: true, count: 2 });
+  });
+
+  it('still flags a middle-event field tamper even when the head has aged out', async () => {
+    const genesis = await appendAuditEvent({ action: 'user.login', actorId: 'u1', orgId: 'org-ttl2', affectedOrgId: 'org-ttl2' });
+    const tampered = await appendAuditEvent({ action: 'dashboard.update', actorId: 'u1', orgId: 'org-ttl2', affectedOrgId: 'org-ttl2' });
+    await appendAuditEvent({ action: 'user.logout', actorId: 'u1', orgId: 'org-ttl2', affectedOrgId: 'org-ttl2' });
+
+    store = store.filter((r) => r._id !== genesis._id); // head aged out
+    store.find((r) => r._id === tampered._id)!.actorId = 'attacker'; // then tamper a survivor
+
+    const result = await verifyAuditChain('org-ttl2');
+    expect(result.ok).toBe(false);
+    expect(result.brokenAt).toBe(tampered._id);
+  });
+});
+
+describe('appendAuditEvent — occurredAt is display-only (outside the hash / chain ordering)', () => {
+  it('persists occurredAt on the stored row without affecting the hash or prevHash', async () => {
+    const occurredAt = new Date('2026-07-10T00:00:00.000Z'); // long BEFORE ingest createdAt
+    const e1 = await appendAuditEvent({ action: 'pipeline.create', actorId: 'svc', orgId: 'org-oa', affectedOrgId: 'org-oa' });
+    const e2 = await appendAuditEvent({ action: 'pipeline.update', actorId: 'svc', orgId: 'org-oa', affectedOrgId: 'org-oa', occurredAt });
+
+    // The display field round-trips onto the stored doc.
+    expect((store.find((r) => r._id === e2._id)!.occurredAt as Date)).toEqual(occurredAt);
+    // occurredAt is NOT part of the hashed field set, so recomputing the hash
+    // WITHOUT it reproduces the stored hash exactly.
+    const recomputed = computeAuditHash({
+      action: 'pipeline.update',
+      actorId: 'svc',
+      orgId: 'org-oa',
+      affectedOrgId: 'org-oa',
+      createdAt: store.find((r) => r._id === e2._id)!.createdAt,
+      prevHash: e1.hash,
+    });
+    expect(recomputed).toBe(e2.hash);
+  });
+
+  it('verifies OK for a batch that includes an occurredAt-bearing event AND one whose occurredAt differs from createdAt', async () => {
+    // A spool-delayed re-delivery: occurredAt (emission time) is far earlier
+    // than createdAt (ingest time). It must NOT reorder or perturb the chain —
+    // the chain still orders/appends by ingest createdAt.
+    await appendAuditEvent({ action: 'pipeline.create', actorId: 'svc', orgId: 'org-oa2', affectedOrgId: 'org-oa2' });
+    await appendAuditEvent({
+      action: 'pipeline.update',
+      actorId: 'svc',
+      orgId: 'org-oa2',
+      affectedOrgId: 'org-oa2',
+      occurredAt: new Date('2020-01-01T00:00:00.000Z'), // deliberately << createdAt
+    });
+    await appendAuditEvent({ action: 'pipeline.delete', actorId: 'svc', orgId: 'org-oa2', affectedOrgId: 'org-oa2' });
+
+    expect(await verifyAuditChain('org-oa2')).toEqual({ ok: true, count: 3 });
+  });
+
+  it('leaves occurredAt undefined on the stored row when omitted', async () => {
+    const e1 = await appendAuditEvent({ action: 'pipeline.create', actorId: 'svc', orgId: 'org-oa3', affectedOrgId: 'org-oa3' });
+    expect(store.find((r) => r._id === e1._id)!.occurredAt).toBeUndefined();
+    expect(await verifyAuditChain('org-oa3')).toEqual({ ok: true, count: 1 });
+  });
+});
+
+describe('appendAuditEvent — Idempotency-Key dedup', () => {
+  it('produces ONE row and ONE chain link for two appends with the same key', async () => {
+    const first = await appendAuditEvent({
+      action: 'pipeline.create', actorId: 'svc', orgId: 'org-1', affectedOrgId: 'org-1', idempotencyKey: 'key-abc',
+    });
+    const second = await appendAuditEvent({
+      action: 'pipeline.create', actorId: 'svc', orgId: 'org-1', affectedOrgId: 'org-1', idempotencyKey: 'key-abc',
+    });
+
+    // Deduped: the retry returns the already-stored row and does NOT write again.
+    expect(store.length).toBe(1);
+    expect(second._id).toBe(first._id);
+    // Exactly one chain link survives (a single-event chain verifies clean).
+    expect(await verifyAuditChain('org-1')).toEqual({ ok: true, count: 1 });
+  });
+
+  it('writes two rows / two chain links for different keys', async () => {
+    await appendAuditEvent({
+      action: 'pipeline.create', actorId: 'svc', orgId: 'org-2', affectedOrgId: 'org-2', idempotencyKey: 'key-1',
+    });
+    const e2 = await appendAuditEvent({
+      action: 'pipeline.update', actorId: 'svc', orgId: 'org-2', affectedOrgId: 'org-2', idempotencyKey: 'key-2',
+    });
+
+    expect(store.length).toBe(2);
+    // The second links to the first: a genuine second chain link.
+    expect(e2.prevHash).toBe(store[0].hash);
+    expect(await verifyAuditChain('org-2')).toEqual({ ok: true, count: 2 });
+  });
+
+  it('does not constrain events that carry no key (sparse)', async () => {
+    await appendAuditEvent({ action: 'user.login', actorId: 'u1', orgId: 'org-3', affectedOrgId: 'org-3' });
+    await appendAuditEvent({ action: 'user.logout', actorId: 'u1', orgId: 'org-3', affectedOrgId: 'org-3' });
+    expect(store.length).toBe(2);
+  });
+});
+
+describe('appendAuditEvent — AWS identifier scrub (defense-in-depth)', () => {
+  it('redacts an AWS account id embedded in a KMS ARN in details before persisting + hashing', async () => {
+    const stored = await appendAuditEvent({
+      action: 'org.kms.orphaned',
+      actorId: 'org-cascade',
+      orgId: 'system',
+      affectedOrgId: 'org-9',
+      details: { keyId: 'arn:aws:kms:us-east-1:123456789012:key/abc-123', reason: 'manual deletion required' },
+    });
+
+    const persisted = JSON.stringify((stored.details as Record<string, unknown>));
+    expect(persisted).not.toContain('123456789012');
+    expect(persisted).toContain('[REDACTED]');
+    expect((stored.details as { reason: string }).reason).toBe('manual deletion required');
+    // Hash was computed over the SCRUBBED details, so the chain still verifies.
+    expect(await verifyAuditChain('org-9')).toEqual({ ok: true, count: 1 });
   });
 });
 

@@ -4,6 +4,7 @@
 import type { ApiCore } from '../core';
 import { buildQuery, API_URL } from '../util';
 import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier } from '@/types';
+import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 
 export function adminApi(core: ApiCore) {
   return {
@@ -25,28 +26,20 @@ export function adminApi(core: ApiCore) {
       limit?: number;
     }) => {
       return core.request<ApiResponse<{
-        events: Array<{
-          _id: string;
-          action: string;
-          actorId: string;
-          actorEmail?: string;
-          actorRole?: string;
-          orgId?: string;
-          affectedOrgId?: string;
-          targetType?: string;
-          targetId?: string;
-          groupId?: string;
-          impersonatorId?: string;
-          outcome?: 'success' | 'failure';
-          details?: Record<string, unknown>;
-          ip?: string;
-          userAgent?: string;
-          requestId?: string;
-          traceId?: string;
-          createdAt: string;
-        }>;
+        events: AuditLogEvent[];
         pagination: { total: number; offset: number; limit: number; hasMore: boolean };
       }>>(`/api/audit${buildQuery(params)}`);
+    },
+
+    /**
+     * Verify the hash-chain integrity of an org's audit log (sysadmin only).
+     * Returns `{ ok: true }` when the chain hashes cleanly end-to-end, or
+     * `{ ok: false, brokenAt }` pointing at the first tampered/broken link.
+     */
+    verifyAuditChain: async (orgId: string) => {
+      return core.request<ApiResponse<AuditChainVerification>>(
+        `/api/audit/verify${buildQuery({ orgId })}`,
+      );
     },
 
     // ============================================

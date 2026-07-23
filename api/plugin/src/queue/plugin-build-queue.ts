@@ -647,22 +647,13 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         errorMessage: error.message,
       });
 
-      if (isFinalAttempt) {
-        getAuditClient().record({
-          action,
-          actorId: job.data.userId,
-          orgId,
-          targetType: 'plugin',
-          details: {
-            pluginName: pluginRecord.name,
-            pluginVersion: pluginRecord.version,
-            jobId: job.id,
-            errorMessage: error.message,
-            isTimeout,
-          },
-        }, 'plugin');
-      }
-
+      // The TERMINAL audit event is emitted only at TRUE exhaustion, NOT on
+      // every final tier attempt: a retryable final-attempt failure is handed
+      // to the DLQ below, which may still succeed. Emitting
+      // `plugin.build.failed` here would drop a "failed" into the trail ahead of
+      // a later `plugin.build.completed` — a misleading signal. So the terminal
+      // event fires only in the permanent/budget-exhausted branch below (the
+      // tier give-up) or, for DLQ-bound jobs, in the DLQ on its own exhaustion.
       if (!isFinalAttempt) return;
 
       const category = classifyFailure(error);
@@ -677,6 +668,25 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       if (category === 'permanent' || totalAttempts >= budget) {
         cleanupContextDir(buildRequest.contextDir);
         releasePluginQuota(job, quotaService);
+
+        // TRUE terminal at the tier level: a permanent failure never reaches
+        // the DLQ, and a retryable one that has burned the whole main+DLQ
+        // budget is done. This is the single terminal audit event for these
+        // jobs (DLQ-bound jobs get theirs from the DLQ on its own exhaustion).
+        getAuditClient().record({
+          action,
+          actorId: job.data.userId,
+          orgId,
+          targetType: 'plugin',
+          details: {
+            pluginName: pluginRecord.name,
+            pluginVersion: pluginRecord.version,
+            jobId: job.id,
+            errorMessage: error.message,
+            isTimeout,
+          },
+        }, 'plugin');
+
         logger.warn('Permanent failure, cleaned up', {
           jobId: job.id,
           pluginName: pluginRecord.name,

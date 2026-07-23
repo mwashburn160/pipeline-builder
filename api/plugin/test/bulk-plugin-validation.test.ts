@@ -21,6 +21,12 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   },
 }));
 
+const mockEmitPluginAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  emitPluginAudit: mockEmitPluginAudit,
+  getAuditClient: () => ({ record: jest.fn() }),
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
@@ -141,5 +147,58 @@ describe('POST /plugins/bulk/delete — public-plugin access parity', () => {
     const { res } = makeRes();
     await getDeleteHandler()({ body: { ids: ['p1'] }, user: { isSuperAdmin: true } }, res);
     expect(mockBulkDelete).toHaveBeenCalledWith(['p1'], 'org-1', 'u-1', false);
+  });
+});
+
+// Attributed audit emissions — ONE event per bulk op, only when rows landed.
+describe('bulk plugin audit emissions', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('emits ONE plugin.bulk.delete with count + actually-deleted ids', async () => {
+    mockBulkDelete.mockResolvedValue([{ id: 'p1' }, { id: 'p3' }]);
+    const { res } = makeRes();
+    await getDeleteHandler()({ body: { ids: ['p1', 'p2', 'p3'] }, user: { isSuperAdmin: true, sub: 'admin-1' } }, res);
+
+    expect(mockEmitPluginAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitPluginAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'plugin.bulk.delete',
+        actorId: 'admin-1',
+        orgId: 'org-1',
+        targetType: 'plugin',
+        details: expect.objectContaining({ count: 2, ids: ['p1', 'p3'] }),
+      }),
+    );
+  });
+
+  it('does NOT emit plugin.bulk.delete when nothing was deleted', async () => {
+    mockBulkDelete.mockResolvedValue([]);
+    const { res } = makeRes();
+    await getDeleteHandler()({ body: { ids: ['p1'] }, user: { isSuperAdmin: false } }, res);
+    expect(mockEmitPluginAudit).not.toHaveBeenCalled();
+  });
+
+  it('emits ONE plugin.bulk.update with count + actually-updated ids', async () => {
+    mockUpdateMany.mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]);
+    const { res } = makeRes();
+    await getUpdateHandler()({ body: { ids: ['p1', 'p2'], data: { isActive: false } }, user: { sub: 'u-9' } }, res);
+
+    expect(mockEmitPluginAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitPluginAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'plugin.bulk.update',
+        actorId: 'u-9',
+        orgId: 'org-1',
+        targetType: 'plugin',
+        details: expect.objectContaining({ count: 2, ids: ['p1', 'p2'] }),
+      }),
+    );
+  });
+
+  it('does NOT emit plugin.bulk.update when nothing changed', async () => {
+    mockUpdateMany.mockResolvedValue([]);
+    const { res } = makeRes();
+    await getUpdateHandler()({ body: { ids: ['p1'], data: { isActive: false } } }, res);
+    expect(mockEmitPluginAudit).not.toHaveBeenCalled();
   });
 });

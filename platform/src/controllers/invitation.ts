@@ -4,9 +4,11 @@
 import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID, parsePaginationParams } from '@pipeline-builder/api-core';
 import { verifyOAuthCode, OAUTH_ERROR_MAP } from './oauth.js';
 import { config } from '../config/index.js';
+import { audit } from '../helpers/audit.js';
 import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import {
+  auditService,
   invitationService,
   INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT,
   INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED,
@@ -81,6 +83,14 @@ export const sendInvitation = withController('Send invitation', async (req, res)
     invitationId: invitation._id, email: body.email, organizationId: orgId, role: body.role,
   });
 
+  // Audit the invite (fire-and-forget). NEVER the token — email + role only.
+  audit(req, 'invitation.send', {
+    targetType: 'invitation',
+    targetId: String(invitation._id),
+    affectedOrgId: orgId,
+    details: { email: invitation.email, role: invitation.role },
+  });
+
   sendSuccess(res, 201, {
     invitation: {
       id: invitation._id,
@@ -101,9 +111,21 @@ export const acceptInvitation = withController('Accept invitation', async (req, 
   if (!req.user) return sendError(res, 401, 'You must be logged in to accept an invitation');
 
   const oauthProvider = req.headers['x-oauth-provider'] as InvitationOAuthProvider | undefined;
-  await invitationService.accept(token, req.user.sub, oauthProvider);
+  const accepted = await invitationService.accept(token, req.user.sub, oauthProvider);
 
-  logger.info('Invitation accepted', { token, userId: req.user.sub, oauthProvider });
+  // Accepting an invite creates a membership — a self-serve privilege grant, so
+  // it's audited alongside the other membership mutations. `req.user` IS the
+  // accepting user (guarded above), so it's recorded as the actor.
+  // `affectedOrgId` is the invitation's org (the org being JOINED — NOT the
+  // actor's current org). NEVER the token — email + role only.
+  audit(req, 'invitation.accept', {
+    targetType: 'invitation',
+    targetId: accepted.invitationId,
+    affectedOrgId: accepted.organizationId,
+    details: { email: accepted.email, role: accepted.role },
+  });
+
+  logger.info('Invitation accepted', { userId: req.user.sub, oauthProvider });
   sendSuccess(res, 200, undefined, 'Invitation accepted successfully');
 }, acceptErrorMap);
 
@@ -126,9 +148,26 @@ export const acceptInvitationViaOAuth = withController('Accept invitation via OA
   // Exchange the code with the provider and use the VERIFIED identity — never
   // trust a client-supplied profile.
   const verified = await verifyOAuthCode(oauthProvider, code, state);
-  await invitationService.acceptViaOAuth(token, oauthProvider as InvitationOAuthProvider, verified);
+  const accepted = await invitationService.acceptViaOAuth(token, oauthProvider as InvitationOAuthProvider, verified);
 
-  logger.info('Invitation accepted via OAuth', { token, oauthProvider });
+  // Public route: there is no `req.user`, so `audit(req, ...)` would file the
+  // membership grant under an anonymous actor. Attribute it to the user resolved
+  // (or created) server-side via createEvent, so the audit answers "who joined".
+  // Fire-and-forget — an audit error must never fail the accept. NEVER the token.
+  auditService.createEvent({
+    action: 'invitation.accept',
+    actorId: accepted.userId,
+    actorEmail: accepted.email,
+    orgId: accepted.organizationId,
+    affectedOrgId: accepted.organizationId,
+    targetType: 'invitation',
+    targetId: accepted.invitationId,
+    outcome: 'success',
+    ip: req.ip,
+    details: { email: accepted.email, role: accepted.role, via: oauthProvider },
+  }).catch((err) => logger.warn('Failed to write invitation.accept audit event', { error: err instanceof Error ? err.message : String(err) }));
+
+  logger.info('Invitation accepted via OAuth', { oauthProvider });
   sendSuccess(res, 200, undefined, 'Invitation accepted successfully via OAuth');
 }, acceptOAuthErrorMap);
 
@@ -191,9 +230,16 @@ export const revokeInvitation = withController('Revoke invitation', async (req, 
   if (!orgId) return;
   const { invitationId } = req.params;
 
-  await invitationService.revoke(
+  const revoked = await invitationService.revoke(
     invitationId as string, orgId, req.user!.sub, isOrgManager(req.user!.role),
   );
+
+  audit(req, 'invitation.revoke', {
+    targetType: 'invitation',
+    targetId: revoked.invitationId,
+    affectedOrgId: revoked.organizationId,
+    details: { email: revoked.email, role: revoked.role },
+  });
 
   logger.info('Invitation revoked', { invitationId, revokedBy: req.user!.sub });
   sendSuccess(res, 200, undefined, 'Invitation revoked successfully');
@@ -209,13 +255,20 @@ export const resendInvitation = withController('Resend invitation', async (req, 
   if (!orgId) return;
   const { invitationId } = req.params;
 
-  const { expiresAt, emailSent } = await invitationService.resend(
+  const { expiresAt, emailSent, email, role } = await invitationService.resend(
     invitationId as string, orgId, req.user!.sub, isOrgManager(req.user!.role),
   );
 
   if (!emailSent && config.email.enabled) {
     return sendError(res, 500, 'Failed to send invitation email');
   }
+
+  audit(req, 'invitation.resend', {
+    targetType: 'invitation',
+    targetId: invitationId as string,
+    affectedOrgId: orgId,
+    details: { email, role },
+  });
 
   logger.info('Invitation resent', { invitationId });
   sendSuccess(res, 200, { expiresAt }, 'Invitation resent successfully');

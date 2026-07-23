@@ -1,12 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { enqueueComplianceEvent } from './compliance-queue.js';
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events.js';
 import { InternalHttpClient } from './http-client.js';
 import { getServiceAuthHeader } from '../middleware/auth.js';
 import { type ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
+import { emitCounter } from '../utils/metric-emitter.js';
 
 const logger = createLogger('compliance-events');
 
@@ -43,11 +43,24 @@ export function registerComplianceEventSubscriber(
         // GUC. The compliance side enforces `requireAuth` +
         // `requireServicePrincipal` — the previous `x-internal-service`
         // header is no longer sufficient (and was spoofable).
+        //
+        // This HTTP notify is the SINGLE delivery channel for post-mutation
+        // re-validation (primary enforcement is the fail-CLOSED live
+        // validate path). A stable per-event `Idempotency-Key` makes the POST
+        // retry-safe in the http-client, so a transient 5xx/timeout is retried
+        // rather than dropped on the first attempt; compliance re-evaluation is
+        // naturally idempotent, so a duplicate delivery is harmless.
         await client.post('/compliance/events/entity', event, {
-          headers: { Authorization: getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' }) },
+          headers: {
+            'Authorization': getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' }),
+            'Idempotency-Key': `${event.target}:${event.entityId}:${event.eventType}:${event.timestamp.toISOString()}`,
+          },
         });
       } catch (err) {
-        // Fire-and-forget: log and swallow. Compliance notification is non-fatal.
+        // Fire-and-forget: log + a drop metric so sustained loss is alertable
+        // (operators can't act on a warn line alone), then swallow — compliance
+        // notification is non-fatal to the originating mutation.
+        emitCounter('compliance_event_drop_total', { service: serviceName, target: event.target });
         logger.warn('Failed to notify compliance service of entity event', {
           target: event.target,
           eventType: event.eventType,
@@ -55,18 +68,6 @@ export function registerComplianceEventSubscriber(
           error: err instanceof Error ? err.message : String(err),
         });
       }
-
-      // Also enqueue for async re-validation (catches rule changes after creation)
-      void enqueueComplianceEvent({
-        eventType: 'validate',
-        target: event.target as 'plugin' | 'pipeline',
-        entityId: event.entityId,
-        orgId: event.orgId,
-        parentOrgId: event.parentOrgId,
-        userId: event.userId,
-        attributes: event.attributes,
-        timestamp: event.timestamp.toISOString(),
-      });
     },
   };
 

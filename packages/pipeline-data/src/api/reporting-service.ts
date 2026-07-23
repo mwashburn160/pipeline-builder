@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createCacheService, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createCacheService, createLogger, errorMessage, scrubAwsIdentifiers, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
 import { inArray, sql } from 'drizzle-orm';
 import { drizzleRows } from './crud-service.js';
 import { schema } from '../database/drizzle-schema.js';
@@ -242,11 +242,20 @@ export class ReportingService {
           executionId: event.executionId,
           stageName: event.stageName,
           actionName: event.actionName,
-          errorMessage: event.errorMessage,
+          // HARD CONSTRAINT: an AWS account id must NEVER be persisted. This is
+          // the DURABLE persistence boundary and must not trust upstream:
+          // CodePipeline/CodeBuild failure detail & messages routinely carry
+          // ARNs (arn:aws:…:<account-id>:…) and bare 12-digit account ids. Scrub
+          // both free-form fields here before insert (per-event, non-mutating).
+          errorMessage: event.errorMessage !== undefined
+            ? scrubAwsIdentifiersFromString(event.errorMessage)
+            : undefined,
           startedAt: event.startedAt ? new Date(event.startedAt) : undefined,
           completedAt: event.completedAt ? new Date(event.completedAt) : undefined,
           durationMs: event.durationMs,
-          detail: event.detail,
+          detail: event.detail !== undefined
+            ? scrubAwsIdentifiers(event.detail)
+            : undefined,
         });
       }
 

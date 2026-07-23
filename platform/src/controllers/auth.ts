@@ -169,10 +169,18 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const { organizationId } = req.body;
   if (!organizationId) return sendError(res, 400, 'organizationId is required');
 
+  const fromOrgId = req.user?.organizationId;
   const user = await authService.switchActiveOrg(userId, organizationId);
   if (!user) return sendError(res, 403, 'You are not an active member of this organization');
 
   const tokens = await issueTokens(user, organizationId);
+
+  // Record which org the actor pivoted their session INTO. `affectedOrgId` is
+  // the destination org so it surfaces in that org's audit view.
+  audit(req, 'org.switch', {
+    affectedOrgId: organizationId,
+    details: { fromOrgId, toOrgId: organizationId },
+  });
 
   sendSuccess(res, 200, tokens);
 });

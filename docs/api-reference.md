@@ -110,15 +110,15 @@ Base path `/api/organization` (and `/api/invitation`). Management endpoints enfo
 | `GET` | `/organization/:id/members` | List members | — (member) |
 | `POST` \| `DELETE` \| `PATCH` | `/organization/:id/members[/:userId[/activate\|deactivate]]` | Add / remove / change-role / (de)activate a member | `members:manage` |
 | `GET` | `/organization/:id/teams` | List descendant teams | — (member) |
-| `GET` | `/organization/:id/groups` | List Roles (permission sets) + members | — (member) |
-| `POST` | `/organization/:id/groups` | Create a custom Role | `roles:manage` |
-| `PUT` \| `DELETE` | `/organization/:id/groups/:groupId` | Update / delete a custom Role | `roles:manage` |
-| `POST` \| `DELETE` | `/organization/:id/groups/:groupId/members[/:userId]` | Add / remove a Role member | `roles:manage` |
+| `GET` | `/organization/:id/roles` | List Roles (permission sets) + members | — (member) |
+| `POST` | `/organization/:id/roles` | Create a custom Role | `roles:manage` |
+| `PUT` \| `DELETE` | `/organization/:id/roles/:roleId` | Update / delete a custom Role | `roles:manage` |
+| `POST` \| `DELETE` | `/organization/:id/roles/:roleId/members[/:userId]` | Add / remove a Role member | `roles:manage` |
 | `POST` | `/invitation/send` | Send an invitation | `invitations:manage` |
 | `GET` | `/invitation` | List invitations | `invitations:manage` |
 | `DELETE` \| `POST` | `/invitation/:id[/resend]` | Revoke / resend an invitation | `invitations:manage` |
 
-The full permission catalog (`pipelines:write`, `plugins:write`, `compliance:write`, `billing:manage`, `dashboards:write`, `observability:write`, `org:settings`, …) lives in `@pipeline-builder/api-core` (`types/permissions.ts`). Custom Roles grant any subset; a member's effective permissions are the union of the Roles assigned to them. (Managing Roles is gated by `roles:manage`. The endpoint **paths** still spell `/groups` — the underlying collection was not renamed — but the permission id and all user-facing naming use "Role".)
+The full permission catalog (`pipelines:write`, `pipelines:publish`, `plugins:publish`, `compliance:write`, `billing:manage`, `reports:rollup`, `org:settings`, …) lives in `@pipeline-builder/api-core` (`types/permissions.ts`). Custom Roles grant any subset of the **org-assignable** permissions (`registry:read/write` are Super-Admin-only and rejected); a member's effective permissions are the union of the Roles assigned to them, and `:read` permissions are enforced. Managing Roles is gated by `roles:manage`. See **[Roles & Permissions](permissions.md)** for the full catalog, built-in bundles, and enforcement.
 
 ### Common Query Parameters
 

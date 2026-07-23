@@ -180,3 +180,32 @@ describe('useSSE reconnect/backoff', () => {
     expect(onRetriesExhausted).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('useSSE everConnected (paused-indicator gate)', () => {
+  it('stays false during the initial connect and flips true only after onopen', () => {
+    const { result } = renderHook(() =>
+      useSSE({
+        url: 'https://sse.test/stream',
+        maxRetries: 3,
+        baseRetryDelayMs: 1000,
+        onMessage: jest.fn(),
+      }),
+    );
+
+    // Initial handshake: not yet connected, and never-connected — so a
+    // consumer's `everConnected && !connected` gate stays false (no flash).
+    expect(result.current.connected).toBe(false);
+    expect(result.current.everConnected).toBe(false);
+
+    // A genuine established connection.
+    act(() => latest().emitOpen());
+    expect(result.current.connected).toBe(true);
+    expect(result.current.everConnected).toBe(true);
+
+    // Drop after being live: connected goes false but everConnected stays
+    // true — this is the state that should surface the paused indicator.
+    act(() => latest().emitError());
+    expect(result.current.connected).toBe(false);
+    expect(result.current.everConnected).toBe(true);
+  });
+});

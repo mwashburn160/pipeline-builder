@@ -119,7 +119,7 @@ describe('impersonateUser', () => {
 
   it('issues a token and audits the start event on the happy path', async () => {
     mockUserFindById.mockReturnValue({
-      select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }),
+      select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-target' }),
     });
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
 
@@ -135,9 +135,12 @@ describe('impersonateUser', () => {
     // captured as the event's actorId — so it's no longer duplicated into
     // `details`. Events performed LATER under the issued token carry the
     // sysadmin in the first-class `impersonatorId` field instead.
+    // `affectedOrgId` is the IMPERSONATED user's org so it surfaces in that org's
+    // audit view (not the sysadmin's system org).
     expect(mockAudit).toHaveBeenCalledWith(req, 'admin.impersonate.start', expect.objectContaining({
       targetType: 'user',
       targetId: 'target',
+      affectedOrgId: 'org-target',
       details: expect.objectContaining({ expiresIn: 900 }),
     }));
     expect(res.status).toHaveBeenCalledWith(200);

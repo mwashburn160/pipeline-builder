@@ -196,5 +196,24 @@ describe('auditService.createEvent', () => {
       auditService.createEvent({ action: 'user.login', actorId: 'u1' }),
     ).rejects.toThrow('db error');
   });
+
+  it('should persist occurredAt on the doc when provided (display-only, not hashed)', async () => {
+    mockCreate.mockResolvedValue({});
+    const occurredAt = new Date('2026-07-19T08:00:00.000Z');
+
+    await auditService.createEvent({ action: 'pipeline.create', actorId: 'svc', orgId: 'org-1', occurredAt });
+
+    // Passed straight through to the stored doc via the shared append's spread.
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ occurredAt }));
+  });
+
+  it('should not set occurredAt when omitted (reviewers fall back to createdAt)', async () => {
+    mockCreate.mockResolvedValue({});
+
+    await auditService.createEvent({ action: 'pipeline.create', actorId: 'svc', orgId: 'org-1' });
+
+    const doc = mockCreate.mock.calls[0][0] as Record<string, unknown>;
+    expect(doc.occurredAt).toBeUndefined();
+  });
 });
 

@@ -10,6 +10,7 @@ import { ThreadView } from '@/components/message/ThreadView';
 import { ComposeModal } from '@/components/message/ComposeModal';
 import { useAuth } from '@/hooks/useAuth';
 import { MessageBadge } from '@/components/message/MessageBadge';
+import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
 import type { Message } from '@/types';
 
 type MessageFilter = 'all' | 'conversations' | 'announcements';
@@ -57,6 +58,7 @@ export default function MessagesPage() {
     loading,
     error,
     unreadCount,
+    livePaused,
     sendMessage,
     markAsRead,
     markThreadAsRead,
@@ -172,6 +174,14 @@ export default function MessagesPage() {
                 </button>
               ))}
             </div>
+
+            {/* Live-updates status — only shown when SSE has dropped after a
+                healthy connection; the list keeps refreshing via polling. */}
+            {livePaused && (
+              <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                <LiveStatusIndicator paused={livePaused} />
+              </div>
+            )}
 
             {/* Message list */}
             {loading ? (

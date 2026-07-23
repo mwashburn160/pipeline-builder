@@ -4,7 +4,9 @@
 import crypto from 'crypto';
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
+import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
+import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
 import { issueTokens } from '../utils/token.js';
 import { validateBody, oauthCallbackSchema } from '../utils/validation.js';
@@ -237,10 +239,28 @@ export const handleCallback = withController('OAuth callback', async (req, res) 
   const body = validateBody(oauthCallbackSchema, req.body, res);
   if (!body) return;
 
-  const userInfo = await verifyOAuthCode(providerName, body.code, body.state);
+  // Mirror the password-login audit surface (controllers/auth.ts login): a
+  // failed OAuth grant (bad/expired state, failed code exchange, no verified
+  // email) is a security-relevant auth failure — record it + bump the failed
+  // counter, then rethrow so withController maps the typed error to its HTTP
+  // status. Fire-and-forget audit: it never changes the request outcome.
+  let userInfo;
+  try {
+    userInfo = await verifyOAuthCode(providerName, body.code, body.state);
+  } catch (err) {
+    audit(req, 'user.login.failed', { targetType: 'user', outcome: 'failure', details: { provider: providerName, method: 'oauth' } });
+    incCounter('platform_logins_failed_total');
+    throw err;
+  }
 
   const user = await authService.findOrCreateOAuthUser(providerName, userInfo);
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString());
+
+  // Success login audit — mirrors auth.ts login: the authenticated user is the
+  // `targetId` (there is no `req.user` on the callback yet, exactly like the
+  // password-login endpoint). Counter feeds the Platform Overview dashboard.
+  audit(req, 'user.login', { targetType: 'user', targetId: user._id.toString() });
+  incCounter('platform_logins_total');
 
   logger.info(`[OAUTH] ${providerName} login successful`, { userId: user._id, email: userInfo.email });
   sendSuccess(res, 200, tokens);

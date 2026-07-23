@@ -6,6 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
+import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
 /**
@@ -52,6 +53,20 @@ export function createBulkPluginRoutes(): Router {
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length });
 
+    // Best-effort attributed audit — ONE event per bulk op, emitted only when
+    // rows actually landed. Ids are bounded by MAX_BULK_ITEMS so they're safe to
+    // record; plugin ids carry no secrets / AWS account ids.
+    if (deleted.length > 0) {
+      const deletedIds = deleted.map(d => d.id);
+      emitPluginAudit({
+        action: 'plugin.bulk.delete',
+        actorId: req.user?.sub ?? userId ?? 'system',
+        orgId,
+        targetType: 'plugin',
+        details: { count: deletedIds.length, ids: deletedIds },
+      });
+    }
+
     return sendSuccess(res, 200, { deleted: deleted.length, ids: deleted.map(d => d.id) });
   }));
 
@@ -97,6 +112,20 @@ export function createBulkPluginRoutes(): Router {
     );
 
     ctx.log('COMPLETED', 'Bulk update complete', { requested: ids.length, updated: updated.length });
+
+    // Best-effort attributed audit — ONE event per bulk op, emitted only when
+    // rows actually changed. Ids are bounded by MAX_BULK_ITEMS so they're safe
+    // to record; plugin ids carry no secrets / AWS account ids.
+    if (updated.length > 0) {
+      const updatedIds = updated.map(u => u.id);
+      emitPluginAudit({
+        action: 'plugin.bulk.update',
+        actorId: req.user?.sub ?? userId ?? 'system',
+        orgId,
+        targetType: 'plugin',
+        details: { count: updatedIds.length, ids: updatedIds, fields: Object.keys(updateData) },
+      });
+    }
 
     return sendSuccess(res, 200, { updated: updated.length });
   }));

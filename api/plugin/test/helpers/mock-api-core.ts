@@ -72,6 +72,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // services/audit.ts; the boot path also registers an authz-denial sink.
     // Provide inert stubs so ESM linking against the mock resolves both.
     createRemoteAuditClient: () => ({ record: () => {} }),
+    createEnvRedisAuditSpool: () => null,
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
     // boot-time token-revocation reader registration (session-invalidation

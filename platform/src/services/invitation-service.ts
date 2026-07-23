@@ -47,6 +47,21 @@ interface SendInvitationResult {
   emailSent: boolean;
 }
 
+/** Minimal, secret-free invitation facts the controllers surface into audit
+ *  events. NEVER carries the invitation TOKEN — email + role + ids only. */
+export interface InvitationAuditInfo {
+  invitationId: string;
+  organizationId: string;
+  email: string;
+  role: string;
+}
+
+/** {@link InvitationAuditInfo} plus the id of the user who accepted — resolved
+ *  server-side on the OAuth-accept path where there is no `req.user`. */
+export interface InvitationAcceptResult extends InvitationAuditInfo {
+  userId: string;
+}
+
 function getExpirationDate(): Date {
   return new Date(Date.now() + config.invitation.expirationDays * 24 * 60 * 60 * 1000);
 }
@@ -234,11 +249,12 @@ class InvitationService {
    * Throws INV_USER_NOT_FOUND / INV_EMAIL_MISMATCH / INV_ALREADY_MEMBER /
    * etc. on the various failure cases.
    */
-  async accept(token: string, userId: string, oauthProvider?: InvitationOAuthProvider): Promise<void> {
+  async accept(token: string, userId: string, oauthProvider?: InvitationOAuthProvider): Promise<InvitationAcceptResult> {
     // `alreadyMember` is set inside the tx and acted on AFTER commit. If we
     // threw INV_ALREADY_MEMBER from inside the tx body, withTransaction
     // would roll back the `invitation.status = 'accepted'` write — losing
     // the audit-trail tombstone we explicitly want to keep.
+    let result: InvitationAcceptResult | null = null;
     const alreadyMember = await withMongoTransaction(async (session) => {
       const invitation = await this.validateToken(token, session);
 
@@ -268,10 +284,20 @@ class InvitationService {
       }
 
       await this.processAcceptance(invitation, user, org, oauthProvider || 'email', session);
+      // Facts the controller audits as `invitation.accept` (a privilege grant).
+      // No token — email + role + ids only.
+      result = {
+        invitationId: String(invitation._id),
+        organizationId: String(invitation.organizationId),
+        email: invitation.email,
+        role: invitation.role,
+        userId,
+      };
       return false;
     });
 
     if (alreadyMember) throw new Error(INV_ALREADY_MEMBER);
+    return result!;
   }
 
   /**
@@ -284,8 +310,9 @@ class InvitationService {
     token: string,
     oauthProvider: InvitationOAuthProvider,
     oauthData: { id: string; email: string; name?: string; picture?: string },
-  ): Promise<void> {
+  ): Promise<InvitationAcceptResult> {
     // Same already-member-after-commit pattern as `accept` — see comment there.
+    let result: InvitationAcceptResult | null = null;
     const alreadyMember = await withMongoTransaction(async (session) => {
       const invitation = await this.validateToken(token, session);
 
@@ -327,10 +354,20 @@ class InvitationService {
       }
 
       await this.processAcceptance(invitation, user, org, oauthProvider, session);
+      // The accepting user is resolved/created server-side here (no `req.user`),
+      // so surface their id for the controller's actor attribution.
+      result = {
+        invitationId: String(invitation._id),
+        organizationId: String(invitation.organizationId),
+        email: invitation.email,
+        role: invitation.role,
+        userId: String(user._id),
+      };
       return false;
     });
 
     if (alreadyMember) throw new Error(INV_ALREADY_MEMBER);
+    return result!;
   }
 
   /**
@@ -389,7 +426,7 @@ class InvitationService {
    * Revoke a pending invitation. Verifies the caller is the org owner or
    * a system admin. Throws INV_NOT_FOUND / INV_NOT_PENDING / INV_UNAUTHORIZED.
    */
-  async revoke(invitationId: string, orgId: string, userId: string, isAdmin: boolean): Promise<void> {
+  async revoke(invitationId: string, orgId: string, userId: string, isAdmin: boolean): Promise<InvitationAuditInfo> {
     const invitation = await Invitation.findOne({ _id: invitationId, organizationId: toOrgId(orgId) });
     if (!invitation) throw new Error(INV_NOT_FOUND);
     if (invitation.status !== 'pending') throw new Error(INV_NOT_PENDING);
@@ -401,6 +438,13 @@ class InvitationService {
 
     invitation.status = 'revoked';
     await invitation.save();
+
+    return {
+      invitationId: String(invitation._id),
+      organizationId: String(invitation.organizationId),
+      email: invitation.email,
+      role: invitation.role,
+    };
   }
 
   /**
@@ -409,7 +453,7 @@ class InvitationService {
    * actually sent (false → caller can decide to surface a 500 if email
    * is required).
    */
-  async resend(invitationId: string, orgId: string, userId: string, isAdmin: boolean): Promise<{ expiresAt: Date; emailSent: boolean }> {
+  async resend(invitationId: string, orgId: string, userId: string, isAdmin: boolean): Promise<{ expiresAt: Date; emailSent: boolean; email: string; role: string }> {
     const invitation = await Invitation.findOne({
       _id: invitationId, organizationId: toOrgId(orgId), status: 'pending',
     });
@@ -437,7 +481,7 @@ class InvitationService {
       allowedOAuthProviders: invitation.allowedOAuthProviders,
     });
 
-    return { expiresAt: invitation.expiresAt, emailSent };
+    return { expiresAt: invitation.expiresAt, emailSent, email: invitation.email, role: invitation.role };
   }
 }
 

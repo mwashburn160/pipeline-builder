@@ -23,7 +23,8 @@
  */
 
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { cascadeDeleteOrg } from './org-cascade-service.js';
+import { auditService } from './audit-service.js';
+import { cascadeDeleteOrg, type CascadeReport } from './org-cascade-service.js';
 import { organizationService } from './organization-service.js';
 import { config } from '../config/index.js';
 import { Organization } from '../models/index.js';
@@ -38,6 +39,32 @@ export interface PurgeSweepResult {
   purged: number;
   deferred: number;
   failed: number;
+}
+
+/**
+ * Distill a {@link CascadeReport} into a SECRET-FREE audit `details` summary:
+ * per-store row COUNTS and boolean status flags only. Deliberately omits the
+ * KMS `keyRef` (a key id/ARN can embed an AWS account id) and any error strings
+ * that could carry sensitive fragments — the audit trail records WHAT was purged,
+ * not any credential/identifier.
+ */
+function purgeAuditDetails(report: CascadeReport): Record<string, unknown> {
+  const postgres: Record<string, number> = {};
+  const postgresFailures: string[] = [];
+  for (const [name, r] of Object.entries(report.postgres)) {
+    if (r.ok) postgres[name] = r.rowCount ?? 0;
+    else postgresFailures.push(name);
+  }
+  return {
+    trigger: 'purge-sweep',
+    postgres,
+    ...(postgresFailures.length > 0 ? { postgresFailures } : {}),
+    mongo: report.mongo,
+    quotaOk: report.quota.ok,
+    billingOk: report.billing.ok,
+    auditArchived: report.auditArchive.archived ?? 0,
+    kmsOrphanFlagged: !!report.kms,
+  };
 }
 
 /**
@@ -87,6 +114,26 @@ export async function purgeExpiredOrgs(): Promise<PurgeSweepResult> {
       await organizationService.delete(orgId);
       logger.info('Org purged (hard-deleted after retention window)', { orgId });
       result.purged += 1;
+
+      // Audit the hard delete — the single most destructive lifecycle action.
+      // This is a BACKGROUND sweep (no `req`), so go through the service directly
+      // with a synthetic `org-purge` actor and the system org as the actor org.
+      // The `admin.org.delete` row survives the cascade's audit-wipe (it's the
+      // `$ne` carve-out) so it remains the durable proof the org was purged.
+      // Fire-and-forget: an audit failure must NEVER fail/abort the purge, so it
+      // is isolated in its own try/catch (the delete already committed above).
+      try {
+        await auditService.createEvent({
+          action: 'admin.org.delete',
+          actorId: 'org-purge',
+          orgId: SYSTEM_ORG_ID,
+          affectedOrgId: orgId,
+          outcome: 'success',
+          details: purgeAuditDetails(report),
+        });
+      } catch (auditErr) {
+        logger.error('Failed to record admin.org.delete audit event', { orgId, error: errorMessage(auditErr) });
+      }
     } catch (err) {
       // Per-org failure must not abort the sweep — log and move on.
       logger.error('Org purge failed for one org (continuing)', { orgId, error: errorMessage(err) });

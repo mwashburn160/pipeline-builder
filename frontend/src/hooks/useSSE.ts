@@ -23,6 +23,14 @@ export interface UseSSEOptions {
 export interface UseSSEResult {
   /** Whether the EventSource is currently connected. */
   connected: boolean;
+  /**
+   * Whether the connection has ever successfully opened during this hook's
+   * lifetime. Lets consumers distinguish the benign initial handshake
+   * (`connected=false, everConnected=false`) from a genuine drop after a
+   * healthy connection (`connected=false, everConnected=true`) so a
+   * "reconnecting" indicator only shows for real outages.
+   */
+  everConnected: boolean;
 }
 
 /**
@@ -34,6 +42,10 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
   const { url, maxRetries = 3, baseRetryDelayMs = 1000, onMessage, onRetriesExhausted } = options;
 
   const [connected, setConnected] = useState(false);
+  // Set once on the first successful onopen and never reset for the hook's
+  // lifetime — this is a "have we ever been live" signal, so it must survive
+  // reconnects (which change `url` as fresh tickets are minted).
+  const [everConnected, setEverConnected] = useState(false);
   const [reconnectKey, setReconnectKey] = useState(0);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -57,6 +69,7 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
 
     eventSource.onopen = () => {
       setConnected(true);
+      setEverConnected(true);
       retryCountRef.current = 0;
     };
 
@@ -92,5 +105,5 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
     };
   }, [url, reconnectKey, maxRetries, baseRetryDelayMs]);
 
-  return { connected };
+  return { connected, everConnected };
 }

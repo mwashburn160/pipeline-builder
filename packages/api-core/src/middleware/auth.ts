@@ -336,7 +336,9 @@ function auditAuthzDenial(req: Request, required: string): void {
       actorEmail: req.user?.email,
       orgId: req.user?.organizationId,
       method,
-      path: req.originalUrl || req.url,
+      // Strip the query string — a denied request may carry a token/secret as a
+      // query param, and this path is persisted verbatim into the audit log.
+      path: (req.originalUrl || req.url).split('?')[0],
       required,
     });
   } catch {

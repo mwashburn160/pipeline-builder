@@ -17,6 +17,69 @@ export type Plugin = typeof schema.plugin.$inferSelect;
 export type PluginInsert = typeof schema.plugin.$inferInsert;
 export type PluginUpdate = Partial<Omit<Plugin, 'id' | 'createdAt' | 'createdBy'>>;
 
+/** Marker written in place of a redacted secret VALUE. */
+const REDACTED = '[REDACTED]';
+
+/**
+ * Map keys whose (string→string) VALUES are secret build-time material. The
+ * plugin `env` and `buildArgs` columns (see packages/pipeline-data/.../plugin.ts)
+ * hold secret values injected into plugin builds.
+ */
+const SECRET_MAP_KEYS = new Set(['env', 'buildArgs']);
+
+/**
+ * Scalar keys that themselves carry a secret string (tokens/passwords/etc.).
+ * Applied only to string values so boolean flags like `secretsRequired` and
+ * declaration arrays like the plugin `secrets: PluginSecret[]` are untouched.
+ */
+function isSecretScalarKey(key: string): boolean {
+  const k = key.toLowerCase();
+  return k.includes('token') || k.includes('secret') || k.includes('password')
+    || k.includes('passphrase') || k.includes('credential') || k.includes('apikey')
+    || k.includes('accesskey') || k.includes('privatekey');
+}
+
+/** Only plain (Object-prototype) objects are traversed — Dates/class instances pass through intact. */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  if (v === null || typeof v !== 'object') return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * Project an entity into the compliance-event `attributes`, redacting secret
+ * VALUES while preserving everything the compliance engine actually evaluates.
+ *
+ * Strategy (b) — redact-in-place, keys preserved. The compliance rule engine
+ * reads `env`/`buildArgs` ONLY via key-oriented access — `$keys(env)`,
+ * `$count(env)`, dot-path existence, and key-`contains` checks
+ * (api/compliance/src/engine/rule-operators.ts; its tests assert
+ * `$count(env)`→key count and `$keys(env)`→key names). It never needs the
+ * VALUES. So we keep each secret map's shape and KEYS but overwrite every value
+ * with a marker; scalar secret fields (tokens, etc.) are replaced outright.
+ * Non-secret metadata (name/version/computeType/secrets[]/…) passes through so
+ * rule evaluation is unchanged, and plaintext secrets never reach Redis or the
+ * compliance service. Recurses so nested secrets are covered too.
+ */
+export function toComplianceAttributes(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(toComplianceAttributes);
+  if (isPlainObject(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (SECRET_MAP_KEYS.has(k) && isPlainObject(v)) {
+        // Preserve keys (compliance reads $keys/$count/presence), redact values.
+        out[k] = Object.fromEntries(Object.keys(v).map((mk) => [mk, REDACTED]));
+      } else if (isSecretScalarKey(k) && typeof v === 'string') {
+        out[k] = REDACTED;
+      } else {
+        out[k] = toComplianceAttributes(v);
+      }
+    }
+    return out;
+  }
+  return value; // primitives, Date, null — untouched
+}
+
 /** Plugin CRUD service with multi-tenant access control. */
 export class PluginService extends CrudService<
   Plugin,
@@ -88,7 +151,12 @@ export class PluginService extends CrudService<
     // the entity's — a cross-org mutation must not inherit the caller's parent.
     const tenant = getTenantContext();
     const parentOrgId = tenant?.orgId === entity.orgId ? tenant?.parentOrgId : undefined;
-    entityEvents.emit({ eventType, target: 'plugin', entityId: id, orgId: entity.orgId, parentOrgId, userId, timestamp: new Date(), attributes: entity });
+    // Project to compliance-safe attributes: the plugin row's `env`/`buildArgs`
+    // maps hold secret VALUES that must never land in Redis / travel to the
+    // compliance service. See toComplianceAttributes — keys are preserved for
+    // rule evaluation, values are redacted.
+    const attributes = toComplianceAttributes(entity) as Record<string, unknown>;
+    entityEvents.emit({ eventType, target: 'plugin', entityId: id, orgId: entity.orgId, parentOrgId, userId, timestamp: new Date(), attributes });
   }
 
   protected async onAfterCreate(entity: Plugin, userId: string): Promise<void> {

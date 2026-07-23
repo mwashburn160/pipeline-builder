@@ -46,10 +46,20 @@ export type AuditAction =
   // of what, when".
   | 'org.member.add'
   | 'org.member.remove'
-  | 'org.member.role.update'
   | 'org.member.deactivate'
   | 'org.member.activate'
   | 'org.ownership.transfer'
+  // Invitation lifecycle (controllers/invitation.ts). `accept` creates a
+  // membership — a self-serve privilege grant / the primary org-join path — so
+  // the whole lifecycle is audited alongside the other membership mutations.
+  // `affectedOrgId` is the invitation's org; `details` carries the invited email/role.
+  | 'invitation.send'
+  | 'invitation.accept'
+  | 'invitation.revoke'
+  | 'invitation.resend'
+  // Active-org context switch (controllers/auth.ts switchOrg) — records which org
+  // the actor pivoted their session into.
+  | 'org.switch'
   // Permission-role assignment mutations (controllers/organization-roles.ts).
   // `affectedOrgId` is the org; `targetId` is the user added/removed; `details`
   // carries the role name + the coarse role it grants. Adding to Admin or
@@ -148,19 +158,36 @@ export type AuditAction =
   | 'pipeline.delete'
   | 'pipeline.execution.start'
   | 'pipeline.execution.cancel'
+  | 'pipeline.registry.register'
+  | 'pipeline.registry.deregister'
   // Plugin lifecycle mutations (api/plugin) — the delete/upload/deploy surface
   // that complements the already-audited builds. Posted to the ingest.
   | 'plugin.delete'
   | 'plugin.upload'
   | 'plugin.deploy'
+  | 'plugin.bulk.update'
+  | 'plugin.bulk.delete'
+  | 'plugin.dlq.purge'
   // Quota administration (api/quota) — superadmin usage-counter reset and tier
   // limit edits. `affectedOrgId` is the org changed.
   | 'quota.reset'
   | 'quota.limit.update'
+  | 'quota.delete'
   // Compliance rule administration (api/compliance) — exemption approval, rule
   // active toggle, and scan cancellation.
   | 'compliance.exemption.approve'
+  | 'compliance.exemption.revoke'
   | 'compliance.rule.toggle'
+  | 'compliance.rule.create'
+  | 'compliance.rule.update'
+  | 'compliance.rule.delete'
+  | 'compliance.policy.create'
+  | 'compliance.policy.update'
+  | 'compliance.policy.delete'
+  | 'compliance.scan-schedule.create'
+  | 'compliance.scan-schedule.update'
+  | 'compliance.scan-schedule.delete'
+  | 'compliance.template.apply'
   | 'compliance.scan.cancel'
   // Image-registry destructive ops (api/image-registry) — GC sweeps + explicit
   // image/tag deletes.
@@ -188,7 +215,7 @@ export type AuditAction =
  * Used by `routes/audit.ts` to validate `POST /audit/events` ingest
  * payloads at runtime (the union itself is erased at runtime).
  */
-const ALL_AUDIT_ACTIONS = [
+export const ALL_AUDIT_ACTIONS = [
   'user.register',
   'user.login',
   'user.login.failed',
@@ -205,10 +232,14 @@ const ALL_AUDIT_ACTIONS = [
   'org.restore',
   'org.member.add',
   'org.member.remove',
-  'org.member.role.update',
   'org.member.deactivate',
   'org.member.activate',
   'org.ownership.transfer',
+  'invitation.send',
+  'invitation.accept',
+  'invitation.revoke',
+  'invitation.resend',
+  'org.switch',
   'org.role.member.add',
   'org.role.member.remove',
   'org.role.create',
@@ -249,13 +280,30 @@ const ALL_AUDIT_ACTIONS = [
   'pipeline.delete',
   'pipeline.execution.start',
   'pipeline.execution.cancel',
+  'pipeline.registry.register',
+  'pipeline.registry.deregister',
   'plugin.delete',
   'plugin.upload',
   'plugin.deploy',
+  'plugin.bulk.update',
+  'plugin.bulk.delete',
+  'plugin.dlq.purge',
   'quota.reset',
   'quota.limit.update',
+  'quota.delete',
   'compliance.exemption.approve',
+  'compliance.exemption.revoke',
   'compliance.rule.toggle',
+  'compliance.rule.create',
+  'compliance.rule.update',
+  'compliance.rule.delete',
+  'compliance.policy.create',
+  'compliance.policy.update',
+  'compliance.policy.delete',
+  'compliance.scan-schedule.create',
+  'compliance.scan-schedule.update',
+  'compliance.scan-schedule.delete',
+  'compliance.template.apply',
   'compliance.scan.cancel',
   'registry.gc',
   'registry.image.delete',
@@ -322,6 +370,21 @@ export interface AuditEventDocument extends Document {
    *  first event in a chain. A missing/re-pointed link reveals a deleted or
    *  reordered row. */
   prevHash?: string | null;
+  /** DEDUP: the stable `Idempotency-Key` the remote-audit client stamps on each
+   *  emission (and reuses across its 5xx/timeout retries). Constrained by a
+   *  UNIQUE SPARSE index so a re-delivered event collides at the DB — even
+   *  across replicas — instead of writing a duplicate row / chain link. Only
+   *  events that carry a key are constrained (sparse skips the rest). */
+  idempotencyKey?: string;
+  /** DISPLAY-ONLY: the ISO-8601 instant the action ACTUALLY happened, as
+   *  stamped by the remote-audit client at emission time. Differs from
+   *  `createdAt` (ingest time) when the client spooled the event through a
+   *  platform outage and re-delivered it later. Stored purely for reviewers;
+   *  it is deliberately NOT the chain-ordering field and is NOT part of the
+   *  tamper-evidence hash — the chain still orders/appends by ingest
+   *  `createdAt`, so a spool-delayed re-delivery chains in ingest order.
+   *  Reviewers fall back to `createdAt` when it is unset. */
+  occurredAt?: Date;
   createdAt: Date;
 }
 
@@ -352,6 +415,13 @@ const auditEventSchema = new Schema<AuditEventDocument>( {
   // `affectedOrgId` always equals the chain key), so no extra index is needed.
   hash: { type: String },
   prevHash: { type: String, default: null },
+  idempotencyKey: { type: String },
+  // DISPLAY-ONLY emission timestamp (see the interface field). A PLAIN stored
+  // field: deliberately NO index — indexing it would invite using it as a
+  // sort/ordering key, but the tamper-evident chain must keep ordering by
+  // ingest `createdAt`. It is not part of the hashed field set either, so a
+  // spool-delayed value never perturbs the chain.
+  occurredAt: { type: Date },
 },
 {
   timestamps: { createdAt: true, updatedAt: false },
@@ -364,6 +434,13 @@ const auditEventSchema = new Schema<AuditEventDocument>( {
 //  the "what did sysadmins do to my org" query filters on affectedOrgId.
 auditEventSchema.index({ orgId: 1, createdAt: -1 });
 auditEventSchema.index({ affectedOrgId: 1, createdAt: -1 });
+
+// DEDUP backstop — UNIQUE + SPARSE on the ingest idempotency key. Sparse so only
+// the (minority of) events that carry a key are constrained; unique so a
+// re-delivered emission (same key) collides at the DB with an E11000, even
+// across replicas, letting the append path treat it as already-stored instead of
+// writing a duplicate row / extending the chain twice.
+auditEventSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
 
 // TTL index — auto-delete events after `config.audit.retentionDays` days
 // (default 90, overridable via AUDIT_RETENTION_DAYS at boot). Reading from

@@ -148,7 +148,7 @@ An **organization** is a self-contained, isolated workspace (your company, busin
 
 A **team** is an organization nested one level under a parent organization (the org → team hierarchy). Nesting is **opt-in** — by default every organization is a flat, top-level root with no teams. A team keeps its own members, roles, quotas, secrets, and billing, but its parent can manage it: a parent-org admin administers its teams (effective RBAC), and plugin-catalog visibility, compliance rules marked *apply to child teams*, shared-root quota caps, and analytics roll down/up the parent ↔ team relationship.
 
-- **RBAC** — access is granted through **Roles**: a Role is a named set of fine-grained `resource:action` permissions (e.g. `pipelines:write`, `members:manage`, `compliance:write`), and a user's effective permissions are the **union of the Roles assigned to them** — there is no separate role-based baseline. Every org seeds built-in Roles (**Admin**, **Member**) and admins can add custom Roles (e.g. "Billing Manager"); the coarse **Owner / Admin / Member** label is *derived* from a user's Roles (Owner via ownership transfer) and governs ownership/seats, not permissions. A global **Super Admin** flag spans everything, and a parent-org admin inherits admin over its teams
+- **RBAC** — access is granted through **Roles**: a Role is a named set of fine-grained `resource:action` permissions (e.g. `pipelines:write`, `plugins:publish`, `members:manage`, `compliance:write`, `reports:rollup`), and a user's effective permissions are the **union of the Roles assigned to them** — there is no separate role-based baseline. Reads and writes are both enforced; `registry:*` is Super-Admin-only. Every org seeds built-in Roles (**Admin**, **Member**) and admins can add custom Roles (e.g. "Billing Manager"); the coarse **Owner / Admin / Member** label is *derived* from a user's Roles (Owner via ownership transfer) and governs ownership/seats, not permissions. A global **Super Admin** flag spans everything, and a parent-org admin inherits admin over its teams. Privilege changes invalidate live sessions (short-TTL tokens + `tokenVersion`). See [Roles & Permissions](docs/permissions.md)
 - **Feature tiers** — Developer, Pro, Team, Enterprise (AI generation, bulk ops, audit log, seats gated by tier), plus stackable [add-on bundles](docs/billing-bundles.md) that raise an account's pooled caps
 - **Per-organization quotas** — nine tracked resource types (`plugins`, `pipelines`, `apiCalls`, `aiCalls`, `storageBytes`, dashboards, alert rules/destinations, IdP configs — AI sized smaller because of external $ cost) plus member `seats`; a parent's caps can be pooled across its teams
 - **Public + private plugins** — publish a plugin to the shared catalog (visible to every organization) or keep it private to yours; a parent's private plugins are visible to its teams
@@ -297,6 +297,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 | Document | Description |
 |----------|-------------|
 | [API Reference](docs/api-reference.md) | REST endpoints, query params, curl examples |
+| [Roles & Permissions](docs/permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Metadata Keys](docs/metadata-keys.md) | 80 typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Template Syntax](docs/templates.md) | `{{ ... }}` interpolation for pipeline configs and plugin specs |
@@ -309,6 +310,7 @@ catalog; see [Post-Deploy: Initialize Platform](docs/README.md#post-deploy-initi
 | [AWS Deployment](docs/aws-deployment.md) | EC2 and EKS deployment guides |
 | [Environment Variables](docs/environment-variables.md) | Full config reference for all services |
 | [Compliance](docs/compliance.md) | Rule engine, validation, audit trail |
+| [Audit Events](docs/audit-events.md) | Tamper-evident audit trail — hash-chain + `/audit/verify`, ingest security, durable spool, action catalog |
 | [Billing Add-on Bundles](docs/billing-bundles.md) | Stackable add-ons that raise an account's pooled caps and unlock features |
 
 ---

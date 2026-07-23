@@ -87,6 +87,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // boot-time `setAuthzDenialAuditor` registration — stubbed so suites that load
     // that graph still link. `record` is a no-op spy; the auditor sink is dropped.
     createRemoteAuditClient: () => ({ record: jest.fn() }),
+    createEnvRedisAuditSpool: () => null,
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
     // Token-revocation reader hooks (session-invalidation option b) — stubbed

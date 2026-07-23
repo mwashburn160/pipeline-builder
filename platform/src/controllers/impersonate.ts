@@ -61,9 +61,15 @@ export const impersonateUser = withController('Impersonate user', async (req, re
   // under the issued token carry the sysadmin in the first-class
   // `impersonatorId` field (auto-captured by the audit helper from
   // `req.user.impersonatorId`).
+  // File the event under the IMPERSONATED user's own org (their active/primary
+  // org) — not the sysadmin's system org — so the target org's admin can see it
+  // in their audit view. Falls back to the actor's org (helper default) only
+  // when the target has no active org yet.
+  const targetOrgId = (target as { lastActiveOrgId?: unknown }).lastActiveOrgId;
   audit(req, 'admin.impersonate.start', {
     targetType: 'user',
     targetId: targetUserId,
+    affectedOrgId: targetOrgId != null ? String(targetOrgId) : undefined,
     details: { expiresIn },
   });
   logger.info('Sysadmin impersonation started', { impersonatorId, targetUserId, expiresIn });

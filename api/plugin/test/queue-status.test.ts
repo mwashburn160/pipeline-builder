@@ -19,13 +19,20 @@ const mockDlqGetJobs = jest.fn();
 // route reads per-tier queues via getAllTierQueues; we expose a
 // single-tier handle so the existing single-mock assertions still hold.
 const mockTierQueue = { name: 'plugin-build', getJobCounts: mockGetJobCounts, getJobs: mockGetJobs };
+const mockPurgeDlq = jest.fn();
 jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   getAllTierQueues: () => [{ tier: 'developer', queue: mockTierQueue }],
   getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: mockDlqGetJobs }),
-  purgeDlq: jest.fn(),
+  purgeDlq: mockPurgeDlq,
   replayDlqJob: jest.fn(),
   findFailedJob: jest.fn(),
   retryFailedJob: jest.fn(),
+}));
+
+const mockEmitPluginAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  emitPluginAudit: mockEmitPluginAudit,
+  getAuditClient: () => ({ record: jest.fn() }),
 }));
 
 // Quota service stub  required by createQueueStatusRoutes since
@@ -210,6 +217,50 @@ describe('queue-status route', () => {
 
       const payload = (json.mock.calls[0])?.[0];
       expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['d-mine']);
+    });
+  });
+
+  describe('DELETE /dlq  purge + audit', () => {
+    function getDlqDeleteHandler() {
+      const router = createQueueStatusRoutes(mockQuotaService);
+      const layer = (router.stack as any[]).find(
+        (l) => l.route?.path === '/dlq' && l.route?.methods?.delete,
+      );
+      return layer?.route?.stack[layer.route.stack.length - 1]?.handle;
+    }
+
+    it('sysadmin purge emits plugin.dlq.purge with the purged count', async () => {
+      (isSystemAdmin as jest.Mock).mockReturnValue(true);
+      mockPurgeDlq.mockResolvedValue(7);
+
+      const handler = getDlqDeleteHandler();
+      const req = { headers: { 'x-org-id': '000000000000000000000001' }, method: 'DELETE', user: { role: 'owner', sub: 'admin-1' } } as any;
+      const json = jest.fn();
+      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
+      await handler(req, res, jest.fn());
+
+      expect(mockPurgeDlq).toHaveBeenCalledWith(mockQuotaService);
+      expect(mockEmitPluginAudit).toHaveBeenCalledTimes(1);
+      expect(mockEmitPluginAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'plugin.dlq.purge',
+          actorId: 'admin-1',
+          details: expect.objectContaining({ purgedCount: 7 }),
+        }),
+      );
+    });
+
+    it('non-sysadmin is rejected 403 and does NOT purge or emit', async () => {
+      (isSystemAdmin as jest.Mock).mockReturnValue(false);
+
+      const handler = getDlqDeleteHandler();
+      const req = { headers: { 'x-org-id': 'org-1' }, method: 'DELETE', user: { role: 'admin' } } as any;
+      const json = jest.fn();
+      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
+      await handler(req, res, jest.fn());
+
+      expect(mockPurgeDlq).not.toHaveBeenCalled();
+      expect(mockEmitPluginAudit).not.toHaveBeenCalled();
     });
   });
 });

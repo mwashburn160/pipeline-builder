@@ -16,6 +16,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { CRON_VALIDATION_HINT, isValidCronExpression } from '../helpers/scan-scheduler.js';
+import { emitComplianceAudit } from '../services/audit.js';
 import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service.js';
 
 /**
@@ -66,6 +67,17 @@ export function createScanScheduleRoutes(): Router {
 
     const schedule = await complianceScanScheduleService.create(orgId, userId, target, cronExpression);
     ctx.log('COMPLETED', 'Created scan schedule', { scheduleId: schedule.id, cronExpression });
+
+    // Best-effort attributed audit — the schedule create succeeded.
+    emitComplianceAudit({
+      action: 'compliance.scan-schedule.create',
+      actorId: userId,
+      orgId,
+      targetType: 'scan-schedule',
+      targetId: schedule.id,
+      details: { target },
+    });
+
     return sendSuccess(res, 201, { schedule });
   }));
 
@@ -87,6 +99,17 @@ export function createScanScheduleRoutes(): Router {
     if (!updated) return sendEntityNotFound(res, 'Scan schedule');
 
     ctx.log('COMPLETED', 'Updated scan schedule', { scheduleId: id });
+
+    // Best-effort attributed audit — the schedule update succeeded.
+    emitComplianceAudit({
+      action: 'compliance.scan-schedule.update',
+      actorId: userId,
+      orgId,
+      targetType: 'scan-schedule',
+      targetId: id,
+      details: { target: updated.target },
+    });
+
     return sendSuccess(res, 200, { schedule: updated });
   }));
 
@@ -104,11 +127,23 @@ export function createScanScheduleRoutes(): Router {
     if (!updated) return sendEntityNotFound(res, 'Scan schedule');
 
     ctx.log('COMPLETED', 'Toggled scan schedule active', { scheduleId: id, isActive: validation.value.isActive });
+
+    // Best-effort attributed audit — there's no separate toggle action, so an
+    // active-state flip is modelled as a schedule update carrying the new state.
+    emitComplianceAudit({
+      action: 'compliance.scan-schedule.update',
+      actorId: userId,
+      orgId,
+      targetType: 'scan-schedule',
+      targetId: id,
+      details: { active: validation.value.isActive },
+    });
+
     return sendSuccess(res, 200, { schedule: updated });
   }));
 
   // DELETE /:id — deactivate/remove a scan schedule
-  router.delete('/:id', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.delete('/:id', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendEntityNotFound(res, 'Scan schedule');
 
@@ -116,6 +151,17 @@ export function createScanScheduleRoutes(): Router {
     if (!deleted) return sendEntityNotFound(res, 'Scan schedule');
 
     ctx.log('COMPLETED', 'Deleted scan schedule', { scheduleId: id });
+
+    // Best-effort attributed audit — the schedule delete succeeded.
+    emitComplianceAudit({
+      action: 'compliance.scan-schedule.delete',
+      actorId: userId,
+      orgId,
+      targetType: 'scan-schedule',
+      targetId: id,
+      details: { target: deleted.target },
+    });
+
     return sendSuccess(res, 200, { schedule: deleted });
   }));
 

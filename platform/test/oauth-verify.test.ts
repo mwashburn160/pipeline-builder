@@ -17,6 +17,8 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindOrCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockIssueTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockAudit = jest.fn();
+const mockIncCounter = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => { res.status(status).json({ success: false, message: msg }); return res; },
@@ -53,6 +55,9 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: (...a: unknown[]) => mockFindOrCreate(...a) },
 }));
+
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
@@ -158,6 +163,19 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
+  it('audits user.login.failed (outcome failure) on a rejected OAuth grant — no secret in details', async () => {
+    const res = makeRes();
+    await (handleCallback as any)({ params: { provider: 'google' }, body: { code: 'c', state: 'forged' } }, res);
+
+    const failed = mockAudit.mock.calls.find((c) => c[1] === 'user.login.failed');
+    expect(failed).toBeDefined();
+    expect(failed![2]).toMatchObject({ outcome: 'failure', details: { provider: 'google', method: 'oauth' } });
+    // Never a successful login, never the failed details carrying a token/state.
+    expect(mockAudit.mock.calls.some((c) => c[1] === 'user.login')).toBe(false);
+    expect(JSON.stringify(failed![2])).not.toContain('forged');
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_logins_failed_total');
+  });
+
   it('rejects (400) a body missing code/state before any exchange', async () => {
     const res = makeRes();
     await (handleCallback as any)({ params: { provider: 'google' }, body: {} }, res);
@@ -178,5 +196,14 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     expect(mockFindOrCreate).toHaveBeenCalledWith('google', expect.objectContaining({ email: 'ok@x.com' }));
     expect(res.status).toHaveBeenCalledWith(200);
     expect((res.json as jest.Mock).mock.calls[0][0]).toMatchObject({ accessToken: 'a' });
+    // Mirrors password login: user.login on success (user is the target), plus
+    // the success counter; no failed-login event fired.
+    expect(mockAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      'user.login',
+      expect.objectContaining({ targetType: 'user', targetId: 'u1' }),
+    );
+    expect(mockAudit.mock.calls.some((c) => c[1] === 'user.login.failed')).toBe(false);
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_logins_total');
   });
 });

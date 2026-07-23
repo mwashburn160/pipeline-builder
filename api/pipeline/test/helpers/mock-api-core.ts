@@ -55,6 +55,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // recorder; suites asserting on emitted audit events mock the audit module
     // (src/services/audit.js) directly instead.
     createRemoteAuditClient: () => ({ record: jest.fn() }),
+    createEnvRedisAuditSpool: () => null,
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
