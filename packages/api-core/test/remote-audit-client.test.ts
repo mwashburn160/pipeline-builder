@@ -20,6 +20,8 @@ jest.unstable_mockModule('../src/utils/logger.js', () => ({
 
 jest.unstable_mockModule('../src/middleware/auth.js', () => ({
   getServiceAuthHeader: jest.fn(() => 'service-token-raw'),
+  // wireAuthzDenialAuditor registers via this; capture the sink for assertions.
+  setAuthzDenialAuditor: jest.fn(),
 }));
 
 // Capture the post() calls made by the client under test.
@@ -28,7 +30,8 @@ jest.unstable_mockModule('../src/services/http-client.js', () => ({
   createSafeClient: () => ({ post: mockPost, get: jest.fn(), put: jest.fn(), delete: jest.fn() }),
 }));
 
-const { createRemoteAuditClient } = await import('../src/services/remote-audit-client.js');
+const { createRemoteAuditClient, wireAuthzDenialAuditor } = await import('../src/services/remote-audit-client.js');
+const { setAuthzDenialAuditor } = await import('../src/middleware/auth.js');
 
 const EVENT = {
   action: 'pipeline.create' as const,
@@ -92,5 +95,38 @@ describe('createRemoteAuditClient.record', () => {
     // Let the rejected promise settle without an unhandled rejection.
     await Promise.resolve();
     await Promise.resolve();
+  });
+});
+
+describe('wireAuthzDenialAuditor', () => {
+  afterEach(() => { jest.clearAllMocks(); });
+
+  it('registers a sink that forwards a failure-outcome authz.denied event to the client', () => {
+    const record = jest.fn();
+    const fakeClient = { record } as any;
+    wireAuthzDenialAuditor('pipeline', () => fakeClient);
+
+    // The helper registered exactly one sink with setAuthzDenialAuditor.
+    expect(setAuthzDenialAuditor).toHaveBeenCalledTimes(1);
+    const sink = (setAuthzDenialAuditor as any).mock.calls[0][0] as (info: any) => void;
+
+    sink({ actorId: 'u-1', actorEmail: 'u@x.io', orgId: 'org-acme', method: 'POST', path: '/pipelines', required: 'pipelines:write' });
+
+    expect(record).toHaveBeenCalledWith({
+      action: 'authz.denied',
+      actorId: 'u-1',
+      actorEmail: 'u@x.io',
+      orgId: 'org-acme',
+      outcome: 'failure',
+      details: { method: 'POST', path: '/pipelines', required: 'pipelines:write' },
+    }, 'pipeline');
+  });
+
+  it('defaults a missing actorId to "anonymous"', () => {
+    const record = jest.fn();
+    wireAuthzDenialAuditor('quota', () => ({ record } as any));
+    const sink = (setAuthzDenialAuditor as any).mock.calls[0][0] as (info: any) => void;
+    sink({ method: 'DELETE', path: '/quotas/x', required: 'system-admin' });
+    expect(record.mock.calls[0][0].actorId).toBe('anonymous');
   });
 });

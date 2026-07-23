@@ -19,7 +19,7 @@ import { decodeJwt } from '@/lib/jwt';
 
 /** User and organization settings page. Manages profile info, AI provider API keys, password changes, and account deletion. */
 export default function SettingsPage() {
-  const { user, isReady, refreshUser, can, isAdmin, isSuperAdmin } = useAuthGuard();
+  const { user, isReady, refreshUser, can, isAdmin, isSuperAdmin, isReadOnly } = useAuthGuard();
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -35,8 +35,9 @@ export default function SettingsPage() {
   };
 
   // Admin/superadmin can mark their email verified directly (no emailed link).
-  // The backend independently gates this to admin/owner/superadmin.
-  const canMarkVerified = isAdmin || isSuperAdmin;
+  // The backend independently gates this to admin/owner/superadmin. `!isReadOnly`
+  // hides it under read-only impersonation (the POST would 403 there).
+  const canMarkVerified = (isAdmin || isSuperAdmin) && !isReadOnly;
   const markVerify = useFormState();
   const handleMarkVerified = async () => {
     await markVerify.run(

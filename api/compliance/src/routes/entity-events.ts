@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, createLogger, requireAuth, isServicePrincipal, validateBody } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, createLogger, requireAuth, requireServicePrincipal, validateBody } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { evaluateEntityEvent } from '../helpers/entity-event-handler.js';
 
@@ -18,20 +18,6 @@ const EntityEventSchema = z.object({
   userId: z.string().optional(),
   attributes: z.record(z.string(), z.unknown()).optional(),
 });
-
-/**
- * Reject any caller that isn't a service principal. `requireAuth` upstream
- * verifies the JWT signature/expiry; this gate then ensures the token came
- * from `signServiceToken` (peer services use `getServiceAuthHeader`) and
- * not a user JWT. A spoofable HTTP header is not sufficient.
- */
-function requireServicePrincipal(req: Request, res: Response, next: NextFunction): void {
-  if (!isServicePrincipal(req)) {
-    sendBadRequest(res, 'Internal service calls only', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    return;
-  }
-  next();
-}
 
 /**
  * Internal endpoint for receiving entity lifecycle events from other services.

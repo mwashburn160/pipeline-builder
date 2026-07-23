@@ -26,6 +26,30 @@ export const loggerMock = () => ({
 /** Mirrors api-core: `ErrorCode.ANY_CODE` resolves to the string `'ANY_CODE'`. */
 const ErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<string, string>;
 
+/**
+ * Behavioral stub for api-core's `requirePermission` / `requirePermissionOrService`
+ * gate factories. Returns a tagged Express middleware that:
+ *   - passes a superadmin (implicit-all) and any user holding one of `permissions`,
+ *   - when `allowService`, also passes a `service:*` principal with no permission,
+ *   - otherwise 403s (and never calls next).
+ * The `__permission` / `__allowService` tags let suites locate the gate layer in a
+ * router stack and assert which flavor was mounted.
+ */
+function permissionGate(permissions: string[], allowService: boolean) {
+  const gate = (req: any, res: any, next: any) => {
+    const user = req?.user;
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const isService = typeof user.sub === 'string' && user.sub.startsWith('service:');
+    if (allowService && isService) return next();
+    const held: string[] = Array.isArray(user.permissions) ? user.permissions : [];
+    if (user.isSuperAdmin === true || permissions.some((p) => held.includes(p))) return next();
+    return res.status(403).json({ error: `Missing required permission: ${permissions.join(' or ')}` });
+  };
+  (gate as any).__permission = permissions.join(' or ');
+  (gate as any).__allowService = allowService;
+  return gate;
+}
+
 /** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
 class NotFoundError extends Error {
   statusCode = 404;
@@ -43,6 +67,11 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    // RBAC read-permission gate factories. Behavioral so gate suites can assert
+    // 403-vs-pass; provided by default so read-quotas.ts (which now imports both)
+    // links in every suite. Handler-only suites skip these middleware layers.
+    requirePermission: (...permissions: string[]) => permissionGate(permissions, false),
+    requirePermissionOrService: (...permissions: string[]) => permissionGate(permissions, true),
     SYSTEM_ORG_ID: '000000000000000000000001',
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
@@ -59,6 +88,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // that graph still link. `record` is a no-op spy; the auditor sink is dropped.
     createRemoteAuditClient: () => ({ record: jest.fn() }),
     setAuthzDenialAuditor: () => {},
+    wireAuthzDenialAuditor: () => {},
     // Token-revocation reader hooks (session-invalidation option b) — stubbed
     // for parity so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},

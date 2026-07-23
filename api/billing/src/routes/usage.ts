@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, requireAuth, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, requirePermission, sendSuccess } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
@@ -29,7 +29,7 @@ const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 export function createUsageRoutes(): Router {
   const router: Router = Router();
 
-  router.get('/usage', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.get('/usage', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const authHeader = req.headers.authorization || '';
 
     // Subscription is optional — free / unsubscribed orgs still get a usage

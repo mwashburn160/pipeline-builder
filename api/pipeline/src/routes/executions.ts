@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  requirePermission,
   sendSuccess,
   sendBadRequest,
   sendError,
@@ -10,7 +11,7 @@ import {
   getParam,
   validateBody,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { emitPipelineAudit } from '../services/audit.js';
@@ -44,12 +45,17 @@ function awsDetail(err: unknown): Record<string, unknown> | undefined {
  * - POST /:pipelineId/executions               — start a new execution (202).
  * - POST /:pipelineId/executions/:executionId/stop — stop an in-flight execution.
  *
- * Gated by `pipelines:write` at the mount point in index.ts.
+ * Each route owns its auth + orgId + `pipelines:write` guard chain so the parent
+ * can mount this router plainly on the shared '/pipelines' prefix without the
+ * write permission leaking onto sibling reads.
  */
 export function createExecutionRoutes(): Router {
   const router = Router();
 
-  router.post('/:pipelineId/executions', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // Auth + orgId, then require the write permission. Shared by both POST routes.
+  const writeGuards = [...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write')];
+
+  router.post('/:pipelineId/executions', ...writeGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const pipelineId = getParam(req.params, 'pipelineId');
     if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -86,7 +92,7 @@ export function createExecutionRoutes(): Router {
     }
   }));
 
-  router.post('/:pipelineId/executions/:executionId/stop', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:pipelineId/executions/:executionId/stop', ...writeGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const pipelineId = getParam(req.params, 'pipelineId');
     const executionId = getParam(req.params, 'executionId');
     if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);

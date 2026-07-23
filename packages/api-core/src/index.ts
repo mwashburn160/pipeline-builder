@@ -7,7 +7,7 @@
  * Core API utilities shared across all services.
  *
  * **Middleware**
- * - requireAuth, requireAdmin, requireSystemAdmin, requireFeature — JWT authentication
+ * - requireAuth, requireSystemAdmin, requireFeature — JWT authentication
  * - isSystemAdmin, isServicePrincipal — authorization helpers (isSystemOrgId remains as a content-owner check, not a privilege gate)
  * - signServiceToken, getServiceAuthHeader — inter-service JWT minting
  *

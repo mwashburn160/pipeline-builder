@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess, resolveUserFeatures } from '@pipeline-builder/api-core';
-import type { FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
+import type { TokenScope, FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
 import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
@@ -243,12 +243,13 @@ export const generateToken = withController('Generate token', async (req, res) =
     }
   }
 
-  let scope: string | undefined;
+  let scope: TokenScope | undefined;
   if (req.body?.scope !== undefined) {
     if (typeof req.body.scope !== 'string' || !ALLOWED_TOKEN_SCOPES.has(req.body.scope)) {
       return sendError(res, 400, `scope must be one of: ${[...ALLOWED_TOKEN_SCOPES].join(', ')}`, 'INVALID_TOKEN_SCOPE');
     }
-    scope = req.body.scope;
+    // Validated against ALLOWED_TOKEN_SCOPES (⊆ TokenScope), so the cast is sound.
+    scope = req.body.scope as TokenScope;
   }
 
   const user = await userProfileService.findForTokenIssue(userId);

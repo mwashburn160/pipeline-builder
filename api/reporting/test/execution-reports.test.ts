@@ -37,6 +37,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       : { error: 'interval must be one of: day, week, month' };
   }),
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
+  userHasPermission: jest.fn((req: any, perm: string) =>
+    req?.user?.isSuperAdmin === true || (req?.user?.permissions ?? []).includes(perm)),
   parseQueryIntClamped: jest.fn((val: any, def: number, max: number) =>
     Math.min(Math.max(1, parseInt(String(val ?? def), 10) || def), max)),
   validateBulkArray: jest.fn((value: any, _name: string, max?: number) =>
@@ -148,22 +150,33 @@ describe('Execution Report Routes', () => {
     });
   });
 
-  // SECURITY: ?includeDescendants rollup is admin-only — members get no
-  // inherited downward visibility into their teams.
+  // SECURITY: ?includeDescendants rollup requires the `reports:rollup`
+  // capability (built-in Admin/Owner + superadmin; grantable to a custom Role) —
+  // callers without it get no inherited downward visibility into their teams.
   describe('rollup auth gate (?includeDescendants)', () => {
-    it('resolves descendants for an org admin', async () => {
+    it('resolves descendants for a caller holding reports:rollup', async () => {
       mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
       mockGetExecutionCount.mockResolvedValue([]);
       const handler = getHandler('/count');
-      await handler({ query: { includeDescendants: 'true' }, user: { role: 'admin' } }, {});
+      await handler({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
       expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
       expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', ['acme', 'team-child']);
     });
 
-    it('ignores the flag for a member (single-org report, no rollup)', async () => {
+    it('resolves descendants for a superadmin (implicit-all)', async () => {
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
       mockGetExecutionCount.mockResolvedValue([]);
       const handler = getHandler('/count');
-      await handler({ query: { includeDescendants: 'true' }, user: { role: 'member' } }, {});
+      await handler({ query: { includeDescendants: 'true' }, user: { isSuperAdmin: true } }, {});
+      expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
+    });
+
+    it('ignores the flag without reports:rollup (single-org report, no rollup)', async () => {
+      mockGetExecutionCount.mockResolvedValue([]);
+      const handler = getHandler('/count');
+      // A coarse admin label with permissions that do NOT include reports:rollup
+      // no longer rolls up — the label alone grants nothing.
+      await handler({ query: { includeDescendants: 'true' }, user: { role: 'admin', permissions: ['reports:read'] } }, {});
       expect(mockResolveOrgRollup).not.toHaveBeenCalled();
       expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', undefined);
     });
@@ -190,14 +203,15 @@ describe('Execution Report Routes', () => {
       expect(sendSuccess).toHaveBeenCalled();
     });
 
-    // ORG-SCOPING: an admin's ?includeDescendants rollup passes the resolved
-    // org→team subtree as `orgIds`; the service's `IN (...)` predicate then
-    // bounds the query to those orgs, so another org's executions are excluded.
-    it('scopes to the org subtree for an admin rollup', async () => {
+    // ORG-SCOPING: a reports:rollup holder's ?includeDescendants rollup passes
+    // the resolved org→team subtree as `orgIds`; the service's `IN (...)`
+    // predicate then bounds the query to those orgs, so another org's executions
+    // are excluded.
+    it('scopes to the org subtree for a reports:rollup holder', async () => {
       mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
       mockListPipelineExecutions.mockResolvedValue([]);
       const handler = getHandler('/list');
-      await handler({ query: { pipelineId: 'p1', includeDescendants: 'true' }, user: { role: 'admin' } }, {});
+      await handler({ query: { pipelineId: 'p1', includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
       expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
       expect(mockListPipelineExecutions).toHaveBeenCalledWith(
         'acme', 'p1', ['acme', 'team-child'], expect.any(Object), expect.any(Number),

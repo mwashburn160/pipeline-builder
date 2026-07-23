@@ -11,6 +11,8 @@ import {
   reserveQuota,
   decrementQuota,
   getServiceAuthHeader,
+  requireFeature,
+  requirePermission,
   validateBulkArray,
   PipelineCreateSchema,
   PipelineUpdateSchema,
@@ -20,7 +22,7 @@ import {
   AccessModifier,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { validatePipelineTemplates, type PipelineLike } from '../helpers/pipeline-template-validator.js';
@@ -31,13 +33,25 @@ const complianceClient = createComplianceClient();
 
 /**
  * Register bulk operation routes for pipelines.
- * Requires auth + orgId middleware applied at the parent level.
+ *
+ * Each route owns its full guard chain (auth + orgId, then
+ * `requirePermission('pipelines:write')` + `requireFeature('bulk_operations')`)
+ * so the parent can mount this router plainly on the shared '/pipelines' prefix
+ * without the write-permission / feature guards leaking onto sibling reads.
  */
 export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
+  // Guard chain shared by every bulk write route: authenticate + resolve orgId,
+  // then require the write permission and the bulk_operations feature.
+  const bulkGuards = [
+    ...createAuthenticatedWithOrgRoute(),
+    requirePermission('pipelines:write'),
+    requireFeature('bulk_operations'),
+  ];
+
   /** POST /pipelines/bulk/create — Create multiple pipelines in one request */
-  router.post('/bulk/create', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk/create', ...bulkGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<unknown>(req.body?.pipelines, 'pipelines', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     const pipelines = bulk.value;
@@ -78,7 +92,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         continue;
       }
 
-      const accessModifier = resolveAccessModifier(req, body.accessModifier);
+      const accessModifier = resolveAccessModifier(req, body.accessModifier, 'pipelines:publish');
       const project = replaceNonAlphanumeric(body.project, '_').toLowerCase();
       const organization = replaceNonAlphanumeric(body.organization, '_').toLowerCase();
 
@@ -169,7 +183,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   }));
 
   /** POST /pipelines/bulk/delete — Soft-delete multiple pipelines by ID */
-  router.post('/bulk/delete', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk/delete', ...bulkGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     const ids = bulk.value;
@@ -213,7 +227,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   }));
 
   /** PUT /pipelines/bulk/update — Update multiple pipelines with the same data */
-  router.put('/bulk/update', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/bulk/update', ...bulkGuards, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     const ids = bulk.value;
@@ -268,7 +282,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       isActive: validData.isActive,
       isDefault: validData.isDefault,
       ...(validData.accessModifier !== undefined
-        ? { accessModifier: resolveAccessModifier(req, validData.accessModifier) }
+        ? { accessModifier: resolveAccessModifier(req, validData.accessModifier, 'pipelines:publish') }
         : {}),
     });
 

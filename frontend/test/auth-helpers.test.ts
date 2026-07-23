@@ -38,21 +38,30 @@ describe('isMutationPermission', () => {
     expect(isMutationPermission('org:settings')).toBe(true);
   });
 
-  it('treats :read permissions as non-mutations', () => {
+  it('treats :read and :rollup permissions as non-mutations', () => {
     expect(isMutationPermission('pipelines:read')).toBe(false);
     expect(isMutationPermission('reports:read')).toBe(false);
     expect(isMutationPermission('quotas:read')).toBe(false);
     expect(isMutationPermission('billing:read')).toBe(false);
+    // reports:rollup is a read-visibility scope (a GET affordance), not a write.
+    expect(isMutationPermission('reports:rollup')).toBe(false);
+  });
+
+  it('treats :publish permissions as mutations', () => {
+    // Publishing makes an entity public — a write, disabled under read-only.
+    expect(isMutationPermission('pipelines:publish')).toBe(true);
+    expect(isMutationPermission('plugins:publish')).toBe(true);
   });
 
   // Every catalog id must classify one way or the other, and the two classes
   // must partition the catalog exactly (no id both read AND write). This keeps
-  // the classifier honest as the catalog grows.
+  // the classifier honest as the catalog grows. Read-class verbs are `:read`
+  // (view) and `:rollup` (view scope); everything else is a mutation.
   it('classifies every catalog permission as read xor write', () => {
     for (const { id } of PERMISSION_CATALOG) {
       const isWrite = isMutationPermission(id);
-      const looksRead = id.endsWith(':read');
-      // A :read id must never be a mutation; a non-:read id must be a mutation.
+      const looksRead = id.endsWith(':read') || id.endsWith(':rollup');
+      // A read-class id must never be a mutation; any other id must be a mutation.
       expect(isWrite).toBe(!looksRead);
     }
   });

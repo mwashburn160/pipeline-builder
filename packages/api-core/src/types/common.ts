@@ -2,6 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Permission } from './permissions.js';
+import type { QuotaTier } from './quota-tiers.js';
+
+/**
+ * Capability scope catalog for machine/automation tokens. A scoped token carries
+ * exactly one of these instead of role-based permissions; endpoints that accept a
+ * scoped identity check it via `hasScope`. Kept a closed union (mirroring
+ * {@link Permission}) so a typo on either the mint or the check side is a compile
+ * error. Add a value here when introducing a new scoped-token surface.
+ */
+export type TokenScope = 'reporting:ingest';
 
 /**
  * Quota type identifiers.
@@ -196,8 +206,8 @@ export interface JwtPayload {
    * during the rollout; new users should be granted via `isSuperAdmin`.
    */
   isSuperAdmin?: boolean;
-  /** Organization's quota tier ('developer' | 'pro' | 'team' | 'enterprise') */
-  tier?: string;
+  /** Organization's quota tier. */
+  tier?: QuotaTier;
   /** Resolved feature flags for this user/org */
   features?: string[];
   /**
@@ -206,7 +216,7 @@ export interface JwtPayload {
    * that accept a scoped identity check this (see `hasScope`) instead of role;
    * a scoped token is minted with minimal role for least-privilege.
    */
-  scope?: string;
+  scope?: TokenScope;
   /** Active organization ID (from UserOrganization membership) */
   organizationId?: string;
   /** Active organization name */

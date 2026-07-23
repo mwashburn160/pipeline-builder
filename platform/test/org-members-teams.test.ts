@@ -26,6 +26,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 // focused on the membership writes (and avoid loading the real roles-service).
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
+  assignBuiltinAdminRole: jest.fn(async () => true),
+  recomputeUserOrgRole: jest.fn(async () => undefined),
 }));
 
 jest.unstable_mockModule('mongoose', () => {

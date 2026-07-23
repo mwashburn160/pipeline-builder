@@ -19,6 +19,8 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockUoFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserUpdateMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockAssignBuiltinAdminRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockRecomputeUserOrgRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
@@ -33,7 +35,11 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
   seatCapacityStillWithinCap: jest.fn(async () => true),
 }));
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined) }));
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({
+  ensureBaselineRole: jest.fn(async () => undefined),
+  assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),
+  recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
+}));
 
 // Run the transaction body inline with a fake session (no live Mongo).
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
@@ -60,6 +66,8 @@ const sessionResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc
 beforeEach(() => {
   jest.clearAllMocks();
   mockUserUpdateMany.mockResolvedValue(undefined);
+  mockAssignBuiltinAdminRole.mockResolvedValue(true);
+  mockRecomputeUserOrgRole.mockResolvedValue(undefined);
 });
 
 describe('OrgMembersService.transferOwnership', () => {
@@ -85,6 +93,18 @@ describe('OrgMembersService.transferOwnership', () => {
     const bump = mockUserUpdateMany.mock.calls.find((c) => (c[1] as any)?.$inc?.tokenVersion === 1);
     expect(bump).toBeDefined();
     expect((bump![0] as any)._id.$in).toEqual(['old-owner', 'new-owner']);
+
+    // Single-source RBAC: the new owner (promoted from member) is granted the
+    // built-in Admin Role so 'owner' resolves to admin-level PERMISSIONS.
+    expect(mockAssignBuiltinAdminRole).toHaveBeenCalledTimes(1);
+    expect((mockAssignBuiltinAdminRole.mock.calls[0] as any)[0]).toBe('new-owner');
+    expect((mockAssignBuiltinAdminRole.mock.calls[0] as any)[1]).toBe('org-1');
+  });
+
+  it('does not grant the Admin Role when a precondition fails (no membership write)', async () => {
+    mockOrgFindById.mockReturnValue(sessionResolving(null));
+    await expect(orgMembersService.transferOwnership('ghost', 'new-owner')).rejects.toThrow(OM_ORG_NOT_FOUND);
+    expect(mockAssignBuiltinAdminRole).not.toHaveBeenCalled();
   });
 
   it('throws when the org does not exist (no token bump)', async () => {

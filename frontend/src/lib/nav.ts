@@ -58,11 +58,14 @@ export interface NavSection {
   items: NavItem[];
 }
 
-export const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; color: string }[] = [
+export const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; color: string; requiredPermission?: string }[] = [
   // `?create=1` makes the target page open its create modal on arrival, so these
   // genuinely start a create flow rather than just navigating to the list.
-  { href: '/dashboard/pipelines?create=1', label: 'Create Pipeline', icon: Plus, color: 'bg-blue-600' },
-  { href: '/dashboard/plugins?create=1', label: 'Add Plugin', icon: Plus, color: 'bg-amber-500' },
+  // `requiredPermission` hides the action for users who can't perform the write
+  // (and it's read-only-impersonation-aware via `can()` at the render site) —
+  // otherwise a read-only member would land on a create modal that then 403s.
+  { href: '/dashboard/pipelines?create=1', label: 'Create Pipeline', icon: Plus, color: 'bg-blue-600', requiredPermission: 'pipelines:write' },
+  { href: '/dashboard/plugins?create=1', label: 'Add Plugin', icon: Plus, color: 'bg-amber-500', requiredPermission: 'plugins:write' },
   { href: '/dashboard/downloads', label: 'Get the CLI', icon: Download, color: 'bg-green-600' },
 ];
 
@@ -71,7 +74,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Overview',
     items: [
       { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-      { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
+      { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare, requiredPermission: 'messages:read' },
     ],
   },
   {
@@ -84,7 +87,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Insights',
     items: [
-      { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart },
+      { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart, requiredPermission: 'reports:read' },
       // Per-pipeline run health (was only reachable from the home card).
       { title: 'Executions', href: '/dashboard/executions', icon: Activity },
       { title: 'Logs', href: '/dashboard/logs', icon: ScrollText },

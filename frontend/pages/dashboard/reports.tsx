@@ -61,7 +61,7 @@ const PLUGIN_TABS: { id: PluginSubTab; label: string }[] = [
 
 // ─── Page ───────────────────────────────────────────────
 export default function ReportsPage() {
-  const { user, isReady, isAuthenticated } = useAuthGuard();
+  const { user, isReady, isAuthenticated } = useAuthGuard({ requirePermission: 'reports:read' });
   const router = useRouter();
 
   const [topTab, setTopTab] = useState<TopTab>('pipelines');

@@ -9,6 +9,7 @@ import {
   ErrorCode,
   getParam,
   parsePaginationParams,
+  requirePermission,
   validateBody,
   validateQuery,
 } from '@pipeline-builder/api-core';
@@ -66,8 +67,9 @@ export function createScanRoutes(): Router {
     return sendSuccess(res, 200, { scan });
   }));
 
-  // POST / — trigger a new scan
-  router.post('/', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // POST / — trigger a new scan. Launches a full org-wide re-evaluation, so it
+  // is a heavy write and gated on compliance:write like every other mutation.
+  router.post('/', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ScanCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -84,8 +86,8 @@ export function createScanRoutes(): Router {
     return sendSuccess(res, 201, { scan });
   }));
 
-  // POST /:id/cancel — cancel a running scan
-  router.post('/:id/cancel', withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // POST /:id/cancel — cancel a running scan (mutation → compliance:write)
+  router.post('/:id/cancel', requirePermission('compliance:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Scan ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

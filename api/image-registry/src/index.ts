@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, requireAuth, setAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext } from '@pipeline-builder/api-server';
 
 import { config } from './config/index.js';
@@ -20,16 +20,7 @@ const logger = createLogger('pipeline-image-registry');
 // `record` never throws, and the gate wraps this call in try/catch regardless.
 // (Routes gated purely by bearer-token scopes don't route through the gate, so
 // this simply never fires for those — registering it is still correct.)
-setAuthzDenialAuditor((info) => {
-  getAuditClient().record({
-    action: 'authz.denied',
-    actorId: info.actorId ?? 'anonymous',
-    ...(info.actorEmail && { actorEmail: info.actorEmail }),
-    ...(info.orgId && { orgId: info.orgId }),
-    outcome: 'failure',
-    details: { method: info.method, path: info.path, required: info.required },
-  }, 'image-registry');
-});
+wireAuthzDenialAuditor('image-registry', getAuditClient);
 
 // Reject tokens whose tokenVersion is behind the platform-published value once
 // Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.

@@ -74,7 +74,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         dockerfile, accessModifier: rawAccess,
       } = validation.value;
 
-      const accessModifier = resolveAccessModifier(req, rawAccess || 'private');
+      const accessModifier = resolveAccessModifier(req, rawAccess || 'private', 'plugins:publish');
 
       // Validate buildArgs (throws ValidationError → handled by withRoute)
       validateBuildArgs(buildArgs);

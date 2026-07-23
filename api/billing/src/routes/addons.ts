@@ -111,7 +111,7 @@ export function createAddonRoutes(): Router {
   }
 
   // GET /billing/bundles — the add-on catalog filtered to the account's tier
-  router.get('/bundles', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ res, orgId }) => {
+  router.get('/bundles', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
     if (!bundlesEnabled()) return sendSuccess(res, 200, { bundles: [], selfService: false });
     const loaded = await loadSubAndPlan(orgId);
     const tier = loaded?.plan.tier;

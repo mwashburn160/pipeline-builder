@@ -8,6 +8,7 @@ import {
   errorMessage,
   handleAIError,
   initSSEStream,
+  requireFeature,
   reserveQuota,
   runConcurrent,
   sendBadRequest,
@@ -82,6 +83,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.get( '/providers',
     ...createAuthenticatedWithOrgRoute(),
+    requireFeature('ai_generation'),
     withRoute(async ({ res }) => {
       const providers = getAvailableProviders();
       return sendSuccess(res, 200, { providers });
@@ -97,6 +99,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.post( '/generate',
     ...createAuthenticatedWithOrgRoute(),
+    requireFeature('ai_generation'),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const validation = validateBody(req, AIGenerateBodySchema);
       if (!validation.ok) {
@@ -167,6 +170,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.post( '/generate/stream',
     ...createAuthenticatedWithOrgRoute(),
+    requireFeature('ai_generation'),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const validation = validateBody(req, AIGenerateBodySchema);
       if (!validation.ok) {
@@ -258,6 +262,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.post( '/generate/from-url/stream',
     ...createAuthenticatedWithOrgRoute(),
+    requireFeature('ai_generation'),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const validation = validateBody(req, AIGenerateFromUrlBodySchema);
       if (!validation.ok) {

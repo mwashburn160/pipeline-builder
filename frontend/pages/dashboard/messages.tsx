@@ -46,7 +46,7 @@ function EmptyChat() {
 
 /** Message inbox page. Displays conversations in a split-panel layout with compose, thread view, and unread tracking. */
 export default function MessagesPage() {
-  const { user, isReady, isSuperAdmin, can, isReadOnly } = useAuthGuard();
+  const { user, isReady, isSuperAdmin, can, isReadOnly } = useAuthGuard({ requirePermission: 'messages:read' });
   // `messages:write` unlocks full compose (address other orgs/teams directly)
   // vs. the support-only contact form. Broadcast-to-all-orgs announcements stay
   // sysadmin-only (see ComposeModal `isSuperAdmin`). Role-admins hold the perm.

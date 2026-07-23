@@ -6,7 +6,7 @@ import {
   sendBadRequest,
   ErrorCode,
   getParam,
-  requireSystemAdmin,
+  requirePermission,
   createLogger,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -36,7 +36,10 @@ const GcSchema = z.object({
 });
 
 /**
- * Admin endpoints — storage rollup + manual GC. All sysadmin-gated.
+ * Admin endpoints — storage rollup + manual GC. Both gated on the
+ * `registry:write` permission (a superadmin-only capability today; nobody else
+ * holds it), applied per-route via `requirePermission`. `requireAuth` runs at
+ * mount time (see src/index.ts) so `req.user` is always populated here.
  *
  * Routes:
  *  - GET  /api/admin/storage/:prefix   — rollup bytes for one namespace
@@ -47,7 +50,7 @@ export function createAdminRoutes(): Router {
 
   // GET /api/admin/storage/:prefix — per-namespace storage rollup.
   // Cached for 60s (see storage-usage.ts).
-  router.get('/storage/:prefix', requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.get('/storage/:prefix', requirePermission('registry:write') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const raw = getParam(req.params, 'prefix');
     if (!raw) return sendBadRequest(res, 'prefix is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const prefix = normalizePrefix(raw);
@@ -60,7 +63,7 @@ export function createAdminRoutes(): Router {
 
   // POST /api/admin/gc — prune old manifests under a repo namespace.
   // Body: { prefix: 'org-acme/', maxAgeDays: 30, dryRun: false }
-  router.post('/gc', requireSystemAdmin as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.post('/gc', requirePermission('registry:write') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const parsed = GcSchema.safeParse(req.body);
     if (!parsed.success) {
       const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');

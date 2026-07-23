@@ -4,8 +4,10 @@
 import {
   requireAuth,
   isSystemAdmin,
+  isServicePrincipal,
   NotFoundError,
   sendSuccess,
+  sendError,
   sendBadRequest,
   sendQuotaExceeded,
   ErrorCode,
@@ -127,6 +129,13 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     requireAuth(INTERNAL_AUTH_OPTS) as RequestHandler,
     authorizeOrg() as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
+      // Internal service-to-service only: authorizeOrg() admits any same-org
+      // member, which would let a member inflate their own usage counters and
+      // defeat caps. Require a signed service principal or a system admin.
+      if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
+        return sendError(res, 403, 'This endpoint is restricted to internal service callers.', ErrorCode.INSUFFICIENT_PERMISSIONS);
+      }
+
       const targetOrgId = getParam(req.params, 'orgId')!;
 
       const validation = validateBody(req, IncrementQuotaSchema);
@@ -175,6 +184,13 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     requireAuth(INTERNAL_AUTH_OPTS) as RequestHandler,
     authorizeOrg() as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
+      // Internal service-to-service only: authorizeOrg() admits any same-org
+      // member, which would let a member roll back their own usage counters and
+      // defeat caps. Require a signed service principal or a system admin.
+      if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
+        return sendError(res, 403, 'This endpoint is restricted to internal service callers.', ErrorCode.INSUFFICIENT_PERMISSIONS);
+      }
+
       const targetOrgId = getParam(req.params, 'orgId')!;
 
       const validation = validateBody(req, DecrementQuotaSchema);

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, getParam, isSystemAdmin, parseQueryInt, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { ErrorCode, getParam, isSystemAdmin, parseQueryInt, requirePermission, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -117,20 +117,14 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * build queue from its retained job data. Mirrors /dlq/:jobId/replay but
    * sources from the per-tier failed set (distinct from the DLQ).
    *
-   * Visibility:
+   * Access: gated by `requirePermission('plugins:write')` (route middleware).
    * - System admins: can retry any failed job.
-   * - Org admins/owners: can retry only jobs that belong to their own org.
-   * - All other users: 403.
+   * - Callers with plugins:write: can retry only jobs that belong to their own org.
    *
    * Returns 404 if no failed job with that id exists. The retry carries fresh
    * retry counters; the original failed entry is removed on success.
    */
-  router.post('/failed/:jobId/retry', withRoute(async ({ req, res, ctx, orgId }) => {
-    const role = req.user?.role;
-    if (role !== 'admin' && role !== 'owner') {
-      return sendError(res, 403, 'Only administrators can retry failed builds', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  router.post('/failed/:jobId/retry', requirePermission('plugins:write'), withRoute(async ({ req, res, ctx, orgId }) => {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -200,19 +194,14 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   /**
    * POST /dlq/:jobId/replay  re-enqueue a single DLQ job onto the main build queue.
    *
-   * Visibility   * - System admins: can replay any job.
-   * - Org admins/owners: can replay jobs that belong to their own org.
-   * - All other users: 403.
+   * Access: gated by `requirePermission('plugins:write')` (route middleware).
+   * - System admins: can replay any job.
+   * - Callers with plugins:write: can replay jobs that belong to their own org.
    *
    * Returns 404 if the DLQ job no longer exists. The replay carries fresh retry
    * counters; the original DLQ entry is removed on success.
    */
-  router.post('/dlq/:jobId/replay', withRoute(async ({ req, res, ctx, orgId }) => {
-    const role = req.user?.role;
-    if (role !== 'admin' && role !== 'owner') {
-      return sendError(res, 403, 'Only administrators can replay DLQ jobs', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  router.post('/dlq/:jobId/replay', requirePermission('plugins:write'), withRoute(async ({ req, res, ctx, orgId }) => {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

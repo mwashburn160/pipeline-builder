@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, registerComplianceEventSubscriber, requireFeature, requirePermission, setAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, registerComplianceEventSubscriber, requirePermission, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { runMigrations } from '@pipeline-builder/pipeline-data';
 
@@ -19,17 +19,8 @@ const logger = createLogger('pipeline');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
-// -- Failed-authorization auditor (#5) ----------------------------------------
-// Forward denials from the shared requirePermission / requireSystemAdmin gate to
-// platform's audit ingest as `authz.denied`, best-effort (the gate try/catches).
-setAuthzDenialAuditor((info) => getAuditClient().record({
-  action: 'authz.denied',
-  actorId: info.actorId ?? 'anonymous',
-  actorEmail: info.actorEmail,
-  orgId: info.orgId,
-  outcome: 'failure',
-  details: { method: info.method, path: info.path, required: info.required },
-}, 'pipeline'));
+// Forward denied (non-GET) requests to the shared authz.denied audit sink.
+wireAuthzDenialAuditor('pipeline', getAuditClient);
 
 // Reject tokens whose tokenVersion is behind the platform-published value once
 // Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.
@@ -43,21 +34,27 @@ app.use(attachRequestContext(sseManager));
 //    read routes' apiCalls quota check unnecessarily.
 app.use('/pipelines', createCreatePipelineRoutes(quotaService));
 
-// -- AI generation routes — auth + orgId + ai_generation feature gate --------
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requireFeature('ai_generation'), createGeneratePipelineRoutes(quotaService));
+// -- AI generation routes — mounted plainly. Each route owns its auth + orgId +
+//    ai_generation feature gate (see generate-pipeline.ts), so the feature guard
+//    can't leak onto sibling reads under the shared '/pipelines' prefix.
+app.use('/pipelines', createGeneratePipelineRoutes(quotaService));
 
 // -- Registry route — must be BEFORE read routes so `/registry` doesn't get
 //    swallowed by read's `/:id` matcher (would 404 with "Pipeline not found.")
 app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), createRegistryRoutes());
 
-// -- Bulk routes — auth + orgId + bulk_operations feature gate ---------------
-//    Also before read routes — `/bulk/create` must not hit `/:id`.
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireFeature('bulk_operations'), createBulkPipelineRoutes(quotaService));
+// -- Bulk routes — mounted plainly. Each route owns its auth + orgId +
+//    pipelines:write + bulk_operations feature gate (see bulk-pipeline.ts), so
+//    those guards can't leak onto sibling reads. Still before read routes —
+//    `/bulk/create` must not hit `/:id`.
+app.use('/pipelines', createBulkPipelineRoutes(quotaService));
 
 // -- Execution write routes (trigger / cancel via AWS CodePipeline) ----------
-//    auth + orgId + pipelines:write. POST-only paths (`/:pipelineId/executions`
-//    and `.../:executionId/stop`) — won't collide with the read GET `/:id`.
-app.use('/pipelines', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), createExecutionRoutes());
+//    Mounted plainly. Each POST-only route owns its auth + orgId +
+//    pipelines:write gate (see executions.ts), so the write permission can't
+//    leak onto sibling reads. Paths (`/:pipelineId/executions` and
+//    `.../:executionId/stop`) won't collide with the read GET `/:id`.
+app.use('/pipelines', createExecutionRoutes());
 
 // -- Read routes (list, find, get-by-id) — auth + orgId + apiCalls quota ------
 app.use('/pipelines', ...createProtectedRoute(quotaService, 'apiCalls'), createReadPipelineRoutes(quotaService));

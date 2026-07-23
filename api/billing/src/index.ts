@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, ErrorCode, mongoSanitize, setAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, sendError, ErrorCode, mongoSanitize, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -21,18 +21,9 @@ import { getAuditClient } from './services/audit.js';
 
 const logger = createLogger('billing');
 
-// -- Failed-authorization auditor (#5) ----------------------------------------
-// Forward denials from the shared requirePermission / requireSystemAdmin gate to
-// platform's audit ingest as `authz.denied`, best-effort (the gate try/catches).
+// Forward denied (non-GET) requests to the shared authz.denied audit sink.
 // Registered unconditionally — harmless in disabled mode (no gated routes fire).
-setAuthzDenialAuditor((info) => getAuditClient().record({
-  action: 'authz.denied',
-  actorId: info.actorId ?? 'anonymous',
-  actorEmail: info.actorEmail,
-  orgId: info.orgId,
-  outcome: 'failure',
-  details: { method: info.method, path: info.path, required: info.required },
-}, 'billing'));
+wireAuthzDenialAuditor('billing', getAuditClient);
 
 // Reject tokens whose tokenVersion is behind the platform-published value once
 // Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.

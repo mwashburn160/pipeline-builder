@@ -84,7 +84,7 @@ export function createBulkPluginRoutes(): Router {
     // bulk-ops feature could flip every plugin in the org to public.
     const updateData = { ...dataValidation.data };
     if (updateData.accessModifier !== undefined) {
-      updateData.accessModifier = resolveAccessModifier(req, updateData.accessModifier);
+      updateData.accessModifier = resolveAccessModifier(req, updateData.accessModifier, 'plugins:publish');
     }
 
     ctx.log('INFO', 'Bulk update plugins', { count: ids.length });

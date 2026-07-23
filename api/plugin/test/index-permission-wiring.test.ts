@@ -115,4 +115,13 @@ describe('src/index.ts — plugins:write enforcement', () => {
     // false positive here and a regression in prod.
     expect(hasWriteGuard(mountFor(ROUTERS.read))).toBe(false);
   });
+
+  it('does NOT put the ai_generation feature guard on the shared /plugins generate mount', () => {
+    // Mount-guard leak fix: `requireFeature('ai_generation')` moved OFF the
+    // shared prefix and onto each generate route inside the router, so it can
+    // no longer 403 a sibling `GET /plugins` read. The mount must stay plain
+    // (auth-only) here — re-adding the feature guard would reintroduce the leak.
+    const args = mountFor(ROUTERS.generate);
+    expect(args.some((a) => typeof a === 'function' && (a as any).__feature === 'ai_generation')).toBe(false);
+  });
 });

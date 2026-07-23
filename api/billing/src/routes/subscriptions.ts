@@ -52,7 +52,7 @@ export function createSubscriptionRoutes(): Router {
 
   // GET /billing/subscriptions  get current org subscription
 
-  router.get('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ res, orgId }) => {
+  router.get('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
     const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
 
     if (!subscription) {

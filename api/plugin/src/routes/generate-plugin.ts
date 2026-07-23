@@ -7,6 +7,7 @@ import {
   errorMessage,
   handleAIError,
   initSSEStream,
+  requireFeature,
   reserveQuota,
   sendBadRequest,
   sendQuotaExceeded,
@@ -31,19 +32,24 @@ const logger = createLogger('generate-plugin');
  * gates regular API calls. This prevents an org from spamming the platform
  * AI provider key beyond their tier.
  *
+ * The `ai_generation` feature gate is attached to each route here (not to the
+ * parent '/plugins' mount) so it can't leak onto sibling `GET /plugins` reads.
+ * Auth + orgId is still applied at the mount in index.ts, which reads require
+ * anyway — only the feature gate needed to move off the shared prefix.
+ *
  * @returns Express Router with AI generation endpoints
  */
 export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
   // -- GET /providers  list configured AI providers --------------------------
-  router.get('/providers', withRoute(async ({ res }) => {
+  router.get('/providers', requireFeature('ai_generation'), withRoute(async ({ res }) => {
     const providers = getAvailableProviders();
     return sendSuccess(res, 200, { providers });
   }, { requireOrgId: false }));
 
   // -- POST /generate  generate plugin config from natural language ----------
-  router.post('/generate', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate', requireFeature('ai_generation'), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);
@@ -87,7 +93,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /generate/stream  stream plugin config as SSE events -------------
-  router.post('/generate/stream', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate/stream', requireFeature('ai_generation'), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);

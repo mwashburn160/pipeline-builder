@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { ensureBaselineRole } from './roles-service.js';
+import { assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { seatCapacityAvailable } from '../helpers/seats.js';
@@ -82,12 +82,16 @@ class InvitationService {
       userId: user._id, organizationId: org._id, role: memberRole,
     }], { session });
 
-    // Single-source RBAC: a plain member holds no permissions unless assigned a
-    // Role, so give them the built-in Member Role floor. Admin invitees are
-    // placed into their role via the Roles UI / backfill — adding the
-    // Member-only baseline here would let recompute demote them.
-    if (memberRole === 'member') {
-      await ensureBaselineRole(user._id, org._id, session);
+    // Single-source RBAC: a role-less membership resolves to ZERO permissions, so
+    // give EVERY membership the built-in Member Role floor. An ADMIN invitee ALSO
+    // gets the built-in Admin Role so their effective PERMISSIONS match the coarse
+    // role — setting `membership.role='admin'` alone yields coarse-admin/zero-perms
+    // and is reverted by the next recomputeUserOrgRole. We assign Roles and let
+    // recompute DERIVE the cached role (mirrors user-admin-service.createUser).
+    await ensureBaselineRole(user._id, org._id, session);
+    if (memberRole === 'admin') {
+      await assignBuiltinAdminRole(user._id, org._id, session);
+      await recomputeUserOrgRole(user._id, org._id, session);
     }
 
     if (!user.lastActiveOrgId) {

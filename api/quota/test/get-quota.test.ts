@@ -373,3 +373,70 @@ describe('GET /quotas/:orgId/:quotaType', () => {
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 });
+
+describe('quotas:read permission gates', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  /** The permission-gate middleware layer for a route (tagged via the mock). */
+  function getGate(method: string, path: string) {
+    const layer = (getQuotaRouter as any).stack.find(
+      (l: any) => l.route?.path === path && l.route?.methods[method],
+    );
+    if (!layer) throw new Error(`No route for ${method.toUpperCase()} ${path}`);
+    const gate = layer.route.stack.map((s: any) => s.handle).find((h: any) => h.__permission);
+    if (!gate) throw new Error(`No permission gate on ${method.toUpperCase()} ${path}`);
+    return gate;
+  }
+
+  function runGate(gate: any, user: unknown) {
+    const req = mockReq({ user });
+    const res = mockRes();
+    const next = jest.fn();
+    gate(req, res, next);
+    return { res, next };
+  }
+
+  describe.each([
+    ['/', false],
+    ['/:orgId', true],
+    ['/:orgId/:quotaType', true],
+    ['/:orgId/at-risk', false],
+  ])('GET %s (allowService=%s)', (path, allowService) => {
+    it(`gates on quotas:read (allowService=${allowService})`, () => {
+      const gate = getGate('get', path);
+      expect(gate.__permission).toContain('quotas:read');
+      expect(gate.__allowService).toBe(allowService);
+    });
+
+    it('403s a user WITHOUT quotas:read', () => {
+      const { res, next } = runGate(getGate('get', path), { permissions: ['pipelines:read'] });
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('passes a user WITH quotas:read', () => {
+      const { res, next } = runGate(getGate('get', path), { permissions: ['quotas:read'] });
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalledWith(403);
+    });
+
+    it('passes a superadmin (implicit-all)', () => {
+      const { next } = runGate(getGate('get', path), { isSuperAdmin: true });
+      expect(next).toHaveBeenCalled();
+    });
+  });
+
+  it('admits a service principal WITHOUT quotas:read on requirePermissionOrService routes', () => {
+    for (const path of ['/:orgId', '/:orgId/:quotaType']) {
+      const { res, next } = runGate(getGate('get', path), { sub: 'service:platform', permissions: [] });
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalledWith(403);
+    }
+  });
+
+  it('403s a service principal on plain requirePermission routes (no OrService)', () => {
+    const { res, next } = runGate(getGate('get', '/'), { sub: 'service:platform', permissions: [] });
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+});

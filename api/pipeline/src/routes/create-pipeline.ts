@@ -48,7 +48,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }
 
-      const accessModifier = resolveAccessModifier(req, body.accessModifier);
+      const accessModifier = resolveAccessModifier(req, body.accessModifier, 'pipelines:publish');
 
       // Normalize project and organization names and validate them BEFORE
       // reserving quota. Reserving first and then returning on an empty/invalid

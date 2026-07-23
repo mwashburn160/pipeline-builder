@@ -5,7 +5,7 @@ import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
-  requireOrgAdmin,
+  requireOrgScope,
   getAdminContext,
   requireAuth,
   withController,
@@ -51,7 +51,7 @@ export const createOrganizationRole = withController('Create role', async (req, 
   if (!requireAuth(req, res)) return;
 
   const id = req.params.id as string;
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
 
   const body = validateBody(createRoleSchema, req.body, res);
   if (!body) return;
@@ -71,7 +71,7 @@ export const updateOrganizationRole = withController('Update role', async (req, 
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
 
   const body = validateBody(updateRoleSchema, req.body, res);
   if (!body) return;
@@ -93,7 +93,7 @@ export const deleteOrganizationRole = withController('Delete role', async (req, 
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
 
   await deleteRole(id, roleId);
   audit(req, 'org.role.delete', { targetType: 'role', targetId: roleId, affectedOrgId: id });
@@ -110,7 +110,7 @@ export const addRoleMember = withController('Add role member', async (req, res) 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
   const admin = getAdminContext(req);
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
 
   const body = validateBody(addRoleMemberSchema, req.body, res);
   if (!body) return;
@@ -141,7 +141,7 @@ export const removeRoleMember = withController('Remove role member', async (req,
   const roleId = req.params.roleId as string;
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
 
   await removeUserFromRole(id, roleId, userId, { actorUserId: req.user!.sub, actorIsSuperAdmin: admin.isSuperAdmin });
   logger.info(`[REMOVE ROLE MEMBER] User ${userId} removed from role ${roleId} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);

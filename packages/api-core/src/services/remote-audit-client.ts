@@ -3,7 +3,7 @@
 
 import { randomUUID } from 'crypto';
 import { createSafeClient, type RequestOptions } from './http-client.js';
-import { getServiceAuthHeader } from '../middleware/auth.js';
+import { getServiceAuthHeader, setAuthzDenialAuditor, type AuthzDenialInfo } from '../middleware/auth.js';
 import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -177,4 +177,30 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
         });
     },
   };
+}
+
+/**
+ * Register the standard `authz.denied` sink used by every remote-audit service
+ * (pipeline, plugin, compliance, quota, message, billing, reporting, …).
+ *
+ * The shared `requireAuth` gate forwards each DENIED state-changing request to
+ * the auditor set via {@link setAuthzDenialAuditor}; this wires that hook to the
+ * service's {@link RemoteAuditClient}, forwarding a `failure`-outcome
+ * `authz.denied` event so probing / privilege-escalation attempts leave a trail.
+ * Emission is fire-and-forget (the client never throws). `getClient` is a getter
+ * so the client stays lazily constructed (services memoize it on first use).
+ *
+ * Platform is intentionally NOT a caller — it is the audit authority and writes
+ * `authz.denied` straight to its local store (with `affectedOrgId`), not through
+ * a RemoteAuditClient.
+ */
+export function wireAuthzDenialAuditor(serviceName: string, getClient: () => RemoteAuditClient): void {
+  setAuthzDenialAuditor((info: AuthzDenialInfo) => getClient().record({
+    action: 'authz.denied',
+    actorId: info.actorId ?? 'anonymous',
+    actorEmail: info.actorEmail,
+    orgId: info.orgId,
+    outcome: 'failure',
+    details: { method: info.method, path: info.path, required: info.required },
+  }, serviceName));
 }

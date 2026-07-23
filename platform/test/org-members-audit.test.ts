@@ -35,7 +35,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   // These tests stub the auth layer and assert audit emission; grant access so
   // the handlers proceed to the audit call.
   canAdministerOrg: async () => true,
-  requireOrgAdmin: async () => true,
+  requireOrgScope: async () => true,
   canAccessOrg: async () => true,
   withController: (_label: string, fn: Function, _errMap?: unknown) =>
     async (req: any, res: any) => {

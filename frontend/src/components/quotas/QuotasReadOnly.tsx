@@ -104,7 +104,7 @@ export function QuotasReadOnly({
                 key={key}
                 quotaKey={key}
                 quota={orgData.quotas[key]}
-                isAdmin={false}
+                canManage={false}
                 editVal={orgData.quotas[key].limit}
                 onEditChange={() => {}}
               />

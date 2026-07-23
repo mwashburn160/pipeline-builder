@@ -86,7 +86,10 @@ function getPostHandler() {
     (l) => l.route?.path === '/' && l.route?.methods?.post,
   );
   if (!layer) throw new Error('POST / not registered');
-  return layer.route.stack[0].handle;
+  // The route now mounts `requirePermission('compliance:write')` ahead of the
+  // withRoute handler, so grab the LAST layer (the handler), not stack[0].
+  const stack = layer.route.stack;
+  return stack[stack.length - 1].handle;
 }
 
 function makeRes() {

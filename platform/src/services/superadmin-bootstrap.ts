@@ -30,6 +30,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { auditService } from './audit-service.js';
+import { grantPlatformAdmin } from './roles-service.js';
 import { User } from '../models/index.js';
 
 const logger = createLogger('superadmin-bootstrap');
@@ -49,28 +50,42 @@ export async function bootstrapSuperAdmins(): Promise<number> {
     .filter(Boolean);
   if (emails.length === 0) return 0;
 
-  // Pull the BEFORE state of every targeted user so we can audit-log a
-  // per-user `grant` event for each one actually flipped. Mongo's
-  // updateMany doesn't return the matched documents, only counts, so this
-  // pre-read is necessary to enumerate which users were just promoted.
+  // Pull the state of every targeted user so we can drive the grant per-user and
+  // audit-log each one actually flipped. `grantPlatformAdmin` doesn't return the
+  // matched emails, so this read is what maps user id → email for the audit rows.
   const targetedBefore = await User.find({ email: { $in: emails } })
     .select('_id email isSuperAdmin')
-    .lean();
-  const newlyPromoted = (targetedBefore as Array<{ _id: { toString(): string }; email: string; isSuperAdmin?: boolean }>)
-    .filter((u) => u.isSuperAdmin !== true);
+    .lean() as Array<{ _id: { toString(): string }; email: string; isSuperAdmin?: boolean }>;
 
-  // updateMany with `isSuperAdmin: { $ne: true }` filter lets Mongo skip
-  // already-promoted users — keeps the boot path cheap on warm restarts
-  // and avoids overwriting an existing `true` (idempotent by construction).
-  const result = await User.updateMany(
-    { email: { $in: emails }, isSuperAdmin: { $ne: true } },
-    { $set: { isSuperAdmin: true } },
-  );
+  // Route the promotion through `grantPlatformAdmin` (roles-service) rather than a
+  // bare `isSuperAdmin=true` write. That path assigns the system-org Super Admin
+  // Role AND bumps `tokenVersion` — so (1) a later `recomputeUserOrgRole` re-derives
+  // the flag from the persisted assignment instead of silently clearing it, and
+  // (2) an existing session gains superadmin on its next refresh instead of only at
+  // re-login. It is idempotent + self-healing: an already-granted user is a no-op
+  // (`changed:false`); a legacy flag-only user gets the missing Role assignment
+  // added with no session churn. We run it for EVERY found user (not just the
+  // not-yet-flagged ones) so those legacy flag-only rows get healed too.
+  const newlyPromoted: Array<{ _id: { toString(): string }; email: string }> = [];
+  for (const u of targetedBefore) {
+    try {
+      const { changed } = await grantPlatformAdmin(u._id.toString());
+      if (changed) newlyPromoted.push(u);
+    } catch (err) {
+      // Non-fatal per user (e.g. the system-org Super Admin Role isn't seeded yet
+      // on a brand-new install) — log and keep promoting the rest; the next boot
+      // retries once the system org exists.
+      logger.warn('Super-admin grant failed for bootstrap email', {
+        email: u.email,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
-  const promotedCount = result.modifiedCount ?? 0;
+  const promotedCount = newlyPromoted.length;
   if (promotedCount > 0) {
     logger.warn('Promoted users to super-admin via BOOTSTRAP_SUPERADMIN_EMAILS', {
-      emails,
+      emails: newlyPromoted.map((u) => u.email),
       promotedCount,
     });
 
@@ -128,11 +143,13 @@ export async function maybePromoteNewUser(userId: string, email: string): Promis
   );
   if (emails.size === 0 || !emails.has(email.trim().toLowerCase())) return false;
 
-  const result = await User.updateOne(
-    { _id: userId, isSuperAdmin: { $ne: true } },
-    { $set: { isSuperAdmin: true } },
-  );
-  if (!result.modifiedCount) return false;
+  // Route through `grantPlatformAdmin` (roles-service) instead of a bare
+  // `isSuperAdmin=true` write: it assigns the system-org Super Admin Role AND
+  // bumps `tokenVersion`, so the flag survives a later `recomputeUserOrgRole`
+  // (no silent self-demotion) and takes effect on the next refresh. Idempotent —
+  // `changed:false` means the user was already a superadmin (no-op).
+  const { changed } = await grantPlatformAdmin(userId);
+  if (!changed) return false;
 
   logger.warn('Auto-promoted newly registered user to super-admin', {
     email,

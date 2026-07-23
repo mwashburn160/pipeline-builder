@@ -15,6 +15,10 @@
  */
 import { jest } from '@jest/globals';
 
+/** No-op guard: the default mock covers route wiring, not the permission gate.
+ *  Suites that assert the gate override `requirePermission` with real semantics. */
+const passThroughMiddleware = (_req: unknown, _res: unknown, next: () => void) => next();
+
 /** The 4-method logger stub every suite repeats; a fresh set of spies per call. */
 export const loggerMock = () => ({
   info: jest.fn(),
@@ -59,12 +63,19 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       idpConfigs: 1,
     }),
     VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'],
+    // `requirePermission(...perms)` / `requirePermissionOrService(...perms)` are
+    // factories that RETURN middleware, so each stub is a function producing the
+    // pass-through guard. Suites exercising the gate override these with real
+    // 403-unless-permitted semantics.
+    requirePermission: () => passThroughMiddleware,
+    requirePermissionOrService: () => passThroughMiddleware,
     // Service-to-service auth header minted for the quota/platform entitlement sync.
     getServiceAuthHeader: (_opts?: unknown) => 'Bearer test-service-token',
     // Remote audit client factory — src/services/audit.ts links against this.
     createRemoteAuditClient: () => ({ record: () => {} }),
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
+    wireAuthzDenialAuditor: () => {},
     // Token-revocation reader hooks (session-invalidation) — stubbed for parity
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},

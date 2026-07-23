@@ -10,6 +10,7 @@ import {
   parseDateRange,
   parseQueryIntClamped,
   isSystemAdmin,
+  userHasPermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
@@ -22,12 +23,13 @@ export function createExecutionReportRoutes(): Router {
 
   // `?includeDescendants=true` rolls a parent org's report up over its team
   // subtree (best-effort; falls back to single-org — see resolveOrgRollup).
-  // SECURITY: downward (parent → child) visibility is an admin capability —
+  // SECURITY: downward (parent → child) visibility is a granted capability —
   // org members get no inherited view of their teams (matches the RBAC model),
-  // so the flag is honored only for admins/owners/sysadmins. Non-admins silently
-  // get their own-org report.
+  // so the flag is honored only for callers holding `reports:rollup` (built-in
+  // Admin/Owner bundles + superadmin-implicit-all; grantable to a custom Role).
+  // Everyone else silently gets their own-org report.
   const rollupIds = (req: Request, orgId: string): Promise<string[] | undefined> => {
-    const canRollup = isSystemAdmin(req) || req.user?.role === 'admin' || req.user?.role === 'owner';
+    const canRollup = userHasPermission(req, 'reports:rollup');
     return req.query.includeDescendants === 'true' && canRollup
       ? resolveOrgRollup(orgId)
       : Promise.resolve(undefined);

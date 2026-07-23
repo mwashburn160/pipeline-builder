@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 import { createLogger, resolveUserFeatures, resolveUserPermissions } from '@pipeline-builder/api-core';
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { TokenScope, QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Types } from 'mongoose';
 import { config } from '../config/index.js';
@@ -45,7 +45,7 @@ export interface MembershipContext {
  * gate treats it as a plain member. This is critical: a scoped token minted by a
  * super-admin operator must NOT inherit super-admin authority.
  */
-function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext, scope?: string): AccessTokenPayload {
+function createAccessTokenPayload(user: UserDocument, membership?: MembershipContext, scope?: TokenScope): AccessTokenPayload {
   const role = scope ? 'member' : (membership?.role ?? 'member');
   const tier: QuotaTier = membership?.tier ?? 'developer';
   const isSuperAdmin = scope ? false : user.isSuperAdmin === true;
@@ -213,7 +213,7 @@ async function hierarchyContext(
  * @param activeOrgId - Optional org ID to use as active (falls back to lastActiveOrgId, then first membership)
  * @param expiresIn - Optional access token lifetime in seconds (default: config.auth.jwt.expiresIn)
  */
-export async function issueTokens(user: UserDocument, activeOrgId?: string, expiresIn?: number, scope?: string): Promise<IssuedTokens> {
+export async function issueTokens(user: UserDocument, activeOrgId?: string, expiresIn?: number, scope?: TokenScope): Promise<IssuedTokens> {
   let membership: MembershipContext | undefined;
   try {
     membership = await resolveMembership(

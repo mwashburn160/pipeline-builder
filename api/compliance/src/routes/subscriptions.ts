@@ -13,10 +13,10 @@ import {
   validateBody,
   requirePermission,
   userHasPermission,
-  isServicePrincipal,
+  requireServicePrincipal,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
 import { emitComplianceAudit, getAuditClient } from '../services/audit.js';
@@ -90,20 +90,6 @@ const PreviewSchema = z.object({
   ruleId: z.string().uuid(),
   sampleAttributes: z.record(z.string(), z.unknown()).optional(),
 });
-
-/**
- * Reject any caller that isn't a service principal. The upstream mount runs
- * `requireAuth`, which verifies the JWT; this gate then ensures the token was
- * minted by `signServiceToken` (peer services use `getServiceAuthHeader`) and
- * is not a user JWT. Mirrors the guard on the internal entity-events route.
- */
-function requireServicePrincipal(req: Request, res: Response, next: NextFunction): void {
-  if (!isServicePrincipal(req)) {
-    sendBadRequest(res, 'Internal service calls only', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    return;
-  }
-  next();
-}
 
 /**
  * Routes for browsing the published rules catalog.

@@ -48,7 +48,7 @@ class NotFoundError extends Error {
  * so a suite can replace any default (and add exports the default omits).
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+  const mock: Record<string, unknown> = {
     createLogger: loggerMock,
     SYSTEM_ORG_ID: '000000000000000000000001',
     AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
@@ -71,6 +71,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // `setAuthzDenialAuditor`. Stub both so suites loading `audit.js` link.
     createRemoteAuditClient: () => ({ record: jest.fn() }),
     setAuthzDenialAuditor: () => {},
+    wireAuthzDenialAuditor: () => {},
     // boot-time token-revocation reader registration (session-invalidation
     // option b) — stubbed so suites that transitively load the boot module link.
     setTokenRevocationStore: () => {},
@@ -82,4 +83,23 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     }),
     ...overrides,
   };
+
+  // `requireServicePrincipal` was promoted from identical local copies in the
+  // entity-events / subscriptions routes into api-core. Mirror the old local
+  // guard here: reject non-service callers by resolving `isServicePrincipal` and
+  // `sendBadRequest` from the merged mock so a suite's overrides still win. A
+  // suite may supply its own `requireServicePrincipal` to take precedence.
+  if (mock.requireServicePrincipal === undefined) {
+    mock.requireServicePrincipal = (req: unknown, res: unknown, next: () => void) => {
+      const isSvc = mock.isServicePrincipal as ((r: unknown) => boolean) | undefined;
+      if (isSvc?.(req)) {
+        next();
+        return;
+      }
+      const badRequest = mock.sendBadRequest as ((res: unknown, msg: string, code: string) => unknown) | undefined;
+      badRequest?.(res, 'Internal service calls only', 'INSUFFICIENT_PERMISSIONS');
+    };
+  }
+
+  return mock;
 }

@@ -275,22 +275,6 @@ function _requireAuth(
  * Requires admin role. Use after requireAuth.
  * Permits users whose per-org role is 'admin' or 'owner'.
  */
-export function requireAdmin(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
-  if (!req.user) {
-    return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
-  }
-
-  if (req.user.role !== 'admin' && req.user.role !== 'owner') {
-    return sendError(res, HttpStatus.FORBIDDEN, 'Admin access required', ErrorCode.INSUFFICIENT_PERMISSIONS);
-  }
-
-  next();
-}
-
 /**
  * Whether the request's user holds `permission`. Superadmins implicitly hold
  * every permission. Reads the resolved `permissions` claim (set at token issue,
@@ -409,6 +393,46 @@ export function requireAllPermissions(...permissions: Permission[]) {
 }
 
 /**
+ * Like {@link requirePermission} (any-of) but ALSO admits an internal service
+ * principal (a `service:*` machine token). For READ endpoints that BOTH
+ * interactive users — who must hold one of the `:read` capabilities — AND
+ * service-to-service callers legitimately hit; service tokens carry no
+ * permission claims (they're least-privilege `role:member`), so a plain
+ * `requirePermission` would wrongly 403 them. Superadmins pass via
+ * `userHasPermission`'s implicit-all. Use only where a service caller is a known,
+ * intended consumer of the route (verify the callers); prefer plain
+ * `requirePermission` for purely user-facing reads.
+ */
+export function requirePermissionOrService(...permissions: Permission[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
+    }
+    if (isServicePrincipal(req) || permissions.some((p) => userHasPermission(req, p))) return next();
+    auditAuthzDenial(req, permissions.join(' or '));
+    return sendError(
+      res, HttpStatus.FORBIDDEN,
+      `Missing required permission: ${permissions.join(' or ')}`,
+      ErrorCode.INSUFFICIENT_PERMISSIONS,
+    );
+  };
+}
+
+/**
+ * Gate an endpoint to internal service-to-service callers only (a `service:*`
+ * machine principal minted via {@link signServiceToken} / `getServiceAuthHeader`).
+ * Rejects any user token. For NON-user-facing endpoints — entity-event ingest,
+ * auto-subscribe, and similar peer-service hooks — that a browser must never
+ * reach. Compose after `requireAuth` so `req.user` is populated.
+ */
+export function requireServicePrincipal(req: Request, res: Response, next: NextFunction): void {
+  if (!isServicePrincipal(req)) {
+    return sendError(res, HttpStatus.BAD_REQUEST, 'Internal service calls only', ErrorCode.INSUFFICIENT_PERMISSIONS);
+  }
+  next();
+}
+
+/**
  * The system tenant's canonical org **id** — a fixed, well-known ObjectId (NOT
  * the string 'system'). This is the single knob every service resolves the
  * system tenant through; override via the `SYSTEM_ORG_ID` env for alternate
@@ -502,12 +526,22 @@ export function requireFeature(feature: string) {
 
 /**
  * Resolve the effective access modifier for an entity being created/updated.
- * 'public' is permitted for any admin or owner role (system admins create
- * catalog-wide public entities; org admins create org-wide public entities).
- * Everyone else (member role, no role) gets 'private'.
+ * 'public' is permitted only for a caller holding the relevant publish
+ * capability (`pipelines:publish` / `plugins:publish`) — superadmins pass via
+ * implicit-all. Everyone else (including callers who requested 'public' without
+ * the permission, and service principals) gets 'private'.
+ *
+ * Permission-based (not coarse-role-based): a bespoke custom Role can be granted
+ * publish rights and is no longer forced private by its `member` label. Built-in
+ * Admin/Owner bundles carry the publish permissions, so their behavior is
+ * unchanged; the built-in Member bundle does not, so members stay private-only.
  */
-export function resolveAccessModifier(req: Request, requested: string | undefined): 'public' | 'private' {
-  if (requested === 'public' && (req.user?.role === 'admin' || req.user?.role === 'owner')) {
+export function resolveAccessModifier(
+  req: Request,
+  requested: string | undefined,
+  publishPermission: Permission,
+): 'public' | 'private' {
+  if (requested === 'public' && userHasPermission(req, publishPermission)) {
     return 'public';
   }
   return 'private';
@@ -522,7 +556,7 @@ export function resolveAccessModifier(req: Request, requested: string | undefine
 // JWT_SECRET, identifying the calling service via `sub: 'service:<name>'`.
 // `requireAuth` accepts these tokens transparently — they pass `decoded.sub`
 // and `decoded.role` checks, and downstream `requireOrganization` /
-// `requireAdmin` rely on the org/role embedded in the token.
+// `requireSystemAdmin` rely on the org/role embedded in the token.
 //
 // Tokens default to 5-minute TTL — long enough to survive a backend hop,
 // short enough that a leaked token is low-value.

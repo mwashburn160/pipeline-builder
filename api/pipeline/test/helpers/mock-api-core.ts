@@ -57,6 +57,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     createRemoteAuditClient: () => ({ record: jest.fn() }),
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
+    wireAuthzDenialAuditor: () => {},
     // Token-revocation reader hooks (session-invalidation) — stubbed for parity
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},
@@ -70,6 +71,9 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // `requirePermission(...perms)` is a factory that RETURNS middleware, so
     // the stub is a function producing the pass-through guard.
     requirePermission: () => passThroughMiddleware,
+    // `requireFeature(feature)` — same factory shape. Suites asserting the
+    // feature gate itself override this with a capability/feature-aware stub.
+    requireFeature: () => passThroughMiddleware,
     NotFoundError,
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),

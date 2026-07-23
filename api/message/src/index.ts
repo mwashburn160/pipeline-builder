@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 
-import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, setAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, createQuotaService, sendSuccess, sendError, ErrorCode, SSE_TICKET_TTL_MS, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import type { Request, Response } from 'express';
 
@@ -17,17 +17,8 @@ const logger = createLogger('message');
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
-// -- Failed-authorization auditor (#5) ----------------------------------------
-// Forward denials from the shared requirePermission / requireSystemAdmin gate to
-// platform's audit ingest as `authz.denied`, best-effort (the gate try/catches).
-setAuthzDenialAuditor((info) => getAuditClient().record({
-  action: 'authz.denied',
-  actorId: info.actorId ?? 'anonymous',
-  actorEmail: info.actorEmail,
-  orgId: info.orgId,
-  outcome: 'failure',
-  details: { method: info.method, path: info.path, required: info.required },
-}, 'message'));
+// Forward denied (non-GET) requests to the shared authz.denied audit sink.
+wireAuthzDenialAuditor('message', getAuditClient);
 
 // Reject tokens whose tokenVersion is behind the platform-published value once
 // Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.

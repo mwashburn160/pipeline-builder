@@ -5,6 +5,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import {
   ALL_PERMISSIONS,
+  ORG_ASSIGNABLE_PERMISSIONS,
   ROLE_PERMISSIONS,
   hasPermission,
   isValidPermission,
@@ -24,7 +25,20 @@ describe('resolveUserPermissions', () => {
       // The built-in "Member" Role carries ROLE_PERMISSIONS.member explicitly.
       expect(resolveUserPermissions(ROLE_PERMISSIONS.member)).toEqual([...ROLE_PERMISSIONS.member]);
       // The built-in "Admin" Role carries the full set.
-      expect(resolveUserPermissions(ROLE_PERMISSIONS.admin)).toEqual([...ALL_PERMISSIONS]);
+      // Admin bundle is every ORG-ASSIGNABLE permission (registry:* are
+      // superadmin-implicit-only, excluded from the built-in Admin Role).
+      expect(resolveUserPermissions(ROLE_PERMISSIONS.admin)).toEqual([...ORG_ASSIGNABLE_PERMISSIONS]);
+    });
+
+    it('publish/rollup capabilities are Admin-only, org-assignable, and NOT in the Member bundle', () => {
+      // Widened from label-authority (Tier 5): a custom Role CAN be granted these,
+      // built-in Admin/Owner carry them, built-in Member must not.
+      for (const cap of ['pipelines:publish', 'plugins:publish', 'reports:rollup'] as const) {
+        expect(ORG_ASSIGNABLE_PERMISSIONS).toContain(cap); // grantable to custom Roles
+        expect(ROLE_PERMISSIONS.admin).toContain(cap); // built-in Admin publishes
+        expect(ROLE_PERMISSIONS.owner).toContain(cap); // built-in Owner publishes
+        expect(ROLE_PERMISSIONS.member).not.toContain(cap); // members stay private-only
+      }
     });
 
     it('a user with NO assigned Roles resolves to NO permissions (no baseline)', () => {

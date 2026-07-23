@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceQueueBackend, requirePermission, setAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceQueueBackend, requirePermission, wireAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
 import {
   createApp,
   runServer,
@@ -103,16 +103,7 @@ logger.info('All /compliance routes registered');
 // Forward denied state-changing authorizations (rejected by requirePermission /
 // requireSystemAdmin) into the same remote audit sink as the mutation events,
 // as best-effort `authz.denied` failure records. Registered once at boot.
-setAuthzDenialAuditor((info) => {
-  getAuditClient().record({
-    action: 'authz.denied',
-    actorId: info.actorId ?? 'anonymous',
-    actorEmail: info.actorEmail,
-    orgId: info.orgId,
-    outcome: 'failure',
-    details: { method: info.method, path: info.path, required: info.required },
-  }, 'compliance');
-});
+wireAuthzDenialAuditor('compliance', getAuditClient);
 
 // Token-revocation reader (session-invalidation option b). Reuse the single
 // redis connection BullMQ already maintains so the shared `requireAuth` can

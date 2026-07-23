@@ -84,7 +84,7 @@ export default function CompliancePage() {
   // Viewing requires only `compliance:read` (members hold it in their base
   // bundle), so read-only users can see rules, policies, and scans. Editing
   // affordances inside ComplianceDashboard are gated separately on
-  // `compliance:write` via the `isAdmin` prop. Backend remains the real gate
+  // `compliance:write` via the `canManage` prop. Backend remains the real gate
   // (compliance APIs 403 regardless); this is the cosmetic layer.
   const { isReady, can } = useAuthGuard({ requirePermission: 'compliance:read' });
 
@@ -93,7 +93,7 @@ export default function CompliancePage() {
   return (
     <DashboardLayout title="Compliance" subtitle="Organization compliance rules and policies">
       <RecentChangesStrip />
-      <ComplianceDashboard isAdmin={can('compliance:write')} />
+      <ComplianceDashboard canManage={can('compliance:write')} />
     </DashboardLayout>
   );
 }

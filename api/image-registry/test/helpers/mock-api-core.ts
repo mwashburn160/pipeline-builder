@@ -36,6 +36,35 @@ class NotFoundError extends Error {
   }
 }
 
+/** Minimal shapes the permission-gate mocks touch on the request/response. */
+type MockUser = { isSuperAdmin?: boolean; permissions?: string[] };
+type GateReq = { user?: MockUser };
+type GateRes = { status: (n: number) => { json: (b: unknown) => void } };
+
+/**
+ * Capability-aware stand-in for api-core's `requirePermission` /
+ * `requireAllPermissions`. Mirrors the real gate's decision (minus the
+ * denial-audit side effect):
+ *   - no `req.user` at all → PASS (suites without an auth layer keep working,
+ *     exactly as the old `requireSystemAdmin` passthrough did);
+ *   - `req.user.isSuperAdmin` → PASS (implicit-all, as in production);
+ *   - otherwise gate on `req.user.permissions` (`some` for any-of,
+ *     `every` for all-of), 403 with the same message shape on a miss.
+ * `joiner` is `' or '` for any-of and `' and '` for all-of, matching the real
+ * error strings the routes' callers may assert on.
+ */
+function permissionGate(mode: 'some' | 'every', joiner: string) {
+  return (...perms: string[]) => (req: GateReq, res: GateRes, next: () => void): void => {
+    const user = req.user;
+    if (!user) return next();
+    if (user.isSuperAdmin) return next();
+    const held = user.permissions ?? [];
+    const ok = mode === 'some' ? perms.some((p) => held.includes(p)) : perms.every((p) => held.includes(p));
+    if (ok) return next();
+    res.status(403).json({ success: false, message: `Missing required permission: ${perms.join(joiner)}` });
+  };
+}
+
 /**
  * Default api-core namespace for `unstable_mockModule`. Spread `overrides` last
  * so a suite can replace any default (and add exports the default omits).
@@ -48,6 +77,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
+    // Permission gates the /api/images + /api/admin routes attach per-route.
+    // Capability-aware: superadmin ⇒ pass; else check req.user.permissions.
+    requirePermission: permissionGate('some', ' or '),
+    requireAllPermissions: permissionGate('every', ' and '),
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     // Remote audit client factory — the registry's audit wiring
     // (src/services/audit.ts) links against this. Default returns a no-op
@@ -57,6 +90,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // Denied-authz auditor sink registered at service boot (src/index.ts).
     // No-op in tests — nothing asserts on the registration.
     setAuthzDenialAuditor: () => {},
+    wireAuthzDenialAuditor: () => {},
     // Token-revocation reader hooks (session-invalidation option b) — stubbed
     // for parity so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},

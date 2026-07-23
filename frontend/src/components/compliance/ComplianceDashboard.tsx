@@ -49,10 +49,10 @@ function TabSpinner() {
 }
 
 interface ComplianceDashboardProps {
-  isAdmin?: boolean;
+  canManage?: boolean;
 }
 
-export default function ComplianceDashboard({ isAdmin = false }: ComplianceDashboardProps) {
+export default function ComplianceDashboard({ canManage = false }: ComplianceDashboardProps) {
   const [tab, setTab] = useState<Tab>('overview');
   const [audit, setAudit] = useState<ComplianceAuditEntry[]>([]);
   const [stats, setStats] = useState({ rules: 0, pass: 0, warn: 0, block: 0 });
@@ -198,22 +198,22 @@ export default function ComplianceDashboard({ isAdmin = false }: ComplianceDashb
               ? <RuleHistory ruleId={historyRule.id} ruleName={historyRule.name} onBack={() => setHistoryRule(null)} />
               : <RuleList
                   onViewHistory={handleViewHistory}
-                  onEdit={isAdmin ? handleEditRule : undefined}
-                  onCreateNew={isAdmin ? handleCreateRule : undefined}
+                  onEdit={canManage ? handleEditRule : undefined}
+                  onCreateNew={canManage ? handleCreateRule : undefined}
                 />
         )}
-        {tab === 'policies' && <PolicyManager readOnly={!isAdmin} />}
-        {tab === 'subscriptions' && <SubscriptionManager readOnly={!isAdmin} />}
+        {tab === 'policies' && <PolicyManager readOnly={!canManage} />}
+        {tab === 'subscriptions' && <SubscriptionManager readOnly={!canManage} />}
         {tab === 'enforced' && <EnforcedRulesView />}
-        {tab === 'exemptions' && <ExemptionManager readOnly={!isAdmin} />}
+        {tab === 'exemptions' && <ExemptionManager readOnly={!canManage} />}
         {tab === 'scans' && (
           detailScanId
             ? <ScanDetail scanId={detailScanId} onBack={() => setDetailScanId(null)} />
-            : <ScanManager onViewScan={handleViewScan} readOnly={!isAdmin} />
+            : <ScanManager onViewScan={handleViewScan} readOnly={!canManage} />
         )}
-        {tab === 'schedules' && <ScanScheduleManager readOnly={!isAdmin} />}
+        {tab === 'schedules' && <ScanScheduleManager readOnly={!canManage} />}
         {tab === 'templates' && <TemplateOnboarding />}
-        {tab === 'notifications' && <NotificationPreferencesManager readOnly={!isAdmin} />}
+        {tab === 'notifications' && <NotificationPreferencesManager readOnly={!canManage} />}
       </Suspense>
     </div>
   );

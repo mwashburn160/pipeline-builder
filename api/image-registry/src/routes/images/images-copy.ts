@@ -9,9 +9,10 @@ import {
   ErrorCode,
   runConcurrent,
   emitAudit,
+  requireAllPermissions,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
-import { type Router } from 'express';
+import { type Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import {
   logger,
@@ -65,10 +66,13 @@ function tenantOf(repo: string): string | null {
 /**
  * Register the copy route:
  *  - POST /copy (cross-repo tag-copy; multi-arch aware)
+ *
+ * Copy inherently reads the source and writes the target, so it requires BOTH
+ * `registry:read` AND `registry:write` (via `requireAllPermissions`).
  */
 export function registerCopyRoutes(router: Router): void {
   // POST /api/images/copy — cross-repo tag-copy, multi-arch aware.
-  router.post('/copy', withRoute(async ({ req, res, ctx }) => {
+  router.post('/copy', requireAllPermissions('registry:read', 'registry:write') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const parsed = CopyImageSchema.safeParse(req.body);
     if (!parsed.success) {
       const msg = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');

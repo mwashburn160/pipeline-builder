@@ -269,7 +269,7 @@ export function QuotasAdmin({
                       key={key}
                       quotaKey={key}
                       quota={orgData.quotas[key]}
-                      isAdmin={isSuperAdmin}
+                      canManage={isSuperAdmin}
                       editVal={editValues[key]}
                       onEditChange={handleEditChange}
                     />

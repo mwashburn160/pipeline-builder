@@ -27,7 +27,7 @@ interface RegistryRow {
  * `DELETE /api/pipelines/registry/:id` to clear it. The CLI counterpart is
  * `pipeline-manager audit-stacks` which surfaces these orphans across an org.
  */
-export function DeployedPipelinesPanel() {
+export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolean }) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<RegistryRow[]>([]);
   // Tracks "have we fetched once?" — distinct from rows so that an empty
@@ -144,15 +144,17 @@ export function DeployedPipelinesPanel() {
                   <div className="text-xs text-gray-400 shrink-0" title={new Date(row.lastDeployed).toLocaleString()}>
                     Deployed {formatRelativeTime(row.lastDeployed)}
                   </div>
-                  <button
-                    onClick={() => setConfirmTarget(row)}
-                    disabled={removing === row.id}
-                    className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 disabled:opacity-40 disabled:cursor-wait shrink-0"
-                    title="Remove from registry (does not delete the AWS stack)"
-                    aria-label={`Remove ${row.pipelineName} from registry`}
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  {canWrite && (
+                    <button
+                      onClick={() => setConfirmTarget(row)}
+                      disabled={removing === row.id}
+                      className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 disabled:opacity-40 disabled:cursor-wait shrink-0"
+                      title="Remove from registry (does not delete the AWS stack)"
+                      aria-label={`Remove ${row.pipelineName} from registry`}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

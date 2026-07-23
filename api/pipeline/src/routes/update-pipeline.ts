@@ -57,7 +57,7 @@ export function createUpdatePipelineRoutes(): Router {
         // isDefault is handled separately below via setDefault() for promotion.
       }),
       // Access modifier requires special handling (admin-only public)
-      ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier) } : {}),
+      ...(body.accessModifier !== undefined ? { accessModifier: resolveAccessModifier(req, body.accessModifier, 'pipelines:publish') } : {}),
       updatedAt: new Date(),
       updatedBy: userId || 'system',
     };

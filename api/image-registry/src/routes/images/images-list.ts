@@ -9,9 +9,10 @@ import {
   getParam,
   parsePaginationParams,
   runConcurrent,
+  requirePermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { type Router } from 'express';
+import { type Router, type RequestHandler } from 'express';
 import { COPY_PARALLEL_BLOBS } from './shared.js';
 import {
   listRepositories,
@@ -21,12 +22,13 @@ import {
 } from '../../services/registry-client.js';
 
 /**
- * Register the read-only listing/fetch routes:
+ * Register the read-only listing/fetch routes (each gated on `registry:read`):
  *  - GET /                              (list repositories)
  *  - GET /:name/tags                    (list tags)
  *  - GET /:name/manifests/:reference    (fetch manifest)
  */
 export function registerListRoutes(router: Router): void {
+  const read = requirePermission('registry:read') as RequestHandler;
   // GET /api/images — list all repositories (cursor-paginated via _catalog).
   //
   // `?nonEmpty=true` filters out repos with zero tags. The registry keeps a
@@ -35,7 +37,7 @@ export function registerListRoutes(router: Router): void {
   // showing as hollow shells. This flag hides them. It costs one `tags/list`
   // call per repo on the page (bounded concurrency), so it's opt-in — the UI
   // requests it; the default listing stays a single `_catalog` call.
-  router.get('/', withRoute(async ({ req, res, ctx }) => {
+  router.get('/', read, withRoute(async ({ req, res, ctx }) => {
     const { limit } = parsePaginationParams(req.query as Record<string, unknown>);
     const last = typeof req.query.last === 'string' ? req.query.last : undefined;
     const nonEmpty = req.query.nonEmpty === 'true' || req.query.nonEmpty === '1';
@@ -66,7 +68,7 @@ export function registerListRoutes(router: Router): void {
   }));
 
   // GET /api/images/:name/tags — list tags for one repository.
-  router.get('/:name/tags', withRoute(async ({ req, res, ctx }) => {
+  router.get('/:name/tags', read, withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -76,7 +78,7 @@ export function registerListRoutes(router: Router): void {
   }));
 
   // GET /api/images/:name/manifests/:reference — fetch manifest.
-  router.get('/:name/manifests/:reference', withRoute(async ({ req, res, ctx }) => {
+  router.get('/:name/manifests/:reference', read, withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     const reference = getParam(req.params, 'reference');
     if (!name || !reference) return sendBadRequest(res, 'name and reference are required', ErrorCode.MISSING_REQUIRED_FIELD);

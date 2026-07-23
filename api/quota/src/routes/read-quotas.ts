@@ -3,6 +3,8 @@
 
 import {
   requireAuth,
+  requirePermission,
+  requirePermissionOrService,
   isSystemAdmin,
   sendSuccess,
   sendError,
@@ -51,6 +53,10 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   router.get(
     '/',
     requireAuth as RequestHandler,
+    // Purely user-facing (own-org dashboard read) — no service principal hits
+    // this root path (S2S callers use /quotas/:orgId). Custom roles that drop
+    // `quotas:read` are blocked; built-in Member/Admin bundles include it.
+    requirePermission('quotas:read') as RequestHandler,
     withRoute(async ({ res, ctx, orgId }) => {
       const quota = await svc.findByOrgId(orgId);
       ctx.log('COMPLETED', 'Retrieved own org quotas', { orgId });
@@ -193,6 +199,9 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     '/:orgId/at-risk',
     requireAuth as RequestHandler,
     authorizeOrg() as RequestHandler,
+    // User-facing (org owner/admin dashboard) — no internal service calls the
+    // per-org at-risk endpoint, so a plain read gate is correct here.
+    requirePermission('quotas:read') as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 
@@ -247,6 +256,11 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     '/:orgId',
     requireAuth as RequestHandler,
     authorizeOrg() as RequestHandler,
+    // Internal services hit this: the quota client's `getTier()` reads
+    // GET /quotas/:orgId (plugin build-queue partitioning via a `service:*`
+    // token, and platform's tier lookups). Service principals carry no
+    // permission claims, so admit them alongside users holding `quotas:read`.
+    requirePermissionOrService('quotas:read') as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 
@@ -262,6 +276,11 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     '/:orgId/:quotaType',
     requireAuth as RequestHandler,
     authorizeOrg() as RequestHandler,
+    // Internal services hit this: the quota client's `check()` reads
+    // GET /quotas/:orgId/:quotaType (the `checkQuota` middleware in every
+    // service, and platform's `getOrganizationQuotaStatus` reconciler with a
+    // `service:*` token). Admit service principals alongside `quotas:read`.
+    requirePermissionOrService('quotas:read') as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
       const quotaType = getParam(req.params, 'quotaType');

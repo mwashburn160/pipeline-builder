@@ -99,7 +99,7 @@ export function Sidebar({
             duplicated nav and pushed the rail down). Tooltips name each. */}
         {!collapsed && (
           <div className="px-3 pt-1 pb-2 flex items-center gap-1.5">
-            {QUICK_ACTIONS.map(({ href, label, icon: Icon, color }) => (
+            {QUICK_ACTIONS.filter((qa) => !qa.requiredPermission || hasPermission(user, qa.requiredPermission)).map(({ href, label, icon: Icon, color }) => (
               <Tooltip key={href} content={label}>
                 <Link
                   href={href}

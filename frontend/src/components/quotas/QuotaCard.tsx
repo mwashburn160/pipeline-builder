@@ -25,20 +25,20 @@ export function StatusBadge({ used, limit }: { used: number; limit: number }) {
  * Card displaying a single quota's usage, progress bar, and optional admin limit editor.
  * @param quotaKey - The quota type (plugins, pipelines, or apiCalls).
  * @param quota - Current quota data including used, limit, and reset info.
- * @param isAdmin - Whether to show the limit editing controls.
+ * @param canManage - Whether to show the limit editing controls.
  * @param editVal - The current edited limit value.
  * @param onEditChange - Callback when the admin changes the limit.
  */
 export function QuotaCard({
   quotaKey,
   quota,
-  isAdmin,
+  canManage,
   editVal,
   onEditChange,
 }: {
   quotaKey: DisplayedQuotaType;
   quota: OrgQuotaResponse['quotas'][DisplayedQuotaType];
-  isAdmin: boolean;
+  canManage: boolean;
   editVal: number;
   onEditChange: (key: DisplayedQuotaType, val: number) => void;
 }) {
@@ -80,7 +80,7 @@ export function QuotaCard({
 
       {!quota.unlimited && <UsageForecast used={quota.used} limit={quota.limit} resetAt={quota.resetAt} />}
 
-      {isAdmin && (
+      {canManage && (
         <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">Limit</span>
           <Input

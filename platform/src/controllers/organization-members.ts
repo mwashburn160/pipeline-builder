@@ -5,7 +5,7 @@ import { createLogger, sendError, sendSuccess, parsePaginationParams } from '@pi
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
-  requireOrgAdmin,
+  requireOrgScope,
   isSystemAdmin,
   requireAuth,
   getAdminContext,
@@ -64,7 +64,7 @@ export const addMemberToOrganization = withController('Add member', async (req, 
 
   const id = req.params.id as string;
   const admin = getAdminContext(req);
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
 
   const body = validateBody(addMemberSchema, req.body, res);
   if (!body) return;
@@ -122,7 +122,7 @@ export const bulkAddMemberToTeams = withController('Bulk add member to teams', a
 
   const id = req.params.id as string;
   const admin = getAdminContext(req);
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
 
   const body = validateBody(bulkAddMemberSchema, req.body, res);
   if (!body) return;
@@ -154,7 +154,7 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
   const id = req.params.id as string;
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
   if (admin.isOrgAdmin && userId === req.user!.sub) {
     return sendError(res, 400, 'Cannot remove yourself from the organization');
   }
@@ -205,7 +205,7 @@ export const deactivateMember = withController('Deactivate member', async (req, 
   const id = req.params.id as string;
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
 
   await orgMembersService.deactivateMember(id, userId);
   logger.info(`[DEACTIVATE MEMBER] User ${userId} deactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
@@ -224,7 +224,7 @@ export const activateMember = withController('Activate member', async (req, res)
   const id = req.params.id as string;
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
-  if (!(await requireOrgAdmin(req, res, id))) return;
+  if (!(await requireOrgScope(req, res, id))) return;
 
   await orgMembersService.activateMember(id, userId);
   logger.info(`[ACTIVATE MEMBER] User ${userId} reactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);

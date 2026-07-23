@@ -17,6 +17,14 @@ export interface RbacBackfillSummary {
   assignmentsAdded: number;
 }
 
+/** Order-independent equality of two permission lists (the stored bundle and the
+ *  desired one may be persisted in different orders, so compare as sets). */
+function permissionSetsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setB = new Set(b);
+  return a.every((p) => setB.has(p));
+}
+
 /**
  * One-time collection + permission-string rename for the Group→Role cleanup.
  * Runs FIRST (before any Role/RoleAssignment query) so the models — now pointing
@@ -116,19 +124,28 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   // migrated data.
   await renameGroupsToRoles();
 
-  // ── Pass A: populate empty built-in Role permission bundles ────────────────
-  const emptyBuiltins = await Role.find({
-    system: true,
-    $or: [{ permissions: { $exists: false } }, { permissions: { $size: 0 } }],
-  }).select('_id grantsRole').lean();
+  // ── Pass A: RE-SYNC built-in Role permission bundles to the current source ──
+  // Overwrite every built-in (`system:true`) Role's `permissions[]` to the CURRENT
+  // bundle for its `grantsRole` (admin/superadmin → admin bundle, member → member
+  // bundle). Overwriting — not the old only-when-empty fill — is what lets a newly
+  // added catalog permission reach EXISTING orgs' Admin/Member Roles; the previous
+  // guard left them frozen with a stale list forever (only fresh orgs picked it up).
+  // Idempotent: a Role already carrying the exact bundle is skipped (no write, not
+  // counted). Scoped to system Roles only — user-authored custom Roles (system:false)
+  // are never touched.
+  const builtinRoles = await Role.find({ system: true })
+    .select('_id grantsRole permissions').lean();
 
   let rolesBackfilled = 0;
-  for (const g of emptyBuiltins) {
-    await Role.updateOne(
-      { _id: g._id },
-      { $set: { permissions: permissionsForGrantsRole(g.grantsRole as RoleGrant) } },
-    );
+  for (const g of builtinRoles) {
+    const desired = permissionsForGrantsRole(g.grantsRole as RoleGrant);
+    const current = (g.permissions as string[] | undefined) ?? [];
+    if (permissionSetsEqual(current, desired)) continue; // already in sync — no-op
+    await Role.updateOne({ _id: g._id }, { $set: { permissions: desired } });
     rolesBackfilled += 1;
+  }
+  if (rolesBackfilled > 0) {
+    logger.info('Re-synced stale built-in Role permission bundles', { rolesBackfilled });
   }
 
   // ── Pass B: ensure each active member holds the Role matching their role ────

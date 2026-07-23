@@ -11,6 +11,11 @@
  * can only read their own org — never another tenant's) is actually exercised.
  * Numbers come from `getQuotaStatus`, which is pooled-aware, so hierarchy orgs
  * report the root's shared cap.
+ *
+ * The route also sits behind `requirePermission('quotas:read')` (after the
+ * tenancy guard), so the happy-path users below carry `quotas:read` — the
+ * capability every built-in Member/Admin bundle grants. The cross-org test
+ * still 403s at the tenancy guard, before the read gate is reached.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -118,7 +123,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
-      user: { organizationId: 'org-1' }, params: { orgId: 'org-1' }, query: {},
+      user: { organizationId: 'org-1', permissions: ['quotas:read'] }, params: { orgId: 'org-1' }, query: {},
     }, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
@@ -154,7 +159,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
-      user: { organizationId: 'org-1' }, params: { orgId: 'org-1' }, query: { threshold: '50' },
+      user: { organizationId: 'org-1', permissions: ['quotas:read'] }, params: { orgId: 'org-1' }, query: { threshold: '50' },
     }, res);
 
     const payload = res.json.mock.calls[0][0].data;
@@ -169,7 +174,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
-      user: { organizationId: 'org-1' }, params: { orgId: 'org-1' }, query: {},
+      user: { organizationId: 'org-1', permissions: ['quotas:read'] }, params: { orgId: 'org-1' }, query: {},
     }, res);
 
     const payload = res.json.mock.calls[0][0].data;
@@ -183,7 +188,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
-      user: { organizationId: '000000000000000000000001' }, params: { orgId: 'org-2' }, query: {},
+      user: { organizationId: '000000000000000000000001', permissions: ['quotas:read'] }, params: { orgId: 'org-2' }, query: {},
     }, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
@@ -199,7 +204,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
-      user: { organizationId: 'org-1' }, params: { orgId: 'org-1' }, query: {},
+      user: { organizationId: 'org-1', permissions: ['quotas:read'] }, params: { orgId: 'org-1' }, query: {},
     }, res);
 
     const payload = res.json.mock.calls[0][0].data;

@@ -11,6 +11,7 @@ import {
   extractDbError,
   getParam,
   parsePaginationParams,
+  requirePermission,
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -51,7 +52,7 @@ export function createRegistryRoutes(): Router {
     });
   }));
 
-  router.post('/registry', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/registry', requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, PipelineRegistrySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -108,7 +109,7 @@ export function createRegistryRoutes(): Router {
    * pure mapping cache — losing a row never loses information that isn't
    * already in CloudFormation, so there's nothing to recover.
    */
-  router.delete('/registry/:id', withRoute(async ({ req, res, ctx, orgId }) => {
+  router.delete('/registry/:id', requirePermission('pipelines:write'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Registry id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 

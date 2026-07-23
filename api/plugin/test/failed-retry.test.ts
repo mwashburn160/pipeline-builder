@@ -42,6 +42,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
   sendError: jest.fn((res: any, status: number, message: string) => res.status(status).json({ success: false, statusCode: status, message })),
+  // Capability-aware gate so the RBAC test drives the real `requirePermission`
+  // wiring on this write route (403 without plugins:write, next() with it).
+  requirePermission: (perm: string) => (req: any, res: any, next: () => void) => {
+    const caps: string[] = req.user?.capabilities ?? [];
+    return caps.includes(perm)
+      ? next()
+      : res.status(403).json({ success: false, statusCode: 403, message: `Missing ${perm}` });
+  },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
@@ -53,13 +61,30 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 const { isSystemAdmin } = await import('@pipeline-builder/api-core');
 const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
-function getRetryHandler() {
+function retryLayer() {
   const router = createQueueStatusRoutes(mockQuotaService);
   const layer = (router.stack as any[]).find(
     (l) => l.route?.path === '/failed/:jobId/retry' && l.route?.methods?.post,
   );
   if (!layer) throw new Error('retry handler not registered');
-  return layer.route.stack[0].handle;
+  return layer;
+}
+
+// The actual withRoute handler is the LAST entry in the route stack (the
+// leading `requirePermission('plugins:write')` guard sits before it). Behavioral
+// tests drive the handler directly; the gate is exercised via runRetryStack.
+function getRetryHandler() {
+  const stack = retryLayer().route.stack;
+  return stack[stack.length - 1].handle;
+}
+
+// Runs the full route stack (gate middleware + handler) so the RBAC gate is
+// exercised end-to-end.
+async function runRetryStack(req: any, res: any) {
+  const stack = retryLayer().route.stack;
+  let i = 0;
+  const next = async () => { if (i < stack.length) await stack[i++].handle(req, res, next); };
+  await next();
 }
 
 function makeRes() {
@@ -74,18 +99,34 @@ describe('POST /failed/:jobId/retry', () => {
     retryHelper.mockResolvedValue('new-job-77');
   });
 
-  it('rejects non-admin/owner roles with 403', async () => {
+  // RBAC gate (#FIX 2): the retry write is gated by requirePermission('plugins:write'),
+  // NOT the deprecated coarse role label. A caller lacking the capability is
+  // rejected with 403 before the handler runs; a custom (non-admin) role that
+  // holds plugins:write is allowed through.
+  it('rejects a caller without plugins:write with 403', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    const handler = getRetryHandler();
     const { res, json } = makeRes();
-    await handler({
+    await runRetryStack({
       __orgId: 'org-a',
-      user: { role: 'member', organizationId: 'org-a' },
+      user: { role: 'member', capabilities: [], organizationId: 'org-a' },
       params: { jobId: 'j-1' },
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
     expect(findFailed).not.toHaveBeenCalled();
     expect(retryHelper).not.toHaveBeenCalled();
+  });
+
+  it('allows a non-admin caller holding plugins:write to retry', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    findFailed.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
+    const { res, json } = makeRes();
+    await runRetryStack({
+      __orgId: 'org-a',
+      user: { role: 'member', capabilities: ['plugins:write'], organizationId: 'org-a' },
+      params: { jobId: 'j-1' },
+    } as any, res);
+    expect(retryHelper).toHaveBeenCalledWith('j-1');
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 200 }));
   });
 
   it('returns 404 when no failed job with that id exists', async () => {

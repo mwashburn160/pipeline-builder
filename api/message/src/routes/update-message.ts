@@ -6,6 +6,7 @@ import {
   sendSuccess,
   ErrorCode,
   getParam,
+  requirePermission,
   sendEntityNotFound,
   errorMessage,
 } from '@pipeline-builder/api-core';
@@ -25,8 +26,8 @@ import { messageService } from '../services/message-service.js';
 export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
-  // PUT /messages/:id/read — Mark message as read
-  router.put('/:id/read', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // PUT /messages/:id/read — Mark message as read (messaging read floor)
+  router.put('/:id/read', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -54,8 +55,8 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
     return sendSuccess(res, 200, { message }, 'Message marked as read');
   }));
 
-  // PUT /messages/:id/thread/read — Mark entire thread as read
-  router.put('/:id/thread/read', ...createAuthenticatedWithOrgRoute(), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // PUT /messages/:id/thread/read — Mark entire thread as read (messaging read floor)
+  router.put('/:id/thread/read', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);

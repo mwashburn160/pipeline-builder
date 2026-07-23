@@ -31,7 +31,7 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
   seatCapacityStillWithinCap: jest.fn(async () => true),
 }));
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined) }));
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined) }));
 
 // The publisher under assertion — mocked so we verify the call, not the Redis I/O.
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({

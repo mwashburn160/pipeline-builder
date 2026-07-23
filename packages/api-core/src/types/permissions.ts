@@ -24,9 +24,11 @@ export type Permission =
   // Pipelines
   | 'pipelines:read'
   | 'pipelines:write'
+  | 'pipelines:publish'
   // Plugins
   | 'plugins:read'
   | 'plugins:write'
+  | 'plugins:publish'
   // Compliance
   | 'compliance:read'
   | 'compliance:write'
@@ -41,6 +43,7 @@ export type Permission =
   | 'observability:write'
   // Insights
   | 'reports:read'
+  | 'reports:rollup'
   // Messaging
   | 'messages:read'
   | 'messages:write'
@@ -56,13 +59,13 @@ export type Permission =
 
 /** All valid permissions (order determines display order in the picker). */
 export const ALL_PERMISSIONS: readonly Permission[] = [
-  'pipelines:read', 'pipelines:write',
-  'plugins:read', 'plugins:write',
+  'pipelines:read', 'pipelines:write', 'pipelines:publish',
+  'plugins:read', 'plugins:write', 'plugins:publish',
   'compliance:read', 'compliance:write',
   'members:manage', 'roles:manage', 'invitations:manage',
   'dashboards:read', 'dashboards:write',
   'observability:read', 'observability:write',
-  'reports:read',
+  'reports:read', 'reports:rollup',
   'messages:read', 'messages:write',
   'billing:read', 'billing:manage',
   'quotas:read',
@@ -79,9 +82,11 @@ export function isValidPermission(value: string): value is Permission {
  * Permissions that must NEVER be grantable through a user-authored CUSTOM Role —
  * they gate platform-operator surfaces (the shared image registry), so allowing
  * an org admin to mint a Role carrying them would be a latent privilege
- * escalation the moment those permissions get wired to an endpoint. Built-in
- * Role seeds (e.g. `member` carrying `registry:read`) are system-created and are
- * NOT subject to this list; it constrains only custom-Role authoring.
+ * escalation. They are NOT seeded into ANY built-in Role bundle (neither
+ * `member` nor `admin`), so the only holder is a superadmin (implicit-all) —
+ * which is what makes the image-registry gates that require them effectively
+ * superadmin-only. This list ALSO blocks custom-Role authoring from requesting
+ * them (see platform `sanitizePermissions`).
  */
 export const SUPERADMIN_ONLY_PERMISSIONS: readonly Permission[] = [
   'registry:read',
@@ -117,7 +122,9 @@ export function isOrgAssignablePermission(permission: Permission): boolean {
  *
  * - `member`  — day-to-day builder: read + write on pipelines/plugins, read
  *   elsewhere. No member/role/billing management, no compliance/alert authoring.
- * - `admin`   — full org administration (everything below).
+ * - `admin`   — full org administration: every ORG-ASSIGNABLE permission (i.e.
+ *   ALL_PERMISSIONS minus the {@link SUPERADMIN_ONLY_PERMISSIONS}, so `registry:*`
+ *   stay superadmin-implicit-only and are NOT granted to org admins).
  * - `owner`   — same as admin (ownership itself — transfer/delete — is gated
  *   separately, not via a permission).
  */
@@ -131,10 +138,9 @@ const MEMBER_PERMISSIONS: readonly Permission[] = [
   'messages:read', 'messages:write',
   'billing:read',
   'quotas:read',
-  'registry:read',
 ];
 
-const ADMIN_PERMISSIONS: readonly Permission[] = [...ALL_PERMISSIONS];
+const ADMIN_PERMISSIONS: readonly Permission[] = [...ORG_ASSIGNABLE_PERMISSIONS];
 
 /**
  * Seed bundle for each built-in Role, keyed by the coarse role it grants.

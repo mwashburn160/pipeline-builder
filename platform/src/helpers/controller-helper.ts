@@ -242,6 +242,48 @@ export async function requireOrgAdmin(req: Request, res: Response, targetOrgId: 
 }
 
 /**
+ * Effective TENANCY scope over a target org for a WRITE whose *capability* was
+ * ALREADY authorized at the route by `requirePermission(...)`. Unlike
+ * {@link canAdministerOrg} this does NOT re-assert the coarse `isOrgAdmin` role —
+ * the fine-grained permission carried in the JWT is the authority, so a custom
+ * Role delegating e.g. `members:manage`/`roles:manage` to a non-admin is honored
+ * (delegation works instead of being silently 403'd deeper in). It still confines
+ * the write to the caller's own scope: a platform super admin (any org), the
+ * caller's active org, or a DESCENDANT team of the active org (a parent-org
+ * caller manages its teams). The same-org and sysadmin cases short-circuit before
+ * any DB lookup, so flat-org deployments do no extra work.
+ *
+ * Callers on these routes are ONLY reached after the route's `requirePermission`
+ * middleware has already 403'd anyone lacking the capability — so the coarse
+ * authority check that `requireOrgAdmin` used to perform is now redundant and its
+ * denial is the sole reason fine-grained delegation was inert on platform.
+ */
+export async function canManageOrgScope(req: Request, targetOrgId: string): Promise<boolean> {
+  if (isSystemAdmin(req)) return true;
+  const activeOrgId = req.user?.organizationId;
+  if (!activeOrgId) return false;
+  if (activeOrgId === targetOrgId) return true;
+  return targetIsDescendantOf(activeOrgId, targetOrgId);
+}
+
+/**
+ * Require {@link canManageOrgScope} over `targetOrgId` for a permission-gated
+ * write. Sends 403 and returns false when the target is outside the caller's
+ * tenancy scope; returns true otherwise. This is the tenancy-only successor to
+ * {@link requireOrgAdmin} on the member/role routes: the route's
+ * `requirePermission(members:manage|roles:manage|...)` is now the sole capability
+ * gate, and this enforces only the remaining, non-redundant work — that the
+ * `:id` org the caller is acting on is actually within their scope.
+ */
+export async function requireOrgScope(req: Request, res: Response, targetOrgId: string): Promise<boolean> {
+  if (!(await canManageOrgScope(req, targetOrgId))) {
+    sendError(res, 403, 'Forbidden: You do not have access to this organization');
+    return false;
+  }
+  return true;
+}
+
+/**
  * Effective READ authorization over a target org: a platform super admin, any
  * member of that exact org (a member can view their own org — current
  * behavior), or an admin/owner of an ancestor org (a parent-org admin can view

@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { ensureBaselineRole } from './roles-service.js';
+import { assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap } from '../helpers/seats.js';
@@ -245,11 +245,17 @@ class OrgMembersService {
         { session },
       );
 
-      // Single-source RBAC: give a plain member the built-in Member Role floor
+      // Single-source RBAC: give EVERY membership the built-in Member Role floor
       // so they resolve to the member bundle (they'd hold zero permissions
-      // otherwise). Admin adds get their Role elsewhere.
-      if (addedRole === 'member') {
-        await ensureBaselineRole(user._id, toOrgId(orgId), session);
+      // otherwise). An admin/owner add ALSO gets the built-in Admin Role so their
+      // effective PERMISSIONS match the coarse role — setting `role='admin'` alone
+      // yields coarse-admin/zero-perms and is reverted by the next recompute. We
+      // assign Roles and let recomputeUserOrgRole DERIVE the cached role (mirrors
+      // user-admin-service.createUser).
+      await ensureBaselineRole(user._id, toOrgId(orgId), session);
+      if (addedRole === 'admin' || addedRole === 'owner') {
+        await assignBuiltinAdminRole(user._id, toOrgId(orgId), session);
+        await recomputeUserOrgRole(user._id, toOrgId(orgId), session);
       }
 
       // G5: re-validate the pooled cap AFTER the write, inside the same tx, so a
@@ -437,6 +443,15 @@ class OrgMembersService {
       await oldOwnerMembership.save({ session });
       newOwnerMembership.role = 'owner';
       await newOwnerMembership.save({ session });
+
+      // Single-source RBAC: an owner must resolve to admin-level PERMISSIONS, which
+      // come ONLY from assigned Roles. A new owner promoted from a plain member holds
+      // just the Member Role, so grant the built-in Admin Role (idempotent upsert) —
+      // the coarse 'owner' label alone yields zero admin permissions. No recompute is
+      // needed here: `newOwnerMembership.role` is set to 'owner' explicitly (recompute
+      // preserves 'owner'), and BOTH users' tokenVersion is bumped below, so the new
+      // owner's next token already reflects the added permissions.
+      await assignBuiltinAdminRole(newOwnerId, toOrgId(orgId), session);
 
       org.owner = new mongoose.Types.ObjectId(newOwnerId);
       await org.save({ session });

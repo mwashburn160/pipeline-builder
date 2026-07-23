@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
-import { PERMISSION_CATEGORIES, permissionLabel, roleDisplayName } from '@/lib/permissions';
+import { ORG_ASSIGNABLE_CATEGORIES, permissionLabel, roleDisplayName } from '@/lib/permissions';
 import api from '@/lib/api';
 import type { OrganizationRole, RoleGrant } from '@/types';
 
@@ -449,7 +449,7 @@ export default function RolesPage() {
                 Permissions <span className="text-gray-400 font-normal">({rolePerms.size} selected)</span>
               </label>
               <div className="max-h-72 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
-                {PERMISSION_CATEGORIES.map(({ category, permissions }) => (
+                {ORG_ASSIGNABLE_CATEGORIES.map(({ category, permissions }) => (
                   <div key={category} className="p-2.5">
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">{category}</p>
                     <div className="mt-1.5 space-y-1.5">

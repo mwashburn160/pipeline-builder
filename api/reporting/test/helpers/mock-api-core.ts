@@ -26,6 +26,28 @@ export const loggerMock = () => ({
 /** Mirrors api-core: `ErrorCode.ANY_CODE` resolves to the string `'ANY_CODE'`. */
 const ErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<string, string>;
 
+/**
+ * Behavioral stub for api-core's `requirePermission` / `requirePermissionOrService`
+ * gate factories. Returns a tagged Express middleware that passes a superadmin or a
+ * user holding one of `permissions` (and, when `allowService`, a `service:*`
+ * principal without any permission), and 403s otherwise. The `__permission` /
+ * `__allowService` tags let the index-wiring suite locate the mounted gate.
+ */
+function permissionGate(permissions: string[], allowService: boolean) {
+  const gate = (req: any, res: any, next: any) => {
+    const user = req?.user;
+    if (!user) return res.status(401).json({ error: 'Authentication required' });
+    const isService = typeof user.sub === 'string' && user.sub.startsWith('service:');
+    if (allowService && isService) return next();
+    const held: string[] = Array.isArray(user.permissions) ? user.permissions : [];
+    if (user.isSuperAdmin === true || permissions.some((p) => held.includes(p))) return next();
+    return res.status(403).json({ error: `Missing required permission: ${permissions.join(' or ')}` });
+  };
+  (gate as any).__permission = permissions.join(' or ');
+  (gate as any).__allowService = allowService;
+  return gate;
+}
+
 /** Mirrors api-core's NotFoundError (statusCode 404 / code NOT_FOUND). */
 class NotFoundError extends Error {
   statusCode = 404;
@@ -43,6 +65,11 @@ class NotFoundError extends Error {
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     createLogger: loggerMock,
+    // RBAC read-permission gate factories. Behavioral so the index-wiring suite
+    // can assert 403-vs-pass; provided by default so any suite loading src/index.ts
+    // (which now imports requirePermission) links. Router-only suites don't hit them.
+    requirePermission: (...permissions: string[]) => permissionGate(permissions, false),
+    requirePermissionOrService: (...permissions: string[]) => permissionGate(permissions, true),
     // Shared org-descendants resolver imported by src/helpers.ts (resolveOrgRollup).
     // A stub is enough for the module to link; suites that exercise the rollup
     // mock resolveOrgRollup itself at the helpers layer.
@@ -57,6 +84,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     createRemoteAuditClient: () => ({ record: () => {} }),
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
+    wireAuthzDenialAuditor: () => {},
     // Token-revocation reader hooks (session-invalidation) — stubbed for parity
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},

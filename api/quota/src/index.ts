@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { mongoSanitize, createLogger, DEFAULT_TIER, QUOTA_TIERS, VALID_TIERS, isValidTier, setAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { mongoSanitize, createLogger, DEFAULT_TIER, QUOTA_TIERS, VALID_TIERS, isValidTier, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import mongoose from 'mongoose';
 
@@ -35,16 +35,7 @@ app.use('/quotas', createUpdateQuotaRoutes());
 // requireSystemAdmin) into the same remote audit sink as the mutation events,
 // as best-effort `authz.denied` failure records. Registered once at boot; the
 // gate already wraps this call in try/catch and only fires for non-GET requests.
-setAuthzDenialAuditor((info) => {
-  getAuditClient().record({
-    action: 'authz.denied',
-    actorId: info.actorId ?? 'anonymous',
-    actorEmail: info.actorEmail,
-    orgId: info.orgId,
-    outcome: 'failure',
-    details: { method: info.method, path: info.path, required: info.required },
-  }, 'quota');
-});
+wireAuthzDenialAuditor('quota', getAuditClient);
 
 // Reject tokens whose tokenVersion is behind the platform-published value once
 // Redis is configured; fail-open (no-op) otherwise — falls back to token expiry.

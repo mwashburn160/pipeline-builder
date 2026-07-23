@@ -62,7 +62,9 @@ export function CommandPalette({
     // sourced from the same QUICK_ACTIONS the sidebar's action row uses. Putting
     // them at the top means a user can fire "Create Pipeline" without leaving
     // the keyboard, and they stay reachable when the sidebar is collapsed.
-    const actionItems: CommandItem[] = QUICK_ACTIONS.map((qa) => ({
+    const actionItems: CommandItem[] = QUICK_ACTIONS
+      .filter((qa) => !qa.requiredPermission || hasPermission(user, qa.requiredPermission))
+      .map((qa) => ({
       id: qa.href,
       label: qa.label,
       icon: qa.icon,

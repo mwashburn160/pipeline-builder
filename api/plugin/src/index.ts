@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceEventSubscriber, requireFeature, requirePermission, setAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceEventSubscriber, requireFeature, requirePermission, wireAuthzDenialAuditor, setTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, createProtectedRoute, createAuthenticatedWithOrgRoute, attachRequestContext, postgresHealthCheck, redisHealthCheck, combineHealthChecks } from '@pipeline-builder/api-server';
 
 import { startWorker, waitForWorkerReady, shutdownQueue, getHealthRedisConnection } from './queue/plugin-build-queue.js';
@@ -31,20 +31,7 @@ const { app, sseManager } = createApp({
 // `requireSystemAdmin` gate forwards every denied state-changing request into
 // the platform audit log as an `authz.denied` failure. Best-effort: the gate
 // wraps this in try/catch and `record` never throws.
-setAuthzDenialAuditor((info) => {
-  getAuditClient().record({
-    action: 'authz.denied',
-    actorId: info.actorId ?? 'anonymous',
-    actorEmail: info.actorEmail,
-    orgId: info.orgId,
-    outcome: 'failure',
-    details: {
-      method: info.method,
-      path: info.path,
-      required: info.required,
-    },
-  }, 'plugin');
-});
+wireAuthzDenialAuditor('plugin', getAuditClient);
 
 // -- Token-revocation reader (session-invalidation option b) ------------------
 // Reuse the same pooled ioredis connection (db 0) the BullMQ build queue and the
@@ -65,8 +52,11 @@ app.use('/plugins', createUploadPluginRoutes(quotaService));
 // -- Queue status route (MUST be before read routes to avoid /:id catching "queue")
 app.use('/plugins/queue', ...createAuthenticatedWithOrgRoute(), createQueueStatusRoutes(quotaService));
 
-// -- AI generation routes — ai_generation feature gate (MUST be before read routes)
-app.use('/plugins', ...createAuthenticatedWithOrgRoute(), requireFeature('ai_generation'), createGeneratePluginRoutes(quotaService));
+// -- AI generation routes (MUST be before read routes). Auth + orgId stays at the
+//    mount (reads require auth anyway, so it can't over-gate them), but the
+//    `ai_generation` feature gate lives on each generate route inside the router
+//    (see generate-plugin.ts) so it can't leak onto sibling `GET /plugins` reads.
+app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createGeneratePluginRoutes(quotaService));
 
 // -- Deploy AI-generated plugin — manages its own admin + quota middleware
 app.use('/plugins', ...createAuthenticatedWithOrgRoute(), createDeployGeneratedPluginRoutes(quotaService));

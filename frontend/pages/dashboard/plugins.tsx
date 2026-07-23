@@ -200,7 +200,7 @@ export default function PluginsPage() {
 
   // Open the create modal (AI Builder tab) when arrived via the sidebar "Add
   // Plugin" shortcut (`?create=1`).
-  useOpenOnCreateQuery(() => setCreateInitialTab('ai'));
+  useOpenOnCreateQuery(() => { if (canWrite) setCreateInitialTab('ai'); });
   const [viewPlugin, setViewPlugin] = useState<Plugin | null>(null);
 
   // ── Columns ──

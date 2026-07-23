@@ -3,6 +3,7 @@
 
 import {
   requireAuth,
+  requirePermission,
   sendSuccess,
   sendError,
   ErrorCode,
@@ -489,6 +490,7 @@ export function createMarketplaceRoutes(): Router {
   router.get(
     '/marketplace/entitlements',
     requireAuth(AUTH_OPTS) as RequestHandler,
+    requirePermission('billing:read') as RequestHandler,
     withRoute(async ({ res, ctx, orgId }) => {
       const provider = getMarketplaceProvider();
       if (!provider) {

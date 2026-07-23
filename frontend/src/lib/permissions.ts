@@ -21,8 +21,10 @@ export interface PermissionMeta {
 export const PERMISSION_CATALOG: PermissionMeta[] = [
   { id: 'pipelines:read', label: 'View pipelines', description: 'View pipelines and their executions', category: 'Pipelines' },
   { id: 'pipelines:write', label: 'Manage pipelines', description: 'Create, edit, and delete pipelines', category: 'Pipelines' },
+  { id: 'pipelines:publish', label: 'Publish pipelines', description: 'Make pipelines public (org-wide/catalog visibility)', category: 'Pipelines' },
   { id: 'plugins:read', label: 'View plugins', description: 'View plugins and builds', category: 'Plugins' },
   { id: 'plugins:write', label: 'Manage plugins', description: 'Create, upload, edit, and delete plugins', category: 'Plugins' },
+  { id: 'plugins:publish', label: 'Publish plugins', description: 'Make plugins public (org-wide/catalog visibility)', category: 'Plugins' },
   { id: 'compliance:read', label: 'View compliance', description: 'View compliance rules, policies, and scans', category: 'Compliance' },
   { id: 'compliance:write', label: 'Manage compliance', description: 'Create and edit rules, policies, and exemptions', category: 'Compliance' },
   { id: 'members:manage', label: 'Manage members', description: 'Add, remove, and change roles of org members', category: 'Members & Access' },
@@ -33,6 +35,7 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { id: 'observability:read', label: 'View alerting', description: 'View alert rules and destinations', category: 'Observability' },
   { id: 'observability:write', label: 'Manage alerting', description: 'Create and edit alert rules and destinations', category: 'Observability' },
   { id: 'reports:read', label: 'View reports', description: 'View analytics and reports', category: 'Insights' },
+  { id: 'reports:rollup', label: 'Roll up team reports', description: 'Include descendant teams when viewing reports', category: 'Insights' },
   { id: 'messages:read', label: 'View messages', description: 'View messages and announcements', category: 'Messaging' },
   { id: 'messages:write', label: 'Send messages', description: 'Send messages and announcements', category: 'Messaging' },
   { id: 'billing:read', label: 'View billing', description: 'View subscriptions and usage', category: 'Billing & Quotas' },
@@ -43,16 +46,53 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { id: 'org:settings', label: 'Organization settings', description: 'Manage org settings (SSO/IdP, KMS, AI config)', category: 'Organization' },
 ];
 
-/** Category → permissions, in catalog order (for the grouped picker). */
-export const PERMISSION_CATEGORIES: { category: string; permissions: PermissionMeta[] }[] = (() => {
+/** Group a flat permission list into categories, preserving catalog order. */
+function groupByCategory(perms: PermissionMeta[]): { category: string; permissions: PermissionMeta[] }[] {
   const order: string[] = [];
   const byCat = new Map<string, PermissionMeta[]>();
-  for (const p of PERMISSION_CATALOG) {
+  for (const p of perms) {
     if (!byCat.has(p.category)) { byCat.set(p.category, []); order.push(p.category); }
     byCat.get(p.category)!.push(p);
   }
   return order.map((category) => ({ category, permissions: byCat.get(category)! }));
-})();
+}
+
+/**
+ * Category → permissions, in catalog order. This is the full DISPLAY catalog
+ * (used by nav and read-only role permission lists — it must show every id,
+ * including `registry:*`, so a built-in/superadmin role renders correctly).
+ * The authoring picker uses {@link ORG_ASSIGNABLE_CATEGORIES} instead.
+ */
+export const PERMISSION_CATEGORIES: { category: string; permissions: PermissionMeta[] }[] =
+  groupByCategory(PERMISSION_CATALOG);
+
+/**
+ * Local mirror of api-core's `SUPERADMIN_ONLY_PERMISSIONS`
+ * (`src/types/permissions.ts`). These gate the platform-operator image registry
+ * and are NOT assignable through a user-authored custom Role — the backend
+ * rejects them with `RL_PERMISSION_NOT_ASSIGNABLE` (400). Kept in sync via the
+ * cross-package parity test (`permission-catalog-parity.test.ts`).
+ */
+export const SUPERADMIN_ONLY_PERMISSIONS: readonly string[] = [
+  'registry:read',
+  'registry:write',
+];
+
+const SUPERADMIN_ONLY_SET = new Set(SUPERADMIN_ONLY_PERMISSIONS);
+
+/** Whether a permission may be granted through a user-authored custom Role. */
+export function isOrgAssignablePermission(id: string): boolean {
+  return !SUPERADMIN_ONLY_SET.has(id);
+}
+
+/**
+ * Category → permissions for the custom-Role AUTHORING picker: the display
+ * catalog filtered to org-assignable ids, with any now-empty category dropped
+ * (so the "Registry" category disappears). Mirrors api-core's
+ * `ORG_ASSIGNABLE_PERMISSIONS`.
+ */
+export const ORG_ASSIGNABLE_CATEGORIES: { category: string; permissions: PermissionMeta[] }[] =
+  groupByCategory(PERMISSION_CATALOG.filter((p) => isOrgAssignablePermission(p.id)));
 
 const LABELS = new Map(PERMISSION_CATALOG.map((p) => [p.id, p.label]));
 

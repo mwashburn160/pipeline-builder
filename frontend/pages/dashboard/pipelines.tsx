@@ -87,7 +87,7 @@ export default function PipelinesPage() {
 
   // Open the create modal when arrived via the sidebar "Create Pipeline"
   // shortcut (`?create=1`).
-  useOpenOnCreateQuery(() => setShowCreateModal(true));
+  useOpenOnCreateQuery(() => { if (canWrite) setShowCreateModal(true); });
 
   const handleCreatePipeline = async (props: BuilderProps, accessModifier: 'public' | 'private', description?: string, keywords?: string[]) => {
     setCreateSuccess(null);
@@ -305,7 +305,7 @@ export default function PipelinesPage() {
       <div className="page-section">
         <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} />
 
-        <DeployedPipelinesPanel />
+        <DeployedPipelinesPanel canWrite={canWrite} />
 
         {/* Sticky search + advanced-filter panel stays above the list shell.
             FilterBar is its own sticky surface with a "/" hotkey and a

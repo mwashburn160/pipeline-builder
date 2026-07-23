@@ -23,7 +23,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ALL_PERMISSIONS } from '../src/types/permissions.js';
+import { ALL_PERMISSIONS, SUPERADMIN_ONLY_PERMISSIONS, ORG_ASSIGNABLE_PERMISSIONS } from '../src/types/permissions.js';
 
 // Locate frontend/src/lib/permissions.ts relative to this test file.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,10 +42,30 @@ function extractFrontendIds(source: string): string[] {
   return ids;
 }
 
+/**
+ * Extract the quoted ids from the frontend `SUPERADMIN_ONLY_PERMISSIONS` array
+ * literal. Captures only the `[ ... ]` body of that specific declaration so
+ * unrelated string literals elsewhere in the file can't leak in.
+ */
+function extractSuperadminOnlyIds(source: string): string[] {
+  const block = /SUPERADMIN_ONLY_PERMISSIONS\s*:\s*readonly\s+string\[\]\s*=\s*\[([^\]]*)\]/.exec(source);
+  if (!block) return [];
+  const ids: string[] = [];
+  const re = /'([^']+)'/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(block[1])) !== null) ids.push(m[1]);
+  return ids;
+}
+
 describe('frontend ↔ api-core permission catalog parity', () => {
   const source = readFileSync(frontendCatalogPath, 'utf8');
   const frontendIds = extractFrontendIds(source);
   const backendIds = [...ALL_PERMISSIONS];
+  const frontendSuperadminOnly = extractSuperadminOnlyIds(source);
+  // What the authoring picker offers: the catalog minus the superadmin-only
+  // mirror — the same derivation the frontend's ORG_ASSIGNABLE_CATEGORIES uses.
+  const superadminOnlySet = new Set(frontendSuperadminOnly);
+  const frontendPickerIds = frontendIds.filter((id) => !superadminOnlySet.has(id));
 
   it('reads a non-empty frontend catalog (regex still matches the source shape)', () => {
     // Guards against the extraction silently returning [] if the catalog is
@@ -71,5 +91,20 @@ describe('frontend ↔ api-core permission catalog parity', () => {
   it('reports the exact ids the frontend mirror has but api-core does not', () => {
     const beSet = new Set<string>(backendIds);
     expect(frontendIds.filter((id) => !beSet.has(id))).toEqual([]);
+  });
+
+  it('frontend SUPERADMIN_ONLY_PERMISSIONS mirror === api-core SUPERADMIN_ONLY_PERMISSIONS', () => {
+    // The regex must still match the mirror's array-literal shape (guards against
+    // a silent [] that would make the equality vacuous).
+    expect(frontendSuperadminOnly.length).toBe(SUPERADMIN_ONLY_PERMISSIONS.length);
+    expect([...frontendSuperadminOnly].sort()).toEqual([...SUPERADMIN_ONLY_PERMISSIONS].sort());
+  });
+
+  it('the picker offers exactly api-core ORG_ASSIGNABLE_PERMISSIONS (excludes superadmin-only)', () => {
+    expect([...frontendPickerIds].sort()).toEqual([...ORG_ASSIGNABLE_PERMISSIONS].sort());
+  });
+
+  it('the picker offers none of the superadmin-only ids', () => {
+    expect(frontendPickerIds.filter((id) => superadminOnlySet.has(id))).toEqual([]);
   });
 });

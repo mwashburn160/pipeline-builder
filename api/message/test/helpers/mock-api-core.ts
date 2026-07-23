@@ -52,13 +52,17 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-    // `requirePermission(...perms)` is a factory that RETURNS middleware, so
-    // the stub is a function producing the pass-through guard.
+    // `requirePermission(...perms)` / `requirePermissionOrService(...perms)` are
+    // factories that RETURN middleware, so each stub is a function producing the
+    // pass-through guard. Suites exercising the gate override these with real
+    // 403-unless-permitted semantics.
     requirePermission: () => passThroughMiddleware,
+    requirePermissionOrService: () => passThroughMiddleware,
     // Remote audit client factory — src/services/audit.ts links against this.
     createRemoteAuditClient: () => ({ record: () => {} }),
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
+    wireAuthzDenialAuditor: () => {},
     // Token-revocation reader hooks (session-invalidation) — stubbed for parity
     // so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},

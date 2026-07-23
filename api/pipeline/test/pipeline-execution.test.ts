@@ -61,6 +61,10 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  // Auth + orgId chain the execution routes now spread in per-route (the write
+  // permission guard moved off the shared '/pipelines' mount). No-op here — the
+  // suite drives the withRoute handler directly.
+  createAuthenticatedWithOrgRoute: () => [],
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
@@ -86,9 +90,13 @@ describe('pipeline execution write routes', () => {
   });
 
   function handlerFor(path: string) {
-    return router.stack.find(
+    // Return the LAST layer in the route stack — the withRoute business handler.
+    // The leading layers are now the per-route auth + `pipelines:write` guards,
+    // so `stack[0]` would grab a guard rather than the handler.
+    const stack = router.stack.find(
       (l: any) => l.route?.path === path && l.route?.methods?.post,
-    )?.route?.stack[0]?.handle;
+    )?.route?.stack;
+    return stack?.[stack.length - 1]?.handle;
   }
 
   const triggerHandler = () => handlerFor('/:pipelineId/executions');

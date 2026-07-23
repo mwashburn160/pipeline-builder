@@ -113,7 +113,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         if (!validation.ok) {
           return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
         }
-        const accessModifier = resolveAccessModifier(req, validation.value.accessModifier);
+        const accessModifier = resolveAccessModifier(req, validation.value.accessModifier, 'plugins:publish');
 
         // Reserve the plugins quota slot. Done AFTER multer + body validation
         // so a bad-request never consumes quota. Two concurrent uploads at the

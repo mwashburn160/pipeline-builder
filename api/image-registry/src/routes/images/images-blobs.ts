@@ -7,9 +7,10 @@ import {
   sendEntityNotFound,
   ErrorCode,
   getParam,
+  requirePermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { type Router } from 'express';
+import { type Router, type RequestHandler } from 'express';
 import {
   headBlob,
   getBlobStream,
@@ -24,12 +25,12 @@ import {
 const MAX_BLOB_PROXY_BYTES = parseInt(process.env.REGISTRY_MAX_BLOB_PROXY_BYTES || String(5 * 1024 * 1024), 10);
 
 /**
- * Register the blob proxy route:
+ * Register the blob proxy route (gated on `registry:read`):
  *  - GET /:name/blobs/:digest (5MB cap; config blobs only, streamed)
  */
 export function registerBlobRoutes(router: Router): void {
   // GET /api/images/:name/blobs/:digest — proxy a config blob (5MB cap, streamed).
-  router.get('/:name/blobs/:digest', withRoute(async ({ req, res, ctx }) => {
+  router.get('/:name/blobs/:digest', requirePermission('registry:read') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     const digest = getParam(req.params, 'digest');
     if (!name || !digest) return sendBadRequest(res, 'name and digest are required', ErrorCode.MISSING_REQUIRED_FIELD);

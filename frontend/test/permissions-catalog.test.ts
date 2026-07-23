@@ -24,8 +24,10 @@ import { PERMISSION_CATALOG, PERMISSION_CATEGORIES, permissionLabel } from '../s
 const KNOWN_IDS = [
   'pipelines:read',
   'pipelines:write',
+  'pipelines:publish',
   'plugins:read',
   'plugins:write',
+  'plugins:publish',
   'compliance:read',
   'compliance:write',
   'members:manage',
@@ -36,6 +38,7 @@ const KNOWN_IDS = [
   'observability:read',
   'observability:write',
   'reports:read',
+  'reports:rollup',
   'messages:read',
   'messages:write',
   'billing:read',

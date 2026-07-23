@@ -30,7 +30,7 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: (...a: unknown[]) => mockSeatCapacity(...a),
 }));
 
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined) }));
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/utils/email.js', () => ({ emailService: { sendInvitation: jest.fn(async () => true) } }));
 
 // Run the transaction body inline with a fake session (no live Mongo).
