@@ -101,8 +101,10 @@ function bypassResult(context: Record<string, unknown>): ComplianceCheckResult {
 function buildHeaders(orgId: string, authHeader: string): Record<string, string> {
   const headers: Record<string, string> = {
     'x-org-id': orgId,
-    'x-internal-service': 'true',
   };
+  // NOTE: the old `x-internal-service: true` header was removed — it is trusted
+  // by nothing (it was spoofable); compliance routes authenticate the caller via
+  // the `Authorization` service JWT (`requireServicePrincipal`).
   if (authHeader) headers.Authorization = authHeader;
   return headers;
 }

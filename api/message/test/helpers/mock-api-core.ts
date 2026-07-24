@@ -58,9 +58,12 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // 403-unless-permitted semantics.
     requirePermission: () => passThroughMiddleware,
     requirePermissionOrService: () => passThroughMiddleware,
-    // Remote audit client factory — src/services/audit.ts links against this.
+    // Remote audit client factory — kept for any module still linking it directly.
     createRemoteAuditClient: () => ({ record: () => {} }),
     createEnvRedisAuditSpool: () => null,
+    // Service audit factory — src/services/audit.ts now links against this. Returns
+    // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
+    createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},

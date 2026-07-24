@@ -56,6 +56,9 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // (src/services/audit.js) directly instead.
     createRemoteAuditClient: () => ({ record: jest.fn() }),
     createEnvRedisAuditSpool: () => null,
+    // Service audit factory — src/services/audit.ts now links against this. Returns
+    // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
+    createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},

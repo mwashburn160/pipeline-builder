@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createRemoteAuditClient, createEnvRedisAuditSpool } from '@pipeline-builder/api-core';
-import type { RemoteAuditClient } from '@pipeline-builder/api-core';
+import { createServiceAuditClient } from '@pipeline-builder/api-core';
+import type { RemoteAuditClient, ServiceAuditClient } from '@pipeline-builder/api-core';
 
 /**
  * Remote-audit wiring for the message service.
@@ -18,10 +18,16 @@ import type { RemoteAuditClient } from '@pipeline-builder/api-core';
  * Emission is FIRE-AND-FORGET: `RemoteAuditClient.record` never throws and is
  * not awaited, so a flaky audit downstream can never fail or delay a request.
  */
-let auditClient: RemoteAuditClient | null = null;
+let audit: ServiceAuditClient | null = null;
 
 /** Lazily-constructed module singleton, matching api/pipeline's accessor. */
+function svc(): ServiceAuditClient {
+  if (!audit) audit = createServiceAuditClient('message');
+  return audit;
+}
+
+/** The underlying spool-backed remote client — passed to `wireAuthzDenialAuditor`
+ *  and called directly by route files via `getAuditClient().record(...)`. */
 export function getAuditClient(): RemoteAuditClient {
-  if (!auditClient) auditClient = createRemoteAuditClient({ spool: createEnvRedisAuditSpool() ?? undefined });
-  return auditClient;
+  return svc().client;
 }

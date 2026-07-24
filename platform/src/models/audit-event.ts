@@ -193,6 +193,17 @@ export type AuditAction =
   // image/tag deletes.
   | 'registry.gc'
   | 'registry.image.delete'
+  // Messaging (api/message) — admin broadcast announcements + destructive
+  // deletes (metadata only, never message body content).
+  | 'message.announcement.create'
+  | 'message.delete'
+  // Billing (api/billing) — subscription + entitlement mutations, mirrored to
+  // the central trail (also in the service-local billing_events collection).
+  | 'billing.subscription.cancel'
+  | 'billing.subscription.delete'
+  | 'billing.tier.override'
+  | 'billing.addon.add'
+  | 'billing.addon.remove'
   // Denied authorization attempt — best-effort emission from the shared
   // requirePermission / requireSystemAdmin gate on a rejected state-changing
   // request (probing/escalation signal). `outcome` is 'failure'.
@@ -307,6 +318,13 @@ export const ALL_AUDIT_ACTIONS = [
   'compliance.scan.cancel',
   'registry.gc',
   'registry.image.delete',
+  'message.announcement.create',
+  'message.delete',
+  'billing.subscription.cancel',
+  'billing.subscription.delete',
+  'billing.tier.override',
+  'billing.addon.add',
+  'billing.addon.remove',
   'authz.denied',
   'admin.org.ai-config.update',
   'admin.org.quota.override',

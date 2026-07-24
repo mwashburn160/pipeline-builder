@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
-import type { AuditSpool, AuditSpoolEntry } from './audit-spool.js';
+import { createEnvRedisAuditSpool, type AuditSpool, type AuditSpoolEntry } from './audit-spool.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
 import { getServiceAuthHeader, setAuthzDenialAuditor, type AuthzDenialInfo } from '../middleware/auth.js';
 import type { ServiceConfig } from '../types/common.js';
@@ -92,6 +92,21 @@ export const REMOTE_AUDIT_ACTIONS = [
   // sweeps and explicit image/tag deletes (previously only a log line).
   'registry.gc',
   'registry.image.delete',
+  // Messaging (api/message) — admin BROADCAST announcements + destructive
+  // deletes. 1:1 user messages are intentionally NOT audited (noise + they would
+  // pull private content into the trail). `details` carry metadata only
+  // (subject/type/scope), NEVER message body content.
+  'message.announcement.create',
+  'message.delete',
+  // Billing (api/billing) — subscription + entitlement mutations, mirrored to the
+  // central audit trail (these also write to the service-local billing_events
+  // collection). `details` carry plan/tier/addon ids only — never card/payment
+  // secrets or an AWS account id.
+  'billing.subscription.cancel',
+  'billing.subscription.delete',
+  'billing.tier.override',
+  'billing.addon.add',
+  'billing.addon.remove',
   // Denied authorization attempt — emitted best-effort by the shared
   // `requirePermission` / `requireSystemAdmin` gate when a state-changing
   // (non-GET) request is rejected, so probing/escalation attempts are visible
@@ -329,4 +344,33 @@ export function wireAuthzDenialAuditor(serviceName: string, getClient: () => Rem
     outcome: 'failure',
     details: { method: info.method, path: info.path, required: info.required },
   }, serviceName));
+}
+
+/**
+ * A service-scoped audit client: a durable-spool-backed {@link RemoteAuditClient}
+ * with the service name pre-bound for emission. Replaces the per-service
+ * boilerplate of `createRemoteAuditClient({ spool: createEnvRedisAuditSpool() ?? undefined })`
+ * plus a hand-rolled `emit<Service>Audit` wrapper that repeats the service name.
+ */
+export interface ServiceAuditClient {
+  /** Emit an audit event with the service name bound. Fire-and-forget. */
+  emit(event: RemoteAuditEvent): void;
+  /** The underlying remote client — for `wireAuthzDenialAuditor` + `close()`. */
+  readonly client: RemoteAuditClient;
+}
+
+/**
+ * Build a service's audit client: a RemoteAuditClient wired to the durable Redis
+ * spool (from ambient env; null → no spool) with `serviceName` bound. Construct
+ * ONCE per process — memoize behind a lazy `getAuditClient()` in the service's
+ * `services/audit.ts`. Pass `config.spool` to override the env-derived spool
+ * (e.g. reuse a service's existing ioredis connection).
+ */
+export function createServiceAuditClient(serviceName: string, config: RemoteAuditClientConfig = {}): ServiceAuditClient {
+  const spool = config.spool ?? createEnvRedisAuditSpool() ?? undefined;
+  const client = createRemoteAuditClient({ ...config, spool });
+  return {
+    emit: (event) => client.record(event, serviceName),
+    client,
+  };
 }

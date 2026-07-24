@@ -96,6 +96,13 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   syncEntitlements: mockSyncEntitlements,
 }));
 
+// Central-trail audit client — addon add/remove emit billing.addon.* here
+// ALONGSIDE the local billing_events write. Mock it to assert emission.
+const mockAuditRecord = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  getAuditClient: () => ({ record: mockAuditRecord }),
+}));
+
 const { createAddonRoutes } = await import('../src/routes/addons.js');
 const router = createAddonRoutes();
 
@@ -301,6 +308,37 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 0 } }), mockRes());
     expect(sub.addons).toEqual([{ bundleId: 'seat_pack', quantity: 1 }]);
   });
+
+  it('mirrors the add-on add to the CENTRAL audit trail with bundle id + quantity', async () => {
+    withActiveSub();
+    await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 3 } }), mockRes());
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'billing.addon.add',
+        actorId: 'user-1',
+        orgId: 'org-1',
+        targetId: 'seat_pack',
+        details: expect.objectContaining({ bundleId: 'seat_pack', quantity: 3, subscriptionId: 'sub-1' }),
+      }),
+      'billing',
+    );
+  });
+
+  it('never emits card/payment secrets or an account id in the add-on details', async () => {
+    withActiveSub(makeSubscription({ externalCustomerId: 'cus_LEAKED', stripeCustomerId: 'cus_LEAKED', awsAccountId: '123456789012' }));
+    await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 2 } }), mockRes());
+    const [event] = mockAuditRecord.mock.calls[0];
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain('cus_LEAKED');
+    expect(serialized).not.toContain('123456789012');
+  });
+
+  it('does not emit to the central trail when the over-cap gate blocks the add', async () => {
+    withActiveSub();
+    mockCheckEntitlementOvercap.mockResolvedValue([{ quotaType: 'seats', currentUsage: 12, targetCap: 10, overage: 2 }]);
+    await handler(mockReq({ body: { bundleId: 'seat_pack', quantity: 1 } }), mockRes());
+    expect(mockAuditRecord).not.toHaveBeenCalled();
+  });
 });
 
 describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
@@ -327,6 +365,28 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
     expect(sub.save).toHaveBeenCalled();
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [{ bundleId: 'audit_log', quantity: 1 }]);
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, expect.anything());
+  });
+
+  it('mirrors the add-on removal to the CENTRAL audit trail with the bundle id', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 2 }] }));
+    await handler(mockReq({ params: { bundleId: 'seat_pack' } }), mockRes());
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'billing.addon.remove',
+        actorId: 'user-1',
+        orgId: 'org-1',
+        targetId: 'seat_pack',
+        details: expect.objectContaining({ bundleId: 'seat_pack', subscriptionId: 'sub-1' }),
+      }),
+      'billing',
+    );
+  });
+
+  it('does not emit to the central trail when the over-cap gate blocks the removal', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 2 }] }));
+    mockCheckEntitlementOvercap.mockResolvedValue([{ quotaType: 'seats', currentUsage: 12, targetCap: 10, overage: 2 }]);
+    await handler(mockReq({ params: { bundleId: 'seat_pack' } }), mockRes());
+    expect(mockAuditRecord).not.toHaveBeenCalled();
   });
 });
 

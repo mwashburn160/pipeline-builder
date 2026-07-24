@@ -44,6 +44,11 @@ export function registerDeleteRoutes(router: Router): void {
       const { digest } = await getManifest(name, reference);
       await deleteManifest(name, digest);
       ctx.log('COMPLETED', 'Deleted manifest', { name, reference, digest });
+      // Intentional dual-emit (NOT an accidental duplication): two independent
+      // consumers. The Loki line below (`emitAudit` → winston) feeds the operator
+      // Audit-Activity dashboard / RecentActionsPanel — a short-retention, human-
+      // facing ops view. The `emitImageRegistryAudit` call feeds the tamper-evident
+      // Mongo hash-chain audit trail — the durable compliance record. Keep both.
       emitAudit(logger, {
         event: 'registry.tag.delete',
         actor: req.user?.sub ?? 'unknown',
@@ -121,6 +126,11 @@ export function registerDeleteRoutes(router: Router): void {
     });
 
     ctx.log('COMPLETED', 'Pruned repository', { name, deletedManifests, tags: tags.length });
+    // Intentional dual-emit (NOT an accidental duplication): two independent
+    // consumers. The Loki line below (`emitAudit` → winston) feeds the operator
+    // Audit-Activity dashboard / RecentActionsPanel — a short-retention, human-
+    // facing ops view. The `emitImageRegistryAudit` call feeds the tamper-evident
+    // Mongo hash-chain audit trail — the durable compliance record. Keep both.
     emitAudit(logger, {
       event: 'registry.repo.delete',
       actor: req.user?.sub ?? 'unknown',

@@ -22,6 +22,7 @@ import { buildSubscriptionResponse, createBillingEvent, syncEntitlements } from 
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
+import { getAuditClient } from '../services/audit.js';
 import { AdminSubscriptionUpdateSchema } from '../validation/schemas.js';
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
@@ -110,9 +111,22 @@ export function createAdminSubscriptionRoutes(): Router {
         // Passing no addons here would push tier-base-only limits and silently
         // drop the customer's bundle entitlements until the next add-on mutation.
         const addons = subscription.addons ?? [];
+        const newTier = plan.tier;
         deferred.push(async () => {
-          await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId, addons);
+          await syncEntitlements(orgId, newTier, serviceAuth, subscriptionId, addons);
           await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId, actorId);
+          // Mirror this privileged CROSS-TENANT tier override to the CENTRAL audit
+          // trail (alongside the local billing_events row). Fire-and-forget: the
+          // sysadmin acts on ANOTHER org, so actorId = the sysadmin and
+          // affectedOrgId = the target org. Details are an explicit tier/plan-id
+          // whitelist — no card/payment secret or AWS account id can leak.
+          getAuditClient().record({
+            action: 'billing.tier.override',
+            actorId: actorId ?? 'unknown',
+            affectedOrgId: orgId,
+            targetId: subscriptionId,
+            details: { toTier: newTier, fromPlanId: oldPlanId, toPlanId: planId },
+          }, 'billing');
         });
       }
 

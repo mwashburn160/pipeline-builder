@@ -73,13 +73,15 @@ describe('notifyPublishedRuleChange', () => {
     expect(mockPost).not.toHaveBeenCalled();
   });
 
-  it('passes internal-service headers', async () => {
+  it('passes the system-org header on the service-authed call', async () => {
     mockFindSubscribers.mockResolvedValue([{ orgId: 'org-x' }]);
 
     await notifyPublishedRuleChange('rule-1', 'rn', 'updated');
 
     const [, , opts] = mockPost.mock.calls[0];
-    expect(opts.headers['x-internal-service']).toBe('true');
+    // The spoofable `x-internal-service` header was dropped — routes authenticate
+    // via the service JWT, not this header, so nothing trusted it.
+    expect(opts.headers['x-internal-service']).toBeUndefined();
     expect(opts.headers['x-org-id']).toBe('000000000000000000000001');
   });
 

@@ -75,7 +75,6 @@ const inAppChannel: NotificationChannel = {
         headers: {
           'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: SYSTEM_ORG_ID, role: 'member' }),
           'x-org-id': SYSTEM_ORG_ID,
-          'x-internal-service': 'true',
         },
       });
       return { ok: true };
@@ -164,8 +163,7 @@ const emailChannel: NotificationChannel = {
         text: n.content,
       }, {
         headers: {
-          'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: SYSTEM_ORG_ID, role: 'member' }),
-          'x-internal-service': 'true',
+          Authorization: getServiceAuthHeader({ serviceName: 'compliance', orgId: SYSTEM_ORG_ID, role: 'member' }),
         },
       });
       return { ok: true };

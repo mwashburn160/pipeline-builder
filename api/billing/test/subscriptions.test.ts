@@ -54,13 +54,29 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 const mockSubscriptionFindOne = jest.fn<(...args: unknown[]) => any>();
 const mockSubscriptionCreate = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockSubscriptionDeleteOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ deletedCount: 1 });
+const mockSubscriptionFind = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue([]);
+const mockSubscriptionDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ deletedCount: 0 });
 
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     findOne: mockSubscriptionFindOne,
     create: mockSubscriptionCreate,
     deleteOne: mockSubscriptionDeleteOne,
+    find: mockSubscriptionFind,
+    deleteMany: mockSubscriptionDeleteMany,
   },
+}));
+
+const mockBillingEventDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ deletedCount: 0 });
+jest.unstable_mockModule('../src/models/billing-event.js', () => ({
+  BillingEvent: { deleteMany: mockBillingEventDeleteMany },
+}));
+
+// Central-trail audit client — the route emits billing.subscription.* here
+// ALONGSIDE the local billing_events write. Mock it so we can assert emission.
+const mockAuditRecord = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  getAuditClient: () => ({ record: mockAuditRecord }),
 }));
 
 const mockPlanFindOne = jest.fn<(...args: unknown[]) => any>();
@@ -532,6 +548,96 @@ describe('POST /subscriptions/:id/cancel', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Internal server error', 'INTERNAL_ERROR');
+  });
+
+  it('mirrors the cancel to the CENTRAL audit trail with plan/subscription ids', async () => {
+    const sub = makeSubscription();
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    const req = mockReq({ params: { id: 'sub-1' } });
+    await handler(req, mockRes());
+
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'billing.subscription.cancel',
+        actorId: 'user-1',
+        orgId: 'org-1',
+        targetId: 'sub-1',
+        details: expect.objectContaining({ planId: 'pro', orgId: 'org-1' }),
+      }),
+      'billing',
+    );
+  });
+
+  it('never emits card/payment secrets or an account id in the cancel details', async () => {
+    // A subscription doc carrying provider/card fields must NOT leak into the trail.
+    const sub = makeSubscription({
+      externalCustomerId: 'cus_LEAKED',
+      stripeCustomerId: 'cus_LEAKED',
+      cardLast4: '4242',
+      awsAccountId: '123456789012',
+    });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    const [event] = mockAuditRecord.mock.calls[0];
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain('cus_LEAKED');
+    expect(serialized).not.toContain('4242');
+    expect(serialized).not.toContain('123456789012');
+  });
+
+  it('does not emit to the central trail when the provider cancel fails', async () => {
+    const sub = makeSubscription();
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockCancelSubscription.mockRejectedValue(new Error('Provider timeout'));
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockAuditRecord).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
+  const handler = getHandler('delete', '/subscriptions/by-org/:orgId');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsSystemAdmin.mockReturnValue(true);
+    mockSubscriptionDeleteMany.mockResolvedValue({ deletedCount: 1 });
+    mockBillingEventDeleteMany.mockResolvedValue({ deletedCount: 2 });
+  });
+
+  it('mirrors each removed subscription to the CENTRAL audit trail (no secrets)', async () => {
+    const sub = makeSubscription({
+      _id: { toString: () => 'sub-9' },
+      orgId: 'org-9',
+      externalCustomerId: 'cus_LEAKED',
+      stripeCustomerId: 'cus_LEAKED',
+    });
+    mockSubscriptionFind.mockResolvedValue([sub]);
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    // withRoute mock gates on req.user.organizationId; the handler itself uses the
+    // :orgId param + req.user.sub (a sysadmin / service caller here).
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    await handler(req, mockRes());
+
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'billing.subscription.delete',
+        actorId: 'sysadmin-1',
+        orgId: 'org-9',
+        targetId: 'sub-9',
+        details: expect.objectContaining({ planId: 'pro', orgId: 'org-9' }),
+      }),
+      'billing',
+    );
+    const [event] = mockAuditRecord.mock.calls[0];
+    expect(JSON.stringify(event)).not.toContain('cus_LEAKED');
   });
 });
 

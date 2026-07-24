@@ -30,6 +30,7 @@ import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
+import { getAuditClient } from '../services/audit.js';
 import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-subscriptions');
@@ -316,6 +317,19 @@ export function createSubscriptionRoutes(): Router {
       periodEnd: subscription.currentPeriodEnd.toISOString(),
     }, subscriptionId, req.user?.sub);
 
+    // Mirror this financially-sensitive mutation to the CENTRAL audit trail
+    // (in addition to the local billing_events row above). Fire-and-forget; the
+    // details are an explicit whitelist of plan/subscription ids — the raw
+    // subscription doc (externalCustomerId / provider tokens) is never spread in,
+    // so no card/payment secret or AWS account id can reach the trail.
+    getAuditClient().record({
+      action: 'billing.subscription.cancel',
+      actorId: req.user?.sub ?? 'unknown',
+      orgId,
+      targetId: subscriptionId,
+      details: { planId: subscription.planId, orgId },
+    }, 'billing');
+
     logger.info('Subscription marked for cancellation', { orgId, subscriptionId });
 
     return sendSuccess(res, 200, {
@@ -367,6 +381,21 @@ export function createSubscriptionRoutes(): Router {
       // independent purpose once the subscription is gone. Audit retention
       // lives in platform's audit_events collection, not here.
       const eventDelete = await BillingEvent.deleteMany({ orgId: targetOrgId });
+
+      // Mirror each removed (billable) subscription to the CENTRAL audit trail,
+      // ALONGSIDE the local billing_events rows we just dropped. Fire-and-forget;
+      // details are an explicit id-only whitelist so no provider/card secret or
+      // AWS account id leaks. `active` holds the org's live subscription(s) loaded
+      // before deletion, each carrying its own id + plan.
+      for (const sub of active) {
+        getAuditClient().record({
+          action: 'billing.subscription.delete',
+          actorId: req.user?.sub ?? 'system',
+          orgId: targetOrgId,
+          targetId: sub._id?.toString(),
+          details: { planId: sub.planId, orgId: targetOrgId },
+        }, 'billing');
+      }
 
       logger.info('Subscription cascade complete', {
         orgId: targetOrgId,

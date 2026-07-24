@@ -41,6 +41,15 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
   },
 }));
 
+// Remote-audit spy: the create (announcement-only) and delete route handlers
+// emit attributed `message.*` events via getAuditClient().record. Mock the
+// module so we can assert on the emitted event and that NO message body reaches
+// the trail. Mirrors api/pipeline's create-pipeline-routes.test.ts pattern.
+const mockAuditRecord = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  getAuditClient: () => ({ record: mockAuditRecord }),
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   isSystemAdmin: jest.fn(() => false),
@@ -182,6 +191,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     query: {},
     body: {},
     headers: { authorization: 'Bearer tok' },
+    user: { sub: 'user-1' },
     context: {
       identity: { orgId: 'ORG-1', userId: 'user-1' },
       log: jest.fn(),
@@ -967,6 +977,111 @@ describe('DELETE /messages/:id', () => {
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockSseManager.send).not.toHaveBeenCalled();
+  });
+});
+
+// Remote audit emissions
+//
+// Message audit is intentionally scoped to ADMIN BROADCASTS and DELETES, NOT
+// 1:1 user messages (noisy + would pull private content into the trail). The
+// `details` payload must carry SAFE METADATA ONLY — never the message body.
+
+describe('Remote audit emissions', () => {
+  const createHandler = getHandler(createRouter, 'post', '/');
+  const deleteHandler = getHandler(deleteRouter, 'delete', '/:id');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('emits message.announcement.create with metadata (no body) on announcement create', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    mockCreate.mockResolvedValue({ id: 'msg-ann', subject: 'Update' });
+
+    const req = mockReq({
+      user: { sub: 'admin-9' },
+      body: {
+        recipientOrgId: '*',
+        messageType: 'announcement',
+        subject: 'Update',
+        content: 'SECRET announcement body that must never be audited',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await createHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockAuditRecord).toHaveBeenCalledTimes(1);
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'message.announcement.create',
+        actorId: 'admin-9',
+        orgId: 'org-1',
+        targetId: 'msg-ann',
+        details: expect.objectContaining({
+          subject: 'Update',
+          messageType: 'announcement',
+          recipientScope: 'org-wide',
+        }),
+      }),
+      'message',
+    );
+
+    // No message body/content may reach the audit trail.
+    const [event] = mockAuditRecord.mock.calls[0] as [any, string];
+    expect(JSON.stringify(event)).not.toContain('SECRET announcement body');
+    expect(event.details).not.toHaveProperty('content');
+  });
+
+  it('does NOT emit audit for a 1:1 conversation create', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    mockCreate.mockResolvedValue({ id: 'msg-conv', subject: 'Hello' });
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: '000000000000000000000001',
+        messageType: 'conversation',
+        subject: 'Hello',
+        content: 'private 1:1 content',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await createHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockAuditRecord).not.toHaveBeenCalled();
+  });
+
+  it('emits message.delete with metadata (no body) on successful delete', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    mockDelete.mockResolvedValue({
+      id: 'msg-1',
+      threadId: null,
+      orgId: 'org-1',
+      recipientOrgId: '000000000000000000000001',
+      messageType: 'announcement',
+    });
+    mockDeleteThread.mockResolvedValue(undefined);
+
+    const req = mockReq({ user: { sub: 'admin-9' }, params: { id: 'msg-1' } });
+    const res = mockRes();
+    await deleteHandler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockAuditRecord).toHaveBeenCalledTimes(1);
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'message.delete',
+        actorId: 'admin-9',
+        orgId: 'org-1',
+        targetId: 'msg-1',
+        details: expect.objectContaining({ isAnnouncement: true }),
+      }),
+      'message',
+    );
+
+    const [event] = mockAuditRecord.mock.calls[0] as [any, string];
+    expect(event.details).not.toHaveProperty('content');
   });
 });
 

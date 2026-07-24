@@ -15,6 +15,7 @@ import {
 import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { getAuditClient } from '../services/audit.js';
 import { messageService } from '../services/message-service.js';
 
 /**
@@ -66,6 +67,19 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
     }
 
     ctx.log('COMPLETED', 'Message deleted', { id });
+
+    // Audit the delete (admin/message-sender action). `details` is SAFE METADATA
+    // ONLY (whether the deleted message was an announcement) — never the body.
+    // Fire-and-forget: RemoteAuditClient.record never throws and is not awaited.
+    getAuditClient().record({
+      action: 'message.delete',
+      actorId: req.user?.sub ?? userId,
+      orgId,
+      targetId: deleted.id,
+      details: {
+        isAnnouncement: deleted.messageType === 'announcement',
+      },
+    }, 'message');
 
     // Notify the other party (or both, when sysadmin-deleting) about the deletion.
     try {

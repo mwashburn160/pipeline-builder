@@ -22,6 +22,7 @@ import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/ap
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { schema } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { getAuditClient } from '../services/audit.js';
 import { messageService } from '../services/message-service.js';
 
 type MessageInsert = typeof schema.message.$inferInsert;
@@ -114,6 +115,26 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       }
     } catch (err) {
       ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
+    }
+
+    // Audit ONLY admin broadcasts. Announcements are sysadmin org-wide
+    // broadcasts (gated above to messageType==='announcement' + recipient '*');
+    // 1:1 conversations/replies are intentionally NOT audited — they are noisy
+    // and would pull private message content into the trail. `details` carries
+    // SAFE METADATA ONLY (subject/type/recipient scope) — never the body.
+    // Fire-and-forget: RemoteAuditClient.record never throws and is not awaited.
+    if (messageType === 'announcement') {
+      getAuditClient().record({
+        action: 'message.announcement.create',
+        actorId: req.user?.sub ?? userId,
+        orgId,
+        targetId: message.id,
+        details: {
+          subject,
+          messageType,
+          recipientScope: 'org-wide',
+        },
+      }, 'message');
     }
 
     return sendSuccess(res, 201, message, 'Message created successfully');

@@ -43,10 +43,11 @@ const mockBuildAndPush = jest.fn<(...args: any[]) => any>();
 
 const mockDeployVersion = jest.fn<(...args: any[]) => any>();
 
-// Shared remote-audit `record` spy. services/audit.ts caches a single client,
-// and BOTH the tier queue (getAuditClient().record) and the DLQ
-// (emitPluginAudit) route through it — so one spy captures every
-// `plugin.build.*` terminal/completed event across the whole build lifecycle.
+// Shared remote-audit `record` spy. services/audit.ts caches a single
+// ServiceAuditClient, and BOTH the tier queue (getAuditClient().record →
+// client.record) and the DLQ (emitPluginAudit → client.emit → client.record)
+// route through it — so one spy captures every `plugin.build.*`
+// terminal/completed event across the whole build lifecycle.
 const mockAuditRecord = jest.fn<(...args: any[]) => any>();
 
 const mockPipelineCoreConfig: Record<string, any> = {
@@ -170,6 +171,10 @@ function registerMocks() {
     reserveQuota: mockReserveQuota,
     getServiceAuthHeader: () => 'Bearer test-service-token',
     createRemoteAuditClient: () => ({ record: mockAuditRecord }),
+    // services/audit.ts now builds via createServiceAuditClient; keep both the
+    // `emit` and underlying `client.record` bound to the one spy so getAuditClient()
+    // (client.record) and emitPluginAudit (emit) still land on it.
+    createServiceAuditClient: () => ({ emit: (e: any) => mockAuditRecord(e, 'plugin'), client: { record: mockAuditRecord } }),
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     DEFAULT_TIER: 'developer',
   }));

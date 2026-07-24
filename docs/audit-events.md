@@ -130,6 +130,8 @@ org's own admins can see them.
 | Quota | `quota.reset`, `quota.limit.update`, `quota.delete` |
 | Compliance | `compliance.exemption.approve`, `compliance.exemption.revoke`, `compliance.rule.toggle`, `compliance.rule.create/update/delete`, `compliance.policy.create/update/delete`, `compliance.scan-schedule.create/update/delete`, `compliance.template.apply`, `compliance.scan.cancel` |
 | Image registry | `registry.gc`, `registry.image.delete` |
+| Message | `message.announcement.create`, `message.delete` (admin broadcasts + deletes only — 1:1 messages are not audited, and no message body reaches `details`) |
+| Billing | `billing.subscription.cancel`, `billing.subscription.delete`, `billing.tier.override`, `billing.addon.add`, `billing.addon.remove` (mirrored to the central trail alongside the service-local `billing_events`; `details` carry plan/tier/addon ids only — never payment secrets) |
 | (all services) | `authz.denied` |
 
 > **Plugin build terminal outcome** — `plugin.build.failed` / `plugin.build.timeout`

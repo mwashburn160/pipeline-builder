@@ -73,6 +73,9 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // Provide inert stubs so ESM linking against the mock resolves both.
     createRemoteAuditClient: () => ({ record: () => {} }),
     createEnvRedisAuditSpool: () => null,
+    // Service audit factory — src/services/audit.ts now links against this. Returns
+    // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
+    createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
     // boot-time token-revocation reader registration (session-invalidation

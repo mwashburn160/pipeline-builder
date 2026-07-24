@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createRemoteAuditClient, createEnvRedisAuditSpool } from '@pipeline-builder/api-core';
-import type { RemoteAuditClient, RemoteAuditEvent } from '@pipeline-builder/api-core';
+import { createServiceAuditClient } from '@pipeline-builder/api-core';
+import type { RemoteAuditClient, RemoteAuditEvent, ServiceAuditClient } from '@pipeline-builder/api-core';
 
 /**
  * Audit wiring for the plugin service.
@@ -19,12 +19,18 @@ import type { RemoteAuditClient, RemoteAuditEvent } from '@pipeline-builder/api-
  * not awaited, so a flaky audit downstream can never fail or delay the
  * originating mutation. Handlers MUST emit only AFTER the mutation succeeds.
  */
-let auditClient: RemoteAuditClient | null = null;
+let audit: ServiceAuditClient | null = null;
 
 /** Lazily-constructed module singleton (config/token errors surface on use). */
+function svc(): ServiceAuditClient {
+  if (!audit) audit = createServiceAuditClient('plugin');
+  return audit;
+}
+
+/** The underlying spool-backed remote client — passed to `wireAuthzDenialAuditor`
+ *  and called directly by route files via `getAuditClient().record(...)`. */
 export function getAuditClient(): RemoteAuditClient {
-  if (!auditClient) auditClient = createRemoteAuditClient({ spool: createEnvRedisAuditSpool() ?? undefined });
-  return auditClient;
+  return svc().client;
 }
 
 /**
@@ -34,5 +40,5 @@ export function getAuditClient(): RemoteAuditClient {
  * (plugin name/version/tag are fine).
  */
 export function emitPluginAudit(event: RemoteAuditEvent): void {
-  getAuditClient().record(event, 'plugin');
+  svc().emit(event);
 }

@@ -88,6 +88,9 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // that graph still link. `record` is a no-op spy; the auditor sink is dropped.
     createRemoteAuditClient: () => ({ record: jest.fn() }),
     createEnvRedisAuditSpool: () => null,
+    // Service audit factory — src/services/audit.ts now links against this. Returns
+    // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
+    createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
     // Token-revocation reader hooks (session-invalidation option b) — stubbed

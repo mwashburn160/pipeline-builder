@@ -94,7 +94,9 @@ describe('notifyComplianceBlock', () => {
     expect(body.content).toContain('mismatch');
     // Always uses a service-minted token now (not the user's bearer).
     expect(opts.headers.Authorization).toBe('Bearer test-service-token');
-    expect(opts.headers['x-internal-service']).toBe('true');
+    // The spoofable `x-internal-service` header was dropped — routes authenticate
+    // via the service JWT, not this header, so nothing trusted it.
+    expect(opts.headers['x-internal-service']).toBeUndefined();
   });
 
   it('skips when all violations have suppressNotification', async () => {

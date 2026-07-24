@@ -29,6 +29,7 @@ import {
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
+import { getAuditClient } from '../services/audit.js';
 import { AddonMutateSchema } from '../validation/schemas.js';
 
 /** Best-effort: reconcile the external provider's add-on line items. Local
@@ -230,6 +231,18 @@ export function createAddonRoutes(): Router {
     await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
     await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId);
     await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_added', bundleId, quantity: qty }, subscription._id.toString(), req.user?.sub);
+
+    // Mirror the add-on purchase to the CENTRAL audit trail (alongside the local
+    // billing_events row). Fire-and-forget; details are an explicit id/quantity
+    // whitelist — no card/payment secret or AWS account id can leak.
+    getAuditClient().record({
+      action: 'billing.addon.add',
+      actorId: req.user?.sub ?? 'unknown',
+      orgId,
+      targetId: bundleId,
+      details: { bundleId, quantity: qty, subscriptionId: subscription._id.toString() },
+    }, 'billing');
+
     logger.info('Add-on applied', { orgId, bundleId, quantity: qty });
 
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
@@ -269,6 +282,18 @@ export function createAddonRoutes(): Router {
     await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
     await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId);
     await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId }, subscription._id.toString(), req.user?.sub);
+
+    // Mirror the add-on removal to the CENTRAL audit trail (alongside the local
+    // billing_events row). Fire-and-forget; details are an explicit id whitelist —
+    // no card/payment secret or AWS account id can leak.
+    getAuditClient().record({
+      action: 'billing.addon.remove',
+      actorId: req.user?.sub ?? 'unknown',
+      orgId,
+      targetId: bundleId,
+      details: { bundleId, subscriptionId: subscription._id.toString() },
+    }, 'billing');
+
     logger.info('Add-on removed', { orgId, bundleId });
 
     const bundles = getBundleCatalog();

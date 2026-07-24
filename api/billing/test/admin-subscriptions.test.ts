@@ -87,6 +87,13 @@ jest.unstable_mockModule('../src/validation/schemas.js', () => ({
   AdminSubscriptionUpdateSchema: {},
 }));
 
+// Central-trail audit client — the tier override emits billing.tier.override
+// here ALONGSIDE the local billing_events write. Mock it to assert emission.
+const mockAuditRecord = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  getAuditClient: () => ({ record: mockAuditRecord }),
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   withRoute: (handler: any, _opts?: any) => async (req: any, res: any) => {
     const ctx = {
@@ -305,6 +312,75 @@ describe('PUT /admin/subscriptions/:id', () => {
     expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'write conflict');
+  });
+
+  it('mirrors the tier override to the CENTRAL trail with affectedOrgId = target org', async () => {
+    // The subscription belongs to ANOTHER org; the sysadmin acts across tenants.
+    const sub = makeSubscription({ planId: 'developer', orgId: 'org-target' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+
+    const req = mockReq({ params: { id: 'sub-1' }, user: { organizationId: 'sys-org', sub: 'sysadmin-7' } });
+    await handler(req, mockRes());
+
+    expect(mockAuditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'billing.tier.override',
+        actorId: 'sysadmin-7',
+        affectedOrgId: 'org-target',
+        targetId: 'sub-1',
+        details: expect.objectContaining({ toTier: 'pro', fromPlanId: 'developer', toPlanId: 'pro' }),
+      }),
+      'billing',
+    );
+  });
+
+  it('never emits card/payment secrets or an account id in the override details', async () => {
+    const sub = makeSubscription({
+      planId: 'developer',
+      orgId: 'org-target',
+      externalCustomerId: 'cus_LEAKED',
+      stripeCustomerId: 'cus_LEAKED',
+      awsAccountId: '123456789012',
+    });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    const [event] = mockAuditRecord.mock.calls[0];
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain('cus_LEAKED');
+    expect(serialized).not.toContain('123456789012');
+  });
+
+  it('does NOT emit billing.tier.override for a status-only admin change', async () => {
+    const sub = makeSubscription({ status: 'active' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { status: 'canceled' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockAuditRecord).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'billing.tier.override' }),
+      'billing',
+    );
+  });
+
+  it('does NOT emit the tier override when subscription.save() rejects (drift guard)', async () => {
+    const sub = makeSubscription({
+      planId: 'developer',
+      save: jest.fn<() => Promise<void>>().mockRejectedValue(new Error('write conflict')),
+    });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockAuditRecord).not.toHaveBeenCalled();
   });
 
   it('returns 404 when subscription not found', async () => {
