@@ -7,6 +7,7 @@ import { CopyButton } from '@/components/ui/CopyButton';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { api } from '@/lib/api';
+import { redactString, redactDetails } from '@/lib/redact';
 import type { RegistryManifestKind, RegistryPlatformRef } from '@/types';
 
 interface BreadcrumbSegment {
@@ -134,7 +135,9 @@ export function ManifestDetail({
         )}
         {effectiveTab === 'json' && (
           <pre className="m-3 p-3 max-h-[60vh] overflow-auto text-xs font-mono bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded">
-            {JSON.stringify(kind.manifest.body, null, 2)}
+            {/* The raw manifest body embeds config `Env`/history that can carry an
+                AWS account id; redact before rendering the JSON. */}
+            {JSON.stringify(redactDetails(kind.manifest.body), null, 2)}
           </pre>
         )}
         {repo && kind.manifest.digest && (
@@ -162,7 +165,9 @@ function ImageSummary({ kind }: { kind: Extract<RegistryManifestKind, { kind: 'i
       <dd>
         {cfg.config?.Env?.length ? (
           <ul className="font-mono text-xs space-y-0.5">
-            {cfg.config.Env.map((e, i) => <li key={i} className="break-all">{e}</li>)}
+            {/* An image env var (e.g. an ECR registry URL / ARN) can embed an
+                AWS account id; redact each entry before display. */}
+            {cfg.config.Env.map((e, i) => <li key={i} className="break-all">{redactString(e)}</li>)}
           </ul>
         ) : <span className="text-gray-400">—</span>}
       </dd>
@@ -173,7 +178,8 @@ function ImageSummary({ kind }: { kind: Extract<RegistryManifestKind, { kind: 'i
             {cfg.history.map((h, i) => (
               <li key={i} className="font-mono break-all">
                 <span className="text-gray-500 mr-2">{new Date(h.created).toLocaleDateString()}</span>
-                {h.created_by ?? ''}
+                {/* A history `created_by` build command can embed an account id. */}
+                {redactString(h.created_by ?? '')}
               </li>
             ))}
           </ul>

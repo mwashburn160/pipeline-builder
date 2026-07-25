@@ -197,6 +197,82 @@ describe('updateUserFeatures — purchased account features', () => {
     expect(call[1]?.accountFeatures).toEqual(['sso']);
   });
 
+  it('REJECTS an org admin enabling an entitlement-gated feature not in the org tier/entitlements', async () => {
+    // SECURITY (privilege-escalation regression): an org admin must not be able to
+    // override-enable `sso` (a paid add-on) when the org's tier doesn't include it
+    // and it hasn't been purchased — that bypasses billing AND (since
+    // featureOverrides is a GLOBAL field) leaks into the target's other orgs.
+    mockRequireAdminContext.mockReturnValue({ isSuperAdmin: false, isOrgAdmin: true, adminType: 'org admin' });
+    mockHasMembershipInOrg.mockResolvedValue(true);
+    // Admin's org: developer tier, no purchased entitlements → `sso` is gated.
+    mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
+
+    const res = mockRes();
+    const req: any = { user: { sub: 'admin', organizationId: 'orgA' }, params: { id: 'user1' }, body: { overrides: { sso: true } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    // The write must never be attempted.
+    expect(mockUpdateFeatures).not.toHaveBeenCalled();
+  });
+
+  it('ALLOWS an org admin enabling a feature the org has purchased (in featureEntitlements)', async () => {
+    mockRequireAdminContext.mockReturnValue({ isSuperAdmin: false, isOrgAdmin: true, adminType: 'org admin' });
+    mockHasMembershipInOrg.mockResolvedValue(true);
+    // Admin's org purchased the `sso` add-on → the override is permitted.
+    mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: ['sso'] }));
+    mockUpdateFeatures.mockResolvedValue({
+      user: { _id: 'user1', username: 'alice', email: 'a@x.io', isSuperAdmin: false, isEmailVerified: true, lastActiveOrgId: 'orgA' },
+      organizationName: 'Acme',
+      activeOrgRole: 'member',
+      tier: 'developer',
+    });
+
+    const res = mockRes();
+    const req: any = { user: { sub: 'admin', organizationId: 'orgA' }, params: { id: 'user1' }, body: { overrides: { sso: true } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockUpdateFeatures).toHaveBeenCalledTimes(1);
+  });
+
+  it('ALLOWS a system admin to enable a gated feature (gate is org-admin-only)', async () => {
+    mockRequireAdminContext.mockReturnValue({ isSuperAdmin: true, isOrgAdmin: false, adminType: 'system' });
+    mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
+    mockUpdateFeatures.mockResolvedValue({
+      user: { _id: 'user1', username: 'alice', email: 'a@x.io', isSuperAdmin: false, isEmailVerified: true, lastActiveOrgId: 'orgA' },
+      organizationName: 'Acme',
+      activeOrgRole: 'member',
+      tier: 'developer',
+    });
+
+    const res = mockRes();
+    const req: any = { user: { sub: 'admin' }, params: { id: 'user1' }, body: { overrides: { sso: true } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockUpdateFeatures).toHaveBeenCalledTimes(1);
+  });
+
+  it('ALLOWS an org admin to DISABLE a gated feature (removing is never an escalation)', async () => {
+    mockRequireAdminContext.mockReturnValue({ isSuperAdmin: false, isOrgAdmin: true, adminType: 'org admin' });
+    mockHasMembershipInOrg.mockResolvedValue(true);
+    mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
+    mockUpdateFeatures.mockResolvedValue({
+      user: { _id: 'user1', username: 'alice', email: 'a@x.io', isSuperAdmin: false, isEmailVerified: true, lastActiveOrgId: 'orgA' },
+      organizationName: 'Acme',
+      activeOrgRole: 'member',
+      tier: 'developer',
+    });
+
+    const res = mockRes();
+    const req: any = { user: { sub: 'admin', organizationId: 'orgA' }, params: { id: 'user1' }, body: { overrides: { sso: false } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockUpdateFeatures).toHaveBeenCalledTimes(1);
+  });
+
   it('audits the privileged feature-override edit with the changed field NAMES only', async () => {
     mockUpdateFeatures.mockResolvedValue({
       user: { _id: 'user1', username: 'alice', email: 'a@x.io', isSuperAdmin: false, isEmailVerified: true, lastActiveOrgId: 'org1' },

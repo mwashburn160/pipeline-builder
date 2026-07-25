@@ -55,6 +55,10 @@ interface ComplianceDashboardProps {
 export default function ComplianceDashboard({ canManage = false }: ComplianceDashboardProps) {
   const [tab, setTab] = useState<Tab>('overview');
   const [audit, setAudit] = useState<ComplianceAuditEntry[]>([]);
+  // A failed audit fetch was previously swallowed (`catch {}`), leaving stale/empty
+  // entries that read as "no audit entries". Track the error so the Overview can
+  // show a retry banner instead.
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [stats, setStats] = useState({ rules: 0, pass: 0, warn: 0, block: 0 });
 
   // Sub-views for drill-downs
@@ -76,11 +80,16 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
       const res = await api.getComplianceAuditLog(params);
       if (res.success && res.data) {
         setAudit(res.data.entries);
+        setAuditError(null);
         if (res.data.pagination) {
           setAuditPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
         }
+      } else {
+        setAuditError(res.message || 'Failed to load audit log');
       }
-    } catch { /* handled by API layer */ }
+    } catch {
+      setAuditError('Failed to load audit log');
+    }
   }, [auditTarget, auditResult, auditPagination.offset, auditPagination.limit]);
 
   // Pass/warn/block counts come from dedicated `result=` queries that ask
@@ -182,6 +191,8 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
           <Overview
             stats={stats}
             audit={audit}
+            auditError={auditError}
+            onRetryAudit={() => fetchAudit()}
             auditTarget={auditTarget}
             auditResult={auditResult}
             onTargetChange={setAuditTarget}
@@ -222,6 +233,8 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
 interface OverviewProps {
   stats: { rules: number; pass: number; warn: number; block: number };
   audit: ComplianceAuditEntry[];
+  auditError: string | null;
+  onRetryAudit: () => void;
   auditTarget: string;
   auditResult: string;
   onTargetChange: (v: string) => void;
@@ -231,7 +244,7 @@ interface OverviewProps {
   onAuditPageSizeChange: (limit: number) => void;
 }
 
-function Overview({ stats, audit, auditTarget, auditResult, onTargetChange, onResultChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
+function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditResult, onTargetChange, onResultChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -281,7 +294,12 @@ function Overview({ stats, audit, auditTarget, auditResult, onTargetChange, onRe
             </select>
           </div>
         </div>
-        {audit.length === 0 ? (
+        {auditError ? (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
+            <span>{auditError}</span>
+            <button onClick={onRetryAudit} className="underline hover:no-underline shrink-0">Retry</button>
+          </div>
+        ) : audit.length === 0 ? (
           <div className="text-center py-4 text-sm text-gray-400">No audit entries found.</div>
         ) : (
           <>

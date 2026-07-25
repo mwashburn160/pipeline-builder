@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { drizzleCount, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { and, desc, eq } from 'drizzle-orm';
+import { paginatedList } from './paginated-list.js';
 import { calculateNextRun } from '../helpers/scan-scheduler.js';
 
 export type ScanTarget = 'plugin' | 'pipeline' | 'all';
@@ -12,24 +13,14 @@ class ComplianceScanScheduleService {
   async list(orgId: string, limit: number, offset: number) {
     const whereClause = eq(schema.complianceScanSchedule.orgId, orgId);
 
-    // withTenantTx sets `app.org_id` for RLS once the table is FORCE'd.
-    return withTenantTx(async (tx) => {
-      const [countResult] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(schema.complianceScanSchedule)
-        .where(whereClause)
-        .then(r => drizzleCount(r));
-
-      const schedules = await tx
-        .select()
-        .from(schema.complianceScanSchedule)
-        .where(whereClause)
-        .orderBy(desc(schema.complianceScanSchedule.createdAt))
-        .limit(limit)
-        .offset(offset);
-
-      return { schedules, total: countResult?.count ?? 0 };
-    });
+    const { rows, total } = await paginatedList(
+      schema.complianceScanSchedule,
+      whereClause,
+      desc(schema.complianceScanSchedule.createdAt),
+      limit,
+      offset,
+    );
+    return { schedules: rows, total };
   }
 
   /** Create a new schedule. Caller validates the cron expression first. */

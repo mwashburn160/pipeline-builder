@@ -489,9 +489,21 @@ export function streamPipelineConfig(request: GenerationRequest): StreamingGener
     output: Output.object({ schema: PipelineGenerationSchema }),
   });
 
+  // Enforce the same post-generation guarantees the non-streaming path applies
+  // (forces synth.plugin = cdk-synth, injects filter.isDefault). Without this,
+  // streamed configs bypass the cdk-synth enforcement before the route's `done`
+  // event / autoCreateMissingPlugins. validateGeneratedPlugins mutates in place,
+  // so the resolved object the route reads is the enforced one.
+  const enforcedOutput = Promise.resolve(result.output).then((resolved) => {
+    if (resolved) {
+      validateGeneratedPlugins(resolved as Record<string, unknown>, request.plugins);
+    }
+    return resolved;
+  });
+
   return {
     partialOutputStream: result.partialOutputStream as AsyncIterable<Record<string, unknown>>,
-    output: result.output,
+    output: enforcedOutput,
     servedBy: { provider, model: model_id },
     promptVersion: PROMPT_VERSION,
   };

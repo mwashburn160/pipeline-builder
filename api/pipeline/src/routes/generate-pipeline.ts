@@ -6,6 +6,7 @@ import {
   createSafeClient,
   decrementQuota,
   errorMessage,
+  getServiceAuthHeader,
   handleAIError,
   initSSEStream,
   requireFeature,
@@ -28,6 +29,16 @@ import { parseGitUrl, analyzeRepository, buildEnhancedPrompt } from '../services
 import { findExistingPluginNames } from '../services/plugin-lookup-service.js';
 
 const logger = createLogger('generate-pipeline');
+
+/**
+ * Strict allowlist for AI/repo-derived plugin names before they are used to
+ * build shell commands / a Dockerfile downstream. `PluginOptionsSchema.name` is
+ * only `z.string()`, so an AI (or a poisoned repo analysis) could emit a name
+ * like `"; rm -rf / #` that would break out of the `echo "..."` command or the
+ * `RUN echo "Plugin ..."` Dockerfile line. Only lowercase alphanumerics and
+ * hyphens are safe to interpolate; anything else is rejected, never escaped.
+ */
+const SAFE_PLUGIN_NAME_RE = /^[a-z0-9-]+$/;
 
 /** Stream partial objects from an AI generation result. */
 async function streamPartials( stream: AsyncIterable<unknown>,
@@ -106,11 +117,15 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendBadRequest(res, validation.error);
       }
       const { prompt, provider, model, apiKey, previousConfig, fallbackProviders } = validation.value;
-      const authHeader = req.headers.authorization || '';
+      // Mint a service token for the S2S quota reserve/decrement rather than
+      // forwarding the end-user bearer. The quota `/increment` endpoint rejects
+      // non-service principals (403), so forwarding the user token fails the
+      // reservation for every non-admin. Mirrors create-pipeline.ts / upload-plugin.ts.
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
 
       // reserve the aiCalls slot atomically before the LLM call.
       // Two concurrent generates at the limit can't both burn a call.
-      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
+      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
       if (reservation.exceeded) {
         return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
       }
@@ -154,7 +169,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         const message = errorMessage(error);
         logger.error('AI pipeline generation failed', { requestId: ctx.requestId, error: message });
         // Roll back the reserved slot — the LLM call never produced output.
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+        decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         handleAIError(res, message, 'Failed to generate pipeline configuration');
       }
     }),
@@ -177,11 +192,15 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendBadRequest(res, validation.error);
       }
       const { prompt, provider, model, apiKey } = validation.value;
-      const authHeader = req.headers.authorization || '';
+      // Mint a service token for the S2S quota reserve/decrement rather than
+      // forwarding the end-user bearer. The quota `/increment` endpoint rejects
+      // non-service principals (403), so forwarding the user token fails the
+      // reservation for every non-admin. Mirrors create-pipeline.ts / upload-plugin.ts.
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
 
       // reserve upfront. If the stream is aborted before completion
       // OR an error throws, the catch block decrements to give the slot back.
-      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
+      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
       if (reservation.exceeded) {
         return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
       }
@@ -229,7 +248,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         } else {
           // Aborted before completion — caller never consumed the LLM
           // output, so give the slot back.
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
         }
 
@@ -238,7 +257,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         const message = errorMessage(error);
         logger.error('AI pipeline streaming generation failed', { requestId: ctx.requestId, error: message });
         if (reserved) {
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         }
         handleAIError(res, message, 'Failed to stream pipeline configuration');
       }
@@ -269,7 +288,11 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         return sendBadRequest(res, validation.error);
       }
       const { gitUrl, provider, model, apiKey, repoToken } = validation.value;
-      const authHeader = req.headers.authorization || '';
+      // Mint a service token for the S2S quota reserve/decrement rather than
+      // forwarding the end-user bearer. The quota `/increment` endpoint rejects
+      // non-service principals (403), so forwarding the user token fails the
+      // reservation for every non-admin. Mirrors create-pipeline.ts / upload-plugin.ts.
+      const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
 
       // Parse the Git URL
       const parsed = parseGitUrl(gitUrl);
@@ -278,15 +301,19 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       }
 
       // reserve the aiCalls slot before any LLM work.
-      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
+      const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', serviceAuth);
       if (reservation.exceeded) {
         return sendQuotaExceeded(res, 'aiCalls', reservation.quota, reservation.quota.resetAt);
       }
       let reserved = true;
 
       try {
+        // Log only the parsed host/owner/repo — never the raw `gitUrl`, which
+        // may embed credentials (parseGitUrl accepts https://user:token@host/...).
         ctx.log('INFO', 'AI pipeline generation from URL requested', {
-          gitUrl,
+          host: parsed.host,
+          owner: parsed.owner,
+          repo: parsed.repo,
           provider,
           model,
           gitProvider: parsed.provider,
@@ -304,7 +331,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           const msg = errorMessage(analyzeError);
           logger.warn('Repository analysis failed', { requestId: ctx.requestId, error: msg });
           // Repo analysis failed before any LLM call — roll back the slot.
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
           res.write(`data: ${JSON.stringify({ type: 'error', message: `Repository analysis failed: ${msg}` })}\n\n`);
           res.end();
@@ -312,7 +339,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         }
 
         if (sse.aborted()) {
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
           res.end();
           return;
@@ -383,7 +410,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           // its external $ cost) was incurred. Only an ABORT (client disconnect /
           // pre-provider failure) refunds the slot, below.
         } else {
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
           reserved = false;
         }
 
@@ -392,7 +419,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         const message = errorMessage(error);
         logger.error('AI pipeline generation from URL failed', { requestId: ctx.requestId, error: message });
         if (reserved) {
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+          decrementQuota(quotaService, orgId, 'aiCalls', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         }
         handleAIError(res, message, 'Failed to generate pipeline from URL');
       }
@@ -486,6 +513,14 @@ async function autoCreateMissingPlugins( res: import('express').Response,
   // generation with many plugins doesn't fan out unbounded requests.
   const pluginClient = getPluginClient();
   const builds = await runConcurrent(missing, 5, async (name) => {
+    // Reject any name that isn't a strict `[a-z0-9-]+` token BEFORE it reaches
+    // the shell command / Dockerfile interpolation below. This is validate-and-
+    // reject, not escape: an out-of-allowlist name is never sent to the plugin
+    // service (which would embed it in `echo "..."` / `RUN echo "Plugin ..."`).
+    if (!SAFE_PLUGIN_NAME_RE.test(name)) {
+      logger.warn('Rejected unsafe auto-plugin name', { plugin: name });
+      return { name, error: 'invalid plugin name' };
+    }
     try {
       // Idempotency-Key scopes the deploy to (requestId, plugin name) so a
       // client retrying a failed /generate/from-url/stream call doesn't enqueue

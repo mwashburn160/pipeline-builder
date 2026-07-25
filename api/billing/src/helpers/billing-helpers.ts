@@ -6,6 +6,7 @@ import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, VAL
 import { incCounter } from '@pipeline-builder/api-server';
 import { Config, effectiveEntitlements, type BillingConfig, type BundleConfig } from '@pipeline-builder/pipeline-core';
 import { config } from '../config.js';
+import { fetchQuotaTypeUsage, fetchSeatUsage } from './quota-client.js';
 import { BillingEvent } from '../models/billing-event.js';
 import type { BillingEventType } from '../models/billing-event.js';
 import { Subscription } from '../models/subscription.js';
@@ -16,6 +17,18 @@ const logger = createLogger('billing-helpers');
 // Re-export so callers can keep importing from billing-helpers, but the
 // canonical declaration lives with the Mongoose model.
 export type { BillingInterval };
+
+/**
+ * Non-terminal subscription statuses a user may still SEE and MANAGE.
+ *
+ * `active`/`trialing` are entitlement-worthy; `past_due` is the dunning grace
+ * window (entitlements still enforced until the grace period lapses). All three
+ * must remain visible on GET and mutable via cancel/PUT/reactivate/add-ons — a
+ * trial customer has to be able to cancel before conversion, and a past_due
+ * customer has to be able to stop dunning. Terminal / never-provisioned states
+ * (`canceled`, `incomplete`) are deliberately excluded.
+ */
+export const MANAGEABLE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'past_due'] as const;
 
 /** Resolve the per-request timeout for billing's outbound service calls. */
 export function getBillingTimeout(): number {
@@ -199,26 +212,6 @@ export interface Overage {
   overage: number;
 }
 
-/** Read current pooled seat usage from platform; null on any error (fail-open). */
-async function readSeatUsage(orgId: string, authHeader: string): Promise<number | null> {
-  try {
-    const client = createSafeClient({ host: config.platformService.host, port: config.platformService.port, timeout: getBillingTimeout() });
-    const resp = await client.get<{ used?: number }>(`/organization/${orgId}/seat-usage`, { headers: { 'Authorization': authHeader, 'x-org-id': orgId } });
-    if (resp && resp.statusCode < 400) return resp.body?.used ?? null;
-  } catch { /* fall through */ }
-  return null;
-}
-
-/** Read current pooled usage for a tracked quota type; null on error (fail-open). */
-async function readQuotaUsage(orgId: string, quotaType: string, authHeader: string): Promise<number | null> {
-  try {
-    const client = createSafeClient({ host: config.quotaService.host, port: config.quotaService.port, timeout: getBillingTimeout() });
-    const resp = await client.get<{ data?: { status?: { used?: number } } }>(`/quotas/${orgId}/${quotaType}`, { headers: { 'Authorization': authHeader, 'x-org-id': orgId } });
-    if (resp && resp.statusCode < 400) return resp.body?.data?.status?.used ?? null;
-  } catch { /* fall through */ }
-  return null;
-}
-
 /**
  * Whether applying `newAddons` would drop a COUNT quota's cap below current
  * pooled usage (docs/billing-bundles.md §8). Guards seats (platform),
@@ -238,14 +231,17 @@ export async function checkEntitlementOvercap(
   const overages: Overage[] = [];
 
   if (limits.seats !== -1) {
-    const used = await readSeatUsage(orgId, auth);
+    // Seats are platform-owned (`data.used` on seat-usage) — read via the
+    // shared quota-client so this guard can't drift from the other seat readers.
+    const seatSnapshot = await fetchSeatUsage(orgId, auth);
+    const used = seatSnapshot?.used ?? null;
     if (used !== null && used > limits.seats) {
       overages.push({ quotaType: 'seats', currentUsage: used, targetCap: limits.seats, overage: used - limits.seats });
     }
   }
   for (const field of ['plugins', 'pipelines'] as const) {
     if (limits[field] === -1) continue;
-    const used = await readQuotaUsage(orgId, field, auth);
+    const used = await fetchQuotaTypeUsage(orgId, field, auth);
     if (used !== null && used > limits[field]) {
       overages.push({ quotaType: field, currentUsage: used, targetCap: limits[field], overage: used - limits[field] });
     }

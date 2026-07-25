@@ -167,241 +167,252 @@ export class PipelineBuilder extends Construct {
     // host the platform deploys against, not the in-cluster env default. The CLI
     // only sets props.registry when IMAGE_REGISTRY_PULL_HOST is unset, so an
     // explicit operator pull host is never clobbered (see bakePlatformRegistry).
-    if (props.registry) {
-      Config.override('registry', props.registry);
-    }
-
-    // Use PipelineConfiguration for all business logic (validation, sanitization, metadata merging)
-    this.config = new PipelineConfiguration(props);
-
-    const serverConfig = Config.get('server');
-    const awsConfig = Config.get('aws');
-    // Pass org+project so log group / IAM role names get a stable hash
-    // suffix per pipeline. Prevents `Resource already exists` collisions
-    // across stacks deployed to the same AWS account.
-    const uniqueId = new UniqueId({
-      organization: this.config.organization,
-      project: this.config.project,
-    });
-    const pluginLookup = new PluginLookup(
-      this,
-      uniqueId.generate('plugin:lookup'),
-      {
-        organization: this.config.organization,
-        project: this.config.project,
-        platformUrl: serverConfig.platformUrl,
-        uniqueId,
-        orgId: props.orgId,
-        runtime: awsConfig.lambda.runtime,
-        timeout: awsConfig.lambda.timeout,
-        reservedConcurrentExecutions: awsConfig.lambda.reservedConcurrentExecutions,
-        resolvedPlugins: props.resolvedPlugins,
-      },
-    );
-
-    // Create source and build step
-    const sourceBuilder = new SourceBuilder(this, this.config);
-    const source = sourceBuilder.create(uniqueId);
-
-    // Synth-plugin resolution:
-    //   1. Pre-resolved by `pipeline-manager synth/deploy` from the platform
-    //      API → use it. Synth step runs on the real `cdk-synth` image with
-    //      real commands baked into the template.
-    //   2. Otherwise → `bootstrap()`: cold-start `pipeline-manager synth`
-    //      on the configured CODEBUILD_DEFAULT_IMAGE (default
-    //      pipeline-bootstrap:1.0). Used when the platform isn't reachable
-    //      at synth time (CLI logs a warning per missed plugin).
     //
-    // pluginLookup.plugin() reads `resolvedPlugins` internally and returns
-    // the cached entry when present — so calling it always wins over
-    // bootstrap() when pre-resolution succeeded.
-    const synthCacheKey =
-      this.config.plugin.alias || `${this.config.plugin.name}-alias`;
-    const plugin = props.resolvedPlugins?.[synthCacheKey]
-      ? pluginLookup.plugin(this.config.plugin)
-      : pluginLookup.bootstrap();
-    const defaultComputeType = awsConfig.codeBuild.computeType;
-    const artifactManager = new ArtifactManager();
-    const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
+    // Scoped + restored so the override does NOT leak into the process-wide
+    // Config cache: in a multi-pipeline CDK app, pipeline B's registry must not
+    // bleed into pipeline A's image resolution. All registry reads happen
+    // synchronously below (build-image resolution), so restoring at the end of
+    // the constructor keeps single-pipeline behavior identical.
+    const restoreRegistry = props.registry
+      ? Config.overrideScoped('registry', props.registry)
+      : undefined;
+    try {
+      // Use PipelineConfiguration for all business logic (validation, sanitization, metadata merging)
+      this.config = new PipelineConfiguration(props);
 
-    // Scope exposed to plugin-spec templates as `pipeline.*`. Built once
-    // here so both the synth step and every stage step resolve against
-    // the same snapshot.
-    const pipelineScope: Record<string, unknown> = {
-      pipeline: {
-        projectName: this.config.project,
-        project: this.config.project,
-        orgId: this.config.organization,
+      const serverConfig = Config.get('server');
+      const awsConfig = Config.get('aws');
+      // Pass org+project so log group / IAM role names get a stable hash
+      // suffix per pipeline. Prevents `Resource already exists` collisions
+      // across stacks deployed to the same AWS account.
+      const uniqueId = new UniqueId({
         organization: this.config.organization,
-        pipelineName: this.config.pipelineName,
-        metadata: this.config.metadata.merged,
-        vars: props.vars ?? {},
-      },
-    };
-
-    const synth = createCodeBuildStep({
-      ...this.config.synthCustomization,
-      id: uniqueId.generate('cdk:synth'),
-      uniqueId,
-      plugin,
-      input: source,
-      metadata: this.config.metadata.merged,
-      network: this.config.network,
-      scope: this,
-      defaultComputeType,
-      artifactManager,
-      stageName: 'no-stage',
-      stageAlias: 'no-stage-alias',
-      pluginAlias: `${synthAlias}-alias`,
-      orgId: props.orgId,
-      pipelineScope,
-    });
-
-    // Resolve pipeline-level defaults into codeBuildDefaults
-    // Build the per-org platform secret name for CodeBuild env vars
-    const platformSecretName = props.orgId
-      ? CoreConstants.secretPath(props.orgId, 'platform')
-      : undefined;
-
-    const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl, props.orgId);
-
-    // Resolve IAM role: explicit prop wins, else `iam:role` metadata, else let
-    // CDK auto-create the pipeline role (codepipeline.amazonaws.com principal).
-    const roleConfig = props.role ?? roleConfigFromMetadata(this.config.metadata.merged);
-    if (roleConfig?.type === 'codeBuildDefault') {
-      createLogger('pipeline-builder').warn(
-        'codeBuildDefault role type uses codebuild.amazonaws.com trust principal — ' +
-        'this is not suitable as the pipeline-level role. Consider using roleArn/roleName ' +
-        'or omitting the role to let CDK auto-create one with codepipeline.amazonaws.com.',
+        project: this.config.project,
+      });
+      const pluginLookup = new PluginLookup(
+        this,
+        uniqueId.generate('plugin:lookup'),
+        {
+          organization: this.config.organization,
+          project: this.config.project,
+          platformUrl: serverConfig.platformUrl,
+          uniqueId,
+          orgId: props.orgId,
+          runtime: awsConfig.lambda.runtime,
+          timeout: awsConfig.lambda.timeout,
+          reservedConcurrentExecutions: awsConfig.lambda.reservedConcurrentExecutions,
+          resolvedPlugins: props.resolvedPlugins,
+        },
       );
-    }
-    const role = roleConfig
-      ? resolveRole(this, uniqueId, roleConfig)
-      : undefined;
 
-    // ── Artifact bucket (KMS encryption + retention) ──
-    // When `encryption.kmsKeyArn` and/or `operations.artifactRetentionDays` are
-    // set we create a custom artifact bucket and pass it to CodePipeline; that
-    // is the only way to attach a customer-managed key (the L3 construct exposes
-    // `artifactBucket`, not `encryptionKey`). Absent both keys, CDK auto-creates
-    // the bucket and behavior is unchanged.
-    const artifactBucket = this.buildArtifactBucket();
+      // Create source and build step
+      const sourceBuilder = new SourceBuilder(this, this.config);
+      const source = sourceBuilder.create(uniqueId);
 
-    // Create CodePipeline construct
-    this.pipeline = new CodePipeline(this, uniqueId.generate('pipelines:codepipeline'), {
-      ...(codeBuildDefaults && { codeBuildDefaults }),
-      ...(role && { role }),
-      ...(artifactBucket && { artifactBucket }),
-      pipelineType: PipelineType.V2,
-      pipelineName: this.config.pipelineName,
-      synth,
-      ...metadataForCodePipeline(this.config.metadata.merged),
-    });
+      // Synth-plugin resolution:
+      //   1. Pre-resolved by `pipeline-manager synth/deploy` from the platform
+      //      API → use it. Synth step runs on the real `cdk-synth` image with
+      //      real commands baked into the template.
+      //   2. Otherwise → `bootstrap()`: cold-start `pipeline-manager synth`
+      //      on the configured CODEBUILD_DEFAULT_IMAGE (default
+      //      pipeline-bootstrap:1.0). Used when the platform isn't reachable
+      //      at synth time (CLI logs a warning per missed plugin).
+      //
+      // pluginLookup.plugin() reads `resolvedPlugins` internally and returns
+      // the cached entry when present — so calling it always wins over
+      // bootstrap() when pre-resolution succeeded.
+      const synthCacheKey =
+      this.config.plugin.alias || `${this.config.plugin.name}-alias`;
+      const plugin = props.resolvedPlugins?.[synthCacheKey]
+        ? pluginLookup.plugin(this.config.plugin)
+        : pluginLookup.bootstrap();
+      const defaultComputeType = awsConfig.codeBuild.computeType;
+      const artifactManager = new ArtifactManager();
+      const synthAlias = this.config.plugin.alias ?? this.config.plugin.name;
 
-    if (props.stages) {
-      const stageBuilder = new StageBuilder({
-        scope: this,
-        pluginLookup,
+      // Scope exposed to plugin-spec templates as `pipeline.*`. Built once
+      // here so both the synth step and every stage step resolve against
+      // the same snapshot.
+      const pipelineScope: Record<string, unknown> = {
+        pipeline: {
+          projectName: this.config.project,
+          project: this.config.project,
+          orgId: this.config.organization,
+          organization: this.config.organization,
+          pipelineName: this.config.pipelineName,
+          metadata: this.config.metadata.merged,
+          vars: props.vars ?? {},
+        },
+      };
+
+      const synth = createCodeBuildStep({
+        ...this.config.synthCustomization,
+        id: uniqueId.generate('cdk:synth'),
         uniqueId,
-        globalMetadata: this.config.metadata.merged,
+        plugin,
+        input: source,
+        metadata: this.config.metadata.merged,
+        network: this.config.network,
+        scope: this,
         defaultComputeType,
         artifactManager,
+        stageName: 'no-stage',
+        stageAlias: 'no-stage-alias',
+        pluginAlias: `${synthAlias}-alias`,
         orgId: props.orgId,
         pipelineScope,
       });
-      stageBuilder.addStages(this.pipeline, props.stages);
-    }
 
-    // ── Tags ──
-    // The first three are operations-essential and used by `pipeline-manager
-    // audit-stacks` to diff CFN stacks against the pipeline_registry table.
-    // `OrgId` is the canonical key for cost attribution (AWS Cost Explorer
-    // groups by tag key/value when activated in Billing settings).
-    Tags.of(this.pipeline).add('pipeline-builder', 'true');
-    Tags.of(this.pipeline).add('project', this.config.project);
-    Tags.of(this.pipeline).add('organization', this.config.organization);
-    if (props.orgId) {
-      Tags.of(this.pipeline).add('OrgId', props.orgId);
-    }
-    // Stable event-reporting key. Applied at synth (the pipelineId is known
-    // here), so it's present from stack creation — the events Lambda reads this
-    // tag to attribute CodePipeline state-change events to the pipeline without
-    // ever handling the ARN/account. See packages/pipeline-events.
-    if (props.pipelineId) {
-      Tags.of(this.pipeline).add('PIPELINE_EVENT_ID', props.pipelineId);
-    }
-    if (props.tags) {
-      for (const [key, value] of Object.entries(props.tags)) {
-        Tags.of(this.pipeline).add(key, value);
+      // Resolve pipeline-level defaults into codeBuildDefaults
+      // Build the per-org platform secret name for CodeBuild env vars
+      const platformSecretName = props.orgId
+        ? CoreConstants.secretPath(props.orgId, 'platform')
+        : undefined;
+
+      const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl, props.orgId);
+
+      // Resolve IAM role: explicit prop wins, else `iam:role` metadata, else let
+      // CDK auto-create the pipeline role (codepipeline.amazonaws.com principal).
+      const roleConfig = props.role ?? roleConfigFromMetadata(this.config.metadata.merged);
+      if (roleConfig?.type === 'codeBuildDefault') {
+        createLogger('pipeline-builder').warn(
+          'codeBuildDefault role type uses codebuild.amazonaws.com trust principal — ' +
+        'this is not suitable as the pipeline-level role. Consider using roleArn/roleName ' +
+        'or omitting the role to let CDK auto-create one with codepipeline.amazonaws.com.',
+        );
       }
-    }
+      const role = roleConfig
+        ? resolveRole(this, uniqueId, roleConfig)
+        : undefined;
 
-    // Build the internal pipeline before accessing its properties
-    this.pipeline.buildPipeline();
-    const cdkPipeline = this.pipeline.pipeline;
-    const meta = this.config.metadata.merged;
+      // ── Artifact bucket (KMS encryption + retention) ──
+      // When `encryption.kmsKeyArn` and/or `operations.artifactRetentionDays` are
+      // set we create a custom artifact bucket and pass it to CodePipeline; that
+      // is the only way to attach a customer-managed key (the L3 construct exposes
+      // `artifactBucket`, not `encryptionKey`). Absent both keys, CDK auto-creates
+      // the bucket and behavior is unchanged.
+      const artifactBucket = this.buildArtifactBucket();
 
-    // ── Pipeline-level Variables (CodePipeline V2) ──
-    for (const v of parsePipelineVariables(meta[MetadataKeys.PIPELINE_VARIABLES])) {
-      cdkPipeline.addVariable(new Variable({
-        variableName: v.name,
-        ...(v.defaultValue !== undefined && { defaultValue: v.defaultValue }),
-        ...(v.description !== undefined && { description: v.description }),
-      }));
-    }
+      // Create CodePipeline construct
+      this.pipeline = new CodePipeline(this, uniqueId.generate('pipelines:codepipeline'), {
+        ...(codeBuildDefaults && { codeBuildDefaults }),
+        ...(role && { role }),
+        ...(artifactBucket && { artifactBucket }),
+        pipelineType: PipelineType.V2,
+        pipelineName: this.config.pipelineName,
+        synth,
+        ...metadataForCodePipeline(this.config.metadata.merged),
+      });
 
-    // ── SNS Notifications ──
-    const notificationTopicArn = meta[MetadataKeys.NOTIFICATION_TOPIC_ARN];
-    if (typeof notificationTopicArn === 'string') {
-      const topic = sns.Topic.fromTopicArn(this, 'NotificationTopic', notificationTopicArn);
-      const notificationEvents = parseNotificationEvents(meta[MetadataKeys.NOTIFICATION_EVENTS])
-        .map(e => PIPELINE_EVENT_MAP[e.toUpperCase()])
-        .filter(Boolean);
-      if (notificationEvents.length > 0) {
-        cdkPipeline.notifyOn('PipelineNotification', topic, { events: notificationEvents });
+      if (props.stages) {
+        const stageBuilder = new StageBuilder({
+          scope: this,
+          pluginLookup,
+          uniqueId,
+          globalMetadata: this.config.metadata.merged,
+          defaultComputeType,
+          artifactManager,
+          orgId: props.orgId,
+          pipelineScope,
+        });
+        stageBuilder.addStages(this.pipeline, props.stages);
       }
-    }
 
-    // ── Scheduled Execution ──
-    if (props.synth.source.options?.trigger === TriggerType.SCHEDULE || props.schedule) {
-      const expr = props.schedule || (props.synth.source.options as { schedule?: string })?.schedule || 'rate(1 day)';
-      new events.Rule(this, 'ScheduleRule', {
-        schedule: events.Schedule.expression(expr),
-        targets: [new targets.CodePipeline(cdkPipeline)],
-      });
-    }
+      // ── Tags ──
+      // The first three are operations-essential and used by `pipeline-manager
+      // audit-stacks` to diff CFN stacks against the pipeline_registry table.
+      // `OrgId` is the canonical key for cost attribution (AWS Cost Explorer
+      // groups by tag key/value when activated in Billing settings).
+      Tags.of(this.pipeline).add('pipeline-builder', 'true');
+      Tags.of(this.pipeline).add('project', this.config.project);
+      Tags.of(this.pipeline).add('organization', this.config.organization);
+      if (props.orgId) {
+        Tags.of(this.pipeline).add('OrgId', props.orgId);
+      }
+      // Stable event-reporting key. Applied at synth (the pipelineId is known
+      // here), so it's present from stack creation — the events Lambda reads this
+      // tag to attribute CodePipeline state-change events to the pipeline without
+      // ever handling the ARN/account. See packages/pipeline-events.
+      if (props.pipelineId) {
+        Tags.of(this.pipeline).add('PIPELINE_EVENT_ID', props.pipelineId);
+      }
+      if (props.tags) {
+        for (const [key, value] of Object.entries(props.tags)) {
+          Tags.of(this.pipeline).add(key, value);
+        }
+      }
 
-    // ── Execution Event Tracking (forward pipeline state changes to SNS) ──
-    if (meta[MetadataKeys.ENABLE_EXECUTION_EVENTS] && typeof notificationTopicArn === 'string') {
-      new events.Rule(this, 'ExecutionEventRule', {
-        eventPattern: {
-          source: ['aws.codepipeline'],
-          detailType: ['CodePipeline Pipeline Execution State Change'],
-          resources: [cdkPipeline.pipelineArn],
-        },
-        targets: [new targets.SnsTopic(
-          sns.Topic.fromTopicArn(this, 'ExecutionEventTopic', notificationTopicArn),
-        )],
-      });
-    }
+      // Build the internal pipeline before accessing its properties
+      this.pipeline.buildPipeline();
+      const cdkPipeline = this.pipeline.pipeline;
+      const meta = this.config.metadata.merged;
 
-    // ── Pipeline Metrics & Alarms ──
-    const enableMetrics = this.config.metadata.merged[MetadataKeys.ENABLE_METRICS];
-    if (enableMetrics) {
-      new cloudwatch.Alarm(this, 'PipelineFailureAlarm', {
-        metric: new cloudwatch.Metric({
-          namespace: 'AWS/CodePipeline',
-          metricName: 'FailedPipelineExecutionCount',
-          dimensionsMap: { PipelineName: this.config.pipelineName },
-          statistic: 'Sum',
-          period: Duration.minutes(5),
-        }),
-        threshold: 1,
-        evaluationPeriods: 1,
-        alarmDescription: `Pipeline ${this.config.pipelineName} execution failed`,
-        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      });
+      // ── Pipeline-level Variables (CodePipeline V2) ──
+      for (const v of parsePipelineVariables(meta[MetadataKeys.PIPELINE_VARIABLES])) {
+        cdkPipeline.addVariable(new Variable({
+          variableName: v.name,
+          ...(v.defaultValue !== undefined && { defaultValue: v.defaultValue }),
+          ...(v.description !== undefined && { description: v.description }),
+        }));
+      }
+
+      // ── SNS Notifications ──
+      const notificationTopicArn = meta[MetadataKeys.NOTIFICATION_TOPIC_ARN];
+      if (typeof notificationTopicArn === 'string') {
+        const topic = sns.Topic.fromTopicArn(this, 'NotificationTopic', notificationTopicArn);
+        const notificationEvents = parseNotificationEvents(meta[MetadataKeys.NOTIFICATION_EVENTS])
+          .map(e => PIPELINE_EVENT_MAP[e.toUpperCase()])
+          .filter(Boolean);
+        if (notificationEvents.length > 0) {
+          cdkPipeline.notifyOn('PipelineNotification', topic, { events: notificationEvents });
+        }
+      }
+
+      // ── Scheduled Execution ──
+      if (props.synth.source.options?.trigger === TriggerType.SCHEDULE || props.schedule) {
+        const expr = props.schedule || (props.synth.source.options as { schedule?: string })?.schedule || 'rate(1 day)';
+        new events.Rule(this, 'ScheduleRule', {
+          schedule: events.Schedule.expression(expr),
+          targets: [new targets.CodePipeline(cdkPipeline)],
+        });
+      }
+
+      // ── Execution Event Tracking (forward pipeline state changes to SNS) ──
+      if (meta[MetadataKeys.ENABLE_EXECUTION_EVENTS] && typeof notificationTopicArn === 'string') {
+        new events.Rule(this, 'ExecutionEventRule', {
+          eventPattern: {
+            source: ['aws.codepipeline'],
+            detailType: ['CodePipeline Pipeline Execution State Change'],
+            resources: [cdkPipeline.pipelineArn],
+          },
+          targets: [new targets.SnsTopic(
+            sns.Topic.fromTopicArn(this, 'ExecutionEventTopic', notificationTopicArn),
+          )],
+        });
+      }
+
+      // ── Pipeline Metrics & Alarms ──
+      const enableMetrics = this.config.metadata.merged[MetadataKeys.ENABLE_METRICS];
+      if (enableMetrics) {
+        new cloudwatch.Alarm(this, 'PipelineFailureAlarm', {
+          metric: new cloudwatch.Metric({
+            namespace: 'AWS/CodePipeline',
+            metricName: 'FailedPipelineExecutionCount',
+            dimensionsMap: { PipelineName: this.config.pipelineName },
+            statistic: 'Sum',
+            period: Duration.minutes(5),
+          }),
+          threshold: 1,
+          evaluationPeriods: 1,
+          alarmDescription: `Pipeline ${this.config.pipelineName} execution failed`,
+          comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        });
+      }
+    } finally {
+      // Revert the per-builder registry override so it never leaks into the
+      // process-wide Config cache (see the override at the top of the constructor).
+      restoreRegistry?.();
     }
   }
 

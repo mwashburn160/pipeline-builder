@@ -24,6 +24,7 @@ import {
   createBillingEvent,
   effectiveEntitlements,
   getBundleCatalog,
+  MANAGEABLE_SUBSCRIPTION_STATUSES,
   syncEntitlements,
 } from '../helpers/billing-helpers.js';
 import { Plan } from '../models/plan.js';
@@ -91,7 +92,9 @@ export function createAddonRoutes(): Router {
 
   /** Load the org's active subscription + its plan; 404 helpers via thrown nulls. */
   async function loadSubAndPlan(orgId: string) {
-    const subscription = await Subscription.findOne({ orgId, status: 'active' });
+    // Trialing / past_due subs manage add-ons too (a trial account may buy seat
+    // packs; a past_due account still owns its bundles) — not just active.
+    const subscription = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
     if (!subscription) return null;
     const plan = await Plan.findById(subscription.planId).lean();
     if (!plan) return null;
@@ -126,7 +129,9 @@ export function createAddonRoutes(): Router {
   // POST /billing/portal — hosted session to add/update a payment method. Powers
   // the "Add a payment method" CTA shown after a 402 PAYMENT_METHOD_REQUIRED.
   router.post('/portal', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
-    const subscription = await Subscription.findOne({ orgId, status: 'active' });
+    // A past_due account is exactly who needs the hosted portal (to add/fix a
+    // payment method and stop dunning), so include the full non-terminal set.
+    const subscription = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
     if (!subscription?.externalCustomerId) return sendError(res, 404, 'No billing customer for this account');
 
     const provider = getPaymentProvider();
@@ -237,7 +242,7 @@ export function createAddonRoutes(): Router {
     // whitelist — no card/payment secret or AWS account id can leak.
     getAuditClient().record({
       action: 'billing.addon.add',
-      actorId: req.user?.sub ?? 'unknown',
+      actorId: req.user?.sub ?? 'system',
       orgId,
       targetId: bundleId,
       details: { bundleId, quantity: qty, subscriptionId: subscription._id.toString() },
@@ -288,7 +293,7 @@ export function createAddonRoutes(): Router {
     // no card/payment secret or AWS account id can leak.
     getAuditClient().record({
       action: 'billing.addon.remove',
-      actorId: req.user?.sub ?? 'unknown',
+      actorId: req.user?.sub ?? 'system',
       orgId,
       targetId: bundleId,
       details: { bundleId, subscriptionId: subscription._id.toString() },

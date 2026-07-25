@@ -120,17 +120,21 @@ describe('buildUsageRollup', () => {
   });
 
   it('computes percent/remaining for capped quotas and nulls them for unlimited', () => {
+    // REAL GET /quotas/:orgId shape: each `quotas[type]` is a QuotaSummary OBJECT
+    // `{ limit, used, resetAt, ... }` — limit + used live INSIDE it, with NO
+    // sibling `usage` map. (The old fixture fabricated `quotas` as bare numbers +
+    // a separate `usage` map, which masked buildUsageRollup treating the object as
+    // the limit → NaN and hardcoding used to 0.)
     const rollup = buildUsageRollup( null,
       null,
       {
         tier: 'developer',
-        quotas: { plugins: 100, pipelines: 10, apiCalls: -1, aiCalls: 100, storageBytes: 5368709120 },
-        usage: {
-          plugins: { used: 25, resetAt: '2026-06-01T00:00:00Z' },
-          pipelines: { used: 10, resetAt: '2026-06-01T00:00:00Z' },
-          apiCalls: { used: 12345, resetAt: '2026-06-01T00:00:00Z' },
-          aiCalls: { used: 0, resetAt: '2026-06-01T00:00:00Z' },
-          storageBytes: { used: 1073741824, resetAt: '2026-06-01T00:00:00Z' },
+        quotas: {
+          plugins: { limit: 100, used: 25, remaining: 75, unlimited: false, resetAt: '2026-06-01T00:00:00Z' },
+          pipelines: { limit: 10, used: 10, remaining: 0, unlimited: false, resetAt: '2026-06-01T00:00:00Z' },
+          apiCalls: { limit: -1, used: 12345, remaining: -1, unlimited: true, resetAt: '2026-06-01T00:00:00Z' },
+          aiCalls: { limit: 100, used: 0, remaining: 100, unlimited: false, resetAt: '2026-06-01T00:00:00Z' },
+          storageBytes: { limit: 5368709120, used: 1073741824, remaining: 4294967296, unlimited: false, resetAt: '2026-06-01T00:00:00Z' },
         },
       },
       now,
@@ -150,15 +154,15 @@ describe('buildUsageRollup', () => {
     expect(rollup.usage.storageBytes.percentOfLimit).toBe(20);
   });
 
-  it('handles a missing usage row by reporting 0 used (defensive vs older quota docs)', () => {
+  it('handles a partial summary (missing `used`) by reporting 0 used (defensive vs older quota docs)', () => {
     const rollup = buildUsageRollup( null,
       null,
       {
         tier: 'developer',
-        quotas: { plugins: 100, pipelines: 10, apiCalls: -1, aiCalls: 100, storageBytes: -1 },
-        // usage map missing pipelines
-        usage: {
-          plugins: { used: 5, resetAt: '2026-06-01T00:00:00Z' },
+        quotas: {
+          plugins: { limit: 100, used: 5, resetAt: '2026-06-01T00:00:00Z' },
+          // pipelines summary present but missing `used` — must degrade to 0.
+          pipelines: { limit: 10, resetAt: '2026-06-01T00:00:00Z' },
         },
       } as any,
       now,
@@ -198,15 +202,16 @@ describe('buildUsageRollup', () => {
  * keyed by request path.
  */
 describe('buildUsageRollupFor', () => {
+  // REAL GET /quotas/:orgId shape: `data.quota.quotas[type]` is a QuotaSummary
+  // object (limit + used + resetAt inside), no sibling `usage` map.
   const SNAPSHOT_BODY = {
     success: true,
     data: {
       quota: {
         tier: 'team',
-        quotas: { plugins: 100, pipelines: 10 },
-        usage: {
-          plugins: { used: 25, resetAt: '2026-06-01T00:00:00Z' },
-          pipelines: { used: 3, resetAt: '2026-06-01T00:00:00Z' },
+        quotas: {
+          plugins: { limit: 100, used: 25, remaining: 75, unlimited: false, resetAt: '2026-06-01T00:00:00Z' },
+          pipelines: { limit: 10, used: 3, remaining: 7, unlimited: false, resetAt: '2026-06-01T00:00:00Z' },
         },
       },
     },

@@ -18,6 +18,7 @@ import {
   DateRangePicker, AutoRefresh, ExportCSVButton,
 } from '@/components/reports/ReportHelpers';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 import type { ExecutionCountRow } from '@/types';
 
 // ─── Pipeline Types ─────────────────────────────────────
@@ -93,6 +94,10 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [loading, setLoading] = useState(true);
+  // First fetch error for the active tab. `Promise.allSettled` never rejects, so
+  // without this a backend failure would silently render as an empty state ("No
+  // data yet") — indistinguishable from a genuinely empty dataset.
+  const [error, setError] = useState<string | null>(null);
   // Org → team rollup: only admins/owners can aggregate child-team analytics, and
   // the toggle only appears when the org actually parents teams (flat orgs see no
   // extra control). Backend independently gates the rollup to admins.
@@ -126,6 +131,10 @@ export default function ReportsPage() {
     // the latest invocation is allowed to write state / clear `loading`.
     const reqId = ++reqIdRef.current;
     setLoading(true);
+    setError(null);
+    // Collects the settled results of whichever branch runs, so a rejected fetch
+    // can be surfaced as an error banner rather than silently dropped.
+    let settled: PromiseSettledResult<unknown>[] = [];
     const dateParams: Record<string, string> = {};
     if (dateFrom) dateParams.from = dateFrom;
     if (dateTo) dateParams.to = dateTo;
@@ -139,10 +148,12 @@ export default function ReportsPage() {
         if (pipelineTab === 'overview') {
           // `timeline` and `successRateTrend` both derive from the success-rate
           // response — fetch it once and feed both (was two identical requests).
-          const [execRes, successRateRes] = await Promise.allSettled([
+          const results = await Promise.allSettled([
             api.getExecutionCount(rollup), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
           ]);
           if (reqId !== reqIdRef.current) return;
+          settled = results;
+          const [execRes, successRateRes] = results;
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (successRateRes.status === 'fulfilled') {
             const trend = successRateRes.value.data?.timeline || [];
@@ -150,42 +161,56 @@ export default function ReportsPage() {
             setSuccessRateTrend(trend);
           }
         } else if (pipelineTab === 'performance') {
-          const [execRes, durationRes, bottleneckRes] = await Promise.allSettled([
+          const results = await Promise.allSettled([
             api.getExecutionCount(rollup), api.getPipelineDuration({ ...dateParams, ...rollup }), api.getStageBottlenecks(dateParams),
           ]);
           if (reqId !== reqIdRef.current) return;
+          settled = results;
+          const [execRes, durationRes, bottleneckRes] = results;
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (durationRes.status === 'fulfilled') setDurations(durationRes.value.data?.pipelines || []);
           if (bottleneckRes.status === 'fulfilled') setBottlenecks(bottleneckRes.value.data?.stages || []);
         } else {
-          const [stageRes, actionRes, errorRes] = await Promise.allSettled([
+          const results = await Promise.allSettled([
             api.getStageFailures(dateParams), api.getActionFailures(dateParams), api.getExecutionErrors({ limit: 10, ...dateParams }),
           ]);
           if (reqId !== reqIdRef.current) return;
+          settled = results;
+          const [stageRes, actionRes, errorRes] = results;
           if (stageRes.status === 'fulfilled') setStageFailures(stageRes.value.data?.stages || []);
           if (actionRes.status === 'fulfilled') setActionFailures(actionRes.value.data?.actions || []);
           if (errorRes.status === 'fulfilled') setErrors(errorRes.value.data?.errors || []);
         }
       } else {
         if (pluginTab === 'overview') {
-          const [sumRes, distRes] = await Promise.allSettled([api.getPluginSummary(), api.getPluginDistribution()]);
+          const results = await Promise.allSettled([api.getPluginSummary(), api.getPluginDistribution()]);
           if (reqId !== reqIdRef.current) return;
+          settled = results;
+          const [sumRes, distRes] = results;
           if (sumRes.status === 'fulfilled') setPluginSummary(sumRes.value.data?.summary || null);
           if (distRes.status === 'fulfilled') setDistribution(distRes.value.data?.distribution || []);
         } else if (pluginTab === 'builds') {
-          const [timelineRes, durRes, failRes] = await Promise.allSettled([
+          const results = await Promise.allSettled([
             api.getBuildSuccessRate({ interval: timeInterval, ...dateParams }), api.getBuildDuration(dateParams), api.getBuildFailures({ limit: 10, ...dateParams }),
           ]);
           if (reqId !== reqIdRef.current) return;
+          settled = results;
+          const [timelineRes, durRes, failRes] = results;
           if (timelineRes.status === 'fulfilled') setBuildTimeline(timelineRes.value.data?.timeline || []);
           if (durRes.status === 'fulfilled') setBuildDurations(durRes.value.data?.plugins || []);
           if (failRes.status === 'fulfilled') setBuildFailures(failRes.value.data?.failures || []);
         } else {
-          const [verRes] = await Promise.allSettled([api.getPluginVersions()]);
+          const results = await Promise.allSettled([api.getPluginVersions()]);
           if (reqId !== reqIdRef.current) return;
+          settled = results;
+          const [verRes] = results;
           if (verRes.status === 'fulfilled') setPluginVersions(verRes.value.data?.plugins || []);
         }
       }
+      // Surface the first rejected fetch so a backend failure shows a retry
+      // banner instead of masquerading as an empty ("No data yet") state.
+      const firstRejected = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (firstRejected) setError(formatError(firstRejected.reason, 'Failed to load report data'));
     } finally {
       if (reqId === reqIdRef.current) setLoading(false);
     }
@@ -278,6 +303,14 @@ export default function ReportsPage() {
             );
           })}
         </div>
+
+        {/* Inline error + retry — a failed fetch would otherwise look like empty data. */}
+        {error && !loading && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
+            <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</span>
+            <button onClick={fetchData} className="underline hover:no-underline shrink-0">Retry</button>
+          </div>
+        )}
 
         {/* ═══════════════════ PIPELINES ═══════════════════ */}
         {topTab === 'pipelines' && (

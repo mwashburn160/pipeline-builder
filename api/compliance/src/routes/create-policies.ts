@@ -7,8 +7,8 @@ import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitComplianceAudit } from '../services/audit.js';
 import { compliancePolicyService } from '../services/policy-service.js';
+import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 const CompliancePolicyCreateSchema = z.object({
   name: z.string().min(1).max(255),
@@ -70,7 +70,7 @@ export function createCreatePolicyRoutes(): Router {
     // metadata only (name/version/template flag), never linked rule bodies.
     emitComplianceAudit({
       action: 'compliance.policy.create',
-      actorId: userId,
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'policy',
       targetId: policy.id,

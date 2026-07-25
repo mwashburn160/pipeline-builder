@@ -70,7 +70,7 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
 
 // Spy on the audit surface: the per-rule toggle helper (#A2) and the raw audit
 // client used for the inline authz.denied record (#A4).
-jest.unstable_mockModule('../src/services/audit.js', () => ({
+jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
   getAuditClient: () => ({ record: recordMock }),
 }));

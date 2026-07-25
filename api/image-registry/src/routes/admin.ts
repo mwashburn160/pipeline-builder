@@ -36,10 +36,11 @@ const GcSchema = z.object({
 });
 
 /**
- * Admin endpoints — storage rollup + manual GC. Both gated on the
- * `registry:write` permission (a superadmin-only capability today; nobody else
- * holds it), applied per-route via `requirePermission`. `requireAuth` runs at
- * mount time (see src/index.ts) so `req.user` is always populated here.
+ * Admin endpoints — storage rollup + manual GC. Gated per-route via
+ * `requirePermission`: the storage rollup is a READ (`registry:read`); the GC
+ * prune is a WRITE (`registry:write`). Both are superadmin-only capabilities
+ * today (nobody else holds either). `requireAuth` runs at mount time (see
+ * src/index.ts) so `req.user` is always populated here.
  *
  * Routes:
  *  - GET  /api/admin/storage/:prefix   — rollup bytes for one namespace
@@ -50,7 +51,7 @@ export function createAdminRoutes(): Router {
 
   // GET /api/admin/storage/:prefix — per-namespace storage rollup.
   // Cached for 60s (see storage-usage.ts).
-  router.get('/storage/:prefix', requirePermission('registry:write') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.get('/storage/:prefix', requirePermission('registry:read') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const raw = getParam(req.params, 'prefix');
     if (!raw) return sendBadRequest(res, 'prefix is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const prefix = normalizePrefix(raw);

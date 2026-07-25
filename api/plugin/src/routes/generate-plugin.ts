@@ -5,6 +5,7 @@ import {
   createLogger,
   decrementQuota,
   errorMessage,
+  getServiceAuthHeader,
   handleAIError,
   initSSEStream,
   requireFeature,
@@ -27,10 +28,11 @@ const logger = createLogger('generate-plugin');
 /**
  * Create and register AI plugin generation routes.
  *
- * AI calls consume the org's `apiCalls` quota  until a dedicated `aiCalls`
- * quota type is added, AI usage is bounded by the same per-org budget that
- * gates regular API calls. This prevents an org from spamming the platform
- * AI provider key beyond their tier.
+ * AI calls consume the org's `aiCalls` quota, bounding AI usage per-org so an
+ * org can't spam the platform AI provider key beyond their tier. The quota slot
+ * is reserved/rolled back with a service-minted auth header (the quota
+ * `/increment` endpoint rejects non-service principals), NOT the caller's user
+ * bearer — mirrors upload-plugin.ts / deploy-generated-plugin.ts.
  *
  * The `ai_generation` feature gate is attached to each route here (not to the
  * parent '/plugins' mount) so it can't leak onto sibling `GET /plugins` reads.
@@ -55,7 +57,10 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
       return sendBadRequest(res, validation.error);
     }
     const { prompt, provider, model, apiKey } = validation.value;
-    const authHeader = req.headers.authorization || '';
+    // Service-minted auth for the quota reserve/decrement calls. The caller's
+    // user bearer would be rejected by the quota `/increment` endpoint (non-service
+    // principal → 403), so mint a service token instead (mirrors upload-plugin.ts).
+    const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
 
     // reserve the aiCalls slot atomically; roll back on LLM failure.
     const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
@@ -99,7 +104,8 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
       return sendBadRequest(res, validation.error);
     }
     const { prompt, provider, model, apiKey } = validation.value;
-    const authHeader = req.headers.authorization || '';
+    // Service-minted auth for the quota reserve/decrement calls (see /generate above).
+    const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
 
     const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
     if (reservation.exceeded) {

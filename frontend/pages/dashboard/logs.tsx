@@ -13,6 +13,7 @@ import { LogDetailsDrawer } from '@/components/observability/LogDetailsDrawer';
 import api from '@/lib/api';
 import { LOG_TIME_RANGES, LOG_LEVEL_COLORS } from '@/lib/constants';
 import { formatError } from '@/lib/constants';
+import { redactString } from '@/lib/redact';
 import { downloadJsonl } from '@/lib/csv-export';
 import type { LogEntry } from '@/types';
 
@@ -36,9 +37,13 @@ function formatTimestamp(ts: string): string {
  */
 function getLogMessage(entry: LogEntry): string {
   const parsed = entry.parsed;
-  if (parsed && typeof parsed.message === 'string') return parsed.message;
-  if (parsed && typeof parsed.raw === 'string') return parsed.raw;
-  return entry.line;
+  let msg: string;
+  if (parsed && typeof parsed.message === 'string') msg = parsed.message;
+  else if (parsed && typeof parsed.raw === 'string') msg = parsed.raw;
+  else msg = entry.line;
+  // A raw log line / message can carry an AWS account id (an ARN, or a bare
+  // 12-digit account); redact before it renders in the table.
+  return redactString(msg);
 }
 
 /** Log viewer page. Queries and displays service logs with filtering by service, level, time range, and search text. */

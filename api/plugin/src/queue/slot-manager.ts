@@ -38,7 +38,12 @@ const orgSlotOwnersKey = 'pb:org-build-owners';
  */
 const ACQUIRE_SLOT_LUA = `
 local count = redis.call('INCR', KEYS[1])
-if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
+-- Refresh the TTL on EVERY acquire, not just the 0->1 transition. Setting it
+-- only once meant a continuously-busy org's key could expire mid-flight
+-- (between acquires) while slots were still held, letting the counter reset
+-- and the cap be exceeded. Unconditional EXPIRE keeps the key alive as long as
+-- the org keeps building.
+redis.call('EXPIRE', KEYS[1], ARGV[2])
 if count > tonumber(ARGV[1]) then
   redis.call('DECR', KEYS[1])
   return 0
@@ -82,12 +87,17 @@ export async function scrubOrgSlots(): Promise<void> {
     if (ownerEntries.length === 0) return;
 
     const activeStates = ['active', 'waiting', 'delayed'] as const;
-    const tierJobLists = await Promise.all([
-      ...getAllTierQueues().map(({ queue }) => queue.getJobs([...activeStates])),
-      getDeadLetterQueue().getJobs([...activeStates]),
-    ]);
+    // Qualify each live job id by its queue name. BullMQ job ids are
+    // per-queue-monotonic, so the four per-tier queues (+ DLQ) mint colliding
+    // bare ids; a bare-id set would treat a job in one queue as "live" for a
+    // same-id owner recorded from another queue, defeating the scrub. The owner
+    // hash is keyed `${queueName}:${jobId}` (see the processor), so match that.
+    const queues = [...getAllTierQueues().map(({ queue }) => queue), getDeadLetterQueue()];
+    const jobLists = await Promise.all(queues.map((q) => q.getJobs([...activeStates])));
     const liveJobIds = new Set<string>();
-    for (const jobs of tierJobLists) for (const j of jobs) if (j.id) liveJobIds.add(String(j.id));
+    queues.forEach((q, i) => {
+      for (const j of jobLists[i]) if (j.id) liveJobIds.add(`${q.name}:${j.id}`);
+    });
 
     for (const [jobId, orgId] of ownerEntries) {
       if (liveJobIds.has(jobId)) continue;

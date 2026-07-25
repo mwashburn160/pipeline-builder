@@ -35,6 +35,16 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   },
 }));
 
+// The handler now fetches active exemptions before evaluating (so approved
+// exemptions aren't re-flagged as blocks on the async path). These tests don't
+// exercise exemptions — default to none.
+const mockGetActiveExemptionsForEntity = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue([]);
+jest.unstable_mockModule('../src/services/compliance-exemption-service.js', () => ({
+  complianceExemptionService: {
+    getActiveExemptionsForEntity: (...args: unknown[]) => mockGetActiveExemptionsForEntity(...args),
+  },
+}));
+
 const mockEvaluateRules = jest.fn().mockReturnValue({
   blocked: false,
   violations: [],
@@ -45,7 +55,7 @@ jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({
   evaluateRules: (...args: unknown[]) => mockEvaluateRules(...args),
 }));
 
-jest.unstable_mockModule('../src/helpers/audit-logger.js', () => ({
+jest.unstable_mockModule('../src/helpers/compliance-check-log.js', () => ({
   logComplianceCheck: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
 }));
 

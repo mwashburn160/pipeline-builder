@@ -13,6 +13,7 @@ import { CopyButton } from '@/components/ui/CopyButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import api from '@/lib/api';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
+import { redactString, redactDetails } from '@/lib/redact';
 
 interface TokenHistoryEntry {
   id: string;
@@ -124,15 +125,18 @@ function TokenCard({ title, token }: { title: string; token: string | null }) {
                       {label}
                     </span>
                     <span className="text-gray-900 dark:text-gray-200 break-all font-mono text-xs leading-5">
+                      {/* Claim keys are kept as-is; claim VALUES can carry an
+                          account-id-shaped token (e.g. an ARN in a custom
+                          claim), so redact id-shaped runs before rendering. */}
                       {formattedTime ? (
                         <span>
                           {formattedTime}
                           <span className="ml-2 text-gray-400 dark:text-gray-500">({String(value)})</span>
                         </span>
                       ) : typeof value === 'object' ? (
-                        JSON.stringify(value)
+                        JSON.stringify(redactDetails(value))
                       ) : (
-                        String(value)
+                        redactString(String(value))
                       )}
                     </span>
                   </div>

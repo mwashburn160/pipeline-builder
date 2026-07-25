@@ -494,7 +494,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
     // RoleAssignment.find({ roleId }).session().select('userId').lean() → members.
     findReturns(mockGmFind, [{ userId: 'm1' }, { userId: 'm2' }]);
 
-    await updateRole('org-1', 'gCustom', { permissions: ['pipelines:write'] });
+    await updateRole('org-1', 'gCustom', { permissions: ['pipelines:write'] }, { permissions: [], isSuperAdmin: true });
 
     // The Role edit is persisted WITH the transaction session ...
     expect(doc.save).toHaveBeenCalledTimes(1);
@@ -512,7 +512,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
     const doc = roleDoc();
     mockGroupFindOne.mockResolvedValue(doc);
 
-    await updateRole('org-1', 'gCustom', { description: 'renamed' });
+    await updateRole('org-1', 'gCustom', { description: 'renamed' }, { permissions: [], isSuperAdmin: true });
 
     expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
     expect(mockUserUpdateMany).not.toHaveBeenCalled();

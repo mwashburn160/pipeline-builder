@@ -4,7 +4,7 @@
 export { auditService } from './audit-service.js';
 export type { AuditFilter, AuditCreateInput, PaginatedAuditResult } from './audit-service.js';
 export { organizationService, ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, changedAiProviderFields } from './organization-service.js';
-export { authService, DUPLICATE_CREDENTIALS } from './auth-service.js';
+export { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME } from './auth-service.js';
 export { userProfileService, PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, PROFILE_OWNER_HAS_ORGS } from './user-profile-service.js';
 export { userAdminService, UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_OWNER_HAS_ORGS, UA_ORG_NOT_FOUND, UA_SEAT_LIMIT, UA_CANNOT_CHANGE_OWNER, UA_ROLES_NEED_ORG } from './user-admin-service.js';
 export {
@@ -29,7 +29,8 @@ export {
   RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER,
   RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN,
   RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE,
+  RL_PERMISSION_EXCEEDS_CEILING,
 } from './roles-service.js';
-export type { RoleWithMembers } from './roles-service.js';
+export type { RoleWithMembers, ActorPermissionCeiling } from './roles-service.js';
 export { backfillRbacRoles } from './rbac-backfill.js';
 export type { RbacBackfillSummary } from './rbac-backfill.js';

@@ -11,7 +11,7 @@
  * PromQL/LogQL, so injection / scope-escape attacks have no surface.
  *
  * Adding a new query: pick a key, add an entry. Template variables are
- * limited to `$EVENT`, `$ACTOR`, `$PLUGIN` (frontend-supplied, sanitized)
+ * limited to `$EVENT`, `$ACTOR`, `$REQUESTID` (frontend-supplied, sanitized)
  * and `$ORG` (server-driven scoping) — nothing else is allowed in catalog
  * strings.
  */
@@ -23,10 +23,10 @@ export type RangeKey = '1h' | '6h' | '24h';
 
 export interface QueryEntry {
   source: QuerySource;
-  /** Raw PromQL or LogQL. May contain `$EVENT`, `$ACTOR`, `$PLUGIN`, `$REQUESTID`, `$ORG` placeholders. */
+  /** Raw PromQL or LogQL. May contain `$EVENT`, `$ACTOR`, `$REQUESTID`, `$ORG` placeholders. */
   query: string;
   /** Allow-list of template variables the frontend may pass for this query. */
-  allowedVars: ReadonlyArray<'event' | 'actor' | 'plugin' | 'requestId'>;
+  allowedVars: ReadonlyArray<'event' | 'actor' | 'requestId'>;
   /**
    * When true, the controller substitutes `$ORG` with the caller's org
    * (sysadmins get a regex wildcard, org admins get their literal org).
@@ -254,8 +254,8 @@ export const QUERIES: Record<string, QueryEntry> = {
  */
 export function substituteVars(
   query: string,
-  vars: { event?: string; actor?: string; plugin?: string; requestId?: string; org?: string; isSuperAdmin?: boolean },
-  allowed: ReadonlyArray<'event' | 'actor' | 'plugin' | 'requestId'>,
+  vars: { event?: string; actor?: string; requestId?: string; org?: string; isSuperAdmin?: boolean },
+  allowed: ReadonlyArray<'event' | 'actor' | 'requestId'>,
 ): string {
   let result = query;
 
@@ -268,18 +268,6 @@ export function substituteVars(
   const actorClause = allowed.includes('actor') && vars.actor && /^[a-zA-Z0-9._@-]+$/.test(vars.actor)
     ? `,actor="${vars.actor}"` : '';
   result = result.replaceAll('$ACTOR', actorClause);
-
-  // plugin: alphanumerics + . + - + _ (plugin names follow the same convention
-  // as events). Substituted as a literal label match — used by the per-plugin
-  // drill-down panel and its supporting Loki recent-builds query.
-  if (allowed.includes('plugin') && vars.plugin && /^[a-zA-Z0-9._-]+$/.test(vars.plugin)) {
-    result = result.replaceAll('$PLUGIN', vars.plugin);
-  } else {
-    // Drop the placeholder entirely if the caller didn't supply a valid plugin.
-    // The query templates wrap $PLUGIN in `plugin_name="$PLUGIN"` which would
-    // become `plugin_name=""` — matches nothing, the right failure mode.
-    result = result.replaceAll('$PLUGIN', '');
-  }
 
   // requestId: a correlation id (uuid or OTel trace id). Appended as a LogQL
   // line filter — alphanumerics + - + _ only, so the value can't break out of

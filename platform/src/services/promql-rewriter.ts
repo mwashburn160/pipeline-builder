@@ -95,6 +95,36 @@ const LABEL_LIST_KEYWORDS = new Set<string>([
   'by', 'without', 'on', 'ignoring', 'group_left', 'group_right',
 ]);
 
+/**
+ * Given the index of an opening `{`, return the index one past its matching
+ * `}`, honoring string literals inside the label set (values can contain
+ * `{` / `}`). Throws on an unbalanced brace so callers fail closed.
+ */
+function scanLabelSetClose(expr: string, open: number): number {
+  let depth = 1;
+  let k = open + 1;
+  let inStr: '"' | "'" | null = null;
+  while (k < expr.length && depth > 0) {
+    const ch = expr[k];
+    if (inStr) {
+      if (ch === '\\' && k + 1 < expr.length) { k += 2; continue; }
+      if (ch === inStr) inStr = null;
+    } else if (ch === '"' || ch === "'") {
+      inStr = ch;
+    } else if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+    }
+    k++;
+  }
+  if (depth !== 0) {
+    // Unbalanced braces  bail so the caller's validator can flag it.
+    throw new PromQLRewriteError('Unbalanced `{` / `}` in expression');
+  }
+  return k;
+}
+
 function findMetricSelectors(expr: string): MetricSelectorMatch[] {
   const out: MetricSelectorMatch[] = [];
   let i = 0;
@@ -111,6 +141,28 @@ function findMetricSelectors(expr: string): MetricSelectorMatch[] {
       continue;
     }
     if (c === '"' || c === "'") { inString = c; i++; continue; }
+
+    // A `{`-led selector with NO leading metric name  a bare label-set such as
+    // `{job="platform"}`, `{__name__=~"plugin_builds_total"}`, or `{on="x"}`.
+    // Without this branch the scanner skips the `{` and then either mis-reads
+    // the first label NAME as a bare metric, or  when that name is a reserved
+    // word (`{on=…}`, `{sum=…}`)  records NOTHING at all, letting the selector
+    // slip past the org_id tenancy gate entirely (injectOrgId injects nothing,
+    // validateOrgIdMatchers returns ok over an empty list). Record it as a
+    // nameless selector so it is org-scoped / validated like every other one.
+    if (c === '{') {
+      const close = scanLabelSetClose(expr, i);
+      out.push({
+        start: i,
+        end: close,
+        name: '',
+        labelsetRaw: expr.substring(i + 1, close - 1),
+        labelsetOpen: i,
+        labelsetClose: close - 1,
+      });
+      i = close;
+      continue;
+    }
 
     // PromQL doesn't have line comments in expressions; reject them
     // upstream rather than silently skipping over.
@@ -166,28 +218,7 @@ function findMetricSelectors(expr: string): MetricSelectorMatch[] {
     if (peek === '{') {
       // Parse the labelset to find the matching close brace, respecting
       // string literals inside (label values can contain `{` / `}`).
-      let depth = 1;
-      let k = j + 1;
-      let inStr: '"' | "'" | null = null;
-      while (k < expr.length && depth > 0) {
-        const ch = expr[k];
-        if (inStr) {
-          if (ch === '\\' && k + 1 < expr.length) { k += 2; continue; }
-          if (ch === inStr) inStr = null;
-        } else if (ch === '"' || ch === "'") {
-          inStr = ch;
-        } else if (ch === '{') {
-          depth++;
-        } else if (ch === '}') {
-          depth--;
-        }
-        k++;
-      }
-      if (depth !== 0) {
-        // Unbalanced braces  bail with what we've got so the caller's
-        // validator can flag it.
-        throw new PromQLRewriteError('Unbalanced `{` / `}` in expression');
-      }
+      const k = scanLabelSetClose(expr, j);
       out.push({
         start: identStart,
         end: k,
@@ -309,9 +340,10 @@ export function validateOrgIdMatchers(expr: string, orgId: string): { ok: true }
     try {
       const has = sel.labelsetRaw !== null && labelsetHasOrgId(sel.labelsetRaw, orgId);
       if (!has) {
+        const what = sel.name ? `metric "${sel.name}"` : 'label-set selector {…}';
         return {
           ok: false,
-          message: `metric "${sel.name}" needs an org_id="${orgId}" matcher to scope it to your org`,
+          message: `${what} needs an org_id="${orgId}" matcher to scope it to your org`,
         };
       }
     } catch (err) {

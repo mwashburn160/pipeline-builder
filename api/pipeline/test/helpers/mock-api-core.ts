@@ -72,6 +72,11 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     extractDbError: () => ({}),
+    // Real account-id scrub (mirrors api-core's aws-scrub): 12-digit runs → [REDACTED].
+    // Services that link this at the persistence/response boundary need the real
+    // behavior so suites can assert account ids never leak.
+    scrubAwsIdentifiersFromString: (input: string) =>
+      String(input).replace(/(?<!\d)\d{12}(?!\d)/g, '[REDACTED]'),
     // `requirePermission(...perms)` is a factory that RETURNS middleware, so
     // the stub is a function producing the pass-through guard.
     requirePermission: () => passThroughMiddleware,
@@ -79,6 +84,9 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // feature gate itself override this with a capability/feature-aware stub.
     requireFeature: () => passThroughMiddleware,
     NotFoundError,
+    // Shared SSRF guard — git-analysis http.ts links against this. Default is a
+    // permissive async no-op; suites exercising the guard override it.
+    assertSafeUrl: async () => {},
     createCacheService: () => ({
       getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
       invalidatePattern: () => Promise.resolve(0),

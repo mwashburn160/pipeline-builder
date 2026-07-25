@@ -94,12 +94,10 @@ function normalizeRoute(req: Request): string {
  */
 export function metricsMiddleware() {
   return (req: Request, res: Response, next: NextFunction): void => {
-    // Skip recording the /metrics and /health endpoints themselves
-    if (req.path === '/metrics' || req.path === '/health') {
-      next();
-      return;
-    }
-
+    // NOTE: no /metrics or /health skip needed here — both endpoints are
+    // registered in app-factory BEFORE this middleware (createHealthRouter and
+    // app.get('/metrics') both terminate the response), so neither ever reaches
+    // this handler.
     const end = httpRequestDuration.startTimer();
 
     res.on('finish', () => {

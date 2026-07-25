@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, safeCreateRequire } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, safeCreateRequire, requireAuth } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { getConnection } from '@pipeline-builder/pipeline-data';
@@ -13,7 +13,6 @@ import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { v7 as uuid } from 'uuid';
 import { etagMiddleware } from './etag-middleware.js';
-import { idempotencyMiddleware } from './idempotency-middleware.js';
 import { metricsMiddleware, metricsHandler, incCounter } from './metrics.js';
 import { readinessGuard } from './readiness.js';
 import { SSEManager } from '../http/sse-connection-manager.js';
@@ -334,10 +333,40 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Prometheus metrics middleware — records request duration and count
   app.use(metricsMiddleware());
 
-  // Idempotency key support for mutation endpoints
-  app.use(idempotencyMiddleware());
+  // NOTE: idempotency is intentionally NOT mounted here. It needs the VERIFIED
+  // org id to namespace its replay cache, but this pre-auth position runs before
+  // `requireAuth`/`attachRequestContext` populate identity, so a global mount
+  // here is a permanent no-op (org always undefined → skip). It is instead wired
+  // into the post-auth route chains — see `createProtectedRoute` /
+  // `createAuthenticatedWithOrgRoute` in middleware-factory.ts.
 
-  // SSE logs endpoint
+  // SSE logs endpoint — ticket-gated (Wave 2b).
+  // The stream carries per-org build logs, so it must not be world-readable.
+  // Clients first POST /logs/ticket (JWT-authenticated) to mint a short-lived,
+  // single-use ticket bound to their org, then open the EventSource with
+  // ?ticket=<t>. This keeps the JWT out of query strings / access logs while
+  // still enforcing org ownership + the per-org connection cap on the stream.
+  // Mirrors the message-service notifications SSE ticket exchange.
+  app.post('/logs/ticket', requireAuth, (req: Request, res: Response) => {
+    const orgId = req.user?.organizationId?.toLowerCase();
+    if (!orgId) {
+      sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
+      return;
+    }
+    const result = sseManager.createTicket(orgId);
+    if (!result.ok) {
+      if (result.reason === 'org-limit') {
+        sendError(res, 429, 'Too many log stream tickets issued', ErrorCode.QUOTA_EXCEEDED);
+      } else {
+        sendError(res, 503, 'Log streaming subsystem at capacity', ErrorCode.QUOTA_EXCEEDED);
+      }
+      return;
+    }
+    sendSuccess(res, 200, { ticket: result.ticket });
+  });
+
+  // The stream itself resolves + consumes the ticket inside middleware() and
+  // rejects any anonymous / invalid / expired / already-used ticket with 401.
   app.get('/logs/:requestId', sseManager.middleware());
 
   return { app, sseManager };

@@ -31,6 +31,7 @@ import { useFormState } from '@/hooks/useFormState';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { formatError } from '@/lib/constants';
+import { redactString } from '@/lib/redact';
 import { TIER_KEYS, getTierMeta } from '@/lib/tiers';
 import api from '@/lib/api';
 import type { Organization, OrgIdpConfigDto } from '@/types';
@@ -286,7 +287,9 @@ export default function OrgDetailPage() {
             {kms?.configured ? (
               <div className="text-sm">
                 <div className="text-gray-500 dark:text-gray-400 mb-1">Wrapping under operator CMK:</div>
-                <CopyableId value={kms.keyId ?? ''} size="sm" />
+                {/* A KMS key ARN embeds the AWS account id; redact it before it
+                    reaches the DOM or the clipboard (CopyableId copies `value`). */}
+                <CopyableId value={redactString(kms.keyId ?? '')} size="sm" />
               </div>
             ) : (
               <p className="text-sm text-gray-500 dark:text-gray-400">

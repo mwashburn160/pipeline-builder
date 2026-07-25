@@ -40,7 +40,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     buildComplianceAuditConditions(f, o),
 }));
 
-const { complianceAuditService } = await import('../src/services/compliance-audit-service.js');
+const { complianceAuditService } = await import('../src/services/compliance-check-log-query.js');
 
 describe('ComplianceAuditService', () => {
   beforeEach(() => {

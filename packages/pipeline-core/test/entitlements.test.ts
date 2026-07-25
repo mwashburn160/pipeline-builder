@@ -59,12 +59,12 @@ describe('effectiveEntitlements', () => {
   });
 
   it('leaves an already-unlimited (-1) field unlimited', () => {
-    // Team apiCalls is unlimited (-1); an api-granting bundle must not turn it
-    // into a finite number.
-    const apiBundle = [bundle({ id: 'api_pack', grants: { apiCalls: 1_000_000 } })];
-    expect(getTierLimits('team').apiCalls).toBe(-1);
-    const { limits } = effectiveEntitlements('team', [{ bundleId: 'api_pack', quantity: 4 }], apiBundle);
-    expect(limits.apiCalls).toBe(-1);
+    // Enterprise idpConfigs is unlimited (-1); an idp-granting bundle must not
+    // turn it into a finite number.
+    const idpBundle = [bundle({ id: 'sso', grants: { idpConfigs: 5 } })];
+    expect(getTierLimits('enterprise').idpConfigs).toBe(-1);
+    const { limits } = effectiveEntitlements('enterprise', [{ bundleId: 'sso', quantity: 4 }], idpBundle);
+    expect(limits.idpConfigs).toBe(-1);
   });
 
   it('ignores non-positive quantities', () => {

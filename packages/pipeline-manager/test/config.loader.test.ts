@@ -35,7 +35,7 @@ jest.unstable_mockModule('yaml', () => ({
   default: { parse: mockYamlParse },
 }));
 
-const { getConfig } = await import('../src/utils/config-loader.js');
+const { getConfig, getApiConfig } = await import('../src/utils/config-loader.js');
 
 // Environment helpers
 const ENV_KEYS = [
@@ -169,6 +169,40 @@ describe('config.loader', () => {
 
       const config = getConfig();
       expect(config.api.baseUrl).toBe('https://localhost:8443');
+    });
+  });
+
+  // The token-optional slice used by the pre-auth login step (ensurePlatformToken).
+  describe('getApiConfig', () => {
+    it('resolves the base URL WITHOUT requiring PLATFORM_TOKEN', () => {
+      delete process.env.PLATFORM_TOKEN;
+      process.env.PLATFORM_BASE_URL = 'https://api.example.com';
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {} });
+
+      // getConfig() would throw here — getApiConfig() must not.
+      const config = getApiConfig();
+      expect(config.api.baseUrl).toBe('https://api.example.com');
+      expect((config as { auth?: unknown }).auth).toBeUndefined();
+    });
+
+    it('does not throw when PLATFORM_TOKEN is missing (unlike getConfig)', () => {
+      delete process.env.PLATFORM_TOKEN;
+      mockExistsSync.mockReturnValue(false);
+
+      expect(() => getApiConfig()).not.toThrow();
+      expect(() => getConfig()).toThrow('PLATFORM_TOKEN environment variable is required');
+    });
+
+    it('honors TLS_REJECT_UNAUTHORIZED=0 without a token', () => {
+      delete process.env.PLATFORM_TOKEN;
+      process.env.TLS_REJECT_UNAUTHORIZED = '0';
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {} });
+
+      expect(getApiConfig().api.rejectUnauthorized).toBe(false);
     });
   });
 

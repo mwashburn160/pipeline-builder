@@ -45,14 +45,24 @@ export const MessageFilterSchema = BaseFilterSchema.extend({
 });
 
 /**
+ * Upper bounds on free-text message fields. Without these an unbounded
+ * subject/content (e.g. a 1MB announcement) is persisted AND SSE-broadcast to
+ * every org. `subject` matches the `varchar(500)` DB column so we reject rather
+ * than silently truncate; `content` is a `text` column with no DB bound, so we
+ * cap it at a sane 32 KiB at the app layer.
+ */
+export const MESSAGE_SUBJECT_MAX = 500;
+export const MESSAGE_CONTENT_MAX = 32768;
+
+/**
  * Message creation schema
  */
 export const MessageCreateSchema = z.object({
   recipientOrgId: z.string().min(1, 'Recipient organization ID is required'),
   messageType: MessageTypeSchema.optional().default('conversation'),
   channel: MessageChannelSchema.optional(),
-  subject: z.string().min(1, 'Subject is required'),
-  content: z.string().min(1, 'Content is required'),
+  subject: z.string().min(1, 'Subject is required').max(MESSAGE_SUBJECT_MAX, `Subject must be at most ${MESSAGE_SUBJECT_MAX} characters`),
+  content: z.string().min(1, 'Content is required').max(MESSAGE_CONTENT_MAX, `Content must be at most ${MESSAGE_CONTENT_MAX} characters`),
   priority: MessagePrioritySchema.optional().default('normal'),
 });
 
@@ -60,5 +70,5 @@ export const MessageCreateSchema = z.object({
  * Message reply schema
  */
 export const MessageReplySchema = z.object({
-  content: z.string().min(1, 'Content is required'),
+  content: z.string().min(1, 'Content is required').max(MESSAGE_CONTENT_MAX, `Content must be at most ${MESSAGE_CONTENT_MAX} characters`),
 });

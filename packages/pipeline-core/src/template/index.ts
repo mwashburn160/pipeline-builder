@@ -35,10 +35,6 @@ export {
 } from './topo-sort.js';
 
 export {
-  TokenCache,
-} from './cache.js';
-
-export {
   validateTemplates,
   detectCycles,
   allowedScopeRoots,
@@ -79,7 +75,9 @@ export function resolveTemplates<T extends object>(
 ): ResolveResult {
   const start = Date.now();
   const errors: ResolveResult['errors'] = [];
-  const entries = walkAndBind(doc, isTemplatable);
+  // includeLiteralOnly: literal-only fields (a bare `{{{{` escape) still need
+  // rewriting so the tokenizer's `{{{{` → `{{` unescape lands in the document.
+  const entries = walkAndBind(doc, isTemplatable, true);
   let success = true;
   for (const entry of entries) {
     try {
@@ -116,7 +114,9 @@ export function resolveSelfReferencing<T extends object>(
   docType: 'pipeline' | 'plugin' = 'pipeline',
 ): ResolveResult {
   const start = Date.now();
-  const entries = walkAndBind(doc, isTemplatable);
+  // includeLiteralOnly: a self-referencing field that is only a `{{{{` escape
+  // still needs its unescape written back (same rationale as resolveTemplates).
+  const entries = walkAndBind(doc, isTemplatable, true);
   // Build topo nodes keyed by target scope path
   const nodes = entries
     .map(e => {

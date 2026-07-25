@@ -37,7 +37,7 @@ export function createDeletePipelineRoutes(): Router {
     // Best-effort attributed audit — emitted only after the delete landed.
     emitPipelineAudit({
       action: 'pipeline.delete',
-      actorId: userId || 'system',
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'pipeline',
       targetId: id,

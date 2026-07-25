@@ -30,24 +30,20 @@ function mockRes(): any {
 }
 
 describe('metricsMiddleware', () => {
-  it('skips /metrics path', () => {
+  it('no longer special-cases /metrics or /health (dead branch removed)', () => {
+    // /metrics and /health are registered in app-factory BEFORE this middleware
+    // and terminate the response, so they never reach it. The former in-handler
+    // skip was dead code and was removed — the middleware now treats these paths
+    // like any other (registers a finish listener) if it ever does see them.
     const middleware = metricsMiddleware();
-    const req = mockReq('/metrics');
-    const res = mockRes();
-    const next = jest.fn();
-    middleware(req, res, next);
-    expect(next).toHaveBeenCalled();
-    expect(res.on).not.toHaveBeenCalled();
-  });
-
-  it('skips /health path', () => {
-    const middleware = metricsMiddleware();
-    const req = mockReq('/health');
-    const res = mockRes();
-    const next = jest.fn();
-    middleware(req, res, next);
-    expect(next).toHaveBeenCalled();
-    expect(res.on).not.toHaveBeenCalled();
+    for (const path of ['/metrics', '/health']) {
+      const req = mockReq(path);
+      const res = mockRes();
+      const next = jest.fn();
+      middleware(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(res.on).toHaveBeenCalledWith('finish', expect.any(Function));
+    }
   });
 
   it('registers a finish listener for normal paths', () => {

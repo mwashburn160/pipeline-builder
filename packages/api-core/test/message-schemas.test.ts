@@ -131,6 +131,32 @@ describe('MessageCreateSchema', () => {
       content: '',
     })).toThrow();
   });
+
+  it('should accept subject/content at the max length boundary', () => {
+    const result = MessageCreateSchema.parse({
+      recipientOrgId: 'org',
+      subject: 'a'.repeat(500),
+      content: 'b'.repeat(32768),
+    });
+    expect(result.subject).toHaveLength(500);
+    expect(result.content).toHaveLength(32768);
+  });
+
+  it('should reject subject over 500 chars', () => {
+    expect(() => MessageCreateSchema.parse({
+      recipientOrgId: 'org',
+      subject: 'a'.repeat(501),
+      content: 'text',
+    })).toThrow();
+  });
+
+  it('should reject content over 32768 chars (guards against 1MB broadcasts)', () => {
+    expect(() => MessageCreateSchema.parse({
+      recipientOrgId: 'org',
+      subject: 'Hi',
+      content: 'b'.repeat(32769),
+    })).toThrow();
+  });
 });
 
 describe('MessageReplySchema', () => {
@@ -145,5 +171,14 @@ describe('MessageReplySchema', () => {
 
   it('should reject missing content', () => {
     expect(() => MessageReplySchema.parse({})).toThrow();
+  });
+
+  it('should accept content at the max length boundary', () => {
+    const result = MessageReplySchema.parse({ content: 'b'.repeat(32768) });
+    expect(result.content).toHaveLength(32768);
+  });
+
+  it('should reject content over 32768 chars', () => {
+    expect(() => MessageReplySchema.parse({ content: 'b'.repeat(32769) })).toThrow();
   });
 });

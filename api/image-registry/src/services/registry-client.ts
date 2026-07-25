@@ -5,6 +5,7 @@ import { Agent } from 'https';
 import type { Readable } from 'stream';
 import { createLogger } from '@pipeline-builder/api-core';
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
+import type { RegistryScope } from './scope.js';
 import { authorizeAndIssue } from './token-service.js';
 import { config } from '../config/index.js';
 
@@ -73,64 +74,82 @@ const client: AxiosInstance = axios.create({
   httpsAgent: new Agent({ rejectUnauthorized: !config.registry.insecure }),
 });
 
-interface AccessScope {
-  type: 'repository' | 'registry';
-  name: string;
-  actions: string[];
+/**
+ * Stable cache key for a scope set. Sorting actions (and the scopes
+ * themselves) makes `['pull','push']` and `['push','pull']` — and any scope
+ * ordering — hit the same cache entry. The empty scope list keys the
+ * catalog token.
+ */
+function scopeCacheKey(scopes: RegistryScope[]): string {
+  if (scopes.length === 0) return 'registry:catalog:*';
+  return scopes
+    .map((s) => `${s.type}:${s.name}:${[...s.actions].sort().join(',')}`)
+    .sort()
+    .join('|');
 }
 
-let cachedCatalogToken: { token: string; expiresAt: number } | null = null;
+/**
+ * How long a minted token (and the axios instance carrying it) may be reused.
+ * Refresh at 80% of the JWT lifetime, minus a 30s safety buffer so a long
+ * request started near expiry can't race the cutover. Floored at 0 so an
+ * absurdly-short configured TTL doesn't go negative; effective minimum sane
+ * TTL is ~60s.
+ */
+function tokenReuseWindowMs(): number {
+  return Math.max(0, config.tokenSigning.expiresInSeconds * 1000 * 0.8 - 30_000);
+}
 
 /**
- * Mint a management-identity bearer token for outbound calls to the
- * underlying registry. The registry validates JWT `access` claims against
- * the actual HTTP request — a token scoped to `registry:catalog:*` works
- * for `/v2/_catalog` but is rejected by `/v2/<repo>/tags/list`, which
- * needs `repository:<repo>:pull`. So callers pass the per-op scope.
+ * Cache of authed axios instances keyed by scope set. Each entry bundles a
+ * pre-authed axios instance (fixed `Authorization` header) with the token's
+ * reuse deadline. Reusing the instance means we re-sign an RS256 JWT and
+ * `axios.create(...)` at most once per scope per reuse window — so a storage
+ * rollup that issues N `HEAD`s against the same repo signs once, not N times.
  *
- * Caching is only safe for the catalog-only case where the scope is
- * constant; per-repo tokens are minted fresh each call (signing is cheap).
+ * The `Authorization` header is baked into the instance at mint time (never
+ * mutated on the shared instance), so concurrent requests sharing an entry
+ * are race-free.
+ *
+ * The registry validates JWT `access` claims against the actual HTTP
+ * request — a token scoped to `registry:catalog:*` works for `/v2/_catalog`
+ * but is rejected by `/v2/<repo>/tags/list`, which needs
+ * `repository:<repo>:pull`. Keying by the exact scope set keeps each op's
+ * token correctly scoped while still sharing across identical calls.
  */
-async function getManagementToken(scopes: AccessScope[] = []): Promise<string> {
-  if (scopes.length === 0) {
-    const now = Date.now();
-    if (cachedCatalogToken && cachedCatalogToken.expiresAt > now + 30_000) {
-      return cachedCatalogToken.token;
-    }
-    const { token } = await authorizeAndIssue(
-      { type: 'management' as const },
-      [{ type: 'registry', name: 'catalog', actions: ['*'] }],
-      'pipeline-image-registry-management',
-    );
-    // Refresh at 80% of the JWT lifetime, minus a 30s safety buffer so a
-    // long request started near expiry can't race the cutover. Floored at
-    // 0 so an absurdly-short configured TTL doesn't go negative; effective
-    // minimum sane TTL is ~60s.
-    cachedCatalogToken = {
-      token,
-      expiresAt: now + Math.max(0, config.tokenSigning.expiresInSeconds * 1000 * 0.8 - 30_000),
-    };
-    return token;
-  }
-  // Per-op token: don't bloat with the catalog scope — only include the
-  // scopes the operation actually needs.
+const authedClientCache = new Map<string, { client: AxiosInstance; expiresAt: number }>();
+
+/** Mint a management-identity bearer token scoped to `scopes` (catalog when empty). */
+async function mintManagementToken(scopes: RegistryScope[]): Promise<string> {
+  const effective: RegistryScope[] =
+    scopes.length === 0 ? [{ type: 'registry', name: 'catalog', actions: ['*'] }] : scopes;
   const { token } = await authorizeAndIssue(
     { type: 'management' as const },
-    scopes,
+    effective,
     'pipeline-image-registry-management',
   );
   return token;
 }
 
-/** Wrap a request with a fresh bearer token scoped to the named repo + actions. */
-async function authedClient(scopes: AccessScope[] = []): Promise<AxiosInstance> {
-  const token = await getManagementToken(scopes);
-  return axios.create({
+/**
+ * Return an axios instance pre-authed with a bearer token scoped to the given
+ * repo + actions, reusing a cached instance (and its token) until the reuse
+ * window elapses. See {@link authedClientCache}.
+ */
+async function authedClient(scopes: RegistryScope[] = []): Promise<AxiosInstance> {
+  const key = scopeCacheKey(scopes);
+  const now = Date.now();
+  const cached = authedClientCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.client;
+
+  const token = await mintManagementToken(scopes);
+  const instance = axios.create({
     baseURL,
     timeout: 30_000,
     httpsAgent: client.defaults.httpsAgent,
     headers: { Authorization: `Bearer ${token}` },
   });
+  authedClientCache.set(key, { client: instance, expiresAt: now + tokenReuseWindowMs() });
+  return instance;
 }
 
 export interface CatalogResponse {

@@ -499,7 +499,12 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     const { requestId, orgId, userId, buildRequest, pluginRecord } = job.data;
 
     return runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
-      const slotJobId = String(job.id ?? job.name);
+      // Qualify the owner-hash key by queue name: BullMQ job ids are
+      // per-queue-monotonic, so the four per-tier queues mint colliding ids
+      // and a bare id would let one tier's job overwrite another's owner
+      // record (wrong-org decrement / leaked slots). scrubOrgSlots builds its
+      // live set with the same `${queueName}:${jobId}` shape.
+      const slotJobId = `${job.queueName}:${job.id ?? job.name}`;
       if (!await tryAcquireOrgSlot(orgId, slotJobId)) {
         await job.moveToDelayed(Date.now() + ORG_SLOT_DELAY_MS, token);
         throw Worker.RateLimitError();
@@ -546,7 +551,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           eventCategory: 'plugin-build',
           action: 'plugin.build.completed',
           event: 'completed',
-          actorId: userId,
+          actorId: userId ?? 'system',
           orgId,
           targetType: 'plugin',
           targetId: result.id,
@@ -558,7 +563,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
         getAuditClient().record({
           action: 'plugin.build.completed',
-          actorId: userId,
+          actorId: userId ?? 'system',
           orgId,
           targetType: 'plugin',
           targetId: result.id,
@@ -638,7 +643,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         eventCategory: 'plugin-build',
         action,
         event: isTimeout ? 'timeout' : 'failed',
-        actorId: job.data.userId,
+        actorId: job.data.userId ?? 'system',
         orgId,
         targetType: 'plugin',
         pluginName: pluginRecord.name,
@@ -675,7 +680,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         // jobs (DLQ-bound jobs get theirs from the DLQ on its own exhaustion).
         getAuditClient().record({
           action,
-          actorId: job.data.userId,
+          actorId: job.data.userId ?? 'system',
           orgId,
           targetType: 'plugin',
           details: {

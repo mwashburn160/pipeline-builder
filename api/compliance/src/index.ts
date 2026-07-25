@@ -13,7 +13,7 @@ import {
   combineHealthChecks,
 } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
-import { startAuditPruneCron } from './helpers/audit-logger.js';
+import { startAuditPruneCron } from './helpers/compliance-check-log.js';
 import { startDigestScheduler, stopDigestScheduler } from './helpers/digest-scheduler.js';
 import { evaluateEntityEvent } from './helpers/entity-event-handler.js';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler.js';
@@ -35,7 +35,7 @@ import { createTemplateRoutes } from './routes/templates.js';
 import { createUpdatePolicyRoutes } from './routes/update-policies.js';
 import { createUpdateRuleRoutes } from './routes/update-rules.js';
 import { createValidateRoutes } from './routes/validate.js';
-import { getAuditClient } from './services/audit.js';
+import { getAuditClient } from './services/remote-audit-client.js';
 
 const logger = createLogger('compliance');
 const quotaService = createQuotaService();

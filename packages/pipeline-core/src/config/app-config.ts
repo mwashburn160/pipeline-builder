@@ -43,13 +43,13 @@ export class CoreConstants {
   static readonly HANDLER_MAX_RETRIES = HandlerConstants.HANDLER_MAX_RETRIES;
   static readonly HANDLER_RETRY_DELAY_MS = HandlerConstants.HANDLER_RETRY_DELAY_MS;
 
-  // Plugin build queue configuration
+  // Plugin build queue configuration.
+  // NOTE: maxAttempts / backoffDelayMs / workerTimeoutMs are NOT duplicated here —
+  // `loadPluginBuildConfig` (infrastructure-config.ts) is their single source of
+  // truth, read via `Config.get('pluginBuild')`.
   static readonly PLUGIN_BUILD_QUEUE_NAME = process.env.PLUGIN_BUILD_QUEUE_NAME || 'plugin-build';
-  static readonly PLUGIN_BUILD_MAX_ATTEMPTS = parseInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS || '2', 10);
-  static readonly PLUGIN_BUILD_BACKOFF_DELAY_MS = parseInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS || '5000', 10); // 5s
   static readonly PLUGIN_BUILD_COMPLETED_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_COMPLETED_RETENTION_SECS || '3600', 10); // 1 hr
   static readonly PLUGIN_BUILD_FAILED_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_FAILED_RETENTION_SECS || '86400', 10); // 24 hr
-  static readonly PLUGIN_BUILD_WORKER_TIMEOUT_MS = parseInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS || '10000', 10); // 10s
 
   // Pagination and limits
   static readonly MAX_PAGE_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
@@ -180,6 +180,28 @@ export class Config {
       Object.entries(partial).filter(([, v]) => v !== undefined),
     ) as Partial<AppConfig[K]>;
     this.cache.set(section, { ...current, ...defined });
+  }
+
+  /**
+   * Like {@link override}, but scoped: snapshots the current cache state for
+   * `section` and returns a restore function that reverts it. Use around a
+   * single unit of work (e.g. one CDK PipelineBuilder's synth) so a per-builder
+   * override does NOT leak into the process-wide cache and bleed into sibling
+   * builders in a multi-pipeline CDK app. Calling the returned function restores
+   * the exact prior state — the previously cached value, or an unloaded section
+   * if it had not been cached yet (so the next `get()` re-loads from env).
+   */
+  static overrideScoped<K extends keyof AppConfig>(
+    section: K,
+    partial: Partial<AppConfig[K]>,
+  ): () => void {
+    const hadCached = this.cache.has(section);
+    const previous = hadCached ? this.cache.get(section) : undefined;
+    this.override(section, partial);
+    return () => {
+      if (hadCached) this.cache.set(section, previous);
+      else this.cache.delete(section);
+    };
   }
 
   /**

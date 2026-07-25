@@ -16,8 +16,8 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceScanService } from '../services/compliance-scan-service.js';
+import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 /**
  * Compliance scan implementation.
@@ -99,7 +99,7 @@ export function createScanRoutes(): Router {
     // Best-effort attributed audit — the scan cancel succeeded.
     emitComplianceAudit({
       action: 'compliance.scan.cancel',
-      actorId: userId,
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'scan',
       targetId: id,

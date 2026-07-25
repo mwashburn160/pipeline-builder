@@ -36,3 +36,28 @@ export function isLocalHttpsHost(url: string): boolean {
 export function httpsAgentForUrl(url: string): https.Agent | undefined {
   return isLocalHttpsHost(url) ? new https.Agent({ rejectUnauthorized: false }) : undefined;
 }
+
+/**
+ * Apply the `--no-verify-ssl` relaxation as a process-wide env flag
+ * (`NODE_TLS_REJECT_UNAUTHORIZED=0`) so spawned CDK subprocesses (Lambda,
+ * CodeBuild synth) inherit it — but REFUSE in production, mirroring the guard in
+ * config-loader. That flag disables certificate validation for ALL outbound TLS
+ * (including the AWS SDK), so it must never be silently enabled for a prod
+ * deploy/synth.
+ *
+ * @param verifySsl - the command's `--verify-ssl` value (`false` = user asked to disable).
+ * @param warn - warning sink (e.g. `printWarning`).
+ * @returns true if verification was disabled; false if left enabled.
+ */
+export function relaxTlsForCli(
+  verifySsl: boolean | undefined,
+  warn: (message: string) => void,
+): boolean {
+  if (verifySsl !== false) return false;
+  if (process.env.NODE_ENV === 'production') {
+    warn('Refusing to disable TLS verification in production (NODE_ENV=production) — certificate validation remains enabled.');
+    return false;
+  }
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  return true;
+}

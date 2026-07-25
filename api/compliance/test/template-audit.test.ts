@@ -39,7 +39,7 @@ jest.unstable_mockModule('../src/data/rule-templates.js', () => ({
   ],
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
+jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
   getAuditClient: () => ({ record: jest.fn() }),
 }));

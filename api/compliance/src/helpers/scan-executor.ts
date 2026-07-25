@@ -4,20 +4,15 @@
 import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { eq, and, gt, asc } from 'drizzle-orm';
-import { logComplianceCheck } from './audit-logger.js';
+import { logComplianceCheck } from './compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
+import { parseIntEnv } from './env.js';
 import { resolveParentOrgId } from './org-hierarchy-client.js';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('scan-executor');
-
-/** Parse an integer env var, falling back to `fallback` if missing or NaN. */
-function parseIntEnv(value: string | undefined, fallback: number): number {
-  const n = Number.parseInt(value ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 /** Progress update interval (every N entities). Override via
  *  `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE`. */

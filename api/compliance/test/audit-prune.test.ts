@@ -47,7 +47,7 @@ const {
   pruneComplianceAudit,
   startAuditPruneCron,
   DEFAULT_AUDIT_RETENTION_DAYS,
-} = await import('../src/helpers/audit-logger.js');
+} = await import('../src/helpers/compliance-check-log.js');
 
 describe('pruneComplianceAudit', () => {
   beforeEach(() => {

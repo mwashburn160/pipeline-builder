@@ -7,10 +7,11 @@ import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals'
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGenerateText = jest.fn<(...args: any[]) => any>();
+const mockStreamText = jest.fn<(...args: any[]) => any>();
 
 jest.unstable_mockModule('ai', () => ({
   generateText: mockGenerateText,
-  streamText: jest.fn(),
+  streamText: mockStreamText,
   Output: {
     object: jest.fn((opts: any) => ({ type: 'object', schema: opts.schema })),
   },
@@ -118,6 +119,7 @@ const {
   getAvailableProviders,
   getProviderModels,
   generatePipelineConfig,
+  streamPipelineConfig,
 } = await import('../src/services/ai-generation-service.js');
 type GenerationRequest = import('../src/services/ai-generation-service.js').GenerationRequest;
 
@@ -272,6 +274,73 @@ describe('ai-generation-service', () => {
 
       const call = mockGenerateText.mock.calls[0][0];
       expect(call.system).toContain('No plugins available');
+    });
+  });
+
+  // streamPipelineConfig — the /generate/stream + /generate/from-url/stream path.
+  // It must apply the SAME post-generation enforcement as generatePipelineConfig
+  // (force synth.plugin = cdk-synth, inject filter.isDefault) to the resolved
+  // output before the route's `done` event / autoCreateMissingPlugins.
+
+  describe('streamPipelineConfig', () => {
+    const baseRequest: GenerationRequest = {
+      prompt: 'Build a Node.js app from my GitHub repo acme/my-app',
+      plugins: [
+        {
+          name: 'nodejs-build',
+          description: 'Node.js build plugin',
+          version: '1.0.0',
+          pluginType: 'CodeBuildStep',
+          computeType: 'MEDIUM',
+          commands: ['npm run build'],
+          installCommands: ['npm ci'],
+          keywords: ['nodejs'],
+          category: 'language',
+          metadata: {},
+          env: {},
+        },
+      ],
+      orgId: 'test-org',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-20250514',
+      apiKey: 'test-custom-key',
+    };
+
+    /** Build a streamText result whose output resolves to the given raw object. */
+    function streamResultFor(rawOutput: Record<string, unknown> | undefined) {
+      async function* partials() { /* no partials needed for this assertion */ }
+      return { partialOutputStream: partials(), output: Promise.resolve(rawOutput) };
+    }
+
+    it('enforces cdk-synth + filter.isDefault on the resolved streaming output', async () => {
+      // The AI streamed a NON-cdk-synth synth plugin and a stage step with no filter.
+      const rawOutput = {
+        project: 'my-app',
+        organization: 'acme',
+        synth: {
+          source: { type: 'github', options: { repo: 'acme/my-app' } },
+          plugin: { name: 'not-cdk-synth' },
+        },
+        stages: [
+          { stageName: 'Deploy', steps: [{ plugin: { name: 'nodejs-build' } }] },
+        ],
+      };
+      mockStreamText.mockReturnValue(streamResultFor(rawOutput));
+
+      const result = streamPipelineConfig(baseRequest);
+      const resolved: any = await result.output;
+
+      // Synth plugin forced to cdk-synth with isDefault injected.
+      expect(resolved.synth.plugin.name).toBe('cdk-synth');
+      expect(resolved.synth.plugin.filter.isDefault).toBe(true);
+      // Stage step gets filter.isDefault injected too.
+      expect(resolved.stages[0].steps[0].plugin.filter.isDefault).toBe(true);
+    });
+
+    it('leaves an undefined streaming output untouched (no throw)', async () => {
+      mockStreamText.mockReturnValue(streamResultFor(undefined));
+      const result = streamPipelineConfig(baseRequest);
+      await expect(result.output).resolves.toBeUndefined();
     });
   });
 });

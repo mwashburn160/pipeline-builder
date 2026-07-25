@@ -19,8 +19,8 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
-import { emitComplianceAudit, getAuditClient } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
+import { emitComplianceAudit, getAuditClient } from '../services/remote-audit-client.js';
 import {
   subscriptionService,
   CS_RULE_NOT_FOUND,
@@ -65,7 +65,7 @@ function handleSubError(res: Response, err: unknown): boolean {
 function auditComplianceWriteDenied(req: Request): void {
   getAuditClient().record({
     action: 'authz.denied',
-    actorId: req.user?.sub ?? 'anonymous',
+    actorId: req.user?.sub ?? 'system',
     actorEmail: req.user?.email,
     orgId: req.user?.organizationId,
     outcome: 'failure',
@@ -192,7 +192,7 @@ export function createSubscriptionRoutes(): Router {
       // state changes the org's compliance posture at upload/validate time.
       emitComplianceAudit({
         action: 'compliance.rule.toggle',
-        actorId: userId,
+        actorId: req.user?.sub ?? userId ?? 'system',
         orgId,
         targetType: 'rule',
         targetId: ruleId,
@@ -252,7 +252,7 @@ export function createSubscriptionRoutes(): Router {
     for (const ruleId of affectedIds) {
       emitComplianceAudit({
         action: 'compliance.rule.toggle',
-        actorId: userId,
+        actorId: req.user?.sub ?? userId ?? 'system',
         orgId,
         targetType: 'rule',
         targetId: ruleId,

@@ -46,7 +46,7 @@ export function allowedScopeRoots(roots: string[]): (path: string[]) => boolean 
  *
  * Caller supplies `isTemplatable` (the schema allow-list) and
  * `isKnownPath` (the scope-shape predicate). Template text is parsed
- * fresh; use a TokenCache externally if repeated parsing is a concern.
+ * fresh on each call.
  */
 export function validateTemplates<T extends object>(
   doc: T,

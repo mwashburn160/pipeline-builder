@@ -94,6 +94,11 @@
       "type": "runtime"
     },
     {
+      "name": "ioredis",
+      "version": "5.11.1",
+      "type": "runtime"
+    },
+    {
       "name": "jsonwebtoken",
       "version": "9.0.3",
       "type": "runtime"

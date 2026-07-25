@@ -5,6 +5,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindActiveByOrgAndTarget = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockGetActiveExemptionsForEntity = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockEvaluateRules = jest.fn();
 const mockLogComplianceCheck = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 
@@ -21,11 +22,17 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../src/services/compliance-exemption-service.js', () => ({
+  complianceExemptionService: {
+    getActiveExemptionsForEntity: (...args: unknown[]) => mockGetActiveExemptionsForEntity(...args),
+  },
+}));
+
 jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({
   evaluateRules: (...args: unknown[]) => mockEvaluateRules(...args),
 }));
 
-jest.unstable_mockModule('../src/helpers/audit-logger.js', () => ({
+jest.unstable_mockModule('../src/helpers/compliance-check-log.js', () => ({
   logComplianceCheck: (...args: unknown[]) => mockLogComplianceCheck(...args),
 }));
 
@@ -34,8 +41,10 @@ const { evaluateEntityEvent } = await import('../src/helpers/entity-event-handle
 describe('evaluateEntityEvent', () => {
   beforeEach(() => {
     mockFindActiveByOrgAndTarget.mockReset();
+    mockGetActiveExemptionsForEntity.mockReset();
     mockEvaluateRules.mockReset();
     mockLogComplianceCheck.mockClear();
+    mockGetActiveExemptionsForEntity.mockResolvedValue([]);
     mockEvaluateRules.mockReturnValue({
       blocked: false,
       violations: [],
@@ -203,5 +212,86 @@ describe('evaluateEntityEvent', () => {
 
     await new Promise((r) => setImmediate(r));
     expect(mockLogComplianceCheck.mock.calls[0][1]).toBe('system');
+  });
+
+  it('fetches and forwards approved exemptions to the rule engine', async () => {
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'r1' }]);
+    mockGetActiveExemptionsForEntity.mockResolvedValue([{ id: 'ex1', ruleId: 'r1' }]);
+
+    await evaluateEntityEvent({
+      entityId: 'e1',
+      orgId: 'org-1',
+      target: 'plugin',
+      eventType: 'updated',
+      attributes: { name: 'p' },
+    });
+
+    // The exemptions are looked up for THIS org+entity...
+    expect(mockGetActiveExemptionsForEntity).toHaveBeenCalledWith('org-1', 'e1');
+    // ...and passed into evaluateRules (was a hardcoded [] before the fix).
+    expect(mockEvaluateRules).toHaveBeenCalledWith(
+      [{ id: 'r1' }],
+      { name: 'p' },
+      [{ id: 'ex1', ruleId: 'r1' }],
+    );
+  });
+
+  it('does not fabricate a block when an approved exemption waives the only rule', async () => {
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'r1' }]);
+    mockGetActiveExemptionsForEntity.mockResolvedValue([{ id: 'ex1', ruleId: 'r1' }]);
+    // Stand in for the real engine: a rule whose id has a matching approved
+    // exemption is skipped, so an otherwise-violating entity does not block.
+    mockEvaluateRules.mockImplementation((...args: unknown[]) => {
+      const rules = args[0] as Array<{ id: string }>;
+      const exemptions = args[2] as Array<{ ruleId: string }>;
+      const exempted = new Set(exemptions.map((e) => e.ruleId));
+      const active = rules.filter((r) => !exempted.has(r.id));
+      return {
+        blocked: active.length > 0,
+        violations: active.map((r) => ({ ruleId: r.id })),
+        warnings: [],
+        rulesEvaluated: rules.length,
+      };
+    });
+
+    const result = await evaluateEntityEvent({
+      entityId: 'e1',
+      orgId: 'org-1',
+      target: 'plugin',
+      eventType: 'updated',
+      attributes: {},
+    });
+
+    expect(result.evaluated).toBe(true);
+    expect(result.blocked).toBe(false);
+    expect(result.violations).toBe(0);
+  });
+
+  it('blocks the same entity when no exemption is present (contrast)', async () => {
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'r1' }]);
+    mockGetActiveExemptionsForEntity.mockResolvedValue([]);
+    mockEvaluateRules.mockImplementation((...args: unknown[]) => {
+      const rules = args[0] as Array<{ id: string }>;
+      const exemptions = args[2] as Array<{ ruleId: string }>;
+      const exempted = new Set(exemptions.map((e) => e.ruleId));
+      const active = rules.filter((r) => !exempted.has(r.id));
+      return {
+        blocked: active.length > 0,
+        violations: active.map((r) => ({ ruleId: r.id })),
+        warnings: [],
+        rulesEvaluated: rules.length,
+      };
+    });
+
+    const result = await evaluateEntityEvent({
+      entityId: 'e1',
+      orgId: 'org-1',
+      target: 'plugin',
+      eventType: 'updated',
+      attributes: {},
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(result.violations).toBe(1);
   });
 });

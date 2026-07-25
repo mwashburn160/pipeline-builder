@@ -245,10 +245,10 @@ Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers
 
 | Tier | plugins | pipelines | apiCalls | aiCalls | seats |
 |------|---------|-----------|----------|---------|-------|
-| developer | 25 | 5 | 25,000 | 50 | 1 |
-| pro | 50 | 10 | 500,000 | 2,500 | 1 |
-| team | 100 | 200 | unlimited | 10,000 | 10 |
-| enterprise | 250 | 200 | unlimited | 25,000 | 25 |
+| developer | 25 | 5 | 25,000 | 25 | 1 |
+| pro | 50 | 10 | 500,000 | 1,000 | 1 |
+| team | 100 | 200 | 2,000,000 | 5,000 | 10 |
+| enterprise | 250 | 200 | 10,000,000 | 15,000 | 25 |
 
 Any preset can be overridden per-environment via `QUOTA_TIER_<DEVELOPER|PRO|TEAM|ENTERPRISE>_<LIMIT>` (e.g. `QUOTA_TIER_TEAM_SEATS=20`), and `DEFAULT_QUOTA_TIER` sets the tier assigned to newly created orgs (`developer` by default). `seats` is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership.
 
@@ -323,7 +323,7 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `S
 | `PAYMENT_GRACE_PERIOD_DAYS` | `7` | Grace period for overdue payments |
 | `RENEWAL_REMINDER_DAYS` | `7` | Days before expiry to send renewal reminder |
 
-Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, `TEAM`, or `ENTERPRISE`) is in cents. Defaults: Developer free, Pro $19/mo ($190/yr), Team $49/mo ($490/yr), Enterprise $99/mo ($990/yr). Per-plan `_NAME` (display name), `_DESCRIPTION` (string), and `_FEATURES` (JSON array) can also be overridden.
+Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, `TEAM`, or `ENTERPRISE`) is in cents. Defaults: Developer free, Pro $49/mo ($490/yr), Team $149/mo ($1,490/yr), Enterprise $399/mo ($3,990/yr). Per-plan `_NAME` (display name), `_DESCRIPTION` (string), and `_FEATURES` (JSON array) can also be overridden.
 
 ---
 

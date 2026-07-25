@@ -283,10 +283,24 @@ export const orgIdpPatchSchema = z.object({
 // Org KMS Config Schema
 
 /** Per-org KMS config PUT body: CMK id/alias + the KMS-wrapped master key
- *  (base64). The regex is a cheap shape guard; the SDK does real validation
- *  on the next Decrypt. */
+ *  (base64).
+ *
+ *  `keyId` accepts ONLY a bare KMS key UUID (`^[0-9a-f-]{36}$`) or an
+ *  `alias/<name>` reference — a full `arn:aws:kms:...` is REJECTED. A KMS ARN
+ *  embeds the 12-digit AWS account id, which would then be persisted to Mongo,
+ *  written into the audit chain (`admin.org.kms-config.upsert` details), echoed
+ *  in API responses, and logged. Storing the account id anywhere is a hard
+ *  constraint; the ARN carries no information the provider needs (the KMS
+ *  Decrypt call already knows its region), so a bare id / alias is sufficient.
+ *  The regex is a cheap shape guard; the SDK does real validation on the next
+ *  Decrypt. */
 export const orgKmsConfigSchema = z.object({
-  keyId: z.string().min(1, 'keyId is required (KMS CMK alias or ARN)'),
+  keyId: z.string()
+    .min(1, 'keyId is required (KMS CMK key UUID or alias/<name>)')
+    .refine(
+      (v) => /^[0-9a-f-]{36}$/.test(v) || v.startsWith('alias/'),
+      'keyId must be a bare KMS key UUID or an alias/<name> — a full ARN is rejected because it embeds the AWS account id',
+    ),
   ciphertextBase64: z.string()
     .min(1, 'ciphertextBase64 is required (KMS-wrapped 32-byte master)')
     .regex(/^[A-Za-z0-9+/=]+$/, 'ciphertextBase64 must be valid base64'),

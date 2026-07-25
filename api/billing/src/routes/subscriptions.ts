@@ -23,6 +23,7 @@ import {
   calculatePeriodEnd,
   checkEntitlementOvercap,
   createBillingEvent,
+  MANAGEABLE_SUBSCRIPTION_STATUSES,
   syncEntitlements,
 } from '../helpers/billing-helpers.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
@@ -54,7 +55,10 @@ export function createSubscriptionRoutes(): Router {
   // GET /billing/subscriptions  get current org subscription
 
   router.get('/subscriptions', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
-    const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
+    // Include trialing / past_due, not just active — a trial sub grants
+    // entitlements and a past_due sub is in dunning grace; both must be visible
+    // (and manageable) or the customer can't see/cancel/fix them.
+    const subscription = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } }).lean();
 
     if (!subscription) {
       return sendSuccess(res, 200, { subscription: null });
@@ -207,7 +211,7 @@ export function createSubscriptionRoutes(): Router {
     }
 
     const subscription = await Subscription.findOne({
-      _id: subscriptionId, orgId, status: 'active',
+      _id: subscriptionId, orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
     });
 
     if (!subscription) {
@@ -287,7 +291,7 @@ export function createSubscriptionRoutes(): Router {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
-      _id: subscriptionId, orgId, status: 'active',
+      _id: subscriptionId, orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
     });
 
     if (!subscription) {
@@ -324,7 +328,7 @@ export function createSubscriptionRoutes(): Router {
     // so no card/payment secret or AWS account id can reach the trail.
     getAuditClient().record({
       action: 'billing.subscription.cancel',
-      actorId: req.user?.sub ?? 'unknown',
+      actorId: req.user?.sub ?? 'system',
       orgId,
       targetId: subscriptionId,
       details: { planId: subscription.planId, orgId },
@@ -416,7 +420,7 @@ export function createSubscriptionRoutes(): Router {
     const subscriptionId = getParam(req.params, 'id');
 
     const subscription = await Subscription.findOne({
-      _id: subscriptionId, orgId, status: 'active', cancelAtPeriodEnd: true,
+      _id: subscriptionId, orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] }, cancelAtPeriodEnd: true,
     });
 
     if (!subscription) {

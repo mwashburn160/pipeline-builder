@@ -41,8 +41,15 @@ const SENSITIVE_KEY_PATTERN =
  */
 const AWS_ACCOUNT_ID = /(?<!\d)\d{12}(?!\d)/g;
 
-/** Scrub AWS-account-id-shaped tokens out of a single string. */
-function redactString(s: string): string {
+/**
+ * Scrub AWS-account-id-shaped tokens out of a single string (incl. the
+ * account segment of an ARN). Exported so render surfaces that show
+ * free-form strings — KMS key ARNs, Loki log lines/fields, registry image
+ * `Env`/history entries, JWT claim values — can defensively redact a value
+ * before it reaches the DOM or the clipboard, mirroring what `redactDetails`
+ * does for structured `details` blobs.
+ */
+export function redactString(s: string): string {
   return s.replace(AWS_ACCOUNT_ID, REDACTED);
 }
 

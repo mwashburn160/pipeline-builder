@@ -58,7 +58,9 @@ export class TokenizerError extends Error {
  * throws `TokenizerError` with source position on malformed templates.
  */
 export function tokenize(source: string): Token[] {
-  if (source.length > MAX_FIELD_SIZE_BYTES) {
+  // Byte count, not `.length` (UTF-16 code units): the cap is stated in bytes,
+  // and multi-byte characters (emoji, non-ASCII) would otherwise be undercounted.
+  if (Buffer.byteLength(source, 'utf8') > MAX_FIELD_SIZE_BYTES) {
     throw new TokenizerError(
       `Field exceeds max size of ${MAX_FIELD_SIZE_BYTES} bytes`,
       { line: 1, col: 1 },

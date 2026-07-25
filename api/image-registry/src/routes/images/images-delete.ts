@@ -60,7 +60,7 @@ export function registerDeleteRoutes(router: Router): void {
       // manifest DELETE lands. Fire-and-forget; never blocks/throws.
       emitImageRegistryAudit({
         action: 'registry.image.delete',
-        actorId: req.user?.sub ?? 'unknown',
+        actorId: req.user?.sub ?? 'system',
         ...(req.user?.email && { actorEmail: req.user.email }),
         ...(req.user?.organizationId && { orgId: req.user.organizationId }),
         outcome: 'success',
@@ -142,7 +142,7 @@ export function registerDeleteRoutes(router: Router): void {
     // manifests are deleted. Fire-and-forget; never blocks/throws.
     emitImageRegistryAudit({
       action: 'registry.image.delete',
-      actorId: req.user?.sub ?? 'unknown',
+      actorId: req.user?.sub ?? 'system',
       ...(req.user?.email && { actorEmail: req.user.email }),
       ...(req.user?.organizationId && { orgId: req.user.organizationId }),
       outcome: 'success',

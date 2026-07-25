@@ -121,8 +121,8 @@ export function loadBillingConfig(): BillingConfig {
         || 'For individual power users and production workloads',
       tier: 'pro',
       prices: {
-        monthly: envCents(process.env.BILLING_PLAN_PRO_MONTHLY, 1900),
-        annual: envCents(process.env.BILLING_PLAN_PRO_ANNUAL, 19000),
+        monthly: envCents(process.env.BILLING_PLAN_PRO_MONTHLY, 4900),
+        annual: envCents(process.env.BILLING_PLAN_PRO_ANNUAL, 49000),
       },
       features: parseFeatures(
         process.env.BILLING_PLAN_PRO_FEATURES,
@@ -139,8 +139,8 @@ export function loadBillingConfig(): BillingConfig {
         || 'For teams collaborating on shared pipelines',
       tier: 'team',
       prices: {
-        monthly: envCents(process.env.BILLING_PLAN_TEAM_MONTHLY, 4900),
-        annual: envCents(process.env.BILLING_PLAN_TEAM_ANNUAL, 49000),
+        monthly: envCents(process.env.BILLING_PLAN_TEAM_MONTHLY, 14900),
+        annual: envCents(process.env.BILLING_PLAN_TEAM_ANNUAL, 149000),
       },
       features: parseFeatures(
         process.env.BILLING_PLAN_TEAM_FEATURES,
@@ -157,8 +157,8 @@ export function loadBillingConfig(): BillingConfig {
         || 'Org-wide scale with unlimited seats and priority support',
       tier: 'enterprise',
       prices: {
-        monthly: envCents(process.env.BILLING_PLAN_ENTERPRISE_MONTHLY, 9900),
-        annual: envCents(process.env.BILLING_PLAN_ENTERPRISE_ANNUAL, 99000),
+        monthly: envCents(process.env.BILLING_PLAN_ENTERPRISE_MONTHLY, 39900),
+        annual: envCents(process.env.BILLING_PLAN_ENTERPRISE_ANNUAL, 399000),
       },
       features: parseFeatures(
         process.env.BILLING_PLAN_ENTERPRISE_FEATURES,
@@ -259,10 +259,10 @@ function loadBundles(): BundleConfig[] {
     // (audit_log/sso) and rate packs stay tier-scoped by default.
     b('seat_pack', 'Seat Pack (+5)', '5 additional member seats', { seats: 5 }, 2500, ALL, 0),
     b('pipeline_pack', 'Pipeline Pack (+10)', '10 additional pipelines', { pipelines: 10 }, 1500, ALL, 1),
-    b('plugin_pack', 'Plugin Pack (+100)', '100 additional plugins', { plugins: 100 }, 1000, ALL, 2),
-    b('api_pack', 'API Pack (+1M)', '1,000,000 additional API calls / period', { apiCalls: 1_000_000 }, 2000, ['developer', 'pro'], 3),
-    b('ai_pack', 'AI Pack (+5k)', '5,000 additional AI calls / period', { aiCalls: 5000 }, 3000, ALL, 4),
-    b('storage_pack', 'Storage Pack (+50 GB)', '50 GB additional registry storage', { storageBytes: 50 * BUNDLE_GB }, 1000, ALL, 5),
+    b('plugin_pack', 'Plugin Pack (+100)', '100 additional plugins', { plugins: 100 }, 1500, ALL, 2),
+    b('api_pack', 'API Pack (+1M)', '1,000,000 additional API calls / period', { apiCalls: 1_000_000 }, 2000, ALL, 3),
+    b('ai_pack', 'AI Pack (+5k)', '5,000 additional AI calls / period', { aiCalls: 5000 }, 7500, ALL, 4),
+    b('storage_pack', 'Storage Pack (+50 GB)', '50 GB additional registry storage', { storageBytes: 50 * BUNDLE_GB }, 2500, ALL, 5),
     b('audit_log', 'Audit Log', 'Audit log capability', {}, 2000, ['pro'], 6, { features: ['audit_log'], stackable: false }),
     // SSO is INCLUDED in Team (see TIER_FEATURES.team), so the add-on is Pro-only.
     b('sso', 'SSO / IdP', 'SSO + up to 5 IdP configs', { idpConfigs: 5 }, 4000, ['pro'], 7, { features: ['sso'], stackable: false }),

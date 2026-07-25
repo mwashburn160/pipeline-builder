@@ -19,7 +19,7 @@
 
 import { createHmac } from 'crypto';
 
-import { errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { assertSafeUrl, errorMessage, isRefusedRedirect, SSRF_FETCH_INIT, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 
 import { config } from '../config/index.js';
@@ -141,6 +141,16 @@ const slackChannel: NotificationChannel = {
 const webhookChannel: NotificationChannel = {
   channel: 'webhook',
   async deliver(msg, target, signal) {
+    // SSRF guard: an org controls this URL, so reject any host that is — or
+    // resolves to — a private/loopback/link-local/metadata address BEFORE we
+    // connect. Enforced here (not only at create/update) so it also covers the
+    // `/test` path, rows created before the guard existed, and a host that has
+    // since been re-pointed at an internal address.
+    try {
+      await assertSafeUrl(target.value);
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) };
+    }
     // Forward the canonical payload unchanged (the Alertmanager alert shape for
     // alert relays). HMAC-sign only when the target carries a secret — alert
     // destinations don't, so they stay unsigned exactly as before; future
@@ -150,7 +160,14 @@ const webhookChannel: NotificationChannel = {
     if (target.secret) {
       headers['X-PB-Signature'] = `sha256=${createHmac('sha256', target.secret).update(body).digest('hex')}`;
     }
-    const resp = await fetch(target.value, { method: 'POST', signal, headers, body });
+    // `redirect: 'manual'` (SSRF_FETCH_INIT) so fetch never follows a 3xx to an
+    // unvalidated host — the up-front guard only covered the initial URL, and
+    // fetch re-resolves DNS for a redirect target independently. A redirect is a
+    // failed delivery, not a success — recording it green would be a false green.
+    const resp = await fetch(target.value, { method: 'POST', signal, headers, body, ...SSRF_FETCH_INIT });
+    if (isRefusedRedirect(resp)) {
+      return { ok: false, code: resp.status, error: 'webhook url redirected (refused)' };
+    }
     return resp.ok ? { ok: true, code: resp.status } : { ok: false, code: resp.status };
   },
 };

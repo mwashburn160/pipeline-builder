@@ -32,6 +32,7 @@ jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ provis
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { switchActiveOrg: (...a: unknown[]) => mockSwitchActiveOrg(...a) },
   DUPLICATE_CREDENTIALS: 'DUPLICATE_CREDENTIALS',
+  RESERVED_ORG_NAME: 'RESERVED_ORG_NAME',
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: (...a: unknown[]) => mockIssueTokens(...a) }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({

@@ -764,6 +764,21 @@ describe('plugin-build-queue', () => {
       expect(mockQueueAdd).not.toHaveBeenCalledWith(expect.stringMatching(/^retry-/), expect.anything());
     });
 
+    it('records actorId "system" when a DLQ-abandoned build carries no user (system-initiated)', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const dlqProc = getDlqProcessor();
+      await dlqProc(makeDlqJob({ userId: undefined, totalAttempts: 8, lastError: 'Docker build failed' }));
+
+      expect(mockAuditRecord).toHaveBeenCalledTimes(1);
+      expect(mockAuditRecord.mock.calls[0][0]).toEqual(expect.objectContaining({
+        action: 'plugin.build.failed',
+        actorId: 'system',
+      }));
+    });
+
     it('DLQ give-up carries the ORIGINAL build failure and classifies a timeout cause', async () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();

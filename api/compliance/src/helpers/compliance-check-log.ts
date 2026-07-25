@@ -6,7 +6,7 @@ import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pi
 import { lt } from 'drizzle-orm';
 import type { ValidationResult } from '../engine/rule-engine.js';
 
-const logger = createLogger('audit-logger');
+const logger = createLogger('compliance-check-log');
 
 /**
  * Write a compliance check result to the audit log.

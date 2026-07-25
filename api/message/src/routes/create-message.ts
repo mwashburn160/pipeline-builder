@@ -126,7 +126,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     if (messageType === 'announcement') {
       getAuditClient().record({
         action: 'message.announcement.create',
-        actorId: req.user?.sub ?? userId,
+        actorId: req.user?.sub ?? userId ?? 'system',
         orgId,
         targetId: message.id,
         details: {

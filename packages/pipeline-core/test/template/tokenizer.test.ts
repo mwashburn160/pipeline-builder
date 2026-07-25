@@ -79,6 +79,23 @@ describe('tokenize', () => {
     expect(() => tokenize(huge)).toThrow(/size/);
   });
 
+  it('enforces the cap in BYTES, not UTF-16 code units', () => {
+    // 😀 is 4 UTF-8 bytes but 2 UTF-16 units. 1025 of them = 4100 bytes
+    // (> 4096 cap) yet only 2050 `.length` (< cap) — the old `.length`
+    // check let this through; the byte check must reject it.
+    const emoji = '😀'.repeat(1025);
+    expect(emoji.length).toBeLessThanOrEqual(MAX_FIELD_SIZE_BYTES);
+    expect(Buffer.byteLength(emoji, 'utf8')).toBeGreaterThan(MAX_FIELD_SIZE_BYTES);
+    expect(() => tokenize(emoji)).toThrow(/size/);
+  });
+
+  it('accepts a multi-byte field whose byte length is within the cap', () => {
+    // 1000 × 3-byte '€' = 3000 bytes, comfortably under the 4096 cap.
+    const s = '€'.repeat(1000);
+    expect(Buffer.byteLength(s, 'utf8')).toBeLessThanOrEqual(MAX_FIELD_SIZE_BYTES);
+    expect(() => tokenize(s)).not.toThrow();
+  });
+
   it('allows whitespace around tokens', () => {
     const t = tokenize('{{   a.b.c   |   default:   "x"   }}');
     expect(t[0]).toMatchObject({ kind: 'expr', path: ['a', 'b', 'c'], defaultValue: 'x' });

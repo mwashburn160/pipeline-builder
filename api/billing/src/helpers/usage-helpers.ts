@@ -1,12 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createSafeClient, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
-import { config } from '../config.js';
-import { getBillingTimeout } from './billing-helpers.js';
-
-const logger = createLogger('usage-helpers');
+import { fetchQuotaSnapshot, fetchSeatUsage, type QuotaSnapshot } from './quota-client.js';
 
 /** Per-quota-type usage entry returned by the rollup. */
 export interface UsageEntry {
@@ -71,88 +68,6 @@ export interface UsageRollup {
   };
 }
 
-/** Shape of `data.quota` returned by GET /quotas/:orgId. */
-interface QuotaSnapshot {
-  tier: QuotaTier;
-  quotas: Record<string, number>;
-  usage: Record<string, { used: number; resetAt: string }>;
-  name?: string;
-  slug?: string;
-}
-
-/**
- * Fetch the org's full quota snapshot (limits + usage) in a single round-trip.
- *
- * Mirrors `syncTierToQuotaService`'s client construction so the timeout /
- * host config stays consistent. Returns null on transport / parse failure
- * — the rollup endpoint treats that as "no quota data available" rather
- * than failing the whole response, since the subscription side is still
- * meaningful on its own.
- */
-async function fetchQuotaSnapshot(orgId: string, authHeader: string): Promise<QuotaSnapshot | null> {
-  const client = createSafeClient({
-    host: config.quotaService.host,
-    port: config.quotaService.port,
-    timeout: getBillingTimeout(),
-  });
-
-  const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'member' });
-  const response = await client.get<{
-    success: boolean;
-    data?: { quota?: QuotaSnapshot };
-  }>(`/quotas/${encodeURIComponent(orgId)}`, {
-    headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId },
-  });
-
-  if (!response || response.statusCode !== 200 || !response.body?.success) {
-    logger.warn('Quota snapshot fetch failed', { orgId, statusCode: response?.statusCode });
-    return null;
-  }
-  return response.body.data?.quota ?? null;
-}
-
-/**
- * Fetch the account's pooled seat usage from platform's internal
- * `GET /organization/:id/seat-usage` (service-principal / account-admin gated).
- * Mints a billing→platform service auth header the same way the other
- * billing→platform calls do when the caller's own header is absent.
- *
- * Fail-soft: returns null on any transport / status / shape failure so the
- * usage rollup degrades gracefully (seats omitted) rather than failing the
- * whole response — seats are enrichment, the quota rollup is the core payload.
- */
-async function fetchSeatUsage(orgId: string, authHeader: string): Promise<SeatUsage | null> {
-  try {
-    const client = createSafeClient({
-      host: config.platformService.host,
-      port: config.platformService.port,
-      timeout: getBillingTimeout(),
-    });
-
-    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'member' });
-    const response = await client.get<{
-      success?: boolean;
-      data?: { limit?: number; used?: number };
-    }>(`/organization/${encodeURIComponent(orgId)}/seat-usage`, {
-      headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId },
-    });
-
-    if (!response || response.statusCode !== 200 || !response.body?.success) {
-      logger.warn('Seat usage fetch failed', { orgId, statusCode: response?.statusCode });
-      return null;
-    }
-    const data = response.body.data;
-    if (!data || typeof data.limit !== 'number' || typeof data.used !== 'number') {
-      logger.warn('Seat usage response missing limit/used', { orgId });
-      return null;
-    }
-    return { limit: data.limit, used: data.used };
-  } catch (err) {
-    logger.warn('Seat usage fetch threw', { orgId, error: err instanceof Error ? err.message : String(err) });
-    return null;
-  }
-}
-
 /** Build a single UsageEntry from a (limit, used, resetAt) triple. */
 function toUsageEntry(limit: number, used: number, resetAt: Date | string | undefined): UsageEntry {
   const isUnlimited = limit < 0;
@@ -210,9 +125,12 @@ export function buildUsageRollup(
   const usage: Record<string, UsageEntry> = {};
   if (quotaSnapshot) {
     for (const key of Object.keys(quotaSnapshot.quotas)) {
-      const limit = quotaSnapshot.quotas[key] ?? -1;
-      const usageRow = quotaSnapshot.usage?.[key] ?? { used: 0, resetAt: new Date().toISOString() };
-      usage[key] = toUsageEntry(limit, usageRow.used, usageRow.resetAt);
+      // Each entry is a QuotaSummary object `{ limit, used, resetAt, ... }` — NOT
+      // a bare number. The old code treated the value as the limit and read a
+      // non-existent sibling `usage` map, so `limit` became the whole object
+      // (→ NaN in toUsageEntry) and `used` was hardcoded 0.
+      const summary = quotaSnapshot.quotas[key];
+      usage[key] = toUsageEntry(summary?.limit ?? -1, summary?.used ?? 0, summary?.resetAt);
     }
   }
 
@@ -243,9 +161,17 @@ export async function buildUsageRollupFor(
   // Fetch the quota snapshot (core payload) and pooled seat usage (enrichment)
   // in parallel. Seat usage lives on platform, not the quota service, because
   // seats deliberately aren't a quota type. Either can fail-soft to null.
-  const [snapshot, seats] = await Promise.all([
-    fetchQuotaSnapshot(orgId, authHeader),
-    fetchSeatUsage(orgId, authHeader),
+  // Mint the billing→service auth once (member scope) and thread it to both
+  // shared readers, matching the old per-fetch minting.
+  const auth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'member' });
+  const [snapshot, seatSnapshot] = await Promise.all([
+    fetchQuotaSnapshot(orgId, auth),
+    fetchSeatUsage(orgId, auth),
   ]);
+  // The rollup's `seats` field requires BOTH numeric (the dashboard shows
+  // used/limit); a partial/failed read degrades to null (seats omitted).
+  const seats = seatSnapshot && seatSnapshot.limit !== null && seatSnapshot.used !== null
+    ? { limit: seatSnapshot.limit, used: seatSnapshot.used }
+    : null;
   return buildUsageRollup(subscription, plan, snapshot, new Date(), seats);
 }

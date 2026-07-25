@@ -4,7 +4,7 @@
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { buildAnalysis } from './analysis-core.js';
 import type { ParsedGitUrl, RepoAnalysis } from './analysis-core.js';
-import { fetchWithTimeout } from './http.js';
+import { fetchWithTimeout, readJsonCapped } from './http.js';
 
 const GITHUB_API_BASE_URL = CoreConstants.GITHUB_API_BASE_URL;
 
@@ -24,21 +24,27 @@ export async function analyzeGitHubRepo(parsed: ParsedGitUrl, token?: string): P
 
   const baseUrl = GITHUB_API_BASE_URL;
 
+  // Encode each path segment — an SSH URL like `git@github.com:../../x/y` parses
+  // to owner/repo segments containing `..`/`/`; without encoding they would
+  // path-traverse within api.github.com to an arbitrary endpoint.
+  const owner = encodeURIComponent(parsed.owner);
+  const repo = encodeURIComponent(parsed.repo);
+
   // Fetch repo metadata + languages + root contents in parallel
   const [repoRes, langRes, contentsRes] = await Promise.all([
-    fetchWithTimeout(`${baseUrl}/repos/${parsed.owner}/${parsed.repo}`, { headers }),
-    fetchWithTimeout(`${baseUrl}/repos/${parsed.owner}/${parsed.repo}/languages`, { headers }),
-    fetchWithTimeout(`${baseUrl}/repos/${parsed.owner}/${parsed.repo}/contents/`, { headers }),
+    fetchWithTimeout(`${baseUrl}/repos/${owner}/${repo}`, { headers }),
+    fetchWithTimeout(`${baseUrl}/repos/${owner}/${repo}/languages`, { headers }),
+    fetchWithTimeout(`${baseUrl}/repos/${owner}/${repo}/contents/`, { headers }),
   ]);
 
   if (!repoRes.ok) {
     throw new Error(`GitHub API error: ${repoRes.status} ${repoRes.statusText}`);
   }
 
-  const repoData = await repoRes.json() as Record<string, unknown>;
-  const languages = langRes.ok ? (await langRes.json() as Record<string, number>) : {};
+  const repoData = await readJsonCapped<Record<string, unknown>>(repoRes);
+  const languages = langRes.ok ? await readJsonCapped<Record<string, number>>(langRes) : {};
   const contents = contentsRes.ok
-    ? (await contentsRes.json() as Array<{ name: string; type: string }>)
+    ? await readJsonCapped<Array<{ name: string; type: string }>>(contentsRes)
     : [];
 
   const detectedFiles = contents

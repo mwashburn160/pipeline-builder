@@ -84,12 +84,18 @@ class PipelineRegistryService {
         })
         .onConflictDoUpdate({
           target: schema.pipelineRegistry.pipelineId,
+          // Only overwrite an optional column when the re-register actually
+          // provides a value. A partial re-register that omits `region` (or the
+          // other optionals) must NOT null out the stored value — execution
+          // routing resolves the CodePipeline region from this row, so a NULL
+          // here would break trigger/cancel. COALESCE(excluded.col, table.col)
+          // keeps the existing value when the incoming one is NULL.
           set: {
             pipelineName,
-            region,
-            project,
-            organization,
-            stackName,
+            region: sql`COALESCE(excluded.region, ${schema.pipelineRegistry.region})`,
+            project: sql`COALESCE(excluded.project, ${schema.pipelineRegistry.project})`,
+            organization: sql`COALESCE(excluded.organization, ${schema.pipelineRegistry.organization})`,
+            stackName: sql`COALESCE(excluded.stack_name, ${schema.pipelineRegistry.stackName})`,
             lastDeployed: now,
             updatedAt: now,
           },

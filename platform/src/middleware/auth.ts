@@ -6,7 +6,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
-import type { AccessTokenPayload, UserRole } from '../types/index.js';
+import type { AccessTokenPayload } from '../types/index.js';
 import {
   verifyAccessToken,
   verifyRefreshToken,
@@ -267,37 +267,11 @@ export async function isValidRefreshToken(
 }
 
 /**
- * Middleware factory for role-based access control.
- * Creates middleware that restricts access to users with specified roles.
- *
- * @param roles - Allowed user roles ('owner' | 'admin' | 'member')
- * @returns Express middleware function
- * @returns 403 if user's role is not in the allowed list
- *
- * @example
- * router.delete('/admin-only', requireAuth, requireRole('admin'), handler);
- * router.get('/members', requireAuth, requireRole('user', 'admin'), handler);
- */
-export function requireRole(...roles: UserRole[]) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    // System admins are platform superusers — they satisfy any org-role gate.
-    // Controllers still apply their own per-org checks (canAdministerOrg /
-    // canAccessOrg), and `requireStepUp` still applies on destructive routes,
-    // so this only removes the role-list inconsistency that otherwise 403s a
-    // sysadmin from admin/owner actions (e.g. creating an organization).
-    if (req.user && (isSystemAdmin(req) || roles.includes(req.user.role))) {
-      return next();
-    }
-    return sendError(res, 403, 'Forbidden');
-  };
-}
-
-/**
  * Route-level guard for **platform** (system) administrators only — `isSuperAdmin`,
  * not org role. Use this on routes whose controller already calls the
  * `requireSystemAdmin` *helper*, so the route reads accurately (org admins do
- * NOT qualify) and is rejected one layer earlier (defense in depth). Distinct
- * from `requireRole('admin','owner')`, which lets org admins/owners through.
+ * NOT qualify) and is rejected one layer earlier (defense in depth). Unlike an
+ * org-role gate, org admins/owners do NOT qualify here — only platform sysadmins.
  */
 export function requireSystemAdmin(req: Request, res: Response, next: NextFunction): void {
   if (req.user && isSystemAdmin(req)) {

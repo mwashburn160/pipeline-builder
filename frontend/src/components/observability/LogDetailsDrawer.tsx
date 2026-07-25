@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { ModalPortal } from '@/components/ui/ModalPortal';
 import { LOG_LEVEL_COLORS } from '@/lib/constants';
+import { redactString, redactDetails } from '@/lib/redact';
 import type { LogEntry } from '@/types';
 
 interface LogDetailsDrawerProps {
@@ -108,7 +109,7 @@ function DrawerHeader(props: {
           </span>
         </div>
         <h2 className="text-sm font-mono text-gray-900 dark:text-gray-100 break-all">
-          {getMessage(entry)}
+          {redactString(getMessage(entry))}
         </h2>
       </div>
       <button
@@ -157,12 +158,12 @@ function DrawerBody({ entry }: { entry: LogEntry }) {
 
       {stackEntries.map(([k, v]) => (
         <Section key={k} title={k}>
-          <CopyableBlock content={typeof v === 'string' ? v : JSON.stringify(v, null, 2)} preformatted />
+          <CopyableBlock content={typeof v === 'string' ? redactString(v) : JSON.stringify(redactDetails(v), null, 2)} preformatted />
         </Section>
       ))}
 
       <Section title="Raw line">
-        <CopyableBlock content={entry.line} preformatted />
+        <CopyableBlock content={redactString(entry.line)} preformatted />
       </Section>
     </div>
   );
@@ -200,12 +201,16 @@ function FieldList({ rows, mono = false }: { rows: Array<[string, unknown]>; mon
  */
 function renderValue(v: unknown): ReactNode {
   if (v == null) return <span className="text-gray-400">—</span>;
-  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
-    return String(v);
+  // A parsed field / label value can carry an AWS account id (an ARN, or a
+  // bare 12-digit account) — redact every value before it renders, primitives
+  // via `redactString` and nested objects via `redactDetails`.
+  if (typeof v === 'boolean') return String(v);
+  if (typeof v === 'string' || typeof v === 'number') {
+    return redactString(String(v));
   }
   return (
     <pre className="whitespace-pre-wrap font-mono text-xs text-gray-700 dark:text-gray-300 m-0">
-      {JSON.stringify(v, null, 2)}
+      {JSON.stringify(redactDetails(v), null, 2)}
     </pre>
   );
 }

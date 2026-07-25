@@ -4,12 +4,15 @@
 /**
  * Build status hook using Server-Sent Events (SSE).
  * Connects to the plugin service's SSE endpoint and streams build events in real time.
- * Includes automatic retry with exponential backoff on transient connection errors.
+ * Uses a short-lived single-use ticket exchange (so the JWT never appears in the
+ * query string) and reconnects with a FRESH ticket on transient drops, with
+ * exponential backoff, giving up after a bounded number of attempts.
  */
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSSE } from './useSSE';
-import { BUILD_SSE_MAX_RETRIES, MAX_BUILD_EVENTS } from '@/lib/constants';
+import { BUILD_SSE_MAX_RETRIES, MESSAGE_SSE_BASE_RETRY_DELAY_MS, MAX_BUILD_EVENTS } from '@/lib/constants';
 import { clearPluginCache } from './usePlugins';
+import api from '@/lib/api';
 
 /** Discriminator for SSE build event payloads. */
 export type BuildEventType = 'INFO' | 'ERROR' | 'COMPLETED' | 'ROLLBACK';
@@ -40,7 +43,30 @@ export function useBuildStatus(requestId: string | null) {
   const [events, setEvents] = useState<BuildEvent[]>([]);
   const [status, setStatus] = useState<BuildStatus>('idle');
 
-  const url = useMemo(() => requestId ? `/api/plugin/logs/${requestId}` : null, [requestId]);
+  // Exchange the JWT for a single-use SSE ticket so the JWT never lands in the
+  // stream URL. A fresh ticket is minted for each connection attempt (tickets
+  // are single-use), and again on each reconnect (bump ticketKey below).
+  const [url, setUrl] = useState<string | null>(null);
+  const [ticketKey, setTicketKey] = useState(0);
+
+  useEffect(() => {
+    if (!requestId || !api.isAuthenticated()) {
+      setUrl(null);
+      return;
+    }
+    let cancelled = false;
+    api.getBuildLogTicket()
+      .then((ticket) => {
+        if (!cancelled) setUrl(`/api/plugin/logs/${requestId}?ticket=${encodeURIComponent(ticket)}`);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUrl(null);
+          setStatus((prev) => (prev === 'completed' ? prev : 'failed'));
+        }
+      });
+    return () => { cancelled = true; };
+  }, [requestId, ticketKey]);
 
   const onMessage = useCallback((data: unknown): boolean | void => {
     const parsed = data as BuildEvent;
@@ -61,22 +87,40 @@ export function useBuildStatus(requestId: string | null) {
     }
   }, []);
 
+  // Each SSE attempt needs a FRESH single-use ticket, so we do NO in-band retries
+  // (maxRetries: 0 below) — retrying a consumed ticket just 401s. Instead we mint
+  // a fresh ticket per reconnect (bump ticketKey → the ticket effect refetches)
+  // with exponential backoff, giving up after BUILD_SSE_MAX_RETRIES attempts and
+  // marking the build failed. The counter resets on a successful message/connect.
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const onRetriesExhausted = useCallback(() => {
-    setStatus((prev) => (prev === 'completed' ? prev : 'failed'));
+    const attempt = (reconnectAttemptRef.current += 1);
+    if (attempt > BUILD_SSE_MAX_RETRIES) {
+      setStatus((prev) => (prev === 'completed' ? prev : 'failed'));
+      return;
+    }
+    const delay = Math.min(MESSAGE_SSE_BASE_RETRY_DELAY_MS * 2 ** (attempt - 1), 30_000);
+    reconnectTimerRef.current = setTimeout(() => setTicketKey((k) => k + 1), delay);
   }, []);
+  useEffect(() => () => clearTimeout(reconnectTimerRef.current), []);
 
-  useSSE({
+  const { connected } = useSSE({
     url,
-    maxRetries: BUILD_SSE_MAX_RETRIES,
+    maxRetries: 0, // fresh ticket per reconnect (see onRetriesExhausted), not stale in-band retries
     onMessage,
     onRetriesExhausted,
   });
+
+  // Reset the reconnect backoff once a connection succeeds.
+  useEffect(() => { if (connected) reconnectAttemptRef.current = 0; }, [connected]);
 
   // Reset state when requestId changes
   useEffect(() => {
     if (requestId) {
       setStatus('building');
       setEvents([]);
+      reconnectAttemptRef.current = 0;
     }
   }, [requestId]);
 

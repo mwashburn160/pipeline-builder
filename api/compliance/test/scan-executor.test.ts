@@ -104,7 +104,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
   resolveParentOrgId: mockResolveParentOrgId,
 }));
 
-jest.unstable_mockModule('../src/helpers/audit-logger.js', () => ({
+jest.unstable_mockModule('../src/helpers/compliance-check-log.js', () => ({
   logComplianceCheck: mockLogComplianceCheck,
 }));
 

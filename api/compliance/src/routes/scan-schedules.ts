@@ -16,8 +16,8 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { CRON_VALIDATION_HINT, isValidCronExpression } from '../helpers/scan-scheduler.js';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service.js';
+import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 /**
  * CRUD routes for compliance scan schedules.
@@ -71,7 +71,7 @@ export function createScanScheduleRoutes(): Router {
     // Best-effort attributed audit — the schedule create succeeded.
     emitComplianceAudit({
       action: 'compliance.scan-schedule.create',
-      actorId: userId,
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'scan-schedule',
       targetId: schedule.id,
@@ -103,7 +103,7 @@ export function createScanScheduleRoutes(): Router {
     // Best-effort attributed audit — the schedule update succeeded.
     emitComplianceAudit({
       action: 'compliance.scan-schedule.update',
-      actorId: userId,
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'scan-schedule',
       targetId: id,
@@ -132,7 +132,7 @@ export function createScanScheduleRoutes(): Router {
     // active-state flip is modelled as a schedule update carrying the new state.
     emitComplianceAudit({
       action: 'compliance.scan-schedule.update',
-      actorId: userId,
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'scan-schedule',
       targetId: id,
@@ -155,7 +155,7 @@ export function createScanScheduleRoutes(): Router {
     // Best-effort attributed audit — the schedule delete succeeded.
     emitComplianceAudit({
       action: 'compliance.scan-schedule.delete',
-      actorId: userId,
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'scan-schedule',
       targetId: id,

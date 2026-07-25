@@ -12,10 +12,11 @@
  * real tx would abort, leaving no partial user/org/membership).
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockUserExists = jest.fn<(...a: unknown[]) => unknown>();
+const mockUserFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserSave = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
@@ -38,6 +39,7 @@ class MockUser {
     lastUser = this;
   }
   static exists = (...a: unknown[]) => mockUserExists(...a);
+  static findOne = (...a: unknown[]) => mockUserFindOne(...a);
   static updateOne = (...a: unknown[]) => mockUserUpdateOne(...a);
   static findById = (...a: unknown[]) => mockUserFindById(...a);
 }
@@ -87,10 +89,15 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
 }));
 
-const { authService, DUPLICATE_CREDENTIALS } = await import('../src/services/auth-service.js');
+const { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME } = await import('../src/services/auth-service.js');
+
+const ORIGINAL_BOOTSTRAP_EMAILS = process.env.BOOTSTRAP_SUPERADMIN_EMAILS;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Default: no operator-authorized emails, so 'system' is a reserved name that
+  // no self-serve caller may claim.
+  delete process.env.BOOTSTRAP_SUPERADMIN_EMAILS;
   lastUser = undefined;
   mockUserSave.mockResolvedValue(undefined);
   mockUserUpdateOne.mockResolvedValue(undefined);
@@ -102,6 +109,11 @@ beforeEach(() => {
     return [{ _id: data._id ?? { toString: () => 'org-1' }, name: data.name }];
   });
   mockOrgUpdateOne.mockResolvedValue(undefined);
+});
+
+afterAll(() => {
+  if (ORIGINAL_BOOTSTRAP_EMAILS === undefined) delete process.env.BOOTSTRAP_SUPERADMIN_EMAILS;
+  else process.env.BOOTSTRAP_SUPERADMIN_EMAILS = ORIGINAL_BOOTSTRAP_EMAILS;
 });
 
 describe('AuthService.register', () => {
@@ -147,7 +159,27 @@ describe('AuthService.register', () => {
     expect(result.organizationName).toBe('Alice');
   });
 
-  it('takes the privileged system-org path when the org name is "system"', async () => {
+  it('REJECTS a self-serve "system" org registration (no privileged branch, no org created)', async () => {
+    // SECURITY (privilege-escalation regression): a self-serve caller whose email
+    // is NOT operator-authorized must NOT be able to claim the reserved 'system'
+    // org — otherwise the first anonymous POST /auth/register with
+    // organizationName:'system' would seed SYSTEM_ORG_ID + isSuperAdmin.
+    mockUserExists.mockReturnValue({ session: () => Promise.resolve(null) });
+
+    await expect(authService.register({ ...base, organizationName: 'System' }))
+      .rejects.toThrow(RESERVED_ORG_NAME);
+
+    // Nothing privileged happened: no org, no membership, no superadmin seeding.
+    expect(mockOrgCreate).not.toHaveBeenCalled();
+    expect(mockUserOrgCreate).not.toHaveBeenCalled();
+    expect(mockSeedDefaultGroups).not.toHaveBeenCalled();
+  });
+
+  it('allows the privileged system-org path ONLY for an operator-authorized email (bootstrap preserved)', async () => {
+    // The controlled superadmin bootstrap (BOOTSTRAP_SUPERADMIN_EMAILS) must still
+    // be able to create the system org — that's the LEGITIMATE path to the first
+    // platform superadmin. base.email is 'Alice@Example.com'.
+    process.env.BOOTSTRAP_SUPERADMIN_EMAILS = 'alice@example.com';
     mockUserExists.mockReturnValue({ session: () => Promise.resolve(null) });
 
     const result = await authService.register({ ...base, organizationName: 'System' });
@@ -157,9 +189,7 @@ describe('AuthService.register', () => {
     expect(orgData.tier).toBe('enterprise');
     expect(orgData._id).toBe('000000000000000000000001');
     expect(orgData.slug).toBe('system');
-    // Unlimited enterprise quotas copied in, not the finite tier defaults.
     expect(orgData.quotas).toMatchObject({ aiCalls: -1, seats: -1 });
-    // planId is forced to enterprise regardless of the requested plan.
     expect(result.planId).toBe('enterprise');
     // seedDefaultGroups is told this is the system org (bootstraps superadmin).
     expect((mockSeedDefaultGroups.mock.calls[0] as any)[2]).toEqual({ isSystemOrg: true });
@@ -173,6 +203,45 @@ describe('AuthService.register', () => {
     // Membership insert failed → user.save() and group seeding never happened.
     expect(mockUserSave).not.toHaveBeenCalled();
     expect(mockSeedDefaultGroups).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.findOrCreateOAuthUser — reserved system org', () => {
+  beforeEach(() => {
+    // No existing OAuth/email match → the auto-create branch runs.
+    mockUserFindOne.mockReturnValue({ select: () => Promise.resolve(null) });
+    // Username-probe: the candidate is otherwise free.
+    mockUserExists.mockResolvedValue(false);
+  });
+
+  it('folds a self-serve identity that normalizes to "system" into a NORMAL namespaced org', async () => {
+    // SECURITY (privilege-escalation regression): an unauthorized federated
+    // identity whose name normalizes to 'system' must NOT auto-create the
+    // privileged system org. The org must be a plain namespaced org — no fixed
+    // SYSTEM_ORG_ID, no isSystem, no isSystemOrg seeding (which flags superadmin).
+    await authService.findOrCreateOAuthUser('google', {
+      id: 'oauth-1', email: 'evil@example.com', name: 'System',
+    });
+
+    const orgData = (mockOrgCreate.mock.calls[0] as any)[0][0];
+    expect(orgData.name).not.toBe('system');
+    expect(orgData.isSystem).toBeUndefined();
+    expect(orgData._id).toBeUndefined();
+    // seedDefaultRoles told this is NOT the system org → no superadmin bootstrap.
+    expect((mockSeedDefaultGroups.mock.calls[0] as any)[2]).toEqual({ isSystemOrg: false });
+  });
+
+  it('allows the system org for an operator-authorized OAuth email (bootstrap preserved)', async () => {
+    process.env.BOOTSTRAP_SUPERADMIN_EMAILS = 'ops@example.com';
+
+    await authService.findOrCreateOAuthUser('google', {
+      id: 'oauth-2', email: 'ops@example.com', name: 'System',
+    });
+
+    const orgData = (mockOrgCreate.mock.calls[0] as any)[0][0];
+    expect(orgData.isSystem).toBe(true);
+    expect(orgData._id).toBe('000000000000000000000001');
+    expect((mockSeedDefaultGroups.mock.calls[0] as any)[2]).toEqual({ isSystemOrg: true });
   });
 });
 

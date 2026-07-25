@@ -18,7 +18,7 @@
  * create/update/delete (org admins own their notification surface).
  */
 
-import { createLogger, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
+import { assertSafeUrl, createLogger, errorMessage, sendError, sendQuotaExceeded, sendSuccess } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
@@ -68,6 +68,24 @@ function validateChannelTarget(channel: string, target: string): string | null {
     return null;
   }
   return 'channel must be slack, webhook, in-app, or email';
+}
+
+/**
+ * SSRF check for the generic `webhook` channel: an org controls the URL, so
+ * reject any host that is — or resolves to — a private/loopback/link-local/
+ * metadata address before we ever store it. Returns an error string (for a 400)
+ * or null when the target is safe / not a webhook. Slack targets are already
+ * host-allowlisted to hooks.slack.com by `validateChannelTarget`, so they need
+ * no DNS check. The delivery path re-runs the same guard as defense in depth.
+ */
+async function checkWebhookTargetSafe(channel: string | undefined, target: string): Promise<string | null> {
+  if (channel !== 'webhook' || !target) return null;
+  try {
+    await assertSafeUrl(target);
+    return null;
+  } catch (err) {
+    return `Webhook target rejected: ${errorMessage(err)}`;
+  }
 }
 
 /** Accepted destination channels. `in-app` needs no target; the rest do. */
@@ -121,6 +139,8 @@ export const createAlertDestination = withController('Create alert destination',
   if (body.channel !== 'in-app') {
     const err = validateChannelTarget(body.channel, target);
     if (err) return sendError(res, 400, err);
+    const ssrfErr = await checkWebhookTargetSafe(body.channel, target);
+    if (ssrfErr) return sendError(res, 400, ssrfErr);
   }
   if (body.minSeverity !== undefined && body.minSeverity !== 'warning' && body.minSeverity !== 'critical') {
     return sendError(res, 400, 'minSeverity must be warning or critical');
@@ -189,6 +209,8 @@ export const updateAlertDestination = withController('Update alert destination',
     }
     const err = validateChannelTarget(channel, body.target);
     if (err) return sendError(res, 400, err);
+    const ssrfErr = await checkWebhookTargetSafe(channel, body.target);
+    if (ssrfErr) return sendError(res, 400, ssrfErr);
   } else if (typeof body.channel === 'string') {
     // Channel changed but no new target supplied — re-validate the STORED target
     // against the new channel's rules, else a webhook target (e.g. an internal
@@ -197,6 +219,8 @@ export const updateAlertDestination = withController('Update alert destination',
     if (!existing) return sendError(res, 404, 'Destination not found');
     const err = validateChannelTarget(body.channel, existing.target);
     if (err) return sendError(res, 400, err);
+    const ssrfErr = await checkWebhookTargetSafe(body.channel, existing.target);
+    if (ssrfErr) return sendError(res, 400, ssrfErr);
   }
   if (body.minSeverity !== undefined && body.minSeverity !== 'warning' && body.minSeverity !== 'critical') {
     return sendError(res, 400, 'minSeverity must be warning or critical');
@@ -272,10 +296,13 @@ export const testAlertDestination = withController('Test alert destination', asy
   });
 
   if (!result.delivered) {
-    // Surface a delivery failure as a clean 502 with the reason — not a 500
-    // stack. The destination exists and the request was well-formed; the
-    // downstream transport (Slack/webhook/email) is what failed.
-    return sendError(res, 502, result.error || 'Test notification failed to send');
+    // Surface a delivery failure as a clean 502 with a GENERIC reason — never
+    // the downstream HTTP status or host. Reflecting `result.error` here would
+    // turn `/test` into an oracle: an org admin could probe internal endpoints
+    // (metadata IP, in-cluster services) and read back their status codes /
+    // reachability. The specific reason is retained in the audit log above for
+    // operators; the caller only learns delivery did not succeed.
+    return sendError(res, 502, 'Test notification failed to send');
   }
   sendSuccess(res, 200, { delivered: true }, 'Test notification sent');
 });

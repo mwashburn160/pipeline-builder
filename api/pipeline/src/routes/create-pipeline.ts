@@ -140,7 +140,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         // Best-effort attributed audit — emitted only after the create landed.
         emitPipelineAudit({
           action: 'pipeline.create',
-          actorId: userId || 'system',
+          actorId: req.user?.sub ?? userId ?? 'system',
           orgId,
           targetType: 'pipeline',
           targetId: result.id,

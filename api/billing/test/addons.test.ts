@@ -94,6 +94,9 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   effectiveEntitlements: () => ({ limits: { seats: 10, plugins: 20 }, features: [] }),
   getBundleCatalog: () => CATALOG,
   syncEntitlements: mockSyncEntitlements,
+  // loadSubAndPlan / the portal route now widen their lookups to the non-terminal
+  // set; re-export the real constant so the `$in` filters aren't `undefined`.
+  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
 // Central-trail audit client — addon add/remove emit billing.addon.* here

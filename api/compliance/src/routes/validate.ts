@@ -14,18 +14,13 @@ import { type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
-import { logComplianceCheck } from '../helpers/audit-logger.js';
+import { logComplianceCheck } from '../helpers/compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from '../helpers/compliance-notifier.js';
+import { parseIntEnv } from '../helpers/env.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('compliance-validate');
-
-/** Parse an integer env var, falling back to `fallback` if missing or NaN. */
-function parseIntEnv(value: string | undefined, fallback: number): number {
-  const n = Number.parseInt(value ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 /** Max top-level keys for attributes to prevent DoS. Override via
  *  `COMPLIANCE_MAX_ATTRIBUTE_KEYS`. */

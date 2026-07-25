@@ -72,9 +72,17 @@ export function registerListRoutes(router: Router): void {
     const name = getParam(req.params, 'name');
     if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const result = await listTags(name);
-    ctx.log('COMPLETED', 'Listed tags', { name, count: result.tags.length });
-    return sendSuccess(res, 200, result);
+    // A missing repo makes the registry 404 on tags/list. Map it to a clean
+    // 404 (like the sibling manifest route below) rather than letting the raw
+    // axios error bubble up as a 500.
+    try {
+      const result = await listTags(name);
+      ctx.log('COMPLETED', 'Listed tags', { name, count: result.tags.length });
+      return sendSuccess(res, 200, result);
+    } catch (err) {
+      if (isNotFound(err)) return sendEntityNotFound(res, 'Image');
+      throw err;
+    }
   }));
 
   // GET /api/images/:name/manifests/:reference — fetch manifest.

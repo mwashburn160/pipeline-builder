@@ -66,7 +66,7 @@ export function createExecutionRoutes(): Router {
       // Best-effort attributed audit — the AWS CodePipeline start succeeded.
       emitPipelineAudit({
         action: 'pipeline.execution.start',
-        actorId: userId || 'system',
+        actorId: req.user?.sub ?? userId ?? 'system',
         orgId,
         targetType: 'pipeline',
         targetId: pipelineId,
@@ -113,7 +113,7 @@ export function createExecutionRoutes(): Router {
       // Best-effort attributed audit — the AWS CodePipeline stop succeeded.
       emitPipelineAudit({
         action: 'pipeline.execution.cancel',
-        actorId: userId || 'system',
+        actorId: req.user?.sub ?? userId ?? 'system',
         orgId,
         targetType: 'pipeline',
         targetId: pipelineId,

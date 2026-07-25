@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, parsePaginationParams } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, parsePaginationParams, TIER_FEATURES } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { formatUserResponse, toOverridesRecord, toUserResponseInput } from './user-profile.js';
@@ -40,6 +40,21 @@ async function orgFeatureEntitlements(orgId: string | undefined): Promise<string
   if (!orgId) return undefined;
   const org = await Organization.findById(toOrgId(orgId)).select('featureEntitlements').lean();
   return (org as { featureEntitlements?: string[] } | null)?.featureEntitlements;
+}
+
+/**
+ * Resolve an org's ENTITLEMENT SET: the features it may enable via per-user
+ * overrides without a system admin — its tier defaults (`TIER_FEATURES`) unioned
+ * with its purchased account entitlements (`featureEntitlements`, the add-on
+ * bundles). A feature OUTSIDE this set (e.g. `sso`/`audit_log` on a tier that
+ * doesn't include them and with no purchase) is "entitlement-gated": enabling it
+ * is a paid-feature bypass and is refused for org admins.
+ */
+async function orgEntitledFeatures(orgId: string): Promise<Set<string>> {
+  const org = await Organization.findById(toOrgId(orgId)).select('tier featureEntitlements').lean();
+  const tier = ((org as { tier?: string } | null)?.tier as QuotaTier) || 'developer';
+  const accountFeatures = (org as { featureEntitlements?: string[] } | null)?.featureEntitlements ?? [];
+  return new Set<string>([...(TIER_FEATURES[tier] ?? []), ...accountFeatures]);
 }
 
 const adminErrorMap = {
@@ -373,6 +388,25 @@ export const updateUserFeatures = withController('Update user features', async (
   if (admin.isOrgAdmin) {
     const allowed = await userAdminService.hasMembershipInOrg(id as string, req.user!.organizationId!);
     if (!allowed) return sendError(res, 403, 'Forbidden: Can only update users in your organization');
+
+    // SECURITY: an org admin may only override-ENABLE features already covered by
+    // their org's entitlements (tier defaults ∪ purchased add-on bundles).
+    // Enabling an entitlement-gated feature (e.g. sso/audit_log with no purchase)
+    // would (1) bypass billing and (2) — because `featureOverrides` is a GLOBAL
+    // User field — leak the grant into the target's OTHER orgs (cross-tenant).
+    // Only a system admin may override-enable a gated feature. Disabling (`false`)
+    // is always allowed (removing a feature is never an escalation).
+    const entitled = await orgEntitledFeatures(req.user!.organizationId!);
+    const forbidden = Object.entries(overrides as Record<string, unknown>)
+      .filter(([k, v]) => v === true && !entitled.has(k))
+      .map(([k]) => k);
+    if (forbidden.length > 0) {
+      return sendError(
+        res, 403,
+        `Forbidden: enabling entitlement-gated feature(s) requires a system admin or an active entitlement: ${forbidden.join(', ')}`,
+        'ENTITLEMENT_REQUIRED',
+      );
+    }
   }
 
   const { user, organizationName, activeOrgRole, tier: orgTier } = await userAdminService.updateFeatures(

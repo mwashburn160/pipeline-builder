@@ -287,4 +287,160 @@ describe('SSEManager', () => {
       }
     });
   });
+
+  describe('createTicket / consumeTicket', () => {
+    it('mints a ticket and consumes it exactly once (single-use)', () => {
+      const result = manager.createTicket('org-a');
+      expect(result.ok).toBe(true);
+      const ticket = (result as { ok: true; ticket: string }).ticket;
+      expect(typeof ticket).toBe('string');
+      expect(ticket.length).toBeGreaterThan(0);
+
+      // First consume returns the bound org.
+      expect(manager.consumeTicket(ticket)).toEqual({ orgId: 'org-a' });
+      // Replay of the same value fails — it was consumed.
+      expect(manager.consumeTicket(ticket)).toBeNull();
+    });
+
+    it('returns null for an unknown ticket', () => {
+      expect(manager.consumeTicket('never-issued')).toBeNull();
+    });
+
+    it('returns null for an expired ticket', () => {
+      const expiring = new SSEManager({ ticketTtlMs: -1, cleanupIntervalMs: 0 });
+      try {
+        const result = expiring.createTicket('org-a');
+        const ticket = (result as { ok: true; ticket: string }).ticket;
+        // Already expired at mint (negative TTL) — consume rejects it.
+        expect(expiring.consumeTicket(ticket)).toBeNull();
+      } finally {
+        expiring.shutdown();
+      }
+    });
+
+    it('enforces the per-org ticket cap (org-limit)', () => {
+      const capped = new SSEManager({ maxTicketsPerOrg: 2, cleanupIntervalMs: 0 });
+      try {
+        expect(capped.createTicket('org-a').ok).toBe(true);
+        expect(capped.createTicket('org-a').ok).toBe(true);
+        const third = capped.createTicket('org-a');
+        expect(third).toEqual({ ok: false, reason: 'org-limit' });
+        // A different org is unaffected.
+        expect(capped.createTicket('org-b').ok).toBe(true);
+      } finally {
+        capped.shutdown();
+      }
+    });
+
+    it('enforces the total ticket cap (capacity)', () => {
+      const capped = new SSEManager({ maxTotalTickets: 1, maxTicketsPerOrg: 100, cleanupIntervalMs: 0 });
+      try {
+        expect(capped.createTicket('org-a').ok).toBe(true);
+        const second = capped.createTicket('org-b');
+        expect(second).toEqual({ ok: false, reason: 'capacity' });
+      } finally {
+        capped.shutdown();
+      }
+    });
+  });
+
+  describe('middleware ticket gating', () => {
+    // A valid requestId matching the middleware's strict 32-hex format.
+    const REQ_ID = '12345678-1234-1234-1234-123456789abc';
+
+    function mockMwRes() {
+      const res: any = {
+        writtenData: [] as string[],
+        ended: false,
+        statusCode: 200,
+        flushed: false,
+        headers: {} as Record<string, string>,
+        status(code: number) { res.statusCode = code; return res; },
+        setHeader(name: string, value: string) { res.headers[name] = value; },
+        write(data: string) { res.writtenData.push(data); return true; },
+        end(data?: string) { if (data) res.writtenData.push(data); res.ended = true; return res; },
+        flushHeaders() { res.flushed = true; },
+        on(event: string, handler: () => void) { if (event === 'close') res._closeHandler = handler; },
+        _closeHandler: null as (() => void) | null,
+      };
+      return res;
+    }
+
+    it('rejects an anonymous subscribe with no ticket (401)', () => {
+      const res = mockMwRes();
+      manager.middleware()({ params: { requestId: REQ_ID }, query: {} }, res);
+      expect(res.statusCode).toBe(401);
+      expect(res.flushed).toBe(false);
+      expect(manager.getClientCount(REQ_ID)).toBe(0);
+    });
+
+    it('rejects an invalid ticket (401)', () => {
+      const res = mockMwRes();
+      manager.middleware()({ params: { requestId: REQ_ID }, query: { ticket: 'bogus' } }, res);
+      expect(res.statusCode).toBe(401);
+      expect(manager.getClientCount(REQ_ID)).toBe(0);
+    });
+
+    it('rejects an expired ticket (401)', () => {
+      const expiring = new SSEManager({ ticketTtlMs: -1, cleanupIntervalMs: 0 });
+      try {
+        const ticket = (expiring.createTicket('org-a') as { ok: true; ticket: string }).ticket;
+        const res = mockMwRes();
+        expiring.middleware()({ params: { requestId: REQ_ID }, query: { ticket } }, res);
+        expect(res.statusCode).toBe(401);
+        expect(expiring.getClientCount(REQ_ID)).toBe(0);
+      } finally {
+        expiring.shutdown();
+      }
+    });
+
+    it('admits a valid ticket exactly once, then it is consumed (401 on reuse)', () => {
+      const ticket = (manager.createTicket('org-a') as { ok: true; ticket: string }).ticket;
+
+      // First use: stream opens, headers flush, client is bound to the org.
+      const res1 = mockMwRes();
+      manager.middleware()({ params: { requestId: REQ_ID }, query: { ticket } }, res1);
+      expect(res1.statusCode).toBe(200);
+      expect(res1.flushed).toBe(true);
+      expect(res1.headers['Content-Type']).toBe('text/event-stream');
+      expect(manager.getClientCount(REQ_ID)).toBe(1);
+      expect(manager.getOrgClientCount('org-a')).toBe(1);
+
+      // Second use of the same ticket: rejected (single-use).
+      const res2 = mockMwRes();
+      manager.middleware()({ params: { requestId: REQ_ID }, query: { ticket } }, res2);
+      expect(res2.statusCode).toBe(401);
+      expect(manager.getClientCount(REQ_ID)).toBe(1);
+    });
+
+    it('enforces the per-org connection cap on the stream (429)', () => {
+      const capped = new SSEManager({ maxClientsPerOrg: 1, maxClientsPerRequest: 100, cleanupIntervalMs: 0 });
+      try {
+        const t1 = (capped.createTicket('org-a') as { ok: true; ticket: string }).ticket;
+        const t2 = (capped.createTicket('org-a') as { ok: true; ticket: string }).ticket;
+
+        const res1 = mockMwRes();
+        capped.middleware()({ params: { requestId: REQ_ID }, query: { ticket: t1 } }, res1);
+        expect(res1.statusCode).toBe(200);
+        expect(capped.getOrgClientCount('org-a')).toBe(1);
+
+        // Second stream for the same org is over cap → 429 before headers flush.
+        const res2 = mockMwRes();
+        capped.middleware()({ params: { requestId: '87654321-1234-1234-1234-123456789abc' }, query: { ticket: t2 } }, res2);
+        expect(res2.statusCode).toBe(429);
+        expect(res2.flushed).toBe(false);
+      } finally {
+        capped.shutdown();
+      }
+    });
+
+    it('rejects a malformed requestId before consuming the ticket (400)', () => {
+      const ticket = (manager.createTicket('org-a') as { ok: true; ticket: string }).ticket;
+      const res = mockMwRes();
+      manager.middleware()({ params: { requestId: 'not-a-uuid' }, query: { ticket } }, res);
+      expect(res.statusCode).toBe(400);
+      // Ticket was NOT consumed (format check runs first) — still usable.
+      expect(manager.consumeTicket(ticket)).toEqual({ orgId: 'org-a' });
+    });
+  });
 });

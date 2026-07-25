@@ -169,6 +169,55 @@ describe('observabilityQuery', () => {
   });
 });
 
+describe('fleet-wide (non-orgScoped) catalog keys require system admin', () => {
+  // A non-orgScoped key has NO $ORG confinement — it queries a tenant-level
+  // stream (the audit trail) or a fleet-wide metric, so a normal org member must
+  // be 403'd. An orgScoped key stays open to org members ($ORG confines it).
+
+  it('403s a non-sysadmin requesting the audit stream (loki-range, not orgScoped) on /query', async () => {
+    mockIsSystemAdmin.mockReturnValue(false);
+    const res = makeRes();
+    await observabilityQuery(makeReq({ key: 'audit_events_per_hour_by_event', range: '1h' }), res);
+    expect(res._status).toBe(403);
+    expect(mockLokiMatrix).not.toHaveBeenCalled();
+    expect(mockPromQueryRange).not.toHaveBeenCalled();
+  });
+
+  it('403s a non-sysadmin requesting the audit stream on /logs', async () => {
+    mockIsSystemAdmin.mockReturnValue(false);
+    const res = makeRes();
+    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }), res);
+    expect(res._status).toBe(403);
+    expect(mockLokiStreams).not.toHaveBeenCalled();
+  });
+
+  it('403s a non-sysadmin requesting a fleet-wide metric (plugin_failed_builds_rate_5m)', async () => {
+    mockIsSystemAdmin.mockReturnValue(false);
+    const res = makeRes();
+    await observabilityQuery(makeReq({ key: 'plugin_failed_builds_rate_5m', range: '1h' }), res);
+    expect(res._status).toBe(403);
+    expect(mockPromQueryRange).not.toHaveBeenCalled();
+  });
+
+  it('allows a SYSADMIN to read the audit stream on /logs', async () => {
+    mockIsSystemAdmin.mockReturnValue(true);
+    mockLokiStreams.mockResolvedValue([{ time: '1', line: 'audit', labels: {} }]);
+    const res = makeRes();
+    await observabilityLogs(makeReq({ key: 'audit_recent_events', range: '1h' }), res);
+    expect(res._status).toBe(200);
+    expect(mockLokiStreams).toHaveBeenCalledTimes(1);
+  });
+
+  it('still allows a NON-sysadmin to read an orgScoped key ($ORG confines it)', async () => {
+    mockIsSystemAdmin.mockReturnValue(false);
+    mockPromQueryRange.mockResolvedValue([]);
+    const res = makeRes();
+    await observabilityQuery(makeReq({ key: 'plugin_builds_per_min', range: '1h' }), res);
+    expect(res._status).toBe(200);
+    expect(mockPromQueryRange).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('observabilityLogs', () => {
   it('returns 401 when caller is not authenticated', async () => {
     mockRequireAuth.mockReturnValue(false);

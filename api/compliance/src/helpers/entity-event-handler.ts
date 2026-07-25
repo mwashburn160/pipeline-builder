@@ -3,8 +3,9 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import type { RuleTarget } from '@pipeline-builder/pipeline-data';
-import { logComplianceCheck } from './audit-logger.js';
+import { logComplianceCheck } from './compliance-check-log.js';
 import { evaluateRules } from '../engine/rule-engine.js';
+import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('entity-event-handler');
@@ -53,7 +54,16 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
       return { evaluated: false, reason: 'no active rules' };
     }
 
-    const result = evaluateRules(rules, event.attributes || {}, []);
+    // Honor approved exemptions on the async re-validation path, mirroring the
+    // live validate route and the scan executor. Without this, mutating an
+    // entity that holds an approved exemption would re-evaluate the waived rule
+    // and write a fabricated `result:'block'` row to the audit log.
+    const exemptions = await complianceExemptionService.getActiveExemptionsForEntity(
+      event.orgId,
+      event.entityId,
+    );
+
+    const result = evaluateRules(rules, event.attributes || {}, exemptions);
 
     logComplianceCheck(
       event.orgId,

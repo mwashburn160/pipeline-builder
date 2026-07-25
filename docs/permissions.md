@@ -29,7 +29,10 @@ organization (or team); platform-operator powers live behind the global
   also seeds **Super Admin**. A startup backfill re-syncs each built-in Role's
   permission set to the current catalog, so new permissions reach existing orgs.
 - **Custom Roles** — admins with `roles:manage` can author additional Roles from
-  the org-assignable catalog (see the carve-out below).
+  the org-assignable catalog (see the carve-out below), bounded by a **permission
+  ceiling**: an author may only grant permissions they themselves hold, so a
+  `roles:manage` holder cannot mint a Role carrying capabilities they lack (a
+  Super Admin bypasses the ceiling).
 - **Coarse label** — the `owner` / `admin` / `member` label on a membership is
   **display and authority only** (ownership transfer, seat accounting). It is
   *derived*, and it does **not** grant permissions — those come only from Roles.
@@ -105,7 +108,8 @@ POST|DELETE /api/organization/:id/roles/:roleId/members/:uid  # add / remove a R
 
 `POST` / `PUT` / `DELETE` require `roles:manage`. Custom-Role authoring validates
 the requested permissions against the org-assignable set (the registry carve-out
-is rejected).
+is rejected) **and** against the author's own permissions (the permission ceiling
+above) — a request granting a permission the author lacks is rejected `403`.
 
 ## Teams
 

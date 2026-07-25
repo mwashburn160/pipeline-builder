@@ -7,7 +7,7 @@ import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';
-import { authService, DUPLICATE_CREDENTIALS } from '../services/index.js';
+import { authService, DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME } from '../services/index.js';
 import { issueTokens } from '../utils/token.js';
 import { validateBody, registerSchema, loginSchema, refreshSchema } from '../utils/validation.js';
 
@@ -96,6 +96,7 @@ export const register = withController('Register', async (req, res) => {
   sendSuccess(res, 201, { user: result });
 }, {
   [DUPLICATE_CREDENTIALS]: { status: 409, message: 'Credentials already in use' },
+  [RESERVED_ORG_NAME]: { status: 403, message: 'That organization name is reserved' },
   MISSING_FIELDS: { status: 400, message: 'Missing required fields' },
 });
 

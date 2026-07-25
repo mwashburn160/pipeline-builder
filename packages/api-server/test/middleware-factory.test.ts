@@ -33,11 +33,11 @@ describe('createProtectedRoute', () => {
     jest.clearAllMocks();
   });
 
-  it('returns an array of four middleware', () => {
+  it('returns an array of five middleware (auth, orgId, idempotency, tenantContext, quota)', () => {
     const fakeQuotaService = {} as any;
     const result = createProtectedRoute(fakeQuotaService, 'apiCalls' as any);
     expect(Array.isArray(result)).toBe(true);
-    expect(result).toHaveLength(4);
+    expect(result).toHaveLength(5);
   });
 
   it('invokes requireOrgId(), withTenantContext() and checkQuota() factories', () => {
@@ -48,12 +48,15 @@ describe('createProtectedRoute', () => {
     expect(checkQuota).toHaveBeenCalledWith(fakeQuotaService, 'pipelines');
   });
 
-  it('places middleware in order: auth, orgId, tenantContext, quota', () => {
+  it('places middleware in order: auth, orgId, idempotency, tenantContext, quota', () => {
     const fakeQuotaService = {} as any;
     const result = createProtectedRoute(fakeQuotaService, 'plugins' as any);
     expect(result[1]).toBe('REQUIRE_ORG_ID_MIDDLEWARE');
-    expect(result[2]).toBe('TENANT_CONTEXT_MIDDLEWARE');
-    expect(result[3]).toBe('CHECK_QUOTA_MIDDLEWARE');
+    // [2] is the idempotency middleware (a real closure, not a labeled mock) —
+    // mounted post-orgId so the verified org can namespace its replay cache.
+    expect(typeof result[2]).toBe('function');
+    expect(result[3]).toBe('TENANT_CONTEXT_MIDDLEWARE');
+    expect(result[4]).toBe('CHECK_QUOTA_MIDDLEWARE');
   });
 });
 
@@ -62,10 +65,10 @@ describe('createAuthenticatedWithOrgRoute', () => {
     jest.clearAllMocks();
   });
 
-  it('returns an array of three middleware', () => {
+  it('returns an array of four middleware (auth, orgId, idempotency, tenantContext)', () => {
     const result = createAuthenticatedWithOrgRoute();
     expect(Array.isArray(result)).toBe(true);
-    expect(result).toHaveLength(3);
+    expect(result).toHaveLength(4);
   });
 
   it('invokes requireOrgId() factory', () => {
@@ -78,9 +81,10 @@ describe('createAuthenticatedWithOrgRoute', () => {
     expect(checkQuota).not.toHaveBeenCalled();
   });
 
-  it('places auth middleware first, orgId second, tenantContext third', () => {
+  it('places auth first, orgId second, idempotency third, tenantContext fourth', () => {
     const result = createAuthenticatedWithOrgRoute();
     expect(result[1]).toBe('REQUIRE_ORG_ID_MIDDLEWARE');
-    expect(result[2]).toBe('TENANT_CONTEXT_MIDDLEWARE');
+    expect(typeof result[2]).toBe('function'); // idempotency middleware (real closure)
+    expect(result[3]).toBe('TENANT_CONTEXT_MIDDLEWARE');
   });
 });

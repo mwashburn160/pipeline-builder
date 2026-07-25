@@ -87,7 +87,7 @@ export function createUpdatePipelineRoutes(): Router {
     // Best-effort attributed audit — emitted only after the update landed.
     emitPipelineAudit({
       action: 'pipeline.update',
-      actorId: userId || 'system',
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'pipeline',
       targetId: updated.id,

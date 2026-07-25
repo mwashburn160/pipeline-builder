@@ -5,8 +5,8 @@ import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, v
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleUpdateSchema } from './rule-schemas.js';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService, InvalidRuleRegexError } from '../services/compliance-rule-service.js';
+import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 export function createUpdateRuleRoutes(): Router {
   const router = Router();
@@ -40,7 +40,7 @@ export function createUpdateRuleRoutes(): Router {
       // metadata only; never the full rule definition.
       emitComplianceAudit({
         action: 'compliance.rule.update',
-        actorId: userId,
+        actorId: req.user?.sub ?? userId ?? 'system',
         orgId,
         targetType: 'rule',
         targetId: updated.id,

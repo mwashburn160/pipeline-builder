@@ -67,7 +67,16 @@ function loadConfigFile(filePath: string, config: Omit<Config, 'auth'>): Omit<Co
  *
  * Auth token MUST come from PLATFORM_TOKEN env var (never from config file).
  */
-export function getConfig(): Config {
+/**
+ * Resolve the API/connection config (base URL, SSL, timeouts) from files and
+ * environment WITHOUT requiring `PLATFORM_TOKEN`.
+ *
+ * This is the token-optional slice of {@link getConfig}. The pre-auth login step
+ * (`ensurePlatformToken`) needs the resolved base URL to POST `/api/auth/login`
+ * *before* any token exists — calling `getConfig()` there would throw on the
+ * missing token and make inline-login dead-on-arrival.
+ */
+export function getApiConfig(): Omit<Config, 'auth'> {
   const projectConfigPath = process.env.CLI_CONFIG_PATH || path.join(__dirname, '../config.yml');
 
   // Layer 1: defaults → Layer 2: user config → Layer 3: project config
@@ -101,6 +110,12 @@ export function getConfig(): Config {
       printWarning('Invalid UPLOAD_TIMEOUT value, using default', { provided: process.env.UPLOAD_TIMEOUT });
     }
   }
+
+  return config;
+}
+
+export function getConfig(): Config {
+  const config = getApiConfig();
 
   // Token is REQUIRED from environment
   const token = process.env.PLATFORM_TOKEN;

@@ -15,6 +15,27 @@ const logger = createLogger('auth-service');
 
 /** Domain error codes thrown by service methods (mapped to HTTP status by the controller). */
 export const DUPLICATE_CREDENTIALS = 'DUPLICATE_CREDENTIALS';
+/** A self-serve caller tried to create/join the reserved `system` org
+ *  (name === SYSTEM_ORG_SLUG) without operator authorization. The system org
+ *  confers platform superadmin to its creator, so only an operator-authorized
+ *  email (BOOTSTRAP_SUPERADMIN_EMAILS) may create it; everyone else is refused. */
+export const RESERVED_ORG_NAME = 'RESERVED_ORG_NAME';
+
+/**
+ * Is this email operator-authorized as a platform super-admin (i.e. listed in
+ * `BOOTSTRAP_SUPERADMIN_EMAILS`)? Only such emails may create/join the reserved
+ * `system` org through the self-serve register / OAuth-create paths — the same
+ * env-var allow-list the controlled superadmin bootstrap uses. Env is read live
+ * (not cached) so an operator can change it without a code redeploy, and it's
+ * unset in customer/SaaS environments (so no self-serve caller is ever
+ * authorized there).
+ */
+function isBootstrapSuperAdminEmail(email: string | undefined): boolean {
+  if (!email) return false;
+  const raw = process.env.BOOTSTRAP_SUPERADMIN_EMAILS || '';
+  const allow = new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
+  return allow.size > 0 && allow.has(email.trim().toLowerCase());
+}
 
 interface RegisterInput {
   username: string;
@@ -70,8 +91,21 @@ class AuthService {
       const user = new User({ username, email, password });
 
       // The system tenant is identified by its well-known slug/name 'system'
-      // (SYSTEM_ORG_SLUG); its `_id` is the fixed SYSTEM_ORG_ID ObjectId.
-      const isSystemOrg = effectiveOrgName.toLowerCase() === SYSTEM_ORG_SLUG;
+      // (SYSTEM_ORG_SLUG); its `_id` is the fixed SYSTEM_ORG_ID ObjectId. Creating
+      // it runs seedDefaultRoles({isSystemOrg:true}), which flags the creator
+      // `isSuperAdmin` — a platform-wide grant. SECURITY: this MUST NOT be
+      // reachable by an arbitrary self-serve registration (otherwise the first
+      // anonymous POST /auth/register with organizationName:'system' mints a
+      // platform superadmin, since mongodb-init doesn't pre-seed the system org).
+      // Reserve the name: only an operator-authorized email
+      // (BOOTSTRAP_SUPERADMIN_EMAILS) may create/join it; any other caller is
+      // rejected outright — they may not create the system org NOR a normal org
+      // literally named 'system' (which isSystemOrgId() would misclassify by name).
+      const wantsSystemOrg = effectiveOrgName.toLowerCase() === SYSTEM_ORG_SLUG;
+      const isSystemOrg = wantsSystemOrg && isBootstrapSuperAdminEmail(email);
+      if (wantsSystemOrg && !isSystemOrg) {
+        throw new Error(RESERVED_ORG_NAME);
+      }
 
       const orgData: Record<string, unknown> = {
         name: isSystemOrg ? SYSTEM_ORG_SLUG : effectiveOrgName,
@@ -276,7 +310,20 @@ class AuthService {
       .toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 30);
     let username = baseUsername;
     let suffix = 1;
-    while (await User.exists({ username })) { username = `${baseUsername}${suffix++}`; }
+    // The OAuth-created org's name is derived from `username`. SECURITY: reserve
+    // the well-known `system` slug so a federated identity that normalizes to
+    // 'system' can never auto-create/claim the privileged system org (which would
+    // flag the user `isSuperAdmin`). Unless the email is operator-authorized
+    // (BOOTSTRAP_SUPERADMIN_EMAILS), treat 'system' as unavailable — the probe
+    // loop folds it to a namespaced `system<n>`, so the privileged branch below
+    // stays unreachable for self-serve callers.
+    const emailAuthorizedForSystemOrg = isBootstrapSuperAdminEmail(userInfo.email);
+    while (
+      await User.exists({ username })
+      || (username.toLowerCase() === SYSTEM_ORG_SLUG && !emailAuthorizedForSystemOrg)
+    ) {
+      username = `${baseUsername}${suffix++}`;
+    }
 
     const newUser = new User({
       username,
@@ -292,7 +339,10 @@ class AuthService {
     // tx so the whole identity lands atomically.
     await withMongoTransaction(async (session) => {
       // Same well-known-slug handling as register(): if the derived org name is
-      // 'system', create it as the system tenant (fixed id/slug/tier/quotas).
+      // 'system', create it as the system tenant (fixed id/slug/tier/quotas). The
+      // username-probe loop above already folded 'system' to a namespaced form for
+      // any non-operator-authorized email, so this can only be true for an
+      // operator-authorized bootstrap identity.
       const isSystemOrg = username.toLowerCase() === SYSTEM_ORG_SLUG;
       const orgData: Record<string, unknown> = {
         name: isSystemOrg ? SYSTEM_ORG_SLUG : username,

@@ -16,12 +16,12 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitComplianceAudit } from '../services/audit.js';
 import {
   complianceExemptionService,
   CE_NOT_FOUND,
   CE_SELF_APPROVE,
 } from '../services/compliance-exemption-service.js';
+import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 /** Exemption CRUD routes. */
 
@@ -123,7 +123,7 @@ export function createExemptionRoutes(): Router {
       if (validation.value.status === 'approved') {
         emitComplianceAudit({
           action: 'compliance.exemption.approve',
-          actorId: userId,
+          actorId: req.user?.sub ?? userId ?? 'system',
           orgId,
           targetType: 'exemption',
           targetId: id,
@@ -163,7 +163,7 @@ export function createExemptionRoutes(): Router {
     // entity it covered), never the exemption reason text.
     emitComplianceAudit({
       action: 'compliance.exemption.revoke',
-      actorId: userId,
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'exemption',
       targetId: id,

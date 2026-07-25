@@ -72,6 +72,13 @@ export interface ListOrgsOptions {
   offset?: number;
 }
 
+/**
+ * Hard upper bound on a single {@link QuotaService.findAll} page. A caller that
+ * omits `limit` (or passes something larger) is clamped to this so an unbounded
+ * `Organization.find()` can never pull the entire collection into memory.
+ */
+export const FIND_ALL_MAX_LIMIT = 1000;
+
 /** Options for the increment flow. */
 export interface IncrementOptions {
   /** When true, skip the limit check (system-admin override). */
@@ -116,7 +123,9 @@ export class QuotaService {
       .sort({ name: 1 });
 
     if (options.offset !== undefined) query.skip(options.offset);
-    if (options.limit !== undefined) query.limit(options.limit);
+    // Always bound the page. A caller that omits `limit` previously got an
+    // unbounded scan of the whole collection; clamp to FIND_ALL_MAX_LIMIT.
+    query.limit(Math.min(options.limit ?? FIND_ALL_MAX_LIMIT, FIND_ALL_MAX_LIMIT));
 
     const orgs = await query.lean();
     return orgs.map((org) => buildOrgQuotaResponse(org));

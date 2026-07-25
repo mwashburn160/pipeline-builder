@@ -464,12 +464,23 @@ class UserAdminService {
    */
   async updateFeatures(id: string, overrides: Record<string, boolean>) {
     // `+isSuperAdmin` (schema is `select: false`) is required because the
-    // caller resolves feature flags with a sysadmin-bypass branch.
-    const user = await User.findById(id).select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides');
+    // caller resolves feature flags with a sysadmin-bypass branch. `+tokenVersion`
+    // (also `select: false`) is needed to bump it below.
+    const user = await User.findById(id).select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides +tokenVersion');
     if (!user) throw new Error(UA_USER_NOT_FOUND);
 
     user.featureOverrides = new Map(Object.entries(overrides));
+    // Resolved feature flags are baked into the access token (utils/token.ts), so
+    // a grant/revoke here must invalidate the user's outstanding tokens — else the
+    // stale feature set lingers until natural expiry. Bump tokenVersion (mirrors
+    // updateUserById's password/role bump) so requireAuth rejects old tokens and a
+    // refresh reissues a JWT carrying the new features.
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     await user.save();
+
+    // Post-commit: publish the now-current tokenVersion so the stateless services
+    // drop the outstanding tokens immediately (best-effort).
+    await publishUserRevocation(String(user._id));
 
     const { organizationName, activeOrgRole, tier } = await loadActiveOrgInfo(user._id, user.lastActiveOrgId?.toString());
     return { user, organizationName, activeOrgRole, tier };

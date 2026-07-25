@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
@@ -27,10 +28,26 @@ import {
   RL_NAME_TAKEN,
   RL_INVALID_PERMISSION,
   RL_PERMISSION_NOT_ASSIGNABLE,
+  RL_PERMISSION_EXCEEDS_CEILING,
 } from '../services/index.js';
+import type { ActorPermissionCeiling } from '../services/index.js';
 import { validateBody, addRoleMemberSchema, createRoleSchema, updateRoleSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-roles-controller');
+
+/**
+ * The actor's permission ceiling for authoring a custom Role: their resolved
+ * fine-grained permissions (the JWT `permissions` claim for the active org) plus
+ * their platform-superadmin status. A non-superadmin may only grant permissions
+ * they themselves hold; a superadmin bypasses the ceiling. Called only after
+ * `requireAuth`, so `req.user` is present.
+ */
+function actorCeiling(req: Request): ActorPermissionCeiling {
+  return {
+    permissions: req.user?.permissions ?? [],
+    isSuperAdmin: req.user?.isSuperAdmin === true,
+  };
+}
 
 /** GET /organization/:id/roles — list permission Roles + their members. */
 export const getOrganizationRoles = withController('Get roles', async (req, res) => {
@@ -56,13 +73,14 @@ export const createOrganizationRole = withController('Create role', async (req, 
   const body = validateBody(createRoleSchema, req.body, res);
   if (!body) return;
 
-  const role = await createRole(id, body);
+  const role = await createRole(id, body, actorCeiling(req));
   audit(req, 'org.role.create', { targetType: 'role', targetId: role.id, affectedOrgId: id });
   sendSuccess(res, 201, { role }, 'Role created');
 }, {
   [RL_NAME_TAKEN]: { status: 409, message: 'A role with this name already exists' },
   [RL_INVALID_PERMISSION]: { status: 400, message: 'One or more permissions are not recognized' },
   [RL_PERMISSION_NOT_ASSIGNABLE]: { status: 400, message: 'One or more permissions cannot be granted through a custom role' },
+  [RL_PERMISSION_EXCEEDS_CEILING]: { status: 403, message: 'You cannot grant a permission you do not hold yourself' },
 });
 
 /** PUT /organization/:id/roles/:roleId — update a custom Role's name/description/permissions. */
@@ -76,7 +94,7 @@ export const updateOrganizationRole = withController('Update role', async (req, 
   const body = validateBody(updateRoleSchema, req.body, res);
   if (!body) return;
 
-  const role = await updateRole(id, roleId, body);
+  const role = await updateRole(id, roleId, body, actorCeiling(req));
   audit(req, 'org.role.update', { targetType: 'role', targetId: roleId, affectedOrgId: id });
   sendSuccess(res, 200, { role }, 'Role updated');
 }, {
@@ -85,6 +103,7 @@ export const updateOrganizationRole = withController('Update role', async (req, 
   [RL_NAME_TAKEN]: { status: 409, message: 'A role with this name already exists' },
   [RL_INVALID_PERMISSION]: { status: 400, message: 'One or more permissions are not recognized' },
   [RL_PERMISSION_NOT_ASSIGNABLE]: { status: 400, message: 'One or more permissions cannot be granted through a custom role' },
+  [RL_PERMISSION_EXCEEDS_CEILING]: { status: 403, message: 'You cannot grant a permission you do not hold yourself' },
 });
 
 /** DELETE /organization/:id/roles/:roleId — delete a custom Role. */

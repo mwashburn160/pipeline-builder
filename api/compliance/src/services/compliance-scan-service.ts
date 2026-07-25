@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { buildComplianceScanConditions, drizzleCount, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { buildComplianceScanConditions, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { and, desc, eq } from 'drizzle-orm';
+import { paginatedList } from './paginated-list.js';
 
 export interface ComplianceScanFilter {
   target?: 'plugin' | 'pipeline' | 'all';
@@ -16,25 +17,14 @@ class ComplianceScanService {
     const conditions = buildComplianceScanConditions(filter, orgId);
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    // withTenantTx sets `app.org_id` for RLS (bare `db` → null GUC → zero rows
-    // once the table is FORCE'd). Both queries share one tx.
-    return withTenantTx(async (tx) => {
-      const [countResult] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(schema.complianceScan)
-        .where(whereClause)
-        .then(r => drizzleCount(r));
-
-      const scans = await tx
-        .select()
-        .from(schema.complianceScan)
-        .where(whereClause)
-        .orderBy(desc(schema.complianceScan.createdAt))
-        .limit(limit)
-        .offset(offset);
-
-      return { scans, total: countResult?.count ?? 0 };
-    });
+    const { rows, total } = await paginatedList(
+      schema.complianceScan,
+      whereClause,
+      desc(schema.complianceScan.createdAt),
+      limit,
+      offset,
+    );
+    return { scans: rows, total };
   }
 
   /** Single scan by id, scoped to org. Returns null on miss. */

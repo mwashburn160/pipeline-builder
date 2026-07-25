@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { randomBytes } from 'node:crypto';
+import { createLogger, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
@@ -64,7 +65,34 @@ export interface SSEManagerOptions {
    * that carry an `orgId`; service-internal / anonymous SSE traffic skips it.
    */
   maxClientsPerOrg?: number;
+  /**
+   * Hard cap on total live (unconsumed, unexpired) SSE tickets across the
+   * process. Defaults to 1000 from `SSE_MAX_TOTAL_TICKETS`. Bounds memory
+   * under abuse — `createTicket` returns `{ ok: false, reason: 'capacity' }`
+   * once reached.
+   */
+  maxTotalTickets?: number;
+  /**
+   * Per-org cap on live SSE tickets. Defaults to 10 from
+   * `SSE_MAX_TICKETS_PER_ORG`. Prevents a single tenant from saturating the
+   * ticket table — `createTicket` returns `{ ok: false, reason: 'org-limit' }`
+   * once reached.
+   */
+  maxTicketsPerOrg?: number;
+  /** Ticket TTL in ms (default: `SSE_TICKET_TTL_MS` from api-core). */
+  ticketTtlMs?: number;
 }
+
+/** A minted SSE ticket — single-use, org-bound, short-lived. */
+interface SSETicket {
+  orgId: string;
+  expiresAt: number;
+}
+
+/** Result of {@link SSEManager.createTicket}. */
+export type CreateTicketResult =
+  | { ok: true; ticket: string }
+  | { ok: false; reason: 'org-limit' | 'capacity' };
 
 /**
  * SSE Manager statistics
@@ -99,9 +127,16 @@ export class SSEManager {
    *  map mirrors `clients[].orgId` counts at all times. Orgs reach zero are
    *  deleted to keep the map bounded. */
   private orgClientCounts = new Map<string, number>();
+  /** Single-use SSE tickets, keyed by opaque ticket id. Bounded by
+   *  `maxTotalTickets` / `maxTicketsPerOrg`; swept on the cleanup interval and
+   *  validated (expiry) at consume time. */
+  private tickets = new Map<string, SSETicket>();
   private readonly maxClientsPerRequest: number;
   private readonly maxTotalClients: number;
   private readonly maxClientsPerOrg: number;
+  private readonly maxTotalTickets: number;
+  private readonly maxTicketsPerOrg: number;
+  private readonly ticketTtlMs: number;
   private readonly clientTimeoutMs: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
 
@@ -109,6 +144,9 @@ export class SSEManager {
     this.maxClientsPerRequest = options.maxClientsPerRequest ?? parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10', 10);
     this.maxTotalClients = options.maxTotalClients ?? parseInt(process.env.SSE_MAX_TOTAL_CLIENTS || '1000', 10);
     this.maxClientsPerOrg = options.maxClientsPerOrg ?? parseInt(process.env.SSE_MAX_CLIENTS_PER_ORG || '50', 10);
+    this.maxTotalTickets = options.maxTotalTickets ?? parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10);
+    this.maxTicketsPerOrg = options.maxTicketsPerOrg ?? parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10);
+    this.ticketTtlMs = options.ticketTtlMs ?? SSE_TICKET_TTL_MS;
     this.clientTimeoutMs = options.clientTimeoutMs ?? parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000', 10); // 30 minutes
 
     const cleanupIntervalMs = options.cleanupIntervalMs ?? parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000', 10); // 5 minutes
@@ -125,6 +163,58 @@ export class SSEManager {
   /** Current open-stream count for an org (0 if unseen). */
   getOrgClientCount(orgId: string): number {
     return this.orgClientCounts.get(orgId) ?? 0;
+  }
+
+  /** Count of live (unexpired) tickets currently held for an org. */
+  private countLiveTicketsForOrg(orgId: string, now: number): number {
+    let count = 0;
+    for (const ticket of this.tickets.values()) {
+      if (ticket.orgId === orgId && ticket.expiresAt > now) count++;
+    }
+    return count;
+  }
+
+  /**
+   * Mint a short-lived, single-use SSE ticket bound to `orgId`. Clients POST
+   * to obtain one (JWT-authenticated), then open the EventSource with
+   * `?ticket=<t>` so the JWT never lands in a query string / access log.
+   *
+   * Bounded by `maxTotalTickets` (process-wide) and `maxTicketsPerOrg`
+   * (per-tenant). Mirrors the message-service notifications ticket store.
+   *
+   * @param orgId - Owning org (already normalized by the caller).
+   * @returns `{ ok: true, ticket }` on success, or `{ ok: false, reason }`
+   *   where reason is `'org-limit'` (per-org cap) or `'capacity'` (total cap).
+   */
+  createTicket(orgId: string): CreateTicketResult {
+    const now = Date.now();
+    // Total cap first — protects process memory even when a single org is
+    // the offender. Then the per-org cap for fair-share.
+    if (this.tickets.size >= this.maxTotalTickets) {
+      logger.warn(`SSE ticket cap reached (max: ${this.maxTotalTickets}); rejecting ticket request`);
+      return { ok: false, reason: 'capacity' };
+    }
+    if (this.countLiveTicketsForOrg(orgId, now) >= this.maxTicketsPerOrg) {
+      logger.warn(`Per-org SSE ticket cap reached for ${orgId} (max: ${this.maxTicketsPerOrg})`);
+      return { ok: false, reason: 'org-limit' };
+    }
+
+    const ticket = randomBytes(24).toString('base64url');
+    this.tickets.set(ticket, { orgId, expiresAt: now + this.ticketTtlMs });
+    return { ok: true, ticket };
+  }
+
+  /**
+   * Validate and CONSUME a ticket. Single-use: the ticket is deleted whether
+   * or not it turns out to be valid, so a replay of the same value always
+   * fails. Returns the bound org on success, or null when the ticket is
+   * unknown / already-used / expired.
+   */
+  consumeTicket(ticketId: string): { orgId: string } | null {
+    const ticket = this.tickets.get(ticketId);
+    this.tickets.delete(ticketId); // single-use — consume immediately
+    if (!ticket || Date.now() > ticket.expiresAt) return null;
+    return { orgId: ticket.orgId };
   }
 
   /**
@@ -377,7 +467,14 @@ export class SSEManager {
   }
 
   /**
-   * Middleware to initialize SSE connection
+   * Middleware to initialize a ticket-authenticated SSE connection.
+   *
+   * The stream is NOT open to the world: the caller must first exchange its
+   * JWT for a short-lived single-use ticket (see {@link createTicket}, wired to
+   * `POST /logs/ticket`) and pass it as `?ticket=<t>`. The middleware validates
+   * + consumes the ticket, binds the connection to the ticket's org, and
+   * enforces the per-org connection cap. A missing / invalid / expired /
+   * already-used ticket is rejected with 401 before any SSE headers flush.
    *
    * @example
    * ```typescript
@@ -391,13 +488,29 @@ export class SSEManager {
     // can't carry an injection/path-traversal payload into the SSE subject.
     const REQUEST_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
 
-    return (req: { params: { requestId: string }; user?: { organizationId?: string } }, res: Response) => {
+    return (req: { params: { requestId: string }; query?: { ticket?: unknown } }, res: Response) => {
       const { requestId } = req.params;
 
       if (!REQUEST_ID_RE.test(requestId)) {
         res.status(400).end('Invalid requestId format');
         return;
       }
+
+      // Ticket auth — required. Resolve `?ticket=<t>`, then validate + consume
+      // it (single-use). An anonymous, malformed, unknown, expired, or
+      // already-consumed ticket is a 401. The org is taken from the ticket, so
+      // the stream is always bound to a verified tenant (no anonymous streams).
+      const ticketId = req.query?.ticket;
+      if (typeof ticketId !== 'string' || ticketId.length === 0) {
+        res.status(401).end('Missing ticket');
+        return;
+      }
+      const consumed = this.consumeTicket(ticketId);
+      if (!consumed) {
+        res.status(401).end('Invalid or expired ticket');
+        return;
+      }
+      const orgId = consumed.orgId;
 
       // Pre-flight per-request cap so we can return 429 before flushing
       // SSE headers (after headers are flushed the client can't read a 429).
@@ -408,12 +521,10 @@ export class SSEManager {
         return;
       }
 
-      // Same for the per-org cap — better to send 429 than open the stream
-      // and immediately close it. Org id is sourced from req.user when auth
-      // ran upstream; for anonymous SSE we pass undefined and the per-org
-      // ceiling is skipped (the global cap above still applies).
-      const orgId = req.user?.organizationId;
-      if (orgId && (this.orgClientCounts.get(orgId) ?? 0) >= this.maxClientsPerOrg) {
+      // Same for the per-org cap — better to send 429 than open the stream and
+      // immediately close it. The ticket guarantees a verified org id, so the
+      // per-org ceiling is always enforced for the /logs stream.
+      if ((this.orgClientCounts.get(orgId) ?? 0) >= this.maxClientsPerOrg) {
         logger.warn(`Per-org SSE client cap reached for ${orgId} (max: ${this.maxClientsPerOrg})`);
         res.status(429).end('Too many SSE connections for this organization');
         return;
@@ -448,6 +559,13 @@ export class SSEManager {
   private cleanup(): void {
     const now = Date.now();
     let cleaned = 0;
+
+    // Sweep expired tickets so the store stays bounded even when tickets are
+    // minted but never consumed (client closed the tab before connecting).
+    // Consume-time still re-checks expiry, so this is memory hygiene only.
+    for (const [id, ticket] of this.tickets) {
+      if (now > ticket.expiresAt) this.tickets.delete(id);
+    }
 
     for (const [requestId, clients] of this.clients.entries()) {
       const stale: SSEClient[] = [];

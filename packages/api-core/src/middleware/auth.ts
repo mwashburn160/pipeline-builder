@@ -7,8 +7,10 @@ import jwt from 'jsonwebtoken';
 import { HttpStatus } from '../constants/http-status.js';
 import type { JwtPayload } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
+import type { HttpRequest } from '../types/http.js';
 import { type Permission, hasPermission } from '../types/permissions.js';
 import { getHeaderString } from '../utils/headers.js';
+import { getIdentity, type RequestIdentity } from '../utils/identity.js';
 import { createLogger } from '../utils/logger.js';
 import { sendError } from '../utils/response.js';
 
@@ -233,6 +235,25 @@ function _requireAuth(
       const headerOrgName = getHeaderString(req.headers['x-org-name']);
       if (headerOrgId) req.user.organizationId = headerOrgId;
       if (headerOrgName) req.user.organizationName = headerOrgName;
+    }
+
+    // Re-derive the request's tenant identity from the NOW-verified JWT.
+    //
+    // `attachRequestContext` runs as a global middleware BEFORE this per-route
+    // `requireAuth`, so it captured `req.context.identity` while `req.user` was
+    // still undefined — at which point `getIdentity` falls back to the raw,
+    // client-settable `x-org-id`/`x-user-id` headers. Every downstream tenant-
+    // authority consumer (requireOrgId, withTenantContext's RLS scope, checkQuota,
+    // withRoute, and the idempotency namespace) reads `req.context.identity`, so
+    // that frozen header-derived value — not the JWT — was governing tenancy on
+    // any non-nginx path. Recomputing here, at the single post-verification choke
+    // point, makes `getIdentity` prefer the verified `req.user` (see identity.ts)
+    // so tenancy is JWT-authoritative. The nginx `x-org-id` overwrite stays as
+    // defence-in-depth. Guarded on `req.context` so services/paths that never
+    // attach a context (or run requireAuth pre-context) are unaffected.
+    const reqCtx = (req as Request & { context?: { identity: RequestIdentity } }).context;
+    if (reqCtx) {
+      reqCtx.identity = getIdentity(req as unknown as HttpRequest);
     }
 
     // Session-invalidation check for the stateless services: reject a token

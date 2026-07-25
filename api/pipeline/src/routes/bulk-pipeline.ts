@@ -153,7 +153,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         // after the row landed. `inserted` distinguishes create vs. upsert.
         emitPipelineAudit({
           action: inserted ? 'pipeline.create' : 'pipeline.update',
-          actorId: userId || 'system',
+          actorId: req.user?.sub ?? userId ?? 'system',
           orgId,
           targetType: 'pipeline',
           targetId: pipeline.id,
@@ -215,7 +215,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     for (const d of deleted) {
       emitPipelineAudit({
         action: 'pipeline.delete',
-        actorId: userId || 'system',
+        actorId: req.user?.sub ?? userId ?? 'system',
         orgId,
         targetType: 'pipeline',
         targetId: d.id,
@@ -291,19 +291,39 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     // updateMany flattens array `id` filters to a single value, so fan out
     // per-ID updates instead. CrudService.update handles its own per-row
     // transaction + lifecycle hook.
-    const updates = await Promise.all(
+    //
+    // Use allSettled — NOT Promise.all — so one rejected update() can't discard
+    // the isolation of the rest: earlier rows may already have committed, and a
+    // single throw under Promise.all would surface a blanket 500 that hides
+    // them. Instead accumulate per-index errors like bulk/create does.
+    const settled = await Promise.allSettled(
       ids.map(id => pipelineService.update(id, updateData as PipelineUpdate, orgId, userId)),
     );
-    const updatedCount = updates.filter(u => u !== null).length;
 
-    ctx.log('COMPLETED', 'Bulk update complete', { requested: ids.length, updated: updatedCount });
+    const updatedRows: Array<NonNullable<Awaited<ReturnType<typeof pipelineService.update>>>> = [];
+    const errors: Array<{ index: number; error: string }> = [];
+    settled.forEach((outcome, i) => {
+      if (outcome.status === 'fulfilled') {
+        // A null result means the row didn't match (already deleted / wrong
+        // org) — not an error, just nothing updated.
+        if (outcome.value) updatedRows.push(outcome.value);
+      } else {
+        errors.push({ index: i, error: errorMessage(outcome.reason) });
+      }
+    });
+    const updatedCount = updatedRows.length;
+
+    ctx.log('COMPLETED', 'Bulk update complete', {
+      requested: ids.length,
+      updated: updatedCount,
+      failed: errors.length,
+    });
 
     // Best-effort attributed audit per row actually updated.
-    for (const u of updates) {
-      if (!u) continue;
+    for (const u of updatedRows) {
       emitPipelineAudit({
         action: 'pipeline.update',
-        actorId: userId || 'system',
+        actorId: req.user?.sub ?? userId ?? 'system',
         orgId,
         targetType: 'pipeline',
         targetId: u.id,
@@ -311,7 +331,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       });
     }
 
-    sendSuccess(res, 200, { updated: updatedCount });
+    sendSuccess(res, 200, { updated: updatedCount, failed: errors.length, errors });
   }));
 
   return router;

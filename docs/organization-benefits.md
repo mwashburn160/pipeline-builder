@@ -129,7 +129,7 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
   | **Admin** | Manage plugins, pipelines, compliance rules, and quotas; invite and manage members |
   | **Member** | Create and manage their own pipelines and plugins |
 
-- **Roles.** Access is granted through **Roles** — each Role is a named set of fine-grained `resource:action` permissions. A user's effective permissions are the **union of the Roles assigned to them**; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member); the system org also gets Super Admin; a platform Super Admin implicitly holds every permission. ("Role" is the user-facing name for what the API calls a permission group.)
+- **Roles.** Access is granted through **Roles** — each Role is a named set of fine-grained `resource:action` permissions. A user's effective permissions are the **union of the Roles assigned to them**; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member); the system org also gets Super Admin; a platform Super Admin implicitly holds every permission. Admins with `roles:manage` can author custom Roles, bounded by their own permissions (a permission ceiling).
 - **What's scoped to the org:** pipelines (by project + orgId), plugins (by orgId + `public`/`private` access modifier), compliance rules and exemptions, quotas and seats, secrets (`pipeline-builder/{orgId}/{secretName}`), the billing subscription, and execution analytics.
 - **The shared system organization** publishes a recommended plugin catalog and compliance-rule catalog that any organization can pull from or subscribe to — a common baseline without giving up isolation.
 - **Membership** is per-organization: inviting a user into one org grants no access to another.
@@ -159,13 +159,13 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 
   | | Developer | Pro | Team | Enterprise |
   |---|:---:|:---:|:---:|:---:|
-  | **Price / month** | $0 | $19 | $49 | $99 |
+  | **Price / month** | $0 | $49 | $149 | $399 |
   | Plugins | 25 | 50 | 100 | 250 |
   | Pipelines | 5 | 10 | 200 | 200 |
   | Member seats | 1 | 1 | 10 | 25 |
-  | API calls / period | 25,000 | 500,000 | unlimited | unlimited |
-  | AI calls / period | 50 | 2,500 | 10,000 | 25,000 |
-  | Registry storage | 2 GB | 50 GB | 250 GB | 1 TB |
+  | API calls / period | 25,000 | 500,000 | 2,000,000 | 10,000,000 |
+  | AI calls / period | 25 | 1,000 | 5,000 | 15,000 |
+  | Registry storage | 2 GB | 25 GB | 150 GB | 500 GB |
   | Dashboards | 20 | 200 | unlimited | unlimited |
   | Alert rules / destinations | 50 / 10 | 500 / 50 | unlimited | unlimited |
   | IdP configs | 1 | 5 | 5 | unlimited |

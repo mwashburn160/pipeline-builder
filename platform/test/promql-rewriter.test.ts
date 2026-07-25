@@ -116,6 +116,38 @@ describe('injectOrgId  security gates', () => {
   });
 });
 
+describe('injectOrgId  nameless label-set selectors (tenancy-gate bypass)', () => {
+  it('org-scopes a bare `{job=...}` label-set selector (no metric name)', () => {
+    expect(injectOrgId('{job="platform"} > 0', 'acme'))
+      .toBe('{org_id="acme",job="platform"} > 0');
+  });
+
+  it('org-scopes a `{__name__=~...}` selector', () => {
+    expect(injectOrgId('{__name__=~"plugin_builds_total"}', 'acme'))
+      .toBe('{org_id="acme",__name__=~"plugin_builds_total"}');
+  });
+
+  // Regression guard for the HIGH bug: a bare label-set whose FIRST label name
+  // is a PromQL reserved word (`on`, `by`, `sum`, `count`, `ignoring`, …) used
+  // to be recorded as NOTHING, so the selector escaped the org_id gate entirely
+  // (injected nothing + validated ok over an empty list). It must now be scoped.
+  it.each(['on', 'by', 'sum', 'count', 'ignoring', 'rate'])(
+    'org-scopes a bare label-set led by reserved word %p', (label) => {
+      expect(injectOrgId(`{${label}="x"} > 0`, 'acme'))
+        .toBe(`{org_id="acme",${label}="x"} > 0`);
+    },
+  );
+
+  it('leaves a nameless selector that already carries org_id unchanged', () => {
+    expect(injectOrgId('{org_id="acme",job="x"}', 'acme')).toBe('{org_id="acme",job="x"}');
+  });
+
+  it('rejects a nameless selector pinned to a DIFFERENT org', () => {
+    expect(() => injectOrgId('{org_id="other"}', 'acme'))
+      .toThrow(/doesn't match the rule's own org/);
+  });
+});
+
 describe('validateOrgIdMatchers  validation-only mode', () => {
   it('returns ok when every metric has the matcher', () => {
     const r = validateOrgIdMatchers('rate(http_requests_total{org_id="acme"}[5m]) > 5', 'acme');
@@ -140,5 +172,15 @@ describe('validateOrgIdMatchers  validation-only mode', () => {
     const r = validateOrgIdMatchers('http_requests_total{org_id="other"}', 'acme');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.message).toContain("doesn't match");
+  });
+
+  it('rejects a nameless label-set selector missing the matcher', () => {
+    const r = validateOrgIdMatchers('{on="platform"} > 0', 'acme');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain('label-set selector');
+  });
+
+  it('accepts a nameless label-set selector that carries org_id', () => {
+    expect(validateOrgIdMatchers('{org_id="acme",job="x"}', 'acme')).toEqual({ ok: true });
   });
 });

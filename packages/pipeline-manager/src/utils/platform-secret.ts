@@ -12,7 +12,7 @@
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import axios from 'axios';
 import { decodeTokenPayload } from './auth-guard.js';
-import { getConfigWithOptions } from './config-loader.js';
+import { getApiConfig } from './config-loader.js';
 import { printInfo, printSection, printSuccess, printWarning } from './output-utils.js';
 
 /** Login/secret options shared across the platform-secret helpers. */
@@ -54,12 +54,16 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
 
   printSection('Login');
   printInfo('Authenticating with email/password...');
-  const config = getConfigWithOptions(options);
+  // Resolve the base URL WITHOUT demanding a token — this login step runs
+  // pre-auth (no PLATFORM_TOKEN yet), so `getConfig()` would throw here. The
+  // token-optional loader still honors config files + PLATFORM_BASE_URL/TLS env.
+  const apiConfig = getApiConfig();
+  const rejectUnauthorized = options.verifySsl === false ? false : apiConfig.api.rejectUnauthorized;
   const loginResponse = await axios.post(
-    `${config.api.baseUrl}/api/auth/login`,
+    `${apiConfig.api.baseUrl}/api/auth/login`,
     { email: loginEmail, password: loginPassword },
     {
-      httpsAgent: config.api.rejectUnauthorized === false
+      httpsAgent: rejectUnauthorized === false
         ? new (await import('https')).Agent({ rejectUnauthorized: false })
         : undefined,
     },

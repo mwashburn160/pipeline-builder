@@ -5,8 +5,8 @@ import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, getParam, v
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitComplianceAudit } from '../services/audit.js';
 import { compliancePolicyService } from '../services/policy-service.js';
+import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 const CompliancePolicyUpdateSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -35,7 +35,7 @@ export function createUpdatePolicyRoutes(): Router {
     // Best-effort attributed audit — the policy update succeeded.
     emitComplianceAudit({
       action: 'compliance.policy.update',
-      actorId: userId,
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetType: 'policy',
       targetId: updated.id,

@@ -150,6 +150,15 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     DEFAULT_TIER: 'developer',
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
+    // Tier → default feature set (mirrors api-core TIER_FEATURES). user-admin's
+    // feature-override entitlement gate reads this to decide which features an org
+    // admin may enable without a purchase.
+    TIER_FEATURES: {
+      developer: [],
+      pro: ['priority_support', 'ai_generation', 'bulk_operations'],
+      team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
+      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
+    },
     // Org-hierarchy traversal primitives — platform's helpers/org-hierarchy.js
     // (loaded transitively by organization-service / seats.js) imports these.
     // Default to a FLAT resolution: root = self, subtree = [self]. A suite can
@@ -166,6 +175,14 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ErrorCode,
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     NotFoundError,
+    // SSRF guard (utils/ssrf). Default is PERMISSIVE (resolves) so suites that
+    // don't exercise the guard aren't forced to mock DNS; a suite testing the
+    // guarded webhook path overrides `assertSafeUrl` to reject. `isRefusedRedirect`
+    // + `SSRF_FETCH_INIT` mirror api-core so the redirect handling behaves for real.
+    assertSafeUrl: async () => undefined,
+    isRefusedRedirect: (resp: { type?: string; status: number }) =>
+      resp?.type === 'opaqueredirect' || (resp?.status >= 300 && resp?.status < 400),
+    SSRF_FETCH_INIT: { redirect: 'manual' as const },
     // Permission catalog — roles-service / organization-service import these to
     // validate/filter group-granted permissions. Mirrors api-core's real list so
     // the mock's `isValidPermission` accepts exactly the canonical identifiers.

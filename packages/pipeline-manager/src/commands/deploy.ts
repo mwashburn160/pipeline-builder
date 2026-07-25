@@ -15,6 +15,7 @@ import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
 import { buildRegistryPayload, writePendingIntent } from '../utils/registry.js';
+import { relaxTlsForCli } from '../utils/tls.js';
 
 const { bold, cyan, dim } = pico;
 
@@ -73,10 +74,10 @@ export function deploy(program: Command): void {
         // Security warning for SSL verification disabled
         printSslWarning(options.verifySsl);
 
-        // Propagate to process.env so CDK constructs (Lambda, CodeBuild) inherit it
-        if (options.verifySsl === false) {
-          process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-        }
+        // Propagate to process.env so CDK constructs (Lambda, CodeBuild) inherit it,
+        // but refuse in production (see relaxTlsForCli) — the flag disables cert
+        // validation for ALL outbound TLS, including the AWS SDK.
+        relaxTlsForCli(options.verifySsl, printWarning);
 
         ensureCdkAvailable();
         printSuccess('AWS CDK is available');

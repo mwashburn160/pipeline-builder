@@ -55,7 +55,12 @@ export function auditTokens(program: Command): void {
 
       try {
         printInfo('Listing secrets', { region, prefix: options.prefix });
-        const secrets = await listSecrets(options.prefix, { region, profile: options.profile });
+        const { secrets, truncated } = await listSecrets(options.prefix, { region, profile: options.profile });
+        if (truncated) {
+          // A truncated sweep means an expiring token past the cap could be missed —
+          // never report "all clear" from an incomplete scan (mirrors audit-stacks).
+          printWarning('Secret listing was TRUNCATED (paging cap hit) — results may be INCOMPLETE and an expiring token could be missed. Narrow by --prefix/--region.');
+        }
 
         // Filter to ones following the `<prefix>/<orgId>/platform` pattern.
         const platformSecrets = secrets.filter((s) => s.name.endsWith('/platform'));
@@ -109,7 +114,9 @@ export function auditTokens(program: Command): void {
         }
 
         const atRisk = entries.filter((e) => e.status !== 'ok');
-        const exitCode = atRisk.length > 0 ? 1 : 0;
+        // A truncated scan is itself a failure condition: exit non-zero so cron
+        // doesn't read an incomplete "all clear" as success.
+        const exitCode = (atRisk.length > 0 || truncated) ? 1 : 0;
 
         if (options.json) {
           console.log(JSON.stringify({
@@ -118,6 +125,7 @@ export function auditTokens(program: Command): void {
             warnDays,
             totalScanned: entries.length,
             atRiskCount: atRisk.length,
+            truncated,
             entries: entries.map((e) => ({ ...e, expiresAt: e.expiresAt.toISOString() })),
             executionId,
           }, null, 2));
@@ -125,7 +133,11 @@ export function auditTokens(program: Command): void {
           printSection('Audit Results');
           printInfo(`Scanned ${entries.length} platform secret${entries.length === 1 ? '' : 's'}`);
           if (atRisk.length === 0) {
-            printSuccess(`All tokens valid for at least ${warnDays} days`);
+            if (truncated) {
+              printWarning('No at-risk tokens in the scanned pages, but the scan was truncated — some secrets were not checked.');
+            } else {
+              printSuccess(`All tokens valid for at least ${warnDays} days`);
+            }
           } else {
             for (const e of atRisk) {
               const label = e.status === 'expired'

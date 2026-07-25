@@ -11,6 +11,20 @@ export function pluginsApi(core: ApiCore) {
     // ============================================
     // Plugin endpoints
     // ============================================
+
+    /**
+     * Exchange the JWT for a short-lived, single-use SSE ticket for the build-log
+     * stream (`GET /api/plugin/logs/:requestId`). Keeps the JWT out of the
+     * EventSource query string. Mirrors `getNotificationTicket`; returns the
+     * unwrapped ticket string so `useBuildStatus` can pipe it straight into the
+     * stream URL. A 2xx without a ticket payload is treated as a 500.
+     */
+    getBuildLogTicket: async (): Promise<string> => {
+      const res = await core.request<ApiResponse<{ ticket: string }>>('/api/plugin/logs/ticket', { method: 'POST' });
+      if (!res.data?.ticket) throw new ApiError('Failed to obtain build-log ticket', 500);
+      return res.data.ticket;
+    },
+
     listPlugins: async (params?: Record<string, string>) => {
       return core.request<ApiResponse<{ plugins: Plugin[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/plugins${buildQuery(params)}`);
     },

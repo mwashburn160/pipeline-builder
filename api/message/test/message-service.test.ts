@@ -266,6 +266,34 @@ describe('MessageService', () => {
       const result = await service.markAsRead('msg-1', 'org-1', 'user-1');
       expect(result).toEqual(existing);
     });
+
+    // A soft-deleted (isActive=false) message must not be mutable or returnable
+    // via markAsRead — the update predicate AND the fallback existence select
+    // both filter on isActive=true (parity with markThreadAsRead/getUnreadCount).
+    it('filters on isActive=true in the update predicate', async () => {
+      const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([{ id: 'msg-1' }]);
+      const whereFn = jest.fn().mockReturnValue({ returning: returningFn });
+      mockDbUpdate.mockReturnValue({ set: jest.fn().mockReturnValue({ where: whereFn }) });
+
+      await service.markAsRead('msg-1', 'org-1', 'user-1');
+
+      expect(whereFn.mock.calls[0][0]).toContainEqual({ col: 'isActive', val: true, op: 'eq' });
+    });
+
+    it('filters on isActive=true in the fallback existence select', async () => {
+      const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([]); // update matched nothing
+      mockDbUpdate.mockReturnValue({
+        set: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ returning: returningFn }) }),
+      });
+      const selectWhere = jest.fn().mockReturnValue({
+        limit: jest.fn<() => Promise<unknown>>().mockResolvedValue([]),
+      });
+      mockDbSelect.mockReturnValue({ from: jest.fn().mockReturnValue({ where: selectWhere }) });
+
+      await service.markAsRead('msg-1', 'org-1', 'user-1');
+
+      expect(selectWhere.mock.calls[0][0]).toContainEqual({ col: 'isActive', val: true, op: 'eq' });
+    });
   });
 
   describe('markThreadAsRead', () => {

@@ -60,6 +60,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     pipelineRegistry: {
       pipelineId: 'pipeline_id',
       orgId: 'org_id',
+      region: 'region',
+      project: 'project',
+      organization: 'organization',
+      stackName: 'stack_name',
     },
     pipeline: {
       id: 'id',
@@ -72,7 +76,9 @@ jest.unstable_mockModule('drizzle-orm', () => ({
   and: (...args: unknown[]) => ({ _kind: 'and', args }),
   eq: (col: unknown, val: unknown) => ({ _kind: 'eq', col, val }),
   desc: (col: unknown) => ({ _kind: 'desc', col }),
-  sql: jest.fn(),
+  // Capture the tagged-template SQL so tests can assert on COALESCE-style
+  // conditional updates (e.g. region is preserved, not nulled, on partial re-register).
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ _kind: 'sql', text: strings.join('?'), values }),
 }));
 
 const { sendSuccess, sendBadRequest, sendError, sendPaginatedNested } = await import('@pipeline-builder/api-core');
@@ -167,6 +173,33 @@ describe('POST /pipelines/registry', () => {
 
     expect(mockInsert).toHaveBeenCalled();
     expect(sendSuccess).toHaveBeenCalled();
+  });
+
+  // FIX 4 — a partial re-register that omits `region` (and other optionals) must
+  // NOT null out the stored value: execution routing resolves the CodePipeline
+  // region from this row. The upsert conflict-set uses COALESCE(excluded.col,
+  // table.col) so an absent incoming value keeps the existing one.
+  it('preserves stored optional columns via COALESCE on partial re-register', async () => {
+    const handler = getHandler('post');
+    // No region/project/organization/stackName in this re-register.
+    const req = { body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline' } };
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+    await handler(req, res);
+
+    expect(mockOnConflictDoUpdate).toHaveBeenCalledTimes(1);
+    const set = (mockOnConflictDoUpdate.mock.calls[0][0] as any).set;
+
+    // Optional columns are COALESCE expressions that fall back to the stored value.
+    for (const col of ['region', 'project', 'organization']) {
+      expect(set[col]).toEqual(expect.objectContaining({ _kind: 'sql' }));
+      expect(set[col].text).toContain(`COALESCE(excluded.${col}`);
+    }
+    expect(set.stackName._kind).toBe('sql');
+    expect(set.stackName.text).toContain('COALESCE(excluded.stack_name');
+
+    // pipelineName is required and still written through unconditionally.
+    expect(set.pipelineName).toBe('acme-pipeline');
   });
 
   // Tenancy guards added when the registry POST started accepting client

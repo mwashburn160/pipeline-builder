@@ -3,10 +3,12 @@
 
 import { createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope, drizzleCount } from '@pipeline-builder/pipeline-data';
-import { SQL, eq, and, desc, inArray, isNull, sql } from 'drizzle-orm';
+import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
+import { SQL, eq, and, desc, inArray, isNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+import { paginatedList } from './paginated-list.js';
+import { subscriptionService } from './subscription-service.js';
 import { validateRuleRegexPatterns } from '../engine/rule-operators.js';
 import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier.js';
 
@@ -197,20 +199,14 @@ export class ComplianceRuleService extends CrudService<
       eq(schema.complianceRuleHistory.orgId, orgId),
     );
 
-    const [countResult] = await withTenantTx(async (tx) => tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceRuleHistory)
-      .where(conditions).then((r: unknown[]) => drizzleCount(r)));
-
-    const history = await withTenantTx(async (tx) => tx
-      .select()
-      .from(schema.complianceRuleHistory)
-      .where(conditions)
-      .orderBy(desc(schema.complianceRuleHistory.changedAt))
-      .limit(options.limit)
-      .offset(options.offset));
-
-    return { history, total: countResult?.count ?? 0 };
+    const { rows, total } = await paginatedList(
+      schema.complianceRuleHistory,
+      conditions,
+      desc(schema.complianceRuleHistory.changedAt),
+      options.limit,
+      options.offset,
+    );
+    return { history: rows, total };
   }
 
   /**
@@ -329,23 +325,17 @@ export class ComplianceRuleService extends CrudService<
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     // Published catalog browse is cross-tenant by definition — any org can
-    // browse the published rule library. Read under sysadmin scope.
+    // browse the published rule library. Read under sysadmin scope (the shared
+    // paginatedList runs its withTenantTx inside this context).
     return runWithTenantContext({ isSuperAdmin: true }, async () => {
-      const [countResult] = await withTenantTx(async (tx) => tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(schema.complianceRule)
-        .where(whereClause)
-        .then((r: unknown[]) => drizzleCount(r)));
-
-      const rules = await withTenantTx(async (tx) => tx
-        .select()
-        .from(schema.complianceRule)
-        .where(whereClause)
-        .orderBy(desc(schema.complianceRule.priority))
-        .limit(limit)
-        .offset(offset));
-
-      return { rules: rules as unknown as ComplianceRule[], total: countResult?.count ?? 0 };
+      const { rows, total } = await paginatedList<ComplianceRule>(
+        schema.complianceRule,
+        whereClause,
+        desc(schema.complianceRule.priority),
+        limit,
+        offset,
+      );
+      return { rules: rows, total };
     });
   }
 
@@ -476,6 +466,16 @@ export class ComplianceRuleService extends CrudService<
 
   async delete(id: string, orgId: string, userId: string): Promise<ComplianceRule | null> {
     const existing = await this.findById(id, orgId);
+    // Capture the subscriber list BEFORE the soft-delete. `findSubscribers`
+    // inner-joins on `isNull(deletedAt)`, so once `super.delete()` sets
+    // `deletedAt` it returns zero rows — the deletion notification would then
+    // reach no one. Snapshot it first and hand it to the notifier explicitly.
+    const subscribers = existing?.scope === 'published'
+      ? await subscriptionService.findSubscribers(id).catch((err: unknown) => {
+        logger.warn('Non-fatal side effect failed', { error: errorMessage(err) });
+        return [];
+      })
+      : [];
     const deleted = await super.delete(id, orgId, userId);
     if (deleted && existing) {
       this.recordHistory(id, orgId, 'deleted', existing, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
@@ -483,7 +483,7 @@ export class ComplianceRuleService extends CrudService<
       this.triggerRuleChangeScan(orgId, existing.target, userId).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       if (existing.scope === 'published') {
         this.invalidateSubscriberCaches(id).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
-        notifyPublishedRuleChange(id, existing.name, 'deleted').catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
+        notifyPublishedRuleChange(id, existing.name, 'deleted', subscribers).catch((err: unknown) => logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }));
       }
     }
     return deleted;

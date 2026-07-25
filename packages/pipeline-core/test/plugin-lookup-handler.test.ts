@@ -195,6 +195,33 @@ describe('plugin-lookup-handler', () => {
     });
   });
 
+  describe('logging (account-id leak prevention)', () => {
+    it('should not log the StackId ARN (embeds AWS account id) in the START log', async () => {
+      mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
+
+      const logSpy = jest.spyOn(console, 'log');
+      // StackId ARN carries a 12-digit AWS account id (…:cloudformation:us-east-1:123456789012:stack/…)
+      const event = createEvent({
+        StackId: 'arn:aws:cloudformation:us-east-1:123456789012:stack/my-stack/abc-guid',
+      });
+      await handler(event);
+
+      // Reconstruct everything the handler wrote to CloudWatch (console.log).
+      const logged = logSpy.mock.calls
+        .map((call) => call.map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg))).join(' '))
+        .join('\n');
+
+      // No ARN, no account-id segment, and no stackId key should ever be persisted.
+      expect(logged).not.toContain('arn:aws');
+      expect(logged).not.toContain('123456789012');
+      expect(logged).not.toMatch(/stackId/i);
+
+      // Correlation identifiers are still present.
+      expect(logged).toContain('req-123');
+      expect(logged).toContain('PluginLookup');
+    });
+  });
+
   describe('validation', () => {
     it('should fail if pluginFilter is missing', async () => {
       const event = createEvent({

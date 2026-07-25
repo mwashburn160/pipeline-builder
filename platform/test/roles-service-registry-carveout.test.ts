@@ -39,8 +39,13 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: {},
 }));
 
-const { createRole, RL_PERMISSION_NOT_ASSIGNABLE, RL_INVALID_PERMISSION } =
+const { createRole, RL_PERMISSION_NOT_ASSIGNABLE, RL_INVALID_PERMISSION, RL_PERMISSION_EXCEEDS_CEILING } =
   await import('../src/services/roles-service.js');
+
+// These tests exercise the invalid / not-assignable gates, which fire
+// regardless of the actor's ceiling. A superadmin actor bypasses the ceiling so
+// only those gates are under test here.
+const SUPERADMIN_ACTOR = { permissions: [] as string[], isSuperAdmin: true };
 
 /** Role.findOne(...).select('_id').lean() → doc|null (name-clash check). */
 const noNameClash = () => mockRoleFindOne.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(null) }) });
@@ -54,7 +59,7 @@ beforeEach(() => {
 describe('createRole registry carve-out', () => {
   it('rejects a superadmin-only permission (registry:write)', async () => {
     await expect(
-      createRole('org-1', { name: 'Builders', permissions: ['pipelines:write', 'registry:write'] }),
+      createRole('org-1', { name: 'Builders', permissions: ['pipelines:write', 'registry:write'] }, SUPERADMIN_ACTOR),
     ).rejects.toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
     // Rejected during validation — never reaches the create.
     expect(mockRoleCreate).not.toHaveBeenCalled();
@@ -62,12 +67,12 @@ describe('createRole registry carve-out', () => {
 
   it('rejects registry:read too', async () => {
     await expect(
-      createRole('org-1', { name: 'Readers', permissions: ['registry:read'] }),
+      createRole('org-1', { name: 'Readers', permissions: ['registry:read'] }, SUPERADMIN_ACTOR),
     ).rejects.toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
   });
 
   it('accepts an org-assignable permission set', async () => {
-    const role = await createRole('org-1', { name: 'Builders', permissions: ['pipelines:read', 'pipelines:write'] });
+    const role = await createRole('org-1', { name: 'Builders', permissions: ['pipelines:read', 'pipelines:write'] }, SUPERADMIN_ACTOR);
     expect(mockRoleCreate).toHaveBeenCalledTimes(1);
     const created = mockRoleCreate.mock.calls[0][0] as { permissions: string[]; grantsRole: string; system: boolean };
     expect(created.permissions).toEqual(['pipelines:read', 'pipelines:write']);
@@ -78,7 +83,47 @@ describe('createRole registry carve-out', () => {
 
   it('still rejects an unknown permission with RL_INVALID_PERMISSION', async () => {
     await expect(
-      createRole('org-1', { name: 'Bogus', permissions: ['not:a:permission'] }),
+      createRole('org-1', { name: 'Bogus', permissions: ['not:a:permission'] }, SUPERADMIN_ACTOR),
     ).rejects.toThrow(RL_INVALID_PERMISSION);
+  });
+});
+
+/**
+ * Permission ceiling (self-escalation guard): a non-superadmin actor may only
+ * grant permissions they THEMSELVES hold. A delegated `roles:manage` holder must
+ * not be able to mint a Role bundling `members:manage`/`org:settings` and
+ * self-assign it. Superadmins bypass the ceiling.
+ */
+describe('createRole permission ceiling', () => {
+  // A delegated actor who can manage roles + write pipelines, but is NOT an org
+  // admin — they do NOT hold members:manage.
+  const DELEGATE_ACTOR = { permissions: ['roles:manage', 'pipelines:write'], isSuperAdmin: false };
+
+  it('rejects granting a permission the actor lacks (members:manage)', async () => {
+    await expect(
+      createRole('org-1', { name: 'Escalate', permissions: ['members:manage'] }, DELEGATE_ACTOR),
+    ).rejects.toThrow(RL_PERMISSION_EXCEEDS_CEILING);
+    // Rejected during validation — never reaches the create.
+    expect(mockRoleCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a set that mixes a held and an unheld permission', async () => {
+    await expect(
+      createRole('org-1', { name: 'Mixed', permissions: ['pipelines:write', 'members:manage'] }, DELEGATE_ACTOR),
+    ).rejects.toThrow(RL_PERMISSION_EXCEEDS_CEILING);
+    expect(mockRoleCreate).not.toHaveBeenCalled();
+  });
+
+  it('allows granting a subset of the actor\'s own permissions', async () => {
+    const role = await createRole('org-1', { name: 'Builders', permissions: ['pipelines:write'] }, DELEGATE_ACTOR);
+    expect(mockRoleCreate).toHaveBeenCalledTimes(1);
+    expect(role.permissions).toEqual(['pipelines:write']);
+  });
+
+  it('lets a superadmin grant any org-assignable permission the actor does not "hold"', async () => {
+    // Superadmin carries no explicit permissions claim but bypasses the ceiling.
+    const role = await createRole('org-1', { name: 'OrgAdmins', permissions: ['members:manage'] }, SUPERADMIN_ACTOR);
+    expect(mockRoleCreate).toHaveBeenCalledTimes(1);
+    expect(role.permissions).toEqual(['members:manage']);
   });
 });

@@ -125,21 +125,36 @@ export interface SecretSummary {
   lastChangedDate?: Date;
 }
 
+/** Result of a paginated {@link listSecrets} sweep. */
+export interface ListSecretsResult {
+  secrets: SecretSummary[];
+  /**
+   * True when `maxPages` was hit while AWS still had a NextToken — i.e. the
+   * result is INCOMPLETE. Callers (e.g. audit-tokens) must surface this rather
+   * than silently under-reporting, since a truncated scan can miss an expiring
+   * token past the cap.
+   */
+  truncated: boolean;
+}
+
 /**
- * List secrets matching a name prefix. Pages internally up to `maxPages` (default 10).
+ * List secrets matching a name prefix. Pages internally up to `maxPages` (default 20).
  *
  * @param namePrefix - Filter by `Name` prefix (case-sensitive). Falls back to
  *                    listing all secrets when omitted (use sparingly).
+ * @returns the collected secrets plus a `truncated` flag signalling the cap was
+ *          hit with more pages remaining.
  */
 export async function listSecrets(
   namePrefix: string | undefined,
   options: SecretsOptions,
-  maxPages = 10,
-): Promise<SecretSummary[]> {
+  maxPages = 20,
+): Promise<ListSecretsResult> {
   const client = createClient(options);
   const out: SecretSummary[] = [];
   let nextToken: string | undefined;
   let page = 0;
+  let truncated = false;
   do {
     const response = await client.send(new ListSecretsCommand({
       MaxResults: 100,
@@ -159,6 +174,8 @@ export async function listSecrets(
     }
     nextToken = response.NextToken;
     page++;
-  } while (nextToken && page < maxPages);
-  return out;
+    // More pages exist but we've hit the cap — signal an incomplete sweep.
+    if (nextToken && page >= maxPages) { truncated = true; break; }
+  } while (nextToken);
+  return { secrets: out, truncated };
 }

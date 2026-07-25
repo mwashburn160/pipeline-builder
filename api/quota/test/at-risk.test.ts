@@ -168,39 +168,46 @@ describe('GET /quotas/at-risk', () => {
     expect(res.json.mock.calls[0][0].data).toMatchObject({ atRisk: [], count: 0, threshold: 80 });
   });
 
-  it('bounds the scan at the DB layer: passes limit/offset to findAll and keys the cache by them', async () => {
-    // 250 at-risk orgs — a full scan would pull all of them into memory. The
-    // route must instead ask findAll for just the requested page.
-    const many = Array.from({ length: 250 }, (_, i) =>
-      org(`org-${i}`, `Org${String(i).padStart(3, '0')}`, { plugins: { used: 95, limit: 100 } }));
+  it('loop-paginates the whole org collection to exhaustion so the at-risk set is complete', async () => {
+    // A first page that fills the page size forces a second fetch; the short
+    // second page ends the loop. Every at-risk org across BOTH pages must
+    // appear — proving nothing past page 1 is dropped from the alerting set.
+    let pageSize = 0;
     findAll.mockImplementation(async (opts: any) => {
-      const { limit, offset } = opts ?? {};
-      return many.slice(offset, offset + limit);
+      const { limit, offset } = opts;
+      pageSize = limit;
+      if (offset === 0) {
+        return Array.from({ length: limit }, (_, i) =>
+          org(`p1-${i}`, `A${String(i).padStart(4, '0')}`, { plugins: { used: 95, limit: 100 } }));
+      }
+      if (offset === limit) {
+        return [org('p2-0', 'B', { plugins: { used: 95, limit: 100 } })];
+      }
+      return [];
     });
 
-    // Page 1 (limit=50, offset query=1 → zero-based offset 0).
+    const res = makeRes();
+    await handler({ query: {} } as any, res);
+
+    const payload = res.json.mock.calls[0][0].data;
+    expect(payload.count).toBe(pageSize + 1); // full page 1 + 1 on page 2 — nothing dropped
+    expect(payload.total).toBe(pageSize + 1);
+    expect(payload.complete).toBe(true);
+    expect(findAll).toHaveBeenCalledWith({ limit: pageSize, offset: 0 });
+    expect(findAll).toHaveBeenCalledWith({ limit: pageSize, offset: pageSize });
+  });
+
+  it('memoizes the complete set per threshold (repeat call served from memo; new threshold rescans)', async () => {
+    findAll.mockResolvedValue([org('o', 'O', { plugins: { used: 95, limit: 100 } })]);
+
     const res1 = makeRes();
-    await handler({ query: { limit: '50', offset: '1' } } as any, res1);
-    expect(findAll).toHaveBeenCalledWith({ limit: 50, offset: 0 });
-    const p1 = res1.json.mock.calls[0][0].data;
-    expect(p1.atRisk).toHaveLength(50); // bounded by limit, not the full 250
-    expect(p1.count).toBe(50);
-    expect(p1.limit).toBe(50);
-    expect(p1.offset).toBe(0);
-    expect(p1.atRisk[0].orgId).toBe('org-0');
-
-    // Same params again → served from the 60s memo, no second scan.
-    const resDup = makeRes();
-    await handler({ query: { limit: '50', offset: '1' } } as any, resDup);
-    expect(findAll).toHaveBeenCalledTimes(1);
-
-    // Different offset → distinct cache key → a fresh scan of the next page.
+    await handler({ query: {} } as any, res1);
     const res2 = makeRes();
-    await handler({ query: { limit: '50', offset: '2' } } as any, res2);
-    expect(findAll).toHaveBeenCalledWith({ limit: 50, offset: 1 });
-    expect(findAll).toHaveBeenCalledTimes(2);
-    const p2 = res2.json.mock.calls[0][0].data;
-    expect(p2.offset).toBe(1);
-    expect(p2.atRisk[0].orgId).toBe('org-1'); // next page, not org-0
+    await handler({ query: {} } as any, res2);
+    expect(findAll).toHaveBeenCalledTimes(1); // second call hit the 60s memo
+
+    const res3 = makeRes();
+    await handler({ query: { threshold: '50' } } as any, res3);
+    expect(findAll).toHaveBeenCalledTimes(2); // distinct threshold → fresh scan
   });
 });

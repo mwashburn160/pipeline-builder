@@ -200,6 +200,21 @@ if [ "$TARGET" != docker ] && [ "$PLATFORM_PASSWORD" = 'SecurePassword123!' ]; t
   echo "  WARNING: registering the admin with the DEFAULT dev password on target '$TARGET'." >&2
   echo "           Set PLATFORM_PASSWORD (+ PLATFORM_IDENTIFIER) to a strong secret before exposing the platform, or change it immediately after first login." >&2
 fi
+# The admin is registered into the reserved 'system' organization (below). The
+# platform only lets an operator whose email is in BOOTSTRAP_SUPERADMIN_EMAILS
+# create the system org / become super-admin — so PLATFORM_IDENTIFIER MUST be
+# listed there. Best-effort pre-check: this env var lives in the platform
+# process's environment and may not be exported into this script, so we only
+# warn when we CAN see it and it's missing the identifier (the register itself
+# returns an actionable 403 below either way).
+if [ -n "${BOOTSTRAP_SUPERADMIN_EMAILS:-}" ]; then
+  case ",${BOOTSTRAP_SUPERADMIN_EMAILS// /}," in
+    *",${PLATFORM_IDENTIFIER},"*) : ;;
+    *) echo "  WARNING: PLATFORM_IDENTIFIER '$PLATFORM_IDENTIFIER' is not in BOOTSTRAP_SUPERADMIN_EMAILS ('$BOOTSTRAP_SUPERADMIN_EMAILS')." >&2
+       echo "           The 'system' org registration will be REJECTED and no super-admin bootstrapped." >&2
+       echo "           Add PLATFORM_IDENTIFIER to BOOTSTRAP_SUPERADMIN_EMAILS and restart the platform before re-running init." >&2 ;;
+  esac
+fi
 REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
   -k -s -o /dev/null -w "%{http_code}" \
   -H 'Content-Type: application/json' \
@@ -209,7 +224,14 @@ REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
 case "$(classify_status "$REG_STATUS")" in
   ok)     echo "  Admin user created." ;;
   exists) echo "  Admin user already exists (HTTP $REG_STATUS) — continuing." ;;
-  *)      echo "  Admin registration FAILED (HTTP $REG_STATUS) — platform not ready or erroring, not a conflict." >&2
+  *)      if [ "$REG_STATUS" = 403 ]; then
+            echo "  Admin registration REJECTED (HTTP 403): the 'system' organization is reserved." >&2
+            echo "    On a fresh install only a BOOTSTRAP_SUPERADMIN_EMAILS operator may create it." >&2
+            echo "    Add PLATFORM_IDENTIFIER ('$PLATFORM_IDENTIFIER') to the platform's" >&2
+            echo "    BOOTSTRAP_SUPERADMIN_EMAILS env, restart the platform, then re-run init." >&2
+          else
+            echo "  Admin registration FAILED (HTTP $REG_STATUS) — platform not ready or erroring, not a conflict." >&2
+          fi
           exit 1 ;;
 esac
 

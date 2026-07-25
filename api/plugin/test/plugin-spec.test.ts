@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 import path from 'path';
-import { jest, describe, it, expect, afterAll } from '@jest/globals';
+import { jest, describe, it, expect, afterAll, afterEach } from '@jest/globals';
 import AdmZip from 'adm-zip';
 
 // Mock uuid to produce deterministic values
@@ -267,6 +267,121 @@ dockerfile: Dockerfile
     await expect(parsePluginZip(zipPath)).rejects.toThrow('dockerfile is not allowed');
   });
 
+});
+
+// ---------------------------------------------------------------------------
+// Zip-bomb decompression caps
+// ---------------------------------------------------------------------------
+
+describe('zip-bomb decompression caps', () => {
+  // extractionLimits() reads these at call time, so per-test overrides work.
+  afterEach(() => {
+    delete process.env.PLUGIN_MAX_EXTRACT_BYTES;
+    delete process.env.PLUGIN_MAX_EXTRACT_ENTRIES;
+  });
+
+  it('aborts extraction once cumulative bytes exceed the ceiling', async () => {
+    process.env.PLUGIN_MAX_EXTRACT_BYTES = '200';
+    const pluginSpecYaml = `
+name: bomb
+version: "1.0.0"
+commands:
+  - echo hi
+`;
+    const zipPath = buildZip({
+      'plugin-spec.yaml': pluginSpecYaml,
+      // A single benign-looking entry whose extracted size blows the 200-byte cap.
+      'big.txt': 'A'.repeat(5000),
+    });
+
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('maximum extracted size');
+  });
+
+  it('aborts extraction once the entry count exceeds the ceiling', async () => {
+    process.env.PLUGIN_MAX_EXTRACT_ENTRIES = '2';
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: many\nversion: "1.0.0"\ncommands:\n  - echo hi\n',
+      'a.txt': 'a',
+      'b.txt': 'b',
+      'c.txt': 'c',
+    });
+
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('maximum entry count');
+  });
+
+  it('does not clean-abort a normal small ZIP under the (default) ceiling', async () => {
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: fine\nversion: "1.0.0"\ncommands:\n  - echo hi\n',
+      'Dockerfile': 'FROM alpine:3',
+    });
+
+    const result = await parsePluginZip(zipPath);
+    expect(result.pluginSpec.name).toBe('fine');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin spec schema validation (Zod)
+// ---------------------------------------------------------------------------
+
+describe('plugin-spec schema validation', () => {
+  it('rejects an invalid computeType', async () => {
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: bad-compute\nversion: "1.0.0"\ncomputeType: HUGE\ncommands:\n  - echo hi\n',
+      'Dockerfile': 'FROM alpine:3',
+    });
+
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('plugin-spec.yaml');
+  });
+
+  it('rejects an invalid pluginType', async () => {
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: bad-type\nversion: "1.0.0"\npluginType: WeirdStep\ncommands:\n  - echo hi\n',
+      'Dockerfile': 'FROM alpine:3',
+    });
+
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('plugin-spec.yaml');
+  });
+
+  it('rejects a non-integer timeout', async () => {
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: bad-timeout\nversion: "1.0.0"\ntimeout: not-a-number\ncommands:\n  - echo hi\n',
+      'Dockerfile': 'FROM alpine:3',
+    });
+
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('plugin-spec.yaml');
+  });
+
+  it('rejects an unknown top-level key (strict schema)', async () => {
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: extra\nversion: "1.0.0"\ncommands:\n  - echo hi\nbogusKey: nope\n',
+      'Dockerfile': 'FROM alpine:3',
+    });
+
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('plugin-spec.yaml');
+  });
+
+  it('accepts a fully-populated valid spec (enums, secrets, smokeTest)', async () => {
+    const pluginSpecYaml = `
+name: full
+version: "1.0.0"
+pluginType: CodeBuildStep
+computeType: MEDIUM
+timeout: 30
+failureBehavior: warn
+smokeTest: "tool --version"
+secrets:
+  - name: TOKEN
+    required: true
+commands:
+  - echo build
+`;
+    const zipPath = buildZip({ 'plugin-spec.yaml': pluginSpecYaml, 'Dockerfile': 'FROM alpine:3' });
+
+    const result = await parsePluginZip(zipPath);
+    expect(result.pluginSpec.computeType).toBe('MEDIUM');
+    expect(result.pluginSpec.failureBehavior).toBe('warn');
+  });
 });
 
 // ---------------------------------------------------------------------------

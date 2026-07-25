@@ -123,6 +123,9 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   syncEntitlements: mockSyncTierToQuotaService,
   // Over-cap gate: default to "no overages" so plan-change tests proceed.
   checkEntitlementOvercap: async () => [],
+  // The routes now widen their lookups to the non-terminal set; re-export the
+  // real constant so the `$in` filters aren't `undefined`.
+  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
 jest.unstable_mockModule('../src/validation/schemas.js', () => ({
@@ -222,6 +225,33 @@ describe('GET /subscriptions', () => {
     await handler(req, res);
 
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { subscription: null });
+  });
+
+  it('looks up the full non-terminal status set (active + trialing + past_due), not just active', async () => {
+    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockSubscriptionFindOne).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
+    });
+    // Terminal states must NOT be included.
+    const [{ status }] = mockSubscriptionFindOne.mock.calls[0] as [{ status: { $in: string[] } }];
+    expect(status.$in).not.toContain('canceled');
+  });
+
+  it('surfaces a trialing subscription (invisible before the fix)', async () => {
+    const sub = makeSubscription({ status: 'trialing' });
+    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(sub) });
+    mockPlanFindById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ name: 'Pro' }) });
+
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, {
+      subscription: expect.objectContaining({ id: 'sub-1', status: 'trialing' }),
+    });
   });
 
   it('returns 400 when orgId is missing', async () => {
@@ -536,6 +566,50 @@ describe('POST /subscriptions/:id/cancel', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Active subscription not found', 'NOT_FOUND');
+  });
+
+  it('looks up the sub across the non-terminal status set (trialing/past_due cancelable)', async () => {
+    const sub = makeSubscription();
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockSubscriptionFindOne).toHaveBeenCalledWith({
+      _id: 'sub-1',
+      orgId: 'org-1',
+      status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
+    });
+  });
+
+  it('cancels a trialing subscription (trial customer can cancel before conversion)', async () => {
+    const sub = makeSubscription({ status: 'trialing' });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    const res = mockRes();
+    await handler(mockReq({ params: { id: 'sub-1' } }), res);
+
+    expect(sub.cancelAtPeriodEnd).toBe(true);
+    expect(mockCancelSubscription).toHaveBeenCalledWith('ext-sub-1');
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({
+      message: expect.stringContaining('canceled'),
+    }));
+  });
+
+  it('cancels a past_due subscription (grace customer can stop dunning)', async () => {
+    const sub = makeSubscription({ status: 'past_due' });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    const res = mockRes();
+    await handler(mockReq({ params: { id: 'sub-1' } }), res);
+
+    expect(sub.cancelAtPeriodEnd).toBe(true);
+    expect(mockCancelSubscription).toHaveBeenCalledWith('ext-sub-1');
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({
+      message: expect.stringContaining('canceled'),
+    }));
   });
 
   it('returns 500 on provider error', async () => {

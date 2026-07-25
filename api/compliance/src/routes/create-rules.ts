@@ -5,8 +5,8 @@ import { sendSuccess, sendBadRequest, sendError, ErrorCode, isSystemAdmin, valid
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleCreateSchema } from './rule-schemas.js';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService, InvalidRuleRegexError } from '../services/compliance-rule-service.js';
+import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 export function createCreateRuleRoutes(): Router {
   const router = Router();
@@ -42,7 +42,7 @@ export function createCreateRuleRoutes(): Router {
       // which can carry sensitive match config.
       emitComplianceAudit({
         action: 'compliance.rule.create',
-        actorId: userId,
+        actorId: req.user?.sub ?? userId ?? 'system',
         orgId,
         targetType: 'rule',
         targetId: rule.id,

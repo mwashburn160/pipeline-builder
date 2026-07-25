@@ -78,6 +78,12 @@ export function orgExport(program: Command): void {
         // Re-serialize so we keep the same pretty-printed shape the server
         // produced (2-space indent matches the platform's handler) and so
         // we don't lose Date precision on a round-trip through JSON.parse.
+        //
+        // GUARD: this writes the raw server payload straight to disk. The export
+        // payload must NEVER contain an AWS account id — orgId is the marketplace
+        // customerIdentifier, never an AWS account id. It is account-id-free today;
+        // if a future server change ever adds one, it must be stripped/redacted
+        // here BEFORE this write, not persisted through the CLI.
         const json = JSON.stringify(response, null, 2);
         fs.writeFileSync(outputPath, json, 'utf8');
 

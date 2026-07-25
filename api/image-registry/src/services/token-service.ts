@@ -5,24 +5,18 @@ import { randomUUID } from 'crypto';
 import { createLogger, createQuotaService, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
+import type { RegistryScope } from './scope.js';
 import { computeStorageUsage } from './storage-usage.js';
 import { config } from '../config/index.js';
 
 const logger = createLogger('token-service');
 
-/** A parsed scope from the registry's challenge — one resource + actions. */
-export interface RequestedScope {
-  type: string;
-  name: string;
-  actions: string[];
-}
-
-/** A scope as it appears in the issued JWT's `access` claim (per Distribution token spec). */
-interface AccessClaim {
-  type: string;
-  name: string;
-  actions: string[];
-}
+/**
+ * A parsed scope from the registry's challenge — one resource + actions.
+ * Alias of the shared {@link RegistryScope}; the granted-actions subset later
+ * becomes the JWT's `access` claim (per the Distribution token spec).
+ */
+export type RequestedScope = RegistryScope;
 
 /**
  * Parse a `scope` query parameter from the registry's auth challenge.
@@ -168,7 +162,7 @@ logger.info('Initialized token service', { issuer: config.tokenSigning.issuer })
  * Distribution v3 verifies it against its `rootcertbundle`.
  */
 export function issueRegistryToken( identity: Identity,
-  access: AccessClaim[],
+  access: RegistryScope[],
   account: string,
 ): string {
   const now = Math.floor(Date.now() / 1000);
@@ -216,7 +210,7 @@ export async function authorizeAndIssue( identity: Identity,
   requestedScopes: RequestedScope[],
   account: string,
 ): Promise<{ token: string; accessCount: number }> {
-  const access: AccessClaim[] = [];
+  const access: RegistryScope[] = [];
   let overBudget: boolean | null = null;
   for (const scope of requestedScopes) {
     let granted = authorizeScope(identity, scope);

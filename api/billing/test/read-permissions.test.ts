@@ -88,6 +88,9 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   createBillingEvent: async () => undefined,
   syncEntitlements: async () => undefined,
   calculatePeriodEnd: () => new Date(),
+  // Routes widen their lookups to the non-terminal set; the real constant must
+  // be present so the `$in` filters aren't `undefined`.
+  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
 jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({

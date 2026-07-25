@@ -345,5 +345,26 @@ describe('orgKmsConfigSchema', () => {
   it('rejects a missing ciphertext', () => {
     expect(orgKmsConfigSchema.safeParse({ keyId: 'alias/pb' }).success).toBe(false);
   });
+
+  // A KMS ARN embeds the 12-digit AWS account id — persisting it anywhere is a
+  // hard constraint. Only a bare key UUID or an alias/<name> is accepted.
+  it('rejects a full KMS ARN (would leak the AWS account id)', () => {
+    const arn = 'arn:aws:kms:us-east-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab';
+    expect(orgKmsConfigSchema.safeParse({ keyId: arn, ciphertextBase64: 'AQICAH==' }).success).toBe(false);
+  });
+
+  it('rejects a KMS alias ARN too (also embeds the account id)', () => {
+    const aliasArn = 'arn:aws:kms:us-east-1:123456789012:alias/pb';
+    expect(orgKmsConfigSchema.safeParse({ keyId: aliasArn, ciphertextBase64: 'AQICAH==' }).success).toBe(false);
+  });
+
+  it('accepts a bare KMS key UUID', () => {
+    const uuid = '1234abcd-12ab-34cd-56ef-1234567890ab';
+    expect(orgKmsConfigSchema.safeParse({ keyId: uuid, ciphertextBase64: 'AQICAH==' }).success).toBe(true);
+  });
+
+  it('accepts an alias/<name> reference', () => {
+    expect(orgKmsConfigSchema.safeParse({ keyId: 'alias/foo', ciphertextBase64: 'AQICAH==' }).success).toBe(true);
+  });
 });
 

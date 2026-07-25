@@ -235,10 +235,14 @@ function validatePluginFilter(pluginFilter: unknown): pluginFilter is PluginFilt
 export const handler = async (
   event: CloudFormationCustomResourceEvent,
 ): Promise<CloudFormationCustomResourceResponse> => {
+  // NOTE: never log event.StackId here — the CloudFormation Stack ARN embeds the
+  // AWS account id (arn:aws:cloudformation:<region>:<ACCOUNT_ID>:stack/…), which
+  // must never be persisted to CloudWatch. requestId + logicalResourceId are
+  // sufficient for correlation. (StackId is still returned in the CFN response
+  // body below — that is the mandatory CFN protocol field and is not a log.)
   lambdaLog.info('START', `${event.RequestType} request received`, {
     logicalResourceId: event.LogicalResourceId,
     requestId: event.RequestId,
-    stackId: event.StackId,
   });
 
   const baseResponse: Partial<CloudFormationCustomResourceResponse> = {

@@ -22,7 +22,11 @@ let throwOnGet = false;
 const mockGet = jest.fn(async (path: string) => {
   if (throwOnGet) throw new Error('network');
   if (path.includes('/seat-usage')) {
-    return { statusCode: 200, body: seatUsed === null ? {} : { used: seatUsed } };
+    // REAL shape: platform's `sendSuccess(res, 200, { limit, used })` → the
+    // payload is under `body.data`, NOT at the envelope root. (The old fixture
+    // fabricated `{ used }` at the root, which masked readSeatUsage reading the
+    // wrong path and silently disabling the seat over-cap guard.)
+    return { statusCode: 200, body: { success: true, data: seatUsed === null ? {} : { limit: 10, used: seatUsed } } };
   }
   // /quotas/:orgId/:type → the pooled used count for that type
   const type = path.split('/').pop();
@@ -109,5 +113,40 @@ describe('checkEntitlementOvercap', () => {
     throwOnGet = true;
     const overages = await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x');
     expect(overages).toEqual([]);
+  });
+
+  // Contract/regression for the root-cause bug: readSeatUsage must read the seat
+  // count from `body.data.used` (platform's real sendSuccess envelope), NOT from a
+  // root-level `body.used`. A root-only payload must read as "no value" → the
+  // seats branch stays silent, proving the reader is bound to the real shape.
+  it('does NOT read seat usage from a root-level `used` (real shape is body.data.used)', async () => {
+    mockGet.mockImplementation(async (path: string) => {
+      if (path.includes('/seat-usage')) {
+        // WRONG (old fixture) shape: `used` at the envelope root, nothing under data.
+        return { statusCode: 200, body: { success: true, used: 999 } };
+      }
+      const type = path.split('/').pop();
+      const used = type === 'plugins' ? pluginsUsed : pipelinesUsed;
+      return { statusCode: 200, body: { data: { status: { used } } } };
+    });
+
+    const overages = await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x');
+    // 999 >> cap 10, but it lives at the wrong path, so the guard must see null
+    // and NOT flag a seat overage.
+    expect(overages.find((o) => o.quotaType === 'seats')).toBeUndefined();
+  });
+
+  it('DOES flag a seat overage from the real body.data.used envelope', async () => {
+    mockGet.mockImplementation(async (path: string) => {
+      if (path.includes('/seat-usage')) {
+        return { statusCode: 200, body: { success: true, data: { limit: 10, used: 14 } } };
+      }
+      const type = path.split('/').pop();
+      const used = type === 'plugins' ? pluginsUsed : pipelinesUsed;
+      return { statusCode: 200, body: { data: { status: { used } } } };
+    });
+
+    const overages = await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x');
+    expect(overages).toContainEqual({ quotaType: 'seats', currentUsage: 14, targetCap: 10, overage: 4 });
   });
 });

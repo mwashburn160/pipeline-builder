@@ -15,6 +15,11 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // -- mocks --------------------------------------------------------------------
 
+// SSRF guard hook: the webhook channel calls `assertSafeUrl` before connecting.
+// Default resolves (safe); a test can make it reject to assert the guard blocks
+// the send. Injected into the api-core mock below.
+const mockAssertSafeUrl = jest.fn<(url: string) => Promise<void>>(async () => {});
+
 const insertedRows: Array<Record<string, unknown>> = [];
 const mockValues = jest.fn((row: Record<string, unknown>) => { insertedRows.push(row); return Promise.resolve(); });
 const mockInsert = jest.fn(() => ({ values: mockValues }));
@@ -23,7 +28,9 @@ const mockWithTenantTx = jest.fn(async (fn: (tx: unknown) => unknown) => fn({ in
 const mockSend = jest.fn<(opts: { to: string; subject: string; text?: string }) => Promise<boolean>>(async () => true);
 const mockConfig = { email: { enabled: true } };
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  assertSafeUrl: (url: string) => mockAssertSafeUrl(url),
+}));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: { message: { __table: 'messages' } },
   withTenantTx: (fn: (tx: unknown) => unknown) => mockWithTenantTx(fn),
@@ -60,6 +67,8 @@ beforeEach(() => {
   insertedRows.length = 0;
   mockSend.mockClear();
   mockConfig.email.enabled = true;
+  mockAssertSafeUrl.mockReset();
+  mockAssertSafeUrl.mockResolvedValue(undefined);
   fetchMock.mockReset();
   fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
   global.fetch = fetchMock as unknown as typeof fetch;
@@ -114,6 +123,36 @@ describe('webhook channel', () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     const expected = `sha256=${createHmac('sha256', 's3cr3t').update(init.body as string).digest('hex')}`;
     expect((init.headers as Record<string, string>)['X-PB-Signature']).toBe(expected);
+  });
+
+  // -- SSRF regression --------------------------------------------------------
+
+  it('runs the SSRF guard against the target and sends with redirect: manual', async () => {
+    await getNotificationChannel('webhook')!.deliver(baseMsg(), target({ value: 'https://hooks.example.com/x' }), signal());
+    expect(mockAssertSafeUrl).toHaveBeenCalledWith('https://hooks.example.com/x');
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.redirect).toBe('manual');
+  });
+
+  it('REJECTS a target the SSRF guard blocks (private/metadata IP) and never connects', async () => {
+    mockAssertSafeUrl.mockRejectedValueOnce(new Error('url resolves to a private address'));
+    const res = await getNotificationChannel('webhook')!.deliver(baseMsg(), target({ value: 'https://169-254-169-254.sslip.io/' }), signal());
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('private address');
+    expect(fetchMock).not.toHaveBeenCalled(); // fail-closed: no outbound request
+  });
+
+  it('treats a 3xx redirect as a FAILED delivery (no rebinding pivot, no false green)', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 302, type: 'default' } as Response);
+    const res = await getNotificationChannel('webhook')!.deliver(baseMsg(), target(), signal());
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe(302);
+  });
+
+  it('passes an SSRF-clean public target through to fetch', async () => {
+    const res = await getNotificationChannel('webhook')!.deliver(baseMsg(), target({ value: 'https://ok.example.com/hook' }), signal());
+    expect(res).toEqual({ ok: true, code: 200 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

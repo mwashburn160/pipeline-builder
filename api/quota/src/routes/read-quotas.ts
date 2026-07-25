@@ -40,12 +40,17 @@ interface AtRiskCacheEntry {
   entries: AtRiskEntry[];
 }
 
+// Page size for the internal full-collection scan in GET /quotas/at-risk. Each
+// findAll() page is capped here (and by findAll's own FIND_ALL_MAX_LIMIT) while
+// the loop walks the whole org collection to exhaustion.
+const ORG_SCAN_PAGE_SIZE = 1000;
+
 export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
 
-  // Per-router memo so each test/app gets its own cache. Keyed by
-  // `threshold:limit:offset` so each distinct page memoizes independently —
-  // a shared key would let one page's cached slice satisfy another page's request.
+  // Per-router memo so each test/app gets its own cache. Keyed by `threshold`
+  // only: the entry now holds the COMPLETE at-risk set (the whole org
+  // collection is scanned), so there is no per-page slice to key on.
   const atRiskCache = new Map<string, AtRiskCacheEntry>();
 
   // GET /quotas — own org quotas (orgId from JWT / header)
@@ -93,17 +98,16 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   // is suitable for an alerting cron (call this hourly, page if response
   // non-empty for tier=Pro/Team/Enterprise).
   //
-  // The scan is bounded by pagination (findAll only loads this page of orgs,
-  // never the whole collection) and memoized for 60s per (threshold, limit,
-  // offset) so the alerting cron and the dashboard can hammer a given page
-  // without re-scanning it every call.
+  // The scan walks the ENTIRE org collection to exhaustion (loop-paginated in
+  // ORG_SCAN_PAGE_SIZE chunks) so the returned at-risk set is COMPLETE — an
+  // at-risk org past the first page must never be invisible to the alerting
+  // cron. The complete set is memoized for 60s per threshold so the cron and
+  // the dashboard can hammer it without re-scanning every call.
   //
   // Query params:
-  //   - threshold (number, default 80): percent threshold (1-99) above which
-  //     an org is considered at-risk. Caps at 99 — to find already-exhausted
-  //     orgs use threshold=100.
-  //   - limit, offset: pagination over the org collection (by name), matching
-  //     GET /quotas/all; at-risk rows are computed from that page.
+  //   - threshold (number, default 80): percent threshold (1-100) above which
+  //     an org is considered at-risk. Use threshold=100 to find already-
+  //     exhausted orgs.
 
   router.get(
     '/at-risk',
@@ -120,48 +124,51 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
       const rawThreshold = parseInt(String(req.query.threshold ?? '80'), 10);
       const threshold = Number.isFinite(rawThreshold) ? Math.min(100, Math.max(1, rawThreshold)) : 80;
 
-      const limit = parseQueryIntClamped(req.query.limit, 100, 1000);
-      const offset = parseQueryIntClamped(req.query.offset, 1, Number.MAX_SAFE_INTEGER) - 1;
-
       const now = Date.now();
-      const cacheKey = `${threshold}:${limit}:${offset}`;
+      const cacheKey = `${threshold}`;
       let cached = atRiskCache.get(cacheKey);
       if (!cached || cached.expires <= now) {
-        // Bound the scan at the DB level — findAll() with no args pulls the
-        // entire organizations collection into memory. Only this page of orgs
-        // is loaded and evaluated for at-risk status.
-        const organizations = await svc.findAll({ limit, offset });
+        // Loop-paginate the whole org collection to exhaustion. A single
+        // findAll() page (the old behaviour) hid every at-risk org past page 1
+        // from the cron. Each page is bounded by ORG_SCAN_PAGE_SIZE so memory
+        // stays flat; we stop once a short page signals the collection is
+        // exhausted.
         const computed: AtRiskEntry[] = [];
-        for (const org of organizations) {
-          for (const type of VALID_QUOTA_TYPES) {
-            const summary = org.quotas[type];
-            if (!summary || summary.unlimited) continue;
-            // limit === 0 means the org is permanently at risk (any use
-            // pushes 100%+); report as 100%.
-            const percent = summary.limit === 0
-              ? 100
-              : Math.min(100, Math.round((summary.used / summary.limit) * 100));
-            if (percent >= threshold) {
-              computed.push({
-                orgId: org.orgId,
-                name: org.name,
-                slug: org.slug,
-                tier: org.tier,
-                type,
-                used: summary.used,
-                limit: summary.limit,
-                percent,
-              });
+        for (let offset = 0; ; offset += ORG_SCAN_PAGE_SIZE) {
+          const organizations = await svc.findAll({ limit: ORG_SCAN_PAGE_SIZE, offset });
+          for (const org of organizations) {
+            for (const type of VALID_QUOTA_TYPES) {
+              const summary = org.quotas[type];
+              if (!summary || summary.unlimited) continue;
+              // limit === 0 means the org is permanently at risk (any use
+              // pushes 100%+); report as 100%.
+              const percent = summary.limit === 0
+                ? 100
+                : Math.min(100, Math.round((summary.used / summary.limit) * 100));
+              if (percent >= threshold) {
+                computed.push({
+                  orgId: org.orgId,
+                  name: org.name,
+                  slug: org.slug,
+                  tier: org.tier,
+                  type,
+                  used: summary.used,
+                  limit: summary.limit,
+                  percent,
+                });
+              }
             }
           }
+          if (organizations.length < ORG_SCAN_PAGE_SIZE) break; // collection exhausted
         }
         computed.sort((a, b) => b.percent - a.percent);
         cached = { expires: now + config.quota.atRiskCacheTtlMs, entries: computed };
         atRiskCache.set(cacheKey, cached);
       }
 
-      // `entries` are the at-risk rows for this page of orgs (already bounded by
-      // the paginated findAll above), sorted by percent desc — return as-is.
+      // `entries` is the COMPLETE at-risk set across all orgs, sorted by percent
+      // desc. `complete: true` documents to the caller that no pagination cursor
+      // needs to be followed — the whole set is present.
       const entries = cached.entries;
       ctx.log('COMPLETED', 'Listed at-risk orgs', {
         threshold, count: entries.length, total: entries.length,
@@ -171,8 +178,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
         count: entries.length,
         total: entries.length,
         threshold,
-        limit,
-        offset,
+        complete: true,
       });
     }),
   );

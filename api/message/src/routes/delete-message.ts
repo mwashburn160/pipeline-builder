@@ -73,7 +73,7 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
     // Fire-and-forget: RemoteAuditClient.record never throws and is not awaited.
     getAuditClient().record({
       action: 'message.delete',
-      actorId: req.user?.sub ?? userId,
+      actorId: req.user?.sub ?? userId ?? 'system',
       orgId,
       targetId: deleted.id,
       details: {

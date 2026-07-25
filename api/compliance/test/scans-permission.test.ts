@@ -67,7 +67,7 @@ jest.unstable_mockModule('../src/services/compliance-scan-service.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
+jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
   emitComplianceAudit: (...args: unknown[]) => emitComplianceAuditMock(...args),
 }));
 

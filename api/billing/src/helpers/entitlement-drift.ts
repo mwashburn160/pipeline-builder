@@ -26,9 +26,9 @@
  * seat-usage). Any set difference is drift on the `features` dimension.
  */
 
-import type { QuotaTier } from '@pipeline-builder/api-core';
 import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
-import { effectiveEntitlements, getBillingTimeout, getBundleCatalog } from './billing-helpers.js';
+import { getBillingTimeout } from './billing-helpers.js';
+import { fetchQuotaSnapshot, fetchSeatUsage } from './quota-client.js';
 import { config } from '../config.js';
 
 const logger = createLogger('entitlement-drift');
@@ -59,56 +59,28 @@ export interface DriftResult {
 
 /** Read the 9 enforced quota limits from the quota service; `null` on any read failure. */
 async function readEnforcedQuotaLimits(orgId: string, auth: string): Promise<Record<string, number> | null> {
-  try {
-    const client = createSafeClient({
-      host: config.quotaService.host,
-      port: config.quotaService.port,
-      timeout: getBillingTimeout(),
-    });
-    const resp = await client.get<{ data?: { quota?: { quotas?: Record<string, { limit?: number }> } } }>(
-      `/quotas/${orgId}`,
-      { headers: { 'Authorization': auth, 'x-org-id': orgId } },
-    );
-    // `null` (network/parse error) or a non-2xx is a READ FAILURE, not "drift".
-    if (!resp || resp.statusCode >= 400) return null;
-    const quotas = resp.body?.data?.quota?.quotas;
-    if (!quotas) return null;
+  // Shared quota-client owns the envelope parse + fail-soft; drift's own policy
+  // (below) is that an INCOMPLETE snapshot is a read failure, not drift.
+  const snapshot = await fetchQuotaSnapshot(orgId, auth);
+  if (!snapshot) return null;
 
-    const limits: Record<string, number> = {};
-    for (const t of VALID_QUOTA_TYPES) {
-      const limit = quotas[t]?.limit;
-      // An incomplete payload (a type missing / non-numeric) can't be safely
-      // compared — treat the whole read as failed so we never false-drift.
-      if (typeof limit !== 'number') return null;
-      limits[t] = limit;
-    }
-    return limits;
-  } catch (err) {
-    logger.warn('Failed to read enforced quota limits', { orgId, error: errorMessage(err) });
-    return null;
+  const limits: Record<string, number> = {};
+  for (const t of VALID_QUOTA_TYPES) {
+    const limit = snapshot.quotas?.[t]?.limit;
+    // An incomplete payload (a type missing / non-numeric) can't be safely
+    // compared — treat the whole read as failed so we never false-drift.
+    if (typeof limit !== 'number') return null;
+    limits[t] = limit;
   }
+  return limits;
 }
 
 /** Read the enforced seat limit from platform; `null` on any read failure. */
 async function readEnforcedSeatLimit(orgId: string, auth: string): Promise<number | null> {
-  try {
-    const client = createSafeClient({
-      host: config.platformService.host,
-      port: config.platformService.port,
-      timeout: getBillingTimeout(),
-    });
-    const resp = await client.get<{ data?: { limit?: number } }>(
-      `/organization/${orgId}/seat-usage`,
-      { headers: { 'Authorization': auth, 'x-org-id': orgId } },
-    );
-    if (!resp || resp.statusCode >= 400) return null;
-    const limit = resp.body?.data?.limit;
-    if (typeof limit !== 'number') return null;
-    return limit;
-  } catch (err) {
-    logger.warn('Failed to read enforced seat limit', { orgId, error: errorMessage(err) });
-    return null;
-  }
+  // `fetchSeatUsage` returns `limit: null` on a missing/non-numeric value, which
+  // collapses to the same `null` read-failure signal the old inline reader gave.
+  const seatSnapshot = await fetchSeatUsage(orgId, auth);
+  return seatSnapshot?.limit ?? null;
 }
 
 /** Read the enforced account feature entitlements from platform; `null` on any read failure. */
@@ -203,22 +175,4 @@ export function computeEntitlementDrift(
     drifted,
     dimensions: [...dimensions],
   };
-}
-
-/**
- * Detect entitlement drift for one subscription: compute EXPECTED entitlements
- * from (tier + add-ons), read the ACTUAL enforced state, and compare. A store
- * read failure returns `read_failed` (fail-soft — the caller skips, never
- * re-syncs on an outage).
- */
-export async function detectEntitlementDrift(
-  orgId: string,
-  tier: QuotaTier,
-  addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
-  authHeader: string,
-): Promise<DriftResult> {
-  const { limits, features } = effectiveEntitlements(tier, addons, getBundleCatalog());
-  const actual = await readActualEntitlements(orgId, authHeader);
-  if (!actual) return { status: 'read_failed', drifted: [], dimensions: [] };
-  return computeEntitlementDrift(limits, features, actual);
 }

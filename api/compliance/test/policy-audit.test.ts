@@ -50,7 +50,7 @@ jest.unstable_mockModule('drizzle-orm', () => ({
   and: jest.fn(), eq: jest.fn(), inArray: jest.fn(),
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
+jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
   getAuditClient: () => ({ record: jest.fn() }),
 }));

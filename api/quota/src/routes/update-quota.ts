@@ -51,7 +51,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         );
         emitQuotaAudit({
           action: 'quota.limit.update',
-          actorId: req.user?.sub ?? 'unknown',
+          actorId: req.user?.sub ?? 'system',
           affectedOrgId: targetOrgId,
           details: {
             ...(body.tier !== undefined ? { tier: body.tier } : {}),
@@ -86,7 +86,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
       if (deleted) {
         emitQuotaAudit({
           action: 'quota.delete',
-          actorId: req.user?.sub ?? 'unknown',
+          actorId: req.user?.sub ?? 'system',
           affectedOrgId: targetOrgId,
           details: { deleted: true },
         });
@@ -117,7 +117,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         // value (the pre-reset counter is not read back here).
         emitQuotaAudit({
           action: 'quota.reset',
-          actorId: req.user?.sub ?? 'unknown',
+          actorId: req.user?.sub ?? 'system',
           affectedOrgId: targetOrgId,
           details: { quotaType: quotaType ?? 'all', newUsed: 0 },
         });

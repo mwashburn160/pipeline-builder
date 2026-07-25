@@ -40,6 +40,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   registerComplianceEventSubscriber: jest.fn(),
   requireFeature: (feature: string) => featureGuard(feature),
   decrementQuota: jest.fn(),
+  // generate-plugin.ts mints a service token for the quota reserve/decrement calls.
+  getServiceAuthHeader: () => 'Bearer test-service-token',
   reserveQuota: async () => ({ exceeded: false, quota: { type: 'aiCalls', limit: 1, used: 0, remaining: 1, resetAt: 0 } }),
   handleAIError: (res: any, msg: string) => res.status(500).json({ message: msg }),
   initSSEStream: () => ({ aborted: () => false }),

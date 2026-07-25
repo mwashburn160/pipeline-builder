@@ -36,15 +36,15 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly. Every p
 |--------|-------|--------:|-------:|--------------|:---------:|
 | **Seat Pack** | +5 member seats | $25 | $250 | all tiers | ✅ |
 | **Pipeline Pack** | +10 pipelines | $15 | $150 | all tiers | ✅ |
-| **Plugin Pack** | +100 plugins | $10 | $100 | all tiers | ✅ |
-| **API Pack** | +1,000,000 API calls / period | $20 | $200 | Developer, Pro | ✅ |
-| **AI Pack** | +5,000 AI calls / period | $30 | $300 | all tiers | ✅ |
-| **Storage Pack** | +50 GB registry storage | $10 | $100 | all tiers | ✅ |
+| **Plugin Pack** | +100 plugins | $15 | $150 | all tiers | ✅ |
+| **API Pack** | +1,000,000 API calls / period | $20 | $200 | all tiers | ✅ |
+| **AI Pack** | +5,000 AI calls / period | $75 | $750 | all tiers | ✅ |
+| **Storage Pack** | +50 GB registry storage | $25 | $250 | all tiers | ✅ |
 | **Audit Log** | unlocks the `audit_log` feature | $20 | $200 | Pro | ❌ |
 | **SSO / IdP** | unlocks `sso` + up to 5 IdP configs | $40 | $400 | Pro, Team | ❌ |
 
 Notes:
-- **API Pack** is offered only to Developer and Pro because Team and Enterprise already have unlimited API calls.
+- **API Pack** is available on every tier, since all tiers now have a finite API-call cap (Team 2M, Enterprise 10M) that can be topped up.
 - **Audit Log** and **SSO** are the "buy up a capability without changing tier" path: Audit Log is standard from the Team tier up, and SSO from Enterprise — the bundles let a Pro (or Pro/Team) account add them à la carte.
 
 ---

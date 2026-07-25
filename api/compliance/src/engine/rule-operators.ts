@@ -9,6 +9,7 @@
  */
 
 import type { RuleOperator } from '@pipeline-builder/pipeline-data';
+import { parseIntEnv } from '../helpers/env.js';
 
 /**
  * Cap on user-supplied regex patterns in compliance rules — long patterns
@@ -24,10 +25,7 @@ import type { RuleOperator } from '@pipeline-builder/pipeline-data';
  * build dependency. Until then, keeping the length cap small is the cheapest
  * mitigation we have.
  */
-const MAX_REGEX_LENGTH = (() => {
-  const n = Number.parseInt(process.env.COMPLIANCE_MAX_REGEX_LENGTH ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : 100;
-})();
+const MAX_REGEX_LENGTH = parseIntEnv(process.env.COMPLIANCE_MAX_REGEX_LENGTH, 100);
 
 /**
  * Safely compile and test a regex pattern with length limits.

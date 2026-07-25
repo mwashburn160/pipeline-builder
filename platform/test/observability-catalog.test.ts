@@ -29,9 +29,9 @@ describe('observability catalog', () => {
     });
 
     it('only declares template vars from the allow-list', () => {
-      // `digest` was dropped from the catalog — it had no live callers.
+      // `digest` and `plugin` were dropped from the catalog — no live callers.
       // `requestId` is a Loki line filter for audit-event correlation.
-      const allowed = new Set(['event', 'actor', 'plugin', 'requestId']);
+      const allowed = new Set(['event', 'actor', 'requestId']);
       for (const [key, entry] of Object.entries(QUERIES)) {
         for (const v of entry.allowedVars) {
           expect(allowed.has(v)).toBe(true);

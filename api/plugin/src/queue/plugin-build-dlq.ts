@@ -43,7 +43,7 @@ function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMessage: st
   const isTimeout = /timed out|timeout/i.test(errorMessage);
   emitPluginAudit({
     action: isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed',
-    actorId: userId,
+    actorId: userId ?? 'system',
     orgId,
     targetType: 'plugin',
     details: {

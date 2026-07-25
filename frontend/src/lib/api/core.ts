@@ -110,6 +110,12 @@ export class ApiCore {
   setTokens(tokens: AuthTokens) {
     this.accessToken = tokens.accessToken;
     this.refreshToken = tokens.refreshToken;
+    // A fresh token pair is a fresh session — reset the consecutive-refresh
+    // failure counter. Without this, a session that hit MAX_REFRESH_ATTEMPTS
+    // (and was cleared) leaves the counter pinned at MAX, so a re-login in the
+    // same tab (the singleton client survives client-side nav) is immediately
+    // kicked out when its next refresh short-circuits on `>= MAX`.
+    this.refreshAttempts = 0;
 
     if (typeof window !== 'undefined') {
       try {
@@ -239,6 +245,9 @@ export class ApiCore {
     this.accessToken = null;
     this.refreshToken = null;
     this.organizationId = null;
+    // Clear the failure counter too, so the next session (re-login in this
+    // same tab) doesn't start pre-locked at MAX consecutive failures.
+    this.refreshAttempts = 0;
 
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);

@@ -80,13 +80,17 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
+// Shared ctx.log spy so tests can assert what the handler logs — e.g. that a
+// gitUrl carrying embedded credentials is never logged. Cleared per test.
+const mockCtxLog = jest.fn();
+
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   createAuthenticatedWithOrgRoute: () => [],
   incrementQuotaFromCtx: jest.fn(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = {
       identity: { orgId: req.context?.identity?.orgId || 'test-org' },
-      log: jest.fn(),
+      log: mockCtxLog,
       requestId: 'test-req-id',
     };
     const orgId = (ctx.identity.orgId || '').toLowerCase();
@@ -601,6 +605,70 @@ describe('POST /generate/from-url/stream', () => {
     // Should still have [DONE] at the end
     expect(events[events.length - 1]).toBe('[DONE]');
     expect(res.end).toHaveBeenCalled();
+  });
+
+  // FIX 2 — a plugin name that isn't a strict `[a-z0-9-]+` token is
+  // shell/Dockerfile-injection bait (the plugin service embeds it in
+  // `echo "..."` / `RUN echo "Plugin ..."`). It must be rejected BEFORE the
+  // deploy call — never escaped, never forwarded.
+  it('rejects a shell-injection plugin name and never deploys it', async () => {
+    const finalOutputWithActions = {
+      project: 'app',
+      organization: 'test',
+      description: 'Injection test',
+      keywords: [],
+      synth: {
+        source: { type: 'github', options: { repo: 'test/app' } },
+        plugin: { name: 'nodejs-build' },
+      },
+      stages: [
+        {
+          stageName: 'Build',
+          actions: [
+            { pluginName: 'safe-plugin' },
+            { pluginName: '"; rm -rf / #' },
+          ],
+        },
+      ],
+    };
+
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithActions));
+
+    // Both names "missing" so each would be a deploy candidate.
+    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
+
+    mockPluginClientPost.mockResolvedValue({
+      statusCode: 202,
+      body: { data: { requestId: 'deploy-safe' } },
+    });
+
+    const req = mockReq();
+    const res = mockSseRes();
+    await handler(req, res);
+
+    const events = parseSseEvents(res.chunks);
+    const creatingEvent = events.find((e: any) => e.type === 'creating-plugins') as any;
+
+    // The malicious name is reported as an error build, not deployed.
+    expect(creatingEvent.data.builds).toEqual(
+      expect.arrayContaining([
+        { name: 'safe-plugin', requestId: 'deploy-safe' },
+        { name: '"; rm -rf / #', error: 'invalid plugin name' },
+      ]),
+    );
+
+    // The deploy call happened ONLY for the safe name.
+    expect(mockPluginClientPost).toHaveBeenCalledTimes(1);
+    expect(mockPluginClientPost).toHaveBeenCalledWith(
+      '/plugins/deploy-generated',
+      expect.objectContaining({ name: 'safe-plugin' }),
+      expect.anything(),
+    );
+    // The unsafe token never reached the plugin service in any argument.
+    const forwardedUnsafe = mockPluginClientPost.mock.calls.some(
+      (c: any[]) => JSON.stringify(c).includes('rm -rf'),
+    );
+    expect(forwardedUnsafe).toBe(false);
   });
 
   // Auto-plugin creation  existing plugins skip creation
@@ -1144,5 +1212,66 @@ describe('POST /generate/from-url/stream', () => {
     await handler(req, res);
 
     expect(req.on).toHaveBeenCalledWith('close', expect.any(Function));
+  });
+
+  // FIX 1 — the aiCalls quota reserve must use a minted service token, NOT the
+  // end-user bearer (the quota /increment endpoint rejects non-service principals
+  // with 403, which would fail-close the feature for every non-admin).
+  it('reserves aiCalls quota with a service token, not the user bearer', async () => {
+    const finalOutputNoStages = {
+      project: 'app',
+      organization: 'test',
+      synth: { source: { type: 'github', options: { repo: 'test/app' } }, plugin: { name: 'nodejs-build' } },
+    };
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputNoStages));
+
+    const req = mockReq(); // headers.authorization = 'Bearer test-token'
+    const res = mockSseRes();
+    await handler(req, res);
+
+    expect(mockReserveQuota).toHaveBeenCalledWith(
+      expect.anything(), 'test-org', 'aiCalls', 'Bearer service-token',
+    );
+    // The user's bearer must never be used as the quota principal.
+    const usedUserBearer = mockReserveQuota.mock.calls.some((c: any[]) => c[3] === 'Bearer test-token');
+    expect(usedUserBearer).toBe(false);
+  });
+
+  // FIX 3 — a gitUrl may embed credentials (https://user:token@host/...). The
+  // request log must carry only the parsed host/owner/repo, never the raw URL.
+  it('does not log the raw gitUrl (which can embed credentials)', async () => {
+    mockValidateBody.mockReturnValue({
+      ok: true,
+      value: {
+        gitUrl: 'https://user:s3cr3t-token@github.com/test/app',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+      },
+    });
+    // parseGitUrl strips creds — it yields only host/owner/repo/provider.
+    mockParseGitUrl.mockReturnValue(VALID_PARSED_URL);
+
+    const finalOutputNoStages = {
+      project: 'app',
+      organization: 'test',
+      synth: { source: { type: 'github', options: { repo: 'test/app' } }, plugin: { name: 'nodejs-build' } },
+    };
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputNoStages));
+
+    const req = mockReq();
+    const res = mockSseRes();
+    await handler(req, res);
+
+    const loggedBlob = JSON.stringify(mockCtxLog.mock.calls);
+    // No credentials and no raw credential-bearing URL anywhere in the logs.
+    expect(loggedBlob).not.toContain('s3cr3t-token');
+    expect(loggedBlob).not.toContain('user:');
+    // The request-received log carries the safe parsed identity instead.
+    const requestLog = mockCtxLog.mock.calls.find(
+      (c: any[]) => typeof c[1] === 'string' && c[1].includes('from URL requested'),
+    );
+    expect(requestLog).toBeDefined();
+    expect(requestLog?.[2]).toEqual(expect.objectContaining({ host: 'github.com', owner: 'test', repo: 'app' }));
+    expect(requestLog?.[2]).not.toHaveProperty('gitUrl');
   });
 });

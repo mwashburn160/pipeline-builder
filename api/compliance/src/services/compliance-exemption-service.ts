@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { buildComplianceExemptionConditions, drizzleCount, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { buildComplianceExemptionConditions, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { and, desc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
+import { paginatedList } from './paginated-list.js';
 import type { ActiveExemption } from '../engine/rule-engine.js';
 
 export const CE_NOT_FOUND = 'CE_NOT_FOUND';
@@ -92,21 +93,14 @@ class ComplianceExemptionService {
     const conditions = buildComplianceExemptionConditions(filter, orgId);
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [countResult] = await withTenantTx(async (tx) => tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.complianceExemption)
-      .where(whereClause)
-      .then(r => drizzleCount(r)));
-
-    const exemptions = await withTenantTx(async (tx) => tx
-      .select()
-      .from(schema.complianceExemption)
-      .where(whereClause)
-      .orderBy(desc(schema.complianceExemption.createdAt))
-      .limit(limit)
-      .offset(offset));
-
-    return { exemptions, total: countResult?.count ?? 0 };
+    const { rows, total } = await paginatedList(
+      schema.complianceExemption,
+      whereClause,
+      desc(schema.complianceExemption.createdAt),
+      limit,
+      offset,
+    );
+    return { exemptions: rows, total };
   }
 
   /** Create a single pending exemption request. */

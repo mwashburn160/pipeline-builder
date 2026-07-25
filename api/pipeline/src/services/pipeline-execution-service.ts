@@ -6,6 +6,7 @@ import {
   StartPipelineExecutionCommand,
   StopPipelineExecutionCommand,
 } from '@aws-sdk/client-codepipeline';
+import { scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
 import { pipelineRegistryService } from './pipeline-registry-service.js';
 
 // Error-code constants (mirrors the `PR_*` convention in the registry service).
@@ -40,7 +41,11 @@ function awsErrorName(err: unknown): string | undefined {
 }
 
 function awsErrorMessage(err: unknown): string | undefined {
-  if (err instanceof Error) return err.message;
+  // Scrub AWS account identifiers before the message is captured — CodePipeline
+  // failures embed role/KMS ARNs (arn:aws:iam::<acct>:role/...), and this value
+  // is both logged and returned in 502/404 response bodies. Must never leak the
+  // account id to a log sink or a caller.
+  if (err instanceof Error) return scrubAwsIdentifiersFromString(err.message);
   return undefined;
 }
 

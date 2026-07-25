@@ -94,7 +94,9 @@ export function bootstrap(program: Command): void {
       const executionId = printCommandHeader('CDK Bootstrap');
 
       try {
-        auditLog('bootstrap', { executionId, account: options.account, region: options.region, profile: options.profile });
+        // Never persist the AWS account id to the on-disk audit log (~/.pipeline-manager/audit.log).
+        // The audit module records operation metadata only — region/profile are safe; the account id is not.
+        auditLog('bootstrap', { executionId, region: options.region, profile: options.profile });
 
         // Resolve account and region
         const account = resolveAccount(options.account);

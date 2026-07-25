@@ -161,6 +161,9 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       })
       .where(and(
         eq(schema.message.id, id),
+        // Match the isActive filter of markThreadAsRead/getUnreadCount so a
+        // soft-deleted message can't be mutated (readBy stamped) via this path.
+        eq(schema.message.isActive, true),
         sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
         or(
           eq(schema.message.orgId, orgId),
@@ -184,6 +187,9 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       .from(schema.message)
       .where(and(
         eq(schema.message.id, id),
+        // Soft-deleted messages are not returnable — keep parity with the
+        // update predicate above so a deleted message reads as not-found.
+        eq(schema.message.isActive, true),
         or(
           eq(schema.message.orgId, orgId),
           eq(schema.message.recipientOrgId, orgId),

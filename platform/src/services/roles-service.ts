@@ -33,6 +33,12 @@ export const RL_INVALID_PERMISSION = 'RL_INVALID_PERMISSION';
  *  `registry:read`/`registry:write`). Built-in Role seeds are exempt (they carry
  *  it legitimately); this guards only custom-Role create/update. */
 export const RL_PERMISSION_NOT_ASSIGNABLE = 'RL_PERMISSION_NOT_ASSIGNABLE';
+/** A requested permission is org-assignable but the ACTOR authoring the custom
+ *  Role does not themselves hold it — a custom Role can't grant beyond the
+ *  creator's own permission ceiling (prevents a delegated `roles:manage` holder
+ *  from minting + self-assigning `members:manage`/`org:settings`/etc.).
+ *  Platform superadmins bypass the ceiling (they implicitly hold everything). */
+export const RL_PERMISSION_EXCEEDS_CEILING = 'RL_PERMISSION_EXCEEDS_CEILING';
 /** The system org has no seeded Super Admin Role — platform-admin can't be
  *  granted/revoked via Role assignment (should never happen post-seed). */
 export const RL_SUPERADMIN_ROLE_MISSING = 'RL_SUPERADMIN_ROLE_MISSING';
@@ -395,21 +401,40 @@ export async function getUserRolePermissions(
 }
 
 /**
+ * The permission ceiling an actor is allowed to grant through a custom Role:
+ * the actor's own resolved permissions, plus their platform-superadmin status
+ * (which lifts the ceiling to everything org-assignable).
+ */
+export interface ActorPermissionCeiling {
+  /** The actor's resolved fine-grained permissions in their active org (the JWT
+   *  `permissions` claim). A superadmin may carry none and still bypass. */
+  permissions: readonly string[];
+  /** Platform superadmin — bypasses the ceiling entirely. */
+  isSuperAdmin: boolean;
+}
+
+/**
  * Validate + normalize a permission list for a user-authored CUSTOM Role.
  *
- * Two gates: (1) every entry must be a known api-core permission
- * (`RL_INVALID_PERMISSION`), and (2) it must be ORG-ASSIGNABLE — the
- * superadmin-only registry permissions (`registry:read`/`registry:write`) are
- * REJECTED (`RL_PERMISSION_NOT_ASSIGNABLE`) so an org admin can't mint a Role
- * that grants a platform-operator capability. Built-in Role seeds bypass this
- * entirely (they're created directly from `ROLE_PERMISSIONS`, never through here).
+ * Three gates: (1) every entry must be a known api-core permission
+ * (`RL_INVALID_PERMISSION`); (2) it must be ORG-ASSIGNABLE — the superadmin-only
+ * registry permissions (`registry:read`/`registry:write`) are REJECTED
+ * (`RL_PERMISSION_NOT_ASSIGNABLE`) so an org admin can't mint a Role that grants
+ * a platform-operator capability; and (3) it must be within the ACTOR's own
+ * permission ceiling — a non-superadmin can only grant permissions they
+ * themselves hold (`RL_PERMISSION_EXCEEDS_CEILING`), so a delegated
+ * `roles:manage` holder can't mint + self-assign privileges they lack (e.g.
+ * `members:manage`). Superadmins bypass gate (3). Built-in Role seeds bypass all
+ * of this (they're created directly from `ROLE_PERMISSIONS`, never through here).
  */
-function sanitizePermissions(permissions: unknown): string[] {
+function sanitizePermissions(permissions: unknown, actor: ActorPermissionCeiling): string[] {
   if (!Array.isArray(permissions)) return [];
+  const ceiling = new Set(actor.permissions);
   const out = new Set<string>();
   for (const p of permissions) {
     if (typeof p !== 'string' || !isValidPermission(p)) throw new Error(RL_INVALID_PERMISSION);
     if (!isOrgAssignablePermission(p)) throw new Error(RL_PERMISSION_NOT_ASSIGNABLE);
+    if (!actor.isSuperAdmin && !ceiling.has(p)) throw new Error(RL_PERMISSION_EXCEEDS_CEILING);
     out.add(p);
   }
   return [...out];
@@ -419,15 +444,21 @@ function sanitizePermissions(permissions: unknown): string[] {
  * Create a custom, user-defined permission Role in an org/team. Custom Roles
  * never confer a base role (`grantsRole` stays `'member'`) — they only ADD
  * fine-grained permissions. Names are unique per org.
- * Throws `RL_NAME_TAKEN`, `RL_INVALID_PERMISSION`, `RL_PERMISSION_NOT_ASSIGNABLE`.
+ *
+ * `actor` is the caller's permission ceiling: a non-superadmin may only grant
+ * permissions they themselves hold (prevents self-escalation via a delegated
+ * `roles:manage`). Superadmins bypass the ceiling.
+ * Throws `RL_NAME_TAKEN`, `RL_INVALID_PERMISSION`, `RL_PERMISSION_NOT_ASSIGNABLE`,
+ * `RL_PERMISSION_EXCEEDS_CEILING`.
  */
 export async function createRole(
   orgId: string,
   input: { name: string; description?: string; permissions?: string[] },
+  actor: ActorPermissionCeiling,
 ): Promise<RoleWithMembers> {
   const oid = toOrgId(orgId);
   const name = input.name.trim();
-  const permissions = sanitizePermissions(input.permissions ?? []);
+  const permissions = sanitizePermissions(input.permissions ?? [], actor);
 
   const existing = await Role.findOne({ organizationId: oid, name }).select('_id').lean();
   if (existing) throw new Error(RL_NAME_TAKEN);
@@ -456,13 +487,19 @@ export async function createRole(
  * Update a custom Role's name/description/permissions. Seeded (`system`)
  * Roles are immutable here. Bumps `tokenVersion` for every current member when
  * permissions change so the new grants take effect on their next token refresh.
+ *
+ * `actor` is the caller's permission ceiling: a non-superadmin may only set a
+ * permission set within the permissions they themselves hold. Superadmins
+ * bypass the ceiling.
  * Throws `RL_ROLE_NOT_FOUND`, `RL_SYSTEM_IMMUTABLE`, `RL_NAME_TAKEN`,
- * `RL_INVALID_PERMISSION`, `RL_PERMISSION_NOT_ASSIGNABLE`.
+ * `RL_INVALID_PERMISSION`, `RL_PERMISSION_NOT_ASSIGNABLE`,
+ * `RL_PERMISSION_EXCEEDS_CEILING`.
  */
 export async function updateRole(
   orgId: string,
   roleId: string,
   input: { name?: string; description?: string; permissions?: string[] },
+  actor: ActorPermissionCeiling,
 ): Promise<RoleWithMembers> {
   const oid = toOrgId(orgId);
   const role = await Role.findOne({ _id: roleId, organizationId: oid });
@@ -481,7 +518,7 @@ export async function updateRole(
 
   let permsChanged = false;
   if (input.permissions !== undefined) {
-    role.permissions = sanitizePermissions(input.permissions);
+    role.permissions = sanitizePermissions(input.permissions, actor);
     permsChanged = true;
   }
 

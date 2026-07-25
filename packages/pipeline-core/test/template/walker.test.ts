@@ -42,4 +42,24 @@ describe('walkAndBind', () => {
     expect(doc.commands[0]).toBe('echo hello');
     expect(doc.env.K).toBe('world');
   });
+
+  it('set() writes back keys containing . / [ / ] (no silent drop)', () => {
+    // Key literally contains dots and brackets — a flattened dotted field
+    // string ("env.FOO.BAR[0]") would mis-parse and drop the write.
+    const doc = { env: { 'FOO.BAR[0]': '{{ y }}' } };
+    const entries = walkAndBind(doc, isTemplatable);
+    expect(entries).toHaveLength(1);
+    entries[0]!.set('resolved');
+    expect(doc.env['FOO.BAR[0]']).toBe('resolved');
+  });
+
+  it('includeLiteralOnly returns fields whose only template content is a {{{{ escape', () => {
+    const doc = { commands: ['echo {{{{value'] };
+    // Default: literal-only fields are skipped.
+    expect(walkAndBind(doc, isTemplatable)).toHaveLength(0);
+    // Opt-in: returned so the {{{{ → {{ unescape can be written back.
+    const entries = walkAndBind(doc, isTemplatable, true);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.field).toBe('commands[0]');
+  });
 });

@@ -11,6 +11,7 @@ import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning } f
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
+import { relaxTlsForCli } from '../utils/tls.js';
 
 // ESM has no __dirname; derive it from this module's URL.
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -89,10 +90,10 @@ export function synth(program: Command): void {
         auditLog('synth', { executionId, pipelineId, output: options.output, profile: options.profile });
         printSslWarning(options.verifySsl);
 
-        // Propagate to process.env so CDK constructs (Lambda, CodeBuild) inherit it
-        if (options.verifySsl === false) {
-          process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-        }
+        // Propagate to process.env so CDK constructs (Lambda, CodeBuild) inherit it,
+        // but refuse in production (see relaxTlsForCli) — the flag disables cert
+        // validation for ALL outbound TLS, including the AWS SDK.
+        relaxTlsForCli(options.verifySsl, printWarning);
 
         // Fetch pipeline config if ID is available and PIPELINE_PROPS not already set
         if (pipelineId && !process.env.PIPELINE_PROPS) {

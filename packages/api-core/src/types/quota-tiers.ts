@@ -56,10 +56,9 @@ const GB = 1024 * 1024 * 1024;
  * Code-default limits per tier — the fallback when no env override is set.
  * -1 means unlimited. (Counts sized to "comfortably enough for one team, not
  * script spam": 20 dashboards, 50 alert rules, 10 destinations, 1 IdP config
- * for Developer; scaled up for Pro; -1 (uncapped) for the count-quotas on
- * Team/Enterprise while cost-driving quotas stay finite.)
+ * for Developer; scaled up for Pro; -1 (uncapped) for the cheap count-quotas
+ * on Team/Enterprise while cost-driving quotas — incl. apiCalls — stay finite.)
  */
-const TB = 1024 * GB;
 const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
   // Free tier: single seat, apiCalls CAPPED (was unlimited — a DoS/abuse hole
   // on a shared resource); aiCalls small (each has ~$0.01-0.10 external cost).
@@ -67,7 +66,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 25,
     pipelines: 5,
     apiCalls: 25_000,
-    aiCalls: 50,
+    aiCalls: 25,
     storageBytes: 2 * GB,
     dashboards: 20,
     alertRules: 50,
@@ -80,8 +79,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 50,
     pipelines: 10,
     apiCalls: 500_000,
-    aiCalls: 2_500,
-    storageBytes: 50 * GB,
+    aiCalls: 1_000,
+    storageBytes: 25 * GB,
     dashboards: 200,
     alertRules: 500,
     alertDestinations: 50,
@@ -93,24 +92,24 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
   team: {
     plugins: 100,
     pipelines: 200,
-    apiCalls: -1,
-    aiCalls: 10_000,
-    storageBytes: 250 * GB,
+    apiCalls: 2_000_000,
+    aiCalls: 5_000,
+    storageBytes: 150 * GB,
     dashboards: -1,
     alertRules: -1,
     alertDestinations: -1,
     idpConfigs: 5,
     seats: 10,
   },
-  // Enterprise: org-wide, high seat cap. FAIR-USE — cost drivers (aiCalls,
-  // storageBytes) capped high so one account can't run up unbounded provider/
-  // storage cost on a flat price; cheap count-quotas stay -1.
+  // Enterprise: org-wide, high seat cap. FAIR-USE — cost drivers (apiCalls,
+  // aiCalls, storageBytes) capped high so one account can't run up unbounded
+  // compute/provider/storage cost on a flat price; cheap count-quotas stay -1.
   enterprise: {
     plugins: 250,
     pipelines: 200,
-    apiCalls: -1,
-    aiCalls: 25_000,
-    storageBytes: TB,
+    apiCalls: 10_000_000,
+    aiCalls: 15_000,
+    storageBytes: 500 * GB,
     dashboards: -1,
     alertRules: -1,
     alertDestinations: -1,

@@ -24,6 +24,7 @@ import type { Response } from 'express';
 import * as am from './alertmanager-client.js';
 import {
   QUERIES,
+  type QueryEntry,
   type RangeKey,
   rangeSeconds,
   stepForRange,
@@ -51,6 +52,26 @@ function parseLimit(raw: unknown): number {
   const n = typeof raw === 'string' ? parseInt(raw, 10) : NaN;
   if (!Number.isFinite(n) || n < 1) return 50;
   return Math.min(n, 500);
+}
+
+/**
+ * Enforce the tenancy boundary for a catalog key.
+ *
+ * An `orgScoped` entry substitutes `$ORG` server-side, confining its result to
+ * the caller's own org (sysadmins get a cross-org wildcard) — safe for any
+ * authenticated org member. An entry that is NOT `orgScoped` has NO org
+ * confinement: it queries a fleet-wide metric or a tenant-level Loki stream
+ * (e.g. the `{eventCategory="audit"}` audit trail, platform totals). Exposing
+ * those to a normal org member leaks every tenant's data, so they are
+ * restricted to platform system admins. Writes a 403 and returns false when the
+ * caller lacks the required authority.
+ */
+function requireCatalogScope(entry: QueryEntry, sysadmin: boolean, res: Response): boolean {
+  if (!entry.orgScoped && !sysadmin) {
+    sendError(res, 403, 'Forbidden: system admin access required for this observability query');
+    return false;
+  }
+  return true;
 }
 
 /** Convert a Prom/Loki error to the right HTTP response per the contract above. */
@@ -86,11 +107,11 @@ export const observabilityQuery = withController('Observability query', async (r
     return;
   }
   const entry = QUERIES[key];
+  if (!requireCatalogScope(entry, sysadmin, res)) return;
 
   const queryStr = substituteVars(
     entry.query,
     {
-      plugin: parseQueryString(req.query.plugin),
       event: parseQueryString(req.query.event),
       actor: parseQueryString(req.query.actor),
       org: req.user?.organizationId,
@@ -154,6 +175,7 @@ export const observabilityLogs = withController('Observability logs', async (req
     sendError(res, 400, 'Query key is not a Loki query');
     return;
   }
+  if (!requireCatalogScope(entry, sysadmin, res)) return;
 
   const range = parseRange(req.query.range);
   if (range === null) {
@@ -167,7 +189,6 @@ export const observabilityLogs = withController('Observability logs', async (req
   const vars = {
     event: parseQueryString(req.query.event),
     actor: parseQueryString(req.query.actor),
-    plugin: parseQueryString(req.query.plugin),
     requestId: parseQueryString(req.query.requestId),
     org: req.user?.organizationId,
     isSuperAdmin: sysadmin,
@@ -220,9 +241,9 @@ export const observabilityCatalog = withController('Observability catalog', asyn
 /**
  * GET /api/observability/alerts — list currently-firing + suppressed alerts.
  *
- * Org-scoped: org admins see alerts labeled with their org_id (plus
- * platform-wide alerts that have no org_id label, since those still affect
- * them). Sysadmins see all alerts unfiltered.
+ * Org-scoped: org admins see only alerts labeled with their org_id (the
+ * Alertmanager client applies the `org_id` filter server-side). Sysadmins
+ * see all alerts unfiltered.
  */
 export const observabilityAlerts = withController('Observability alerts', async (req, res) => {
   if (!requireAuth(req, res)) return;
@@ -231,9 +252,12 @@ export const observabilityAlerts = withController('Observability alerts', async 
 
   try {
     const all = await am.listAlerts(sysadmin ? undefined : orgId);
+    // `listAlerts(orgId)` already constrains to the caller's org_id server-side;
+    // the residual client-side equality check just guards the orgId-undefined
+    // edge (a non-sysadmin without an org sees only no-org_id alerts).
     const visible = sysadmin
       ? all
-      : all.filter(a => !a.labels.org_id || a.labels.org_id === orgId);
+      : all.filter(a => a.labels.org_id === orgId);
     sendSuccess(res, 200, { alerts: visible });
   } catch (err) {
     sendUpstreamError(res, err);

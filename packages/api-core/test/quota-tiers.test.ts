@@ -13,7 +13,6 @@ import {
 
 // storageBytes sized per tier. Tiers: developer / pro / team / enterprise.
 const GB = 1024 * 1024 * 1024;
-const TB = 1024 * GB;
 
 describe('QUOTA_TIERS', () => {
   it('should define developer tier', () => {
@@ -27,7 +26,7 @@ describe('QUOTA_TIERS', () => {
         plugins: 25,
         pipelines: 5,
         apiCalls: 25_000,
-        aiCalls: 50,
+        aiCalls: 25,
         storageBytes: 2 * GB,
         dashboards: 20,
         alertRules: 50,
@@ -45,8 +44,8 @@ describe('QUOTA_TIERS', () => {
         plugins: 50,
         pipelines: 10,
         apiCalls: 500_000,
-        aiCalls: 2_500,
-        storageBytes: 50 * GB,
+        aiCalls: 1_000,
+        storageBytes: 25 * GB,
         dashboards: 200,
         alertRules: 500,
         alertDestinations: 50,
@@ -62,9 +61,9 @@ describe('QUOTA_TIERS', () => {
       limits: {
         plugins: 100,
         pipelines: 200,
-        apiCalls: -1,
-        aiCalls: 10_000,
-        storageBytes: 250 * GB,
+        apiCalls: 2_000_000,
+        aiCalls: 5_000,
+        storageBytes: 150 * GB,
         dashboards: -1,
         alertRules: -1,
         alertDestinations: -1,
@@ -80,9 +79,9 @@ describe('QUOTA_TIERS', () => {
       limits: {
         plugins: 250,
         pipelines: 200,
-        apiCalls: -1,
-        aiCalls: 25_000,
-        storageBytes: TB,
+        apiCalls: 10_000_000,
+        aiCalls: 15_000,
+        storageBytes: 500 * GB,
         dashboards: -1,
         alertRules: -1,
         alertDestinations: -1,
@@ -130,7 +129,7 @@ describe('getTierLimits', () => {
     plugins: 25,
     pipelines: 5,
     apiCalls: 25_000,
-    aiCalls: 50,
+    aiCalls: 25,
     storageBytes: 2 * GB,
     dashboards: 20,
     alertRules: 50,
@@ -144,8 +143,8 @@ describe('getTierLimits', () => {
       plugins: 50,
       pipelines: 10,
       apiCalls: 500_000,
-      aiCalls: 2_500,
-      storageBytes: 50 * GB,
+      aiCalls: 1_000,
+      storageBytes: 25 * GB,
       dashboards: 200,
       alertRules: 500,
       alertDestinations: 50,
@@ -155,9 +154,9 @@ describe('getTierLimits', () => {
     expect(getTierLimits('team')).toEqual({
       plugins: 100,
       pipelines: 200,
-      apiCalls: -1,
-      aiCalls: 10_000,
-      storageBytes: 250 * GB,
+      apiCalls: 2_000_000,
+      aiCalls: 5_000,
+      storageBytes: 150 * GB,
       dashboards: -1,
       alertRules: -1,
       alertDestinations: -1,
@@ -167,9 +166,9 @@ describe('getTierLimits', () => {
     expect(getTierLimits('enterprise')).toEqual({
       plugins: 250,
       pipelines: 200,
-      apiCalls: -1,
-      aiCalls: 25_000,
-      storageBytes: TB,
+      apiCalls: 10_000_000,
+      aiCalls: 15_000,
+      storageBytes: 500 * GB,
       dashboards: -1,
       alertRules: -1,
       alertDestinations: -1,

@@ -122,7 +122,7 @@ export function createAdminSubscriptionRoutes(): Router {
           // whitelist — no card/payment secret or AWS account id can leak.
           getAuditClient().record({
             action: 'billing.tier.override',
-            actorId: actorId ?? 'unknown',
+            actorId: actorId ?? 'system',
             affectedOrgId: orgId,
             targetId: subscriptionId,
             details: { toTier: newTier, fromPlanId: oldPlanId, toPlanId: planId },

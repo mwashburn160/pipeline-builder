@@ -118,7 +118,7 @@ Base path `/api/organization` (and `/api/invitation`). Management endpoints enfo
 | `GET` | `/invitation` | List invitations | `invitations:manage` |
 | `DELETE` \| `POST` | `/invitation/:id[/resend]` | Revoke / resend an invitation | `invitations:manage` |
 
-The full permission catalog (`pipelines:write`, `pipelines:publish`, `plugins:publish`, `compliance:write`, `billing:manage`, `reports:rollup`, `org:settings`, …) lives in `@pipeline-builder/api-core` (`types/permissions.ts`). Custom Roles grant any subset of the **org-assignable** permissions (`registry:read/write` are Super-Admin-only and rejected); a member's effective permissions are the union of the Roles assigned to them, and `:read` permissions are enforced. Managing Roles is gated by `roles:manage`. See **[Roles & Permissions](permissions.md)** for the full catalog, built-in bundles, and enforcement.
+The full permission catalog (`pipelines:write`, `pipelines:publish`, `plugins:publish`, `compliance:write`, `billing:manage`, `reports:rollup`, `org:settings`, …) lives in `@pipeline-builder/api-core` (`types/permissions.ts`). Custom Roles grant a subset of the **org-assignable** permissions (`registry:read/write` are Super-Admin-only and rejected) that is also bounded by the **author's own permissions** (a permission ceiling — you can't grant what you don't hold); a member's effective permissions are the union of the Roles assigned to them, and `:read` permissions are enforced. Managing Roles is gated by `roles:manage`. See **[Roles & Permissions](permissions.md)** for the full catalog, built-in bundles, and enforcement.
 
 ### Common Query Parameters
 

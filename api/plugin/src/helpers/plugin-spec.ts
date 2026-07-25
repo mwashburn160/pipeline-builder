@@ -4,7 +4,6 @@
 import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import path from 'path';
-import { pipeline } from 'stream/promises';
 
 import { ValidationError } from '@pipeline-builder/api-core';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
@@ -41,6 +40,30 @@ export interface ParsedPlugin {
 // ZIP helpers (streaming via yauzl)
 // -----------------------------------------------------------------------------
 
+/**
+ * Decompression limits (zip-bomb defense). Multer bounds only the *compressed*
+ * upload; a few-KB ZIP can still expand to GB / millions of inodes on the shared
+ * EFS volume. We cap cumulative extracted bytes and entry count.
+ *
+ *   PLUGIN_MAX_UPLOAD_MB      compressed upload ceiling (mirrors CoreConstants; default 4096)
+ *   PLUGIN_MAX_EXTRACT_RATIO  max expansion factor over the upload ceiling (default 50×)
+ *   PLUGIN_MAX_EXTRACT_BYTES  absolute extracted-byte ceiling (overrides the ratio calc when set)
+ *   PLUGIN_MAX_EXTRACT_ENTRIES max number of ZIP entries (default 10000)
+ *
+ * Read from env at call time (not module load) so operators — and tests — can
+ * tune the ceiling without reloading the module.
+ */
+function extractionLimits(): { maxBytes: number; maxEntries: number } {
+  const maxUploadMb = parseInt(process.env.PLUGIN_MAX_UPLOAD_MB || '4096', 10);
+  const maxRatio = parseInt(process.env.PLUGIN_MAX_EXTRACT_RATIO || '50', 10);
+  const maxBytes = parseInt(
+    process.env.PLUGIN_MAX_EXTRACT_BYTES || String(maxUploadMb * 1024 * 1024 * maxRatio),
+    10,
+  );
+  const maxEntries = parseInt(process.env.PLUGIN_MAX_EXTRACT_ENTRIES || '10000', 10);
+  return { maxBytes, maxEntries };
+}
+
 /** Read specific text entries and extract all files in a single pass. */
 async function readAndExtractZip(
   zipPath: string,
@@ -49,6 +72,9 @@ async function readAndExtractZip(
 ): Promise<Map<string, string>> {
   const results = new Map<string, string>();
   const wanted = new Set(textEntries);
+  const { maxBytes, maxEntries } = extractionLimits();
+  let totalBytes = 0;
+  let entryCount = 0;
 
   return new Promise((resolve, reject) => {
     yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
@@ -56,6 +82,14 @@ async function readAndExtractZip(
       zipfile.readEntry();
 
       zipfile.on('entry', (entry) => {
+        // -- Entry-count cap ---------------------------------------------------
+        entryCount += 1;
+        if (entryCount > maxEntries) {
+          return reject(new ValidationError(
+            `ZIP exceeds the maximum entry count (${maxEntries}) — refusing to extract (possible zip bomb)`,
+          ));
+        }
+
         const targetPath = path.join(extractDir, entry.fileName);
 
         // Prevent path traversal
@@ -68,35 +102,64 @@ async function readAndExtractZip(
           return;
         }
 
+        // -- Byte cap (fast-path on the declared uncompressed size) ------------
+        // yauzl surfaces the header's uncompressedSize; reject before streaming
+        // when the declared expansion alone would blow the ceiling. The actual
+        // per-chunk accounting below defends against a lying header.
+        if (typeof entry.uncompressedSize === 'number' && totalBytes + entry.uncompressedSize > maxBytes) {
+          return reject(new ValidationError(
+            `ZIP exceeds the maximum extracted size (${maxBytes} bytes) — refusing to extract (possible zip bomb)`,
+          ));
+        }
+
+        // Accumulate written bytes; abort past the ceiling even if the header lied.
+        const countChunk = (chunk: Buffer): boolean => {
+          totalBytes += chunk.length;
+          if (totalBytes > maxBytes) {
+            reject(new ValidationError(
+              `ZIP exceeds the maximum extracted size (${maxBytes} bytes) — refusing to extract (possible zip bomb)`,
+            ));
+            return false;
+          }
+          return true;
+        };
+
         // Stream file to disk
         fs.mkdir(path.dirname(targetPath), { recursive: true })
           .then(() => {
             zipfile.openReadStream(entry, (streamErr, stream) => {
               if (streamErr) return reject(streamErr);
 
+              const writeStream = createWriteStream(targetPath);
+              // A write failure (ENOSPC/EROFS on the upload volume) emits
+              // 'error' on the write stream; without a listener it becomes an
+              // unhandled exception and crashes the process. Gate the "done"
+              // side-effects on the write's 'finish' (fully flushed) rather
+              // than the read stream's 'end'.
+              writeStream.on('error', reject);
+
               if (wanted.has(entry.fileName)) {
                 // Capture text content AND write to disk
                 const chunks: Buffer[] = [];
-                const writeStream = createWriteStream(targetPath);
-                // A write failure (ENOSPC/EROFS on the upload volume) emits
-                // 'error' on the write stream; without a listener it becomes an
-                // unhandled exception and crashes the process. Gate the "done"
-                // side-effects on the write's 'finish' (fully flushed) rather
-                // than the read stream's 'end'.
-                writeStream.on('error', reject);
                 writeStream.on('finish', () => {
                   results.set(entry.fileName, Buffer.concat(chunks).toString('utf-8'));
                   zipfile.readEntry();
                 });
-                stream.on('data', (chunk: Buffer) => { chunks.push(chunk); writeStream.write(chunk); });
+                stream.on('data', (chunk: Buffer) => {
+                  if (!countChunk(chunk)) { stream.destroy(); writeStream.destroy(); return; }
+                  chunks.push(chunk); writeStream.write(chunk);
+                });
                 stream.on('end', () => { writeStream.end(); });
                 stream.on('error', reject);
               } else {
-                // Just write to disk
-                const writeStream = createWriteStream(targetPath);
-                pipeline(stream, writeStream)
-                  .then(() => zipfile.readEntry())
-                  .catch(reject);
+                // Just write to disk (with the same byte accounting)
+                writeStream.on('finish', () => zipfile.readEntry());
+                stream.on('data', (chunk: Buffer) => {
+                  if (!countChunk(chunk)) { stream.destroy(); writeStream.destroy(); return; }
+                  writeStream.write(chunk);
+                });
+                stream.on('end', () => { writeStream.end(); });
+                stream.on('error', reject);
               }
             });
           })
@@ -107,6 +170,29 @@ async function readAndExtractZip(
       zipfile.on('error', reject);
     });
   });
+}
+
+// -----------------------------------------------------------------------------
+// Bounded YAML parse (billion-laughs / oversized-input defense)
+// -----------------------------------------------------------------------------
+
+/**
+ * Max YAML text length (bytes) accepted for config.yaml / plugin-spec.yaml.
+ * Bounds memory before parsing. Default 1 MiB — plugin manifests are small.
+ */
+const MAX_YAML_BYTES = parseInt(process.env.PLUGIN_MAX_YAML_BYTES || '1048576', 10);
+
+/**
+ * Parse YAML with an input-length cap and a bounded alias count. The `yaml`
+ * library defaults `maxAliasCount` to 100; we set it explicitly so an
+ * alias-expansion ("billion laughs") bomb can't blow up memory regardless of
+ * the library default. `label` names the source for error messages.
+ */
+function parseBoundedYaml(text: string, label: string): unknown {
+  if (text.length > MAX_YAML_BYTES) {
+    throw new ValidationError(`${label} exceeds the maximum allowed size (${MAX_YAML_BYTES} bytes)`);
+  }
+  return YAML.parse(text, { maxAliasCount: 100 });
 }
 
 // -----------------------------------------------------------------------------
@@ -135,7 +221,7 @@ const PluginConfigSchema = z.object({
 function parsePluginConfig(configText: string | undefined): PluginConfig {
   if (!configText) return {};
 
-  const raw = YAML.parse(configText);
+  const raw = parseBoundedYaml(configText, 'config.yaml');
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new ValidationError('config.yaml must be a YAML mapping');
   }
@@ -152,6 +238,69 @@ function parsePluginConfig(configText: string | undefined): PluginConfig {
     dockerfile: data.dockerfile ? validateSafePath('dockerfile', data.dockerfile) : undefined,
     buildType: data.buildType,
   };
+}
+
+// -----------------------------------------------------------------------------
+// Plugin spec schema (Zod)
+// -----------------------------------------------------------------------------
+
+// name/version/commands are the required-field contract, but they're validated
+// by the explicit presence check in parsePluginZip (which yields the stable
+// "name, version, and commands are required" message and the ManualApprovalStep
+// carve-out). Here they're optional strings; the schema's job is to reject
+// malformed *types* on the fields that flow downstream unchecked today —
+// pluginType/computeType/timeout/failureBehavior/env/secrets, etc.
+const PluginSpecSchema = z.object({
+  name: z.string().optional(),
+  description: z.string().optional(),
+  keywords: z.array(z.string()).optional(),
+  category: z.string().optional(),
+  version: z.string().optional(),
+  pluginType: z.enum(['CodeBuildStep', 'ShellStep', 'ManualApprovalStep']).optional(),
+  computeType: z.enum(['SMALL', 'MEDIUM', 'LARGE', 'X2_LARGE']).optional(),
+  // >= 0 minutes: ManualApprovalStep specs legitimately declare `timeout: 0`.
+  timeout: z.number().int().nonnegative().optional(),
+  failureBehavior: z.enum(['fail', 'warn', 'ignore']).optional(),
+  secrets: z.array(z.object({
+    name: z.string().min(1),
+    required: z.boolean(),
+    description: z.string().optional(),
+  })).optional(),
+  primaryOutputDirectory: z.string().optional(),
+  metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  dockerfile: z.string().optional(),
+  installCommands: z.array(z.string()).optional(),
+  commands: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  buildArgs: z.record(z.string(), z.string()).optional(),
+  requiredMetadata: z.array(z.string()).optional(),
+  requiredVars: z.array(z.string()).optional(),
+  // Kept as free-string maps rather than a value enum: shipped specs use both
+  // `bool` and `boolean`, and the coercion-vs-declared-type consistency is
+  // enforced separately in validatePluginTemplates. The schema only guarantees
+  // they're string-valued records here.
+  metadataTypes: z.record(z.string(), z.string()).optional(),
+  varsTypes: z.record(z.string(), z.string()).optional(),
+  // Not on the PluginSpec interface, but ~15 shipped specs declare a top-level
+  // `smokeTest:` string consumed by the build tooling (build-plugin-images.sh).
+  // Allow it so `.strict()` doesn't reject those real plugins.
+  smokeTest: z.string().optional(),
+}).strict();
+
+/** Parse plugin-spec.yaml text: bounded YAML + strict schema validation. */
+function parsePluginSpec(specText: string): PluginSpec {
+  const raw = parseBoundedYaml(specText, 'plugin-spec.yaml');
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new ValidationError('plugin-spec.yaml must be a YAML mapping');
+  }
+  const result = PluginSpecSchema.safeParse(raw);
+  if (!result.success) {
+    const msg = result.error.issues
+      .map(i => `${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('; ');
+    throw new ValidationError(`plugin-spec.yaml: ${msg}`);
+  }
+  return result.data as PluginSpec;
 }
 
 // -----------------------------------------------------------------------------
@@ -184,7 +333,7 @@ export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
       throw new ValidationError('plugin-spec.yaml file missing in ZIP');
     }
 
-    const pluginSpec: PluginSpec = YAML.parse(specText);
+    const pluginSpec = parsePluginSpec(specText);
     const isApprovalStep = pluginSpec.pluginType === 'ManualApprovalStep';
 
     if (!pluginSpec.name || !pluginSpec.version || (!isApprovalStep && !pluginSpec.commands)) {

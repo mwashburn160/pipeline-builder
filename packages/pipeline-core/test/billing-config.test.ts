@@ -50,7 +50,7 @@ describe('loadBillingConfig', () => {
       id: 'pro',
       name: 'Pro',
       tier: 'pro',
-      prices: { monthly: 1900, annual: 19000 },
+      prices: { monthly: 4900, annual: 49000 },
       isDefault: false,
       sortOrder: 1,
     });
@@ -59,7 +59,7 @@ describe('loadBillingConfig', () => {
       id: 'team',
       name: 'Team',
       tier: 'team',
-      prices: { monthly: 4900, annual: 49000 },
+      prices: { monthly: 14900, annual: 149000 },
       isDefault: false,
       sortOrder: 2,
     });
@@ -68,7 +68,7 @@ describe('loadBillingConfig', () => {
       id: 'enterprise',
       name: 'Enterprise',
       tier: 'enterprise',
-      prices: { monthly: 9900, annual: 99000 },
+      prices: { monthly: 39900, annual: 399000 },
       isDefault: false,
       sortOrder: 3,
     });

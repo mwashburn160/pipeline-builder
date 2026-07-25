@@ -215,6 +215,8 @@ Flags: `--cleanup` (remove `plugin.zip`/`image.tar` after upload), `--continue-o
 
 The defaults apply on **every** target, so **export real values on `minikube`/`ec2`/`eks`** (or any shared/production environment) before running — otherwise the admin is created with the trivial dev password.
 
+> **Fresh-install super-admin bootstrap.** `init-platform.sh` registers the admin into the reserved `system` organization, and that org can **only** be created by an email listed in the platform's `BOOTSTRAP_SUPERADMIN_EMAILS` (the controlled first-super-admin path). So on a fresh install, **`PLATFORM_IDENTIFIER` must be listed in `BOOTSTRAP_SUPERADMIN_EMAILS`.** The stock defaults align (both `admin@internal`); if you set a custom `PLATFORM_IDENTIFIER`, add it to `BOOTSTRAP_SUPERADMIN_EMAILS` and restart the platform before running init — otherwise the `system` registration is rejected (`403`) and no super-admin is bootstrapped.
+
 ---
 
 ## Organizations
@@ -289,7 +291,7 @@ A user can belong to several organizations and teams at once and acts within one
 | Plugins | 25 | 50 | 100 | 250 |
 | Pipelines | 5 | 10 | 200 | 200 |
 | Seats (members) | 1 | 1 | 10 | 25 |
-| Price / month | $0 | $19 | $49 | $99 |
+| Price / month | $0 | $49 | $149 | $399 |
 
 System org users always have access to all features. Base limits are raised by [add-on bundles](billing-bundles.md) and are env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
 

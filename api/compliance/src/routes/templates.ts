@@ -6,8 +6,8 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { RULE_TEMPLATES } from '../data/rule-templates.js';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
+import { emitComplianceAudit } from '../services/remote-audit-client.js';
 
 const logger = createLogger('compliance-templates');
 
@@ -68,7 +68,7 @@ export function createTemplateRoutes(): Router {
         // new rule; details names the source template only.
         emitComplianceAudit({
           action: 'compliance.template.apply',
-          actorId: userId,
+          actorId: req.user?.sub ?? userId ?? 'system',
           orgId,
           targetType: 'rule',
           targetId: rule.id,

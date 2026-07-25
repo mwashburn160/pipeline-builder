@@ -38,6 +38,11 @@ export default function QuotasPage() {
   // org list loads and re-run the selected-org fetch (a redundant double fetch).
   const platformOrgsRef = useRef(platformOrgs);
   useEffect(() => { platformOrgsRef.current = platformOrgs; }, [platformOrgs]);
+  // Request-generation guard for fetchOrg: rapidly selecting org A then B fires
+  // overlapping fetches, and whichever RESOLVES last would otherwise win —
+  // showing (and letting a sysadmin edit) the wrong org's quotas. Only the
+  // latest invocation is allowed to apply data / clear `loading`.
+  const orgReqIdRef = useRef(0);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
   const [orgHealthColors, setOrgHealthColors] = useState<Record<string, string>>({});
@@ -108,12 +113,16 @@ export default function QuotasPage() {
   }, [isSuperAdmin]);
 
   const fetchOrg = useCallback(async (orgId: string) => {
+    const reqId = ++orgReqIdRef.current;
     setLoading(true);
     setLoadError(null);
     try {
       const res = isSuperAdmin
         ? await api.getOrgQuotas(orgId)
         : await api.getOwnQuotas();
+      // Discard a superseded response: a slower fetch for a previously-selected
+      // org must not overwrite the org the user has since switched to.
+      if (reqId !== orgReqIdRef.current) return;
       const quota = (res.data?.quota || res.data) as OrgQuotaResponse;
       // Resolve sidebar metadata via the REF (not the closure) so this callback
       // does not depend on `platformOrgs` — depending on it re-created fetchOrg
@@ -121,9 +130,10 @@ export default function QuotasPage() {
       const sidebarOrg = platformOrgsRef.current.find((o) => o.id === (orgId || quota.orgId));
       applyOrgData(quota, { orgId, sidebarName: sidebarOrg?.name, sidebarSlug: sidebarOrg?.slug });
     } catch {
+      if (reqId !== orgReqIdRef.current) return;
       setLoadError('Failed to load quotas. The service may be unavailable.');
     } finally {
-      setLoading(false);
+      if (reqId === orgReqIdRef.current) setLoading(false);
     }
   }, [isSuperAdmin]);
 

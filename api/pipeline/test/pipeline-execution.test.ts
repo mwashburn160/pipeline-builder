@@ -60,13 +60,17 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: jest.fn() }),
 }));
 
+// Shared ctx.log spy so tests can assert on what the handler logs (e.g. that an
+// AWS account id never reaches a log sink). Cleared by jest.clearAllMocks().
+const mockCtxLog = jest.fn();
+
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   // Auth + orgId chain the execution routes now spread in per-route (the write
   // permission guard moved off the shared '/pipelines' mount). No-op here — the
   // suite drives the withRoute handler directly.
   createAuthenticatedWithOrgRoute: () => [],
   withRoute: (handler: any) => async (req: any, res: any) => {
-    const ctx = { log: jest.fn(), identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
+    const ctx = { log: mockCtxLog, identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
 }));
@@ -173,6 +177,27 @@ describe('pipeline execution write routes', () => {
       res, 502, 'Upstream AWS error', expect.any(String),
       { awsName: 'ThrottlingException', awsMessage: 'Rate exceeded' },
     );
+  });
+
+  it('trigger: scrubs the AWS account id from awsMessage in BOTH the log and the 502 body', async () => {
+    // A real CodePipeline failure embeds the account id as the 5th ARN segment.
+    mockSend.mockRejectedValue(awsError(
+      'AccessDeniedException',
+      'User: arn:aws:sts::123456789012:assumed-role/pipeline-role is not authorized to perform codepipeline:StartPipelineExecution',
+    ));
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+
+    // 502 response body must carry the scrubbed message — no 12-digit account id.
+    const errCall = (sendError as jest.Mock).mock.calls.find((c: any[]) => c[1] === 502);
+    expect(errCall).toBeDefined();
+    const detail = errCall?.[4] as { awsMessage?: string };
+    expect(detail.awsMessage).toContain('[REDACTED]');
+    expect(detail.awsMessage).not.toContain('123456789012');
+
+    // And nothing logged may contain the account id either.
+    const loggedBlob = JSON.stringify((mockCtxLog as jest.Mock).mock.calls);
+    expect(loggedBlob).not.toContain('123456789012');
   });
 
   it('trigger: missing pipelineId → 400', async () => {
