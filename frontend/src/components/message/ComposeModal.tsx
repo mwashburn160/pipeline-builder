@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Send } from 'lucide-react';
 import type { MessageType, MessagePriority } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { ModalPortal } from '@/components/ui/ModalPortal';
-// Non-sysadmin sends always go to the system support inbox. The display
-// alias `support@pipeline-builder` is shown verbatim in the "To" field
-// for user familiarity; on the wire it's translated to recipientOrgId
-// = "system" with channel = "support" so system-org readers can filter
-// by channel.
-const SUPPORT_ALIAS = 'support@pipeline-builder';
+// The compose "To" field prefills the configured support alias (passed in via
+// the `supportAlias` prop, sourced from the server's SUPPORT_ALIASES). This
+// module constant is only the fallback until that config loads. A send to a
+// support alias is translated to recipientOrgId = "system" with
+// channel = "support" so system-org readers can filter by channel.
+const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
 // The system tenant's well-known org id (api-core SYSTEM_ORG_ID default). The
 // support inbox is the system org; messages to support are addressed to this id.
 const SUPPORT_RECIPIENT = '000000000000000000000001';
@@ -44,6 +44,10 @@ interface ComposeModalProps {
   /** Other orgs/teams the user can message (e.g. teams they belong to).
    *  Rendered as a `<datalist>` so the To input auto-completes by name. */
   recipientSuggestions?: ReadonlyArray<{ value: string; label: string }>;
+  /** Support alias to prefill the "To" field with — sourced from the server's
+   *  SUPPORT_ALIASES config (see `useFeatures().supportAlias`). Defaults to the
+   *  well-known alias until config loads. */
+  supportAlias?: string;
 }
 
 /** Derives a subject line from message content, truncating to 60 characters. */
@@ -54,14 +58,26 @@ function autoSubject(content: string): string {
 }
 
 /** Modal for composing and sending new messages or announcements to organizations. */
-export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, recipientSuggestions = [] }: ComposeModalProps) {
-  const [recipientOrgId, setRecipientOrgId] = useState('');
-  // Non-sysadmin To-field state. Pre-filled with the support alias;
-  // users can override it with a team/member name within their org.
-  const [supportRecipient, setSupportRecipient] = useState(SUPPORT_ALIAS);
+export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, recipientSuggestions = [], supportAlias = DEFAULT_SUPPORT_ALIAS }: ComposeModalProps) {
+  // BOTH To-fields default to the configured support alias, so "New Message" is a
+  // one-click contact-support flow for everyone. A full-compose (`messages:write`)
+  // user can overwrite it with an org id / team; leaving it as the alias routes to
+  // the system support inbox on send (see handleSend), same as the support-only user.
+  const [recipientOrgId, setRecipientOrgId] = useState(supportAlias);
+  const [supportRecipient, setSupportRecipient] = useState(supportAlias);
   const [content, setContent] = useState('');
   const [validationError, setValidationError] = useState('');
   const [isAnnouncement, setIsAnnouncement] = useState(false);
+
+  // Apply the configured alias to the To fields when the modal opens — the
+  // `supportAlias` config loads asynchronously, so the initial useState value
+  // may have been the fallback. Only overwrites a field still holding an alias
+  // (fallback or configured), never a value the user has typed over.
+  useEffect(() => {
+    if (!isOpen) return;
+    setRecipientOrgId((cur) => (cur === DEFAULT_SUPPORT_ALIAS || cur === '' ? supportAlias : cur));
+    setSupportRecipient((cur) => (cur === DEFAULT_SUPPORT_ALIAS || cur === '' ? supportAlias : cur));
+  }, [isOpen, supportAlias]);
 
   const { execute: sendAsync, loading: sending, error: sendError } = useAsyncCallback(
     (data: Parameters<typeof onSend>[0]) => onSend(data),
@@ -79,17 +95,16 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
       return;
     }
 
-    // Compute the recipient. Support-only user: the To field is editable —
-    // if the user kept the support alias, route to the system support
-    // inbox; otherwise treat the typed value as a team/member name
-    // within their org and pass it straight through as recipientOrgId
-    // (server-side resolves it / authorizes).
-    const isSupportSend = !canWrite && supportRecipient.trim().toLowerCase() === SUPPORT_ALIAS;
+    // The active To-field depends on whether the user has full compose rights.
+    const activeRecipient = (canWrite ? recipientOrgId : supportRecipient).trim();
+    // Leaving the To field as the configured support alias (either field) routes
+    // to the system support inbox with the support channel, regardless of compose
+    // rights. Any other value is passed through as recipientOrgId (the server also
+    // resolves any configured alias / authorizes the target).
+    const isSupportSend = !isAnnouncement && activeRecipient.toLowerCase() === supportAlias.toLowerCase();
     const recipient = isAnnouncement
       ? '*'
-      : (canWrite
-          ? recipientOrgId.trim().toLowerCase()
-          : (isSupportSend ? SUPPORT_RECIPIENT : supportRecipient.trim().toLowerCase()));
+      : (isSupportSend ? SUPPORT_RECIPIENT : activeRecipient.toLowerCase());
     if (!isAnnouncement && !recipient) {
       setValidationError(canWrite
         ? 'Recipient organization is required'
@@ -116,8 +131,8 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     // boolean closes the modal and resets the form.
     if (result === true) {
       setContent('');
-      setRecipientOrgId('');
-      setSupportRecipient(SUPPORT_ALIAS);
+      setRecipientOrgId(supportAlias);
+      setSupportRecipient(supportAlias);
       setIsAnnouncement(false);
       onClose();
     }
@@ -182,20 +197,21 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
             </div>
           )}
 
-          {/* Recipient free-form entry (full-compose users only) */}
+          {/* Recipient free-form entry (full-compose users only) — prefilled with
+              the support alias; autocompletes support + teams via the datalist. */}
           {canWrite && !isAnnouncement && (
             <input
               type="text"
               value={recipientOrgId}
               onChange={(e) => setRecipientOrgId(e.target.value)}
+              list="compose-recipient-options"
               placeholder="To: Organization ID"
               className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           )}
 
           {/* Support-only user: pre-filled support recipient (editable; type
-              to override with one of the user's other teams —
-              the datalist auto-completes from `recipientSuggestions`). */}
+              to override with one of the user's other teams). */}
           {!canWrite && (
             <div className="flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
               <span className="text-gray-500 dark:text-gray-400">To:</span>
@@ -207,15 +223,20 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 className="flex-1 bg-transparent text-gray-700 dark:text-gray-300 font-medium border-none focus:outline-none focus:ring-0"
                 aria-label="Recipient (defaults to support; type a teammate or team name to override)"
               />
-              <datalist id="compose-recipient-options">
-                <option value={SUPPORT_ALIAS}>Pipeline Builder Support</option>
-                {recipientSuggestions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </datalist>
             </div>
+          )}
+
+          {/* Shared recipient suggestions — the configured support alias plus any
+              teams the user can message; referenced by both To inputs above. */}
+          {!isAnnouncement && (
+            <datalist id="compose-recipient-options">
+              <option value={supportAlias}>Pipeline Builder Support</option>
+              {recipientSuggestions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </datalist>
           )}
 
           {/* Content */}

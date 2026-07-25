@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess } from '@pipeline-builder/api-core';
+import { sendSuccess, getPrimarySupportAlias } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { config } from '../config/index.js';
 
@@ -18,6 +18,9 @@ router.get('/', (_req, res) => {
       email: config.email.enabled,
       oauth: config.oauth.google.enabled,
     },
+    // Primary support alias (from SUPPORT_ALIASES) so the UI's compose "To"
+    // field prefills the configured value instead of a hardcoded string.
+    supportAlias: getPrimarySupportAlias(),
   });
 });
 

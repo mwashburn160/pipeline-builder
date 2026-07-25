@@ -11,12 +11,18 @@ interface FeaturesContextType {
   features: string[];
   /** Whether the initial config fetch has completed. */
   isLoaded: boolean;
+  /** Primary support alias (from the server's SUPPORT_ALIASES) for compose prefill. */
+  supportAlias: string;
 }
+
+/** Fallback until the server config loads (matches api-core DEFAULT_SUPPORT_ALIAS). */
+const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
 
 const FeaturesContext = createContext<FeaturesContextType>({
   isEnabled: () => false,
   features: [],
   isLoaded: false,
+  supportAlias: DEFAULT_SUPPORT_ALIAS,
 });
 
 /**
@@ -29,12 +35,14 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [serviceFeatures, setServiceFeatures] = useState<Record<string, boolean>>({});
   const [isLoaded, setIsLoaded] = useState(false);
+  const [supportAlias, setSupportAlias] = useState(DEFAULT_SUPPORT_ALIAS);
 
   useEffect(() => {
     let cancelled = false;
     api.getConfig().then((res) => {
       if (!cancelled && res.success && res.data) {
         setServiceFeatures(res.data.serviceFeatures);
+        if (res.data.supportAlias) setSupportAlias(res.data.supportAlias);
       }
     }).catch(() => {
       // Config fetch failed — default billing shown
@@ -80,8 +88,9 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       isEnabled: (feature: string) => enabled.has(feature),
       features,
       isLoaded,
+      supportAlias,
     };
-  }, [serviceFeatures, user, isLoaded]);
+  }, [serviceFeatures, user, isLoaded, supportAlias]);
 
   return (
     <FeaturesContext.Provider value={value}>

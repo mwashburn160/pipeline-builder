@@ -9,6 +9,7 @@ import { MessageList } from '@/components/message/MessageList';
 import { ThreadView } from '@/components/message/ThreadView';
 import { ComposeModal } from '@/components/message/ComposeModal';
 import { useAuth } from '@/hooks/useAuth';
+import { useFeatures } from '@/hooks/useFeatures';
 import { MessageBadge } from '@/components/message/MessageBadge';
 import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
 import type { Message } from '@/types';
@@ -53,6 +54,7 @@ export default function MessagesPage() {
   // sysadmin-only (see ComposeModal `isSuperAdmin`). Role-admins hold the perm.
   const canWrite = can('messages:write');
   const { organizations } = useAuth();
+  const { supportAlias } = useFeatures();
   const {
     messages,
     loading,
@@ -233,6 +235,7 @@ export default function MessagesPage() {
         onSend={handleSend}
         canWrite={canWrite}
         isSuperAdmin={isSuperAdmin}
+        supportAlias={supportAlias}
         recipientSuggestions={organizations
           .filter((o) => o.id.toLowerCase() !== currentOrgId)
           .map((o) => ({ value: o.id, label: o.name }))}

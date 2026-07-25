@@ -12,7 +12,7 @@ export function authApi(core: ApiCore) {
 
     /** Get platform service feature flags (public, no auth required). */
     getConfig: async () => {
-      return core.request<ApiResponse<{ serviceFeatures: Record<string, boolean> }>>('/api/config');
+      return core.request<ApiResponse<{ serviceFeatures: Record<string, boolean>; supportAlias?: string }>>('/api/config');
     },
 
     // ============================================

@@ -19,6 +19,20 @@ function getSupportAliases(): Set<string> {
   return _supportAliases;
 }
 
+/** Well-known fallback support alias used when SUPPORT_ALIASES is unconfigured. */
+export const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
+
+/**
+ * The PRIMARY (first-configured) support alias — for display / prefill in UIs
+ * (e.g. the compose "To" field), so the shown value is driven by SUPPORT_ALIASES
+ * rather than hardcoded. Falls back to {@link DEFAULT_SUPPORT_ALIAS} when the env
+ * is unset. (All configured aliases still resolve via {@link resolveRecipientAlias}.)
+ */
+export function getPrimarySupportAlias(): string {
+  for (const alias of getSupportAliases()) return alias;
+  return DEFAULT_SUPPORT_ALIAS;
+}
+
 /** Result of alias resolution. */
 export interface AliasResolution {
   /** The resolved organization ID (e.g., 'system'). */
