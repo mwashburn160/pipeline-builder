@@ -26,6 +26,15 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
   },
 }));
 
+// billing-helpers now imports the provider factory + service audit client (for the
+// auto-prune line-item removal). Stub both so no real Stripe/AWS SDK is loaded.
+jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
+  getPaymentProvider: () => ({ syncAddons: jest.fn() }),
+}));
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  getAuditClient: () => ({ record: jest.fn() }),
+}));
+
 const mockClientPut = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -312,5 +321,18 @@ describe('syncEntitlements entitlementSyncPending marker', () => {
     mockSubscriptionUpdateOne.mockRejectedValueOnce(new Error('mongo down'));
 
     await expect(syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1')).resolves.toBe(true);
+  });
+
+  it('pushes the account tier in the seat-limit body so a downgrade invalidates platform tokens', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+
+    await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+
+    // The seat-limit leg (PUT /organization/:id/seat-limit) must carry `tier`.
+    const seatCall = mockClientPut.mock.calls.find(
+      (c) => typeof c[0] === 'string' && (c[0] as string).endsWith('/seat-limit'),
+    );
+    expect(seatCall).toBeDefined();
+    expect(seatCall![1]).toMatchObject({ tier: 'pro' });
   });
 });

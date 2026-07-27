@@ -16,6 +16,8 @@ const mockGetStageFailures = jest.fn();
 const mockGetStageBottlenecks = jest.fn();
 const mockGetActionFailures = jest.fn();
 const mockGetErrors = jest.fn();
+const mockGetDoraMetrics = jest.fn();
+const mockGetDoraTrend = jest.fn();
 const mockResolveOrgRollup = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -83,10 +85,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     getStageBottlenecks: mockGetStageBottlenecks,
     getActionFailures: mockGetActionFailures,
     getErrors: mockGetErrors,
+    getDoraMetrics: mockGetDoraMetrics,
+    getDoraTrend: mockGetDoraTrend,
   },
 }));
 
-const { sendSuccess, sendBadRequest } = await import('@pipeline-builder/api-core');
+const { sendSuccess, sendBadRequest, parseDateRange } = await import('@pipeline-builder/api-core');
 const { createExecutionReportRoutes } = await import('../src/routes/execution-reports.js');
 
 describe('Execution Report Routes', () => {
@@ -98,7 +102,11 @@ describe('Execution Report Routes', () => {
   });
 
   function getHandler(path: string) {
-    return router.stack.find((l: any) => l.route?.path === path)?.route?.stack[0]?.handle;
+    // Return the LAST handler in the route's stack: routes gated by a
+    // middleware (e.g. requireFeature on /dora) register [gate, withRoute],
+    // and the withRoute handler we want to drive is always last.
+    const stack = router.stack.find((l: any) => l.route?.path === path)?.route?.stack;
+    return stack?.[stack.length - 1]?.handle;
   }
 
   describe('GET /count', () => {
@@ -230,6 +238,91 @@ describe('Execution Report Routes', () => {
 
       expect(mockGetStageFailures).toHaveBeenCalled();
       expect(sendSuccess).toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /dora', () => {
+    const sampleDora = {
+      window: { from: '2026-06-01', to: '2026-07-01' },
+      basis: 'run',
+      filters: { pipelineId: null, environment: null },
+      deploymentFrequency: { deployments: 8, perDay: 0.27, level: 'high' },
+      changeFailureRate: { failed: 2, total: 10, pct: 20.0, level: 'low' },
+      meanTimeToRestore: { failures: 2, restored: 1, avgSeconds: 300, level: 'elite' },
+      leadTime: { deployments: 8, medianSeconds: 180, approx: true, level: 'elite' },
+    };
+    // Default scoping the route derives from an empty query string.
+    const noScope = { pipelineId: undefined, environment: undefined, deploysOnly: false };
+
+    it('returns the DORA shape and passes org + range (no rollup by default)', async () => {
+      mockGetDoraMetrics.mockResolvedValue(sampleDora);
+      const handler = getHandler('/dora');
+      await handler({ query: { from: '2026-06-01', to: '2026-07-01' } }, {});
+
+      expect(mockGetDoraMetrics).toHaveBeenCalledWith('acme', '2026-06-01', '2026-07-01', undefined, noScope);
+      expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { dora: sampleDora });
+    });
+
+    it('400s on a bad date range and does not query', async () => {
+      (parseDateRange as jest.Mock).mockReturnValueOnce({ error: 'Date range exceeds maximum of 365 days' });
+      const handler = getHandler('/dora');
+      await handler({ query: { from: 'x', to: 'y' } }, {});
+
+      expect(sendBadRequest).toHaveBeenCalled();
+      expect(mockGetDoraMetrics).not.toHaveBeenCalled();
+    });
+
+    // Rollup gating identical to the sibling routes: the subtree is passed only
+    // for a reports:rollup holder using ?includeDescendants.
+    it('scopes to the org subtree for a reports:rollup holder', async () => {
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
+      mockGetDoraMetrics.mockResolvedValue(sampleDora);
+      const handler = getHandler('/dora');
+      await handler({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
+
+      expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
+      expect(mockGetDoraMetrics).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), ['acme', 'team-child'], noScope);
+    });
+
+    it('ignores ?includeDescendants without reports:rollup (single-org)', async () => {
+      mockGetDoraMetrics.mockResolvedValue(sampleDora);
+      const handler = getHandler('/dora');
+      await handler({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:read'] } }, {});
+
+      expect(mockResolveOrgRollup).not.toHaveBeenCalled();
+      expect(mockGetDoraMetrics).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), undefined, noScope);
+    });
+
+    it('passes per-pipeline + deploy scoping from the query string', async () => {
+      mockGetDoraMetrics.mockResolvedValue(sampleDora);
+      const handler = getHandler('/dora');
+      await handler({ query: { pipelineId: 'p-1', environment: 'production', deploysOnly: 'true' } }, {});
+
+      expect(mockGetDoraMetrics).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), undefined,
+        { pipelineId: 'p-1', environment: 'production', deploysOnly: true });
+    });
+  });
+
+  describe('GET /dora/trend', () => {
+    const sampleTrend = [{ period: '2026-06-01', deployments: 4, failed: 1, total: 5, changeFailurePct: 20 }];
+
+    it('passes interval + range + scoping and returns the trend', async () => {
+      mockGetDoraTrend.mockResolvedValue(sampleTrend);
+      const handler = getHandler('/dora/trend');
+      await handler({ query: { interval: 'day', from: '2026-06-01', to: '2026-07-01' } }, {});
+
+      expect(mockGetDoraTrend).toHaveBeenCalledWith('acme', 'day', '2026-06-01', '2026-07-01', undefined,
+        { pipelineId: undefined, environment: undefined, deploysOnly: false });
+      expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { trend: sampleTrend });
+    });
+
+    it('400s on a bad interval and does not query', async () => {
+      mockGetDoraTrend.mockClear();
+      const handler = getHandler('/dora/trend');
+      await handler({ query: { interval: 'decade' } }, {});
+
+      expect(sendBadRequest).toHaveBeenCalled();
+      expect(mockGetDoraTrend).not.toHaveBeenCalled();
     });
   });
 

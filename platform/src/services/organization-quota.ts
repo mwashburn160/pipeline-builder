@@ -24,7 +24,8 @@ export type QuotaTypeKey = (typeof QUOTA_TYPES)[number];
 
 /**
  * Invalidate every ACTIVE member's outstanding access tokens for `organizationId`
- * by bumping their `tokenVersion` inside the caller's transaction.
+ * (a single org id, or an array spanning an account subtree) by bumping their
+ * `tokenVersion` inside the caller's transaction.
  *
  * The JWT bakes in the org's `tier` + resolved `features` (from `tier` +
  * `featureEntitlements`) at issue time. On an account-change that REDUCES access
@@ -35,8 +36,15 @@ export type QuotaTypeKey = (typeof QUOTA_TYPES)[number];
  * scoped JWT. Mirrors the bump in org-members-service.removeMember /
  * roles-service.recomputeUserOrgRole.
  *
+ * Because `tier` + `featureEntitlements` propagate to the ENTIRE subtree (root +
+ * descendant teams), callers pass every affected org id so a team member's stale
+ * token is invalidated too — not just the root's members. A member who belongs
+ * to several orgs in the subtree is bumped exactly once: `distinct` collapses the
+ * `userId` set across all matched memberships. A single-id (or single-element)
+ * argument queries the scalar `organizationId` exactly as before.
+ *
  * Bounded + idempotent: callers invoke this ONLY on a genuine reduction, and a
- * no-member org is a no-op. An UPGRADE / feature-add never calls it — a stale
+ * no-member subtree is a no-op. An UPGRADE / feature-add never calls it — a stale
  * token that under-grants is safe.
  *
  * Returns the affected member ids so the caller can PUBLISH each user's now-
@@ -44,11 +52,18 @@ export type QuotaTypeKey = (typeof QUOTA_TYPES)[number];
  * (see `publishUsersRevocation`) — publishing must never run mid-transaction.
  */
 async function bumpActiveMembersTokenVersion(
-  organizationId: string,
+  organizationId: string | string[],
   session: ClientSession,
 ): Promise<Types.ObjectId[]> {
+  const orgIds = Array.isArray(organizationId) ? organizationId : [organizationId];
+  // Single org → scalar match (identical query to the pre-subtree behavior);
+  // multiple → `$in` across the whole subtree. `distinct` dedupes userIds, so a
+  // member in several subtree orgs is returned (and bumped) exactly once.
+  const orgFilter = orgIds.length === 1
+    ? toOrgId(orgIds[0])
+    : { $in: orgIds.map(toOrgId) };
   const userIds = await UserOrganization
-    .distinct('userId', { organizationId: toOrgId(organizationId), isActive: true })
+    .distinct('userId', { organizationId: orgFilter, isActive: true })
     .session(session);
   if (userIds.length === 0) return [];
   await User.updateMany(
@@ -57,6 +72,47 @@ async function bumpActiveMembersTokenVersion(
     { session },
   );
   return userIds as Types.ObjectId[];
+}
+
+/**
+ * Whether moving from `prev` to `next` is a tier DOWNGRADE — a strictly lower
+ * rank in the developer < pro < team < enterprise order (VALID_TIERS). A legacy
+ * no-tier (`undefined`) previous, or any unknown tier on either side, is never a
+ * downgrade: a stale token then under-grants, which is safe. Pure; shared by
+ * setTier + setSeatLimit's billing tier-push so the rank comparison can't drift.
+ */
+function isTierDowngrade(prev: QuotaTier | undefined, next: QuotaTier): boolean {
+  const prevRank = prev ? VALID_TIERS.indexOf(prev) : -1;
+  const nextRank = VALID_TIERS.indexOf(next);
+  return prevRank !== -1 && nextRank !== -1 && nextRank < prevRank;
+}
+
+/**
+ * Propagate account-level fields (featureEntitlements and/or the tier label)
+ * from a root org onto its descendant teams inside the caller's transaction, and
+ * return the FULL subtree id set (`[root, ...descendants]`).
+ *
+ * Both setTier and setSeatLimit change fields that pool at the account root and
+ * must be mirrored onto every descendant team so a team member's token carries
+ * them. The returned subtree is exactly the propagation set, so the caller bumps
+ * `tokenVersion` against precisely the orgs this write touched. A root with no
+ * descendants performs no `updateMany` and returns `[root]`.
+ */
+async function propagateToSubtree(
+  rootId: string,
+  propagateFields: Record<string, unknown>,
+  session: ClientSession,
+): Promise<string[]> {
+  const scope = await expandOrgScope(rootId);
+  const descendantIds = scope.filter((sid) => sid !== rootId);
+  if (descendantIds.length > 0) {
+    await Organization.updateMany(
+      { _id: { $in: descendantIds.map(toOrgId) } },
+      { $set: propagateFields },
+      { session },
+    );
+  }
+  return scope;
 }
 
 export interface QuotaStatus {
@@ -90,6 +146,7 @@ export async function setSeatLimit(
   orgId: string,
   seats: number,
   features?: string[],
+  tier?: QuotaTier,
 ): Promise<{ rootOrgId: string; seats: number } | null> {
   const { rootOrgId } = await resolveOrgLineage(orgId);
   const set: Record<string, unknown> = { 'quotas.seats': seats };
@@ -97,22 +154,42 @@ export async function setSeatLimit(
   // root and are synced by billing alongside the seat limit.
   if (features !== undefined) set.featureEntitlements = features;
 
-  // Members whose tokenVersion was bumped by a feature shrink — published after
-  // commit (never mid-transaction).
+  // Members whose tokenVersion was bumped by an access reduction (feature shrink
+  // or tier downgrade) — published after commit (never mid-transaction).
   let bumpedMemberIds: Types.ObjectId[] = [];
   // Atomic: the root seat/entitlement write and its propagation onto descendant
   // teams must both land or neither, so a member's token can't carry a stale
   // entitlement set after a partial failure.
   const outcome = await withMongoTransaction(async (session) => {
-    // Read the pre-change entitlements FIRST so we can detect a bundle removal
-    // (a feature dropped vs the current set) before the $set overwrites them —
-    // that's an access REDUCTION whose stale tokens must be invalidated below.
+    // Read the pre-change tier + entitlements FIRST so we can detect a REDUCTION
+    // (a feature dropped, or a tier downgrade) before the $set overwrites them —
+    // access reductions must invalidate the affected members' stale tokens.
     let featureShrink = false;
+    let tierDowngrade = false;
+    // The org subtree a feature/tier change propagates to (root + descendant
+    // teams). Defaults to the root alone; widened below once the descendant
+    // scope is resolved, so the token-invalidation bump covers EXACTLY the orgs
+    // the propagation writes to.
+    let subtreeIds: string[] = [rootOrgId];
+    const needsPreRead = features !== undefined || tier !== undefined;
+    const current = needsPreRead
+      ? await Organization.findById(toOrgId(rootOrgId))
+        .select('featureEntitlements tier').session(session).lean()
+      : null;
+
     if (features !== undefined) {
-      const current = await Organization.findById(toOrgId(rootOrgId))
-        .select('featureEntitlements').session(session).lean();
       const nextFeatures = new Set(features);
       featureShrink = (current?.featureEntitlements ?? []).some((f) => !nextFeatures.has(f));
+    }
+    // Billing pushes the account tier alongside seats/features so a plan
+    // DOWNGRADE invalidates stale tokens here (the JWT re-derives tier-included
+    // features from `org.tier`, so a stale tier would keep granting them). We set
+    // ONLY the tier label — never reseed `org.quotas` (billing owns the effective
+    // limits and syncs them to the quota service separately; the sysadmin
+    // `setTier` path is the one that reseeds).
+    if (tier !== undefined && current && current.tier !== tier) {
+      set.tier = tier;
+      tierDowngrade = isTierDowngrade(current.tier, tier);
     }
 
     const result = await Organization.updateOne(
@@ -122,26 +199,25 @@ export async function setSeatLimit(
     );
     if (result.matchedCount === 0) return null;
 
-    // Propagate feature entitlements onto descendant teams so a team member's
-    // token carries them (they're account-level; mirrors tier propagation).
-    if (features !== undefined) {
-      const scope = await expandOrgScope(rootOrgId);
-      const descendantIds = scope.filter((sid) => sid !== rootOrgId);
-      if (descendantIds.length > 0) {
-        await Organization.updateMany(
-          { _id: { $in: descendantIds.map(toOrgId) } },
-          { $set: { featureEntitlements: features } },
-          { session },
-        );
-      }
+    // Propagate account-level fields (featureEntitlements and/or the tier label)
+    // onto descendant teams so a team member's token carries them.
+    const propagate: Record<string, unknown> = {};
+    if (features !== undefined) propagate.featureEntitlements = features;
+    if (set.tier !== undefined) propagate.tier = tier;
+    if (Object.keys(propagate).length > 0) {
+      // [root, ...descendants] — the exact set the fields propagate to, so the
+      // token bump below covers precisely the orgs this write touched.
+      subtreeIds = await propagateToSubtree(rootOrgId, propagate, session);
     }
 
-    // A bundle removal strips `requireFeature`-gated capabilities (sso,
-    // audit_log, …) from the account. Members' existing JWTs still carry the
-    // removed feature until expiry, so invalidate them now. No bump when
-    // features are only added / unchanged (a stale token then under-grants).
-    if (featureShrink) {
-      bumpedMemberIds = await bumpActiveMembersTokenVersion(rootOrgId, session);
+    // An access REDUCTION — a bundle removal (strips `requireFeature`-gated
+    // capabilities) or a tier downgrade (drops tier-included features) — leaves
+    // members' existing JWTs over-granting until expiry, so invalidate them now.
+    // No bump on a pure add / upgrade (a stale token then under-grants, which is
+    // safe). featureEntitlements + tier propagate across the whole subtree, so a
+    // stale token held by ANY subtree member still over-grants — bump them all.
+    if (featureShrink || tierDowngrade) {
+      bumpedMemberIds = await bumpActiveMembersTokenVersion(subtreeIds, session);
     }
     return { rootOrgId, seats };
   });
@@ -262,9 +338,7 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
   // capabilities, so members' existing JWTs must be invalidated (below). An
   // UPGRADE (or a legacy no-tier → tier transition) never bumps: a stale token
   // then under-grants, which is safe.
-  const previousRank = previousTier ? VALID_TIERS.indexOf(previousTier) : -1;
-  const newRank = VALID_TIERS.indexOf(newTier);
-  const isDowngrade = previousRank !== -1 && newRank !== -1 && newRank < previousRank;
+  const isDowngrade = isTierDowngrade(previousTier, newTier);
 
   org.tier = newTier;
   if (org.parentOrgId) {
@@ -312,25 +386,24 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
   await withMongoTransaction(async (session) => {
     await org.save({ session });
 
+    // The org subtree the tier label propagates to. Defaults to the org itself
+    // (a team, or a flat org with no descendants); widened to the full scope for
+    // a root so the token-invalidation bump matches the propagation set.
+    let subtreeIds: string[] = [org._id.toString()];
+
     // Propagate the tier label to descendant teams so their derived tier tracks
     // the root (their quotas stay pooled at -1). No-op for a flat org / a team.
     if (!org.parentOrgId) {
-      const scope = await expandOrgScope(org._id.toString());
-      const descendantIds = scope.filter((sid) => sid !== org._id.toString());
-      if (descendantIds.length > 0) {
-        await Organization.updateMany(
-          { _id: { $in: descendantIds.map(toOrgId) } },
-          { $set: { tier: newTier } },
-          { session },
-        );
-      }
+      subtreeIds = await propagateToSubtree(org._id.toString(), { tier: newTier }, session);
     }
 
     // On a downgrade, invalidate active members' outstanding access tokens so
     // the reduced tier / lost features take effect immediately rather than at
-    // token expiry. Same transaction as the tier write. No bump on an upgrade.
+    // token expiry. The tier propagates to the whole subtree, so bump members
+    // across it — root + descendant teams (deduped by `distinct`). Same
+    // transaction as the tier write. No bump on an upgrade.
     if (isDowngrade) {
-      bumpedMemberIds = await bumpActiveMembersTokenVersion(org._id.toString(), session);
+      bumpedMemberIds = await bumpActiveMembersTokenVersion(subtreeIds, session);
     }
   });
   // Post-commit: publish the affected members' now-current tokenVersion so the

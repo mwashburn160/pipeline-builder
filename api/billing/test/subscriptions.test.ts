@@ -114,6 +114,16 @@ const mockBuildSubscriptionResponse = jest.fn((sub: any, planName?: string) => (
 const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-04-01'));
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockSyncTierToQuotaService = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
+// Double-billing prune: default to a no-op passthrough (keeps existing plan-change
+// tests unaffected). applyTierIncludedAddonPrune mutates subscription.addons in
+// place and returns the pruned list; the dedicated prune test overrides it.
+const mockApplyTierIncludedAddonPrune = jest.fn(
+  (_sub: { addons?: Array<{ bundleId: string; quantity: number }> }) => [] as Array<{ bundleId: string; features: string[] }>,
+);
+// finalizePrunedAddons runs the post-save side effects (provider line-item removal
+// + audit); the route just wires it, so we assert the call shape here and unit-test
+// the actual provider removal in addon-prune.test.ts.
+const mockFinalizePrunedAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   buildSubscriptionResponse: mockBuildSubscriptionResponse,
@@ -123,6 +133,8 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   syncEntitlements: mockSyncTierToQuotaService,
   // Over-cap gate: default to "no overages" so plan-change tests proceed.
   checkEntitlementOvercap: async () => [],
+  applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,
+  finalizePrunedAddons: mockFinalizePrunedAddons,
   // The routes now widen their lookups to the non-terminal set; re-export the
   // real constant so the `$in` filters aren't `undefined`.
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
@@ -470,6 +482,64 @@ describe('PUT /subscriptions/:id', () => {
       { oldPlanId: 'developer', newPlanId: 'enterprise' },
       'sub-1', 'user-1',
     );
+  });
+
+  it('prunes a tier-included pure-feature add-on on plan change, syncs the reduced list, and removes the provider line item (double-billing fix)', async () => {
+    const sub = makeSubscription({
+      planId: 'pro',
+      addons: [
+        { bundleId: 'advanced_reporting', quantity: 1 },
+        { bundleId: 'seat_pack', quantity: 2 },
+      ],
+    });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'enterprise', name: 'Enterprise', tier: 'enterprise', isActive: true });
+    mockUpdateSubscription.mockResolvedValue(undefined);
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'enterprise' } });
+
+    // enterprise bundles in advanced_reporting, so the pure-feature add-on is
+    // dropped; the quota pack (seat_pack) is retained. Mirror the real helper:
+    // mutate subscription.addons in place and return the pruned bundle.
+    const reduced = [{ bundleId: 'seat_pack', quantity: 2 }];
+    const pruned = [{ bundleId: 'advanced_reporting', features: ['advanced_reporting'] }];
+    mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = reduced; return pruned; });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    // Persisted subscription no longer carries the now-bundled add-on...
+    expect(sub.addons).toEqual(reduced);
+    expect(sub.save).toHaveBeenCalled();
+    // ...the REDUCED set (not the original) is what gets synced downstream...
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith(
+      'org-1', 'enterprise', 'Bearer service-token', 'sub-1', reduced,
+    );
+    // ...and the provider line-item removal fires (post-save) with the pruned
+    // bundle + the reduced list + the sub's external id / cadence.
+    expect(mockFinalizePrunedAddons).toHaveBeenCalledWith(
+      pruned,
+      reduced,
+      expect.objectContaining({
+        orgId: 'org-1',
+        subscriptionId: 'sub-1',
+        interval: 'monthly',
+        externalId: 'ext-sub-1',
+        actorId: 'user-1',
+      }),
+    );
+  });
+
+  it('does NOT invoke the provider add-on removal when a plan change prunes nothing', async () => {
+    const sub = makeSubscription({ planId: 'pro', addons: [{ bundleId: 'seat_pack', quantity: 2 }] });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'enterprise', name: 'Enterprise', tier: 'enterprise', isActive: true });
+    mockUpdateSubscription.mockResolvedValue(undefined);
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'enterprise' } });
+
+    // Default applyTierIncludedAddonPrune returns [] (no prune). finalize is still
+    // called by the route, but with an empty pruned list (a no-op in the real impl).
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockFinalizePrunedAddons).toHaveBeenCalledWith([], [{ bundleId: 'seat_pack', quantity: 2 }], expect.any(Object));
   });
 
   it('captures correct old interval in billing event', async () => {

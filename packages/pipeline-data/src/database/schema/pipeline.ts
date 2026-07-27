@@ -181,6 +181,14 @@ export const pipelineEvent = pgTable('pipeline_events', {
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
   durationMs: integer('duration_ms'),
+  // DORA deploy-attribution (all nullable; populated at ingest when the source
+  // event carries them — legacy/CI-only events leave them NULL). `environment`
+  // is the deploy target (e.g. "production"); its presence marks an execution
+  // as a real deployment, letting DORA scope past generic pipeline runs.
+  // `commitSha`/`commitRef` capture the source revision for lead-time work.
+  commitSha: varchar('commit_sha', { length: 255 }),
+  commitRef: varchar('commit_ref', { length: 255 }),
+  environment: varchar('environment', { length: 255 }),
   detail: jsonb('detail').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -217,6 +225,15 @@ export const pipelineEvent = pgTable('pipeline_events', {
       sql`coalesce(${table.actionName}, '')`,
     )
     .where(sql`execution_id IS NOT NULL`),
+  // DORA deploy-scoped reads: only PIPELINE-level executions tagged with a
+  // deploy environment. `event_type` is in the index because the events Lambda
+  // tags EVERY event of a deployed pipeline (STAGE/ACTION too), while the DORA
+  // scan wants only `event_type='PIPELINE'` — including it restores selectivity.
+  // Partial (environment IS NOT NULL) keeps it small — legacy/CI-only events
+  // aren't indexed. MIGRATION REQUIRED: drizzle-kit generate.
+  envTypeStartedIdx: index('event_env_type_started_idx')
+    .on(table.environment, table.eventType, table.startedAt)
+    .where(sql`environment IS NOT NULL`),
 }));
 
 /**

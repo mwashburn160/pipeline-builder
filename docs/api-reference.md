@@ -306,6 +306,8 @@ Pipeline execution and plugin build analytics. Time ranges default to the last 3
 | `GET` | `/reports/execution/stage-failures` | Stage failure heatmap |
 | `GET` | `/reports/execution/stage-bottlenecks` | Slowest stages per pipeline |
 | `GET` | `/reports/execution/errors` | Error categorization (top N) |
+| `GET` | `/reports/execution/dora` | DORA metrics with performance-level bands + an approximate lead-time proxy (`reports:read` **+ `advanced_reporting` feature** — Enterprise, or the Advanced Reporting add-on; `from`, `to`, `includeDescendants` needs `reports:rollup`; optional `pipelineId`, `environment`, `deploysOnly`). See [DORA Metrics](dora-metrics.md) |
+| `GET` | `/reports/execution/dora/trend` | DORA deployment-frequency + change-failure trend bucketed by `interval` (same gates/scoping as `/dora`) |
 | `GET` | `/reports/plugins/summary` | Plugin inventory stats |
 | `GET` | `/reports/plugins/build-success-rate` | Docker build success rate over time |
 | `GET` | `/reports/plugins/build-duration` | Build time per plugin |

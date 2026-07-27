@@ -46,11 +46,14 @@ export interface ActualEntitlements {
 /** Outcome of a drift check for a single subscription. */
 export interface DriftResult {
   /**
-   * - `match`       — enforced state equals expected; caller stamps lastReconciledAt.
-   * - `drift`       — a tracked limit / seats diverged; caller re-syncs + meters.
-   * - `read_failed` — a store read failed; caller SKIPS (an outage is NOT drift).
+   * - `match` — enforced state equals expected; caller stamps lastReconciledAt.
+   * - `drift` — a tracked limit / seats / feature diverged; caller re-syncs + meters.
+   *
+   * A store READ failure is not represented here: `readActualEntitlements` returns
+   * `null` on any failed read, and the caller SKIPS (an outage is NOT drift) before
+   * ever calling `computeEntitlementDrift`.
    */
-  status: 'match' | 'drift' | 'read_failed';
+  status: 'match' | 'drift';
   /** Human-readable per-field diffs, for the structured drift log. */
   drifted: string[];
   /** Low-cardinality metric dimensions that drifted: a subset of `quota` | `seats` | `features`. */

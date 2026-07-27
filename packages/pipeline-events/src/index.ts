@@ -56,12 +56,25 @@ const log = {
 // "not yet registered" (skip).
 
 const PIPELINE_EVENT_ID_TAG = 'PIPELINE_EVENT_ID';
+// Optional deploy-environment tag (set by pipeline-core when a pipeline declares
+// an `environment`). Read from the SAME ListTags response as PIPELINE_EVENT_ID so
+// it can be attributed to CodePipeline events for DORA deploy metrics. Absent on
+// legacy pipelines → left undefined (NULL downstream).
+const ENVIRONMENT_TAG = 'Environment';
 const clientsByRegion = new Map<string, CodePipelineClientLike>();
-// tag=null is a negative cache (resolved-but-untagged); `ts` lets negatives
+// pipelineId=null is a negative cache (resolved-but-untagged); `ts` lets negatives
 // expire so a pipeline tagged AFTER its first event becomes resolvable without
 // recycling the warm container. Positive results stay cached for the lifetime.
-const eventIdByArn = new Map<string, { tag: string | null; ts: number }>();
+const resolvedByArn = new Map<string, { pipelineId: string | null; environment?: string; ts: number }>();
 const NEG_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/** Resolved pipeline metadata read from the CodePipeline resource tags. */
+interface ResolvedPipeline {
+  /** Platform pipelineId (PIPELINE_EVENT_ID tag); null when untagged/unregistered. */
+  pipelineId: string | null;
+  /** Deploy environment (Environment tag); undefined when the pipeline has none. */
+  environment?: string;
+}
 
 async function pipelineClient(region: string): Promise<CodePipelineClientLike> {
   let client = clientsByRegion.get(region);
@@ -74,26 +87,29 @@ async function pipelineClient(region: string): Promise<CodePipelineClientLike> {
 }
 
 /**
- * Resolve a CodePipeline's PIPELINE_EVENT_ID tag → the platform pipelineId.
- * Returns null when the pipeline has no such tag (unregistered). Throws on
+ * Resolve a CodePipeline's tags → the platform pipelineId (PIPELINE_EVENT_ID)
+ * plus the optional deploy `environment` (Environment tag). `pipelineId` is null
+ * when the pipeline has no PIPELINE_EVENT_ID tag (unregistered). Throws on
  * AccessDenied so a missing IAM grant surfaces loudly instead of silently
  * dropping every event.
  */
-async function resolvePipelineEventId(arn: string, region: string): Promise<string | null> {
-  const cached = eventIdByArn.get(arn);
+async function resolvePipeline(arn: string, region: string): Promise<ResolvedPipeline> {
+  const cached = resolvedByArn.get(arn);
   // Serve a positive hit for the container lifetime; serve a negative hit only
   // until it expires (then re-resolve, in case the pipeline was since tagged).
-  if (cached && (cached.tag !== null || Date.now() - cached.ts < NEG_CACHE_TTL_MS)) {
-    return cached.tag;
+  if (cached && (cached.pipelineId !== null || Date.now() - cached.ts < NEG_CACHE_TTL_MS)) {
+    return { pipelineId: cached.pipelineId, ...(cached.environment && { environment: cached.environment }) };
   }
   try {
     const client = await pipelineClient(region);
     const { ListTagsForResourceCommand } = await loadCodePipeline();
     const out = await client.send(new ListTagsForResourceCommand({ resourceArn: arn }));
-    const tag = out.tags?.find(t => t.key === PIPELINE_EVENT_ID_TAG)?.value ?? null;
-    if (!tag) log.warn('Pipeline missing PIPELINE_EVENT_ID tag — skipping (register it?)', { arn });
-    eventIdByArn.set(arn, { tag, ts: Date.now() });
-    return tag;
+    const pipelineId = out.tags?.find(t => t.key === PIPELINE_EVENT_ID_TAG)?.value ?? null;
+    const envTag = out.tags?.find(t => t.key === ENVIRONMENT_TAG)?.value;
+    const environment = typeof envTag === 'string' && envTag.length > 0 ? envTag.slice(0, MAX_ATTR) : undefined;
+    if (!pipelineId) log.warn('Pipeline missing PIPELINE_EVENT_ID tag — skipping (register it?)', { arn });
+    resolvedByArn.set(arn, { pipelineId, environment, ts: Date.now() });
+    return { pipelineId, ...(environment && { environment }) };
   } catch (err) {
     const name = (err as { name?: string })?.name;
     if (name === 'AccessDeniedException') {
@@ -102,7 +118,7 @@ async function resolvePipelineEventId(arn: string, region: string): Promise<stri
       throw err;
     }
     log.error('Failed to resolve PIPELINE_EVENT_ID tag', { arn, error: name ?? String(err) });
-    return null;
+    return { pipelineId: null };
   }
 }
 
@@ -162,11 +178,61 @@ interface ParsedEvent {
   startedAt?: string;
   completedAt?: string;
   durationMs?: number;
+  /** Source commit id (DORA deploy attribution). Undefined when the event
+   *  carries no source revision — legacy/back-compat: stored NULL downstream. */
+  commitSha?: string;
+  /** Source branch/ref (DORA deploy attribution). Undefined when unavailable. */
+  commitRef?: string;
+  /** Deploy environment from the pipeline's Environment tag. Undefined when the
+   *  pipeline declares none — legacy/back-compat: stored NULL downstream. */
+  environment?: string;
   detail: Record<string, unknown>;
 }
 
 /** Cap on the stored failure summary — CodeBuild/Deploy summaries can be long. */
 const MAX_ERROR_MESSAGE = 4000;
+/** Cap on commit/ref/environment fields — the ingest contract allows max 255. */
+const MAX_ATTR = 255;
+
+/** First non-empty string among the candidates, capped to the ingest max. */
+function firstAttr(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (typeof v === 'string' && v.length > 0) return v.slice(0, MAX_ATTR);
+  }
+  return undefined;
+}
+
+/**
+ * Best-effort extraction of the source commit id + ref from a CodePipeline event
+ * detail. CodePipeline surfaces the source revision under a few shapes depending
+ * on the event type / source-action; we check the known ones and leave the fields
+ * undefined when none are present (legacy/back-compat — NULL downstream). Never
+ * pulls an ARN/account id: only revision/branch string fields are read.
+ */
+function extractCommit(detail: Record<string, unknown>): { commitSha?: string; commitRef?: string } {
+  // `source-revisions` (kebab, EventBridge) / `sourceRevisions` (camel) — first entry.
+  const revs = (detail['source-revisions'] ?? detail.sourceRevisions) as
+    | Array<Record<string, unknown>> | undefined;
+  const firstRev = Array.isArray(revs) ? revs[0] : undefined;
+  // On source actions the revision id can also ride on `execution-result`.
+  const execResult = detail['execution-result'] as Record<string, unknown> | undefined;
+
+  const commitSha = firstAttr(
+    detail.commitId,
+    detail.revisionId,
+    firstRev?.revisionId,
+    execResult?.revisionId,
+  );
+  const commitRef = firstAttr(
+    detail.commitRef,
+    detail.branch,
+    detail.sourceBranch,
+    firstRev?.branchName,
+    firstRev?.branch,
+  );
+
+  return { ...(commitSha && { commitSha }), ...(commitRef && { commitRef }) };
+}
 
 function classifyEvent(detailType: string): { eventType: string; eventSource: string } {
   if (detailType.includes('Pipeline Execution')) return { eventType: 'PIPELINE', eventSource: 'codepipeline' };
@@ -224,7 +290,7 @@ async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null> {
   // Resolve the pipeline's PIPELINE_EVENT_ID tag (= platform pipelineId). The
   // ARN is only a transient handle for the tag lookup; it is never stored.
   const arn = `arn:aws:codepipeline:${event.region}:${event.account}:${pipelineName}`;
-  const pipelineId = await resolvePipelineEventId(arn, event.region);
+  const { pipelineId, environment } = await resolvePipeline(arn, event.region);
   if (!pipelineId) return null; // untagged / unregistered → skip
 
   const startedAt = (detail['start-time'] as string) || event.time;
@@ -250,6 +316,10 @@ async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null> {
     ? summary.slice(0, MAX_ERROR_MESSAGE)
     : undefined;
 
+  // DORA deploy attribution — all optional/back-compat: omitted (undefined) when
+  // the event/pipeline doesn't carry them, so legacy pipelines report as before.
+  const { commitSha, commitRef } = extractCommit(detail);
+
   return {
     pipelineId,
     eventSource,
@@ -262,6 +332,9 @@ async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null> {
     startedAt,
     completedAt,
     durationMs,
+    ...(commitSha && { commitSha }),
+    ...(commitRef && { commitRef }),
+    ...(environment && { environment }),
     detail,
   };
 }

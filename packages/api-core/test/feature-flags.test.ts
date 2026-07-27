@@ -15,14 +15,15 @@ import {
 // ALL_FEATURE_FLAGS
 
 describe('ALL_FEATURE_FLAGS', () => {
-  it('should contain all 6 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(6);
+  it('should contain all 7 feature flags', () => {
+    expect(ALL_FEATURE_FLAGS).toHaveLength(7);
     expect(ALL_FEATURE_FLAGS).toContain('priority_support');
     expect(ALL_FEATURE_FLAGS).toContain('ai_generation');
     expect(ALL_FEATURE_FLAGS).toContain('bulk_operations');
     expect(ALL_FEATURE_FLAGS).toContain('custom_integrations');
     expect(ALL_FEATURE_FLAGS).toContain('audit_log');
     expect(ALL_FEATURE_FLAGS).toContain('sso');
+    expect(ALL_FEATURE_FLAGS).toContain('advanced_reporting');
   });
 });
 
@@ -49,6 +50,13 @@ describe('TIER_FEATURES', () => {
     expect(TIER_FEATURES.team).toContain('audit_log');
     expect(TIER_FEATURES.team).toContain('ai_generation');
     expect(TIER_FEATURES.team).not.toContain('custom_integrations');
+  });
+
+  it('advanced_reporting is Enterprise-only as a tier feature (add-on bundle elsewhere)', () => {
+    expect(TIER_FEATURES.enterprise).toContain('advanced_reporting');
+    expect(TIER_FEATURES.team).not.toContain('advanced_reporting');
+    expect(TIER_FEATURES.pro).not.toContain('advanced_reporting');
+    expect(TIER_FEATURES.developer).not.toContain('advanced_reporting');
   });
 
   it('enterprise tier has all features', () => {

@@ -8,6 +8,7 @@ import {
   sendError,
   sendBadRequest,
   ErrorCode,
+  createLogger,
   getParam,
   getServiceAuthHeader,
   parseQueryInt,
@@ -18,14 +19,29 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { buildSubscriptionResponse, createBillingEvent, syncEntitlements } from '../helpers/billing-helpers.js';
+import { applyTierIncludedAddonPrune, buildSubscriptionResponse, createBillingEvent, finalizePrunedAddons, MANAGEABLE_SUBSCRIPTION_STATUSES, syncEntitlements } from '../helpers/billing-helpers.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getAuditClient } from '../services/audit.js';
 import { AdminSubscriptionUpdateSchema } from '../validation/schemas.js';
 
+const logger = createLogger('billing-admin-subscriptions');
+
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
+/**
+ * The un-subscribed BASELINE tier an account falls back to when its
+ * subscription enters a terminal / non-entitled status — mirrors the normal
+ * cancel/grace-expiry/webhook-delete downgrade paths, which all sync to
+ * `developer` with add-ons cleared (see subscription-lifecycle + stripe-webhook).
+ */
+const BASELINE_TIER = 'developer' as const;
+
+/** Whether a subscription status is entitlement-worthy (paid tier enforced). */
+function isEntitledStatus(status: string): boolean {
+  return (MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[]).includes(status);
+}
 
 /**
  * Create the admin-only billing router (system admin required).
@@ -88,6 +104,10 @@ export function createAdminSubscriptionRoutes(): Router {
       // Attribute every override row to the acting sysadmin — this is the
       // highest-value attribution surface (a privileged cross-org write).
       const actorId = req.user?.sub;
+      // Capture the pre-change status so the status block can detect a crossing
+      // of the entitled/non-entitled boundary (nothing below mutates status
+      // before that block).
+      const prevStatus = subscription.status;
 
       // Mutate the in-memory doc and validate up front, but DEFER every side
       // effect (quota sync + billing_events) until AFTER the subscription is
@@ -103,17 +123,26 @@ export function createAdminSubscriptionRoutes(): Router {
         }
         const oldPlanId = subscription.planId;
         subscription.planId = planId;
+        const newTier = plan.tier;
 
         // Sync tier via service-to-service auth (avoid forwarding the
         // admin's bearer to the quota service).
         const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-        // Preserve purchased add-on bundles: effective caps = tier base + addons.
-        // Passing no addons here would push tier-base-only limits and silently
-        // drop the customer's bundle entitlements until the next add-on mutation.
-        const addons = subscription.addons ?? [];
-        const newTier = plan.tier;
+
+        // Prune any PURE-FEATURE add-on the new tier now bundles in so the org
+        // isn't double-billed for a feature its tier includes (and can't
+        // self-service-remove — the tier-filtered catalog hides it). Mutates the
+        // doc's addons in memory (persisted by save() below) BEFORE the deferred
+        // side effects; hybrid bundles (e.g. `sso`→idpConfigs) are kept.
+        const pruned = applyTierIncludedAddonPrune(subscription, newTier, {
+          orgId, subscriptionId: subscription._id.toString(), source: 'admin_plan_change',
+        });
+
+        // Preserve remaining purchased add-on bundles: effective caps = tier
+        // base + addons. `subscription.addons` already reflects the prune, so the
+        // reduced set is what syncs (passing tier-base-only would drop bundles).
         deferred.push(async () => {
-          await syncEntitlements(orgId, newTier, serviceAuth, subscriptionId, addons);
+          await syncEntitlements(orgId, newTier, serviceAuth, subscriptionId, subscription.addons ?? []);
           await createBillingEvent(orgId, 'plan_changed', { oldPlanId, newPlanId: planId }, subscriptionId, actorId);
           // Mirror this privileged CROSS-TENANT tier override to the CENTRAL audit
           // trail (alongside the local billing_events row). Fire-and-forget: the
@@ -127,13 +156,62 @@ export function createAdminSubscriptionRoutes(): Router {
             targetId: subscriptionId,
             details: { toTier: newTier, fromPlanId: oldPlanId, toPlanId: planId },
           }, 'billing');
+          // Drop the pruned bundles' provider line items (double-billing fix) +
+          // write the addon_pruned trail. Deferred (post-save) like the rest so a
+          // failed save leaves neither the provider nor the audit trail ahead.
+          await finalizePrunedAddons(pruned, subscription.addons ?? [], {
+            orgId,
+            subscriptionId: subscription._id.toString(),
+            interval: subscription.interval,
+            externalId: subscription.externalId,
+            actorId,
+            source: 'admin_plan_change',
+          });
         });
       }
 
       if (status && status !== subscription.status) {
         subscription.status = status;
+
+        // An admin status flip can change ENTITLEMENT ENFORCEMENT: the entitled
+        // set (MANAGEABLE_SUBSCRIPTION_STATUSES: active/trialing/past_due-grace)
+        // enforces the paid tier; terminal states (canceled/incomplete) do not.
+        // Sync entitlements ONLY when the status crosses that boundary, REUSING
+        // the same tier math as the normal cancel/reactivate paths — otherwise
+        // the quota/platform stores keep enforcing the stale tier and the drift
+        // reconciler silently re-syncs it back up, masking the admin's intent.
+        const wasEntitled = isEntitledStatus(prevStatus);
+        const nowEntitled = isEntitledStatus(status);
+
         deferred.push(async () => {
           await createBillingEvent(orgId, 'subscription_updated', { status }, subscriptionId, actorId);
+
+          if (wasEntitled && !nowEntitled) {
+            // Into a terminal/non-entitled status: fall back to the un-subscribed
+            // baseline tier with add-ons CLEARED — identical to the normal cancel
+            // / grace-expiry / webhook-delete downgrade. Runs after any plan-block
+            // sync above, so a contradictory plan+cancel override still lands on
+            // the baseline.
+            const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+            logger.info('Admin status change downgraded entitlements to baseline tier', {
+              subscriptionId, fromStatus: prevStatus, toStatus: status, tier: BASELINE_TIER,
+            });
+            await syncEntitlements(orgId, BASELINE_TIER, serviceAuth, subscriptionId, []);
+          } else if (!wasEntitled && nowEntitled && !planId) {
+            // Reactivation into an entitled status WITHOUT a concurrent plan change
+            // — re-sync the subscription's CURRENT plan tier + purchased add-ons
+            // (mirrors the webhook payment-recovery / reactivate re-upgrade). When
+            // planId IS present, the plan block above already synced the new tier +
+            // add-ons, so we don't double-sync here.
+            const currentPlan = await Plan.findById(subscription.planId);
+            if (currentPlan) {
+              const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+              logger.info('Admin status change re-synced entitlements for current plan tier', {
+                subscriptionId, fromStatus: prevStatus, toStatus: status, tier: currentPlan.tier,
+              });
+              await syncEntitlements(orgId, currentPlan.tier, serviceAuth, subscriptionId, subscription.addons ?? []);
+            }
+          }
         });
       }
 

@@ -194,6 +194,11 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     duration_ms INTEGER,
+    -- DORA deploy-attribution (nullable; populated at ingest when present).
+    -- `environment` marks a real deployment; commit_sha/ref capture the source.
+    commit_sha VARCHAR(255),
+    commit_ref VARCHAR(255),
+    environment VARCHAR(255),
     detail JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -512,6 +517,12 @@ ALTER TABLE pipeline_registry DROP COLUMN IF EXISTS pipeline_arn;
 ALTER TABLE pipeline_registry DROP COLUMN IF EXISTS account_id;
 ALTER TABLE pipeline_events   DROP COLUMN IF EXISTS pipeline_arn;
 
+-- DORA deploy-attribution columns (idempotent add for existing deploys; fresh
+-- installs already have them from CREATE TABLE above).
+ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_sha VARCHAR(255);
+ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS commit_ref VARCHAR(255);
+ALTER TABLE pipeline_events   ADD COLUMN IF NOT EXISTS environment VARCHAR(255);
+
 -- Pipeline Registry indexes
 -- pipeline_id is UNIQUE — the registry upsert uses ON CONFLICT (pipeline_id),
 -- which requires a unique index to match against. Older deploys created this
@@ -551,6 +562,13 @@ CREATE INDEX IF NOT EXISTS event_org_type_created_idx
 
 CREATE INDEX IF NOT EXISTS event_org_source_status_idx
     ON pipeline_events(org_id, event_source, status);
+
+-- DORA deploy-scoped reads (partial: only PIPELINE events tagged with an
+-- environment). event_type is included because the events Lambda tags every
+-- event of a deployed pipeline (STAGE/ACTION too), so it restores selectivity.
+CREATE INDEX IF NOT EXISTS event_env_type_started_idx
+    ON pipeline_events(environment, event_type, started_at)
+    WHERE environment IS NOT NULL;
 
 -- Idempotency dedup for at-least-once EventBridge/SQS re-deliveries (and BullMQ
 -- plugin-build re-runs): the partial UNIQUE index used as the ON CONFLICT DO

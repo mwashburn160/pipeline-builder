@@ -18,11 +18,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 const mockSyncTier = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-04-01'));
+const mockFinalizePrunedAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
   syncEntitlements: (...args: unknown[]) => mockSyncTier(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
   calculatePeriodEnd: (...args: unknown[]) => mockCalculatePeriodEnd(),
+  // Double-billing prune: no-op passthrough (this suite doesn't exercise prune).
+  applyTierIncludedAddonPrune: () => [],
+  finalizePrunedAddons: (...args: unknown[]) => mockFinalizePrunedAddons(...args),
 }));
 
 // Capture the real `mapStripeStatus` before the stripe-helpers module is mocked.

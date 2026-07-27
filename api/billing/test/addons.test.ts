@@ -75,6 +75,9 @@ const mockBundleSelfServiceAllowed = jest.fn<() => boolean>(() => true);
 const mockCheckEntitlementOvercap = jest.fn<(...args: unknown[]) => Promise<any[]>>().mockResolvedValue([]);
 const mockSyncEntitlements = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+// syncProviderAddons moved into billing-helpers (shared with the auto-prune
+// finalizer); the add/remove routes call it to reconcile provider line items.
+const mockSyncProviderAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 
 // The tier-filtered catalog fixture: an active stackable pack (pro+), an active
 // feature bundle (team+), and an inactive pack (must never surface).
@@ -94,6 +97,7 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   effectiveEntitlements: () => ({ limits: { seats: 10, plugins: 20 }, features: [] }),
   getBundleCatalog: () => CATALOG,
   syncEntitlements: mockSyncEntitlements,
+  syncProviderAddons: mockSyncProviderAddons,
   // loadSubAndPlan / the portal route now widen their lookups to the non-terminal
   // set; re-export the real constant so the `$in` filters aren't `undefined`.
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
@@ -298,7 +302,9 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     expect(sub.save).toHaveBeenCalled();
     // ...fanned out effective entitlements with the new add-on set...
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [{ bundleId: 'seat_pack', quantity: 3 }]);
-    expect(mockSyncAddons).toHaveBeenCalled();
+    // Provider line-item reconcile fires with the new add-on set via the shared
+    // syncProviderAddons (externalId, addons, interval, orgId).
+    expect(mockSyncProviderAddons).toHaveBeenCalledWith('ext-sub-1', [{ bundleId: 'seat_pack', quantity: 3 }], 'monthly', 'org-1');
     // ...and responded 200 with the itemized price breakdown.
     const [, status, payload] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);

@@ -163,6 +163,7 @@ Every CodePipeline and CodeBuild state change flows through EventBridge into the
 - Stage-level failure heatmaps — see which stages fail most across the organization
 - Error categorization — build vs test vs deploy failures
 - Per-organization cost attribution
+- [DORA metrics](docs/dora-metrics.md) — deployment frequency, change failure rate, MTTR, and a lead-time proxy with Elite/High/Medium/Low performance bands and a trend sparkline (median successful run time — an approximation, **not** true commit→production lead time)
 
 ### Built for Production
 

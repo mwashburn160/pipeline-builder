@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { QuotaTier } from '@pipeline-builder/api-core';
-import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, TIER_FEATURES, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { Config, effectiveEntitlements, type BillingConfig, type BundleConfig } from '@pipeline-builder/pipeline-core';
 import { config } from '../config.js';
@@ -11,6 +11,8 @@ import { BillingEvent } from '../models/billing-event.js';
 import type { BillingEventType } from '../models/billing-event.js';
 import { Subscription } from '../models/subscription.js';
 import type { BillingInterval } from '../models/subscription.js';
+import { getPaymentProvider } from '../providers/provider-factory.js';
+import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('billing-helpers');
 
@@ -152,6 +154,7 @@ async function pushSeatLimitToPlatform(
   features: string[],
   authHeader: string,
   subscriptionId?: string,
+  tier?: QuotaTier,
 ): Promise<boolean> {
   try {
     const client = createSafeClient({
@@ -160,7 +163,11 @@ async function pushSeatLimitToPlatform(
       timeout: getBillingTimeout(),
     });
     const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-    const response = await client.put(`/organization/${orgId}/seat-limit`, { seats, features }, {
+    // Push the account `tier` alongside seats/features so a plan DOWNGRADE
+    // invalidates stale JWTs platform-side (the token re-derives tier-included
+    // features from `org.tier`). Platform sets ONLY the tier label here — it
+    // never reseeds quotas (billing owns limits, synced to the quota service).
+    const response = await client.put(`/organization/${orgId}/seat-limit`, { seats, features, tier }, {
       headers: { 'Authorization': effectiveAuth, 'x-org-id': orgId },
     });
     if (response && response.statusCode < 400) {
@@ -174,6 +181,14 @@ async function pushSeatLimitToPlatform(
     return false;
   } catch (error) {
     logger.error('Error syncing seat limit to platform', { orgId, seats, error });
+    // Symmetry with the non-2xx branch above (and syncTierToQuotaService): write a
+    // `seat_sync_failed` audit row so support can see the local billing state
+    // drifted from platform even when the call THREW rather than returned non-2xx.
+    await createBillingEvent(orgId, 'subscription_updated', {
+      reason: 'seat_sync_failed',
+      seats,
+      error: error instanceof Error ? error.message : String(error),
+    }, subscriptionId);
     return false;
   }
 }
@@ -203,6 +218,198 @@ export function bundleSelfServiceAllowed(): boolean {
 // in pipeline-core alongside the plan/bundle config it operates on. Re-exported
 // here so existing billing importers (routes/addons) keep their import path.
 export { effectiveEntitlements };
+
+/** An add-on removed because the destination tier now includes its feature. */
+export interface PrunedAddon {
+  bundleId: string;
+  features: string[];
+}
+
+/** Result of pruning tier-included pure-feature add-ons off a subscription. */
+export interface PruneResult {
+  /** The reduced add-on list to persist + sync. */
+  addons: Array<{ bundleId: string; quantity: number }>;
+  /** The add-ons that were dropped (for logging / audit). */
+  pruned: PrunedAddon[];
+}
+
+/**
+ * Drop any PURE-FEATURE add-on bundle whose granted feature is now included in
+ * the destination tier's feature set (docs/billing-bundles.md). Prevents
+ * double-billing: a Pro/Team account that bought e.g. `advanced_reporting` or
+ * `audit_log` and then upgrades into a tier that bundles that feature keeps
+ * paying for the now-redundant add-on, and the tier-filtered `/bundles` catalog
+ * hides it (its `availableForTiers` excludes the higher tier) so they can't
+ * self-service-remove it.
+ *
+ * Prune predicate (applied per add-on): the add-on's bundle exists in the
+ * catalog AND has NO quota grants (`Object.keys(bundle.grants).length === 0`)
+ * AND every flag in `bundle.features` is present in `TIER_FEATURES[newTier]`.
+ * HYBRID bundles that also grant a quota (e.g. `sso` → `idpConfigs:5`) are NEVER
+ * pruned — dropping them would strip the paid quota. Quota-only packs
+ * (seat_pack, etc.) carry no features and are never pruned.
+ *
+ * Pure function (no I/O) so callers persist + sync the reduced list themselves.
+ */
+export function pruneTierIncludedFeatureAddons(
+  addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
+  newTier: QuotaTier,
+  catalog: readonly BundleConfig[],
+): PruneResult {
+  const tierFeatures = new Set<string>(TIER_FEATURES[newTier] ?? []);
+  const byId = new Map(catalog.map((b) => [b.id, b]));
+  const kept: Array<{ bundleId: string; quantity: number }> = [];
+  const pruned: PrunedAddon[] = [];
+
+  for (const addon of addons) {
+    const bundle = byId.get(addon.bundleId);
+    const features = bundle?.features ?? [];
+    const isPureFeatureBundle = Boolean(bundle)
+      && Object.keys(bundle!.grants).length === 0
+      && features.length > 0
+      && features.every((f) => tierFeatures.has(f));
+    if (isPureFeatureBundle) {
+      pruned.push({ bundleId: addon.bundleId, features: [...features] });
+    } else {
+      kept.push(addon);
+    }
+  }
+
+  return { addons: kept, pruned };
+}
+
+/**
+ * Best-effort: reconcile the external provider's add-on line items to `addons`
+ * (the target/reduced set). Local entitlements are already applied, so a provider
+ * error must not fail the request — it's logged and reconciled on the next
+ * change/webhook. No-ops when there is no external subscription id, and when the
+ * active provider has no line-item add-ons (marketplace/stub `syncAddons` is a
+ * no-op — marketplace add-ons are AWS-metered, not pushed as line items).
+ *
+ * The single provider path shared by the user-initiated add/remove routes
+ * (routes/addons) AND the auto-prune finalizer ({@link finalizePrunedAddons}), so
+ * a bundle's line item is always deleted through ONE call with identical
+ * proration behavior.
+ */
+export async function syncProviderAddons(
+  externalId: string | null | undefined,
+  addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
+  interval: BillingInterval,
+  orgId: string,
+): Promise<void> {
+  if (!externalId) return;
+  try {
+    await getPaymentProvider().syncAddons?.(externalId, addons, interval);
+  } catch (err) {
+    logger.warn('Provider add-on sync failed (local entitlements already applied)', { orgId, error: errorMessage(err) });
+  }
+}
+
+/** Context threaded into the tier-included add-on prune helpers — for logging, the
+ *  billing_events / central-audit trail, and the provider line-item removal. */
+export interface AddonPruneContext {
+  orgId: string;
+  subscriptionId: string;
+  /** Current billing cadence — selects the provider price when removing lines. */
+  interval: BillingInterval;
+  /** Provider subscription id; absent (or a no-op provider) ⇒ removal is skipped. */
+  externalId?: string | null;
+  /** Acting user (JWT `sub`) when a request context exists; undefined on system
+   *  paths (webhook / marketplace SNS) — we never fabricate an actor. */
+  actorId?: string;
+  /** Short label of the triggering flow, for the INFO log (e.g. 'plan_change'). */
+  source: string;
+}
+
+/**
+ * Apply the tier-included pure-feature add-on prune to a subscription document
+ * IN MEMORY: compute the reduced add-on list via {@link pruneTierIncludedFeatureAddons},
+ * assign it to `subscription.addons` (so the caller's own `save()` persists it),
+ * log each dropped bundle, and return the pruned list. Does NO external I/O, so it
+ * is safe to run BEFORE the caller's save(); the side effects (provider line-item
+ * removal + billing_events + audit) live in {@link finalizePrunedAddons}, which
+ * the caller runs AFTER save so a failed save can't leave the provider or audit
+ * trail ahead of the persisted document.
+ *
+ * The four tier-change sites (self-service PUT, admin override, marketplace
+ * entitlement update, Stripe webhook plan change) all funnel through this pair so
+ * the prune wiring — and its double-billing fix — live in exactly one place.
+ */
+export function applyTierIncludedAddonPrune(
+  subscription: { addons?: Array<{ bundleId: string; quantity: number }> },
+  newTier: QuotaTier,
+  ctx: Pick<AddonPruneContext, 'orgId' | 'subscriptionId' | 'source'>,
+): PrunedAddon[] {
+  const { addons, pruned } = pruneTierIncludedFeatureAddons(
+    subscription.addons ?? [], newTier, getBundleCatalog(),
+  );
+  if (pruned.length === 0) return [];
+  subscription.addons = addons;
+  for (const p of pruned) {
+    logger.info('Pruned tier-included feature add-on', {
+      orgId: ctx.orgId,
+      subscriptionId: ctx.subscriptionId,
+      bundleId: p.bundleId,
+      features: p.features,
+      tier: newTier,
+      source: ctx.source,
+    });
+  }
+  return pruned;
+}
+
+/**
+ * Side effects for an auto-prune, run by the caller AFTER `subscription.save()`.
+ * For every bundle {@link applyTierIncludedAddonPrune} dropped: write a local
+ * `billing_events` row (`reason: 'addon_pruned'`, mirroring a user-initiated
+ * `addon_removed`) and mirror it to the central audit trail, so finance/support
+ * can reconcile a charge that stopped without a user action. Then delete the
+ * dropped bundles' PROVIDER line items via the SAME path a user-initiated removal
+ * uses ({@link syncProviderAddons} with the reduced list) — identical proration —
+ * so the customer stops being invoiced. Without this, the prune only dropped local
+ * tracking and the Stripe line item kept billing (the double-billing bug).
+ *
+ * `reducedAddons` is the KEPT set (`subscription.addons` after the prune);
+ * syncProviderAddons rebuilds the provider's bundle line items from it, dropping
+ * exactly the pruned bundles. Marketplace is EXEMPT from the provider removal:
+ * its add-ons are AWS-metered (its `syncAddons` no-ops), so there is no line item
+ * to delete — but the local event + central audit still record the drop.
+ *
+ * No-op when nothing was pruned. Best-effort throughout (never throws): the
+ * subscription mutation already succeeded regardless.
+ */
+export async function finalizePrunedAddons(
+  pruned: readonly PrunedAddon[],
+  reducedAddons: ReadonlyArray<{ bundleId: string; quantity: number }>,
+  ctx: AddonPruneContext,
+): Promise<void> {
+  if (pruned.length === 0) return;
+  for (const p of pruned) {
+    await createBillingEvent(
+      ctx.orgId,
+      'subscription_updated',
+      { reason: 'addon_pruned', bundleId: p.bundleId, features: p.features },
+      ctx.subscriptionId,
+      ctx.actorId,
+    );
+    // Mirror to the central trail alongside the local row. Reuse the sibling
+    // `billing.addon.remove` action (a prune IS a system-driven add-on removal;
+    // the central RemoteAuditAction union has no dedicated prune verb) and tag it
+    // with `reason: 'addon_pruned'` so it's distinguishable from a user removal —
+    // actorId is 'system' on the auto-prune paths too. Id/feature whitelist only,
+    // so no card/payment secret or AWS account id can leak. Fire-and-forget.
+    getAuditClient().record({
+      action: 'billing.addon.remove',
+      actorId: ctx.actorId ?? 'system',
+      orgId: ctx.orgId,
+      targetId: p.bundleId,
+      details: { reason: 'addon_pruned', bundleId: p.bundleId, features: p.features, subscriptionId: ctx.subscriptionId },
+    }, 'billing');
+  }
+  // Remove the dropped bundles' provider line items through the same call the
+  // user-initiated removal uses (identical proration). No-op for marketplace.
+  await syncProviderAddons(ctx.externalId, reducedAddons, ctx.interval, ctx.orgId);
+}
 
 /** A count-quota that would be over its (reduced) cap after an add-on change. */
 export interface Overage {
@@ -270,7 +477,7 @@ export async function syncEntitlements(
 
   const [quotaOk, seatOk] = await Promise.all([
     syncTierToQuotaService(orgId, tier, authHeader, subscriptionId, tracked),
-    pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId),
+    pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId, tier),
   ]);
 
   const ok = quotaOk && seatOk;

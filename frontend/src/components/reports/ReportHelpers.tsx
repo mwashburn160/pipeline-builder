@@ -1,6 +1,23 @@
-import { useState, useEffect, useRef } from 'react';
-import { RefreshCw, Download, Timer } from 'lucide-react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import Link from 'next/link';
+import { RefreshCw, Download, Timer, Lock } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { FEATURE_METADATA } from '@/lib/feature-flags';
+import type { DoraLevel, DoraTrendPoint } from '@/lib/api/domains/reporting';
+import { StatCard } from './StatCard';
+import { CFR_ELEVATED_PCT, SPARKLINE_MIN_BAR_PCT, SPARKLINE_ZERO_BAR_PCT } from './constants';
+
+/** Shared level-badge pill for a DORA metric. Returns null for an unrated level. */
+function DoraLevelBadge({ level }: { level: DoraLevel }) {
+  const badge = doraLevelBadge(level);
+  if (!badge) return null;
+  return (
+    <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium leading-none ${badge.className}`}>
+      {badge.label}
+    </span>
+  );
+}
 
 // ─── Formatting ─────────────────────────────────────────
 
@@ -8,6 +25,25 @@ export function fmtMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
   return `${(ms / 60000).toFixed(1)}m`;
+}
+
+/** Humanize a duration in seconds → "45s", "5m", "1h 2m", "2d 3h". Null → "—". */
+export function fmtSeconds(seconds: number | null | undefined): string {
+  if (seconds == null) return '—';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.round(seconds % 60);
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
+  if (seconds < 86400) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.round((seconds % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  const d = Math.floor(seconds / 86400);
+  const h = Math.round((seconds % 86400) / 3600);
+  return h > 0 ? `${d}d ${h}h` : `${d}d`;
 }
 
 export function fmtDate(iso: string | null): string {
@@ -23,6 +59,270 @@ export function ReportEmpty({ text }: { text: string }) {
 
 export function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="section-title text-sm tracking-tight mb-3">{children}</h3>;
+}
+
+// ─── DORA ───────────────────────────────────────────────
+
+/** Format a DORA reporting window as e.g. "Jun 27 – Jul 27, 2026". Invalid dates → "". */
+export function fmtWindow(window?: { from: string; to: string }): string {
+  if (!window) return '';
+  const from = new Date(window.from);
+  const to = new Date(window.to);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return '';
+  const fromStr = from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const toStr = to.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${fromStr} – ${toStr}`;
+}
+
+/**
+ * Map a DORA performance band to a display label + Tailwind pill classes
+ * (dark-mode aware). Returns null for an unrated (null) level so callers can
+ * render nothing.
+ */
+export function doraLevelBadge(level: DoraLevel): { label: string; className: string } | null {
+  switch (level) {
+    case 'elite':
+      return { label: 'Elite', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' };
+    case 'high':
+      return { label: 'High', className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300' };
+    case 'medium':
+      return { label: 'Medium', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' };
+    case 'low':
+      return { label: 'Low', className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' };
+    default:
+      return null;
+  }
+}
+
+interface DoraCardProps {
+  label: ReactNode;
+  value: string;
+  sub: ReactNode;
+  level?: DoraLevel;
+  /** Optional a11y tooltip (keyboard/SR-visible via the shared Tooltip). */
+  tooltip?: string;
+}
+
+/** A single DORA metric card with an optional performance-level badge + tooltip. */
+export function DoraCard({ label, value, sub, level = null, tooltip }: DoraCardProps) {
+  // When a tooltip is present the card becomes a focusable trigger so keyboard
+  // and screen-reader users reach the caveat: `tabIndex` lets the shared
+  // Tooltip's onFocus fire, and an `aria-label` gives the focusable group an
+  // accessible name (the shared Tooltip additionally wires `role="tooltip"` +
+  // `aria-describedby`). A single tooltip mechanism only — no native `title`,
+  // which would otherwise double up with the custom bubble on hover.
+  const card = (
+    <StatCard
+      variant="detailed"
+      label={label}
+      value={value}
+      sub={sub}
+      badge={<DoraLevelBadge level={level} />}
+      className={tooltip ? 'focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded-lg' : ''}
+      wrapperProps={tooltip ? { tabIndex: 0, role: 'group', 'aria-label': tooltip } : undefined}
+    />
+  );
+
+  if (!tooltip) return card;
+  // `multiline` lets the sentence-length caveat wrap + cap width (the default
+  // bubble is `whitespace-nowrap` and would overflow the viewport). `w-full`
+  // keeps the wrapped card the same width as the un-wrapped grid cells.
+  return (
+    <Tooltip content={tooltip} multiline className="w-full">
+      {card}
+    </Tooltip>
+  );
+}
+
+/**
+ * Compact deployment-frequency sparkline (mini bar chart) for the DORA trend.
+ * Inline SVG-free div bars matching the page's other timeline visuals — bar
+ * height encodes deployments per bucket; hue reddens with change-failure %.
+ */
+export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
+  if (points.length === 0) return null;
+  const max = Math.max(1, ...points.map((p) => p.deployments));
+  // Summary conveyed to assistive tech so the chart isn't an opaque "image":
+  // total deploys + the deploy-weighted average change-failure rate over the
+  // window, plus how many buckets sat in the elevated (>=30% CFR) band.
+  const totalDeploys = points.reduce((s, p) => s + p.deployments, 0);
+  const totalFailed = points.reduce((s, p) => s + p.failed, 0);
+  const totalConsidered = points.reduce((s, p) => s + p.total, 0);
+  const avgCfr = totalConsidered > 0 ? Math.round((totalFailed / totalConsidered) * 100) : 0;
+  const hotCount = points.filter((p) => p.changeFailurePct >= CFR_ELEVATED_PCT).length;
+  const summary =
+    `Deployment trend over ${points.length} period${points.length === 1 ? '' : 's'}: ` +
+    `${totalDeploys} total deployment${totalDeploys === 1 ? '' : 's'}, ` +
+    `average change-failure rate ${avgCfr}%` +
+    (hotCount > 0 ? `, ${hotCount} period${hotCount === 1 ? '' : 's'} with elevated change-failure (${CFR_ELEVATED_PCT}%+).` : '.');
+  return (
+    <div className="card">
+      <SectionHeading>Deployment Trend</SectionHeading>
+      <div className="flex items-end gap-1 h-16" role="img" aria-label={summary}>
+        {points.map((p) => {
+          const h = Math.max((p.deployments / max) * 100, p.deployments > 0 ? SPARKLINE_MIN_BAR_PCT : SPARKLINE_ZERO_BAR_PCT);
+          const hot = p.changeFailurePct >= CFR_ELEVATED_PCT;
+          return (
+            <div
+              key={p.period}
+              className="flex-1 flex flex-col justify-end"
+              title={`${fmtDate(p.period)}: ${p.deployments} deploy${p.deployments === 1 ? '' : 's'} · ${p.changeFailurePct}% CFR`}
+            >
+              <div
+                className={`w-full rounded-sm ${hot ? 'bg-red-500/70 dark:bg-red-400/70' : 'bg-blue-500/70 dark:bg-blue-400/70'}`}
+                style={{ height: `${h}%` }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      {/* Visually-hidden per-period data table — the bars encode values only in
+          `title=`/height (not exposed to SR), so mirror them as real, readable
+          data. Elevated-failure state is carried as a text tag, not color alone. */}
+      <table className="sr-only">
+        <caption>Deployments and change-failure rate per period</caption>
+        <thead>
+          <tr><th scope="col">Period</th><th scope="col">Deployments</th><th scope="col">Change-failure rate</th><th scope="col">Status</th></tr>
+        </thead>
+        <tbody>
+          {points.map((p) => (
+            <tr key={p.period}>
+              <td>{fmtDate(p.period)}</td>
+              <td>{p.deployments}</td>
+              <td>{p.changeFailurePct}%</td>
+              <td>{p.changeFailurePct >= CFR_ELEVATED_PCT ? 'Elevated change-failure' : 'Normal'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="flex items-center justify-between mt-1.5 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+        <span>{fmtDate(points[0].period)}</span>
+        <span>Deploys / period &middot; red = elevated change-failure</span>
+        <span>{fmtDate(points[points.length - 1].period)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── DORA Upsell (non-entitled teaser) ──────────────────
+
+/** Sample values for the blurred DORA teaser shown to non-entitled users. */
+const SAMPLE_DORA_CARDS: { label: string; value: string; sub: string; level: DoraLevel }[] = [
+  { label: 'Deployment Frequency', value: '8', sub: 'deploys · 0.27/day', level: 'high' },
+  { label: 'Change Failure Rate', value: '25%', sub: '2/8 deploys failed', level: 'medium' },
+  { label: 'Time to Restore (MTTR)', value: '1h 2m', sub: '2/2 incidents restored', level: 'high' },
+  { label: 'Lead time ≈', value: '5m 30s', sub: 'Approx · median run time', level: 'elite' },
+];
+
+/**
+ * Locked teaser rendered in place of the DORA section when the viewer lacks the
+ * `advanced_reporting` entitlement. Shows a blurred sample of the four DORA
+ * cards behind a lock + CTA that deep-links to the add-on on the billing page.
+ */
+export function DoraUpsell() {
+  const meta = FEATURE_METADATA.advanced_reporting;
+  return (
+    <div>
+      <SectionHeading>DORA Metrics</SectionHeading>
+      <div className="relative overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+        {/* Blurred, inert sample behind the overlay — decorative only. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 blur-[3px] opacity-60 select-none pointer-events-none" aria-hidden="true">
+          {SAMPLE_DORA_CARDS.map((c) => (
+            <StatCard
+              key={c.label}
+              variant="detailed"
+              label={c.label}
+              value={c.value}
+              sub={c.sub}
+              badge={<DoraLevelBadge level={c.level} />}
+            />
+          ))}
+        </div>
+        {/* Overlay: the real, accessible content + CTA. */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white/70 dark:bg-gray-900/70 backdrop-blur-[1px] px-6 py-8 text-center">
+          <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300">
+            <Lock className="w-5 h-5" aria-hidden="true" />
+          </span>
+          <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">{meta.label} &mdash; DORA metrics</h4>
+          <p className="max-w-md text-sm text-gray-600 dark:text-gray-400">
+            Track deployment frequency, change failure rate, mean time to restore (MTTR) and a lead-time proxy,
+            each rated against elite/high/medium/low performance bands. {meta.description}.
+          </p>
+          <Link href="/dashboard/billing?highlight=advanced_reporting" className="btn btn-primary btn-sm mt-1">
+            Unlock Advanced Reporting
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── DORA Scope Controls (entitled only) ────────────────
+
+interface DoraScopeControlsProps {
+  /** Pipelines to offer in the picker (from the overview execution list). */
+  pipelines: { id: string; name: string }[];
+  pipelineId: string;
+  environment: string;
+  deploysOnly: boolean;
+  onPipelineChange: (v: string) => void;
+  /** Live value change (keystroke) — updates the controlled input only. */
+  onEnvironmentChange: (v: string) => void;
+  /** Commit the environment value to the fetch (fires on blur / Enter). */
+  onEnvironmentCommit: (v: string) => void;
+  onDeploysOnlyChange: (v: boolean) => void;
+}
+
+/**
+ * Scoping controls for the DORA section: pipeline picker, a deployments-only
+ * toggle, and an optional environment filter. Wires the backend
+ * `pipelineId`/`deploysOnly`/`environment` params. Styled to match the page's
+ * other filter controls (DateRangePicker / interval select).
+ */
+export function DoraScopeControls({
+  pipelines, pipelineId, environment, deploysOnly,
+  onPipelineChange, onEnvironmentChange, onEnvironmentCommit, onDeploysOnlyChange,
+}: DoraScopeControlsProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 mb-3">
+      <label className="sr-only" htmlFor="dora-pipeline">Filter DORA by pipeline</label>
+      <select
+        id="dora-pipeline"
+        value={pipelineId}
+        onChange={(e) => onPipelineChange(e.target.value)}
+        className="filter-select text-xs"
+        title="Scope DORA metrics to a single pipeline"
+      >
+        <option value="">All pipelines</option>
+        {pipelines.map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+      {/* Debounced/committed value: typing only updates the controlled input;
+          the fetch is triggered on blur or Enter (plus a page-level debounce)
+          so a per-keystroke request storm is avoided. */}
+      <input
+        type="text"
+        value={environment}
+        onChange={(e) => onEnvironmentChange(e.target.value)}
+        onBlur={(e) => onEnvironmentCommit(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') onEnvironmentCommit((e.target as HTMLInputElement).value); }}
+        placeholder="Environment (e.g. prod)"
+        className="filter-select text-xs w-44"
+        title="Scope DORA metrics to a deployment environment"
+        aria-label="Filter DORA by environment"
+      />
+      <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400" title="Count only steps marked as deployments (excludes non-deploy pipeline runs)">
+        <input
+          type="checkbox"
+          checked={deploysOnly}
+          onChange={(e) => onDeploysOnlyChange(e.target.checked)}
+          className="rounded border-gray-300 dark:border-gray-600"
+        />
+        Deployments only
+      </label>
+    </div>
+  );
 }
 
 /** Map of supported column counts to Tailwind grid classes (avoids dynamic class generation). */

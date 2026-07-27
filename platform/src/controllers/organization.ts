@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getParam, isServicePrincipal, isSystemAdmin, sendError, sendSuccess, parsePaginationParams, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, getParam, isServicePrincipal, isSystemAdmin, isValidFeatureFlag, sendError, sendSuccess, parsePaginationParams, SYSTEM_ORG_ID, VALID_TIERS } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
@@ -12,6 +12,7 @@ import {
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
+import type { QuotaTier } from '../models/organization.js';
 import {
   organizationService,
   ORG_NOT_FOUND,
@@ -226,10 +227,11 @@ export const updateOrganizationTier = withController('Update organization tier',
   if (!requireSystemAdmin(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
-  const tier = (req.body as { tier?: unknown })?.tier;
-  if (tier !== 'developer' && tier !== 'pro' && tier !== 'team' && tier !== 'enterprise') {
-    return sendError(res, 400, 'tier must be one of: developer, pro, team, enterprise');
+  const tierRaw = (req.body as { tier?: unknown })?.tier;
+  if (typeof tierRaw !== 'string' || !VALID_TIERS.includes(tierRaw as QuotaTier)) {
+    return sendError(res, 400, `tier must be one of: ${VALID_TIERS.join(', ')}`);
   }
+  const tier: QuotaTier = tierRaw as QuotaTier;
 
   // Over-cap gate (docs/billing-bundles.md §8): a downgrade must not strand
   // members/resources. Same protection as the billing plan-change path; a
@@ -405,7 +407,7 @@ export const updateOrganizationSeatLimit = withController('Update organization s
   }
 
   const id = getParam(req.params, 'id')!;
-  const body = (req.body ?? {}) as { seats?: unknown; features?: unknown };
+  const body = (req.body ?? {}) as { seats?: unknown; features?: unknown; tier?: unknown };
   if (typeof body.seats !== 'number' || !Number.isInteger(body.seats) || body.seats < -1) {
     return sendError(res, 400, 'seats must be an integer >= -1');
   }
@@ -415,10 +417,34 @@ export const updateOrganizationSeatLimit = withController('Update organization s
     if (!Array.isArray(body.features) || body.features.some((f) => typeof f !== 'string')) {
       return sendError(res, 400, 'features must be an array of strings');
     }
+    // Whitelist against the canonical feature-flag registry: these entitlements
+    // are persisted onto the root AND propagated to every descendant team, so an
+    // unknown/junk flag would perpetually trip billing's entitlement-drift
+    // reconciler and pollute `featureEntitlements`. Reject rather than silently
+    // accept arbitrary strings (defense-in-depth against a bogus-flag injection).
+    const unknown = (body.features as string[]).filter((f) => !isValidFeatureFlag(f));
+    if (unknown.length > 0) {
+      return sendError(res, 400, `features contains unknown feature flag(s): ${unknown.join(', ')}`);
+    }
     features = body.features as string[];
   }
+  // Optional account tier — billing pushes it so a plan DOWNGRADE invalidates
+  // stale tokens (setSeatLimit sets only the tier label, no quota reseed).
+  //
+  // TRUST BOUNDARY: unlike the sysadmin `PATCH /tier` route, this path runs NO
+  // over-cap / team-stranding guard (`checkTierOvercap`). Billing is the sole
+  // caller and gates the downgrade via `checkEntitlementOvercap` BEFORE calling
+  // this endpoint, so the guard lives caller-side by design. If another producer
+  // ever writes here, add the structural guard.
+  let tier: QuotaTier | undefined;
+  if (body.tier !== undefined) {
+    if (typeof body.tier !== 'string' || !VALID_TIERS.includes(body.tier as QuotaTier)) {
+      return sendError(res, 400, `tier must be one of: ${VALID_TIERS.join(', ')}`);
+    }
+    tier = body.tier as QuotaTier;
+  }
 
-  const result = await organizationService.setSeatLimit(id, body.seats, features);
+  const result = await organizationService.setSeatLimit(id, body.seats, features, tier);
   if (!result) return sendError(res, 404, 'Organization not found');
 
   // Entitlement mutation on the account root (+ its descendants) — leave an audit
@@ -427,9 +453,9 @@ export const updateOrganizationSeatLimit = withController('Update organization s
     targetType: 'organization',
     targetId: id,
     affectedOrgId: result.rootOrgId,
-    details: { seats: body.seats, ...(features ? { features } : {}) },
+    details: { seats: body.seats, ...(features ? { features } : {}), ...(tier ? { tier } : {}) },
   });
-  logger.info('Seat limit synced', { orgId: id, rootOrgId: result.rootOrgId, seats: body.seats, features, by: req.user!.sub });
+  logger.info('Seat limit synced', { orgId: id, rootOrgId: result.rootOrgId, seats: body.seats, features, tier, by: req.user!.sub });
   sendSuccess(res, 200, result, 'Seat limit updated');
 });
 

@@ -42,6 +42,12 @@ const ALL_PERMISSIONS: readonly string[] = [
   'org:settings',
 ];
 
+/** Canonical feature-flag identifiers (mirrors api-core ALL_FEATURE_FLAGS). */
+const ALL_FEATURE_FLAGS: readonly string[] = [
+  'priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations',
+  'audit_log', 'sso', 'advanced_reporting',
+];
+
 /** Mirrors api-core's SUPERADMIN_ONLY_PERMISSIONS (the shared image registry). */
 const SUPERADMIN_ONLY_PERMISSIONS: readonly string[] = ['registry:read', 'registry:write'];
 
@@ -159,6 +165,12 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
       enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso'],
     },
+    // Canonical feature-flag registry (mirrors api-core ALL_FEATURE_FLAGS /
+    // isValidFeatureFlag). The seat-limit controller whitelists the caller's
+    // `features[]` against this before persisting, so any suite loading that
+    // controller needs the export to link + behave for real.
+    ALL_FEATURE_FLAGS,
+    isValidFeatureFlag: (v: string) => ALL_FEATURE_FLAGS.includes(v),
     // Org-hierarchy traversal primitives — platform's helpers/org-hierarchy.js
     // (loaded transitively by organization-service / seats.js) imports these.
     // Default to a FLAT resolution: root = self, subtree = [self]. A suite can

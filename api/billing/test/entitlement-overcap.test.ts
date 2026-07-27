@@ -68,6 +68,15 @@ jest.unstable_mockModule('../src/config.js', () => ({
 
 jest.unstable_mockModule('../src/models/billing-event.js', () => ({ BillingEvent: { create: jest.fn() } }));
 
+// billing-helpers now imports the provider factory + service audit client; stub
+// both so no real Stripe/AWS SDK is loaded for this over-cap unit suite.
+jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
+  getPaymentProvider: () => ({ syncAddons: jest.fn() }),
+}));
+jest.unstable_mockModule('../src/services/audit.js', () => ({
+  getAuditClient: () => ({ record: jest.fn() }),
+}));
+
 const { checkEntitlementOvercap } = await import('../src/helpers/billing-helpers.js');
 
 beforeEach(() => {

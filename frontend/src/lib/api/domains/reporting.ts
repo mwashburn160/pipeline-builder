@@ -5,6 +5,31 @@ import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
 import type { ApiResponse } from '@/types';
 
+/** DORA performance band for a metric (elite → low), or null when unrated. */
+export type DoraLevel = 'elite' | 'high' | 'medium' | 'low' | null;
+
+/** DORA metrics envelope returned under `data.dora`. */
+export interface DoraMetrics {
+  window: { from: string; to: string };
+  /** Whether the numbers count real deployments or fall back to pipeline runs. */
+  basis: 'deploy' | 'run';
+  /** Active scoping filters echoed back by the backend. */
+  filters: { pipelineId: string | null; environment: string | null };
+  deploymentFrequency: { deployments: number; perDay: number; level: DoraLevel };
+  changeFailureRate: { failed: number; total: number; pct: number; level: DoraLevel };
+  meanTimeToRestore: { failures: number; restored: number; avgSeconds: number | null; level: DoraLevel };
+  leadTime: { deployments: number; medianSeconds: number | null; approx: true; level: DoraLevel };
+}
+
+/** One bucket of the DORA trend series returned under `data.trend`. */
+export interface DoraTrendPoint {
+  period: string;
+  deployments: number;
+  failed: number;
+  total: number;
+  changeFailurePct: number;
+}
+
 export function reportingApi(core: ApiCore) {
   return {
     // ============================================
@@ -49,6 +74,18 @@ export function reportingApi(core: ApiCore) {
     /** Error categorization. */
     getExecutionErrors: async (params?: { from?: string; to?: string; limit?: number }) => {
       return core.request<ApiResponse<{ errors: Array<{ error_pattern: string; occurrences: number; affected_pipelines: number; last_seen: string }> }>>(`/api/reports/execution/errors${buildQuery(params)}`);
+    },
+
+    /** DORA metrics (deployment frequency, change failure rate, MTTR, lead time). */
+    getDora: async (params?: { from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; environment?: string; deploysOnly?: boolean }) => {
+      const res = await core.request<ApiResponse<{ dora: DoraMetrics }>>(`/api/reports/execution/dora${buildQuery(params)}`);
+      return res.data?.dora;
+    },
+
+    /** DORA change-failure trend over time (deployments / failures per bucket). */
+    getDoraTrend: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; environment?: string; deploysOnly?: boolean }) => {
+      const res = await core.request<ApiResponse<{ trend: DoraTrendPoint[] }>>(`/api/reports/execution/dora/trend${buildQuery(params)}`);
+      return res.data?.trend ?? [];
     },
 
     /** Plugin inventory summary. */

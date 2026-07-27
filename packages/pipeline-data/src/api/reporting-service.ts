@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createCacheService, createLogger, errorMessage, scrubAwsIdentifiers, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
-import { inArray, sql } from 'drizzle-orm';
+import { inArray, sql, type SQL } from 'drizzle-orm';
 import { drizzleRows } from './crud-service.js';
 import { schema } from '../database/drizzle-schema.js';
 import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
@@ -135,6 +135,239 @@ interface BuildFailure {
   lastSeen: string;
 }
 
+/** Raw single-row shape returned by the DORA aggregate query (pre-shaping). */
+/**
+ * How far past the report's `to` bound the DORA MTTR query may look for a
+ * failure's recovering run. Bounds the scan while stopping a failure near the
+ * window edge from being spuriously scored "never restored". A failure that
+ * has not recovered within this window stays counted as an open incident.
+ */
+const MTTR_RESTORE_LOOKAHEAD = '30 days';
+
+/**
+ * DORA performance band. `null` = insufficient data to classify (no
+ * deployments/failures/lead-time sample in the window), so the UI shows a
+ * neutral state rather than mislabeling an empty window as "low".
+ */
+export type DoraLevel = 'elite' | 'high' | 'medium' | 'low' | null;
+
+/** Optional scoping for {@link ReportingService.getDoraMetrics}. */
+export interface DoraOptions {
+  /** Restrict to a single pipeline (per-pipeline DORA). */
+  pipelineId?: string;
+  /** Count only executions deployed to this environment (deploy-scoped). */
+  environment?: string;
+  /** Count only executions tagged with ANY environment (real deployments). */
+  deploysOnly?: boolean;
+}
+
+// DORA performance bands (thresholds from the DORA/Accelerate reports). Each
+// helper returns `null` when there's no sample to classify.
+/** Deployment frequency by deploys/day: elite ≥1/day, high ≥1/week, medium ≥1/month. */
+function doraLevelForFrequency(perDay: number, deployments: number): DoraLevel {
+  if (deployments <= 0) return null;
+  if (perDay >= 1) return 'elite';
+  if (perDay >= 1 / 7) return 'high';
+  if (perDay >= 1 / 30) return 'medium';
+  return 'low';
+}
+/** Change failure rate by percent: elite ≤5%, high ≤10%, medium ≤15%. */
+function doraLevelForChangeFailure(pct: number, total: number): DoraLevel {
+  if (total <= 0) return null;
+  if (pct <= 5) return 'elite';
+  if (pct <= 10) return 'high';
+  if (pct <= 15) return 'medium';
+  return 'low';
+}
+/** Time to restore by seconds: elite <1h, high <1 day, medium <1 week. */
+function doraLevelForRestore(avgSeconds: number | null): DoraLevel {
+  if (avgSeconds == null) return null;
+  if (avgSeconds < 3600) return 'elite';
+  if (avgSeconds < 86400) return 'high';
+  if (avgSeconds < 604800) return 'medium';
+  return 'low';
+}
+/** Lead time by seconds: elite <1 day, high <1 week, medium <1 month. */
+function doraLevelForLeadTime(medianSeconds: number | null): DoraLevel {
+  if (medianSeconds == null) return null;
+  if (medianSeconds < 86400) return 'elite';
+  if (medianSeconds < 604800) return 'high';
+  if (medianSeconds < 2592000) return 'medium';
+  return 'low';
+}
+
+/**
+ * Shared per-execution terminal-status roll-up for the DORA `execs` CTEs:
+ * FAILED wins, then SUCCEEDED, else CANCELED/STOPPED. Kept in one place so
+ * getDoraMetrics and getDoraTrend can't drift on the precedence.
+ */
+const DORA_TERMINAL_STATUS_CASE = sql`
+            CASE
+              WHEN bool_or(e.status = 'FAILED') THEN 'FAILED'
+              WHEN bool_or(e.status = 'SUCCEEDED') THEN 'SUCCEEDED'
+              ELSE 'CANCELED'
+            END`;
+
+/**
+ * Optional per-pipeline / deploy-scoping predicates + the resulting `basis`,
+ * shared by getDoraMetrics and getDoraTrend so the env/deploysOnly precedence
+ * can't diverge. `environment` (one target) wins over `deploysOnly` (any env).
+ */
+function doraScopeClauses(opts: DoraOptions) {
+  const { pipelineId, environment, deploysOnly } = opts;
+  const pipelineClause = pipelineId ? sql`AND e.pipeline_id = ${pipelineId}` : sql``;
+  const deployClause = environment
+    ? sql`AND e.environment = ${environment}`
+    : deploysOnly ? sql`AND e.environment IS NOT NULL` : sql``;
+  const basis: 'deploy' | 'run' = environment || deploysOnly ? 'deploy' : 'run';
+  return { pipelineClause, deployClause, basis };
+}
+
+/**
+ * Shared `execs` CTE body — the per-execution terminal roll-up that BOTH DORA
+ * methods scan. Only the SELECTed columns and the upper range bound differ
+ * (getDoraMetrics needs pipeline_id/ended_at/duration_ms plus a look-ahead tail
+ * for MTTR recovery; getDoraTrend needs only started_at over the core window),
+ * so those are the parameters. The `event_type='PIPELINE'` gate, the
+ * SUCCEEDED/FAILED/CANCELED/STOPPED status set, the `execution_id` filter, the
+ * org + deploy/pipeline scope clauses, and the `GROUP BY` all live here so the
+ * two callers can't drift on the status set or the predicate.
+ *
+ * @param columns  trailing SELECT columns (after `e.execution_id,`)
+ * @param toBound  the `<=` upper-bound expression on `e.started_at`
+ *                 (core window for the trend; core + look-ahead for metrics)
+ */
+function execsCte(args: {
+  pred: SQL;
+  columns: SQL;
+  pipelineClause: SQL;
+  deployClause: SQL;
+  from: string;
+  toBound: SQL;
+}): SQL {
+  const { pred, columns, pipelineClause, deployClause, from, toBound } = args;
+  return sql`
+        SELECT
+          e.execution_id,
+          ${columns}
+        FROM ${schema.pipelineEvent} e
+        JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
+        WHERE p.org_id ${pred} AND e.event_type = 'PIPELINE'
+          -- STOPPED (manually aborted) joins CANCELED in the ELSE bucket; both
+          -- are terminal non-deploy outcomes. SUPERSEDED stays excluded (a
+          -- replaced execution, not an outcome).
+          AND e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED')
+          AND e.execution_id IS NOT NULL
+          ${pipelineClause}
+          ${deployClause}
+          AND e.started_at >= ${from}::timestamptz
+          AND e.started_at <= ${toBound}
+        GROUP BY e.execution_id, e.pipeline_id`;
+}
+
+interface DoraRow {
+  df_deployments?: number | string | null;
+  cfr_failed?: number | string | null;
+  cfr_total?: number | string | null;
+  lt_deployments?: number | string | null;
+  lt_median_ms?: number | string | null;
+  mttr_failures?: number | string | null;
+  mttr_restored?: number | string | null;
+  mttr_avg_seconds?: number | string | null;
+}
+
+/**
+ * DORA metrics over a [from,to] window, org-scoped (single-org or rollup subtree).
+ *
+ * A "deployment" is a TERMINAL pipeline-level event, rolled up to one row per
+ * `execution_id` (FAILED wins, then SUCCEEDED, then CANCELED/STOPPED — same
+ * precedence as `listPipelineExecutions`).
+ *
+ * DISCLOSURE — these are RUN-BASED approximations of DORA. A "deployment" here
+ * is any successful pipeline RUN, not a verified production deployment: the
+ * event stream carries no deploy-stage/environment marker, so a CI-only
+ * build/test pipeline counts the same as one that ships to prod. That makes
+ * `deploymentFrequency` a pipeline-throughput signal and `changeFailureRate` a
+ * pipeline-failure rate (build/test failures caught in CI count too), and MTTR
+ * a pipeline-recovery time. Only `leadTime` carries an explicit `approx` flag
+ * (it is additionally a run-time proxy), but ALL four share the run≠deploy
+ * caveat until deploy/commit metadata is captured. See docs/dora-metrics.md.
+ */
+export interface DoraMetrics {
+  /** The [from,to] window echoed back (started_at range). */
+  window: { from: string; to: string };
+  /**
+   * Whether the numbers count real deployments or pipeline runs:
+   * - `'deploy'` — scoped to executions tagged with a deploy `environment`
+   *   (via `environment`/`deploysOnly`); a genuine deployment signal.
+   * - `'run'` — default: every successful PIPELINE run counts (no deploy
+   *   marker applied). DF/CFR/MTTR then reflect pipeline activity, not deploys.
+   */
+  basis: 'deploy' | 'run';
+  /** The scoping applied (echoed for the UI); `null` when unscoped. */
+  filters: { pipelineId: string | null; environment: string | null };
+  /** Deployment Frequency — SUCCEEDED terminal deployments in the window. */
+  deploymentFrequency: {
+    /** Count of successful deployments. */
+    deployments: number;
+    /** Successful deployments per day over the window. */
+    perDay: number;
+    /** Performance band, or null when there were no deployments. */
+    level: DoraLevel;
+  };
+  /** Change Failure Rate — failed / (succeeded + failed); CANCELED excluded. */
+  changeFailureRate: {
+    failed: number;
+    /** succeeded + failed (the CFR denominator). */
+    total: number;
+    /** failed/total as a percentage, 0–100, 1 decimal. */
+    pct: number;
+    /** Performance band, or null when there were no deployments to judge. */
+    level: DoraLevel;
+  };
+  /** Mean Time To Restore — avg gap from a failure INCIDENT to its recovery.
+   *  Consecutive failed runs of a pipeline (with no green run between) collapse
+   *  into one incident; the gap is measured from the first failure's END to the
+   *  recovering run's END. The recovery is visible up to a look-ahead past `to`
+   *  so a failure near the window edge isn't spuriously counted unrestored. */
+  meanTimeToRestore: {
+    /** Failure incidents in the window (maximal runs of consecutive failures). */
+    failures: number;
+    /** Incidents that were followed by a succeeded run (recovered). */
+    restored: number;
+    /** Average restore gap in seconds; null when there were no incidents. */
+    avgSeconds: number | null;
+    /** Performance band, or null when there were no incidents. */
+    level: DoraLevel;
+  };
+  /** Lead Time — PROXY: median pipeline RUN TIME of succeeded deployments.
+   *  NOT true commit→prod lead time (executions don't capture commit time),
+   *  hence `approx: true` so the UI/docs can label it. */
+  leadTime: {
+    /** Succeeded deployments with a duration (the median sample). */
+    deployments: number;
+    /** Median run time in seconds; null when no successful deployments. */
+    medianSeconds: number | null;
+    approx: true;
+    /** Performance band, or null when there were no successful deployments. */
+    level: DoraLevel;
+  };
+}
+
+/** One interval bucket of the DORA trend (deployment frequency + change failure). */
+export interface DoraTrendPoint {
+  /** Bucket start (DATE_TRUNC of started_at), ISO text. */
+  period: string;
+  /** Successful deployments in the bucket. */
+  deployments: number;
+  /** Failed deployments in the bucket. */
+  failed: number;
+  /** succeeded + failed in the bucket. */
+  total: number;
+  /** failed/total as a percent (0 when total is 0). */
+  changeFailurePct: number;
+}
+
 /** Event payload accepted by `ReportingService.ingestEvents`. Mirrors the route's Zod shape. */
 export interface IngestEvent {
   /** Stable pipeline id the events Lambda read from the `PIPELINE_EVENT_ID`
@@ -151,6 +384,12 @@ export interface IngestEvent {
   startedAt?: string;
   completedAt?: string;
   durationMs?: number;
+  /** Source commit id of the change being shipped (DORA deploy attribution). */
+  commitSha?: string;
+  /** Source ref/branch (DORA deploy attribution). */
+  commitRef?: string;
+  /** Deploy target (e.g. "production"). Its presence marks a real deployment. */
+  environment?: string;
   detail?: Record<string, unknown>;
 }
 
@@ -253,6 +492,17 @@ export class ReportingService {
           startedAt: event.startedAt ? new Date(event.startedAt) : undefined,
           completedAt: event.completedAt ? new Date(event.completedAt) : undefined,
           durationMs: event.durationMs,
+          // Deploy-attribution fields — scrubbed like the other free-form strings
+          // so an ARN/account id can never enter via a ref or environment name.
+          commitSha: event.commitSha !== undefined
+            ? scrubAwsIdentifiersFromString(event.commitSha)
+            : undefined,
+          commitRef: event.commitRef !== undefined
+            ? scrubAwsIdentifiersFromString(event.commitRef)
+            : undefined,
+          environment: event.environment !== undefined
+            ? scrubAwsIdentifiersFromString(event.environment)
+            : undefined,
           detail: event.detail !== undefined
             ? scrubAwsIdentifiers(event.detail)
             : undefined,
@@ -521,6 +771,250 @@ export class ReportingService {
         LIMIT ${limit}
       `).then(r => drizzleRows<ErrorEntry>(r.rows))),
     );
+  }
+
+  /**
+   * 1.9 DORA metrics over [from,to] (started_at range), org-scoped + rollup-aware.
+   *
+   * All four metrics derive from a per-execution roll-up of TERMINAL PIPELINE
+   * events (one row per execution_id+pipeline_id; FAILED wins, then SUCCEEDED,
+   * then CANCELED/STOPPED — mirroring `listPipelineExecutions`). The scan is
+   * gated by the `p.org_id ${pred}` join exactly like the sibling reports, so a
+   * rollup passes the org→team subtree and a foreign org's executions never
+   * enter the aggregate.
+   *
+   * DF/CFR/lead-time count only CORE-window executions ([from,to]). MTTR is
+   * per-INCIDENT: consecutive failures collapse into one incident and the
+   * recovery lookup may see the next success up to MTTR_RESTORE_LOOKAHEAD past
+   * `to`, so a failure near the edge isn't right-censored into "never restored".
+   * The scan bound is therefore `[from, to + look-ahead]`; the started_at range
+   * still rides the same index as the sibling reports.
+   *
+   * DISCLOSURE: by default DF/CFR/MTTR are RUN-based (any successful PIPELINE
+   * run = a "deployment"), and Lead Time is additionally a run-time PROXY
+   * flagged `approx: true`. Pass `environment` or `deploysOnly` to scope to
+   * executions tagged with a real deploy target — the response `basis` reports
+   * which was used. See the DoraMetrics doc + docs/dora-metrics.md.
+   *
+   * @param opts.pipelineId    restrict to one pipeline (per-pipeline DORA)
+   * @param opts.environment   count only executions deployed to this target
+   * @param opts.deploysOnly   count only executions tagged with ANY environment
+   */
+  async getDoraMetrics(
+    orgId: string,
+    from: string,
+    to: string,
+    orgIds?: string[],
+    opts: DoraOptions = {},
+  ): Promise<DoraMetrics> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const { pipelineId, environment, deploysOnly } = opts;
+    // Optional deploy-scoping / per-pipeline predicates, folded into the execs
+    // scan so failures AND their recovery successes are filtered consistently.
+    const { pipelineClause, deployClause, basis } = doraScopeClauses(opts);
+    // Scan the CORE window plus a look-ahead tail: the extra tail exists only
+    // so a late failure can still find its recovery (see the restore CTE).
+    const execs = execsCte({
+      pred,
+      pipelineClause,
+      deployClause,
+      from,
+      columns: sql`
+            e.pipeline_id,
+            ${DORA_TERMINAL_STATUS_CASE} AS status,
+            MIN(e.started_at) AS started_at,
+            MAX(e.completed_at) AS ended_at,
+            MAX(e.duration_ms) AS duration_ms`,
+      toBound: sql`${to}::timestamptz + ${MTTR_RESTORE_LOOKAHEAD}::interval`,
+    });
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
+        WITH execs AS (${execs}
+        ),
+        -- Core-window executions ([from,to]); DF/CFR/lead-time count only these.
+        -- The look-ahead rows above are used ONLY as MTTR recovery candidates.
+        core AS (
+          SELECT * FROM execs WHERE started_at <= ${to}::timestamptz
+        ),
+        df AS (
+          SELECT COUNT(*) FILTER (WHERE status = 'SUCCEEDED')::int AS deployments
+          FROM core
+        ),
+        cfr AS (
+          SELECT
+            COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed,
+            COUNT(*) FILTER (WHERE status IN ('SUCCEEDED', 'FAILED'))::int AS total
+          FROM core
+        ),
+        lt AS (
+          SELECT
+            COUNT(*)::int AS deployments,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms)::float AS median_ms
+          FROM core
+          WHERE status = 'SUCCEEDED' AND duration_ms IS NOT NULL
+        ),
+        -- For each core-window failure, find the END of its recovering run: the
+        -- next SUCCEEDED run of the same pipeline that ENDED after this failure
+        -- ended (visible into the look-ahead tail). SELECT and MEASURE both key
+        -- off ended_at so they stay consistent -- the incident gap is
+        -- restored_at (success end) minus incident_started (first failure end),
+        -- so picking the recovery by ended_at (not started_at) rules out the
+        -- negative gap that a concurrent success which STARTED after the failure
+        -- but ENDED before it would otherwise fold into AVG. Measuring from the
+        -- failure's END (not start) also keeps the failed run's own duration out
+        -- of restore time. Ordering by ended_at makes the incident collapse fall
+        -- out naturally: a green run ending between two failures splits them.
+        restore AS (
+          SELECT
+            f.pipeline_id,
+            f.ended_at AS fail_ended,
+            (SELECT s.ended_at FROM execs s
+              WHERE s.pipeline_id = f.pipeline_id AND s.status = 'SUCCEEDED'
+                AND s.ended_at > f.ended_at
+              ORDER BY s.ended_at ASC LIMIT 1) AS restored_at
+          FROM core f
+          WHERE f.status = 'FAILED'
+        ),
+        -- Collapse to INCIDENTS: failures sharing the same recovery (i.e. with
+        -- no green run between them) are one incident, starting at the first
+        -- failure's end. Unrecovered failures share restored_at = NULL and form
+        -- the single trailing open incident per pipeline.
+        incidents AS (
+          SELECT pipeline_id, restored_at, MIN(fail_ended) AS incident_started
+          FROM restore
+          GROUP BY pipeline_id, restored_at
+        ),
+        mttr AS (
+          SELECT
+            COUNT(*)::int AS failures,
+            -- restored must equal the count of incidents that actually
+            -- contribute to avg_seconds. Guard on incident_started too: a
+            -- failure with a NULL completed_at yields a NULL incident_started
+            -- that contributes NULL (not a real gap) to AVG, so it must not be
+            -- counted as restored either -- otherwise restored could exceed
+            -- the number of measured incidents.
+            COUNT(*) FILTER (
+              WHERE restored_at IS NOT NULL AND incident_started IS NOT NULL
+            )::int AS restored,
+            AVG(EXTRACT(EPOCH FROM (restored_at - incident_started)))
+              FILTER (WHERE restored_at IS NOT NULL AND incident_started IS NOT NULL)::float AS avg_seconds
+          FROM incidents
+        )
+        SELECT
+          df.deployments AS df_deployments,
+          cfr.failed AS cfr_failed,
+          cfr.total AS cfr_total,
+          lt.deployments AS lt_deployments,
+          lt.median_ms AS lt_median_ms,
+          mttr.failures AS mttr_failures,
+          mttr.restored AS mttr_restored,
+          mttr.avg_seconds AS mttr_avg_seconds
+        FROM df, cfr, lt, mttr
+      `).then(r => this.shapeDora(drizzleRows<DoraRow>(r.rows)[0], from, to, basis, { pipelineId, environment })));
+    const key = `${orgId}:dora:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}:${deploysOnly ? 'd' : ''}`;
+    return this.runReport(key, multi, exec);
+  }
+
+  /** Shape a single DORA aggregate row into the public {@link DoraMetrics}. */
+  private shapeDora(
+    row: DoraRow | undefined,
+    from: string,
+    to: string,
+    basis: DoraMetrics['basis'],
+    filters: { pipelineId?: string; environment?: string },
+  ): DoraMetrics {
+    // `FROM df, cfr, lt, mttr` always yields exactly one row (each CTE is a
+    // single-row aggregate), but guard against an empty result defensively.
+    const r: DoraRow = row ?? {};
+
+    const deployments = Number(r.df_deployments) || 0;
+    // Floor the divisor at one day: a window shorter than a day (incl. the
+    // degenerate from==to) has no meaningful sub-day rate, so it's treated as a
+    // single day rather than extrapolated or mislabeled as a raw count.
+    // Floor at one day and guard against unparseable dates (Date.parse → NaN,
+    // which would otherwise propagate through perDay). Falls back to a 1-day
+    // window so a bad range yields the raw count as the rate, never NaN.
+    const spanDays = (Date.parse(to) - Date.parse(from)) / 86400000;
+    const days = Number.isFinite(spanDays) ? Math.max(spanDays, 1) : 1;
+    // Band on the UNROUNDED rate; round only for display. Rounding first would
+    // mislabel exact weekly/monthly boundaries (e.g. 1 deploy / 30 days →
+    // 0.0333 rounds to 0.03 < 1/30 → wrongly "low" instead of "medium").
+    const rawPerDay = deployments / days;
+    const perDay = Number(rawPerDay.toFixed(2));
+
+    const failed = Number(r.cfr_failed) || 0;
+    const total = Number(r.cfr_total) || 0;
+    const rawPct = total > 0 ? (failed / total) * 100 : 0;
+    const pct = Number(rawPct.toFixed(1));
+
+    const failures = Number(r.mttr_failures) || 0;
+    const restored = Number(r.mttr_restored) || 0;
+    const avgSeconds = failures > 0 && r.mttr_avg_seconds != null
+      ? Number(Number(r.mttr_avg_seconds).toFixed(1))
+      : null;
+
+    const ltDeployments = Number(r.lt_deployments) || 0;
+    const medianSeconds = r.lt_median_ms != null
+      ? Number((Number(r.lt_median_ms) / 1000).toFixed(1))
+      : null;
+
+    return {
+      window: { from, to },
+      basis,
+      filters: { pipelineId: filters.pipelineId ?? null, environment: filters.environment ?? null },
+      deploymentFrequency: { deployments, perDay, level: doraLevelForFrequency(rawPerDay, deployments) },
+      changeFailureRate: { failed, total, pct, level: doraLevelForChangeFailure(rawPct, total) },
+      meanTimeToRestore: { failures, restored, avgSeconds, level: doraLevelForRestore(avgSeconds) },
+      leadTime: { deployments: ltDeployments, medianSeconds, approx: true, level: doraLevelForLeadTime(medianSeconds) },
+    };
+  }
+
+  /**
+   * 1.9b DORA trend — deployment frequency + change-failure rate bucketed by
+   * `interval` (day/week/month) for a sparkline. Per-execution rollup (one row
+   * per execution, FAILED wins) bucketed on the execution's started_at. Shares
+   * the `getDoraMetrics` scoping (org/rollup, pipelineId, deploy-scoping); MTTR
+   * and lead time are intentionally omitted (too heavy to bucket meaningfully).
+   */
+  async getDoraTrend(
+    orgId: string,
+    interval: string,
+    from: string,
+    to: string,
+    orgIds?: string[],
+    opts: DoraOptions = {},
+  ): Promise<DoraTrendPoint[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const { pipelineId, environment, deploysOnly } = opts;
+    const { pipelineClause, deployClause } = doraScopeClauses(opts);
+    // Same execs roll-up as getDoraMetrics (shared builder — status set +
+    // predicate can't drift); the trend needs only started_at over the core
+    // window (no MTTR look-ahead, no ended_at/duration columns).
+    const execs = execsCte({
+      pred,
+      pipelineClause,
+      deployClause,
+      from,
+      columns: sql`
+            ${DORA_TERMINAL_STATUS_CASE} AS status,
+            MIN(e.started_at) AS started_at`,
+      toBound: sql`${to}::timestamptz`,
+    });
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
+        WITH execs AS (${execs}
+        )
+        SELECT
+          DATE_TRUNC(${interval}, started_at)::text AS period,
+          COUNT(*) FILTER (WHERE status = 'SUCCEEDED')::int AS deployments,
+          COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed,
+          COUNT(*) FILTER (WHERE status IN ('SUCCEEDED', 'FAILED'))::int AS total,
+          -- quoted alias so the raw row key is exactly the DoraTrendPoint field
+          COALESCE(ROUND(COUNT(*) FILTER (WHERE status = 'FAILED')::numeric
+            / NULLIF(COUNT(*) FILTER (WHERE status IN ('SUCCEEDED', 'FAILED')), 0) * 100, 1), 0)::float AS "changeFailurePct"
+        FROM execs
+        GROUP BY period ORDER BY period
+      `).then(r => drizzleRows<DoraTrendPoint>(r.rows)));
+    const key = `${orgId}:dora-trend:${interval}:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}:${deploysOnly ? 'd' : ''}`;
+    return this.runReport(key, multi, exec);
   }
 
   // ── Category 2: Plugin Inventory & Builds ──

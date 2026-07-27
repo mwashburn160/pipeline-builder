@@ -10,9 +10,9 @@
  * billing-config `defaultFeatures`), so this can't fail today; the test exists to
  * fail CI if a future change reverts to hand-copied perk strings and drifts.
  *
- * Bundle-purchasable features (`sso`, `audit_log`) are add-ons sold separately,
- * so marketing may legitimately mention them without them being a base
- * entitlement — they are excluded from the assertion.
+ * Bundle-purchasable features (`sso`, `audit_log`, `advanced_reporting`) are
+ * add-ons sold separately, so marketing may legitimately mention them without
+ * them being a base entitlement — they are excluded from the assertion.
  *
  * Uses the REAL `@pipeline-builder/api-core` (no jest mock in this suite).
  */
@@ -20,7 +20,7 @@ import { FEATURE_METADATA, TIER_FEATURES, type FeatureFlag } from '@pipeline-bui
 import { loadBillingConfig } from '../src/config/billing-config.js';
 
 // Features sold as separate add-on bundles (see billing-config `loadBundles()`).
-const ADDON_FEATURES: ReadonlySet<FeatureFlag> = new Set<FeatureFlag>(['sso', 'audit_log']);
+const ADDON_FEATURES: ReadonlySet<FeatureFlag> = new Set<FeatureFlag>(['sso', 'audit_log', 'advanced_reporting']);
 
 // Reverse lookup: customer-facing marketed label -> canonical feature flag.
 const LABEL_TO_FLAG = new Map<string, FeatureFlag>(

@@ -52,9 +52,10 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 }));
 
 const mockPlanFindOne = jest.fn<(...args: unknown[]) => any>();
+const mockPlanFindById = jest.fn<(...args: unknown[]) => any>();
 
 jest.unstable_mockModule('../src/models/plan.js', () => ({
-  Plan: { findOne: mockPlanFindOne },
+  Plan: { findOne: mockPlanFindOne, findById: mockPlanFindById },
 }));
 
 const mockBillingEventFind = jest.fn<(...args: unknown[]) => any>();
@@ -75,12 +76,25 @@ const mockBuildSubscriptionResponse = jest.fn((sub: any) => ({
 }));
 const mockSyncTierToQuotaService = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+// Double-billing prune: default no-op (returns []). applyTierIncludedAddonPrune
+// mutates subscription.addons in place; a dedicated test overrides it.
+const mockApplyTierIncludedAddonPrune = jest.fn(
+  (_sub: { addons?: Array<{ bundleId: string; quantity: number }> }) => [] as Array<{ bundleId: string; features: string[] }>,
+);
+// finalizePrunedAddons owns the post-save provider removal + audit; the route wires
+// it. We assert the call shape here and unit-test the provider removal elsewhere.
+const mockFinalizePrunedAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   buildSubscriptionResponse: mockBuildSubscriptionResponse,
   syncTierToQuotaService: mockSyncTierToQuotaService,
   syncEntitlements: mockSyncTierToQuotaService,
   createBillingEvent: mockCreateBillingEvent,
+  applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,
+  finalizePrunedAddons: mockFinalizePrunedAddons,
+  // Entitled (paid-tier-enforcing) status set the route reads to decide whether
+  // an admin status flip crosses the entitlement boundary.
+  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
 jest.unstable_mockModule('../src/validation/schemas.js', () => ({
@@ -258,6 +272,81 @@ describe('PUT /admin/subscriptions/:id', () => {
     );
   });
 
+  it('downgrades entitlements to the baseline tier when admin cancels (status → canceled)', async () => {
+    // active (entitled) → canceled (terminal) crosses the entitlement boundary,
+    // so the account must fall back to the developer baseline with add-ons cleared
+    // — mirroring the normal cancel / grace-expiry downgrade. Without this the
+    // quota/platform stores keep enforcing the paid tier (and the drift reconciler
+    // silently re-syncs it back up).
+    const sub = makeSubscription({ status: 'active', planId: 'pro', addons: [{ bundleId: 'seat_pack', quantity: 2 }] });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { status: 'canceled' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    // Baseline tier + EMPTY add-ons, via a service token (never the admin bearer).
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'developer', 'Bearer service-token', 'sub-1', []);
+  });
+
+  it('downgrades to baseline when admin sets a terminal incomplete status', async () => {
+    const sub = makeSubscription({ status: 'active', planId: 'team' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { status: 'incomplete' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'developer', 'Bearer service-token', 'sub-1', []);
+  });
+
+  it('re-syncs the current plan tier + add-ons when admin reactivates (status → active)', async () => {
+    // canceled (terminal) → active (entitled) crosses the boundary the other way:
+    // re-enforce the subscription's CURRENT plan tier + purchased add-ons, mirroring
+    // the webhook payment-recovery / reactivate re-upgrade.
+    const addons = [{ bundleId: 'seat_pack', quantity: 3 }];
+    const sub = makeSubscription({ status: 'canceled', planId: 'team', addons });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindById.mockResolvedValue({ _id: 'team', name: 'Team', tier: 'team', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { status: 'active' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockPlanFindById).toHaveBeenCalledWith('team');
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'team', 'Bearer service-token', 'sub-1', addons);
+  });
+
+  it('does NOT sync entitlements for an entitled→entitled status change (guard against over-syncing)', async () => {
+    // active → trialing: both are entitlement-worthy, so enforcement is unchanged
+    // and no re-sync should fire (avoids churning the quota/platform stores).
+    const sub = makeSubscription({ status: 'active', planId: 'pro' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { status: 'trialing' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
+    // The billing_events row is still written (status did change).
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'subscription_updated', { status: 'trialing' }, 'sub-1', 'admin-1',
+    );
+  });
+
+  it('does NOT sync entitlements when a plan change already handles a reactivation (no double-sync)', async () => {
+    // Admin flips canceled→active AND changes the plan: the plan block owns the
+    // entitled sync (new tier + add-ons); the status block must NOT re-sync.
+    const sub = makeSubscription({ status: 'canceled', planId: 'developer' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', status: 'active' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    // Exactly one sync — from the plan block (new tier), not a second from status.
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledTimes(1);
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', []);
+    // The status-block reactivation branch never looks up the current plan.
+    expect(mockPlanFindById).not.toHaveBeenCalled();
+  });
+
   it('updates interval and logs interval_changed event', async () => {
     const sub = makeSubscription({ interval: 'monthly' });
     mockSubscriptionFindById.mockResolvedValue(sub);
@@ -291,6 +380,59 @@ describe('PUT /admin/subscriptions/:id', () => {
       { oldPlanId: 'developer', newPlanId: 'pro' },
       'sub-1', 'sysadmin-42',
     );
+  });
+
+  it('prunes a tier-included add-on and removes the provider line item post-save (double-billing fix)', async () => {
+    const sub = makeSubscription({
+      planId: 'pro',
+      interval: 'monthly',
+      externalId: 'ext-admin-1',
+      addons: [{ bundleId: 'audit_log', quantity: 1 }, { bundleId: 'seat_pack', quantity: 2 }],
+    });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'team', name: 'Team', tier: 'team', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'team' } });
+
+    // team bundles in audit_log → dropped; the quota pack (seat_pack) is retained.
+    const reduced = [{ bundleId: 'seat_pack', quantity: 2 }];
+    const pruned = [{ bundleId: 'audit_log', features: ['audit_log'] }];
+    mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = reduced; return pruned; });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(sub.addons).toEqual(reduced);
+    expect(sub.save).toHaveBeenCalled();
+    // Deferred (post-save): the reduced set syncs + the provider removal fires
+    // with the pruned bundle, reduced list, and the sub's external id / cadence.
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'team', 'Bearer service-token', 'sub-1', reduced);
+    expect(mockFinalizePrunedAddons).toHaveBeenCalledWith(
+      pruned,
+      reduced,
+      expect.objectContaining({
+        orgId: 'org-1',
+        subscriptionId: 'sub-1',
+        interval: 'monthly',
+        externalId: 'ext-admin-1',
+        actorId: 'admin-1',
+      }),
+    );
+  });
+
+  it('does NOT finalize a prune when subscription.save() rejects (drift guard)', async () => {
+    const sub = makeSubscription({
+      planId: 'developer',
+      addons: [{ bundleId: 'audit_log', quantity: 1 }],
+      save: jest.fn<() => Promise<void>>().mockRejectedValue(new Error('write conflict')),
+    });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'team', name: 'Team', tier: 'team', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'team' } });
+    mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = []; return [{ bundleId: 'audit_log', features: ['audit_log'] }]; });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    // save() threw → the deferred queue never ran, so no provider removal / trail.
+    expect(mockFinalizePrunedAddons).not.toHaveBeenCalled();
   });
 
   it('fires NO side effects when subscription.save() rejects (drift guard)', async () => {

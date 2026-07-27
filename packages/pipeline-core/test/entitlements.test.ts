@@ -72,4 +72,15 @@ describe('effectiveEntitlements', () => {
     const { limits } = effectiveEntitlements('developer', [{ bundleId: 'seat_pack', quantity: 0 }], bundles);
     expect(limits.seats).toBe(dev.seats);
   });
+
+  it('clamps a non-stackable bundle to quantity 1 even if a larger qty is stored', () => {
+    // sso is stackable:false with an idpConfigs:5 grant — a stored quantity>1
+    // must NOT over-grant (the canonical math enforces the invariant, not just
+    // the purchase route).
+    const dev = getTierLimits('developer');
+    const ssoBundle = [bundle({ id: 'sso', grants: { idpConfigs: 5 }, features: ['sso'], stackable: false })];
+    const { limits, features } = effectiveEntitlements('developer', [{ bundleId: 'sso', quantity: 3 }], ssoBundle);
+    expect(limits.idpConfigs).toBe(dev.idpConfigs + 5); // +5, not +15
+    expect(features).toContain('sso');
+  });
 });

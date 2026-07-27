@@ -41,11 +41,12 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly. Every p
 | **AI Pack** | +5,000 AI calls / period | $75 | $750 | all tiers | ✅ |
 | **Storage Pack** | +50 GB registry storage | $25 | $250 | all tiers | ✅ |
 | **Audit Log** | unlocks the `audit_log` feature | $20 | $200 | Pro | ❌ |
-| **SSO / IdP** | unlocks `sso` + up to 5 IdP configs | $40 | $400 | Pro, Team | ❌ |
+| **SSO / IdP** | unlocks `sso` + up to 5 IdP configs | $40 | $400 | Pro | ❌ |
+| **Advanced Reporting (DORA)** | unlocks the `advanced_reporting` feature | $30 | $300 | Developer, Pro, Team | ❌ |
 
 Notes:
 - **API Pack** is available on every tier, since all tiers now have a finite API-call cap (Team 2M, Enterprise 10M) that can be topped up.
-- **Audit Log** and **SSO** are the "buy up a capability without changing tier" path: Audit Log is standard from the Team tier up, and SSO from Enterprise — the bundles let a Pro (or Pro/Team) account add them à la carte.
+- **Audit Log**, **SSO**, and **Advanced Reporting** are the "buy up a capability without changing tier" path. Each is standard from a given tier up (Audit Log and SSO from Team; Advanced Reporting from Enterprise), and the bundle lets a lower tier add it à la carte — so the add-on is offered only to the tiers that don't already include it (Audit Log/SSO → Pro; Advanced Reporting → Developer/Pro/Team).
 
 ---
 
@@ -87,7 +88,7 @@ Bundles are only offered when the operator enables them, and each bundle's econo
 | `BILLING_BUNDLE_<ID>_GRANT` | Override the grant amount (single-dimension bundles only) |
 | `BILLING_BUNDLE_<ID>_TIERS` | JSON array of tiers allowed to buy the bundle |
 
-`<ID>` is the bundle id upper-cased: `SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `AUDIT_LOG`, `SSO`.
+`<ID>` is the bundle id upper-cased: `SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`.
 
 > **AWS Marketplace:** when the billing provider is `aws-marketplace`, self-service bundle purchase is disabled — entitlements flow from Marketplace instead. See [Environment Variables](environment-variables.md) for the full billing configuration.
 

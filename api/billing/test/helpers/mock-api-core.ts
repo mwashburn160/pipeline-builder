@@ -63,6 +63,15 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       idpConfigs: 1,
     }),
     VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'],
+    // Tier→feature map — billing-helpers.pruneTierIncludedFeatureAddons reads this
+    // to decide which pure-feature add-ons a destination tier now bundles in.
+    // Mirrors the real api-core TIER_FEATURES (developer < pro < team < enterprise).
+    TIER_FEATURES: {
+      developer: [],
+      pro: ['priority_support', 'ai_generation', 'bulk_operations'],
+      team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
+      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso', 'advanced_reporting'],
+    },
     // `requirePermission(...perms)` / `requirePermissionOrService(...perms)` are
     // factories that RETURN middleware, so each stub is a function producing the
     // pass-through guard. Suites exercising the gate override these with real

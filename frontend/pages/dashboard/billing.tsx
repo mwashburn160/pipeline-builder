@@ -60,6 +60,11 @@ export default function BillingPage() {
   const [billingEvents, setBillingEvents] = useState<Array<{ id: string; type: string; orgId: string; createdAt: string; detail?: Record<string, unknown> }>>([]);
   const [showEvents, setShowEvents] = useState(false);
 
+  // Deep-link: `?highlight=<feature>` (e.g. from the Reports DORA upsell CTA)
+  // emphasizes + scrolls to the add-on bundle that grants that feature.
+  const highlightRaw = router.query.highlight;
+  const highlightFeature = Array.isArray(highlightRaw) ? highlightRaw[0] : highlightRaw ?? null;
+
   // Billing not available (disabled or system org)  redirect to dashboard
   useEffect(() => {
     if (isReady && !features.isEnabled('billing')) {
@@ -343,6 +348,7 @@ export default function BillingPage() {
             previewLoading={previewLoading}
             addonQty={addonQty}
             requestAddonChange={requestAddonChange}
+            highlightFeature={highlightFeature}
           />
         )}
 

@@ -26,29 +26,13 @@ import {
   getBundleCatalog,
   MANAGEABLE_SUBSCRIPTION_STATUSES,
   syncEntitlements,
+  syncProviderAddons,
 } from '../helpers/billing-helpers.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { getAuditClient } from '../services/audit.js';
 import { AddonMutateSchema } from '../validation/schemas.js';
-
-/** Best-effort: reconcile the external provider's add-on line items. Local
- *  entitlements are already applied, so a provider error must not fail the
- *  request (it's logged and reconciled on the next change/webhook). */
-async function syncProviderAddons(
-  externalId: string | null | undefined,
-  addons: Addon[],
-  interval: 'monthly' | 'annual',
-  orgId: string,
-): Promise<void> {
-  if (!externalId) return;
-  try {
-    await getPaymentProvider().syncAddons?.(externalId, addons, interval);
-  } catch (err) {
-    logger.warn('Provider add-on sync failed (local entitlements already applied)', { orgId, error: String(err) });
-  }
-}
 
 const logger = createLogger('billing-addons');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;

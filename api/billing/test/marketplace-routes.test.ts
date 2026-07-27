@@ -47,6 +47,9 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   calculatePeriodEnd: (...a: unknown[]) => mockCalculatePeriodEnd(...a),
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),
   syncEntitlements: (...a: unknown[]) => mockSyncEntitlements(...a),
+  // Double-billing prune: no-op passthrough (this suite doesn't exercise prune).
+  applyTierIncludedAddonPrune: () => [],
+  finalizePrunedAddons: async () => undefined,
 }));
 
 jest.unstable_mockModule('../src/helpers/marketplace-helpers.js', () => ({

@@ -35,6 +35,12 @@ const baseIngestFields = {
   startedAt: z.string().datetime({ offset: true }).optional(),
   completedAt: z.string().datetime({ offset: true }).optional(),
   durationMs: z.number().int().min(0).optional(),
+  // DORA deploy-attribution (optional; the events Lambda promotes them from the
+  // source-action revision + the pipeline's Environment tag). `environment`
+  // marks an execution as a real deployment vs a generic run.
+  commitSha: z.string().max(255).optional(),
+  commitRef: z.string().max(255).optional(),
+  environment: z.string().max(255).optional(),
   detail: z.record(z.string(), z.unknown())
     .refine(d => JSON.stringify(d).length < 8192, 'detail exceeds 8KB serialized size')
     .optional(),

@@ -163,6 +163,17 @@ describe('loadBillingConfig', () => {
       const sso = bundles.find((x) => x.id === 'sso');
       expect(sso?.features).toContain('sso');
       expect(sso?.stackable).toBe(false);
+      // Advanced Reporting (DORA) — a feature bundle for every non-Enterprise tier
+      // (Enterprise gets it via TIER_FEATURES), priced between Audit Log and SSO.
+      const advReporting = bundles.find((x) => x.id === 'advanced_reporting');
+      expect(advReporting).toMatchObject({
+        id: 'advanced_reporting',
+        grants: {},
+        features: ['advanced_reporting'],
+        prices: { monthly: 3000, annual: 30000 },
+        stackable: false,
+        availableForTiers: ['developer', 'pro', 'team'],
+      });
     });
 
     it('overrides a bundle price from the environment', () => {

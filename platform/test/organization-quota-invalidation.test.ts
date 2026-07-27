@@ -87,6 +87,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { distinct: (...a: unknown[]) => mockUserOrgDistinct(...a) },
 }));
 
+// The post-commit revocation publish — asserted to cover every affected member.
+const mockPublishUsersRevocation = jest.fn<(...a: unknown[]) => Promise<void>>();
+jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishUsersRevocation: mockPublishUsersRevocation,
+}));
+
 const { setTier, setSeatLimit } = await import('../src/services/organization-quota.js');
 
 /** A Mongoose-shaped org doc for setTier (awaited directly by findById). */
@@ -113,6 +119,7 @@ beforeEach(() => {
   mockExpandOrgScope.mockResolvedValue(['root-1']); // flat: no descendant propagation
   mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
   mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve(['u1', 'u2']) });
+  mockPublishUsersRevocation.mockResolvedValue(undefined);
 });
 
 describe('setTier — tier downgrade invalidation', () => {
@@ -152,6 +159,28 @@ describe('setTier — tier downgrade invalidation', () => {
     await setTier('root-1', 'developer');
 
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('bumps members across the WHOLE subtree (root + descendant team) on a downgrade', async () => {
+    // Root with one descendant team: the tier label propagates to the team, so
+    // the token bump must cover BOTH orgs' members (deduped by `distinct`).
+    mockExpandOrgScope.mockResolvedValue(['root-1', 'team-1']);
+    mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve(['u1', 'u2', 'u3']) });
+    mockOrgFindById.mockResolvedValue(makeOrgDoc({ _id: 'root-1', tier: 'team', quotas: { plugins: 500 } }));
+
+    await setTier('root-1', 'pro');
+
+    const bump = tokenBump();
+    expect(bump).toBeDefined();
+    // Union of root + team members (distinct already deduped) is invalidated.
+    expect((bump![0] as any)).toEqual({ _id: { $in: ['u1', 'u2', 'u3'] } });
+    // The distinct query spans the entire subtree via `$in`, not just the root.
+    expect(mockUserOrgDistinct).toHaveBeenCalledWith('userId', {
+      organizationId: { $in: ['root-1', 'team-1'] },
+      isActive: true,
+    });
+    // The revocation publish covers every affected user.
+    expect(mockPublishUsersRevocation).toHaveBeenCalledWith(['u1', 'u2', 'u3']);
   });
 });
 
@@ -194,5 +223,124 @@ describe('setSeatLimit — feature (bundle) removal invalidation', () => {
 
     expect(mockOrgFindById).not.toHaveBeenCalled();
     expect(tokenBump()).toBeUndefined();
+  });
+
+  it('bumps members across the WHOLE subtree (root + descendant team) when a feature is removed', async () => {
+    // featureEntitlements propagate to every descendant team, so removing
+    // `advanced_reporting` must invalidate stale tokens held by ANY subtree
+    // member — root AND team — not just the root's members.
+    mockExpandOrgScope.mockResolvedValue(['root-1', 'team-1']);
+    mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve(['u1', 'u2', 'u3']) });
+    currentFeatures(['advanced_reporting', 'audit_log']);
+
+    await setSeatLimit('root-1', 5, ['audit_log']); // advanced_reporting removed
+
+    const bump = tokenBump();
+    expect(bump).toBeDefined();
+    expect((bump![0] as any)).toEqual({ _id: { $in: ['u1', 'u2', 'u3'] } });
+    // The distinct query spans the whole subtree, not just the root.
+    expect(mockUserOrgDistinct).toHaveBeenCalledWith('userId', {
+      organizationId: { $in: ['root-1', 'team-1'] },
+      isActive: true,
+    });
+    // Descendant teams also received the propagated (shrunk) entitlement set.
+    expect(mockOrgUpdateMany).toHaveBeenCalledWith(
+      { _id: { $in: ['team-1'] } },
+      { $set: { featureEntitlements: ['audit_log'] } },
+      expect.anything(),
+    );
+    // The post-commit publish covers every affected member (union, deduped).
+    expect(mockPublishUsersRevocation).toHaveBeenCalledWith(['u1', 'u2', 'u3']);
+  });
+});
+
+describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () => {
+  /** findById(...).select('featureEntitlements tier').session().lean() → current. */
+  const currentDoc = (tier: string, features: string[] = []) =>
+    mockOrgFindById.mockReturnValue({
+      select: () => ({ session: () => ({ lean: () => Promise.resolve({ tier, featureEntitlements: features }) }) }),
+    });
+
+  it('sets ONLY the tier label (no quota reseed) and bumps the subtree on a DOWNGRADE (team → pro)', async () => {
+    mockExpandOrgScope.mockResolvedValue(['root-1', 'team-1']);
+    mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve(['u1', 'u2', 'u3']) });
+    currentDoc('team');
+
+    await setSeatLimit('root-1', 5, undefined, 'pro');
+
+    // Root write carries the tier label + seats only — never a full quotas reseed.
+    const set = (mockOrgUpdateOne.mock.calls[0][1] as any).$set;
+    expect(set.tier).toBe('pro');
+    expect(set['quotas.seats']).toBe(5);
+    // Tier label propagated to the descendant team.
+    expect(mockOrgUpdateMany).toHaveBeenCalledWith(
+      { _id: { $in: ['team-1'] } },
+      { $set: { tier: 'pro' } },
+      expect.anything(),
+    );
+    // Downgrade → stale tokens across the whole subtree invalidated + published.
+    expect(tokenBump()).toBeDefined();
+    expect(mockPublishUsersRevocation).toHaveBeenCalledWith(['u1', 'u2', 'u3']);
+  });
+
+  it('does NOT bump on an UPGRADE (pro → team) but still sets the tier label', async () => {
+    currentDoc('pro');
+
+    await setSeatLimit('root-1', 5, undefined, 'team');
+
+    expect((mockOrgUpdateOne.mock.calls[0][1] as any).$set.tier).toBe('team');
+    expect(tokenBump()).toBeUndefined();
+  });
+
+  it('leaves the tier untouched (no $set, no bump) when unchanged', async () => {
+    currentDoc('pro');
+
+    await setSeatLimit('root-1', 5, undefined, 'pro');
+
+    expect((mockOrgUpdateOne.mock.calls[0][1] as any).$set.tier).toBeUndefined();
+    expect(tokenBump()).toBeUndefined();
+  });
+
+  it('uses the SCALAR distinct query for a flat-org (no-descendant) downgrade', async () => {
+    // Default scope is ['root-1'] (no descendants), so the bump must target the
+    // scalar organizationId, not a single-element $in.
+    currentDoc('team');
+
+    await setSeatLimit('root-1', 5, undefined, 'pro');
+
+    expect(tokenBump()).toBeDefined();
+    expect(mockUserOrgDistinct).toHaveBeenCalledWith('userId', { organizationId: 'root-1', isActive: true });
+  });
+
+  it('bumps ONCE when a feature shrink and a tier downgrade happen together', async () => {
+    // Both reductions feed one `if (featureShrink || tierDowngrade)` — a single
+    // bump, and both fields propagate to descendants in one $set.
+    mockExpandOrgScope.mockResolvedValue(['root-1', 'team-1']);
+    mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve(['u1', 'u2', 'u3']) });
+    currentDoc('team', ['advanced_reporting', 'audit_log']);
+
+    await setSeatLimit('root-1', 5, ['audit_log'], 'pro'); // advanced_reporting dropped AND team→pro
+
+    // Exactly one tokenVersion bump write (not one per reduction).
+    const bumps = mockUserUpdateMany.mock.calls.filter((c) => (c[1] as any)?.$inc?.tokenVersion === 1);
+    expect(bumps).toHaveLength(1);
+    // Both the shrunk features AND the new tier propagate to the team in one write.
+    expect(mockOrgUpdateMany).toHaveBeenCalledWith(
+      { _id: { $in: ['team-1'] } },
+      { $set: { featureEntitlements: ['audit_log'], tier: 'pro' } },
+      expect.anything(),
+    );
+    expect(mockPublishUsersRevocation).toHaveBeenCalledWith(['u1', 'u2', 'u3']);
+  });
+
+  it('returns null and never bumps when the root org is missing (matchedCount 0)', async () => {
+    currentDoc('team');
+    mockOrgUpdateOne.mockResolvedValueOnce({ matchedCount: 0 });
+
+    const result = await setSeatLimit('root-1', 5, undefined, 'pro');
+
+    expect(result).toBeNull();
+    expect(tokenBump()).toBeUndefined();
+    expect(mockPublishUsersRevocation).toHaveBeenCalledWith([]);
   });
 });

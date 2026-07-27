@@ -49,10 +49,17 @@ jest.unstable_mockModule('../src/config.js', () => ({ config: mockConfig }));
 const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-08-01T00:00:00.000Z'));
 const mockCreateBillingEvent = jest.fn(async () => undefined);
 const mockSyncEntitlements = jest.fn(async () => undefined);
+// Double-billing prune: default no-op (returns []); a dedicated test overrides it.
+const mockApplyTierIncludedAddonPrune = jest.fn(
+  (_sub: { addons?: Array<{ bundleId: string; quantity: number }> }) => [] as Array<{ bundleId: string; features: string[] }>,
+);
+const mockFinalizePrunedAddons = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   calculatePeriodEnd: (...a: unknown[]) => mockCalculatePeriodEnd(...a),
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),
   syncEntitlements: (...a: unknown[]) => mockSyncEntitlements(...a),
+  applyTierIncludedAddonPrune: (...a: unknown[]) => mockApplyTierIncludedAddonPrune(...(a as [{ addons?: Array<{ bundleId: string; quantity: number }> }])),
+  finalizePrunedAddons: (...a: unknown[]) => mockFinalizePrunedAddons(...a),
 }));
 
 const mockPlanFindOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -402,6 +409,32 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
       expect.objectContaining({ oldPlanId: 'developer', newPlanId: 'team' }),
       'sub-1',
     );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('prunes on a marketplace upgrade but is EXEMPT from provider line-item removal (metered add-ons)', async () => {
+    const doc = subDoc({ status: 'active', planId: 'developer', interval: 'monthly', externalId: 'aws_sub_x', addons: [{ bundleId: 'audit_log', quantity: 1 }] });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim' }]);
+    // team bundles in audit_log → dropped locally; the marketplace provider does
+    // NOT push line items (finalizePrunedAddons treats it as a no-op removal).
+    const reduced: Array<{ bundleId: string; quantity: number }> = [];
+    const pruned = [{ bundleId: 'audit_log', features: ['audit_log'] }];
+    mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = reduced; return pruned; });
+
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+
+    expect(doc.planId).toBe('team');
+    expect(doc.addons).toEqual(reduced);
+    // The auto-prune trail is still recorded (finance reconciliation), just with
+    // no actorId (system path). The exemption is inside finalizePrunedAddons.
+    expect(mockFinalizePrunedAddons).toHaveBeenCalledWith(
+      pruned,
+      reduced,
+      expect.objectContaining({ orgId: 'org-1', subscriptionId: 'sub-1', externalId: 'aws_sub_x' }),
+    );
+    expect((mockFinalizePrunedAddons.mock.calls[0][2] as any).actorId).toBeUndefined();
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

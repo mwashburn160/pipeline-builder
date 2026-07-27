@@ -41,6 +41,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | [Compliance](compliance.md) | Per-org rule engine with 18 operators, computed fields, audit trail |
 | [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, `requirePermission` enforcement, session invalidation |
 | [Audit Events](audit-events.md) | Tamper-evident audit trail — hash-chain + `/audit/verify`, ingest security, durable spool, action catalog |
+| [DORA Metrics](dora-metrics.md) | Deployment frequency, change failure rate, MTTR + performance-level bands and an approximate lead-time proxy (Enterprise, or the Advanced Reporting add-on) |
 | [Environment Variables](environment-variables.md) | Configuration reference for all services |
 | [Samples](samples.md) | Pipeline configs for 7 languages and CDK patterns |
 
@@ -286,6 +287,7 @@ A user can belong to several organizations and teams at once and acts within one
 | AI plugin generation | - | yes | yes | yes |
 | Bulk operations | - | yes | yes | yes |
 | Audit log | - | - | yes | yes |
+| Advanced Reporting (DORA) | add-on | add-on | add-on | yes |
 | Custom integrations | - | - | - | yes |
 | Priority support | - | yes | yes | yes |
 | Plugins | 25 | 50 | 100 | 250 |

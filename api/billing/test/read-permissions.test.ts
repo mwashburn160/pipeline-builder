@@ -82,6 +82,11 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   bundlesEnabled: (...a: unknown[]) => mockBundlesEnabled(...(a as [])),
   bundleSelfServiceAllowed: () => true,
   getBundleCatalog: () => [],
+  // Double-billing prune wiring — this suite only asserts read-route gating, so
+  // both are no-ops (prune returns [], the finalizer + provider removal do nothing).
+  applyTierIncludedAddonPrune: () => [],
+  finalizePrunedAddons: async () => undefined,
+  syncProviderAddons: async () => undefined,
   effectiveEntitlements: () => ({ limits: {} }),
   buildSubscriptionResponse: () => ({}),
   checkEntitlementOvercap: async () => [],

@@ -63,6 +63,14 @@ export interface BuilderProps {
   /** Organization identifier (will be sanitized to lowercase alphanumeric with underscores) */
   readonly organization: string;
 
+  /**
+   * Optional deploy environment (e.g. `production`, `staging`). When set, it is
+   * applied as an `Environment` tag on the pipeline so the events Lambda can
+   * attribute CodePipeline state-change events to a real deployment for DORA
+   * metrics. Purely additive — omit it and behavior is unchanged.
+   */
+  readonly environment?: string;
+
   /** Tenant identifier for resolving per-org secrets from AWS Secrets Manager */
   readonly orgId?: string;
 
@@ -335,6 +343,13 @@ export class PipelineBuilder extends Construct {
       // ever handling the ARN/account. See packages/pipeline-events.
       if (props.pipelineId) {
         Tags.of(this.pipeline).add('PIPELINE_EVENT_ID', props.pipelineId);
+      }
+      // Optional deploy-environment attribution for DORA metrics. Mirrors the
+      // PIPELINE_EVENT_ID tag: applied at synth so it's present from stack
+      // creation, and read by the events Lambda from the same ListTags call.
+      // Absent when `environment` is unset — legacy pipelines report unchanged.
+      if (props.environment) {
+        Tags.of(this.pipeline).add('Environment', props.environment);
       }
       if (props.tags) {
         for (const [key, value] of Object.entries(props.tags)) {

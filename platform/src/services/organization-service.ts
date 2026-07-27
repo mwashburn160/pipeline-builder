@@ -275,8 +275,9 @@ class OrganizationService {
     orgId: string,
     seats: number,
     features?: string[],
+    tier?: QuotaTier,
   ): Promise<{ rootOrgId: string; seats: number } | null> {
-    return setSeatLimit(orgId, seats, features);
+    return setSeatLimit(orgId, seats, features, tier);
   }
 
   /**

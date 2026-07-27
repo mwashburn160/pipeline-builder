@@ -13,7 +13,8 @@ import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import { config } from '../config.js';
-import { createBillingEvent, calculatePeriodEnd, syncEntitlements } from '../helpers/billing-helpers.js';
+import { applyTierIncludedAddonPrune, createBillingEvent, calculatePeriodEnd, finalizePrunedAddons, syncEntitlements } from '../helpers/billing-helpers.js';
+import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
 import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
@@ -270,6 +271,9 @@ export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subsc
   const mapped = basePriceId ? planFromStripePrice(basePriceId) : null;
   const oldPlanId = subscription.planId;
   let syncedTier: QuotaTier | null = null;
+  // Bundles dropped because the new tier now includes their feature; their
+  // provider line-item removal + audit run AFTER save (finalizePrunedAddons).
+  let prunedAddons: PrunedAddon[] = [];
   if (mapped && (mapped.planId !== subscription.planId || mapped.interval !== subscription.interval)) {
     const plan = await Plan.findOne({ _id: mapped.planId, isActive: true });
     if (plan) {
@@ -277,6 +281,14 @@ export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subsc
       subscription.interval = mapped.interval;
       syncedTier = plan.tier;
       dirty = true;
+
+      // Prune any PURE-FEATURE add-on the new tier now bundles in (double-billing
+      // fix) so a plan change made directly in Stripe also drops the redundant
+      // paid bundle. Mutates addons in memory (persisted by the `dirty` save
+      // below); hybrid bundles (e.g. `sso`→idpConfigs) are kept.
+      prunedAddons = applyTierIncludedAddonPrune(subscription, plan.tier, {
+        orgId: subscription.orgId, subscriptionId: subscription._id.toString(), source: 'stripe_plan_change',
+      });
     } else {
       logger.warn('Stripe price mapped to an unknown/inactive plan; tier not synced', {
         externalId, mappedPlanId: mapped.planId,
@@ -293,6 +305,15 @@ export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subsc
     await createBillingEvent(subscription.orgId, 'plan_changed', {
       provider: 'stripe', source: 'stripe_webhook', oldPlanId, newPlanId: subscription.planId, interval: subscription.interval,
     }, subscription._id.toString());
+    // Remove the pruned bundles' Stripe line items (double-billing fix) + write
+    // the addon_pruned trail — AFTER save. System path (webhook) → no actorId.
+    await finalizePrunedAddons(prunedAddons, subscription.addons ?? [], {
+      orgId: subscription.orgId,
+      subscriptionId: subscription._id.toString(),
+      interval: subscription.interval,
+      externalId: subscription.externalId,
+      source: 'stripe_plan_change',
+    });
     logger.info('Stripe subscription plan synced', {
       orgId: subscription.orgId, externalId, oldPlanId, newPlanId: subscription.planId, interval: subscription.interval,
     });

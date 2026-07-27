@@ -19,6 +19,17 @@ jest.mock('@/hooks/useAuthGuard', () => ({
   }),
 }));
 
+// DORA fetches only fire (and can raise the banner) when advanced_reporting is on.
+jest.mock('@/hooks/useFeatures', () => ({
+  __esModule: true,
+  useFeatures: () => ({
+    isEnabled: () => true,
+    features: [],
+    isLoaded: true,
+    supportAlias: 'support@pipeline-builder',
+  }),
+}));
+
 jest.mock('next/router', () => ({
   __esModule: true,
   useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn() }),
@@ -36,18 +47,22 @@ jest.mock('@/components/ui/DashboardLayout', () => ({
 
 const getExecutionCount = jest.fn();
 const getSuccessRate = jest.fn();
+const getDoraTrend = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getExecutionCount: (...a: unknown[]) => getExecutionCount(...a),
     getSuccessRate: (...a: unknown[]) => getSuccessRate(...a),
+    getDora: jest.fn().mockResolvedValue(null),
+    getDoraTrend: (...a: unknown[]) => getDoraTrend(...a),
     getOrganizationDescendants: jest.fn().mockResolvedValue({ data: { orgIds: [] } }),
   },
 }));
 
 beforeEach(() => {
-  getExecutionCount.mockReset();
+  getExecutionCount.mockReset().mockResolvedValue({ data: { pipelines: [] } });
   getSuccessRate.mockReset().mockResolvedValue({ data: { timeline: [] } });
+  getDoraTrend.mockReset().mockResolvedValue([]);
 });
 
 describe('ReportsPage — fetch error banner', () => {
@@ -71,6 +86,15 @@ describe('ReportsPage — fetch error banner', () => {
 
     await waitFor(() => expect(screen.queryByText('Server exploded')).not.toBeInTheDocument());
     expect(getExecutionCount).toHaveBeenCalledTimes(2);
+  });
+
+  it('raises the banner when the DORA trend fetch rejects', async () => {
+    getDoraTrend.mockRejectedValue(new Error('Trend service down'));
+
+    render(<ReportsPage />);
+
+    expect(await screen.findByText('Trend service down')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 
   it('does not show the banner when all fetches succeed', async () => {

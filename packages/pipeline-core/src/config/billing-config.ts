@@ -266,5 +266,10 @@ function loadBundles(): BundleConfig[] {
     b('audit_log', 'Audit Log', 'Audit log capability', {}, 2000, ['pro'], 6, { features: ['audit_log'], stackable: false }),
     // SSO is INCLUDED in Team (see TIER_FEATURES.team), so the add-on is Pro-only.
     b('sso', 'SSO / IdP', 'SSO + up to 5 IdP configs', { idpConfigs: 5 }, 4000, ['pro'], 7, { features: ['sso'], stackable: false }),
+    // DORA / advanced delivery analytics. INCLUDED in Enterprise (TIER_FEATURES),
+    // so the add-on is offered to every other tier (developer/pro/team). Priced
+    // between Audit Log ($20) and SSO ($40) — a higher-value, actively-used
+    // analytics surface than the audit log, but below the SSO enterprise gate.
+    b('advanced_reporting', 'Advanced Reporting (DORA)', 'DORA delivery metrics — deployment frequency, change failure rate, MTTR, lead-time proxy, performance bands + trend', {}, 3000, ['developer', 'pro', 'team'], 8, { features: ['advanced_reporting'], stackable: false }),
   ];
 }

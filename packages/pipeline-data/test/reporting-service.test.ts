@@ -7,6 +7,8 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockExecute = jest.fn();
@@ -320,6 +322,327 @@ describe('ReportingService', () => {
       await service.getErrors('acme', '2026-01-01', '2026-03-15');
 
       expect(mockExecute).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('getDoraMetrics', () => {
+    // The service issues ONE aggregate query returning a single row (all four
+    // DORA metrics rolled up in SQL) and shapes it in JS. We assert the JS
+    // shaping: perDay from the window, CFR pct = failed/(succeeded+failed),
+    // MTTR avgSeconds from the recovery gap, and the lead-time median.
+    const FROM = '2026-07-01T00:00:00Z';
+    const TO = '2026-07-11T00:00:00Z'; // 10-day window
+
+    it('shapes the four DORA metrics from the aggregate row', async () => {
+      // 8 successful deploys over 10 days → 0.8/day; 2 failed of 10 terminal
+      // (succeeded+failed) → CFR 20.0%; one restore gap of 300s; median run
+      // time 180000ms → 180s.
+      mockExecute.mockResolvedValue({
+        rows: [{
+          df_deployments: 8,
+          cfr_failed: 2,
+          cfr_total: 10,
+          lt_deployments: 8,
+          lt_median_ms: 180000,
+          mttr_failures: 2,
+          mttr_restored: 1,
+          mttr_avg_seconds: 300,
+        }],
+      });
+
+      const result = await service.getDoraMetrics('acme', FROM, TO);
+
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({
+        window: { from: FROM, to: TO },
+        basis: 'run',
+        filters: { pipelineId: null, environment: null },
+        deploymentFrequency: { deployments: 8, perDay: 0.8, level: 'high' },
+        changeFailureRate: { failed: 2, total: 10, pct: 20.0, level: 'low' },
+        meanTimeToRestore: { failures: 2, restored: 1, avgSeconds: 300, level: 'elite' },
+        leadTime: { deployments: 8, medianSeconds: 180, approx: true, level: 'elite' },
+      });
+    });
+
+    it('returns null MTTR/lead-time and zero CFR when there is no activity', async () => {
+      // Empty window: COUNT→0, PERCENTILE/AVG→null. avgSeconds null (no
+      // failures), medianSeconds null (no successes), CFR pct 0 (no divide).
+      mockExecute.mockResolvedValue({
+        rows: [{
+          df_deployments: 0,
+          cfr_failed: 0,
+          cfr_total: 0,
+          lt_deployments: 0,
+          lt_median_ms: null,
+          mttr_failures: 0,
+          mttr_restored: 0,
+          mttr_avg_seconds: null,
+        }],
+      });
+
+      const result = await service.getDoraMetrics('acme', FROM, TO);
+
+      expect(result).toEqual({
+        window: { from: FROM, to: TO },
+        basis: 'run',
+        filters: { pipelineId: null, environment: null },
+        deploymentFrequency: { deployments: 0, perDay: 0, level: null },
+        changeFailureRate: { failed: 0, total: 0, pct: 0, level: null },
+        meanTimeToRestore: { failures: 0, restored: 0, avgSeconds: null, level: null },
+        leadTime: { deployments: 0, medianSeconds: null, approx: true, level: null },
+      });
+    });
+
+    it('runs a rollup (multi-org) read when given an org subtree', async () => {
+      mockExecute.mockResolvedValue({
+        rows: [{
+          df_deployments: 1,
+          cfr_failed: 0,
+          cfr_total: 1,
+          lt_deployments: 1,
+          lt_median_ms: 60000,
+          mttr_failures: 0,
+          mttr_restored: 0,
+          mttr_avg_seconds: null,
+        }],
+      });
+
+      const result = await service.getDoraMetrics('acme', FROM, TO, ['acme', 'team-child']);
+
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(result.deploymentFrequency.deployments).toBe(1);
+      expect(result.leadTime.medianSeconds).toBe(60);
+    });
+
+    it('floors a same-day window at one day so perDay is the count, not an extrapolation', async () => {
+      // from == to (a single calendar day passed as date-only strings): the
+      // divisor floors at 1 day, so 5 deploys → 5/day (not /0 and not raw count
+      // mislabeled as a rate).
+      mockExecute.mockResolvedValue({
+        rows: [{
+          df_deployments: 5,
+          cfr_failed: 0,
+          cfr_total: 5,
+          lt_deployments: 5,
+          lt_median_ms: 60000,
+          mttr_failures: 0,
+          mttr_restored: 0,
+          mttr_avg_seconds: null,
+        }],
+      });
+
+      const result = await service.getDoraMetrics('acme', '2026-07-01', '2026-07-01');
+
+      expect(result.deploymentFrequency).toEqual({ deployments: 5, perDay: 5, level: 'elite' });
+    });
+
+    it('reports basis=deploy and echoes filters when scoped to an environment', async () => {
+      mockExecute.mockResolvedValue({
+        rows: [{
+          df_deployments: 3,
+          cfr_failed: 0,
+          cfr_total: 3,
+          lt_deployments: 3,
+          lt_median_ms: 60000,
+          mttr_failures: 0,
+          mttr_restored: 0,
+          mttr_avg_seconds: null,
+        }],
+      });
+
+      const result = await service.getDoraMetrics('acme', FROM, TO, undefined, {
+        environment: 'production',
+        pipelineId: 'p-1',
+      });
+
+      expect(result.basis).toBe('deploy');
+      expect(result.filters).toEqual({ pipelineId: 'p-1', environment: 'production' });
+    });
+
+    it('reports basis=deploy for deploysOnly (any environment)', async () => {
+      mockExecute.mockResolvedValue({
+        rows: [{
+          df_deployments: 0,
+          cfr_failed: 0,
+          cfr_total: 0,
+          lt_deployments: 0,
+          lt_median_ms: null,
+          mttr_failures: 0,
+          mttr_restored: 0,
+          mttr_avg_seconds: null,
+        }],
+      });
+
+      const result = await service.getDoraMetrics('acme', FROM, TO, undefined, { deploysOnly: true });
+
+      expect(result.basis).toBe('deploy');
+      expect(result.filters).toEqual({ pipelineId: null, environment: null });
+    });
+
+    it('bands on the UNROUNDED rate at the monthly boundary (1 deploy / 30 days → medium, not low)', async () => {
+      // perDay = 1/30 = 0.0333…; rounding to 0.03 before banding would fail the
+      // `>= 1/30` medium check and mislabel it "low". Regression for that bug.
+      mockExecute.mockResolvedValue({
+        rows: [{
+          df_deployments: 1,
+          cfr_failed: 0,
+          cfr_total: 1,
+          lt_deployments: 1,
+          lt_median_ms: 60000,
+          mttr_failures: 0,
+          mttr_restored: 0,
+          mttr_avg_seconds: null,
+        }],
+      });
+
+      // 30-day window (FROM=2026-07-01 .. TO=2026-07-31).
+      const result = await service.getDoraMetrics('acme', '2026-07-01T00:00:00Z', '2026-07-31T00:00:00Z');
+
+      expect(result.deploymentFrequency.perDay).toBe(0.03); // display still rounded
+      expect(result.deploymentFrequency.level).toBe('medium'); // banded on 0.0333…
+    });
+  });
+
+  describe('getDoraTrend', () => {
+    it('returns per-bucket deployment + change-failure points', async () => {
+      mockExecute.mockResolvedValue({
+        rows: [
+          { period: '2026-07-01', deployments: 4, failed: 1, total: 5, changeFailurePct: 20 },
+          { period: '2026-07-02', deployments: 6, failed: 0, total: 6, changeFailurePct: 0 },
+        ],
+      });
+
+      const result = await service.getDoraTrend('acme', 'day', '2026-07-01', '2026-07-03');
+
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({ period: '2026-07-01', deployments: 4, changeFailurePct: 20 });
+    });
+  });
+
+  // DORA generated-SQL coverage
+  //
+  // TEST-PATH NOTE: these pin the QUERY CONSTRUCTION rather than executing it
+  // against a real Postgres. A real/in-memory DB harness is NOT cleanly feasible
+  // in this jest-ESM setup: pg-mem is not installed (and package.json here is
+  // projen-generated, so adding a devDep + wiring drizzle's node-postgres driver
+  // is exactly the infra fight the task says to avoid), and pg-mem does not
+  // implement the aggregate machinery these queries lean on — PERCENTILE_CONT
+  // WITHIN GROUP (lead-time median), FILTER clauses, and interval arithmetic —
+  // so the DORA CTEs could not run there anyway. Instead we render the exact SQL
+  // handed to `tx.execute` (via drizzle's PgDialect) and assert the load-bearing
+  // fragments: the STOPPED status set, the MTTR look-ahead interval, the
+  // end-based recovery selection + the incident_started guard from the negative-
+  // gap fix, the incident GROUP BY, and the deploy/pipeline scope predicates.
+  // This locks the two DORA methods to the shared `execsCte` (no status-set /
+  // predicate drift) and guards the Change 1 semantics at the SQL level.
+  describe('DORA generated SQL', () => {
+    const dialect = new PgDialect();
+    /** Render the SQL object captured by the Nth `tx.execute` call to text+params. */
+    function rendered(callIndex = 0): { sql: string; params: unknown[] } {
+      const arg = mockExecute.mock.calls[callIndex]?.[0] as SQL | undefined;
+      if (!arg) throw new Error('tx.execute was not called');
+      const { sql, params } = dialect.sqlToQuery(arg);
+      return { sql, params };
+    }
+
+    const FROM = '2026-07-01T00:00:00Z';
+    const TO = '2026-07-11T00:00:00Z';
+
+    it('getDoraMetrics: STOPPED status set, MTTR look-ahead, end-based restore + incident collapse/guard', async () => {
+      mockExecute.mockResolvedValue({ rows: [{}] });
+      await service.getDoraMetrics('acme', FROM, TO);
+
+      const { sql, params } = rendered();
+      // Shared terminal status set (STOPPED joins the ELSE/CANCELED bucket).
+      expect(sql).toContain("e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED')");
+      // Look-ahead tail: the 30-day interval is bound as a param + cast ::interval.
+      expect(sql).toContain('::interval');
+      expect(params).toContain('30 days');
+      // Change 1: recovery is selected AND measured on ended_at (no started_at
+      // selection that could yield a negative gap).
+      expect(sql).toContain('s.ended_at > f.ended_at');
+      expect(sql).toContain('ORDER BY s.ended_at ASC');
+      expect(sql).not.toContain('s.started_at > f.started_at');
+      // Change 1: `restored` is guarded so it can't exceed measured incidents.
+      expect(sql).toContain('incident_started IS NOT NULL');
+      // Incident collapse GROUP BY (consecutive failures → one incident).
+      expect(sql).toContain('GROUP BY pipeline_id, restored_at');
+      // Unscoped ⇒ no per-pipeline / environment predicate.
+      expect(sql).not.toContain('e.pipeline_id =');
+      expect(sql).not.toContain('e.environment');
+    });
+
+    it('getDoraMetrics: env + pipeline scoping filters BOTH the metrics AND the MTTR recovery scan', async () => {
+      mockExecute.mockResolvedValue({ rows: [{}] });
+      await service.getDoraMetrics('acme', FROM, TO, undefined, {
+        environment: 'production',
+        pipelineId: 'p-1',
+      });
+
+      const { sql, params } = rendered();
+      // Both scope clauses live INSIDE the single `execs` CTE, so the failure
+      // rows and their recovery-success candidates (drawn from the same execs)
+      // are filtered identically — a foreign-env success can't "restore" a
+      // scoped failure.
+      expect(sql).toContain('e.pipeline_id =');
+      expect(sql).toContain('e.environment =');
+      expect(params).toContain('p-1');
+      expect(params).toContain('production');
+      // execs is the only table scan (restore's subquery reads from execs, not
+      // a second pipeline_event scan), so there is exactly one WHERE on org_id.
+      expect(sql.match(/e\.environment =/g) ?? []).toHaveLength(1);
+    });
+
+    it('getDoraMetrics: deploysOnly scopes to any tagged environment', async () => {
+      mockExecute.mockResolvedValue({ rows: [{}] });
+      await service.getDoraMetrics('acme', FROM, TO, undefined, { deploysOnly: true });
+
+      const { sql } = rendered();
+      expect(sql).toContain('e.environment IS NOT NULL');
+      expect(sql).not.toContain('e.environment =');
+    });
+
+    it('getDoraTrend: shares the execs status set but has NO MTTR look-ahead', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getDoraTrend('acme', 'day', FROM, TO);
+
+      const { sql, params } = rendered();
+      expect(sql).toContain("e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED')");
+      expect(sql).toContain('GROUP BY e.execution_id, e.pipeline_id');
+      // Trend buckets the core window only — no look-ahead tail, no restore CTE.
+      expect(sql).not.toContain('::interval');
+      expect(params).not.toContain('30 days');
+      expect(sql).not.toContain('restored_at');
+    });
+
+    it('getDoraTrend: env + pipeline scoping applied to the shared execs CTE', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getDoraTrend('acme', 'day', FROM, TO, undefined, {
+        environment: 'staging',
+        pipelineId: 'p-9',
+      });
+
+      const { sql, params } = rendered();
+      expect(sql).toContain('e.pipeline_id =');
+      expect(sql).toContain('e.environment =');
+      expect(params).toContain('p-9');
+      expect(params).toContain('staging');
+    });
+
+    it('both DORA methods emit the identical execs status set (no drift via execsCte)', async () => {
+      mockExecute.mockResolvedValue({ rows: [{}] });
+      await service.getDoraMetrics('acme', FROM, TO);
+      const metricsSql = rendered(0).sql;
+
+      jest.clearAllMocks();
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getDoraTrend('acme', 'day', FROM, TO);
+      const trendSql = rendered(0).sql;
+
+      const statusSet = "e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED')";
+      expect(metricsSql).toContain(statusSet);
+      expect(trendSql).toContain(statusSet);
     });
   });
 

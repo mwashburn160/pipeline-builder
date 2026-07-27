@@ -19,13 +19,16 @@ import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { config } from '../config.js';
 import {
+  applyTierIncludedAddonPrune,
   buildSubscriptionResponse,
   calculatePeriodEnd,
   checkEntitlementOvercap,
   createBillingEvent,
+  finalizePrunedAddons,
   MANAGEABLE_SUBSCRIPTION_STATUSES,
   syncEntitlements,
 } from '../helpers/billing-helpers.js';
+import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
@@ -221,6 +224,11 @@ export function createSubscriptionRoutes(): Router {
     const planChanged = Boolean(planId && planId !== subscription.planId);
     const intervalChanged = Boolean(interval && interval !== subscription.interval);
 
+    // Bundles dropped because the destination tier now includes their feature.
+    // Captured during the (pre-save) prune; their provider line-item removal +
+    // audit run AFTER save (see finalizePrunedAddons below).
+    let prunedAddons: PrunedAddon[] = [];
+
     // If changing plan, verify the new plan exists and gate the downgrade.
     let plan;
     if (planChanged && planId) {
@@ -255,6 +263,20 @@ export function createSubscriptionRoutes(): Router {
       await createBillingEvent(orgId, 'plan_changed', {
         oldPlanId, newPlanId: effectivePlanId,
       }, subscriptionId, req.user?.sub);
+
+      // Prune any PURE-FEATURE add-on the new tier now bundles in (e.g. an
+      // `advanced_reporting` bundle absorbed by an Enterprise upgrade). Without
+      // this the customer keeps paying for a bundle their tier includes AND the
+      // tier-filtered catalog hides it, so they can't self-service-remove it.
+      // This mutates subscription.addons in memory (persisted by the save below);
+      // the provider line-item removal + audit run post-save via
+      // finalizePrunedAddons. Hybrid bundles (e.g. `sso`→idpConfigs) are kept.
+      // `plan` is always set when planChanged (fetched above); guard for TS.
+      if (plan) {
+        prunedAddons = applyTierIncludedAddonPrune(subscription, plan.tier, {
+          orgId, subscriptionId: subscription._id.toString(), source: 'plan_change',
+        });
+      }
     }
 
     if (intervalChanged) {
@@ -277,6 +299,17 @@ export function createSubscriptionRoutes(): Router {
       const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
       await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId, subscription.addons ?? []);
     }
+
+    // Remove any pruned bundles' provider line items (double-billing fix) +
+    // write the addon_pruned audit trail — AFTER save so state can't drift.
+    await finalizePrunedAddons(prunedAddons, subscription.addons ?? [], {
+      orgId,
+      subscriptionId: subscription._id.toString(),
+      interval: subscription.interval,
+      externalId: subscription.externalId,
+      actorId: req.user?.sub,
+      source: 'plan_change',
+    });
 
     logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
 

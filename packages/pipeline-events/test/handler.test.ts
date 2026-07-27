@@ -78,6 +78,16 @@ function tagResolver(cmd: { resourceArn: string }) {
   if (arn.includes('denied-pipeline')) {
     return Promise.reject(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
   }
+  // A pipeline that declares a deploy environment surfaces an `Environment` tag
+  // alongside PIPELINE_EVENT_ID (DORA deploy attribution).
+  if (arn.includes('prod-pipeline')) {
+    return Promise.resolve({
+      tags: [
+        { key: 'PIPELINE_EVENT_ID', value: 'pipeline-uuid-1' },
+        { key: 'Environment', value: 'production' },
+      ],
+    });
+  }
   return Promise.resolve({ tags: [{ key: 'PIPELINE_EVENT_ID', value: 'pipeline-uuid-1' }] });
 }
 
@@ -224,6 +234,36 @@ describe('pipeline-events handler', () => {
       ok: false, status: 500, text: () => Promise.resolve('Internal Server Error'),
     }));
     await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow('Reporting API failed: 500');
+  });
+
+  it('should populate commitSha/commitRef (from source revision) and environment (from Environment tag) when present', async () => {
+    await handler(createSQSEvent([{
+      ...MOCK_CODEPIPELINE_EVENT,
+      detail: {
+        ...MOCK_CODEPIPELINE_EVENT.detail,
+        'pipeline': 'prod-pipeline',
+        'source-revisions': [{ revisionId: 'abc123def456', branchName: 'main' }],
+      },
+    }]));
+
+    const body = lastEventsBody();
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0]).toMatchObject({
+      pipelineId: 'pipeline-uuid-1',
+      commitSha: 'abc123def456',
+      commitRef: 'main',
+      environment: 'production',
+    });
+  });
+
+  it('should leave commit/ref/environment undefined for legacy events with no revision or Environment tag', async () => {
+    await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+
+    const body = lastEventsBody();
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0].commitSha).toBeUndefined();
+    expect(body.events[0].commitRef).toBeUndefined();
+    expect(body.events[0].environment).toBeUndefined();
   });
 
   it('should not compute duration for STARTED events', async () => {

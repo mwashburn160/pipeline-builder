@@ -7,12 +7,22 @@ import type { QuotaTier } from './quota-tiers.js';
 
 /** Canonical feature flag identifiers. */
 export type FeatureFlag =
+  // `priority_support` and `custom_integrations` are ENTERPRISE-EXCLUSIVE
+  // marketing/entitlement flags: granted only by the enterprise tier (no add-on
+  // bundle sells them to a lower tier — intentional, they anchor the Enterprise
+  // plan) and not currently `requireFeature`-gated on any route (they surface in
+  // plan marketing + the entitlement set; enforcement is a future hook). This is
+  // by design, not dead code — do not "fix" by wiring a bundle without a pricing
+  // decision. Contrast `audit_log`/`sso`/`advanced_reporting`, which ARE sold as
+  // add-on bundles and gated (see billing-config `loadBundles` + `requireFeature`).
   | 'priority_support'
   | 'custom_integrations'
   | 'ai_generation'
   | 'bulk_operations'
   | 'audit_log'
-  | 'sso';
+  | 'sso'
+  // DORA / advanced delivery analytics (paid tiers only).
+  | 'advanced_reporting';
 
 /** All valid feature flags (order determines display order). */
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
@@ -22,6 +32,7 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   'custom_integrations',
   'audit_log',
   'sso',
+  'advanced_reporting',
 ];
 
 /** Check whether a string is a valid FeatureFlag. */
@@ -36,7 +47,9 @@ export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   developer: [],
   pro: ['priority_support', 'ai_generation', 'bulk_operations'],
   // Team adds audit_log (collaboration/governance) and sso (SSO/IdP is INCLUDED
-  // in Team, not an add-on); Enterprise unlocks all, incl. custom_integrations.
+  // in Team, not an add-on). advanced_reporting (DORA) is NOT a Team tier feature —
+  // it's INCLUDED only in Enterprise and sold as an add-on bundle to every other
+  // tier (see billing-config `advanced_reporting`). Enterprise unlocks all.
   team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
   enterprise: [...ALL_FEATURE_FLAGS],
 };
@@ -68,6 +81,10 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   sso: {
     label: 'SSO / IdP',
     description: 'Single sign-on and external identity-provider configurations',
+  },
+  advanced_reporting: {
+    label: 'Advanced Reporting',
+    description: 'DORA / advanced delivery analytics',
   },
 };
 

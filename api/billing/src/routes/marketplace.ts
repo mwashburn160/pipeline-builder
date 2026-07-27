@@ -14,8 +14,10 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { config } from '../config.js';
 import {
+  applyTierIncludedAddonPrune,
   calculatePeriodEnd,
   createBillingEvent,
+  finalizePrunedAddons,
   syncEntitlements,
 } from '../helpers/billing-helpers.js';
 import {
@@ -212,9 +214,19 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
 
   const oldPlanId = subscription.planId;
   subscription.planId = newPlanId;
+
+  // Prune any PURE-FEATURE add-on the new tier now bundles in (double-billing
+  // fix) so a marketplace tier upgrade also drops the redundant paid bundle.
+  // Mutates the doc's addons in memory (persisted by save below); hybrid bundles
+  // that also grant a quota (e.g. `sso`→idpConfigs) are kept.
+  const subscriptionId = subscription._id.toString();
+  const pruned = applyTierIncludedAddonPrune(subscription, plan.tier, {
+    orgId: subscription.orgId, subscriptionId, source: 'marketplace_plan_change',
+  });
+
   await subscription.save();
 
-  await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
+  await syncEntitlements(subscription.orgId, plan.tier, '', subscriptionId, subscription.addons ?? []);
 
   await createBillingEvent(subscription.orgId, 'plan_changed', {
     oldPlanId,
@@ -222,7 +234,19 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
     provider: 'aws-marketplace',
     customerIdentifier,
     dimension: activeEntitlement?.dimension,
-  }, subscription._id.toString());
+  }, subscriptionId);
+
+  // Record the addon_pruned trail for any dropped bundle. Marketplace is EXEMPT
+  // from the provider line-item removal — its add-ons are AWS-metered, so the
+  // provider's syncAddons is a no-op (finalizePrunedAddons still writes the local
+  // event + central audit so finance can reconcile). System path → no actorId.
+  await finalizePrunedAddons(pruned, subscription.addons ?? [], {
+    orgId: subscription.orgId,
+    subscriptionId,
+    interval: subscription.interval,
+    externalId: subscription.externalId,
+    source: 'marketplace_plan_change',
+  });
 
   logger.info('Plan updated from entitlement change', {
     customerIdentifier,

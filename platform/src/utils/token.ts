@@ -151,9 +151,8 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
           organizationName: org?.name,
           role: membership.role as OrgMemberRole,
           tier: org?.tier,
-          featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
           rolePermissions: await rolePermissionsFor(userId, toOrgId(activeOrgId)),
-          ...(await hierarchyContext(activeOrgId, org?.parentOrgId)),
+          ...(await accountContext(activeOrgId, org)),
         };
       }
     }
@@ -172,27 +171,49 @@ async function resolveMembership(userId: string, activeOrgId?: string): Promise<
       organizationName: org?.name,
       role: first.role as OrgMemberRole,
       tier: org?.tier,
-      featureEntitlements: (org as { featureEntitlements?: string[] })?.featureEntitlements,
       rolePermissions: await rolePermissionsFor(userId, toOrgId(orgId)),
-      ...(await hierarchyContext(orgId, org?.parentOrgId)),
+      ...(await accountContext(orgId, org)),
     };
   }
   return undefined;
 }
 
 /**
- * Resolve the org → team hierarchy claims for a token. When the active org is
- * flat (no `parentOrgId`, the case for every org today) this returns `{}` and
- * costs nothing — the parent we already fetched is the only signal needed. Only
- * a parented org pays the upward walk via {@link resolveOrgLineage}.
+ * Resolve the account-level context a token bakes in for its active org: the
+ * authoritative `featureEntitlements` set PLUS the org → team hierarchy claims.
+ *
+ * `featureEntitlements` and the tier POOL AT THE ACCOUNT ROOT; billing writes
+ * them there and the platform propagates them onto descendant teams. A team's
+ * own doc therefore carries only a DENORMALIZED copy that can lag propagation
+ * (concurrent team-create, a partially-applied propagation write). To keep the
+ * JWT structurally drift-proof we read the entitlements from the ROOT for a
+ * parented org — mirroring `pooledFeatureEntitlements` — rather than trusting
+ * the active team doc's copy.
+ *
+ * When the active org is flat (no `parentOrgId`, the case for every org today)
+ * the active doc IS the root: its own `featureEntitlements` are authoritative,
+ * no hierarchy claims apply, and this costs NO extra DB round-trip. Only a
+ * parented org pays a single lineage walk ({@link resolveOrgLineage}) — reused
+ * for both the hierarchy claims and the root entitlement read.
  */
-async function hierarchyContext(
+async function accountContext(
   orgId: string,
-  parentOrgId: string | null | undefined,
-): Promise<{ parentOrganizationId?: string; rootOrganizationId?: string }> {
-  if (!parentOrgId) return {};
+  org: { parentOrgId?: string | null; featureEntitlements?: string[] },
+): Promise<{
+    featureEntitlements?: readonly string[];
+    parentOrganizationId?: string;
+    rootOrganizationId?: string;
+  }> {
+  // Flat/root org: the active doc is the root — trust its own copy, no read.
+  if (!org.parentOrgId) return { featureEntitlements: org.featureEntitlements };
+
+  // Parented org (team): resolve lineage ONCE, then read the ROOT's authoritative
+  // entitlements (drift-proof) and derive the hierarchy claims from the same walk.
   const lineage = await resolveOrgLineage(orgId);
+  const root = await Organization.findById(toOrgId(lineage.rootOrgId))
+    .select('featureEntitlements').lean();
   return {
+    featureEntitlements: (root as { featureEntitlements?: string[] })?.featureEntitlements ?? [],
     ...(lineage.parentOrgId && { parentOrganizationId: lineage.parentOrgId }),
     ...(lineage.rootOrgId !== orgId && { rootOrganizationId: lineage.rootOrgId }),
   };

@@ -9,7 +9,7 @@ import {
   requireAuth, isSystemAdmin, resolveAccessModifier,
   signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal,
   requirePermission, requireSystemAdmin, setAuthzDenialAuditor,
-  requireAllPermissions, setTokenRevocationStore,
+  requireAllPermissions, setTokenRevocationStore, requireFeature,
 } from '../src/middleware/auth.js';
 import type { AuthzDenialInfo } from '../src/middleware/auth.js';
 import type { JwtPayload } from '../src/types/common.js';
@@ -601,6 +601,50 @@ describe('requireAllPermissions', () => {
     setAuthzDenialAuditor((i) => seen.push(i));
     requireAllPermissions('a:write' as any, 'b:write' as any)(req(['a:write']), createMockRes(), jest.fn());
     expect(seen).toHaveLength(1);
+  });
+});
+
+// requireFeature — paid-entitlement gate (e.g. DORA's `advanced_reporting`)
+
+describe('requireFeature', () => {
+  function req(features?: string[], isSuperAdmin = false, authed = true) {
+    return (authed
+      ? { method: 'GET', originalUrl: '/reports/execution/dora', user: { sub: 'u', features, isSuperAdmin } }
+      : { method: 'GET', originalUrl: '/reports/execution/dora' }) as unknown as Request;
+  }
+
+  it('passes when the user holds the feature', () => {
+    const res = createMockRes(); const next = jest.fn();
+    requireFeature('advanced_reporting')(req(['advanced_reporting']), res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('403s when the feature is absent', () => {
+    const res = createMockRes(); const next = jest.fn();
+    requireFeature('advanced_reporting')(req(['audit_log']), res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res._status).toBe(403);
+    expect(JSON.stringify(res._json)).toContain('advanced_reporting');
+  });
+
+  it('403s when the token carries no features array', () => {
+    const res = createMockRes(); const next = jest.fn();
+    requireFeature('advanced_reporting')(req(undefined), res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res._status).toBe(403);
+  });
+
+  it('superadmin bypasses even without the feature', () => {
+    const res = createMockRes(); const next = jest.fn();
+    requireFeature('advanced_reporting')(req([], true), res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('401s when unauthenticated (no req.user)', () => {
+    const res = createMockRes(); const next = jest.fn();
+    requireFeature('advanced_reporting')(req(undefined, false, false), res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res._status).toBe(401);
   });
 });
 

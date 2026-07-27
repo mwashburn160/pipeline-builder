@@ -70,6 +70,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // (which now imports requirePermission) links. Router-only suites don't hit them.
     requirePermission: (...permissions: string[]) => permissionGate(permissions, false),
     requirePermissionOrService: (...permissions: string[]) => permissionGate(permissions, true),
+    // Feature-entitlement gate factory (DORA routes use requireFeature). Passthrough
+    // middleware — router suites pull the withRoute handler directly, and the
+    // index-wiring suite only needs the module to link.
+    requireFeature: (_feature: string) => (_req: any, _res: any, next: any) => next && next(),
     // Shared org-descendants resolver imported by src/helpers.ts (resolveOrgRollup).
     // A stub is enough for the module to link; suites that exercise the rollup
     // mock resolveOrgRollup itself at the helpers layer.

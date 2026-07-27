@@ -30,11 +30,16 @@ export function effectiveEntitlements(
   for (const { bundleId, quantity } of addons) {
     const bundle = byId.get(bundleId);
     if (!bundle || quantity <= 0) continue;
+    // Enforce the non-stackable invariant in the CANONICAL math, not just at the
+    // purchase route: a `stackable:false` bundle counts once regardless of a
+    // stored quantity > 1, so a non-route caller (drift reconciler,
+    // subscription-lifecycle) can't over-grant its quota.
+    const effectiveQty = bundle.stackable ? quantity : 1;
     for (const [field, delta] of Object.entries(bundle.grants)) {
       // `grants` is a Partial map, so a value can be undefined — skip those.
       if (delta === undefined) continue;
       if (limits[field] === -1) continue; // already unlimited
-      limits[field] = (limits[field] ?? 0) + delta * quantity;
+      limits[field] = (limits[field] ?? 0) + delta * effectiveQty;
     }
     for (const f of bundle.features ?? []) features.add(f);
   }

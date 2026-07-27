@@ -5,6 +5,14 @@ interface TooltipProps {
   content: string;
   children: ReactNode;
   delay?: number;
+  /**
+   * Allow the bubble to wrap onto multiple lines and cap its width, for
+   * sentence-length content. Default (false) keeps the single-line
+   * `whitespace-nowrap` behaviour used by short labels.
+   */
+  multiline?: boolean;
+  /** Extra classes for the wrapping trigger span (e.g. `w-full` for grid cells). */
+  className?: string;
 }
 
 type Side = 'right' | 'left' | 'top' | 'bottom';
@@ -47,7 +55,7 @@ const SIDE_CLASSES: Record<Side, { tooltip: string; arrow: string }> = {
  * clipping. Falls back to top/bottom only if neither horizontal side has
  * room — rare in this app's layouts.
  */
-export function Tooltip({ content, children, delay = 300 }: TooltipProps) {
+export function Tooltip({ content, children, delay = 300, multiline = false, className }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const [side, setSide] = useState<Side>('right');
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -92,7 +100,7 @@ export function Tooltip({ content, children, delay = 300 }: TooltipProps) {
   return (
     <span
       ref={wrapperRef}
-      className="relative inline-flex"
+      className={`relative inline-flex${className ? ` ${className}` : ''}`}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}
@@ -109,7 +117,8 @@ export function Tooltip({ content, children, delay = 300 }: TooltipProps) {
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.1 }}
             role="tooltip"
-            className={`absolute z-50 pointer-events-none px-2.5 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap
+            className={`absolute z-50 pointer-events-none px-2.5 py-1.5 text-xs font-medium rounded-lg
+              ${multiline ? 'whitespace-normal break-words max-w-xs' : 'whitespace-nowrap'}
               bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900
               shadow-lg ${sideClasses.tooltip}`}
           >

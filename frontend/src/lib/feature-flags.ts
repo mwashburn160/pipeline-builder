@@ -15,7 +15,9 @@ export type FeatureFlag =
   | 'custom_integrations'
   | 'ai_generation'
   | 'bulk_operations'
-  | 'audit_log';
+  | 'audit_log'
+  // DORA / advanced delivery analytics (paid tiers only).
+  | 'advanced_reporting';
 
 export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
   'priority_support',
@@ -23,6 +25,7 @@ export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
   'bulk_operations',
   'custom_integrations',
   'audit_log',
+  'advanced_reporting',
 ];
 
 export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description: string }> = {
@@ -31,4 +34,5 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   bulk_operations: { label: 'Bulk Operations', description: 'Batch create, update, and delete for pipelines and plugins' },
   custom_integrations: { label: 'Custom Integrations', description: 'Connect to external services and custom webhook endpoints' },
   audit_log: { label: 'Audit Log', description: 'Detailed audit trail of all user and system actions' },
+  advanced_reporting: { label: 'Advanced Reporting', description: 'DORA / advanced delivery analytics' },
 };

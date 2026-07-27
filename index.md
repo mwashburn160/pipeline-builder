@@ -111,6 +111,7 @@ An **organization** is the isolation boundary — every pipeline, plugin, secret
 - **Per-organization quotas** — `plugins`, `pipelines`, `apiCalls`, `aiCalls`, storage, and `seats`; **feature tiers** (Developer / Pro / Team / Enterprise) with stackable [add-on bundles](docs/billing-bundles.md) that raise pooled caps; a parent's caps pool across its teams
 - **Isolated secrets** — AWS Secrets Manager per organization (`pipeline-builder/{orgId}/{secret}`), injected at build time, never stored in images
 - **Execution analytics** — EventBridge-fed success rates, duration percentiles (p50 / p90 / p99), stage-level failure heatmaps, and per-organization cost attribution (rolled up across child teams for parent orgs)
+- **DORA metrics** — deployment frequency, change failure rate, MTTR, and a lead-time proxy with Elite/High/Medium/Low performance bands and a trend sparkline on the Reports page (median successful run time is an approximation, *not* true commit→production lead time); see [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }})
 - **Tamper-evident audit trail** — every privileged action hash-chained per tenant with a sysadmin `/audit/verify`, forgery-locked service ingest, and a durable spool so the security log survives an outage (see [Audit Events]({{ '/docs/audit-events.html' | relative_url }}))
 - **Built for production** — zero-trust internal JWT auth, Kubernetes `health` / `ready` / `warmup` / `metrics` endpoints, graceful degradation
 

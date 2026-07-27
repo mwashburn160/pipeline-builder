@@ -138,6 +138,22 @@ describe('PipelineBuilder', () => {
       expect(tags.some(t => t.Key === 'PIPELINE_EVENT_ID')).toBe(false);
     });
 
+    it('applies an Environment tag when environment is provided (DORA attribution)', () => {
+      const { template } = build(baseProps({ environment: 'production' }));
+      const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
+      const tags = (Object.values(pipelines)[0] as any).Properties.Tags;
+      expect(tags).toEqual(
+        expect.arrayContaining([{ Key: 'Environment', Value: 'production' }]),
+      );
+    });
+
+    it('does not emit an Environment tag when environment is omitted', () => {
+      const { template } = build(baseProps());
+      const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
+      const tags = (Object.values(pipelines)[0] as any).Properties.Tags as Array<{ Key: string }>;
+      expect(tags.some(t => t.Key === 'Environment')).toBe(false);
+    });
+
     it('honors a custom pipeline name', () => {
       const { template, builder } = build(baseProps({ pipelineName: 'custom-pipe' } as Partial<BuilderProps>));
       expect(builder.config.pipelineName).toBe('custom-pipe');
