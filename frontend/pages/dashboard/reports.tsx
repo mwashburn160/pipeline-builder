@@ -122,6 +122,9 @@ export default function ReportsPage() {
   // PipelineOverview so a since-deleted pipeline with historical events can also
   // be scoped. Fetched only when DORA is entitled.
   const [pipelineOptions, setPipelineOptions] = useState<{ id: string; name: string }[]>([]);
+  // Deploy environments actually observed in the window — merged with sensible
+  // defaults to seed the DORA environment datalist. Fetched only when entitled.
+  const [environmentOptions, setEnvironmentOptions] = useState<string[]>([]);
   const [durations, setDurations] = useState<DurationStat[]>([]);
   const [bottlenecks, setBottlenecks] = useState<StageBottleneck[]>([]);
   const [stageFailures, setStageFailures] = useState<StageFailure[]>([]);
@@ -186,13 +189,18 @@ export default function ReportsPage() {
           const pipelineListReq = doraEnabled
             ? api.listPipelines({ limit: '200' }).catch(() => undefined)
             : Promise.resolve(undefined);
+          // Distinct environments observed in the window — seeds the env
+          // datalist. Auxiliary like the pipeline picker, so swallow failures.
+          const envListReq = doraEnabled
+            ? api.getReportEnvironments({ ...dateParams, ...rollup }).catch(() => undefined)
+            : Promise.resolve(undefined);
           const results = await Promise.allSettled([
             api.getExecutionCount({ ...dateParams, ...rollup }), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
-            doraReq, doraTrendReq, pipelineListReq,
+            doraReq, doraTrendReq, pipelineListReq, envListReq,
           ]);
           if (reqId !== reqIdRef.current) return;
           settled = results;
-          const [execRes, successRateRes, doraRes, doraTrendRes, pipelineListRes] = results;
+          const [execRes, successRateRes, doraRes, doraTrendRes, pipelineListRes, envListRes] = results;
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (successRateRes.status === 'fulfilled') setTimeline(successRateRes.value.data?.timeline || []);
           if (doraRes.status === 'fulfilled') setDora(doraRes.value ?? null);
@@ -201,6 +209,9 @@ export default function ReportsPage() {
             setPipelineOptions(
               (pipelineListRes.value.data?.pipelines ?? []).map((p) => ({ id: p.id, name: p.pipelineName || p.project })),
             );
+          }
+          if (envListRes.status === 'fulfilled' && envListRes.value) {
+            setEnvironmentOptions(envListRes.value.data?.environments ?? []);
           }
         } else if (pipelineTab === 'performance') {
           const results = await Promise.allSettled([
@@ -355,6 +366,7 @@ export default function ReportsPage() {
                 loading={loading}
                 executions={executions}
                 pipelineOptions={pipelineOptions}
+                environmentOptions={environmentOptions}
                 timeline={timeline}
                 dora={dora}
                 doraTrend={doraTrend}

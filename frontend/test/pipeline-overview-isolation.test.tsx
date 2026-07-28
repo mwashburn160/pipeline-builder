@@ -28,6 +28,7 @@ const doraScope = {
 
 const baseProps = {
   executions: [] as ExecutionCountRow[], pipelineOptions: [] as { id: string; name: string }[],
+  environmentOptions: [] as string[],
   timeline: [] as TimelineEntry[],
   dora: null, doraTrend: [], doraEnabled: false, doraScope,
 };
@@ -58,5 +59,17 @@ describe('PipelineOverview (isolation)', () => {
     render(<PipelineOverview {...baseProps} loading={false} executions={[execRow]} doraEnabled />);
     expect(screen.getByLabelText(/filter dora by pipeline/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/filter dora by environment/i)).toBeInTheDocument();
+  });
+
+  it('seeds the environment datalist with defaults merged with observed environments (deduped)', () => {
+    const { container } = render(
+      <PipelineOverview {...baseProps} loading={false} executions={[execRow]} doraEnabled
+        environmentOptions={['prod-eu', 'production']} />,
+    );
+    const options = [...container.querySelectorAll('#dora-environments option')].map((o) => o.getAttribute('value'));
+    // Observed first, then defaults; "production" appears once (case-insensitive dedup).
+    expect(options[0]).toBe('prod-eu');
+    expect(options).toContain('staging');
+    expect(options.filter((v) => v?.toLowerCase() === 'production')).toHaveLength(1);
   });
 });

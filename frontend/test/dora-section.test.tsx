@@ -52,6 +52,7 @@ const getDora = jest.fn();
 const getDoraTrend = jest.fn();
 const getExecutionCount = jest.fn();
 const listPipelines = jest.fn();
+const getReportEnvironments = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -60,6 +61,7 @@ jest.mock('@/lib/api', () => ({
     getDora: (...a: unknown[]) => getDora(...a),
     getDoraTrend: (...a: unknown[]) => getDoraTrend(...a),
     listPipelines: (...a: unknown[]) => listPipelines(...a),
+    getReportEnvironments: (...a: unknown[]) => getReportEnvironments(...a),
     getOrganizationDescendants: jest.fn().mockResolvedValue({ data: { orgIds: [] } }),
   },
 }));
@@ -87,6 +89,7 @@ beforeEach(() => {
   getDoraTrend.mockReset().mockResolvedValue([]);
   getExecutionCount.mockReset().mockResolvedValue({ data: { pipelines: [] } });
   listPipelines.mockReset().mockResolvedValue({ data: { pipelines: [] } });
+  getReportEnvironments.mockReset().mockResolvedValue({ data: { environments: [] } });
 });
 
 describe('ReportsPage — DORA section', () => {

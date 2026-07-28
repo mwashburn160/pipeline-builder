@@ -16,6 +16,8 @@ interface PipelineOverviewProps {
   executions: ExecutionCountRow[];
   /** All pipelines in the org (registry-sourced), for the DORA per-pipeline picker. */
   pipelineOptions: { id: string; name: string }[];
+  /** Deploy environments observed in the window, for the DORA env datalist. */
+  environmentOptions: string[];
   timeline: TimelineEntry[];
   dora: DoraMetrics | null;
   doraTrend: DoraTrendPoint[];
@@ -26,7 +28,7 @@ interface PipelineOverviewProps {
 
 /** Pipelines → Overview tab: summary stats, DORA section, execution + success-rate timelines. */
 export function PipelineOverview({
-  loading, executions, pipelineOptions, timeline, dora, doraTrend, doraEnabled, doraScope,
+  loading, executions, pipelineOptions, environmentOptions, timeline, dora, doraTrend, doraEnabled, doraScope,
 }: PipelineOverviewProps) {
   // DORA picker options: the org's registry pipelines PLUS any pipeline that only
   // appears in execution history (e.g. since-deleted), deduped by id. Registry
@@ -68,6 +70,7 @@ export function PipelineOverview({
           <SectionHeading>DORA Metrics</SectionHeading>
           <DoraScopeControls
             pipelines={doraPipelineOptions}
+            environmentOptions={environmentOptions}
             {...doraScope}
           />
           {dora ? (

@@ -293,9 +293,18 @@ export function DoraUpsell() {
 
 // ─── DORA Scope Controls (entitled only) ────────────────
 
+/**
+ * Sensible default environment names offered in the datalist even before an org
+ * has any deploy-attributed executions — so the combobox is useful on day one.
+ * Merged with (and deduped against) the environments actually observed.
+ */
+export const DEFAULT_ENVIRONMENTS = ['production', 'staging', 'development', 'preview', 'qa'];
+
 interface DoraScopeControlsProps {
   /** Pipelines to offer in the picker (from the overview execution list). */
   pipelines: { id: string; name: string }[];
+  /** Environments actually observed in the window; merged with the defaults for the datalist. */
+  environmentOptions: string[];
   pipelineId: string;
   environment: string;
   deploysOnly: boolean;
@@ -309,10 +318,10 @@ interface DoraScopeControlsProps {
 
 /**
  * The DORA scope value + callbacks a parent forwards to {@link DoraScopeControls}
- * (everything except the derived `pipelines` option list). Bundled so callers
- * pass one `doraScope` bag instead of ~7 individual props.
+ * (everything except the derived `pipelines`/`environmentOptions` lists). Bundled
+ * so callers pass one `doraScope` bag instead of ~7 individual props.
  */
-export type DoraScope = Omit<DoraScopeControlsProps, 'pipelines'>;
+export type DoraScope = Omit<DoraScopeControlsProps, 'pipelines' | 'environmentOptions'>;
 
 /**
  * Scoping controls for the DORA section: pipeline picker, a deployments-only
@@ -321,9 +330,22 @@ export type DoraScope = Omit<DoraScopeControlsProps, 'pipelines'>;
  * other filter controls (DateRangePicker / interval select).
  */
 export function DoraScopeControls({
-  pipelines, pipelineId, environment, deploysOnly,
+  pipelines, environmentOptions, pipelineId, environment, deploysOnly,
   onPipelineChange, onEnvironmentChange, onEnvironmentCommit, onDeploysOnlyChange,
 }: DoraScopeControlsProps) {
+  // Observed environments first (most relevant), then any defaults not already
+  // present — deduped case-insensitively so "prod"/"Prod" don't both appear.
+  const envSuggestions = (() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const e of [...environmentOptions, ...DEFAULT_ENVIRONMENTS]) {
+      const key = e.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(e);
+    }
+    return out;
+  })();
   return (
     <div className="flex flex-wrap items-center gap-2 mb-3">
       <label className="sr-only" htmlFor="dora-pipeline">Filter DORA by pipeline</label>
@@ -344,6 +366,7 @@ export function DoraScopeControls({
           so a per-keystroke request storm is avoided. */}
       <input
         type="text"
+        list="dora-environments"
         value={environment}
         onChange={(e) => onEnvironmentChange(e.target.value)}
         onBlur={(e) => onEnvironmentCommit(e.target.value)}
@@ -353,6 +376,11 @@ export function DoraScopeControls({
         title="Scope DORA metrics to a deployment environment"
         aria-label="Filter DORA by environment"
       />
+      <datalist id="dora-environments">
+        {envSuggestions.map((e) => (
+          <option key={e} value={e} />
+        ))}
+      </datalist>
       <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400" title="Count only steps marked as deployments (excludes non-deploy pipeline runs)">
         <input
           type="checkbox"

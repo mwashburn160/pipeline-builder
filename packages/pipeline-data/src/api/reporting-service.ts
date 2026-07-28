@@ -752,6 +752,24 @@ export class ReportingService {
     return this.runReport(`${orgId}:stage-failures:${from}:${to}`, multi, exec);
   }
 
+  /**
+   * Distinct deploy `environment` values observed in the window — powers the
+   * DORA environment-scope datalist. Org-scoped + rollup-aware like the sibling
+   * reports; only non-null environments (i.e. deploy-attributed executions).
+   */
+  async getReportEnvironments(orgId: string, from: string, to: string, orgIds?: string[]): Promise<string[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
+        SELECT DISTINCT e.environment AS environment
+        FROM ${schema.pipelineEvent} e
+        JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
+        WHERE p.org_id ${pred} AND e.environment IS NOT NULL
+          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+        ORDER BY environment
+      `).then(r => drizzleRows<{ environment: string }>(r.rows).map((row) => row.environment)));
+    return this.runReport(`${orgId}:report-envs:${from}:${to}`, multi, exec);
+  }
+
   /** 1.6 Stage bottlenecks — slowest stages per pipeline. */
   async getStageBottlenecks(orgId: string, from: string, to: string, orgIds?: string[]): Promise<StageBottleneck[]> {
     const { pred, multi } = this.orgScope(orgId, orgIds);

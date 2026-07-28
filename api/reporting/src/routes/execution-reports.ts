@@ -131,6 +131,17 @@ export function createExecutionReportRoutes(): Router {
     });
   }));
 
+  // Distinct deploy environments observed in the window — powers the DORA
+  // environment-scope datalist. Same gates + rollup as /dora.
+  router.get('/environments', requireFeature('advanced_reporting'), withRoute(async ({ req, res, orgId }) => {
+    const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
+    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
+    const orgIds = await rollupIds(req, orgId);
+    sendSuccess(res, 200, {
+      environments: await reportingService.getReportEnvironments(orgId, range.from, range.to, orgIds),
+    });
+  }));
+
   router.get('/errors', withRoute(async ({ req, res, orgId }) => {
     if (!isSystemAdmin(req)) {
       return sendError(res, 403, 'Admin access required', ErrorCode.INSUFFICIENT_PERMISSIONS);
