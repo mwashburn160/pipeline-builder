@@ -47,6 +47,11 @@ export function scrubAwsIdentifiers<T>(value: T): T {
     return value.map((v) => scrubAwsIdentifiers(v)) as unknown as T;
   }
   if (value && typeof value === 'object') {
+    // Only recurse PLAIN objects. A Date/Buffer/Map/class instance is not a
+    // plain object, and walking it via Object.entries would clobber it to `{}`
+    // (or a byte map) — silently destroying e.g. a Date held in audit `details`
+    // or event `detail`. Leave any non-plain object untouched.
+    if (Object.getPrototypeOf(value) !== Object.prototype) return value;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (ACCOUNT_KEY_RE.test(k) && (typeof v === 'string' || typeof v === 'number')) {

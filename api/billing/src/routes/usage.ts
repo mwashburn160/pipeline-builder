@@ -5,6 +5,7 @@ import { createLogger, requireAuth, requirePermission, sendSuccess } from '@pipe
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/billing-helpers.js';
 import { buildUsageRollupFor } from '../helpers/usage-helpers.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -34,7 +35,13 @@ export function createUsageRoutes(): Router {
 
     // Subscription is optional — free / unsubscribed orgs still get a usage
     // view (against the developer-tier defaults the quota service applies).
-    const subscription = await Subscription.findOne({ orgId, status: 'active' }).lean();
+    // Match the manageable (non-terminal) set — active / trialing / past_due —
+    // like every sibling route: a trialing or past_due org is paying/dunning on
+    // a real plan, so resolving only status:'active' wrongly showed them the
+    // developer defaults ($0 cost, wrong window).
+    const subscription = await Subscription.findOne({
+      orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
+    }).lean();
     const plan = subscription
       ? await Plan.findById(subscription.planId).lean()
       : null;

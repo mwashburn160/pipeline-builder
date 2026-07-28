@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import path from 'path';
 import { jest, describe, it, expect, afterAll, afterEach } from '@jest/globals';
 import AdmZip from 'adm-zip';
+import yauzl from 'yauzl';
 
 // Mock uuid to produce deterministic values
 jest.unstable_mockModule('uuid', () => ({
@@ -317,6 +318,48 @@ commands:
 
     const result = await parsePluginZip(zipPath);
     expect(result.pluginSpec.name).toBe('fine');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// zipfile fd cleanup — descriptor-leak defense
+// ---------------------------------------------------------------------------
+
+describe('zipfile fd cleanup', () => {
+  afterEach(() => {
+    delete process.env.PLUGIN_MAX_EXTRACT_ENTRIES;
+    jest.restoreAllMocks();
+  });
+
+  it('closes the zipfile on a REJECTED extraction (entry-count cap) — fd-leak regression', async () => {
+    // A malformed/zip-bomb upload used to leave the underlying fd open on every
+    // reject path (only the success path closed it), so an attacker spamming
+    // bad ZIPs could exhaust the descriptor table. The zipfile must be closed
+    // on the reject path too. spyOn calls through, so the real fd is still closed.
+    process.env.PLUGIN_MAX_EXTRACT_ENTRIES = '2';
+    const closeSpy = jest.spyOn(yauzl.ZipFile.prototype, 'close');
+
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: many\nversion: "1.0.0"\ncommands:\n  - echo hi\n',
+      'a.txt': 'a',
+      'b.txt': 'b',
+      'c.txt': 'c',
+    });
+
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('maximum entry count');
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the zipfile exactly once on a SUCCESSFUL extraction (no double-close)', async () => {
+    const closeSpy = jest.spyOn(yauzl.ZipFile.prototype, 'close');
+
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: ok\nversion: "1.0.0"\ncommands:\n  - echo hi\n',
+      'Dockerfile': 'FROM alpine:3',
+    });
+
+    await parsePluginZip(zipPath);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
   });
 });
 

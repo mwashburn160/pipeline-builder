@@ -83,9 +83,28 @@ export interface SSEManagerOptions {
   ticketTtlMs?: number;
 }
 
-/** A minted SSE ticket — single-use, org-bound, short-lived. */
+/**
+ * A build-log stream subject id: either a dashed UUID (api-server's `uuid()`)
+ * or nginx's `$request_id` — 16 random bytes rendered as 32 hex chars with NO
+ * dashes. Accept both by making the group separators optional; still strictly
+ * 32 hex chars so it can't carry an injection / path-traversal payload into the
+ * SSE subject. Shared by the ticket-mint route and the stream middleware so
+ * both validate the subject identically.
+ */
+export const SSE_REQUEST_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+
+/** A minted SSE ticket — single-use, org-bound, subject-bound, short-lived. */
 interface SSETicket {
   orgId: string;
+  /**
+   * The build-log stream subject this ticket authorizes. A ticket may ONLY be
+   * consumed to open the stream for this exact requestId. Binds the single-use
+   * ticket to a specific subject so an authenticated org can't attach to a
+   * stream it was never issued for (previously the `:requestId` was only
+   * format-validated, so any org could subscribe to any subject it could
+   * guess). Stored normalized (dashes stripped, lowercased) for comparison.
+   */
+  requestId: string;
   expiresAt: number;
 }
 
@@ -165,6 +184,16 @@ export class SSEManager {
     return this.orgClientCounts.get(orgId) ?? 0;
   }
 
+  /**
+   * Canonical form of a requestId for equality checks: dashes stripped and
+   * lowercased, so the dashed (api-server `uuid()`) and undashed (nginx
+   * `$request_id`) renderings of the same id compare equal. Callers are
+   * expected to have already format-validated against {@link SSE_REQUEST_ID_RE}.
+   */
+  private static normalizeRequestId(requestId: string): string {
+    return requestId.replace(/-/g, '').toLowerCase();
+  }
+
   /** Count of live (unexpired) tickets currently held for an org. */
   private countLiveTicketsForOrg(orgId: string, now: number): number {
     let count = 0;
@@ -175,18 +204,23 @@ export class SSEManager {
   }
 
   /**
-   * Mint a short-lived, single-use SSE ticket bound to `orgId`. Clients POST
-   * to obtain one (JWT-authenticated), then open the EventSource with
-   * `?ticket=<t>` so the JWT never lands in a query string / access log.
+   * Mint a short-lived, single-use SSE ticket bound to `orgId` AND a specific
+   * stream subject (`requestId`). Clients POST to obtain one (JWT-authenticated)
+   * for the exact stream they intend to open, then open the EventSource with
+   * `?ticket=<t>` so the JWT never lands in a query string / access log. The
+   * ticket can then only be consumed to open that one subject's stream — see
+   * {@link consumeTicket} — which is what enforces per-subject authorization.
    *
    * Bounded by `maxTotalTickets` (process-wide) and `maxTicketsPerOrg`
    * (per-tenant). Mirrors the message-service notifications ticket store.
    *
    * @param orgId - Owning org (already normalized by the caller).
+   * @param requestId - The build-log stream subject this ticket authorizes.
+   *   The caller must have format-validated it (see {@link SSE_REQUEST_ID_RE}).
    * @returns `{ ok: true, ticket }` on success, or `{ ok: false, reason }`
    *   where reason is `'org-limit'` (per-org cap) or `'capacity'` (total cap).
    */
-  createTicket(orgId: string): CreateTicketResult {
+  createTicket(orgId: string, requestId: string): CreateTicketResult {
     const now = Date.now();
     // Total cap first — protects process memory even when a single org is
     // the offender. Then the per-org cap for fair-share.
@@ -200,20 +234,39 @@ export class SSEManager {
     }
 
     const ticket = randomBytes(24).toString('base64url');
-    this.tickets.set(ticket, { orgId, expiresAt: now + this.ticketTtlMs });
+    this.tickets.set(ticket, {
+      orgId,
+      requestId: SSEManager.normalizeRequestId(requestId),
+      expiresAt: now + this.ticketTtlMs,
+    });
     return { ok: true, ticket };
   }
 
   /**
-   * Validate and CONSUME a ticket. Single-use: the ticket is deleted whether
-   * or not it turns out to be valid, so a replay of the same value always
-   * fails. Returns the bound org on success, or null when the ticket is
-   * unknown / already-used / expired.
+   * Validate and CONSUME a ticket for a specific stream subject. Single-use:
+   * the ticket is deleted whether or not it turns out to be valid, so a replay
+   * of the same value always fails. Returns the bound org on success, or null
+   * when the ticket is unknown / already-used / expired / OR was minted for a
+   * DIFFERENT `requestId` than the one being opened.
+   *
+   * The subject check is the authorization fix: without it, a ticket minted for
+   * one stream could be presented to open ANY stream the holder's org could
+   * name, letting an authenticated org attach to another org's log stream by
+   * guessing its requestId. The generic 401 the caller returns does not
+   * distinguish "unknown ticket" from "wrong subject", so it leaks nothing
+   * about which requestIds exist.
+   *
+   * @param ticketId - The opaque ticket value from `?ticket=`.
+   * @param requestId - The stream subject from the URL path (`:requestId`),
+   *   already format-validated by the caller.
    */
-  consumeTicket(ticketId: string): { orgId: string } | null {
+  consumeTicket(ticketId: string, requestId: string): { orgId: string } | null {
     const ticket = this.tickets.get(ticketId);
     this.tickets.delete(ticketId); // single-use — consume immediately
     if (!ticket || Date.now() > ticket.expiresAt) return null;
+    // Subject binding — reject a ticket presented for a subject it was not
+    // minted for. Both sides are normalized so dashed/undashed forms match.
+    if (ticket.requestId !== SSEManager.normalizeRequestId(requestId)) return null;
     return { orgId: ticket.orgId };
   }
 
@@ -482,30 +535,26 @@ export class SSEManager {
    * ```
    */
   middleware() {
-    // The requestId is either a dashed UUID (api-server's uuid()) or nginx's
-    // `$request_id` — 16 random bytes rendered as 32 hex chars with NO dashes. Accept
-    // both by making the group separators optional; still strictly 32 hex chars so it
-    // can't carry an injection/path-traversal payload into the SSE subject.
-    const REQUEST_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
-
     return (req: { params: { requestId: string }; query?: { ticket?: unknown } }, res: Response) => {
       const { requestId } = req.params;
 
-      if (!REQUEST_ID_RE.test(requestId)) {
+      if (!SSE_REQUEST_ID_RE.test(requestId)) {
         res.status(400).end('Invalid requestId format');
         return;
       }
 
       // Ticket auth — required. Resolve `?ticket=<t>`, then validate + consume
-      // it (single-use). An anonymous, malformed, unknown, expired, or
-      // already-consumed ticket is a 401. The org is taken from the ticket, so
-      // the stream is always bound to a verified tenant (no anonymous streams).
+      // it (single-use) FOR THIS SUBJECT. An anonymous, malformed, unknown,
+      // expired, already-consumed, or wrong-subject ticket is a 401. The org is
+      // taken from the ticket, so the stream is always bound to a verified
+      // tenant AND to the exact subject the ticket was minted for (no anonymous
+      // streams, no cross-subject attach).
       const ticketId = req.query?.ticket;
       if (typeof ticketId !== 'string' || ticketId.length === 0) {
         res.status(401).end('Missing ticket');
         return;
       }
-      const consumed = this.consumeTicket(ticketId);
+      const consumed = this.consumeTicket(ticketId, requestId);
       if (!consumed) {
         res.status(401).end('Invalid or expired ticket');
         return;
@@ -536,7 +585,18 @@ export class SSEManager {
       res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
       res.flushHeaders();
 
-      this.addClient(requestId, res, orgId);
+      // Headers are flushed — we can no longer send a 429. addClient re-checks
+      // the caps (including the process-wide total-clients cap, which the
+      // pre-flight above does not) and can still reject on a race: a concurrent
+      // connection may have filled a cap between the pre-flight check and here.
+      // On rejection, close the now-dangling response instead of leaving an
+      // open socket with no client record (which would leak an fd + never emit
+      // stream data).
+      const added = this.addClient(requestId, res, orgId);
+      if (!added) {
+        logger.warn(`SSE addClient rejected after headers flushed for request ${requestId}; closing dangling response`);
+        try { res.end(); } catch { /* already closed */ }
+      }
     };
   }
 

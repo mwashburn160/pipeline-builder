@@ -55,7 +55,7 @@ export function useBuildStatus(requestId: string | null) {
       return;
     }
     let cancelled = false;
-    api.getBuildLogTicket()
+    api.getBuildLogTicket(requestId)
       .then((ticket) => {
         if (!cancelled) setUrl(`/api/plugin/logs/${requestId}?ticket=${encodeURIComponent(ticket)}`);
       })

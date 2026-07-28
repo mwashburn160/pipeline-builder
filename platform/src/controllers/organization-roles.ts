@@ -29,8 +29,9 @@ import {
   RL_INVALID_PERMISSION,
   RL_PERMISSION_NOT_ASSIGNABLE,
   RL_PERMISSION_EXCEEDS_CEILING,
+  RL_ASSIGN_EXCEEDS_CEILING,
 } from '../services/index.js';
-import type { ActorPermissionCeiling } from '../services/index.js';
+import type { ActorPermissionCeiling, RoleAssignmentActor } from '../services/index.js';
 import { validateBody, addRoleMemberSchema, createRoleSchema, updateRoleSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-roles-controller');
@@ -46,6 +47,23 @@ function actorCeiling(req: Request): ActorPermissionCeiling {
   return {
     permissions: req.user?.permissions ?? [],
     isSuperAdmin: req.user?.isSuperAdmin === true,
+  };
+}
+
+/**
+ * The actor's context for a Role ASSIGNMENT change (add/remove member): their
+ * resolved fine-grained permissions plus their platform-superadmin and org
+ * admin/owner status. Role assignment enforces the same permission ceiling as
+ * custom-Role authoring — a non-admin `roles:manage` delegate may assign a Role
+ * only if the Role's granted permissions are all within their own set — so a
+ * delegate can't self-escalate by assigning the built-in Admin Role. Admin/owner
+ * and superadmin bypass the ceiling. Called only after `requireAuth`.
+ */
+function assignmentActor(req: Request, admin: { isSuperAdmin: boolean; isOrgAdmin: boolean }): RoleAssignmentActor {
+  return {
+    isSuperAdmin: admin.isSuperAdmin,
+    isOrgAdmin: admin.isOrgAdmin,
+    permissions: req.user?.permissions ?? [],
   };
 }
 
@@ -134,7 +152,7 @@ export const addRoleMember = withController('Add role member', async (req, res) 
   const body = validateBody(addRoleMemberSchema, req.body, res);
   if (!body) return;
 
-  const { userId } = await addUserToRole(id, roleId, body, admin.isSuperAdmin);
+  const { userId } = await addUserToRole(id, roleId, body, assignmentActor(req, admin));
   logger.info(`[ADD ROLE MEMBER] User ${userId} assigned to role ${roleId} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.role.member.add', {
     targetType: 'user',
@@ -148,6 +166,7 @@ export const addRoleMember = withController('Add role member', async (req, res) 
   [RL_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
   [RL_NOT_ORG_MEMBER]: { status: 400, message: 'User must be a member of the organization before joining a role' },
   [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can manage members of a superadmin role' },
+  [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot assign a role granting permissions you do not hold yourself' },
 });
 
 /** DELETE /organization/:id/roles/:roleId/members/:userId — remove from a Role.
@@ -162,7 +181,12 @@ export const removeRoleMember = withController('Remove role member', async (req,
   const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
 
-  await removeUserFromRole(id, roleId, userId, { actorUserId: req.user!.sub, actorIsSuperAdmin: admin.isSuperAdmin });
+  await removeUserFromRole(id, roleId, userId, {
+    actorUserId: req.user!.sub,
+    actorIsSuperAdmin: admin.isSuperAdmin,
+    actorIsOrgAdmin: admin.isOrgAdmin,
+    actorPermissions: req.user!.permissions ?? [],
+  });
   logger.info(`[REMOVE ROLE MEMBER] User ${userId} removed from role ${roleId} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.role.member.remove', {
     targetType: 'user',
@@ -174,6 +198,7 @@ export const removeRoleMember = withController('Remove role member', async (req,
 }, {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'Role not found' },
   [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can manage members of a superadmin role' },
+  [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot change membership of a role granting permissions you do not hold yourself' },
   [RL_CANNOT_REMOVE_SELF]: { status: 400, message: 'You cannot remove yourself from this role — it grants your own admin access. Have another admin do it, or assign a replacement first.' },
   [RL_LAST_PRIVILEGED_MEMBER]: { status: 400, message: 'Cannot remove the last member of this role — the organization would be left with no one in this role. Add another member first.' },
 });

@@ -1,11 +1,42 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createHash } from 'crypto';
+import { createLogger, sendError, ErrorCode } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Request, Response, NextFunction } from 'express';
 
 const logger = createLogger('idempotency');
+
+/**
+ * Canonical (key-sorted) JSON serialization so the SAME logical payload hashes
+ * identically regardless of property insertion order — a plain `JSON.stringify`
+ * would let `{a,b}` and `{b,a}` produce different fingerprints for one request.
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+  const obj = value as Record<string, unknown>;
+  return '{' + Object.keys(obj).sort().map((k) => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
+}
+
+/**
+ * Short, stable fingerprint of a request body. Folds the payload into the
+ * idempotency key so replaying the SAME key with a DIFFERENT body is treated as
+ * a distinct operation (fresh execution) rather than replaying the old response.
+ * Empty/absent bodies collapse to '-' so body-less mutations stay unaffected.
+ */
+function bodyFingerprint(body: unknown): string {
+  if (body === undefined || body === null) return '-';
+  if (typeof body === 'object' && Object.keys(body as object).length === 0) return '-';
+  try {
+    return createHash('sha256').update(stableStringify(body)).digest('hex').slice(0, 16);
+  } catch {
+    // Non-serializable body (e.g. a stream/circular ref): skip fingerprinting
+    // rather than fail the request — key stays scoped by method+route+org.
+    return '-';
+  }
+}
 
 interface CachedEntry {
   statusCode: number;
@@ -171,15 +202,20 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
     // cache on an unverified, caller-influenced org id would be unsafe.
     const orgId = req.user?.organizationId || req.context?.identity?.orgId;
     if (!orgId) return next(); // skip idempotency for unauthenticated requests
-    const fullKey = `${orgId}:${key}`;
+
+    // Namespace the stored key by (method, route, org, body) so an Idempotency-Key
+    // is scoped to ONE specific endpoint+payload. Reusing a single key across two
+    // routes (e.g. POST /pipelines then POST /plugins) previously replayed the
+    // first endpoint's 2xx for the second — the store is a module-level singleton
+    // shared by every route. Folding in method + route path + a body fingerprint
+    // only makes keys MORE specific, so there is no cross-contamination risk.
+    const routePath = (req.baseUrl ?? '') + (req.route?.path ?? req.path ?? '');
+    const fullKey = `${req.method}:${routePath}:${orgId}:${bodyFingerprint(req.body)}:${key}`;
 
     /** Reject a duplicate whose original is still in-flight. */
     const sendInProgress = (): void => {
       res.setHeader('Retry-After', '1');
-      res.status(409).json({
-        success: false,
-        error: 'A request with this Idempotency-Key is already being processed',
-      });
+      sendError(res, 409, 'A request with this Idempotency-Key is already being processed', ErrorCode.CONFLICT);
     };
 
     store.get(fullKey).then(async (cached) => {
@@ -208,9 +244,21 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
         return sendInProgress();
       }
 
-      // We own the reservation. Replace it with the real response on completion;
-      // a non-2xx response RELEASES the reservation so a retry can proceed.
+      // We own the reservation. It MUST be resolved exactly once — either the
+      // real 2xx response is cached for replay, or the reservation is released so
+      // a retry can proceed. `settled` guards against a double-resolve.
       let settled = false;
+      let capturedBody: unknown;
+      let bodyCaptured = false;
+
+      /** Remember the response body for replay (first capture wins). */
+      const captureBody = (body: unknown): void => {
+        if (!bodyCaptured) {
+          capturedBody = body;
+          bodyCaptured = true;
+        }
+      };
+
       const release = (): void => {
         if (settled) return;
         settled = true;
@@ -219,32 +267,69 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
         });
       };
 
+      const cacheSuccess = (): void => {
+        if (settled) return;
+        settled = true;
+        store.set(fullKey, {
+          statusCode: res.statusCode,
+          body: bodyCaptured ? capturedBody : null,
+          expiresAt: Date.now() + ttlMs,
+        }, ttlSec).catch((err) => {
+          logger.warn('Idempotency store.set failed', { key: fullKey, error: err instanceof Error ? err.message : String(err) });
+        });
+      };
+
+      /** Resolve the reservation from the ACTUAL final status: cache 2xx, else release. */
+      const settleFromStatus = (): void => {
+        if (settled) return;
+        if (res.statusCode >= 200 && res.statusCode < 300) cacheSuccess();
+        else release();
+      };
+
+      // Fast path: res.json is the common completion. Capture the body and settle
+      // immediately off the status set by res.status(...).json(...).
       const originalJson = res.json.bind(res);
       res.json = (body: unknown) => {
         res.setHeader('X-Idempotent-Replayed', 'false');
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          settled = true; // the finish-net must not delete a cached success
-          store.set(fullKey, {
-            statusCode: res.statusCode,
-            body,
-            expiresAt: Date.now() + ttlMs,
-          }, ttlSec).catch((err) => {
-            logger.warn('Idempotency store.set failed', { key: fullKey, error: err instanceof Error ? err.message : String(err) });
-          });
-        } else {
-          release();
-        }
+        captureBody(body);
+        settleFromStatus();
         return originalJson(body);
       };
 
-      // Safety net for response paths that bypass res.json (res.send/res.end,
-      // an error handler, a thrown request): if the response finishes non-2xx
-      // with the reservation still held, release it so retries aren't blocked
-      // for the full TTL. Guarded — test doubles may not be EventEmitters.
-      if (typeof (res as { on?: unknown }).on === 'function') {
-        res.on('finish', () => {
-          if (!(res.statusCode >= 200 && res.statusCode < 300)) release();
-        });
+      // Body-capture backstops for completions that bypass res.json
+      // (res.send / res.end / res.sendFile → res.end). These only RECORD the body;
+      // the actual settle happens on `finish` from the real status code. First
+      // capture wins, so res.json's body is never clobbered by its internal
+      // res.send/res.end calls.
+      const patched = res as unknown as {
+        send?: (body?: unknown) => unknown;
+        end?: (...args: unknown[]) => unknown;
+        on?: (event: string, cb: () => void) => unknown;
+      };
+      if (typeof patched.send === 'function') {
+        const originalSend = patched.send.bind(res);
+        patched.send = (body?: unknown) => {
+          captureBody(body);
+          return originalSend(body);
+        };
+      }
+      if (typeof patched.end === 'function') {
+        const originalEnd = patched.end.bind(res);
+        patched.end = (...args: unknown[]) => {
+          const chunk = args[0];
+          if (chunk !== undefined && typeof chunk !== 'function') captureBody(chunk);
+          return originalEnd(...args);
+        };
+      }
+
+      // Backstop for ANY completion path — including a 2xx that finished via
+      // res.send/res.end/res.sendFile/204 and never hit the patched res.json.
+      // Deciding on the real final status here means a successful op is cached
+      // (or a failed one released) instead of stranding the reservation and
+      // 409-ing every retry for the full TTL. Guarded — test doubles may not be
+      // EventEmitters; res.json's fast path already settled the common case.
+      if (typeof patched.on === 'function') {
+        patched.on('finish', settleFromStatus);
       }
 
       next();

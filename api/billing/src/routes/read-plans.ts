@@ -13,7 +13,7 @@ import {
   CACHE_TTL_BILLING_PLANS_SECS,
 } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
-import { Plan } from '../models/plan.js';
+import { Plan, type PlanDocument } from '../models/plan.js';
 
 const logger = createLogger('billing-plans');
 
@@ -68,9 +68,18 @@ export function createReadPlanRoutes(): Router {
     }
 
     try {
-      const plan = await planCache.getOrSet(`id:${planId}`, () =>
-        Plan.findOne({ _id: planId, isActive: true }).lean(),
-      );
+      // Fetch-then-conditionally-cache rather than getOrSet: getOrSet stores
+      // whatever the factory returns, including null. A not-found result is
+      // read back as a miss (get treats null as absent), so a null entry never
+      // serves a hit yet still occupies an LRU slot — enumerating random ids
+      // would evict real plans AND re-hit Mongo every call (cache-busting DB
+      // load). Only cache a found plan; a missing plan leaves the cache untouched.
+      const cacheKey = `id:${planId}`;
+      let plan = await planCache.get<PlanDocument>(cacheKey);
+      if (!plan) {
+        plan = await Plan.findOne({ _id: planId, isActive: true }).lean<PlanDocument>();
+        if (plan) await planCache.set(cacheKey, plan);
+      }
 
       if (!plan) {
         return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);

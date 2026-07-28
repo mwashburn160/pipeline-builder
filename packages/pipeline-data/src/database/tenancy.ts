@@ -62,6 +62,20 @@ function getContextMode(): ContextMode {
   return process.env.NODE_ENV === 'production' ? 'strict' : 'warn';
 }
 
+/**
+ * Per-statement server-side timeout (ms) applied INSIDE every `withTenantTx`
+ * transaction, next to the RLS GUCs. `withTenantTx` is the real query path for
+ * all RLS/CRUD reads and writes, so this is where the DB-side guard belongs (the
+ * old `Connection.transaction` wrapper that set it is dead — see
+ * postgres-connection.ts). Bounds a runaway query so it can't hold a pooled
+ * connection open indefinitely. Env-configurable via `DB_STATEMENT_TIMEOUT_MS`
+ * (default 30s); set to `0` to disable the timeout.
+ */
+function getStatementTimeoutMs(): number {
+  const raw = parseInt(process.env.DB_STATEMENT_TIMEOUT_MS ?? '', 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 30000;
+}
+
 export interface TenantContext {
   /** Caller's org. Undefined for un-authenticated / system jobs. */
   orgId?: string;
@@ -170,12 +184,21 @@ export async function withTenantTx<T>(
   const orgId = ctx?.orgId ?? '';
   const isSuperAdmin = ctx?.isSuperAdmin ? 'true' : 'false';
 
+  const statementTimeoutMs = getStatementTimeoutMs();
+
   return db.transaction(async (tx) => {
     // SET LOCAL via set_config() so the values are transaction-scoped (auto-
     // released on COMMIT/ROLLBACK). The driver binds the values as parameters,
     // so a hostile org_id can't break out of the GUC syntax.
     await tx.execute(sql`SELECT set_config('app.org_id', ${orgId}, true)`);
     await tx.execute(sql`SELECT set_config('app.is_sysadmin', ${isSuperAdmin}, true)`);
+    // Server-side statement timeout on the REAL query path (transaction-scoped,
+    // same set_config(is_local=true) mechanism as the RLS GUCs). `SET LOCAL
+    // statement_timeout = $1` is rejected by Postgres, so set_config with a bound
+    // value is used. A bare number is milliseconds. Skipped when disabled (0).
+    if (statementTimeoutMs > 0) {
+      await tx.execute(sql`SELECT set_config('statement_timeout', ${String(statementTimeoutMs)}, true)`);
+    }
     return fn(tx);
   });
 }

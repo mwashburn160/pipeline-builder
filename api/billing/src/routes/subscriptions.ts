@@ -391,10 +391,18 @@ export function createSubscriptionRoutes(): Router {
       const targetOrgId = getParam(req.params, 'orgId');
       if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-      // Cancel any active subscription at the provider first so we don't
-      // leave billable state running after our local rows are gone.
-      const active = await Subscription.find({ orgId: targetOrgId, status: 'active' });
-      for (const sub of active) {
+      // Cancel every still-billable subscription at the provider first so we
+      // don't leave billable state running after our local rows are gone.
+      // A trialing / past_due row carries a live externalId at the provider
+      // just like an active one; cancelling only status:'active' meant the
+      // deleteMany below wiped the local row while the provider kept billing,
+      // with nothing left to reconcile. Match the manageable (non-terminal)
+      // set so the provider-cancel covers what deleteMany removes. Fail-soft:
+      // a provider-cancel failure is logged but never blocks the local cascade.
+      const billable = await Subscription.find({
+        orgId: targetOrgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
+      });
+      for (const sub of billable) {
         if (sub.externalId) {
           try {
             await getPaymentProvider().cancelSubscription(sub.externalId);
@@ -418,9 +426,9 @@ export function createSubscriptionRoutes(): Router {
       // Mirror each removed (billable) subscription to the CENTRAL audit trail,
       // ALONGSIDE the local billing_events rows we just dropped. Fire-and-forget;
       // details are an explicit id-only whitelist so no provider/card secret or
-      // AWS account id leaks. `active` holds the org's live subscription(s) loaded
-      // before deletion, each carrying its own id + plan.
-      for (const sub of active) {
+      // AWS account id leaks. `billable` holds the org's live (non-terminal)
+      // subscription(s) loaded before deletion, each carrying its own id + plan.
+      for (const sub of billable) {
         getAuditClient().record({
           action: 'billing.subscription.delete',
           actorId: req.user?.sub ?? 'system',

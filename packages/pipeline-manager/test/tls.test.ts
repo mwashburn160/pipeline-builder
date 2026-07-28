@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import { isLocalHttpsHost, httpsAgentForUrl, relaxTlsForCli } from '../src/utils/tls.js';
+import { isLocalHttpsHost, httpsAgentForUrl, relaxTlsForCli, isProductionEnv, assertSslDisableAllowed } from '../src/utils/tls.js';
 
 describe('isLocalHttpsHost', () => {
   it('treats localhost / loopback / private ranges as local', () => {
@@ -52,5 +52,48 @@ describe('relaxTlsForCli', () => {
     expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/production/i);
+  });
+});
+
+describe('isProductionEnv (shared prod-detection used by every SSL-disable path)', () => {
+  let savedNodeEnv: string | undefined;
+  beforeEach(() => { savedNodeEnv = process.env.NODE_ENV; });
+  afterEach(() => {
+    if (savedNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = savedNodeEnv;
+  });
+
+  it('is true ONLY when NODE_ENV === production (matches config-loader)', () => {
+    process.env.NODE_ENV = 'production';
+    expect(isProductionEnv()).toBe(true);
+  });
+
+  it('is false for development / test / unset', () => {
+    process.env.NODE_ENV = 'development';
+    expect(isProductionEnv()).toBe(false);
+    process.env.NODE_ENV = 'test';
+    expect(isProductionEnv()).toBe(false);
+    delete process.env.NODE_ENV;
+    expect(isProductionEnv()).toBe(false);
+  });
+});
+
+describe('assertSslDisableAllowed (credential-path guard)', () => {
+  let savedNodeEnv: string | undefined;
+  beforeEach(() => { savedNodeEnv = process.env.NODE_ENV; });
+  afterEach(() => {
+    if (savedNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = savedNodeEnv;
+  });
+
+  it('throws a clear error in production', () => {
+    process.env.NODE_ENV = 'production';
+    expect(() => assertSslDisableAllowed('login')).toThrow(/production/i);
+    expect(() => assertSslDisableAllowed('login')).toThrow(/login/);
+  });
+
+  it('is a no-op in non-production (self-signed dev platforms)', () => {
+    process.env.NODE_ENV = 'development';
+    expect(() => assertSslDisableAllowed('login')).not.toThrow();
+    delete process.env.NODE_ENV;
+    expect(() => assertSslDisableAllowed()).not.toThrow();
   });
 });

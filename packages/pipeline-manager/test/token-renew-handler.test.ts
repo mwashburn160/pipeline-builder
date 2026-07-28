@@ -81,7 +81,8 @@ describe('token-renew-handler (orchestrator)', () => {
     expect(opts.env.PLATFORM_BASE_URL).toBe('https://pipeline-builder.com');
   });
 
-  it('passes --no-verify-ssl only when PLATFORM_VERIFY_SSL=false', async () => {
+  it('passes --no-verify-ssl only when PLATFORM_VERIFY_SSL=false (non-production)', async () => {
+    delete process.env.NODE_ENV; // non-production
     await handler();
     let args = (mockExecFileSync.mock.calls.find((c) => c[0] === 'node')![1]) as string[];
     expect(args).not.toContain('--no-verify-ssl');
@@ -92,6 +93,17 @@ describe('token-renew-handler (orchestrator)', () => {
     await handler();
     args = (mockExecFileSync.mock.calls.find((c) => c[0] === 'node')![1]) as string[];
     expect(args).toContain('--no-verify-ssl');
+  });
+
+  it('REFUSES --no-verify-ssl in production even when PLATFORM_VERIFY_SSL=false', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.PLATFORM_VERIFY_SSL = 'false';
+    await handler();
+    const args = (mockExecFileSync.mock.calls.find((c) => c[0] === 'node')![1]) as string[];
+    expect(args).not.toContain('--no-verify-ssl');
+    // NODE_ENV=production is propagated to the spawned CLI so it enforces the same guard.
+    const nodeCall = mockExecFileSync.mock.calls.find((c) => c[0] === 'node') as [string, string[], { env: Record<string, string> }];
+    expect(nodeCall[2].env.NODE_ENV).toBe('production');
   });
 
   it('throws when the secret has no password (JWT)', async () => {

@@ -124,6 +124,24 @@ describe('buildMessageConditions', () => {
     expect(withId.length).toBeGreaterThan(without.length);
   });
 
+  it('supports an array id filter (uses the first id)', () => {
+    const withArrayId = buildMessageConditions({ id: ['msg-1', 'msg-2'] }, 'org-1');
+    const without = buildMessageConditions({}, 'org-1');
+    expect(withArrayId.length).toBe(without.length + 1);
+  });
+
+  it('an EMPTY id array still emits a (fail-closed) id predicate, not eq(col, undefined)', () => {
+    // Guards firstId([]) === undefined ⇒ eq(col, undefined) (a malformed
+    // predicate). An empty id list must match nothing, so a valid predicate is
+    // still pushed (parity with a populated id) rather than being dropped.
+    let emptyIdConditions: unknown[] = [];
+    expect(() => {
+      emptyIdConditions = buildMessageConditions({ id: [] }, 'org-1');
+    }).not.toThrow();
+    const withId = buildMessageConditions({ id: 'msg-1' }, 'org-1');
+    expect(emptyIdConditions.length).toBe(withId.length);
+  });
+
   it('normalizes orgId to lowercase', () => {
     // Should not throw even with uppercase orgId
     const conditions = buildMessageConditions({}, 'ORG-1');

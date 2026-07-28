@@ -91,8 +91,9 @@ function createGoogleProvider(): OAuthProvider {
       // Only trust the email for account lookup/linking when Google confirms it
       // is verified — an unverified (attacker-controllable) Google email would
       // otherwise auto-link to and take over a pre-existing local account.
-      // Mirrors the GitHub path, which only ever returns a verified email.
-      // (OIDC userinfo → `email_verified`; legacy oauth2/v2 → `verified_email`.)
+      // Mirrors the GitHub path, which likewise enforces a verified email
+      // (resolved from `/user/emails`; the plain `/user` profile email is not
+      // trusted). (OIDC userinfo → `email_verified`; legacy oauth2/v2 → `verified_email`.)
       const emailVerified = data.email_verified === true || data.verified_email === true;
       if (!data.email || !emailVerified) {
         throw new Error('Google did not return a verified email address');
@@ -136,18 +137,22 @@ function createGitHubProvider(): OAuthProvider {
       if (!profileRes.ok) throw new Error('Failed to fetch GitHub user info');
       const profile = await profileRes.json() as Record<string, unknown>;
 
-      // GitHub may not return email in profile — fetch from /user/emails
-      let email = profile.email as string | null;
-      if (!email) {
-        const emailsUrl = userinfoUrl.replace(/\/user$/, '/user/emails');
-        const emailsRes = await fetch(emailsUrl, {
-          headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
-        });
-        if (emailsRes.ok) {
-          const emails = await emailsRes.json() as Array<{ email: string; primary: boolean; verified: boolean }>;
-          const primary = emails.find(e => e.primary && e.verified);
-          email = primary?.email || emails.find(e => e.verified)?.email || null;
-        }
+      // Never trust the plain `/user` profile email: GitHub returns it even
+      // when the address is unverified, and downstream `findOrCreateOAuthUser`
+      // auto-links this email onto a pre-existing local account — an unverified
+      // value is therefore an account-takeover surface. Resolve the email
+      // exclusively from `/user/emails`, requiring a `verified: true` entry and
+      // preferring the `primary` one (fall back to any verified address).
+      // Mirrors the Google path, which likewise only accepts a verified email.
+      const emailsUrl = userinfoUrl.replace(/\/user$/, '/user/emails');
+      const emailsRes = await fetch(emailsUrl, {
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+      });
+      let email: string | null = null;
+      if (emailsRes.ok) {
+        const emails = await emailsRes.json() as Array<{ email: string; primary: boolean; verified: boolean }>;
+        const primaryVerified = emails.find(e => e.verified && e.primary);
+        email = primaryVerified?.email || emails.find(e => e.verified)?.email || null;
       }
       if (!email) throw new Error('GitHub did not return a verified email address');
 

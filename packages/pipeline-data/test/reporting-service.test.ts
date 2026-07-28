@@ -228,6 +228,16 @@ describe('ReportingService', () => {
       expect(mockExecute).toHaveBeenCalledTimes(1);
       expect(result).toEqual(mockRows);
     });
+
+    it('rejects an invalid interval before touching the DB (defense-in-depth guard)', async () => {
+      // The route (parseReportInterval) is the boundary, but the service asserts
+      // the DATE_TRUNC interval too so a bypassing caller fails fast with a clear
+      // error instead of a raw Postgres error.
+      await expect(
+        service.getSuccessRate('acme', 'hour', '2026-03-01', '2026-03-15'),
+      ).rejects.toThrow('Invalid report interval');
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
   });
 
   describe('listPipelineExecutions', () => {
@@ -653,6 +663,72 @@ describe('ReportingService', () => {
       const statusSet = "e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED')";
       expect(metricsSql).toContain(statusSet);
       expect(trendSql).toContain(statusSet);
+    });
+  });
+
+  // Report-rollup parity: getErrors + the build reports are execution/build
+  // reports, so they thread `orgIds` the same way the sibling execution reports
+  // do — a multi-org rollup renders an `IN (...)` org predicate binding the
+  // subtree ids (single-org stays `= $org`). Rendered via PgDialect to assert
+  // the generated predicate rather than executing against a real Postgres.
+  describe('report-rollup parity', () => {
+    const dialect = new PgDialect();
+    function rendered(callIndex = 0): { sql: string; params: unknown[] } {
+      const arg = mockExecute.mock.calls[callIndex]?.[0] as SQL | undefined;
+      if (!arg) throw new Error('tx.execute was not called');
+      return dialect.sqlToQuery(arg);
+    }
+
+    it('getErrors: single-org uses `= $org` (no rollup)', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getErrors('acme', '2026-01-01', '2026-03-15', 10);
+      const { sql, params } = rendered();
+      expect(sql).toContain('p.org_id = ');
+      expect(sql).not.toMatch(/p\.org_id in \(/i);
+      expect(params).toContain('acme');
+    });
+
+    it('getErrors: rollup renders an IN predicate binding the subtree ids', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getErrors('acme', '2026-01-01', '2026-03-15', 10, ['acme', 'team-child']);
+      const { sql, params } = rendered();
+      expect(sql).toMatch(/p\.org_id in \(/i);
+      expect(params).toContain('acme');
+      expect(params).toContain('team-child');
+    });
+
+    it('getBuildSuccessRate: rollup renders an IN predicate on e.org_id', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getBuildSuccessRate('acme', 'week', '2026-01-01', '2026-03-15', ['acme', 'team-child']);
+      const { sql, params } = rendered();
+      expect(sql).toMatch(/e\.org_id in \(/i);
+      expect(params).toContain('acme');
+      expect(params).toContain('team-child');
+    });
+
+    it('getBuildDuration: rollup renders an IN predicate on e.org_id', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getBuildDuration('acme', '2026-01-01', '2026-03-15', ['acme', 'team-child']);
+      const { sql, params } = rendered();
+      expect(sql).toMatch(/e\.org_id in \(/i);
+      expect(params).toContain('team-child');
+    });
+
+    it('getBuildFailures: rollup renders an IN predicate on e.org_id', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getBuildFailures('acme', '2026-01-01', '2026-03-15', 20, ['acme', 'team-child']);
+      const { sql, params } = rendered();
+      expect(sql).toMatch(/e\.org_id in \(/i);
+      expect(params).toContain('team-child');
+    });
+
+    it('build reports default to single-org `= $org` when no rollup ids are passed', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      await service.getBuildDuration('acme', '2026-01-01', '2026-03-15');
+      const { sql, params } = rendered();
+      expect(sql).toContain('e.org_id = ');
+      expect(sql).not.toMatch(/e\.org_id in \(/i);
+      expect(params).toContain('acme');
     });
   });
 

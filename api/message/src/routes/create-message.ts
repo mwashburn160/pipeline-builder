@@ -10,6 +10,7 @@ import {
   ErrorCode,
   getParam,
   isSystemAdmin,
+  isServicePrincipal,
   requirePermission,
   validateBody,
   MessageCreateSchema,
@@ -22,6 +23,7 @@ import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/ap
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { schema } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { isRecipientReachable } from '../helpers/org-reachability.js';
 import { getAuditClient } from '../services/audit.js';
 import { messageService } from '../services/message-service.js';
 
@@ -67,16 +69,35 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       return sendBadRequest(res, 'Announcements must use "*" as recipientOrgId for broadcast', ErrorCode.VALIDATION_ERROR);
     }
 
-    // Conversations: non-sysadmins can start conversations with:
-    //   - the system support inbox (orgId='system')
-    //   - any other org (cross-team within the user's reachable org tree;
-    //     the recipient's inbox visibility logic in buildMessageConditions
-    //     already restricts who can read it)
-    // Sysadmins can target any org — that's the "support replies out to
-    // a customer" flow. Broadcast announcements use messageType=
-    // 'announcement' which is already gated above.
+    // Conversations: a concrete recipient is required.
     if (messageType === 'conversation' && !recipientOrgId) {
       return sendBadRequest(res, 'recipientOrgId is required for conversations', ErrorCode.VALIDATION_ERROR);
+    }
+
+    // Cross-tenant send gate. A non-sysadmin member may only start a
+    // conversation with an org they could also RECEIVE from — mirroring the
+    // read-visibility model in `buildMessageConditions`. Reachable recipients:
+    //   - the caller's OWN org;
+    //   - the SYSTEM support inbox (support channel — always reachable);
+    //   - an org within the caller's ACCOUNT (same root org → team hierarchy).
+    // Without this, any member could drop an unsolicited message into an
+    // arbitrary tenant's inbox (the recipient can read it). Sysadmins and
+    // service principals (support-replies-out, internal automation) may target
+    // any org and bypass the gate. Announcements are '*' broadcasts already
+    // gated to sysadmins above, so they never reach here as a concrete org.
+    if (
+      messageType === 'conversation'
+      && !isSystemAdmin(req)
+      && !isServicePrincipal(req)
+      && !(await isRecipientReachable(orgId, recipientOrgId))
+    ) {
+      ctx.log('WARN', 'Blocked cross-tenant message recipient', { recipientOrgId });
+      return sendError(
+        res,
+        403,
+        'You cannot send a message to that organization',
+        ErrorCode.INSUFFICIENT_PERMISSIONS,
+      );
     }
 
     ctx.log('INFO', 'Creating message', { messageType, recipientOrgId, subject });

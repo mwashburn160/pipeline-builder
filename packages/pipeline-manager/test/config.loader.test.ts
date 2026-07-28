@@ -35,12 +35,12 @@ jest.unstable_mockModule('yaml', () => ({
   default: { parse: mockYamlParse },
 }));
 
-const { getConfig, getApiConfig } = await import('../src/utils/config-loader.js');
+const { getConfig, getApiConfig, getConfigWithOptions } = await import('../src/utils/config-loader.js');
 
 // Environment helpers
 const ENV_KEYS = [
   'PLATFORM_TOKEN', 'PLATFORM_BASE_URL', 'CLI_CONFIG_PATH',
-  'TLS_REJECT_UNAUTHORIZED', 'UPLOAD_TIMEOUT', 'DEBUG',
+  'TLS_REJECT_UNAUTHORIZED', 'UPLOAD_TIMEOUT', 'DEBUG', 'NODE_ENV',
 ] as const;
 
 let savedEnv: Record<string, string | undefined>;
@@ -203,6 +203,31 @@ describe('config.loader', () => {
       mockYamlParse.mockReturnValue({ api: {} });
 
       expect(getApiConfig().api.rejectUnauthorized).toBe(false);
+    });
+  });
+
+  // getConfigWithOptions is the chokepoint every authenticated command flows its
+  // Bearer JWT through — the --no-verify-ssl SSL-disable path must refuse in prod.
+  describe('getConfigWithOptions (--no-verify-ssl guard)', () => {
+    beforeEach(() => {
+      process.env.PLATFORM_TOKEN = 'tok';
+      mockExistsSync.mockReturnValue(false);
+    });
+
+    it('disables SSL when verifySsl:false in non-production', () => {
+      process.env.NODE_ENV = 'development';
+      expect(getConfigWithOptions({ verifySsl: false }).api.rejectUnauthorized).toBe(false);
+    });
+
+    it('THROWS when verifySsl:false in production (never returns an SSL-disabled config)', () => {
+      process.env.NODE_ENV = 'production';
+      expect(() => getConfigWithOptions({ verifySsl: false })).toThrow(/production/i);
+    });
+
+    it('leaves SSL enabled (no throw) when verifySsl is not false, even in production', () => {
+      process.env.NODE_ENV = 'production';
+      expect(getConfigWithOptions({}).api.rejectUnauthorized).toBe(true);
+      expect(getConfigWithOptions({ verifySsl: true }).api.rejectUnauthorized).toBe(true);
     });
   });
 

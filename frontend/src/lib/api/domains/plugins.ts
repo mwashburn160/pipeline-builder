@@ -19,8 +19,15 @@ export function pluginsApi(core: ApiCore) {
      * unwrapped ticket string so `useBuildStatus` can pipe it straight into the
      * stream URL. A 2xx without a ticket payload is treated as a 500.
      */
-    getBuildLogTicket: async (): Promise<string> => {
-      const res = await core.request<ApiResponse<{ ticket: string }>>('/api/plugin/logs/ticket', { method: 'POST' });
+    getBuildLogTicket: async (requestId: string): Promise<string> => {
+      // The ticket is subject-bound: the server stamps this requestId into the
+      // single-use ticket so it can only open THIS build's log stream (not any
+      // other org's by guessing a requestId). Must match the `:requestId` used
+      // to open the SSE connection below.
+      const res = await core.request<ApiResponse<{ ticket: string }>>('/api/plugin/logs/ticket', {
+        method: 'POST',
+        body: JSON.stringify({ requestId }),
+      });
       if (!res.data?.ticket) throw new ApiError('Failed to obtain build-log ticket', 500);
       return res.data.ticket;
     },

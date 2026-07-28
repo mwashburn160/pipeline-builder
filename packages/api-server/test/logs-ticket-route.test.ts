@@ -49,48 +49,71 @@ describe('POST /logs/ticket (app-factory)', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
+  const REQ_ID = '11111111-1111-1111-1111-111111111111';
+
+  /** Mint a ticket bound to `requestId` for the given token. */
+  function mint(token: string, requestId: string = REQ_ID) {
+    return fetch(`${base}/logs/ticket`, {
+      method: 'POST',
+      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ requestId }),
+    });
+  }
+
   it('rejects an unauthenticated mint request (401)', async () => {
     const res = await fetch(`${base}/logs/ticket`, { method: 'POST' });
     expect(res.status).toBe(401);
   });
 
-  it('mints a ticket for an authenticated caller with an org (200)', async () => {
-    const token = signAccess({ organizationId: 'org-acme' });
-    const res = await fetch(`${base}/logs/ticket`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}` },
-    });
+  it('mints a ticket for an authenticated caller with an org + requestId (200)', async () => {
+    const res = await mint(signAccess({ organizationId: 'org-acme' }));
     expect(res.status).toBe(200);
     const body = await res.json() as { data?: { ticket?: string } };
     expect(typeof body.data?.ticket).toBe('string');
     expect(body.data?.ticket?.length).toBeGreaterThan(0);
   });
 
-  it('rejects an authenticated token that carries no organization (400)', async () => {
-    const token = signAccess({}); // no organizationId claim
+  it('rejects a mint with no requestId (400)', async () => {
+    const token = signAccess({ organizationId: 'org-acme' });
     const res = await fetch(`${base}/logs/ticket`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}` },
+      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({}),
     });
     expect(res.status).toBe(400);
   });
 
-  it('minted ticket admits the stream once (200 text/event-stream)', async () => {
-    const token = signAccess({ organizationId: 'org-acme' });
-    const mint = await fetch(`${base}/logs/ticket`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const { data } = await mint.json() as { data: { ticket: string } };
+  it('rejects a mint with a malformed requestId (400)', async () => {
+    const res = await mint(signAccess({ organizationId: 'org-acme' }), 'not-a-uuid');
+    expect(res.status).toBe(400);
+  });
 
-    const reqId = '11111111-1111-1111-1111-111111111111';
+  it('rejects an authenticated token that carries no organization (400)', async () => {
+    const res = await mint(signAccess({})); // no organizationId claim
+    expect(res.status).toBe(400);
+  });
+
+  it('minted ticket admits the bound stream once (200 text/event-stream)', async () => {
+    const mintRes = await mint(signAccess({ organizationId: 'org-acme' }));
+    const { data } = await mintRes.json() as { data: { ticket: string } };
+
     const ctrl = new AbortController();
-    const streamRes = await fetch(`${base}/logs/${reqId}?ticket=${encodeURIComponent(data.ticket)}`, {
+    const streamRes = await fetch(`${base}/logs/${REQ_ID}?ticket=${encodeURIComponent(data.ticket)}`, {
       signal: ctrl.signal,
     });
     expect(streamRes.status).toBe(200);
     expect(streamRes.headers.get('content-type')).toContain('text/event-stream');
     ctrl.abort(); // close the stream so the server can shut down cleanly
+  });
+
+  it('rejects presenting a ticket on a DIFFERENT stream subject (401)', async () => {
+    // A ticket minted for REQ_ID must not open some other org/subject's stream.
+    const mintRes = await mint(signAccess({ organizationId: 'org-acme' }));
+    const { data } = await mintRes.json() as { data: { ticket: string } };
+
+    const otherReqId = '33333333-3333-3333-3333-333333333333';
+    const res = await fetch(`${base}/logs/${otherReqId}?ticket=${encodeURIComponent(data.ticket)}`);
+    expect(res.status).toBe(401);
   });
 
   it('rejects an anonymous stream subscribe with no ticket (401)', async () => {

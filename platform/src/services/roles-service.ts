@@ -42,6 +42,15 @@ export const RL_PERMISSION_EXCEEDS_CEILING = 'RL_PERMISSION_EXCEEDS_CEILING';
 /** The system org has no seeded Super Admin Role — platform-admin can't be
  *  granted/revoked via Role assignment (should never happen post-seed). */
 export const RL_SUPERADMIN_ROLE_MISSING = 'RL_SUPERADMIN_ROLE_MISSING';
+/** The actor tried to ASSIGN (or unassign) a Role granting permissions beyond
+ *  their own effective set — the assignment-time analogue of the create/update
+ *  ceiling (`RL_PERMISSION_EXCEEDS_CEILING`). Without this, a non-admin holder
+ *  of a delegated `roles:manage` custom Role could assign the built-in Admin
+ *  Role (the full `ADMIN_PERMISSIONS` bundle) — or any Role carrying a
+ *  capability they lack — to themselves and self-escalate past the very ceiling
+ *  `sanitizePermissions` enforces on custom-Role authoring. Admin/owner of the
+ *  org and platform superadmins bypass (they already hold the full bundle). */
+export const RL_ASSIGN_EXCEEDS_CEILING = 'RL_ASSIGN_EXCEEDS_CEILING';
 
 /** A Role with its current members, for the management UI. */
 export interface RoleWithMembers {
@@ -441,6 +450,49 @@ function sanitizePermissions(permissions: unknown, actor: ActorPermissionCeiling
 }
 
 /**
+ * The actor context for a Role ASSIGNMENT change (add/remove member).
+ *
+ * Role assignment must enforce the same permission ceiling that
+ * {@link sanitizePermissions} enforces on custom-Role CREATE/UPDATE — otherwise
+ * a mere `roles:manage` delegate could grant a capability they don't hold by
+ * ASSIGNING a Role that carries it (e.g. the built-in Admin Role), bypassing the
+ * authoring ceiling entirely.
+ */
+export interface RoleAssignmentActor {
+  /** Platform superadmin — bypasses every ceiling (implicitly holds all). */
+  isSuperAdmin: boolean;
+  /** The actor is an admin/owner of the target org (coarse authority). Admins
+   *  already hold the full `ADMIN_PERMISSIONS` bundle, so they may assign any
+   *  org-assignable Role; this bypasses the fine-grained superset check below. */
+  isOrgAdmin: boolean;
+  /** The actor's resolved fine-grained permissions in their active org (the JWT
+   *  `permissions` claim; see `resolveUserPermissions`). This is the ceiling for
+   *  a non-admin delegate: they may only assign a Role whose granted permissions
+   *  are ALL within this set. */
+  permissions: readonly string[];
+}
+
+/**
+ * Assignment-time permission ceiling: assert `actor` is allowed to add/remove
+ * members of a Role granting `rolePermissions`.
+ *
+ * Mirrors the create/update ceiling: a platform superadmin or an org admin/owner
+ * may assign ANY Role; a delegated non-admin actor (holding e.g. only
+ * `roles:manage`) may assign a Role ONLY if their own effective permission set
+ * is a SUPERSET of the Role's granted permissions — you can't grant (or strip,
+ * for symmetry) a capability you don't hold yourself. Throws
+ * `RL_ASSIGN_EXCEEDS_CEILING` otherwise. Note the `superadmin`-granting-Role gate
+ * is separate and stricter (only a platform superadmin, checked by the callers).
+ */
+function assertActorMayAssignRole(rolePermissions: readonly string[] | undefined, actor: RoleAssignmentActor): void {
+  if (actor.isSuperAdmin || actor.isOrgAdmin) return;
+  const held = new Set(actor.permissions);
+  for (const p of rolePermissions ?? []) {
+    if (!held.has(p)) throw new Error(RL_ASSIGN_EXCEEDS_CEILING);
+  }
+}
+
+/**
  * Create a custom, user-defined permission Role in an org/team. Custom Roles
  * never confer a base role (`grantsRole` stays `'member'`) — they only ADD
  * fine-grained permissions. Names are unique per org.
@@ -583,20 +635,28 @@ export async function deleteRole(orgId: string, roleId: string): Promise<void> {
  * cached org role. The user must already be a member of the org — Roles grant
  * capabilities within an org, they don't create org membership.
  *
- * `actorIsSuperAdmin` is the caller's verified platform-superadmin status; it
- * gates assignment changes to `superadmin`-granting Roles (the Super Admin
- * Role in the system org). Without this, any org admin/owner of the system
- * org could assign themselves Super Admin and have `recomputeUserOrgRole`
- * flip `User.isSuperAdmin` — a privilege escalation to platform admin.
+ * `actor` is the caller's assignment context: their platform-superadmin status,
+ * org admin/owner status, and resolved fine-grained permissions. Two ceilings
+ * are enforced from it:
+ *   - The `superadmin`-granting Role (the Super Admin Role in the system org)
+ *     may only be assigned by a platform superadmin — otherwise any org
+ *     admin/owner of the system org could assign themselves Super Admin and have
+ *     `recomputeUserOrgRole` flip `User.isSuperAdmin` (platform escalation).
+ *   - Every OTHER Role is subject to the permission ceiling (see
+ *     {@link assertActorMayAssignRole}): a non-admin delegate holding only
+ *     `roles:manage` may assign a Role ONLY if the Role's granted permissions
+ *     are all within the actor's own set — closing the within-tenant escalation
+ *     of assigning the built-in Admin Role (full `ADMIN_PERMISSIONS`) to gain
+ *     capabilities the actor lacks. Admin/owner and superadmin bypass it.
  *
  * Throws `RL_ROLE_NOT_FOUND` / `RL_USER_NOT_FOUND` / `RL_NOT_ORG_MEMBER` /
- * `RL_REQUIRES_SUPERADMIN`.
+ * `RL_REQUIRES_SUPERADMIN` / `RL_ASSIGN_EXCEEDS_CEILING`.
  */
 export async function addUserToRole(
   orgId: string,
   roleId: string,
   target: { userId?: string; email?: string },
-  actorIsSuperAdmin: boolean,
+  actor: RoleAssignmentActor,
 ): Promise<{ userId: string }> {
   const oid = toOrgId(orgId);
 
@@ -606,9 +666,15 @@ export async function addUserToRole(
   // Role-ceiling: granting a superadmin-conferring Role requires the actor to
   // already be a platform superadmin. (Admin-granting Roles stay delegated to
   // org admins — that's in-org delegation, not platform escalation.)
-  if (role.grantsRole === 'superadmin' && !actorIsSuperAdmin) {
+  if (role.grantsRole === 'superadmin' && !actor.isSuperAdmin) {
     throw new Error(RL_REQUIRES_SUPERADMIN);
   }
+
+  // Permission ceiling: a non-admin delegate can't ASSIGN a Role granting
+  // capabilities beyond their own effective set (mirror of the create/update
+  // ceiling `sanitizePermissions` enforces). Prevents a `roles:manage` holder
+  // from self-granting Admin's `members:manage`/`org:settings`/`billing:manage`.
+  assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
 
   const user = target.userId
     ? await User.findById(target.userId).select('_id')
@@ -654,24 +720,49 @@ export async function addUserToRole(
  * a platform superadmin (`opts.actorIsSuperAdmin`) — otherwise a system-org
  * admin could strip `User.isSuperAdmin` from real superadmins via the recompute.
  *
- * Throws `RL_ROLE_NOT_FOUND`, `RL_REQUIRES_SUPERADMIN`,
+ * Permission ceiling (symmetry with {@link addUserToRole}): a non-admin delegate
+ * (holding only `roles:manage`) may only change membership of a Role whose
+ * granted permissions are all within their own set — they can't strip protection
+ * from, or grief the membership of, a Role carrying capabilities they lack (e.g.
+ * the built-in Admin Role). Admin/owner (`opts.actorIsOrgAdmin`) and superadmin
+ * bypass it. When the actor context is not supplied (`actorPermissions` omitted)
+ * the ceiling is not evaluated — internal callers that already gate authority
+ * upstream (e.g. `revokePlatformAdmin`) keep working.
+ *
+ * Throws `RL_ROLE_NOT_FOUND`, `RL_REQUIRES_SUPERADMIN`, `RL_ASSIGN_EXCEEDS_CEILING`,
  * `RL_CANNOT_REMOVE_SELF`, `RL_LAST_PRIVILEGED_MEMBER`.
  */
 export async function removeUserFromRole(
   orgId: string,
   roleId: string,
   userId: string,
-  opts: { actorUserId?: string; actorIsSuperAdmin?: boolean } = {},
+  opts: {
+    actorUserId?: string;
+    actorIsSuperAdmin?: boolean;
+    actorIsOrgAdmin?: boolean;
+    actorPermissions?: readonly string[];
+  } = {},
 ): Promise<void> {
   const oid = toOrgId(orgId);
 
-  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('grantsRole name');
+  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('grantsRole name permissions');
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
 
   // Role-ceiling: only a platform superadmin may change assignment of a
   // superadmin-granting Role (mirror of the gate in addUserToRole).
   if (role.grantsRole === 'superadmin' && !opts.actorIsSuperAdmin) {
     throw new Error(RL_REQUIRES_SUPERADMIN);
+  }
+
+  // Permission ceiling (symmetry with addUserToRole): a delegate can't touch
+  // membership of a Role granting permissions beyond their own. Evaluated only
+  // when the caller supplies the actor's permission context.
+  if (opts.actorPermissions !== undefined) {
+    assertActorMayAssignRole(role.permissions as string[] | undefined, {
+      isSuperAdmin: opts.actorIsSuperAdmin === true,
+      isOrgAdmin: opts.actorIsOrgAdmin === true,
+      permissions: opts.actorPermissions,
+    });
   }
 
   if (role.grantsRole !== 'member') {

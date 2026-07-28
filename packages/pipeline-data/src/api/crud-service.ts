@@ -575,6 +575,12 @@ export abstract class CrudService<
     userId: string,
   ): Promise<TEntity[]> {
     const conditions = this.buildConditions(filter, orgId);
+    // Own-org write-pin: buildConditions also matches system/other-org PUBLIC
+    // rows, so without the strict orgId pin a filter-based update could mutate
+    // shared (or another tenant's public) records. Mirror update/delete/
+    // bulkDelete. (See writeConditions.) An orgId-less (sysadmin) context keeps
+    // full access.
+    if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
 
     return withTenantTx(async (tx) => tx
       .update(this.schema)

@@ -14,6 +14,13 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockSendSuccess = jest.fn();
 const mockSendError = jest.fn();
 
+// Observable cache: single-plan route reads via get() (always a miss here so the
+// DB path runs) and only stores a FOUND plan via set(). Asserting on set() lets
+// us prove a missing planId never populates the cache. The list route uses
+// getOrSet (non-persistent passthrough — keeps the existing list tests intact).
+const mockPlanCacheGet = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => null);
+const mockPlanCacheSet = jest.fn<(...a: unknown[]) => Promise<void>>(async () => {});
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
@@ -24,6 +31,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   },
   CACHE_TTL_BILLING_PLANS_SECS: 14400,
+  createCacheService: () => ({
+    getOrSet: (_key: string, factory: () => Promise<unknown>) => factory(),
+    get: (...a: unknown[]) => mockPlanCacheGet(...a),
+    set: (...a: unknown[]) => mockPlanCacheSet(...a),
+    invalidatePattern: () => Promise.resolve(0),
+  }),
 }));
 
 const mockPlanFind = jest.fn();
@@ -137,6 +150,27 @@ describe('GET /plans/:planId', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Plan not found', 'NOT_FOUND');
+  });
+
+  it('does not populate the cache for a missing plan (no null-entry LRU pollution)', async () => {
+    mockPlanFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+
+    const req = mockReq({ params: { planId: 'ghost' } });
+    await handler(req, mockRes());
+
+    // A not-found lookup must leave the cache untouched — otherwise a dead null
+    // entry occupies an LRU slot, never serves a hit, and evicts real plans.
+    expect(mockPlanCacheSet).not.toHaveBeenCalled();
+  });
+
+  it('caches a found plan under its id key', async () => {
+    const plan = { _id: 'dev', name: 'Developer', tier: 'developer', prices: {}, features: [] };
+    mockPlanFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(plan) });
+
+    const req = mockReq({ params: { planId: 'dev' } });
+    await handler(req, mockRes());
+
+    expect(mockPlanCacheSet).toHaveBeenCalledWith('id:dev', plan);
   });
 
   it('returns 400 for missing planId', async () => {

@@ -9,6 +9,7 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Queue, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 
+import { intFromEnv } from './env-int.js';
 import {
   getConnectionForDb,
   getBuildCfg,
@@ -79,7 +80,7 @@ export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
   return dlq;
 }
 
-const DLQ_ENFORCE_SCAN_INTERVAL_MS = parseInt(process.env.PLUGIN_DLQ_SCAN_INTERVAL_MS || '5000', 10);
+const DLQ_ENFORCE_SCAN_INTERVAL_MS = intFromEnv('PLUGIN_DLQ_SCAN_INTERVAL_MS', 5000);
 let lastDlqEnforceMs = 0;
 
 /**

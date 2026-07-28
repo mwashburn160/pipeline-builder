@@ -29,8 +29,8 @@ export {
   RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER,
   RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN,
   RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE,
-  RL_PERMISSION_EXCEEDS_CEILING,
+  RL_PERMISSION_EXCEEDS_CEILING, RL_ASSIGN_EXCEEDS_CEILING,
 } from './roles-service.js';
-export type { RoleWithMembers, ActorPermissionCeiling } from './roles-service.js';
+export type { RoleWithMembers, ActorPermissionCeiling, RoleAssignmentActor } from './roles-service.js';
 export { backfillRbacRoles } from './rbac-backfill.js';
 export type { RbacBackfillSummary } from './rbac-backfill.js';

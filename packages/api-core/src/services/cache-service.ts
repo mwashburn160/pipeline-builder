@@ -285,7 +285,12 @@ export class CacheService {
     const flight = (async () => {
       const value = await factory();
       await this.set(key, value, ttlSeconds);
-      return value;
+      // Hand callers an INDEPENDENT clone, matching get()'s clone-on-read
+      // contract. Without this the first caller (and every coalesced concurrent
+      // caller) would get a mutable reference to the same object the memory
+      // backend just stored, so mutating the result corrupts the cached entry.
+      // The redis backend is unaffected (set serializes and get JSON.parses).
+      return cloneValue(value);
     })();
     this.inflight.set(fk, flight);
     try {

@@ -78,8 +78,17 @@ const {
   grantPlatformAdmin, revokePlatformAdmin,
   RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER,
   RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN,
-  RL_SUPERADMIN_ROLE_MISSING,
+  RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING,
 } = await import('../src/services/roles-service.js');
+
+// Actor contexts for Role ASSIGNMENT (add/remove member). The 4th arg to
+// addUserToRole is now the actor context, not a bare boolean: superadmin and
+// org admin/owner bypass the permission ceiling; a non-admin `roles:manage`
+// delegate is bound by it.
+const superAdminActor = { isSuperAdmin: true, isOrgAdmin: false, permissions: [] as readonly string[] };
+const orgAdminActor = { isSuperAdmin: false, isOrgAdmin: true, permissions: [] as readonly string[] };
+/** A delegate holding only `roles:manage` (+ member-ish reads) — bound by the ceiling. */
+const delegateActor = (permissions: readonly string[]) => ({ isSuperAdmin: false, isOrgAdmin: false, permissions });
 
 // The single-source resolver, from the (mocked) api-core — faithful: superadmin
 // ⇒ all, else exactly the union of the passed Role permissions (no baseline).
@@ -355,20 +364,20 @@ describe('single-source permission resolution (behavior change)', () => {
 describe('addUserToRole error paths', () => {
   it('throws RL_ROLE_NOT_FOUND when the Role is missing', async () => {
     mockGroupFindOne.mockResolvedValue(null);
-    await expect(addUserToRole('org-1', 'gX', { userId: 'u1' }, false)).rejects.toThrow(RL_ROLE_NOT_FOUND);
+    await expect(addUserToRole('org-1', 'gX', { userId: 'u1' }, orgAdminActor)).rejects.toThrow(RL_ROLE_NOT_FOUND);
   });
 
   it('throws RL_USER_NOT_FOUND when the user does not exist', async () => {
     mockGroupFindOne.mockResolvedValue({ _id: 'gA' });
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve(null) });
-    await expect(addUserToRole('org-1', 'gA', { userId: 'nope' }, false)).rejects.toThrow(RL_USER_NOT_FOUND);
+    await expect(addUserToRole('org-1', 'gA', { userId: 'nope' }, orgAdminActor)).rejects.toThrow(RL_USER_NOT_FOUND);
   });
 
   it('throws RL_NOT_ORG_MEMBER when the user is not in the org', async () => {
     mockGroupFindOne.mockResolvedValue({ _id: 'gA' });
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve({ _id: 'u1' }) });
     mockUoFindOne.mockReturnValue({ select: () => Promise.resolve(null) });
-    await expect(addUserToRole('org-1', 'gA', { userId: 'u1' }, false)).rejects.toThrow(RL_NOT_ORG_MEMBER);
+    await expect(addUserToRole('org-1', 'gA', { userId: 'u1' }, orgAdminActor)).rejects.toThrow(RL_NOT_ORG_MEMBER);
   });
 
   it('upserts the assignment and recomputes the role on success', async () => {
@@ -381,7 +390,7 @@ describe('addUserToRole error paths', () => {
     findReturns(mockGmFind, [{ roleId: 'gA' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'admin' }]);
 
-    const res = await addUserToRole('org-1', 'gA', { userId: 'u1' }, false);
+    const res = await addUserToRole('org-1', 'gA', { userId: 'u1' }, orgAdminActor);
 
     expect(res).toEqual({ userId: 'u1' });
     expect(mockGmUpdateOne).toHaveBeenCalledWith(
@@ -397,7 +406,8 @@ describe('addUserToRole error paths', () => {
     // would mint a platform superadmin (privilege escalation).
     mockGroupFindOne.mockResolvedValue({ _id: 'gS', grantsRole: 'superadmin' });
 
-    await expect(addUserToRole('000000000000000000000001', 'gS', { userId: 'u1' }, false))
+    // Even an org admin (isOrgAdmin) can't assign a superadmin-granting Role.
+    await expect(addUserToRole('000000000000000000000001', 'gS', { userId: 'u1' }, orgAdminActor))
       .rejects.toThrow(RL_REQUIRES_SUPERADMIN);
     expect(mockGmUpdateOne).not.toHaveBeenCalled();
   });
@@ -412,9 +422,77 @@ describe('addUserToRole error paths', () => {
     findReturns(mockGmFind, [{ roleId: 'gS' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'superadmin' }]);
 
-    const res = await addUserToRole('000000000000000000000001', 'gS', { userId: 'u1' }, true);
+    const res = await addUserToRole('000000000000000000000001', 'gS', { userId: 'u1' }, superAdminActor);
 
     expect(res).toEqual({ userId: 'u1' });
+    expect(mockGmUpdateOne).toHaveBeenCalled();
+  });
+});
+
+describe('addUserToRole permission ceiling (within-tenant escalation guard)', () => {
+  // The built-in Admin Role carries the full ADMIN_PERMISSIONS bundle.
+  const adminRole = () => mockGroupFindOne.mockResolvedValue({
+    _id: 'gAdmin',
+    grantsRole: 'admin',
+    permissions: ['members:manage', 'roles:manage', 'org:settings', 'billing:manage'],
+  });
+  // Wire user-found + org-member + recompute so a permitted assignment succeeds.
+  const wireSuccessfulAssign = () => {
+    mockUserFindById.mockReturnValue({ select: () => Promise.resolve({ _id: 'target' }) });
+    mockUoFindOne
+      .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'm1' }) })
+      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) });
+    mockGmUpdateOne.mockResolvedValue({});
+    findReturns(mockGmFind, [{ roleId: 'gAdmin' }]);
+    findReturns(mockGroupFind, [{ grantsRole: 'admin' }]);
+  };
+
+  it('SECURITY: a roles:manage delegate (not admin/owner) CANNOT assign the built-in Admin Role', async () => {
+    adminRole();
+    // Delegate holds only roles:manage — lacks members:manage/org:settings/billing:manage.
+    await expect(addUserToRole('org-1', 'gAdmin', { userId: 'self' }, delegateActor(['roles:manage'])))
+      .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
+    // Refused BEFORE any assignment write — no self-escalation.
+    expect(mockGmUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('SECURITY: a delegate cannot assign a role carrying even ONE permission they lack', async () => {
+    mockGroupFindOne.mockResolvedValue({ _id: 'gX', grantsRole: 'member', permissions: ['pipelines:read', 'org:settings'] });
+    await expect(addUserToRole('org-1', 'gX', { userId: 'self' }, delegateActor(['pipelines:read', 'roles:manage'])))
+      .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
+    expect(mockGmUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('allows a delegate to assign a role whose permissions are a SUBSET of their own', async () => {
+    mockGroupFindOne.mockResolvedValue({ _id: 'gCustom', grantsRole: 'member', permissions: ['pipelines:read'] });
+    mockUserFindById.mockReturnValue({ select: () => Promise.resolve({ _id: 'target' }) });
+    mockUoFindOne
+      .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'm1' }) })
+      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) });
+    mockGmUpdateOne.mockResolvedValue({});
+    findReturns(mockGmFind, [{ roleId: 'gCustom' }]);
+    findReturns(mockGroupFind, [{ grantsRole: 'member' }]);
+
+    // Delegate holds pipelines:read (⊇ the Role's {pipelines:read}) plus roles:manage.
+    const res = await addUserToRole('org-1', 'gCustom', { userId: 'target' }, delegateActor(['pipelines:read', 'roles:manage']));
+
+    expect(res).toEqual({ userId: 'target' });
+    expect(mockGmUpdateOne).toHaveBeenCalled();
+  });
+
+  it('allows an org admin/owner to assign the built-in Admin Role', async () => {
+    adminRole();
+    wireSuccessfulAssign();
+    const res = await addUserToRole('org-1', 'gAdmin', { userId: 'target' }, orgAdminActor);
+    expect(res).toEqual({ userId: 'target' });
+    expect(mockGmUpdateOne).toHaveBeenCalled();
+  });
+
+  it('allows a platform superadmin to assign the built-in Admin Role', async () => {
+    adminRole();
+    wireSuccessfulAssign();
+    const res = await addUserToRole('org-1', 'gAdmin', { userId: 'target' }, superAdminActor);
+    expect(res).toEqual({ userId: 'target' });
     expect(mockGmUpdateOne).toHaveBeenCalled();
   });
 });
@@ -475,6 +553,45 @@ describe('removeUserFromRole', () => {
     await expect(removeUserFromRole('000000000000000000000001', 'gS', 'victim', { actorUserId: 'admin', actorIsSuperAdmin: false }))
       .rejects.toThrow(RL_REQUIRES_SUPERADMIN);
     expect(mockGmDeleteOne).not.toHaveBeenCalled();
+  });
+
+  it('SECURITY: a roles:manage delegate CANNOT remove a member of a role granting permissions they lack', async () => {
+    // Symmetry with addUserToRole's ceiling: a delegate can't strip protection
+    // from (or grief membership of) the built-in Admin Role.
+    mockGroupFindOne.mockReturnValue({
+      select: () => Promise.resolve({
+        _id: 'gAdmin',
+        grantsRole: 'admin',
+        name: 'Admin',
+        permissions: ['members:manage', 'org:settings'],
+      }),
+    });
+
+    await expect(removeUserFromRole('org-1', 'gAdmin', 'victim', {
+      actorUserId: 'delegate', actorIsOrgAdmin: false, actorPermissions: ['roles:manage'],
+    })).rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
+    expect(mockGmDeleteOne).not.toHaveBeenCalled();
+  });
+
+  it('allows an org admin to remove a member of the built-in Admin Role (ceiling bypassed)', async () => {
+    mockGroupFindOne.mockReturnValue({
+      select: () => Promise.resolve({
+        _id: 'gAdmin',
+        grantsRole: 'admin',
+        name: 'Admin',
+        permissions: ['members:manage', 'org:settings'],
+      }),
+    });
+    mockGmExists.mockResolvedValue({ _id: 'm1' });
+    mockGmCount.mockResolvedValue(2); // not the last member
+    findReturns(mockGmFind, []);
+    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn().mockResolvedValue(undefined) }) });
+
+    await removeUserFromRole('org-1', 'gAdmin', 'victim', {
+      actorUserId: 'other-admin', actorIsOrgAdmin: true, actorPermissions: [],
+    });
+
+    expect(mockGmDeleteOne).toHaveBeenCalledWith({ userId: 'victim', roleId: 'gAdmin' }, { session: expect.anything() });
   });
 });
 

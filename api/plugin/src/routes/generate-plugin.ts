@@ -156,13 +156,12 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
               dockerfile,
             },
           })}\n\n`);
-        } else {
-          // AI produced no output — refund the reserved aiCalls slot rather than
-          // charging the org for an empty generation (mirrors the aborted case).
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
         }
         res.write('data: [DONE]\n\n');
+        // Quota policy: a COMPLETED stream keeps the reserved `aiCalls` slot even
+        // when `finalOutput` is empty/unparseable — the provider round-trip (and
+        // its external $ cost) was already incurred. Only an ABORT (client
+        // disconnect, below) refunds the slot. Mirrors generate-pipeline.ts.
       } else {
         decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
         reserved = false;

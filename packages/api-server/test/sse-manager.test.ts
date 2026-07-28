@@ -289,30 +289,50 @@ describe('SSEManager', () => {
   });
 
   describe('createTicket / consumeTicket', () => {
+    // Two distinct, format-valid stream subjects the ticket can be bound to.
+    const REQ_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const REQ_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
     it('mints a ticket and consumes it exactly once (single-use)', () => {
-      const result = manager.createTicket('org-a');
+      const result = manager.createTicket('org-a', REQ_A);
       expect(result.ok).toBe(true);
       const ticket = (result as { ok: true; ticket: string }).ticket;
       expect(typeof ticket).toBe('string');
       expect(ticket.length).toBeGreaterThan(0);
 
-      // First consume returns the bound org.
-      expect(manager.consumeTicket(ticket)).toEqual({ orgId: 'org-a' });
+      // First consume (for the bound subject) returns the bound org.
+      expect(manager.consumeTicket(ticket, REQ_A)).toEqual({ orgId: 'org-a' });
       // Replay of the same value fails — it was consumed.
-      expect(manager.consumeTicket(ticket)).toBeNull();
+      expect(manager.consumeTicket(ticket, REQ_A)).toBeNull();
+    });
+
+    it('rejects consuming a ticket for a subject it was not minted for', () => {
+      const ticket = (manager.createTicket('org-a', REQ_A) as { ok: true; ticket: string }).ticket;
+      // Ticket is bound to REQ_A; presenting it for REQ_B is rejected...
+      expect(manager.consumeTicket(ticket, REQ_B)).toBeNull();
+      // ...and the mismatched attempt still CONSUMED the ticket (single-use),
+      // so a subsequent correct-subject attempt also fails.
+      expect(manager.consumeTicket(ticket, REQ_A)).toBeNull();
+    });
+
+    it('matches the bound subject regardless of dash formatting', () => {
+      // Minted with dashes; the nginx `$request_id` form drops them. Same id.
+      const ticket = (manager.createTicket('org-a', REQ_A) as { ok: true; ticket: string }).ticket;
+      const undashed = REQ_A.replace(/-/g, '');
+      expect(manager.consumeTicket(ticket, undashed)).toEqual({ orgId: 'org-a' });
     });
 
     it('returns null for an unknown ticket', () => {
-      expect(manager.consumeTicket('never-issued')).toBeNull();
+      expect(manager.consumeTicket('never-issued', REQ_A)).toBeNull();
     });
 
     it('returns null for an expired ticket', () => {
       const expiring = new SSEManager({ ticketTtlMs: -1, cleanupIntervalMs: 0 });
       try {
-        const result = expiring.createTicket('org-a');
+        const result = expiring.createTicket('org-a', REQ_A);
         const ticket = (result as { ok: true; ticket: string }).ticket;
         // Already expired at mint (negative TTL) — consume rejects it.
-        expect(expiring.consumeTicket(ticket)).toBeNull();
+        expect(expiring.consumeTicket(ticket, REQ_A)).toBeNull();
       } finally {
         expiring.shutdown();
       }
@@ -321,12 +341,12 @@ describe('SSEManager', () => {
     it('enforces the per-org ticket cap (org-limit)', () => {
       const capped = new SSEManager({ maxTicketsPerOrg: 2, cleanupIntervalMs: 0 });
       try {
-        expect(capped.createTicket('org-a').ok).toBe(true);
-        expect(capped.createTicket('org-a').ok).toBe(true);
-        const third = capped.createTicket('org-a');
+        expect(capped.createTicket('org-a', REQ_A).ok).toBe(true);
+        expect(capped.createTicket('org-a', REQ_A).ok).toBe(true);
+        const third = capped.createTicket('org-a', REQ_A);
         expect(third).toEqual({ ok: false, reason: 'org-limit' });
         // A different org is unaffected.
-        expect(capped.createTicket('org-b').ok).toBe(true);
+        expect(capped.createTicket('org-b', REQ_A).ok).toBe(true);
       } finally {
         capped.shutdown();
       }
@@ -335,8 +355,8 @@ describe('SSEManager', () => {
     it('enforces the total ticket cap (capacity)', () => {
       const capped = new SSEManager({ maxTotalTickets: 1, maxTicketsPerOrg: 100, cleanupIntervalMs: 0 });
       try {
-        expect(capped.createTicket('org-a').ok).toBe(true);
-        const second = capped.createTicket('org-b');
+        expect(capped.createTicket('org-a', REQ_A).ok).toBe(true);
+        const second = capped.createTicket('org-b', REQ_A);
         expect(second).toEqual({ ok: false, reason: 'capacity' });
       } finally {
         capped.shutdown();
@@ -384,7 +404,7 @@ describe('SSEManager', () => {
     it('rejects an expired ticket (401)', () => {
       const expiring = new SSEManager({ ticketTtlMs: -1, cleanupIntervalMs: 0 });
       try {
-        const ticket = (expiring.createTicket('org-a') as { ok: true; ticket: string }).ticket;
+        const ticket = (expiring.createTicket('org-a', REQ_ID) as { ok: true; ticket: string }).ticket;
         const res = mockMwRes();
         expiring.middleware()({ params: { requestId: REQ_ID }, query: { ticket } }, res);
         expect(res.statusCode).toBe(401);
@@ -394,8 +414,27 @@ describe('SSEManager', () => {
       }
     });
 
+    it('rejects a ticket presented for a different subject than it was minted for (401)', () => {
+      // Ticket minted for REQ_ID, but the attacker tries to open a DIFFERENT
+      // stream subject they only guessed. consumeTicket rejects the mismatch,
+      // so no headers flush and no client is attached to the other subject.
+      const otherReqId = '87654321-4321-4321-4321-cba987654321';
+      const ticket = (manager.createTicket('org-a', REQ_ID) as { ok: true; ticket: string }).ticket;
+      const res = mockMwRes();
+      manager.middleware()({ params: { requestId: otherReqId }, query: { ticket } }, res);
+      expect(res.statusCode).toBe(401);
+      expect(res.flushed).toBe(false);
+      expect(manager.getClientCount(otherReqId)).toBe(0);
+      // Single-use: the mismatched attempt consumed the ticket, so even the
+      // correct subject can no longer use it.
+      const res2 = mockMwRes();
+      manager.middleware()({ params: { requestId: REQ_ID }, query: { ticket } }, res2);
+      expect(res2.statusCode).toBe(401);
+      expect(manager.getClientCount(REQ_ID)).toBe(0);
+    });
+
     it('admits a valid ticket exactly once, then it is consumed (401 on reuse)', () => {
-      const ticket = (manager.createTicket('org-a') as { ok: true; ticket: string }).ticket;
+      const ticket = (manager.createTicket('org-a', REQ_ID) as { ok: true; ticket: string }).ticket;
 
       // First use: stream opens, headers flush, client is bound to the org.
       const res1 = mockMwRes();
@@ -416,8 +455,11 @@ describe('SSEManager', () => {
     it('enforces the per-org connection cap on the stream (429)', () => {
       const capped = new SSEManager({ maxClientsPerOrg: 1, maxClientsPerRequest: 100, cleanupIntervalMs: 0 });
       try {
-        const t1 = (capped.createTicket('org-a') as { ok: true; ticket: string }).ticket;
-        const t2 = (capped.createTicket('org-a') as { ok: true; ticket: string }).ticket;
+        const REQ_ID_2 = '87654321-1234-1234-1234-123456789abc';
+        const t1 = (capped.createTicket('org-a', REQ_ID) as { ok: true; ticket: string }).ticket;
+        // Second ticket is bound to the second subject so it passes the subject
+        // check and reaches the per-org cap gate.
+        const t2 = (capped.createTicket('org-a', REQ_ID_2) as { ok: true; ticket: string }).ticket;
 
         const res1 = mockMwRes();
         capped.middleware()({ params: { requestId: REQ_ID }, query: { ticket: t1 } }, res1);
@@ -426,7 +468,7 @@ describe('SSEManager', () => {
 
         // Second stream for the same org is over cap → 429 before headers flush.
         const res2 = mockMwRes();
-        capped.middleware()({ params: { requestId: '87654321-1234-1234-1234-123456789abc' }, query: { ticket: t2 } }, res2);
+        capped.middleware()({ params: { requestId: REQ_ID_2 }, query: { ticket: t2 } }, res2);
         expect(res2.statusCode).toBe(429);
         expect(res2.flushed).toBe(false);
       } finally {
@@ -434,13 +476,44 @@ describe('SSEManager', () => {
       }
     });
 
+    it('closes the dangling response when addClient is rejected after headers flush', () => {
+      // The middleware pre-flight checks per-request + per-org caps but NOT the
+      // process-wide total-clients cap; addClient enforces that one. Fill the
+      // total cap with an anonymous client, then open a ticketed stream: the
+      // pre-flight passes, headers flush (200), but addClient returns false, so
+      // the middleware must end the dangling response and attach no client.
+      const capped = new SSEManager({
+        maxTotalClients: 1,
+        maxClientsPerRequest: 100,
+        maxClientsPerOrg: 100,
+        cleanupIntervalMs: 0,
+      });
+      try {
+        // Occupy the single total slot with an anonymous (no-org) client.
+        expect(capped.addClient('99999999-9999-9999-9999-999999999999', mockMwRes())).toBe(true);
+
+        const ticket = (capped.createTicket('org-a', REQ_ID) as { ok: true; ticket: string }).ticket;
+        const res = mockMwRes();
+        capped.middleware()({ params: { requestId: REQ_ID }, query: { ticket } }, res);
+
+        // Headers flushed (past the caps pre-flight) but the add was rejected.
+        expect(res.flushed).toBe(true);
+        expect(res.ended).toBe(true);
+        expect(capped.getClientCount(REQ_ID)).toBe(0);
+        // The org counter was never incremented for the rejected add.
+        expect(capped.getOrgClientCount('org-a')).toBe(0);
+      } finally {
+        capped.shutdown();
+      }
+    });
+
     it('rejects a malformed requestId before consuming the ticket (400)', () => {
-      const ticket = (manager.createTicket('org-a') as { ok: true; ticket: string }).ticket;
+      const ticket = (manager.createTicket('org-a', REQ_ID) as { ok: true; ticket: string }).ticket;
       const res = mockMwRes();
       manager.middleware()({ params: { requestId: 'not-a-uuid' }, query: { ticket } }, res);
       expect(res.statusCode).toBe(400);
       // Ticket was NOT consumed (format check runs first) — still usable.
-      expect(manager.consumeTicket(ticket)).toEqual({ orgId: 'org-a' });
+      expect(manager.consumeTicket(ticket, REQ_ID)).toEqual({ orgId: 'org-a' });
     });
   });
 });

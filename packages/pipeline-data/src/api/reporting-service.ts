@@ -1,13 +1,27 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createCacheService, createLogger, errorMessage, scrubAwsIdentifiers, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
+import { createCacheService, createLogger, errorMessage, REPORT_INTERVALS, scrubAwsIdentifiers, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
 import { inArray, sql, type SQL } from 'drizzle-orm';
 import { drizzleRows } from './crud-service.js';
 import { schema } from '../database/drizzle-schema.js';
 import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
 
 const logger = createLogger('reporting-service');
+
+/**
+ * Defense-in-depth guard for the `DATE_TRUNC(${interval}, …)` bucket argument.
+ * The route layer (`parseReportInterval`) is the security boundary and already
+ * rejects unknown intervals; this assert makes an invalid value fail fast at the
+ * service boundary with a clear error instead of surfacing a raw Postgres error
+ * if a caller ever bypasses the route validation. Shares api-core's
+ * REPORT_INTERVALS allow-list so the two can't drift.
+ */
+function assertReportInterval(interval: string): void {
+  if (!(REPORT_INTERVALS as readonly string[]).includes(interval)) {
+    throw new Error(`Invalid report interval: ${interval}. Expected one of: ${REPORT_INTERVALS.join(', ')}`);
+  }
+}
 
 /**
  * Cache for reporting aggregations. Two tiers:
@@ -679,6 +693,7 @@ export class ReportingService {
 
   /** 1.2 Success rate over time for an org. */
   async getSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[]): Promise<TimeSeriesEntry[]> {
+    assertReportInterval(interval);
     const { pred, multi } = this.orgScope(orgId, orgIds);
     const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
@@ -773,10 +788,15 @@ export class ReportingService {
     return this.runReport(`${orgId}:action-failures:${from}:${to}`, multi, exec);
   }
 
-  /** 1.8 Error categorization — group failure messages. */
-  async getErrors(orgId: string, from: string, to: string, limit: number = 20): Promise<ErrorEntry[]> {
-    return timeseriesCache.getOrSet(`${orgId}:errors:${from}:${to}:${limit}`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  /**
+   * 1.8 Error categorization — group failure messages. Execution report, so
+   * rollup-aware exactly like the sibling execution reports: with `orgIds`
+   * (the org→team subtree) the org gate becomes an `IN (...)` and the read runs
+   * fresh under sysadmin via `runReport`; single-org reads keep the per-org cache.
+   */
+  async getErrors(orgId: string, from: string, to: string, limit: number = 20, orgIds?: string[]): Promise<ErrorEntry[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           SUBSTRING(e.error_message FROM 1 FOR 200) AS error_pattern,
           COUNT(*)::int AS occurrences,
@@ -784,12 +804,12 @@ export class ReportingService {
           MAX(e.started_at)::text AS last_seen
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE p.org_id = ${orgId} AND e.status = 'FAILED' AND e.error_message IS NOT NULL
+        WHERE p.org_id ${pred} AND e.status = 'FAILED' AND e.error_message IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY error_pattern ORDER BY occurrences DESC
         LIMIT ${limit}
-      `).then(r => drizzleRows<ErrorEntry>(r.rows))),
-    );
+      `).then(r => drizzleRows<ErrorEntry>(r.rows)));
+    return this.runReport(`${orgId}:errors:${from}:${to}:${limit}`, multi, exec);
   }
 
   /**
@@ -1054,7 +1074,10 @@ export class ReportingService {
 
   // ── Category 2: Plugin Inventory & Builds ──
 
-  /** 2.1 Plugin summary — counts and breakdowns. */
+  /** 2.1 Plugin summary — counts and breakdowns.
+   *  INTENTIONALLY SINGLE-ORG (no rollup): plugin inventory is an org-owned
+   *  asset count, not an execution/build activity report, so a parent's view is
+   *  its own plugins — teams manage their own inventory. Single `= $org` scope. */
   async getPluginSummary(orgId: string): Promise<PluginSummary> {
     return inventoryCache.getOrSet(`${orgId}:plugin-summary`, async () => {
       const rows = await withTenantTx((tx) => tx.execute(sql`
@@ -1072,7 +1095,9 @@ export class ReportingService {
     });
   }
 
-  /** 2.2 Type & compute distribution. */
+  /** 2.2 Type & compute distribution.
+   *  INTENTIONALLY SINGLE-ORG (no rollup): plugin inventory is per-org (see
+   *  getPluginSummary). Single `= $org` scope. */
   async getPluginDistribution(orgId: string): Promise<TypeComputeDistribution[]> {
     return inventoryCache.getOrSet(`${orgId}:plugin-distribution`, () =>
       withTenantTx((tx) => tx.execute(sql`
@@ -1088,7 +1113,9 @@ export class ReportingService {
     );
   }
 
-  /** 2.3 Version counts per plugin name. */
+  /** 2.3 Version counts per plugin name.
+   *  INTENTIONALLY SINGLE-ORG (no rollup): plugin inventory is per-org (see
+   *  getPluginSummary). Single `= $org` scope. */
   async getPluginVersions(orgId: string): Promise<VersionCount[]> {
     return inventoryCache.getOrSet(`${orgId}:plugin-versions`, () =>
       withTenantTx((tx) => tx.execute(sql`
@@ -1119,9 +1146,13 @@ export class ReportingService {
    * SHOULD enum these per-eventSource so we catch drift at ingest rather
    * than silently producing zero rows here. See findings N71.
    */
-  async getBuildSuccessRate(orgId: string, interval: string, from: string, to: string): Promise<BuildTimeSeriesEntry[]> {
-    return timeseriesCache.getOrSet(`${orgId}:build-success:${interval}:${from}:${to}`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  async getBuildSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[]): Promise<BuildTimeSeriesEntry[]> {
+    assertReportInterval(interval);
+    // Build activity report — rollup-aware like the execution reports. These
+    // rows are gated on the pipeline_event `org_id` directly (no pipeline join),
+    // so `pred` applies to `e.org_id`.
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           DATE_TRUNC(${interval}, e.started_at)::text AS period,
           COUNT(*) FILTER (WHERE e.status = 'completed')::int AS succeeded,
@@ -1129,48 +1160,48 @@ export class ReportingService {
           ROUND(COUNT(*) FILTER (WHERE e.status = 'completed')::numeric
             / NULLIF(COUNT(*), 0) * 100, 1)::float AS success_pct
         FROM ${schema.pipelineEvent} e
-        WHERE e.org_id = ${orgId} AND e.event_source = 'plugin-build'
+        WHERE e.org_id ${pred} AND e.event_source = 'plugin-build'
           AND e.status IN ('completed', 'failed')
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY period ORDER BY period
-      `).then(r => drizzleRows<BuildTimeSeriesEntry>(r.rows))),
-    );
+      `).then(r => drizzleRows<BuildTimeSeriesEntry>(r.rows)));
+    return this.runReport(`${orgId}:build-success:${interval}:${from}:${to}`, multi, exec);
   }
 
-  /** 2.5 Build duration per plugin. */
-  async getBuildDuration(orgId: string, from: string, to: string): Promise<BuildDuration[]> {
-    return timeseriesCache.getOrSet(`${orgId}:build-duration:${from}:${to}`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  /** 2.5 Build duration per plugin. Build activity report — rollup-aware. */
+  async getBuildDuration(orgId: string, from: string, to: string, orgIds?: string[]): Promise<BuildDuration[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           e.detail->>'pluginName' AS plugin_name,
           AVG(e.duration_ms)::int AS avg_ms,
           MAX(e.duration_ms)::int AS max_ms,
           COUNT(*)::int AS builds
         FROM ${schema.pipelineEvent} e
-        WHERE e.org_id = ${orgId} AND e.event_source = 'plugin-build' AND e.duration_ms IS NOT NULL
+        WHERE e.org_id ${pred} AND e.event_source = 'plugin-build' AND e.duration_ms IS NOT NULL
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY plugin_name ORDER BY avg_ms DESC
-      `).then(r => drizzleRows<BuildDuration>(r.rows))),
-    );
+      `).then(r => drizzleRows<BuildDuration>(r.rows)));
+    return this.runReport(`${orgId}:build-duration:${from}:${to}`, multi, exec);
   }
 
-  /** 2.6 Build failures — top error messages. */
-  async getBuildFailures(orgId: string, from: string, to: string, limit: number = 20): Promise<BuildFailure[]> {
-    return timeseriesCache.getOrSet(`${orgId}:build-failures:${from}:${to}:${limit}`, () =>
-      withTenantTx((tx) => tx.execute(sql`
+  /** 2.6 Build failures — top error messages. Build activity report — rollup-aware. */
+  async getBuildFailures(orgId: string, from: string, to: string, limit: number = 20, orgIds?: string[]): Promise<BuildFailure[]> {
+    const { pred, multi } = this.orgScope(orgId, orgIds);
+    const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           e.detail->>'pluginName' AS plugin_name,
           e.error_message,
           COUNT(*)::int AS occurrences,
           MAX(e.started_at)::text AS last_seen
         FROM ${schema.pipelineEvent} e
-        WHERE e.org_id = ${orgId} AND e.event_source = 'plugin-build' AND e.status = 'failed'
+        WHERE e.org_id ${pred} AND e.event_source = 'plugin-build' AND e.status = 'failed'
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY plugin_name, e.error_message
         ORDER BY occurrences DESC
         LIMIT ${limit}
-      `).then(r => drizzleRows<BuildFailure>(r.rows))),
-    );
+      `).then(r => drizzleRows<BuildFailure>(r.rows)));
+    return this.runReport(`${orgId}:build-failures:${from}:${to}:${limit}`, multi, exec);
   }
 }
 

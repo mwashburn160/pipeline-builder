@@ -19,11 +19,22 @@ const RESERVED_ROOT_PATHS = new Set(['secrets']);
 /**
  * Look up a dot-separated path inside a scope object. Returns `undefined`
  * if any intermediate segment is missing or not an object.
+ *
+ * Only OWN enumerable-or-not-inherited properties are traversed: a segment is
+ * resolved via `Object.prototype.hasOwnProperty.call` so inherited members of
+ * the prototype chain (`constructor`, `toString`, `valueOf`, `hasOwnProperty`,
+ * the `__proto__` accessor, …) never resolve — they return `undefined` and thus
+ * fall through to the caller's normal unknown-path handling (a `| default:`
+ * fallback or a `TEMPLATE_UNKNOWN_PATH` error). Applied at every level,
+ * including the root segment, this also makes the scope's own top-level keys
+ * the effective root allow-list, so an unknown/prototype root is rejected even
+ * on the synth path that skips `validateTemplates`.
  */
 export function lookupPath(scope: Scope, path: string[]): unknown {
   let cur: unknown = scope;
   for (const segment of path) {
     if (cur == null || typeof cur !== 'object') return undefined;
+    if (!Object.prototype.hasOwnProperty.call(cur, segment)) return undefined;
     cur = (cur as Record<string, unknown>)[segment];
   }
   return cur;

@@ -76,9 +76,25 @@ export const handler = async (): Promise<void> => {
   // store-token no longer takes --secret-name; it reads PLATFORM_SECRET_NAME from
   // the environment (else derives it from the token's org).
   const args = ['store-token', '--region', region, '--days', days];
-  if (process.env.PLATFORM_VERIFY_SSL === 'false') args.push('--no-verify-ssl');
+  // SECURITY: the spawned store-token POSTs the JWT to the platform. Refuse to
+  // disable TLS verification in production so a MITM can't harvest it. Production
+  // is this Lambda's normal mode (the renew stack sets NODE_ENV=production), so
+  // PLATFORM_VERIFY_SSL=false is honored ONLY outside production. This inlines the
+  // same `NODE_ENV==='production'` policy as utils/tls.ts#assertSslDisableAllowed
+  // (the handler ships as a single self-contained index.mjs and can't import it).
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (process.env.PLATFORM_VERIFY_SSL === 'false') {
+    if (isProduction) {
+      // eslint-disable-next-line no-console
+      console.log(JSON.stringify({ level: 'WARN', msg: 'Refusing PLATFORM_VERIFY_SSL=false in production (NODE_ENV=production) — TLS verification stays enabled' }));
+    } else {
+      args.push('--no-verify-ssl');
+    }
+  }
 
   execFileSync('node', [CLI, ...args], {
+    // NODE_ENV is inherited via npmEnv (spread of process.env), so the spawned CLI
+    // enforces the same production TLS-disable refusal as this handler.
     env: { ...npmEnv, PLATFORM_TOKEN: jwt, PLATFORM_BASE_URL: platformUrl, PLATFORM_SECRET_NAME: secretName },
     stdio: 'inherit',
   });

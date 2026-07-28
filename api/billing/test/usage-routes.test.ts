@@ -44,6 +44,14 @@ jest.unstable_mockModule('../src/helpers/usage-helpers.js', () => ({
   buildUsageRollupFor: (...a: unknown[]) => mockBuildUsageRollupFor(...a),
 }));
 
+// The route now widens the sub lookup to the manageable (non-terminal) set via
+// the shared const. Mock billing-helpers so importing it here doesn't drag in
+// the real config module (which throws without MONGODB_URI); re-export the real
+// constant so the `$in` filter isn't `undefined`.
+jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
+}));
+
 // Subscription.findOne(...).lean()  and  Plan.findById(...).lean()
 const mockSubscriptionLean = jest.fn<() => Promise<unknown>>();
 const mockSubscriptionFindOne = jest.fn(() => ({ lean: () => mockSubscriptionLean() }));
@@ -111,7 +119,10 @@ describe('GET /usage — rollup wiring', () => {
     const res = mockRes();
     await handler({ headers: { authorization: 'Bearer user-tok' }, orgId: 'org-1' }, res);
 
-    expect(mockSubscriptionFindOne).toHaveBeenCalledWith({ orgId: 'org-1', status: 'active' });
+    expect(mockSubscriptionFindOne).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
+    });
     expect(mockPlanFindById).toHaveBeenCalledWith('plan-pro');
     expect(mockBuildUsageRollupFor).toHaveBeenCalledWith(
       'org-1',
@@ -129,6 +140,25 @@ describe('GET /usage — rollup wiring', () => {
     const [, status, data] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);
     expect(data).toBe(ROLLUP); // serialized verbatim
+  });
+
+  it('resolves the real plan for a trialing org (previously null → developer defaults)', async () => {
+    // A trialing sub is in the manageable set; the widened lookup now returns it
+    // so the rollup reflects the real plan/window instead of the $0 developer
+    // fallback the bare status:'active' filter produced.
+    mockSubscriptionLean.mockResolvedValue({ ...activeSub, status: 'trialing' });
+    const res = mockRes();
+    await handler({ headers: { authorization: 'Bearer user-tok' }, orgId: 'org-trial' }, res);
+
+    expect(mockSubscriptionFindOne).toHaveBeenCalledWith({
+      orgId: 'org-trial',
+      status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
+    });
+    expect(mockPlanFindById).toHaveBeenCalledWith('plan-pro');
+    const [, , subArg, planArg] = mockBuildUsageRollupFor.mock.calls[0];
+    expect(subArg).toMatchObject({ planId: 'plan-pro' });
+    expect(planArg).toMatchObject({ tier: 'pro' });
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 
   it('passes null subscription/plan for a free / unsubscribed org and skips the plan lookup', async () => {

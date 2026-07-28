@@ -44,4 +44,28 @@ describe('scrubAwsIdentifiers (deep)', () => {
     const out = scrubAwsIdentifiers({ count: 42, ok: true, ratio: 1720000000000 });
     expect(out).toEqual({ count: 42, ok: true, ratio: 1720000000000 });
   });
+
+  it('leaves a Date value intact (does not clobber it to {})', () => {
+    const when = new Date('2026-07-27T00:00:00.000Z');
+    const out = scrubAwsIdentifiers({ occurredAt: when, keep: 'x' });
+    expect(out.occurredAt).toBeInstanceOf(Date);
+    expect(out.occurredAt.getTime()).toBe(when.getTime());
+    expect(out.keep).toBe('x');
+  });
+
+  it('leaves a Buffer value intact (does not clobber it to a byte map)', () => {
+    const buf = Buffer.from('hello');
+    const out = scrubAwsIdentifiers({ payload: buf });
+    expect(Buffer.isBuffer(out.payload)).toBe(true);
+    expect(out.payload.toString()).toBe('hello');
+  });
+
+  it('still scrubs ARN/account tokens in strings alongside a Date', () => {
+    const out = scrubAwsIdentifiers({
+      message: 'arn:aws:iam::123456789012:role/deploy',
+      when: new Date('2026-07-27T00:00:00.000Z'),
+    });
+    expect(out.message).toBe('arn:aws:iam::[REDACTED]:role/deploy');
+    expect(out.when).toBeInstanceOf(Date);
+  });
 });

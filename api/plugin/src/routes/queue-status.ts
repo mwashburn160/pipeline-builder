@@ -73,12 +73,11 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     });
   }));
 
-  router.get('/failed', withRoute(async ({ req, res, orgId }) => {
-    const role = req.user?.role;
-    if (role !== 'admin' && role !== 'owner') {
-      return sendError(res, 403, 'Only administrators can view queue status', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  // Access: gated by `requirePermission('plugins:write')` (route middleware),
+  // matching the sibling retry/replay writes so the queue surface uses ONE gate
+  // for org-scoped ops. System admins see all orgs; other holders of
+  // plugins:write see only their own org's jobs (tenant-isolation filter below).
+  router.get('/failed', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
     const limit = parseQueryInt(req.query.limit, 50);
     // Read a smaller per-tier slice (limit / tierCount, rounded up) then
     // oversample by 1 so we never return less than `limit` after filtering.
@@ -146,12 +145,10 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
 
   // -- DLQ endpoints --------------------------------------------------------
 
-  router.get('/dlq', withRoute(async ({ req, res, orgId }) => {
-    const role = req.user?.role;
-    if (role !== 'admin' && role !== 'owner') {
-      return sendError(res, 403, 'Only administrators can view DLQ', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  // Access: gated by `requirePermission('plugins:write')` (route middleware) —
+  // same org-scoped gate as GET /failed. System admins see all orgs; other
+  // plugins:write holders see only their own org (tenant-isolation filter below).
+  router.get('/dlq', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
     const limit = parseQueryInt(req.query.limit, 50);
     const dlq = getDeadLetterQueue();
     // Oversample (2x) so per-tenant filtering for non-system admins still
@@ -235,16 +232,14 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * GET /triage  failed-build summary grouped by failure category, with
    * a few representative examples per group. Powers the triage dashboard.
    *
-   * Visibility   * - System admins (admin/owner in the system org): see all failures across all orgs.
-   * - Org admins/owners: see only failures whose `pluginRecord.orgId` matches their org.
-   * - All other users: 403.
+   * Access: gated by `requirePermission('plugins:write')` (route middleware) —
+   * same org-scoped gate as GET /failed and GET /dlq.
+   * Visibility:
+   * - System admins: see all failures across all orgs.
+   * - Other plugins:write holders: see only failures whose `pluginRecord.orgId`
+   *   matches their org (tenant-isolation filter below).
    */
-  router.get('/triage', withRoute(async ({ req, res, orgId }) => {
-    const role = req.user?.role;
-    if (role !== 'admin' && role !== 'owner') {
-      return sendError(res, 403, 'Only administrators can view triage', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
-
+  router.get('/triage', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
     const isSuperAdmin = isSystemAdmin(req);
 
     const sampleLimit = Math.min(parseQueryInt(req.query.samples, 5), 20);

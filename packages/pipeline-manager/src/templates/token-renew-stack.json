@@ -80,7 +80,8 @@
             "PLATFORM_BASE_URL": { "Ref": "PlatformBaseUrl" },
             "PLATFORM_SECRET_NAME": { "Ref": "PlatformSecretName" },
             "RENEW_DAYS": { "Ref": "RenewDays" },
-            "PIPELINE_MANAGER_VERSION": { "Ref": "PipelineManagerVersion" }
+            "PIPELINE_MANAGER_VERSION": { "Ref": "PipelineManagerVersion" },
+            "NODE_ENV": "production"
           }
         }
       }

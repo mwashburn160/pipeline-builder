@@ -489,6 +489,35 @@ describe('CrudService', () => {
       const result = await service.updateMany({ name: 'old' }, { name: 'Updated' }, 'org1', 'user1');
       expect(result).toHaveLength(2);
     });
+
+    it('pins the write to the caller org (adds the own-org guard via getOrgColumn)', async () => {
+      // Regression: updateMany used only buildConditions, which also matches
+      // system/other-org PUBLIC rows. It must add the same own-org write-pin
+      // (eq(getOrgColumn(), orgId)) that update/delete/bulkDelete use so it
+      // can't mutate another org's/system public rows.
+      const whereSpy = jest.fn().mockReturnValue({
+        returning: jest.fn().mockResolvedValue([]),
+      });
+      mockUpdate.mockReturnValue({ set: jest.fn().mockReturnValue({ where: whereSpy }) });
+
+      const orgColumnSpy = jest.spyOn(service as any, 'getOrgColumn');
+      await service.updateMany({ name: 'old' }, { name: 'X' }, 'org1', 'user1');
+      // The write-pin invokes getOrgColumn() to build eq(col, orgId).
+      expect(orgColumnSpy).toHaveBeenCalled();
+      expect(whereSpy).toHaveBeenCalled();
+    });
+
+    it('omits the own-org pin for an orgId-less (sysadmin) context', async () => {
+      const whereSpy = jest.fn().mockReturnValue({
+        returning: jest.fn().mockResolvedValue([]),
+      });
+      mockUpdate.mockReturnValue({ set: jest.fn().mockReturnValue({ where: whereSpy }) });
+
+      const orgColumnSpy = jest.spyOn(service as any, 'getOrgColumn');
+      await service.updateMany({ name: 'old' }, { name: 'X' }, '', 'user1');
+      // Empty orgId ⇒ no pin ⇒ getOrgColumn() is not consulted for the write.
+      expect(orgColumnSpy).not.toHaveBeenCalled();
+    });
   });
 
   // findPaginated

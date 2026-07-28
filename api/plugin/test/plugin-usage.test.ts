@@ -88,11 +88,54 @@ function mockRes() {
   return res;
 }
 
+/** Flatten every string primitive reachable from a drizzle `SQL` object
+ *  (StringChunk `.value` fragments + inlined param values) so a test can
+ *  assert on both the emitted SQL text and its bound parameters. */
+function collectStrings(root: unknown): string[] {
+  const out: string[] = [];
+  const seen = new Set<object>();
+  const stack: unknown[] = [root];
+  while (stack.length) {
+    const c = stack.pop();
+    if (typeof c === 'string') { out.push(c); continue; }
+    if (c == null || typeof c !== 'object' || seen.has(c)) continue;
+    seen.add(c);
+    for (const v of Array.isArray(c) ? c : Object.values(c)) stack.push(v);
+  }
+  return out;
+}
+
 describe('GET /plugins/plugin-usage', () => {
   const handler = getHandler('/plugin-usage');
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('scopes the aggregation to the caller org (explicit org_id predicate + bound param)', async () => {
+    // Cross-org leak regression: the query must NOT rely on Postgres RLS alone
+    // (documented as running in owner-BYPASS mode). It must carry an explicit
+    // `p.org_id = <callerOrg>` predicate so only the caller's pipelines are
+    // counted.
+    mockExecute.mockResolvedValue({ rows: [] });
+    const res = mockRes();
+    await handler({ __orgId: 'org-a', query: {} } as any, res);
+
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const strings = collectStrings(mockExecute.mock.calls[0][0]);
+    // SQL text carries an explicit org predicate...
+    expect(strings.some((s) => s.includes('org_id'))).toBe(true);
+    // ...bound to the caller's (already-lowercased) org, not some other tenant.
+    expect(strings).toContain('org-a');
+    expect(strings).not.toContain('org-b');
+  });
+
+  it('binds a DIFFERENT caller org into the predicate (no fixed/leaky org)', async () => {
+    mockExecute.mockResolvedValue({ rows: [] });
+    const res = mockRes();
+    await handler({ __orgId: 'org-zzz', query: {} } as any, res);
+    const strings = collectStrings(mockExecute.mock.calls[0][0]);
+    expect(strings).toContain('org-zzz');
   });
 
   it('returns counts map keyed by plugin name', async () => {

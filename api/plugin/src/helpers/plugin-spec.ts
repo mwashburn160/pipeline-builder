@@ -77,15 +77,38 @@ async function readAndExtractZip(
   let entryCount = 0;
 
   return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+    // autoClose:false — we own the fd lifecycle explicitly. yauzl's default
+    // autoClose only fires on the natural `end` (or a yauzl-emitted error); it
+    // does NOT close on our own validation rejects (entry-count cap, path
+    // traversal, byte cap), which is exactly how the fd used to leak. Owning it
+    // here guarantees a single close on EVERY terminal path.
+    yauzl.open(zipPath, { lazyEntries: true, autoClose: false }, (err, zipfile) => {
       if (err) return reject(err);
+
+      // Close the underlying fd on EVERY terminal path — success AND every
+      // reject (entry-count cap, path traversal, byte cap, stream/mkdir
+      // errors). Previously `close()` ran only on the success `end` path, so a
+      // rejected extraction (zip bomb / traversal spam) leaked an fd per
+      // upload and could exhaust the process's descriptor table. `settled`
+      // guards against a double-close if a later event fires after the promise
+      // has already resolved/rejected.
+      let settled = false;
+      const finish = (fn: () => void): void => {
+        if (settled) return;
+        settled = true;
+        try { zipfile.close(); } catch { /* fd already closed */ }
+        fn();
+      };
+      const rejectOnce = (e: unknown): void => finish(() => reject(e));
+      const resolveOnce = (v: Map<string, string>): void => finish(() => resolve(v));
+
       zipfile.readEntry();
 
       zipfile.on('entry', (entry) => {
         // -- Entry-count cap ---------------------------------------------------
         entryCount += 1;
         if (entryCount > maxEntries) {
-          return reject(new ValidationError(
+          return rejectOnce(new ValidationError(
             `ZIP exceeds the maximum entry count (${maxEntries}) — refusing to extract (possible zip bomb)`,
           ));
         }
@@ -94,11 +117,11 @@ async function readAndExtractZip(
 
         // Prevent path traversal
         if (!targetPath.startsWith(extractDir + path.sep) && targetPath !== extractDir) {
-          return reject(new ValidationError(`ZIP entry escapes target directory: ${entry.fileName}`));
+          return rejectOnce(new ValidationError(`ZIP entry escapes target directory: ${entry.fileName}`));
         }
 
         if (entry.fileName.endsWith('/')) {
-          fs.mkdir(targetPath, { recursive: true }).then(() => zipfile.readEntry()).catch(reject);
+          fs.mkdir(targetPath, { recursive: true }).then(() => zipfile.readEntry()).catch(rejectOnce);
           return;
         }
 
@@ -107,7 +130,7 @@ async function readAndExtractZip(
         // when the declared expansion alone would blow the ceiling. The actual
         // per-chunk accounting below defends against a lying header.
         if (typeof entry.uncompressedSize === 'number' && totalBytes + entry.uncompressedSize > maxBytes) {
-          return reject(new ValidationError(
+          return rejectOnce(new ValidationError(
             `ZIP exceeds the maximum extracted size (${maxBytes} bytes) — refusing to extract (possible zip bomb)`,
           ));
         }
@@ -116,7 +139,7 @@ async function readAndExtractZip(
         const countChunk = (chunk: Buffer): boolean => {
           totalBytes += chunk.length;
           if (totalBytes > maxBytes) {
-            reject(new ValidationError(
+            rejectOnce(new ValidationError(
               `ZIP exceeds the maximum extracted size (${maxBytes} bytes) — refusing to extract (possible zip bomb)`,
             ));
             return false;
@@ -128,7 +151,7 @@ async function readAndExtractZip(
         fs.mkdir(path.dirname(targetPath), { recursive: true })
           .then(() => {
             zipfile.openReadStream(entry, (streamErr, stream) => {
-              if (streamErr) return reject(streamErr);
+              if (streamErr) return rejectOnce(streamErr);
 
               const writeStream = createWriteStream(targetPath);
               // A write failure (ENOSPC/EROFS on the upload volume) emits
@@ -136,7 +159,7 @@ async function readAndExtractZip(
               // unhandled exception and crashes the process. Gate the "done"
               // side-effects on the write's 'finish' (fully flushed) rather
               // than the read stream's 'end'.
-              writeStream.on('error', reject);
+              writeStream.on('error', rejectOnce);
 
               if (wanted.has(entry.fileName)) {
                 // Capture text content AND write to disk
@@ -150,7 +173,7 @@ async function readAndExtractZip(
                   chunks.push(chunk); writeStream.write(chunk);
                 });
                 stream.on('end', () => { writeStream.end(); });
-                stream.on('error', reject);
+                stream.on('error', rejectOnce);
               } else {
                 // Just write to disk (with the same byte accounting)
                 writeStream.on('finish', () => zipfile.readEntry());
@@ -159,15 +182,15 @@ async function readAndExtractZip(
                   writeStream.write(chunk);
                 });
                 stream.on('end', () => { writeStream.end(); });
-                stream.on('error', reject);
+                stream.on('error', rejectOnce);
               }
             });
           })
-          .catch(reject);
+          .catch(rejectOnce);
       });
 
-      zipfile.on('end', () => { zipfile.close(); resolve(results); });
-      zipfile.on('error', reject);
+      zipfile.on('end', () => resolveOnce(results));
+      zipfile.on('error', rejectOnce);
     });
   });
 }

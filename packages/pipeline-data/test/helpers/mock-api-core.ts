@@ -48,6 +48,8 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
+    // Allow-list shared by the reporting-service DATE_TRUNC interval guard.
+    REPORT_INTERVALS: ['day', 'week', 'month'],
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     NotFoundError,
     // Real AWS-scrub behavior (small, pure) so suites that persist AWS-derived

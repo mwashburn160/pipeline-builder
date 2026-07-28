@@ -35,9 +35,18 @@ import {
 const pipelineBuilder = new AccessControlQueryBuilder(schema.pipeline);
 const pluginBuilder = new AccessControlQueryBuilder(schema.plugin);
 
-/** Take the first id when a filter's `id` is an array, else the string itself. */
-function firstId(id: string | string[]): string {
-  return typeof id === 'string' ? id : id[0];
+/**
+ * Equality predicate for a filter's `id` (a single string, or the first id of a
+ * list). An EMPTY list carries no valid id, so instead of producing a malformed
+ * `eq(col, undefined)` (which Postgres would reject / treat unpredictably) it
+ * yields the fail-closed IMPOSSIBLE predicate — an empty id filter matches no
+ * rows, consistent with "no id given ⇒ nothing selected".
+ */
+function idEquals(col: AnyColumn, id: string | string[]): SQL {
+  if (Array.isArray(id)) {
+    return id.length > 0 ? eq(col, id[0]) : IMPOSSIBLE;
+  }
+  return eq(col, id);
 }
 
 /**
@@ -227,7 +236,7 @@ export function buildMessageConditions(
 
   // ID filter
   if (filter.id !== undefined) {
-    conditions.push(eq(schema.message.id, firstId(filter.id)));
+    conditions.push(idEquals(schema.message.id, filter.id));
   }
 
   return conditions;
@@ -271,7 +280,7 @@ export function buildCompliancePolicyConditions(
   }
 
   if (filter.id !== undefined) {
-    conditions.push(eq(schema.compliancePolicy.id, firstId(filter.id)));
+    conditions.push(idEquals(schema.compliancePolicy.id, filter.id));
   }
 
   if (filter.name !== undefined) {
@@ -323,7 +332,7 @@ export function buildComplianceRuleConditions(
   }
 
   if (filter.id !== undefined) {
-    conditions.push(eq(schema.complianceRule.id, firstId(filter.id)));
+    conditions.push(idEquals(schema.complianceRule.id, filter.id));
   }
 
   if (filter.name !== undefined) {

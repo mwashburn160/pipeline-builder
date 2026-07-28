@@ -15,11 +15,14 @@ import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { setGauge } from '@pipeline-builder/api-server';
 import type { Queue } from 'bullmq';
 
+import { intFromEnv } from './env-int.js';
+
 const logger = createLogger('queue-metrics-scraper');
 
 /** Scrape interval. Picked to give Prometheus' 15s scrape ample fresh samples.
- *  Override via `PLUGIN_QUEUE_METRICS_INTERVAL_MS`. */
-const DEFAULT_INTERVAL_MS = parseInt(process.env.PLUGIN_QUEUE_METRICS_INTERVAL_MS || '15000', 10);
+ *  Override via `PLUGIN_QUEUE_METRICS_INTERVAL_MS`. NaN-guarded so a garbage
+ *  env value falls back to the default instead of a nonsensical `NaN` interval. */
+const DEFAULT_INTERVAL_MS = intFromEnv('PLUGIN_QUEUE_METRICS_INTERVAL_MS', 15000);
 
 /** BullMQ states reported by `getJobCounts`. Stable across BullMQ 5.x. */
 const STATES = ['waiting', 'active', 'completed', 'failed', 'delayed', 'paused'] as const;

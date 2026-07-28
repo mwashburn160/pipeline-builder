@@ -16,6 +16,24 @@ describe('lookupPath', () => {
   it('handles arrays on the path (returns the array)', () => {
     expect(lookupPath({ a: [1, 2] }, ['a'])).toEqual([1, 2]);
   });
+
+  it('does not traverse inherited prototype-chain properties', () => {
+    // constructor/toString/valueOf/hasOwnProperty/__proto__ live on the
+    // prototype, not as own keys — they must resolve to undefined.
+    expect(lookupPath({}, ['constructor'])).toBeUndefined();
+    expect(lookupPath({}, ['toString'])).toBeUndefined();
+    expect(lookupPath({}, ['valueOf'])).toBeUndefined();
+    expect(lookupPath({}, ['hasOwnProperty'])).toBeUndefined();
+    expect(lookupPath({}, ['__proto__'])).toBeUndefined();
+    expect(lookupPath({}, ['__proto__', 'polluted'])).toBeUndefined();
+    // Nested inherited access is blocked too.
+    expect(lookupPath({ a: {} }, ['a', 'constructor'])).toBeUndefined();
+  });
+
+  it('still resolves an own property that happens to share a builtin name', () => {
+    // If the scope genuinely owns the key it's data, not a prototype leak.
+    expect(lookupPath({ constructor: 'own' }, ['constructor'])).toBe('own');
+  });
 });
 
 describe('resolve', () => {
@@ -66,6 +84,56 @@ describe('resolve', () => {
     } catch (e: any) {
       expect(e.code).toBe(ErrorCode.TEMPLATE_TYPE_MISMATCH);
     }
+  });
+});
+
+describe('prototype-chain hardening', () => {
+  const scope = {
+    pipeline: { metadata: { env: 'prod' } },
+    plugin: { name: 'deploy', version: '1.0.0' },
+  };
+
+  // These previously resolved off the scope's prototype chain
+  // (`{{ constructor }}` → function source, `{{ toString }}` → garbage).
+  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'])(
+    'rejects bare prototype key {{ %s }} with TEMPLATE_UNKNOWN_PATH',
+    (key) => {
+      expect.assertions(1);
+      try {
+        resolve(tokenize(`{{ ${key} }}`), scope);
+      } catch (e: any) {
+        expect(e.code).toBe(ErrorCode.TEMPLATE_UNKNOWN_PATH);
+      }
+    },
+  );
+
+  it('treats a prototype key as unknown-path so | default: falls back', () => {
+    expect(resolve(tokenize('{{ constructor | default: \'safe\' }}'), scope)).toBe('safe');
+    expect(resolve(tokenize('{{ toString | default: \'safe\' }}'), scope)).toBe('safe');
+  });
+
+  it('rejects nested prototype access (pipeline.constructor)', () => {
+    expect.assertions(1);
+    try {
+      resolve(tokenize('{{ pipeline.constructor }}'), scope);
+    } catch (e: any) {
+      expect(e.code).toBe(ErrorCode.TEMPLATE_UNKNOWN_PATH);
+    }
+  });
+
+  it('rejects an unknown scope root in the evaluator (no validateTemplates)', () => {
+    // The synth path calls resolve() directly, skipping validateTemplates.
+    // An unknown root must still be rejected with the standard template error.
+    expect.assertions(1);
+    try {
+      resolve(tokenize('{{ bogusRoot.value }}'), scope);
+    } catch (e: any) {
+      expect(e.code).toBe(ErrorCode.TEMPLATE_UNKNOWN_PATH);
+    }
+  });
+
+  it('still resolves a legitimate own-property path', () => {
+    expect(resolve(tokenize('{{ pipeline.metadata.env }}'), scope)).toBe('prod');
   });
 });
 

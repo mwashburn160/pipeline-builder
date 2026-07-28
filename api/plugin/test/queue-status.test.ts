@@ -41,6 +41,14 @@ const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } a
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn(),
+  // Functional gate (the default apiCoreMock stub is a pass-through): grants a
+  // superadmin implicitly, else requires one of the named permissions in
+  // `req.user.permissions`. Lets us assert the standardized route gate.
+  requirePermission: (...perms: string[]) => (req: any, res: any, next: () => void) => {
+    const granted: string[] = req.user?.permissions ?? [];
+    if (req.user?.isSuperAdmin || perms.some((p) => granted.includes(p))) return next();
+    return res.status(403).json({ success: false, statusCode: 403, message: 'forbidden' });
+  },
   sendSuccess: jest.fn((res: any, status: number, data: any) => {
     res.status(status).json({ success: true, statusCode: status, data });
   }),
@@ -136,18 +144,42 @@ describe('queue-status route', () => {
   // jobs, org admin/owner sees only their own. Without this filter, an org
   // admin could see another tenant's plugin names + error messages.
 
+  // The org-scoped GET endpoints now carry a `requirePermission('plugins:write')`
+  // middleware ahead of the withRoute handler, so the terminal handler (which
+  // holds the tenant-isolation logic) is the LAST layer in the route stack.
   function getRouteHandler(path: string) {
     const router = createQueueStatusRoutes(mockQuotaService);
     const layer = (router.stack as any[]).find((l) => l.route?.path === path);
-    return layer?.route?.stack[0]?.handle;
+    const stack = layer?.route?.stack;
+    return stack?.[stack.length - 1]?.handle;
   }
 
-  function makeReq(role: 'admin' | 'owner' | 'member', orgId = 'org-1', query: Record<string, string> = {}) {
+  // Run the FULL route stack (gate middleware + handler) so the standardized
+  // permission gate is actually exercised, not bypassed.
+  async function runRoute(path: string, req: any, res: any) {
+    const router = createQueueStatusRoutes(mockQuotaService);
+    const layer = (router.stack as any[]).find((l) => l.route?.path === path);
+    const handles: Array<(req: any, res: any, next: () => unknown) => unknown> =
+      layer.route.stack.map((s: any) => s.handle);
+    let i = 0;
+    const next = async (): Promise<void> => {
+      const h = handles[i++];
+      if (h) await h(req, res, next);
+    };
+    await next();
+  }
+
+  function makeReq(
+    role: 'admin' | 'owner' | 'member',
+    orgId = 'org-1',
+    query: Record<string, string> = {},
+    permissions: string[] = ['plugins:read', 'plugins:write'],
+  ) {
     return {
       headers: { 'x-org-id': orgId },
       query,
       method: 'GET',
-      user: { role, organizationId: orgId },
+      user: { role, organizationId: orgId, permissions },
     } as any;
   }
 
@@ -187,13 +219,35 @@ describe('queue-status route', () => {
       expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['j-a', 'j-b']);
     });
 
-    it('rejects member role with 403', async () => {
+    // Standardized gate: the org-scoped GET ops now require plugins:write
+    // (matching the sibling retry/replay writes), NOT the coarse admin/owner
+    // role string. A member who holds plugins:write is admitted...
+    it('admits a member holding plugins:write (own-org jobs)', async () => {
       (isSystemAdmin as jest.Mock).mockReturnValue(false);
-      const handler = getRouteHandler('/failed');
-      const req = makeReq('member' as any, 'org-1');
+      mockGetJobs.mockResolvedValue([
+        { id: 'j-mine', name: 'p', data: { orgId: 'org-1', pluginRecord: { name: 'mine' } }, opts: {}, attemptsMade: 1 },
+      ]);
+
+      const req = makeReq('member', 'org-1', {}, ['plugins:read', 'plugins:write']);
       const json = jest.fn();
       const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
-      await handler(req, res, jest.fn());
+      await runRoute('/failed', req, res);
+
+      expect(mockGetJobs).toHaveBeenCalled();
+      const payload = (json.mock.calls[0])?.[0];
+      expect(payload.statusCode).toBe(200);
+      expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['j-mine']);
+    });
+
+    // ...and a non-sysadmin lacking plugins:write is denied at the gate,
+    // never reaching the queue read.
+    it('denies a caller without plugins:write with 403', async () => {
+      (isSystemAdmin as jest.Mock).mockReturnValue(false);
+
+      const req = makeReq('member', 'org-1', {}, ['plugins:read']); // no plugins:write
+      const json = jest.fn();
+      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
+      await runRoute('/failed', req, res);
 
       expect(mockGetJobs).not.toHaveBeenCalled();
       const payload = (json.mock.calls[0])?.[0];

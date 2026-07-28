@@ -7,6 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'yaml';
 import { printDebug, printError, printWarning } from './output-utils.js';
+import { assertSslDisableAllowed, isProductionEnv } from './tls.js';
 import { type Config } from '../types/index.js';
 
 // ESM has no __dirname; derive it from this module's URL.
@@ -91,7 +92,7 @@ export function getApiConfig(): Omit<Config, 'auth'> {
 
   if (process.env.TLS_REJECT_UNAUTHORIZED !== undefined) {
     const disable = process.env.TLS_REJECT_UNAUTHORIZED === '0';
-    if (disable && process.env.NODE_ENV === 'production') {
+    if (disable && isProductionEnv()) {
       printWarning('Ignoring TLS_REJECT_UNAUTHORIZED=0 in production — SSL verification remains enabled');
     } else {
       config.api.rejectUnauthorized = !disable;
@@ -159,5 +160,12 @@ function withSSLDisabled(config: Config): Config {
  */
 export function getConfigWithOptions(options: { verifySsl?: boolean }): Config {
   const config = getConfig();
-  return options.verifySsl === false ? withSSLDisabled(config) : config;
+  if (options.verifySsl === false) {
+    // Every authenticated command flows its token through here — refuse to
+    // disable cert verification in production (mirrors the login/renewal guards)
+    // so a MITM can't harvest the Bearer JWT. No-op in non-production.
+    assertSslDisableAllowed('authenticated API client (--no-verify-ssl)');
+    return withSSLDisabled(config);
+  }
+  return config;
 }

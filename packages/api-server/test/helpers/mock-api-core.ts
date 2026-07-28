@@ -104,6 +104,16 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
+    // Functional sendError double mirroring api-core's envelope: writes the
+    // standard error shape via res.status(...).json(...). Suites that assert on
+    // the call override this with a jest.fn() (overrides win).
+    sendError: (res: any, statusCode: number, message: string, code?: string, details?: unknown) => {
+      if (res.headersSent) return;
+      const body: Record<string, unknown> = { success: false, statusCode, message };
+      if (code) body.code = code;
+      if (details !== undefined) body.details = details;
+      res.status(statusCode).json(body);
+    },
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     // Sanitized DB-error extractor: tests don't surface pg metadata, so default to {}.
     extractDbError: () => ({}),

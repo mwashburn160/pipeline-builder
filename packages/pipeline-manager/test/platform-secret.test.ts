@@ -22,7 +22,7 @@ jest.unstable_mockModule('axios', () => ({
 
 const { ensurePlatformToken } = await import('../src/utils/platform-secret.js');
 
-const ENV_KEYS = ['PLATFORM_TOKEN', 'PLATFORM_IDENTIFIER', 'PLATFORM_PASSWORD', 'PLATFORM_BASE_URL'] as const;
+const ENV_KEYS = ['PLATFORM_TOKEN', 'PLATFORM_IDENTIFIER', 'PLATFORM_PASSWORD', 'PLATFORM_BASE_URL', 'NODE_ENV'] as const;
 let saved: Record<string, string | undefined>;
 
 describe('ensurePlatformToken — pre-auth inline login', () => {
@@ -66,5 +66,35 @@ describe('ensurePlatformToken — pre-auth inline login', () => {
     await expect(ensurePlatformToken({})).resolves.toBeUndefined();
     expect(mockPost).not.toHaveBeenCalled();
     expect(process.env.PLATFORM_TOKEN).toBeUndefined();
+  });
+
+  it('REFUSES verifySsl:false inline login in production (never POSTs the password)', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.PLATFORM_BASE_URL = 'https://api.example.com';
+
+    await expect(
+      ensurePlatformToken({ email: 'admin@example.com', password: 'pw', verifySsl: false }),
+    ).rejects.toThrow(/production/i);
+
+    // The guard fires BEFORE any network call — the password never leaves.
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(process.env.PLATFORM_TOKEN).toBeUndefined();
+  });
+
+  it('honors verifySsl:false inline login in non-production (self-signed dev)', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.PLATFORM_BASE_URL = 'https://localhost:8443';
+    mockPost.mockResolvedValue({ data: { data: { accessToken: 'fresh.jwt.token' } } });
+
+    await expect(
+      ensurePlatformToken({ email: 'admin@example.com', password: 'pw', verifySsl: false }),
+    ).resolves.toBeUndefined();
+
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    // An SSL-disabling agent was passed (the verification-enabled path passes
+    // `httpsAgent: undefined`, so a defined agent proves SSL was disabled).
+    const cfg = mockPost.mock.calls[0][2] as { httpsAgent?: unknown };
+    expect(cfg.httpsAgent).toBeDefined();
+    expect(process.env.PLATFORM_TOKEN).toBe('fresh.jwt.token');
   });
 });

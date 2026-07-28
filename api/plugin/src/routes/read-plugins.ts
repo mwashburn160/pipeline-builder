@@ -27,11 +27,15 @@ export function createReadPluginRoutes(
   // Lives on the plugin service (not pipeline) because the consumer is the
   // plugins dashboard. The query reads the shared `pipeline` table via the
   // pipeline-data drizzle connection — both services share the same Postgres.
-  router.get('/plugin-usage', withRoute(async ({ res, ctx }) => {
-    // RLS-ready: `withTenantTx` SET LOCALs `app.org_id`, so once
-    // FORCE ROW LEVEL SECURITY is enabled the RLS policy on `pipelines`
-    // will scope this query to the caller's org without an explicit
-    // org_id predicate in the SQL.
+  router.get('/plugin-usage', withRoute(async ({ res, ctx, orgId }) => {
+    // Explicit per-org scoping (defense-in-depth). `withTenantTx` SET LOCALs
+    // `app.org_id`, so once FORCE ROW LEVEL SECURITY lands the RLS policy on
+    // `pipelines` will also scope this. But RLS is documented as currently
+    // running in owner-BYPASS mode (see pipeline-data tenancy.ts), so we bind
+    // the query to the caller's org here — mirroring how the plugin lookup /
+    // ai-generation services scope via an explicit condition — and keep the
+    // predicate as belt-and-suspenders even after FORCE RLS is enabled. The
+    // route-context `orgId` is already lowercased to match stored org ids.
     const rows = await withTenantTx(async (tx) => tx.execute<{ name: string; cnt: string | number }>(sql`
       SELECT step->'plugin'->>'name' AS name,
              COUNT(DISTINCT p.id) AS cnt
@@ -39,6 +43,7 @@ export function createReadPluginRoutes(
              jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
              jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
        WHERE p.is_active = true
+         AND p.org_id = ${orgId}
          AND step->'plugin'->>'name' IS NOT NULL
        GROUP BY step->'plugin'->>'name'
     `));

@@ -38,19 +38,27 @@ const redis = {
 const mockGetAllTierQueues = jest.fn<() => any[]>(() => []);
 const mockGetDeadLetterQueue = jest.fn<() => any>(() => ({ name: 'plugin-build-dlq', getJobs: async () => [] }));
 
-jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
-  getConnectionForDb: () => redis,
-  getAllTierQueues: mockGetAllTierQueues,
-}));
+// Registered as a function so the NaN-fallback test can re-apply the mocks
+// after `jest.resetModules()` and re-import slot-manager with a garbage env.
+// NOTE: `env-int.js` is intentionally NOT mocked — the real `intFromEnv` runs
+// so the fallback behaviour is exercised end-to-end.
+function registerMocks() {
+  jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
+    getConnectionForDb: () => redis,
+    getAllTierQueues: mockGetAllTierQueues,
+  }));
 
-jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
-  getDeadLetterQueue: mockGetDeadLetterQueue,
-}));
+  jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
+    getDeadLetterQueue: mockGetDeadLetterQueue,
+  }));
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
-  errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-}));
+  jest.unstable_mockModule('@pipeline-builder/api-core', () => ({
+    createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+    errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  }));
+}
+
+registerMocks();
 
 const { tryAcquireOrgSlot, scrubOrgSlots } = await import('../src/queue/slot-manager.js');
 
@@ -130,5 +138,49 @@ describe('scrubOrgSlots — queue-qualified reconciliation', () => {
 
     expect(mockDecr).not.toHaveBeenCalled();
     expect(mockHdel).not.toHaveBeenCalled();
+  });
+});
+
+describe('MAX_BUILDS_PER_ORG — NaN-fallback (bricked-builds regression)', () => {
+  const KEY = 'PLUGIN_MAX_BUILDS_PER_ORG';
+  const original = process.env[KEY];
+
+  afterEach(() => {
+    if (original === undefined) delete process.env[KEY];
+    else process.env[KEY] = original;
+    jest.clearAllMocks();
+  });
+
+  it('falls back to the default cap (3) instead of passing NaN to the acquire Lua', async () => {
+    // A garbage env value previously produced `parseInt('garbage', 10) === NaN`,
+    // and `String(NaN)` -> the Lua's `tonumber(ARGV[1])` returns nil, so every
+    // acquire would throw and brick ALL plugin builds. intFromEnv must instead
+    // fall back to the numeric default.
+    process.env[KEY] = 'not-a-number';
+    jest.resetModules();
+    registerMocks();
+    const mod = await import('../src/queue/slot-manager.js');
+
+    mockEval.mockResolvedValueOnce(1);
+    const ok = await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-1');
+
+    expect(ok).toBe(true);
+    // eval args: (LUA, numKeys, key, String(cap), String(ttl)). The cap must be
+    // the numeric default, never the string 'NaN'.
+    const capArg = mockEval.mock.calls.at(-1)![3];
+    expect(capArg).toBe('3');
+    expect(capArg).not.toBe('NaN');
+  });
+
+  it('honours a valid override', async () => {
+    process.env[KEY] = '7';
+    jest.resetModules();
+    registerMocks();
+    const mod = await import('../src/queue/slot-manager.js');
+
+    mockEval.mockResolvedValueOnce(1);
+    await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-2');
+
+    expect(mockEval.mock.calls.at(-1)![3]).toBe('7');
   });
 });

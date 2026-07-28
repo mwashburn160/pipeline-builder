@@ -30,6 +30,13 @@ const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } a
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn(),
+  // Functional gate (default apiCoreMock stub is pass-through): grants a
+  // superadmin implicitly, else requires one of the named permissions.
+  requirePermission: (...perms: string[]) => (req: any, res: any, next: () => void) => {
+    const granted: string[] = req.user?.permissions ?? [];
+    if (req.user?.isSuperAdmin || perms.some((p) => granted.includes(p))) return next();
+    return res.status(403).json({ success: false, statusCode: 403, message: 'forbidden' });
+  },
   getParam: (p: any, k: string) => p[k],
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
@@ -55,11 +62,29 @@ const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js'
 
 function getTriageHandler() {
   const router = createQueueStatusRoutes(mockQuotaService);
-  // Find the GET /triage handler by route path.
+  // Find the GET /triage handler by route path. The route now carries a
+  // `requirePermission('plugins:write')` middleware ahead of the withRoute
+  // handler, so the terminal (tenant-isolation) handler is the LAST layer.
   const triageLayer = (router.stack as any[]).find( (l) => l.route?.path === '/triage' && l.route?.methods?.get,
   );
   if (!triageLayer) throw new Error('/triage handler not registered');
-  return triageLayer.route.stack[0].handle;
+  const stack = triageLayer.route.stack;
+  return stack[stack.length - 1].handle;
+}
+
+// Run the FULL /triage stack (gate middleware + handler) so the standardized
+// permission gate is actually exercised.
+async function runTriage(req: any, res: any) {
+  const router = createQueueStatusRoutes(mockQuotaService);
+  const layer = (router.stack as any[]).find((l) => l.route?.path === '/triage' && l.route?.methods?.get);
+  const handles: Array<(req: any, res: any, next: () => unknown) => unknown> =
+    layer.route.stack.map((s: any) => s.handle);
+  let i = 0;
+  const next = async (): Promise<void> => {
+    const h = handles[i++];
+    if (h) await h(req, res, next);
+  };
+  await next();
 }
 
 function makeRes() {
@@ -85,18 +110,34 @@ describe('GET /triage  auth and tenant isolation', () => {
     dlqGetJobs.mockResolvedValue([]);
   });
 
-  it('rejects users without admin/owner role', async () => {
+  it('denies a caller without plugins:write at the gate', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    const handler = getTriageHandler();
     const { res, json } = makeRes();
-    await handler({
+    await runTriage({
       __orgId: 'org-a',
-      user: { role: 'member', organizationId: 'org-a' },
+      user: { role: 'member', organizationId: 'org-a', permissions: ['plugins:read'] }, // no plugins:write
       query: {},
     } as any, res);
 
     expect(queueGetJobs).not.toHaveBeenCalled();
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+  });
+
+  it('admits a member holding plugins:write through the gate', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    queueGetJobs.mockResolvedValue([job('1', 'org-a')]);
+    const { res, json } = makeRes();
+    await runTriage({
+      __orgId: 'org-a',
+      user: { role: 'member', organizationId: 'org-a', permissions: ['plugins:read', 'plugins:write'] },
+      query: {},
+    } as any, res);
+
+    expect(queueGetJobs).toHaveBeenCalled();
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({
+      statusCode: 200,
+      data: expect.objectContaining({ totalFailed: 1 }),
+    }));
   });
 
   it('system admin sees failures from ALL orgs', async () => {

@@ -9,6 +9,7 @@ import { generateExecutionId, TIMEOUTS } from '../config/cli.constants.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printDebug, printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { checkAuthRateLimit, recordAuthFailure, recordAuthSuccess } from '../utils/rate-limiter.js';
+import { isProductionEnv } from '../utils/tls.js';
 
 const { bold, cyan, green, magenta } = pico;
 
@@ -56,6 +57,15 @@ export function login(program: Command): void {
     .action(async (options) => {
       const executionId = generateExecutionId();
       const isRefresh = !!options.refresh;
+
+      // SECURITY: login/refresh POST plaintext passwords and JWTs. Never send them
+      // over an unverified TLS connection in production — a MITM would harvest them.
+      // Mirrors the guard in config-loader / tls. In non-production, --no-verify-ssl
+      // is still honored (self-signed dev platforms).
+      if (options.verifySsl === false && isProductionEnv()) {
+        printError('Refusing to disable TLS verification in production (NODE_ENV=production) — credentials must not be transmitted over an unverified connection. Use a valid certificate, or unset NODE_ENV for local/self-signed development.');
+        process.exit(ERROR_CODES.AUTHENTICATION);
+      }
 
       // Credentials may come from flags OR the PLATFORM_IDENTIFIER/PLATFORM_PASSWORD
       // env vars (so the password need not appear in shell history / `ps`).

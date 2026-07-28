@@ -15,7 +15,7 @@ import { v7 as uuid } from 'uuid';
 import { etagMiddleware } from './etag-middleware.js';
 import { metricsMiddleware, metricsHandler, incCounter } from './metrics.js';
 import { readinessGuard } from './readiness.js';
-import { SSEManager } from '../http/sse-connection-manager.js';
+import { SSEManager, SSE_REQUEST_ID_RE } from '../http/sse-connection-manager.js';
 
 // Wire api-core's counter shim to the real prom-client registry. This is
 // a no-op until incCounter is called for the first time (lazy registration
@@ -343,9 +343,10 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // SSE logs endpoint — ticket-gated (Wave 2b).
   // The stream carries per-org build logs, so it must not be world-readable.
   // Clients first POST /logs/ticket (JWT-authenticated) to mint a short-lived,
-  // single-use ticket bound to their org, then open the EventSource with
-  // ?ticket=<t>. This keeps the JWT out of query strings / access logs while
-  // still enforcing org ownership + the per-org connection cap on the stream.
+  // single-use ticket bound to their org AND to the specific `requestId` stream
+  // they intend to open, then open the EventSource with ?ticket=<t>. This keeps
+  // the JWT out of query strings / access logs while enforcing org ownership,
+  // per-subject authorization, and the per-org connection cap on the stream.
   // Mirrors the message-service notifications SSE ticket exchange.
   app.post('/logs/ticket', requireAuth, (req: Request, res: Response) => {
     const orgId = req.user?.organizationId?.toLowerCase();
@@ -353,7 +354,16 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
       return;
     }
-    const result = sseManager.createTicket(orgId);
+    // The caller must name the stream subject up front so the ticket is bound to
+    // it. Without this, a ticket could be replayed against ANY requestId the
+    // org could guess, letting it attach to another org's log stream. Strictly
+    // format-validated so it can't carry an injection payload into the subject.
+    const requestId = (req.body as { requestId?: unknown } | undefined)?.requestId;
+    if (typeof requestId !== 'string' || !SSE_REQUEST_ID_RE.test(requestId)) {
+      sendError(res, 400, 'Missing or invalid requestId', ErrorCode.VALIDATION_ERROR);
+      return;
+    }
+    const result = sseManager.createTicket(orgId, requestId);
     if (!result.ok) {
       if (result.reason === 'org-limit') {
         sendError(res, 429, 'Too many log stream tickets issued', ErrorCode.QUOTA_EXCEEDED);

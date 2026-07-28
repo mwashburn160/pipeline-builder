@@ -153,7 +153,10 @@ export function createExecutionReportRoutes(): Router {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);
-    const errors = await reportingService.getErrors(orgId, range.from, range.to, limit);
+    // Rollup-aware like the sibling execution reports: ?includeDescendants rolls
+    // the error report up over the org→team subtree for a reports:rollup holder.
+    const orgIds = await rollupIds(req, orgId);
+    const errors = await reportingService.getErrors(orgId, range.from, range.to, limit, orgIds);
     const scrubbed = (errors as unknown as Array<Record<string, unknown>>).map((e) => ({
       ...e,
       error_pattern: scrubErrorMessage(e.error_pattern as string | null | undefined),

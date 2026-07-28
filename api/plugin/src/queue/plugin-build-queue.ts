@@ -15,6 +15,7 @@ import { Queue, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 import { Redis } from 'ioredis';
 
+import { intFromEnv } from './env-int.js';
 import {
   DLQ_NAME,
   getDeadLetterQueue,
@@ -53,21 +54,11 @@ export const totalAttemptBudget = () => mainBudget() + dlqBudget();
 
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
 
-/**
- * Parse a positive integer from an env var, falling back to `def` when the
- * value is unset, empty, non-numeric, or non-positive. Guards against a
- * typo'd/garbage env yielding `NaN` — which would otherwise silently break
- * dependent logic (e.g. a `NaN` cache TTL makes `expiresAt = NaN`, and
- * `NaN > Date.now()` is always false so the tier cache never hits; a `NaN`
- * Worker concurrency is likewise nonsensical). Kept local to the plugin
- * service to avoid a cross-package dependency.
- */
-export function intFromEnv(name: string, def: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return def;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : def;
-}
+// `intFromEnv` moved to ./env-int.js (a dependency-free leaf module) so the
+// other queue modules can share the same NaN-guarding env parse without an
+// import cycle. Re-exported here to keep existing
+// `import { intFromEnv } from './plugin-build-queue.js'` call sites resolving.
+export { intFromEnv };
 
 // Queue name & singleton state
 

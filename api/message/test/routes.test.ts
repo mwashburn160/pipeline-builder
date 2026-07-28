@@ -50,9 +50,28 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: mockAuditRecord }),
 }));
 
+// Cross-tenant send gate. The real helper resolves the account root over HTTP;
+// the suite mocks it so tests control reachability directly. Default policy
+// mirrors the real helper's fast paths: own org + system org are reachable, any
+// other org is NOT (default-closed) — tests that exercise a reachable subtree
+// override with `mockResolvedValueOnce(true)`. `clearAllMocks` keeps this base
+// implementation (it clears calls, not implementations).
+const SYSTEM_ORG = '000000000000000000000001';
+const mockIsRecipientReachable = jest.fn<(caller: string, recipient: string) => Promise<boolean>>(
+  async (caller: string, recipient: string) => {
+    const c = String(caller).toLowerCase();
+    const r = String(recipient).toLowerCase();
+    return r === c || r === SYSTEM_ORG;
+  },
+);
+jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
+  isRecipientReachable: mockIsRecipientReachable,
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   isSystemAdmin: jest.fn(() => false),
+  isServicePrincipal: jest.fn(() => false),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
     const response: any = { success: true, statusCode };
     if (data !== undefined) response.data = data;
@@ -142,7 +161,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: { message: { $inferInsert: {} } },
 }));
 
-const { sendBadRequest, sendError, isSystemAdmin, sendEntityNotFound } = await import('@pipeline-builder/api-core');
+const { sendBadRequest, sendError, isSystemAdmin, isServicePrincipal, sendEntityNotFound } = await import('@pipeline-builder/api-core');
 const { createCreateMessageRoutes } = await import('../src/routes/create-message.js');
 const { createDeleteMessageRoutes } = await import('../src/routes/delete-message.js');
 const { createReadMessageRoutes } = await import('../src/routes/read-messages.js');
@@ -521,18 +540,14 @@ describe('POST /messages (create)', () => {
     );
   });
 
-  it('allows non-sysadmin to start a conversation with a non-system org', async () => {
-    // Cross-team / cross-org messaging: non-sysadmins can now address
-    // any recipientOrgId (subject to the read-side visibility check in
-    // buildMessageConditions). The system support inbox path
-    // (recipientOrgId='system' + channel='support') still works and is
-    // covered separately.
+  it('allows a member to start a conversation with their own org', async () => {
     (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    mockCreate.mockResolvedValue({ id: 'msg-cross', subject: 'Hello' });
+    mockCreate.mockResolvedValue({ id: 'msg-self', subject: 'Hello' });
 
+    // ctx.identity.orgId is 'ORG-1' → normalized to 'org-1' by withRoute.
     const req = mockReq({
       body: {
-        recipientOrgId: 'other-org',
+        recipientOrgId: 'org-1',
         messageType: 'conversation',
         subject: 'Hello',
         content: 'Content',
@@ -543,13 +558,108 @@ describe('POST /messages (create)', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalled();
+  });
+
+  it('blocks a member from messaging an unrelated / arbitrary org (403, no row created)', async () => {
+    // Cross-tenant injection guard: an org outside the caller's account (and
+    // not the system support inbox) is unreachable → 403, and NO row is
+    // created. The default mock reachability denies any non-own/non-system org.
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isServicePrincipal as jest.Mock).mockReturnValue(false);
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: 'unrelated-victim-org',
+        messageType: 'conversation',
+        subject: 'Spam',
+        content: 'Content',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(sendError).toHaveBeenCalledWith(
+      res,
+      403,
+      'You cannot send a message to that organization',
+      'INSUFFICIENT_PERMISSIONS',
+    );
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('allows a member to message a reachable org in their account subtree', async () => {
+    // Same-account (shared root org) recipient → reachability resolves true.
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isServicePrincipal as jest.Mock).mockReturnValue(false);
+    mockIsRecipientReachable.mockResolvedValueOnce(true);
+    mockCreate.mockResolvedValue({ id: 'msg-sibling', subject: 'Hello' });
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: 'sibling-team-org',
+        messageType: 'conversation',
+        subject: 'Hello',
+        content: 'Content',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockIsRecipientReachable).toHaveBeenCalledWith('org-1', 'sibling-team-org');
+    expect(res.status).toHaveBeenCalledWith(201);
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        recipientOrgId: 'other-org',
+        recipientOrgId: 'sibling-team-org',
         messageType: 'conversation',
       }),
       expect.anything(),
     );
+  });
+
+  it('allows a sysadmin to target any org, bypassing the reachability gate', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isServicePrincipal as jest.Mock).mockReturnValue(false);
+    mockCreate.mockResolvedValue({ id: 'msg-admin-cross', subject: 'Hello' });
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: 'any-unrelated-org',
+        messageType: 'conversation',
+        subject: 'Hello',
+        content: 'Content',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    // Gate is skipped entirely for sysadmins — no reachability lookup.
+    expect(mockIsRecipientReachable).not.toHaveBeenCalled();
+  });
+
+  it('allows a service principal to target any org, bypassing the reachability gate', async () => {
+    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isServicePrincipal as jest.Mock).mockReturnValue(true);
+    mockCreate.mockResolvedValue({ id: 'msg-svc-cross', subject: 'Hello' });
+
+    const req = mockReq({
+      body: {
+        recipientOrgId: 'any-unrelated-org',
+        messageType: 'conversation',
+        subject: 'Hello',
+        content: 'Content',
+        priority: 'normal',
+      },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockIsRecipientReachable).not.toHaveBeenCalled();
   });
 
   it('returns 500 on service error', async () => {

@@ -337,7 +337,7 @@ describe('Execution Report Routes', () => {
   });
 
   describe('GET /errors', () => {
-    it('should pass limit parameter', async () => {
+    it('should pass limit parameter (no rollup by default)', async () => {
       mockGetErrors.mockResolvedValue([]);
       const handler = getHandler('/errors');
       // /errors is system-admin-only; mark the request principal so the
@@ -347,7 +347,22 @@ describe('Execution Report Routes', () => {
 
       await handler(req, res);
 
-      expect(mockGetErrors).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 10);
+      // 5th arg is the optional org→team rollup id-list — undefined without
+      // ?includeDescendants even for a superadmin.
+      expect(mockResolveOrgRollup).not.toHaveBeenCalled();
+      expect(mockGetErrors).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 10, undefined);
+    });
+
+    // Rollup parity: ?includeDescendants rolls the error report up over the
+    // org→team subtree for a reports:rollup holder (superadmin is implicit-all).
+    it('rolls up over the subtree with ?includeDescendants for a reports:rollup holder', async () => {
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
+      mockGetErrors.mockResolvedValue([]);
+      const handler = getHandler('/errors');
+      await handler({ query: { includeDescendants: 'true' }, user: { isSuperAdmin: true } }, {});
+
+      expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
+      expect(mockGetErrors).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 20, ['acme', 'team-child']);
     });
   });
 });

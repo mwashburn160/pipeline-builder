@@ -120,6 +120,15 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
+// Payment provider — an admin plan change must push the new price to the
+// provider (provider-first), mirroring the user-facing PUT /subscriptions/:id.
+const mockUpdateSubscription = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
+  getPaymentProvider: () => ({
+    updateSubscription: mockUpdateSubscription,
+  }),
+}));
+
 jest.unstable_mockModule('../src/validation/schemas.js', () => ({
   AdminSubscriptionUpdateSchema: {},
 }));
@@ -279,6 +288,73 @@ describe('PUT /admin/subscriptions/:id', () => {
       'sub-1', 'admin-1',
     );
     expect(mockSyncTierToQuotaService).toHaveBeenCalled();
+  });
+
+  it('pushes the new plan price to the provider on a Stripe-backed sub (no finance drift)', async () => {
+    // A Stripe-backed sub (has externalId) must have its price re-pushed so the
+    // provider stops invoicing the OLD plan while the org receives the NEW tier's
+    // entitlements — mirroring the user-facing PUT /subscriptions/:id.
+    const sub = makeSubscription({ planId: 'developer', interval: 'monthly', externalId: 'ext-stripe-1' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    // New plan pushed with the current (unchanged) cadence.
+    expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-stripe-1', 'pro', 'monthly');
+    // Entitlements still sync (billing + entitlements stay consistent).
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', []);
+  });
+
+  it('pushes the effective interval when an admin changes plan AND interval together', async () => {
+    // A combined plan+interval override must land on `{newPlan}_{newInterval}`, so
+    // the provider re-cadences AND re-prices in one push (matches the user path's
+    // effective-cadence behavior).
+    const sub = makeSubscription({ planId: 'developer', interval: 'monthly', externalId: 'ext-stripe-2' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', interval: 'annual' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-stripe-2', 'pro', 'annual');
+  });
+
+  it('skips the provider push for a marketplace / no-externalId sub (nothing to push)', async () => {
+    // A not-yet-externally-bound row (no externalId) has no provider price to
+    // push; the route skips the provider call cleanly and only syncs entitlements.
+    const sub = makeSubscription({ planId: 'developer' }); // no externalId
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockUpdateSubscription).not.toHaveBeenCalled();
+    // Entitlement sync still happens — only the provider push is skipped.
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', []);
+  });
+
+  it('aborts before save/sync when the provider price push fails (provider-first drift guard)', async () => {
+    // Mirror the user path's failure contract: provider-first means a provider
+    // failure throws BEFORE the doc is saved and entitlements sync, so billing and
+    // entitlements never diverge (nothing persisted to revert).
+    const sub = makeSubscription({ planId: 'developer', externalId: 'ext-stripe-3' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+    mockUpdateSubscription.mockRejectedValueOnce(new Error('stripe price push failed'));
+
+    const res = mockRes();
+    await handler(mockReq({ params: { id: 'sub-1' } }), res);
+
+    // Provider threw → nothing persisted or synced, and the error surfaces.
+    expect(sub.save).not.toHaveBeenCalled();
+    expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+    expect(mockAuditRecord).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'stripe price push failed');
   });
 
   it('updates status and logs subscription_updated event with the providerUntouched note (admin override trust boundary)', async () => {

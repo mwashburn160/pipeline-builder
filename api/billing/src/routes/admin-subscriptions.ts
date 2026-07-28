@@ -22,6 +22,7 @@ import { applyPlanTierChange, applyTierIncludedAddonPrune, billingServiceAuth, b
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
+import { getPaymentProvider } from '../providers/provider-factory.js';
 import { getAuditClient } from '../services/audit.js';
 import { AdminSubscriptionUpdateSchema } from '../validation/schemas.js';
 
@@ -120,6 +121,26 @@ export function createAdminSubscriptionRoutes(): Router {
         if (!plan) {
           return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
         }
+        // Push the new plan's price to the payment provider BEFORE mutating /
+        // saving the doc — mirroring the user-facing PUT /subscriptions/:id plan
+        // path (provider-first). Without this the provider keeps invoicing the OLD
+        // plan's price while the org receives the NEW tier's entitlements (a silent
+        // finance drift). Unlike the status→terminal branch — which INTENTIONALLY
+        // leaves the provider untouched (see providerUntouched note) — a plan-price
+        // change must keep billing and entitlements consistent. Provider-first also
+        // gives the user path's failure contract: if updateSubscription throws, the
+        // route aborts before save()/sync, so the two stores never diverge (nothing
+        // is persisted to revert). Marketplace-metered subs no-op at the provider,
+        // and a not-yet-externally-bound row (no externalId) has no provider price
+        // to push, so it's skipped cleanly.
+        if (subscription.externalId) {
+          // Honor a concurrent interval override so a combined plan+interval change
+          // lands on `{newPlan}_{newInterval}` (the provider selects the price via
+          // `{planId}_{interval}`), matching the user path's effective-cadence push.
+          const effectiveInterval = interval && interval !== subscription.interval ? interval : subscription.interval;
+          await getPaymentProvider().updateSubscription(subscription.externalId, planId, effectiveInterval);
+        }
+
         const oldPlanId = subscription.planId;
         subscription.planId = planId;
         const newTier = plan.tier;

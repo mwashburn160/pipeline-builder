@@ -3,6 +3,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 
+import { intFromEnv } from './env-int.js';
 import { getDeadLetterQueue } from './plugin-build-dlq.js';
 import { getConnectionForDb, getAllTierQueues } from './plugin-build-queue.js';
 
@@ -22,9 +23,13 @@ const logger = createLogger('plugin-build-queue');
 //   PLUGIN_MAX_BUILDS_PER_ORG  max in-flight builds per org (default 3)
 //   PLUGIN_ORG_SLOT_DELAY_MS   backoff between re-acquisition tries (default 10s)
 //   ORG_SLOT_TTL_SEC           defensive expiry so a crashed worker doesn't leak
-const MAX_BUILDS_PER_ORG = parseInt(process.env.PLUGIN_MAX_BUILDS_PER_ORG || '3', 10);
-export const ORG_SLOT_DELAY_MS = parseInt(process.env.PLUGIN_ORG_SLOT_DELAY_MS || '10000', 10);
-const ORG_SLOT_TTL_SEC = parseInt(process.env.PLUGIN_ORG_SLOT_TTL_SEC || '900', 10);
+// NaN-guarded env parse: a garbage PLUGIN_MAX_BUILDS_PER_ORG must fall back to
+// the default, never `NaN`. `String(NaN)` -> the acquire Lua's
+// `tonumber(ARGV[1])` returns nil, so every tryAcquireOrgSlot would throw and
+// brick ALL plugin builds.
+const MAX_BUILDS_PER_ORG = intFromEnv('PLUGIN_MAX_BUILDS_PER_ORG', 3);
+export const ORG_SLOT_DELAY_MS = intFromEnv('PLUGIN_ORG_SLOT_DELAY_MS', 10000);
+const ORG_SLOT_TTL_SEC = intFromEnv('PLUGIN_ORG_SLOT_TTL_SEC', 900);
 const orgSlotKey = (orgId: string) => `pb:org-build:${orgId}`;
 /** Sibling hash `jobId -> orgId` for live slot owners. The scrubber walks
  *  this to reconcile slots that BullMQ no longer knows about. */

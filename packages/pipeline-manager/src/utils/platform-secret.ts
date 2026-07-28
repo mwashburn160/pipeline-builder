@@ -14,6 +14,7 @@ import axios from 'axios';
 import { decodeTokenPayload } from './auth-guard.js';
 import { getApiConfig } from './config-loader.js';
 import { printInfo, printSection, printSuccess, printWarning } from './output-utils.js';
+import { assertSslDisableAllowed } from './tls.js';
 
 /** Login/secret options shared across the platform-secret helpers. */
 export interface PlatformSecretOptions {
@@ -58,6 +59,12 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
   // pre-auth (no PLATFORM_TOKEN yet), so `getConfig()` would throw here. The
   // token-optional loader still honors config files + PLATFORM_BASE_URL/TLS env.
   const apiConfig = getApiConfig();
+  // SECURITY: this inline login POSTs the password. Refuse to disable cert
+  // verification in production (mirrors config-loader / login) so a MITM can't
+  // harvest it; honored in non-production for self-signed dev platforms.
+  if (options.verifySsl === false) {
+    assertSslDisableAllowed('inline login');
+  }
   const rejectUnauthorized = options.verifySsl === false ? false : apiConfig.api.rejectUnauthorized;
   const loginResponse = await axios.post(
     `${apiConfig.api.baseUrl}/api/auth/login`,

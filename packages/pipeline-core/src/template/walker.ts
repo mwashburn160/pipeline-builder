@@ -85,8 +85,21 @@ export function walkAndBind<T extends object>(
   return entries;
 }
 
+/**
+ * Keys that must never be walked into or written through: assigning to
+ * `__proto__` / `constructor` / `prototype` could retarget an object's
+ * prototype. `Object.entries` yields own enumerable keys only, but a JSON
+ * document parsed with `JSON.parse` can carry a genuine own enumerable
+ * `__proto__` (or `constructor`) key, so a captured keyPath could contain one.
+ * Refuse the write in that case rather than mutating the prototype.
+ */
+const UNSAFE_WRITE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function writeField(root: unknown, parts: Array<string | number>, value: unknown): void {
   if (parts.length === 0) return;
+  for (const p of parts) {
+    if (typeof p === 'string' && UNSAFE_WRITE_KEYS.has(p)) return;
+  }
   let cur: unknown = root;
   for (let i = 0; i < parts.length - 1; i++) {
     if (cur == null || typeof cur !== 'object') return;

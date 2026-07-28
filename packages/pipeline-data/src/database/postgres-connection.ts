@@ -23,6 +23,41 @@ function parseIntEnv(value: string | undefined, fallback: number): number {
 /** Detect Lambda environment for pool-size tuning */
 const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
 
+/**
+ * Resolve the pg TLS/SSL config from an explicit option or the environment,
+ * following the same env-tunable pattern as the pool sizing above.
+ *
+ * Precedence:
+ *   1. An explicit `options.ssl` (constructor arg) always wins — including an
+ *      explicit `false` to force plaintext.
+ *   2. `DB_SSL` (`true`/`1` on, `false`/`0` off) or Postgres' standard
+ *      `PGSSLMODE` (`disable` = off, any other mode = on).
+ *   3. Default: ON in production (RDS connections must be encrypted in transit),
+ *      OFF everywhere else so a local Postgres without TLS keeps working.
+ *
+ * When enabled, `rejectUnauthorized` follows `DB_SSL_REJECT_UNAUTHORIZED`
+ * (default `false`): AWS RDS presents a cert signed by the RDS CA, which is not
+ * in Node's default trust store unless the CA bundle is mounted, so certificate
+ * VERIFICATION is opt-in to avoid breaking a stock RDS deploy — the channel is
+ * still ENCRYPTED. Set `DB_SSL_REJECT_UNAUTHORIZED=true` once the RDS CA bundle
+ * is wired to get full verification.
+ */
+export function getSslConfig(explicit?: ConnectionOptions['ssl']): boolean | { rejectUnauthorized: boolean } {
+  if (explicit !== undefined) return explicit;
+
+  const dbSsl = process.env.DB_SSL?.toLowerCase();
+  const sslMode = process.env.PGSSLMODE?.toLowerCase();
+
+  let enabled: boolean;
+  if (dbSsl === 'true' || dbSsl === '1') enabled = true;
+  else if (dbSsl === 'false' || dbSsl === '0') enabled = false;
+  else if (sslMode) enabled = sslMode !== 'disable';
+  else enabled = process.env.NODE_ENV === 'production';
+
+  if (!enabled) return false;
+  return { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true' };
+}
+
 function getDatabaseConfig() {
   // Lambda: small pool (each invocation is short-lived, many concurrent instances)
   // ECS/long-running: larger pool for sustained concurrency
@@ -119,7 +154,10 @@ export class Connection {
       enableAutoRetry: options.enableAutoRetry ?? true,
       maxRetries: options.maxRetries ?? parseInt(process.env.DB_MAX_RETRIES || '3', 10),
       retryDelay: options.retryDelay ?? parseInt(process.env.DB_RETRY_DELAY_MS || '1000', 10),
-      ssl: options.ssl ?? false,
+      // Env-driven TLS: on-by-default in production, env-enableable elsewhere.
+      // getInstance() is normally called with no options, so this is the only
+      // place production RDS connections pick up SSL (formerly hard-coded off).
+      ssl: getSslConfig(options.ssl),
     };
 
     // Initialize retry strategy
@@ -222,7 +260,13 @@ export class Connection {
   }
 
   /**
-   * Executes a database transaction
+   * Executes a database transaction.
+   *
+   * DEAD PATH — no production callers. Every real transaction goes through
+   * `withTenantTx` (tenancy.ts), which now sets `statement_timeout` alongside
+   * the RLS GUCs, so THIS wrapper's `SET LOCAL statement_timeout` guard is no
+   * longer the server-side timeout mechanism. `getClient()` below is likewise
+   * caller-less. Both are safe to remove; kept for now to avoid churn.
    *
    * @param callback - Function to execute within the transaction
    * @returns Result of the transaction

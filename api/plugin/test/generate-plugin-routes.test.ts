@@ -59,6 +59,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
 }));
 
 const { createGeneratePluginRoutes } = await import('../src/routes/generate-plugin.js');
+const { initSSEStream } = await import('@pipeline-builder/api-core');
 
 // -- Helpers ------------------------------------------------------------------
 
@@ -158,6 +159,42 @@ describe('POST /generate/stream — quota reserve auth', () => {
     expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
     expect(mockReserveQuota).not.toHaveBeenCalledWith(
       expect.anything(), expect.anything(), expect.anything(), 'Bearer USER-BEARER-tok',
+    );
+  });
+
+  // Quota refund policy — a COMPLETED stream KEEPS the reserved aiCalls slot even
+  // when the AI produced empty/unparseable final output: the provider round-trip
+  // (and its $ cost) was incurred. This matches generate-pipeline.ts; the plugin
+  // path previously refunded here, which is the inconsistency this aligns.
+  it('does NOT refund the aiCalls slot on a completed but empty stream', async () => {
+    (initSSEStream as jest.Mock).mockReturnValue({ aborted: () => false });
+    mockStreamPluginConfig.mockReturnValue({
+      partialOutputStream: (async function* () { /* no partials */ })(),
+      output: Promise.resolve(null), // completed, but empty/unparseable output
+    });
+
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    // No `type:'done'` event, but the stream still terminates cleanly with [DONE].
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(res.write).toHaveBeenCalledWith('data: [DONE]\n\n');
+    expect(res.end).toHaveBeenCalled();
+  });
+
+  // The ABORT (client disconnect) refund path stays intact — the caller never
+  // consumed the output, so the reserved slot is returned.
+  it('refunds the aiCalls slot when the stream is aborted before completion', async () => {
+    (initSSEStream as jest.Mock).mockReturnValue({ aborted: () => true });
+    mockStreamPluginConfig.mockReturnValue({
+      partialOutputStream: (async function* () { /* no partials */ })(),
+      output: Promise.resolve({ dockerfile: 'FROM node', name: 'x' }),
+    });
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockDecrementQuota).toHaveBeenCalledWith(
+      mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-08-01T00:00:00Z',
     );
   });
 });

@@ -29,11 +29,16 @@ describe('isPrivateAddress', () => {
     '100.64.0.1', // CGNAT
     '0.0.0.0',
     '::1', '::', '::ffff:127.0.0.1', 'fc00::1', 'fd12::1', 'fe80::1',
+    '::ffff:7f00:1', // hex-mapped 127.0.0.1
+    '::ffff:c0a8:1', // hex-mapped 192.168.0.1
   ])('flags private/loopback/metadata address %s', (ip) => {
     expect(isPrivateAddress(ip)).toBe(true);
   });
 
-  it.each(['93.184.216.34', '8.8.8.8', '1.1.1.1', '172.32.0.1', '2606:4700:4700::1111'])(
+  it.each([
+    '93.184.216.34', '8.8.8.8', '1.1.1.1', '172.32.0.1', '2606:4700:4700::1111',
+    '::ffff:5db8:d822', // hex-mapped 93.184.216.34 (public) — must stay allowed
+  ])(
     'allows public address %s', (ip) => {
       expect(isPrivateAddress(ip)).toBe(false);
     },

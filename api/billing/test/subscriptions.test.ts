@@ -806,6 +806,57 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
     const [event] = mockAuditRecord.mock.calls[0];
     expect(JSON.stringify(event)).not.toContain('cus_LEAKED');
   });
+
+  it('looks up the manageable (non-terminal) set, not just active, for the provider-cancel sweep', async () => {
+    mockSubscriptionFind.mockResolvedValue([]);
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    await handler(req, mockRes());
+
+    expect(mockSubscriptionFind).toHaveBeenCalledWith({
+      orgId: 'org-9',
+      status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
+    });
+  });
+
+  it('provider-cancels a trialing sub before the local cascade (live externalId would keep billing otherwise)', async () => {
+    // A trialing row carries a live externalId at the provider. Before the fix
+    // the sweep matched only status:'active', so deleteMany wiped the local row
+    // while the provider kept billing with nothing left to reconcile.
+    const trialing = makeSubscription({
+      _id: { toString: () => 'sub-trial' },
+      orgId: 'org-9',
+      status: 'trialing',
+      externalId: 'ext-trial-1',
+    });
+    mockSubscriptionFind.mockResolvedValue([trialing]);
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    await handler(req, mockRes());
+
+    expect(mockCancelSubscription).toHaveBeenCalledWith('ext-trial-1');
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
+  });
+
+  it('continues the local cascade when a provider-cancel fails (fail-soft)', async () => {
+    const trialing = makeSubscription({
+      _id: { toString: () => 'sub-trial' },
+      orgId: 'org-9',
+      status: 'trialing',
+      externalId: 'ext-trial-1',
+    });
+    mockSubscriptionFind.mockResolvedValue([trialing]);
+    mockCancelSubscription.mockRejectedValue(new Error('provider down'));
+
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    // Provider failure is swallowed; the local delete still runs and the route
+    // returns 200 (not 500).
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ deleted: 1 }));
+  });
 });
 
 describe('POST /subscriptions/:id/reactivate', () => {

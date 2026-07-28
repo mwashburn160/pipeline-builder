@@ -11,13 +11,18 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
-import { App, Stack } from 'aws-cdk-lib';
+import { App, SecretValue, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { CodePipeline, ShellStep } from 'aws-cdk-lib/pipelines';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import type { BuilderProps } from '../src/pipeline/pipeline-builder.js';
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+// Stable warn spy so the plaintext-token opt-in warning is assertable (the
+// default loggerMock hands out fresh spies per createLogger() call).
+const warnSpy = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  createLogger: () => ({ info: jest.fn(), warn: warnSpy, error: jest.fn(), debug: jest.fn() }),
+}));
 
 const { PipelineConfiguration } = await import('../src/pipeline/pipeline-configuration.js');
 const { SourceBuilder } = await import('../src/pipeline/source-builder.js');
@@ -100,6 +105,87 @@ describe('SourceBuilder', () => {
         Repo: 'checkout',
         Branch: 'main',
         PollForSourceChanges: false,
+      });
+    });
+
+    describe('token authentication', () => {
+      const RAW_TOKEN = 'ghp_supersecretrawtoken1234567890';
+
+      it('resolves a Secrets Manager ARN token to a reference, not plaintext', () => {
+        const arn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:github-token-AbCdEf';
+        const template = synthSource({
+          type: 'github',
+          options: { repo: 'acme/checkout', token: arn as any },
+        });
+
+        // Only the resolvable reference — never the secret value — is embedded.
+        const json = JSON.stringify(template.toJSON());
+        expect(json).toContain('{{resolve:secretsmanager:');
+        expect(json).toContain(arn);
+        expectSourceAction(template, 'GitHub', {
+          OAuthToken: `{{resolve:secretsmanager:${arn}:SecretString:::}}`,
+        });
+      });
+
+      it('resolves a `secretsmanager:<name>` shorthand token to a reference', () => {
+        const template = synthSource({
+          type: 'github',
+          options: { repo: 'acme/checkout', token: 'secretsmanager:github-token' as any },
+        });
+
+        const json = JSON.stringify(template.toJSON());
+        expect(json).toContain('{{resolve:secretsmanager:github-token:SecretString:::}}');
+        // The raw shorthand string itself is not what gets embedded verbatim.
+        expect(json).not.toContain('"secretsmanager:github-token"');
+      });
+
+      it('passes a SecretValue token through as a reference (no plaintext)', () => {
+        const template = synthSource({
+          type: 'github',
+          options: {
+            repo: 'acme/checkout',
+            token: SecretValue.secretsManager('github-token') as any,
+          },
+        });
+
+        const json = JSON.stringify(template.toJSON());
+        expect(json).toContain('{{resolve:secretsmanager:github-token:SecretString:::}}');
+        expect(json).not.toContain(RAW_TOKEN);
+      });
+
+      it('rejects a genuine raw plaintext token by default', () => {
+        expect(() => synthSource({
+          type: 'github',
+          options: { repo: 'acme/checkout', token: RAW_TOKEN as any },
+        })).toThrow(/raw plaintext value/i);
+      });
+
+      it('embeds a raw token only behind the allowPlainTextToken opt-in, with a warning', () => {
+        warnSpy.mockClear();
+        const template = synthSource({
+          type: 'github',
+          options: {
+            repo: 'acme/checkout',
+            token: RAW_TOKEN as any,
+            allowPlainTextToken: true as any,
+          },
+        });
+
+        expect(JSON.stringify(template.toJSON())).toContain(RAW_TOKEN);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('PLAINTEXT'));
+      });
+
+      it('falls back to the CDK default github-token secret reference when no token is provided', () => {
+        const template = synthSource({
+          type: 'github',
+          options: { repo: 'acme/checkout' },
+        });
+
+        // No explicit token → CDK's own default, which is itself a Secrets Manager
+        // reference (`github-token`), never an embedded plaintext value.
+        const json = JSON.stringify(template.toJSON());
+        expect(json).toContain('{{resolve:secretsmanager:github-token:SecretString:::}}');
+        expect(json).not.toContain(RAW_TOKEN);
       });
     });
   });

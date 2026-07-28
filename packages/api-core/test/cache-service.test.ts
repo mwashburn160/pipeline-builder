@@ -227,6 +227,21 @@ describe('CacheService (in-memory)', () => {
       // Distinct object identities on each read.
       expect(second).not.toBe(first);
     });
+
+    it('getOrSet returns an independent copy — mutating it cannot corrupt a later get', async () => {
+      const factory = jest.fn<() => Promise<{ nested: { count: number }; list: number[] }>>()
+        .mockResolvedValue({ nested: { count: 1 }, list: [1, 2] });
+
+      const first = await cache.getOrSet('goskey', factory);
+      first.nested.count = 999;
+      first.list.push(99);
+
+      const second = await cache.get<{ nested: { count: number }; list: number[] }>('goskey');
+      expect(second!.nested.count).toBe(1);
+      expect(second!.list).toEqual([1, 2]);
+      expect(second).not.toBe(first);
+      expect(factory).toHaveBeenCalledTimes(1); // still served from cache
+    });
   });
 });
 

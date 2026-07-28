@@ -40,7 +40,23 @@ export function isPrivateAddress(ip: string): boolean {
       || (a === 100 && b >= 64 && b <= 127); // CGNAT
   }
   if (addr === '::1' || addr === '::') return true;
-  if (addr.startsWith('::ffff:')) return isPrivateAddress(addr.slice(7)); // v4-mapped v6
+  if (addr.startsWith('::ffff:')) {
+    const suffix = addr.slice(7);
+    // Dotted form (`::ffff:127.0.0.1`) — recurse straight into the v4 checks.
+    if (suffix.includes('.')) return isPrivateAddress(suffix);
+    // Hex form (`::ffff:7f00:1` = 127.0.0.1, `::ffff:c0a8:1` = 192.168.0.1):
+    // the low 32 bits are written as the last one/two hex groups. Fold them into
+    // a dotted quad and recurse so the v4 ranges below still catch it — without
+    // this the hex form slips past every check and reaches loopback/private space.
+    const groups = suffix.split(':');
+    const high = parseInt(groups[groups.length - 2] ?? '0', 16);
+    const low = parseInt(groups[groups.length - 1] ?? '0', 16);
+    if (Number.isNaN(high) || Number.isNaN(low)) return false;
+    // Fold each 16-bit half into two octets (arithmetic, not bitwise, to satisfy
+    // the no-bitwise lint): high → a.b, low → c.d.
+    const dotted = `${Math.floor(high / 256) % 256}.${high % 256}.${Math.floor(low / 256) % 256}.${low % 256}`;
+    return isPrivateAddress(dotted);
+  }
   return addr.startsWith('fc') || addr.startsWith('fd') // unique-local
     || addr.startsWith('fe80'); // link-local
 }

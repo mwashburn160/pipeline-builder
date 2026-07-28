@@ -1100,6 +1100,11 @@ describe('POST /generate/from-url/stream', () => {
     // But should still have [DONE] sentinel
     expect(events[events.length - 1]).toBe('[DONE]');
     expect(res.end).toHaveBeenCalled();
+
+    // Quota policy: a COMPLETED stream KEEPS the reserved aiCalls slot even when
+    // finalOutput is empty — the provider round-trip cost was incurred. No refund.
+    // (generate-plugin.ts is aligned to this same policy.)
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 
   // Deduplication of plugin names from extractPluginNames

@@ -53,6 +53,20 @@ describe('walkAndBind', () => {
     expect(doc.env['FOO.BAR[0]']).toBe('resolved');
   });
 
+  it('set() refuses to write through a __proto__ key (no prototype pollution)', () => {
+    // JSON.parse creates a genuine own enumerable "__proto__" key, so a
+    // captured keyPath can legitimately contain it. Writing through it must
+    // be refused rather than retargeting the object's prototype.
+    const doc = JSON.parse('{"env": {"__proto__": "{{ y }}"}}') as { env: Record<string, unknown> };
+    const entries = walkAndBind(doc, isTemplatable);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.field).toBe('env.__proto__');
+    entries[0]!.set('resolved');
+    // The prototype must be untouched: no polluted key leaks onto Object.prototype.
+    expect(({} as Record<string, unknown>).resolved).toBeUndefined();
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  });
+
   it('includeLiteralOnly returns fields whose only template content is a {{{{ escape', () => {
     const doc = { commands: ['echo {{{{value'] };
     // Default: literal-only fields are skipped.

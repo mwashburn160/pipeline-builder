@@ -111,10 +111,31 @@ export interface GitHubOptions {
   readonly branch?: string;
 
   /**
-   * GitHub personal access token or SecretValue
-   * If not provided, uses default GitHub authentication
+   * GitHub authentication token.
+   *
+   * Prefer a Secrets Manager reference so the token value never lands in the
+   * synthesized CloudFormation template / CDK context. Accepted forms:
+   *   - a `SecretValue` (e.g. `SecretValue.secretsManager(...)`),
+   *   - a Secrets Manager ARN string (`arn:aws:secretsmanager:...`),
+   *   - a `secretsmanager:<secret-name>` shorthand string.
+   *
+   * A genuine raw plaintext token (e.g. a `ghp_...` PAT) is rejected by default,
+   * because baking it in would expose it to anyone with template/state access —
+   * set {@link allowPlainTextToken} to intentionally embed it.
+   *
+   * If not provided, uses default GitHub authentication. Consider a CodeStar
+   * connection (`type: 'codestar'`) as the modern, credential-free path.
    */
   readonly token?: SecretValue | string;
+
+  /**
+   * Opt-in escape hatch to embed a raw plaintext {@link token} directly in the
+   * synthesized template. Insecure — the token becomes readable by anyone with
+   * template, CDK context, or stack state access. Leave unset (default) to force
+   * a Secrets Manager reference instead.
+   * @default false
+   */
+  readonly allowPlainTextToken?: boolean;
 
   /**
    * Pipeline trigger behavior

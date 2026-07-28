@@ -14,6 +14,7 @@ const mockGetPluginVersions = jest.fn();
 const mockGetBuildSuccessRate = jest.fn();
 const mockGetBuildDuration = jest.fn();
 const mockGetBuildFailures = jest.fn();
+const mockResolveOrgRollup = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn(),
@@ -29,6 +30,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       : { error: 'interval must be one of: day, week, month' };
   }),
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
+  // Build reports gate their ?includeDescendants rollup on reports:rollup (the
+  // plugin INVENTORY reports stay single-org), so the route needs this helper.
+  userHasPermission: jest.fn((req: any, perm: string) =>
+    req?.user?.isSuperAdmin === true || (req?.user?.permissions ?? []).includes(perm)),
   parseQueryIntClamped: jest.fn((val: any, def: number, max: number) =>
     Math.min(Math.max(1, parseInt(String(val ?? def), 10) || def), max)),
   validateBulkArray: jest.fn((value: any, _name: string, max?: number) =>
@@ -47,12 +52,23 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 // The route imports ../helpers.js, which imports `Config` from pipeline-core to
 // resolve the platform host/port for the shared org-descendants client. Stub
 // pipeline-core so this api-core-mocking suite doesn't pull in its full config
-// graph (aws-cdk-lib, etc.); this route never invokes the rollup.
+// graph (aws-cdk-lib, etc.).
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   Config: {
     get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }),
   },
 }));
+
+// resolveOrgRollup is mocked at the helpers layer (the build reports call it via
+// the route's rollupIds helper). Keep the rest of helpers.js real (MAX_* caps,
+// scrubErrorMessage).
+jest.unstable_mockModule('../src/helpers.js', () => {
+  const actual = jest.requireActual('../src/helpers.js') as Record<string, unknown>;
+  return {
+    ...actual,
+    resolveOrgRollup: (...a: unknown[]) => mockResolveOrgRollup(...a),
+  };
+});
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   reportingService: {
@@ -121,7 +137,7 @@ describe('Plugin Report Routes', () => {
   });
 
   describe('GET /build-success-rate', () => {
-    it('should return build success rate', async () => {
+    it('should return build success rate (no rollup by default)', async () => {
       mockGetBuildSuccessRate.mockResolvedValue([{ period: '2026-03', succeeded: 8 }]);
       const handler = getHandler('/build-success-rate');
       const req = { query: { interval: 'week' } };
@@ -129,7 +145,9 @@ describe('Plugin Report Routes', () => {
 
       await handler(req, res);
 
-      expect(mockGetBuildSuccessRate).toHaveBeenCalled();
+      // 5th arg is the optional org→team rollup id-list (undefined without ?includeDescendants).
+      expect(mockResolveOrgRollup).not.toHaveBeenCalled();
+      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined);
     });
 
     it('should reject invalid interval', async () => {
@@ -141,10 +159,29 @@ describe('Plugin Report Routes', () => {
 
       expect(sendBadRequest).toHaveBeenCalled();
     });
+
+    it('rolls up over the subtree for a reports:rollup holder', async () => {
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
+      mockGetBuildSuccessRate.mockResolvedValue([]);
+      const handler = getHandler('/build-success-rate');
+      await handler({ query: { interval: 'week', includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
+
+      expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
+      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), ['acme', 'team-child']);
+    });
+
+    it('ignores ?includeDescendants without reports:rollup (single-org)', async () => {
+      mockGetBuildSuccessRate.mockResolvedValue([]);
+      const handler = getHandler('/build-success-rate');
+      await handler({ query: { interval: 'week', includeDescendants: 'true' }, user: { permissions: ['reports:read'] } }, {});
+
+      expect(mockResolveOrgRollup).not.toHaveBeenCalled();
+      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined);
+    });
   });
 
   describe('GET /build-duration', () => {
-    it('should return build duration per plugin', async () => {
+    it('should return build duration per plugin (no rollup by default)', async () => {
       mockGetBuildDuration.mockResolvedValue([{ plugin_name: 'nodejs', avg_ms: 45000 }]);
       const handler = getHandler('/build-duration');
       const req = { query: {} };
@@ -152,12 +189,21 @@ describe('Plugin Report Routes', () => {
 
       await handler(req, res);
 
-      expect(mockGetBuildDuration).toHaveBeenCalled();
+      expect(mockGetBuildDuration).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), undefined);
+    });
+
+    it('rolls up over the subtree for a reports:rollup holder', async () => {
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
+      mockGetBuildDuration.mockResolvedValue([]);
+      const handler = getHandler('/build-duration');
+      await handler({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
+
+      expect(mockGetBuildDuration).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), ['acme', 'team-child']);
     });
   });
 
   describe('GET /build-failures', () => {
-    it('should return build failures with limit', async () => {
+    it('should return build failures with limit (no rollup by default)', async () => {
       mockGetBuildFailures.mockResolvedValue([]);
       const handler = getHandler('/build-failures');
       // /build-failures is system-admin-only; mark the request principal so the
@@ -167,7 +213,37 @@ describe('Plugin Report Routes', () => {
 
       await handler(req, res);
 
-      expect(mockGetBuildFailures).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 5);
+      expect(mockGetBuildFailures).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 5, undefined);
+    });
+
+    it('rolls up over the subtree with ?includeDescendants (superadmin implicit-all)', async () => {
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
+      mockGetBuildFailures.mockResolvedValue([]);
+      const handler = getHandler('/build-failures');
+      await handler({ query: { limit: '5', includeDescendants: 'true' }, user: { isSuperAdmin: true } }, {});
+
+      expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
+      expect(mockGetBuildFailures).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 5, ['acme', 'team-child']);
+    });
+  });
+
+  // Plugin INVENTORY reports are intentionally single-org (no rollup thread) —
+  // they take only orgId and never resolve a subtree, even with the flag set.
+  describe('plugin inventory stays single-org (no rollup)', () => {
+    it('summary/distribution/versions never resolve a rollup', async () => {
+      mockGetPluginSummary.mockResolvedValue({ total: 0 });
+      mockGetPluginDistribution.mockResolvedValue([]);
+      mockGetPluginVersions.mockResolvedValue([]);
+      const req = { query: { includeDescendants: 'true' }, user: { isSuperAdmin: true } };
+
+      await getHandler('/summary')(req, {});
+      await getHandler('/distribution')(req, {});
+      await getHandler('/versions')(req, {});
+
+      expect(mockResolveOrgRollup).not.toHaveBeenCalled();
+      expect(mockGetPluginSummary).toHaveBeenCalledWith('acme');
+      expect(mockGetPluginDistribution).toHaveBeenCalledWith('acme');
+      expect(mockGetPluginVersions).toHaveBeenCalledWith('acme');
     });
   });
 });
