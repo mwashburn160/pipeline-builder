@@ -116,21 +116,40 @@ export function Sidebar({
           const visibleItems = section.items.filter(isItemVisible);
           if (visibleItems.length === 0) return null;
 
+          // `alwaysExpanded` sections ignore persisted collapse state and render
+          // without a toggle, so navigation can't be hidden by a stale setting.
+          const isSectionCollapsed = !section.alwaysExpanded && collapsedSections.has(section.label);
+
           return (
             <div key={section.label}>
               {!collapsed && (
-                <button
-                  type="button"
-                  onClick={() => toggleSection(section.label)}
-                  aria-expanded={!collapsedSections.has(section.label)}
-                  className="w-full flex items-center justify-between sidebar-section-label hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                >
-                  <span>{section.label}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${collapsedSections.has(section.label) ? '-rotate-90' : ''}`} />
-                </button>
+                section.alwaysExpanded ? (
+                  <div className="w-full flex items-center sidebar-section-label">
+                    <span>{section.label}</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(section.label)}
+                    aria-expanded={!isSectionCollapsed}
+                    className="w-full flex items-center justify-between sidebar-section-label hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {section.label}
+                      {/* Count of hidden items so a collapsed section reads as
+                          "collapsed", not "empty/missing". */}
+                      {isSectionCollapsed && (
+                        <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-semibold rounded-full bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                          {visibleItems.length}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isSectionCollapsed ? '-rotate-90' : ''}`} />
+                  </button>
+                )
               )}
               {collapsed && <div className="my-2 mx-3 border-t border-gray-200 dark:border-gray-700" />}
-              {(collapsed || !collapsedSections.has(section.label)) && visibleItems.map((item) => {
+              {(collapsed || !isSectionCollapsed) && visibleItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.href)
                   || (item.extraActivePaths?.some((p) => currentPath.startsWith(p)) ?? false);

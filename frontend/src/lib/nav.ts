@@ -56,6 +56,13 @@ export interface NavItem {
 export interface NavSection {
   label: string;
   items: NavItem[];
+  /**
+   * Pin this section open: it renders expanded, ignores any persisted
+   * collapsed state, and shows no collapse chevron. Use for sections whose
+   * items are easily "lost" when hidden (e.g. Insights → Reports), so a stale
+   * localStorage collapse can't make navigation look like it's missing.
+   */
+  alwaysExpanded?: boolean;
 }
 
 export const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; color: string; requiredPermission?: string }[] = [
@@ -86,6 +93,9 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     label: 'Insights',
+    // Pinned open — Reports/Executions/Logs are frequently hit and easy to lose
+    // if this section is accidentally collapsed and the state persists.
+    alwaysExpanded: true,
     items: [
       { title: 'Reports', href: '/dashboard/reports', icon: FileBarChart, requiredPermission: 'reports:read' },
       // Per-pipeline run health (was only reachable from the home card).
