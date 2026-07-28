@@ -174,7 +174,7 @@ export default function ReportsPage() {
             ? api.getDoraTrend({ interval: timeInterval, ...dateParams, ...rollup, ...doraScope })
             : Promise.resolve<DoraTrendPoint[]>([]);
           const results = await Promise.allSettled([
-            api.getExecutionCount(rollup), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
+            api.getExecutionCount({ ...dateParams, ...rollup }), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
             doraReq, doraTrendReq,
           ]);
           if (reqId !== reqIdRef.current) return;
@@ -186,7 +186,7 @@ export default function ReportsPage() {
           if (doraTrendRes.status === 'fulfilled') setDoraTrend(doraTrendRes.value ?? []);
         } else if (pipelineTab === 'performance') {
           const results = await Promise.allSettled([
-            api.getExecutionCount(rollup), api.getPipelineDuration({ ...dateParams, ...rollup }), api.getStageBottlenecks(dateParams),
+            api.getExecutionCount({ ...dateParams, ...rollup }), api.getPipelineDuration({ ...dateParams, ...rollup }), api.getStageBottlenecks(dateParams),
           ]);
           if (reqId !== reqIdRef.current) return;
           settled = results;
@@ -340,13 +340,15 @@ export default function ReportsPage() {
                 dora={dora}
                 doraTrend={doraTrend}
                 doraEnabled={doraEnabled}
-                doraPipelineId={doraPipelineId}
-                doraEnvironment={doraEnvironment}
-                doraDeploysOnly={doraDeploysOnly}
-                onDoraPipelineChange={setDoraPipelineId}
-                onDoraEnvironmentChange={setDoraEnvironment}
-                onDoraEnvironmentCommit={setDoraEnvironmentApplied}
-                onDoraDeploysOnlyChange={setDoraDeploysOnly}
+                doraScope={{
+                  pipelineId: doraPipelineId,
+                  environment: doraEnvironment,
+                  deploysOnly: doraDeploysOnly,
+                  onPipelineChange: setDoraPipelineId,
+                  onEnvironmentChange: setDoraEnvironment,
+                  onEnvironmentCommit: setDoraEnvironmentApplied,
+                  onDeploysOnlyChange: setDoraDeploysOnly,
+                }}
               />
             )}
 

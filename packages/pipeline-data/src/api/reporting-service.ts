@@ -197,6 +197,15 @@ function doraLevelForLeadTime(medianSeconds: number | null): DoraLevel {
 }
 
 /**
+ * Round `value` to `digits` decimal places, returning a real number. Small
+ * module-private helper so the DORA shaping doesn't repeat the
+ * `Number(Number(x).toFixed(n))` pattern (toFixed alone yields a string).
+ */
+function round(value: number, digits: number): number {
+  return Number(value.toFixed(digits));
+}
+
+/**
  * Shared per-execution terminal-status roll-up for the DORA `execs` CTEs:
  * FAILED wins, then SUCCEEDED, else CANCELED/STOPPED. Kept in one place so
  * getDoraMetrics and getDoraTrend can't drift on the precedence.
@@ -585,8 +594,17 @@ export class ReportingService {
   }
 
   /** 1.1 Execution count per pipeline with status breakdown. */
-  async getExecutionCount(orgId: string, orgIds?: string[]): Promise<ExecutionCount[]> {
+  async getExecutionCount(orgId: string, orgIds?: string[], range?: { from?: string; to?: string }): Promise<ExecutionCount[]> {
     const { pred, multi } = this.orgScope(orgId, orgIds);
+    // Optional [from,to] window on the execution's started_at, mirroring the
+    // sibling timeseries reports so the dashboard date-range picker narrows the
+    // count too (an empty range = all-time, preserving the prior behavior). The
+    // range rides the JOIN so pipelines with no in-window events still list
+    // (LEFT semantics preserved via the inner-join filter — a pipeline with zero
+    // matching events drops from the count, same as before for its window).
+    const rangeClause = range?.from && range?.to
+      ? sql`AND e.started_at >= ${range.from}::timestamptz AND e.started_at <= ${range.to}::timestamptz`
+      : sql``;
     const exec = () => withTenantTx((tx) => tx.execute(sql`
         SELECT
           p.id, p.project, p.organization, p.pipeline_name,
@@ -599,11 +617,12 @@ export class ReportingService {
         FROM ${schema.pipeline} p
         JOIN ${schema.pipelineEvent} e ON e.pipeline_id = p.id
           AND e.event_type = 'PIPELINE' AND e.status != 'STARTED'
+          ${rangeClause}
         WHERE p.org_id ${pred} AND p.is_active = true
         GROUP BY p.id
         ORDER BY total DESC
       `).then(r => drizzleRows<ExecutionCount>(r.rows)));
-    return this.runReport(`${orgId}:exec-count`, multi, exec);
+    return this.runReport(`${orgId}:exec-count:${range?.from ?? ''}:${range?.to ?? ''}`, multi, exec);
   }
 
   /**
@@ -910,7 +929,13 @@ export class ReportingService {
           mttr.avg_seconds AS mttr_avg_seconds
         FROM df, cfr, lt, mttr
       `).then(r => this.shapeDora(drizzleRows<DoraRow>(r.rows)[0], from, to, basis, { pipelineId, environment })));
-    const key = `${orgId}:dora:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}:${deploysOnly ? 'd' : ''}`;
+    // `environment` WINS over `deploysOnly` in doraScopeClauses, so with an
+    // environment set the deploysOnly flag never affects the SQL — append the
+    // 'd' marker only when it genuinely changes the query (environment absent),
+    // otherwise `{environment:'prod', deploysOnly:true}` would mint a redundant
+    // cache entry identical to `{environment:'prod'}`.
+    const deployMarker = !environment && deploysOnly ? 'd' : '';
+    const key = `${orgId}:dora:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}:${deployMarker}`;
     return this.runReport(key, multi, exec);
   }
 
@@ -939,23 +964,29 @@ export class ReportingService {
     // mislabel exact weekly/monthly boundaries (e.g. 1 deploy / 30 days →
     // 0.0333 rounds to 0.03 < 1/30 → wrongly "low" instead of "medium").
     const rawPerDay = deployments / days;
-    const perDay = Number(rawPerDay.toFixed(2));
+    const perDay = round(rawPerDay, 2);
 
     const failed = Number(r.cfr_failed) || 0;
     const total = Number(r.cfr_total) || 0;
     const rawPct = total > 0 ? (failed / total) * 100 : 0;
-    const pct = Number(rawPct.toFixed(1));
+    const pct = round(rawPct, 1);
 
+    // Band restore/lead-time on the RAW (pre-round) seconds, the same "band on
+    // the unrounded value" principle used for perDay/pct above; keep the rounded
+    // values for the response fields. Immaterial at the hour/day thresholds, but
+    // it makes the principle uniform across all four metrics.
     const failures = Number(r.mttr_failures) || 0;
     const restored = Number(r.mttr_restored) || 0;
-    const avgSeconds = failures > 0 && r.mttr_avg_seconds != null
-      ? Number(Number(r.mttr_avg_seconds).toFixed(1))
+    const rawAvgSeconds = failures > 0 && r.mttr_avg_seconds != null
+      ? Number(r.mttr_avg_seconds)
       : null;
+    const avgSeconds = rawAvgSeconds != null ? round(rawAvgSeconds, 1) : null;
 
     const ltDeployments = Number(r.lt_deployments) || 0;
-    const medianSeconds = r.lt_median_ms != null
-      ? Number((Number(r.lt_median_ms) / 1000).toFixed(1))
+    const rawMedianSeconds = r.lt_median_ms != null
+      ? Number(r.lt_median_ms) / 1000
       : null;
+    const medianSeconds = rawMedianSeconds != null ? round(rawMedianSeconds, 1) : null;
 
     return {
       window: { from, to },
@@ -963,8 +994,8 @@ export class ReportingService {
       filters: { pipelineId: filters.pipelineId ?? null, environment: filters.environment ?? null },
       deploymentFrequency: { deployments, perDay, level: doraLevelForFrequency(rawPerDay, deployments) },
       changeFailureRate: { failed, total, pct, level: doraLevelForChangeFailure(rawPct, total) },
-      meanTimeToRestore: { failures, restored, avgSeconds, level: doraLevelForRestore(avgSeconds) },
-      leadTime: { deployments: ltDeployments, medianSeconds, approx: true, level: doraLevelForLeadTime(medianSeconds) },
+      meanTimeToRestore: { failures, restored, avgSeconds, level: doraLevelForRestore(rawAvgSeconds) },
+      leadTime: { deployments: ltDeployments, medianSeconds, approx: true, level: doraLevelForLeadTime(rawMedianSeconds) },
     };
   }
 
@@ -1013,7 +1044,11 @@ export class ReportingService {
         FROM execs
         GROUP BY period ORDER BY period
       `).then(r => drizzleRows<DoraTrendPoint>(r.rows)));
-    const key = `${orgId}:dora-trend:${interval}:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}:${deploysOnly ? 'd' : ''}`;
+    // Omit the deploysOnly marker when environment is set: it wins in
+    // doraScopeClauses, so the SQL (and thus the correct cache key) is identical
+    // to the environment-only case. Only append 'd' when it changes the query.
+    const deployMarker = !environment && deploysOnly ? 'd' : '';
+    const key = `${orgId}:dora-trend:${interval}:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}:${deployMarker}`;
     return this.runReport(key, multi, exec);
   }
 

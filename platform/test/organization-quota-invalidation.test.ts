@@ -218,6 +218,20 @@ describe('setSeatLimit — feature (bundle) removal invalidation', () => {
     expect(tokenBump()).toBeUndefined();
   });
 
+  it('does NOT issue a descendant featureEntitlements updateMany when the set is UNCHANGED (idempotent re-sync)', async () => {
+    // Root WITH a descendant team; the re-synced feature set matches the current
+    // one (reordered), so the redundant subtree propagate write must be skipped.
+    mockExpandOrgScope.mockResolvedValue(['root-1', 'team-1']);
+    currentFeatures(['sso', 'audit_log']);
+
+    await setSeatLimit('root-1', 5, ['audit_log', 'sso']); // same set, reordered
+
+    // No descendant featureEntitlements rewrite (no updateMany at all here).
+    expect(mockOrgUpdateMany).not.toHaveBeenCalled();
+    // And still no token bump (nothing was reduced).
+    expect(tokenBump()).toBeUndefined();
+  });
+
   it('does NOT read entitlements or bump when features are omitted (seat-only update)', async () => {
     await setSeatLimit('root-1', 8);
 
@@ -261,14 +275,14 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
       select: () => ({ session: () => ({ lean: () => Promise.resolve({ tier, featureEntitlements: features }) }) }),
     });
 
-  it('sets ONLY the tier label (no quota reseed) and bumps the subtree on a DOWNGRADE (team → pro)', async () => {
+  it('sets the tier label + reseeds non-seat quotas and bumps the subtree on a DOWNGRADE (team → pro)', async () => {
     mockExpandOrgScope.mockResolvedValue(['root-1', 'team-1']);
     mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve(['u1', 'u2', 'u3']) });
     currentDoc('team');
 
     await setSeatLimit('root-1', 5, undefined, 'pro');
 
-    // Root write carries the tier label + seats only — never a full quotas reseed.
+    // Root write carries the tier label + the pushed seat value.
     const set = (mockOrgUpdateOne.mock.calls[0][1] as any).$set;
     expect(set.tier).toBe('pro');
     expect(set['quotas.seats']).toBe(5);
@@ -281,6 +295,38 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
     // Downgrade → stale tokens across the whole subtree invalidated + published.
     expect(tokenBump()).toBeDefined();
     expect(mockPublishUsersRevocation).toHaveBeenCalledWith(['u1', 'u2', 'u3']);
+  });
+
+  it('reseeds org.quotas NON-SEAT dims from the new tier base while preserving the pushed seat value', async () => {
+    // Degraded-read consistency: after a tier-push, `getQuotas`' quota-service-down
+    // fallback reads limits off `org.quotas`, so those non-seat dims must track the
+    // NEW tier — else they report the OLD tier's caps under the new label.
+    currentDoc('team'); // team → pro downgrade
+
+    await setSeatLimit('root-1', 5, undefined, 'pro');
+
+    const set = (mockOrgUpdateOne.mock.calls[0][1] as any).$set;
+    // seats stays the billing-pushed effective value — NOT clobbered by pro's base (3).
+    expect(set['quotas.seats']).toBe(5);
+    // Non-seat dims reseeded from pro's base (plugins 100; the rest -1).
+    expect(set['quotas.plugins']).toBe(100);
+    expect(set['quotas.pipelines']).toBe(-1);
+    expect(set['quotas.apiCalls']).toBe(-1);
+    expect(set['quotas.aiCalls']).toBe(-1);
+    // Written via dot-notation — never a whole-object `quotas` (would conflict with
+    // the `quotas.seats` key) and never a stray `quotas.seats` from the tier base.
+    expect(set.quotas).toBeUndefined();
+  });
+
+  it('does NOT reseed quotas when the tier is UNCHANGED (seat-only within a tier)', async () => {
+    currentDoc('pro');
+
+    await setSeatLimit('root-1', 7, undefined, 'pro');
+
+    const set = (mockOrgUpdateOne.mock.calls[0][1] as any).$set;
+    expect(set['quotas.seats']).toBe(7);
+    expect(set.tier).toBeUndefined();
+    expect(set['quotas.plugins']).toBeUndefined();
   });
 
   it('does NOT bump on an UPGRADE (pro → team) but still sets the tier label', async () => {

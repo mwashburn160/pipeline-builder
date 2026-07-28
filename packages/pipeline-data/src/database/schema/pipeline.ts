@@ -230,10 +230,19 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // tags EVERY event of a deployed pipeline (STAGE/ACTION too), while the DORA
   // scan wants only `event_type='PIPELINE'` — including it restores selectivity.
   // Partial (environment IS NOT NULL) keeps it small — legacy/CI-only events
-  // aren't indexed. MIGRATION REQUIRED: drizzle-kit generate.
+  // aren't indexed. The default run-based DORA path (no environment) can't use
+  // this partial index; it relies on event_pipeline_type_started_idx below.
+  // MIGRATION REQUIRED: drizzle-kit generate.
   envTypeStartedIdx: index('event_env_type_started_idx')
     .on(table.environment, table.eventType, table.startedAt)
     .where(sql`environment IS NOT NULL`),
+  // started_at range scans: every Category-1 report and the default run-based
+  // DORA path filters `event_type='PIPELINE' AND started_at BETWEEN …` joined on
+  // pipeline_id, but the other event composite index is on created_at, not
+  // started_at — so the range scan had no ideal index. This composite serves the
+  // join-driven scan by pipeline_id. MIGRATION REQUIRED: drizzle-kit generate.
+  pipelineTypeStartedIdx: index('event_pipeline_type_started_idx')
+    .on(table.pipelineId, table.eventType, table.startedAt),
 }));
 
 /**

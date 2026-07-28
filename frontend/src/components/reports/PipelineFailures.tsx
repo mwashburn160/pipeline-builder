@@ -17,7 +17,6 @@ export function PipelineFailures({ loading, stageFailures, actionFailures, error
 
   if (loading && !hasFailData) return <TwoColumnSkeleton />;
   if (!loading && !hasFailData) return <EmptyState icon={GitBranch} title="No failure data" description="No stage failures, action failures, or errors recorded for this period." illustration="pipelines" />;
-  if (!hasFailData) return null;
 
   return (
     <>
@@ -45,7 +44,7 @@ export function PipelineFailures({ loading, stageFailures, actionFailures, error
           <ExportCSVButton data={errors.map(e => ({ pattern: e.error_pattern, occurrences: e.occurrences, pipelines: e.affected_pipelines, last_seen: e.last_seen }))} filename="pipeline-errors" />
         </div>
         {errors.length > 0 ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">{errors.slice(0, MAX_LIST_ROWS).map((e, i) => (<div key={i} className="border-l-2 border-red-400 pl-3"><p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-1">{e.error_pattern}</p><p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{e.occurrences}x &middot; {e.affected_pipelines} pipeline{e.affected_pipelines !== 1 ? 's' : ''} &middot; {fmtDate(e.last_seen)}</p></div>))}</div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">{errors.slice(0, MAX_LIST_ROWS).map((e) => (<div key={e.error_pattern} className="border-l-2 border-red-400 pl-3"><p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-1">{e.error_pattern}</p><p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{e.occurrences}x &middot; {e.affected_pipelines} pipeline{e.affected_pipelines !== 1 ? 's' : ''} &middot; {fmtDate(e.last_seen)}</p></div>))}</div>
         ) : <ReportEmpty text="No errors recorded" />}
       </div>
     </>

@@ -303,8 +303,10 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     // ...fanned out effective entitlements with the new add-on set...
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', [{ bundleId: 'seat_pack', quantity: 3 }]);
     // Provider line-item reconcile fires with the new add-on set via the shared
-    // syncProviderAddons (externalId, addons, interval, orgId).
-    expect(mockSyncProviderAddons).toHaveBeenCalledWith('ext-sub-1', [{ bundleId: 'seat_pack', quantity: 3 }], 'monthly', 'org-1');
+    // syncProviderAddons (externalId, addons, interval, orgId, subscriptionId, source).
+    // subscriptionId + source are threaded so a provider failure sets the durable
+    // providerAddonSyncPending marker + meters under this source.
+    expect(mockSyncProviderAddons).toHaveBeenCalledWith('ext-sub-1', [{ bundleId: 'seat_pack', quantity: 3 }], 'monthly', 'org-1', 'sub-1', 'addon_add');
     // ...and responded 200 with the itemized price breakdown.
     const [, status, payload] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);

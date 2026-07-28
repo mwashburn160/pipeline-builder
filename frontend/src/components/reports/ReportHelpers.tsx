@@ -61,6 +61,39 @@ export function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="section-title text-sm tracking-tight mb-3">{children}</h3>;
 }
 
+interface StackedTimelineBarProps {
+  /** ISO period label rendered on the left (formatted via {@link fmtDate}). */
+  period: string;
+  succeeded: number;
+  failed: number;
+  /** Optional third (yellow) segment. Omit for a two-segment pass/fail bar. */
+  canceled?: number;
+}
+
+/**
+ * One period row of the stacked pass/fail(/cancel) timeline: a date label, a
+ * flex track split into green/red[/yellow] segments proportional to the counts,
+ * and the period total. Shared by the pipeline Execution Timeline and the plugin
+ * Build Success Rate visuals (identical markup; canceled is pipeline-only).
+ */
+export function StackedTimelineBar({ period, succeeded, failed, canceled }: StackedTimelineBarProps) {
+  const total = succeeded + failed + (canceled ?? 0);
+  const sPct = total > 0 ? (succeeded / total) * 100 : 0;
+  const fPct = total > 0 ? (failed / total) * 100 : 0;
+  const cPct = total > 0 ? ((canceled ?? 0) / total) * 100 : 0;
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-xs text-gray-400 dark:text-gray-500 w-16 shrink-0 tabular-nums">{fmtDate(period)}</span>
+      <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden flex">
+        {sPct > 0 && <div className="h-full bg-green-500" style={{ width: `${sPct}%` }} />}
+        {fPct > 0 && <div className="h-full bg-red-500" style={{ width: `${fPct}%` }} />}
+        {cPct > 0 && <div className="h-full bg-yellow-400" style={{ width: `${cPct}%` }} />}
+      </div>
+      <span className="text-xs text-gray-400 dark:text-gray-500 w-12 text-right tabular-nums">{total}</span>
+    </div>
+  );
+}
+
 // ─── DORA ───────────────────────────────────────────────
 
 /** Format a DORA reporting window as e.g. "Jun 27 – Jul 27, 2026". Invalid dates → "". */
@@ -105,12 +138,13 @@ interface DoraCardProps {
 
 /** A single DORA metric card with an optional performance-level badge + tooltip. */
 export function DoraCard({ label, value, sub, level = null, tooltip }: DoraCardProps) {
-  // When a tooltip is present the card becomes a focusable trigger so keyboard
+  // When a tooltip is present the card becomes a focusable group so keyboard
   // and screen-reader users reach the caveat: `tabIndex` lets the shared
-  // Tooltip's onFocus fire, and an `aria-label` gives the focusable group an
-  // accessible name (the shared Tooltip additionally wires `role="tooltip"` +
-  // `aria-describedby`). A single tooltip mechanism only — no native `title`,
-  // which would otherwise double up with the custom bubble on hover.
+  // Tooltip's onFocus fire and `role="group"` marks the region. The caveat text
+  // is announced solely via the Tooltip's `aria-describedby` — NOT duplicated as
+  // an `aria-label` here (that would double-announce the same sentence). A single
+  // tooltip mechanism only — no native `title`, which would otherwise double up
+  // with the custom bubble on hover.
   const card = (
     <StatCard
       variant="detailed"
@@ -119,7 +153,7 @@ export function DoraCard({ label, value, sub, level = null, tooltip }: DoraCardP
       sub={sub}
       badge={<DoraLevelBadge level={level} />}
       className={tooltip ? 'focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded-lg' : ''}
-      wrapperProps={tooltip ? { tabIndex: 0, role: 'group', 'aria-label': tooltip } : undefined}
+      wrapperProps={tooltip ? { tabIndex: 0, role: 'group' } : undefined}
     />
   );
 
@@ -272,6 +306,13 @@ interface DoraScopeControlsProps {
   onEnvironmentCommit: (v: string) => void;
   onDeploysOnlyChange: (v: boolean) => void;
 }
+
+/**
+ * The DORA scope value + callbacks a parent forwards to {@link DoraScopeControls}
+ * (everything except the derived `pipelines` option list). Bundled so callers
+ * pass one `doraScope` bag instead of ~7 individual props.
+ */
+export type DoraScope = Omit<DoraScopeControlsProps, 'pipelines'>;
 
 /**
  * Scoping controls for the DORA section: pipeline picker, a deployments-only

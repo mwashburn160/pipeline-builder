@@ -54,8 +54,8 @@ export const listAllOrganizations = withController('List organizations', async (
   // Tier facet — passed through verbatim; service coerces invalid values
   // to "no filter" via the QuotaTier union (Mongo just no-ops on unknown enums).
   const tierRaw = typeof req.query.tier === 'string' ? req.query.tier: undefined;
-  const tier = tierRaw && ['developer', 'pro', 'team', 'enterprise'].includes(tierRaw)
-    ? (tierRaw as 'developer' | 'pro' | 'team' | 'enterprise')
+  const tier = tierRaw && VALID_TIERS.includes(tierRaw as QuotaTier)
+    ? (tierRaw as QuotaTier)
     : undefined;
   const { offset, limit } = parsePaginationParams(req.query);
 

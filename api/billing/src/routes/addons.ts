@@ -218,7 +218,7 @@ export function createAddonRoutes(): Router {
     // targets (quota + platform). Root-scoped service token.
     const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
     await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
-    await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId);
+    await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId, subscription._id.toString(), 'addon_add');
     await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_added', bundleId, quantity: qty }, subscription._id.toString(), req.user?.sub);
 
     // Mirror the add-on purchase to the CENTRAL audit trail (alongside the local
@@ -269,7 +269,7 @@ export function createAddonRoutes(): Router {
 
     const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
     await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
-    await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId);
+    await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId, subscription._id.toString(), 'addon_remove');
     await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId }, subscription._id.toString(), req.user?.sub);
 
     // Mirror the add-on removal to the CENTRAL audit trail (alongside the local

@@ -26,8 +26,8 @@
  * seat-usage). Any set difference is drift on the `features` dimension.
  */
 
-import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
-import { getBillingTimeout } from './billing-helpers.js';
+import { createLogger, createSafeClient, errorMessage, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
+import { billingServiceAuth, getBillingTimeout } from './billing-helpers.js';
 import { fetchQuotaSnapshot, fetchSeatUsage } from './quota-client.js';
 import { config } from '../config.js';
 
@@ -119,7 +119,7 @@ async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Pro
  * same way syncEntitlements does.
  */
 export async function readActualEntitlements(orgId: string, authHeader: string): Promise<ActualEntitlements | null> {
-  const auth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+  const auth = authHeader || billingServiceAuth(orgId);
 
   const quotaLimits = await readEnforcedQuotaLimits(orgId, auth);
   if (!quotaLimits) return null;

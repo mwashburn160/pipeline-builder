@@ -39,6 +39,21 @@ export function getBillingTimeout(): number {
 }
 
 /**
+ * Mint the service-to-service auth header billing uses on its NO-USER (system)
+ * paths — webhook / lifecycle cron / marketplace SNS / admin — for the
+ * quota/platform fan-out. Centralizes the `serviceName: 'billing'` / `role:
+ * 'owner'` literals that were repeated ~10× inline so a single typo can't grant
+ * the wrong role or misname the service. Scoped to the target `orgId` so the
+ * downstream service sees a real tenant identity (keeps RLS / audit attributable
+ * to the org being mutated). Callers that thread a REAL bearer keep their
+ * `authHeader || billingServiceAuth(orgId)` fallback — this replaces only the
+ * fallback literal, never a user credential.
+ */
+export function billingServiceAuth(orgId: string): string {
+  return getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+}
+
+/**
  * Calculate the end date for a billing period.
  */
 export function calculatePeriodEnd(start: Date, interval: BillingInterval): Date {
@@ -107,7 +122,7 @@ export async function syncTierToQuotaService(
     // real tenant identity rather than 'system' — keeps RLS / audit logs
     // attributable to the org being mutated. Push EXPLICIT effective limits
     // (tier + bundles) so a plain tier reseed can't wipe purchased add-ons.
-    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+    const effectiveAuth = authHeader || billingServiceAuth(orgId);
     const body = quotas ? { tier, quotas } : { tier };
     const response = await client.put(`/quotas/${orgId}`, body, {
       headers: {
@@ -162,7 +177,7 @@ async function pushSeatLimitToPlatform(
       port: config.platformService.port,
       timeout: getBillingTimeout(),
     });
-    const effectiveAuth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+    const effectiveAuth = authHeader || billingServiceAuth(orgId);
     // Push the account `tier` alongside seats/features so a plan DOWNGRADE
     // invalidates stale JWTs platform-side (the token re-derives tier-included
     // features from `org.tier`). Platform sets ONLY the tier label here — it
@@ -296,12 +311,60 @@ export async function syncProviderAddons(
   addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
   interval: BillingInterval,
   orgId: string,
+  subscriptionId?: string,
+  source = 'addon_change',
 ): Promise<void> {
   if (!externalId) return;
   try {
     await getPaymentProvider().syncAddons?.(externalId, addons, interval);
+    // Success — clear any durable marker a prior failed attempt left so the
+    // lifecycle reconciler stops re-driving it. (No-op for marketplace, whose
+    // syncAddons never fails, so the marker is never set there in the first place.)
+    await setProviderAddonSyncPending(subscriptionId, orgId, false);
   } catch (err) {
     logger.warn('Provider add-on sync failed (local entitlements already applied)', { orgId, error: errorMessage(err) });
+    // Meter every provider add-on sync failure so SRE can alert (mirrors
+    // billing_quota_sync_failed_total / billing_event_write_failed_total) — covers
+    // BOTH the user add/remove path and the auto-prune finalizer via `source`.
+    incCounter('billing_provider_addon_sync_failed_total', { source });
+    // Durable marker so the lifecycle reconciler re-drives the removal from the
+    // CURRENT reduced add-on list — otherwise a transient Stripe failure during a
+    // tier upgrade leaves the customer billed for the pruned bundle forever
+    // (invisibly), unlike the entitlement leg's entitlementSyncPending recovery.
+    await setProviderAddonSyncPending(subscriptionId, orgId, true);
+  }
+}
+
+/**
+ * Set/clear the durable `metadata.providerAddonSyncPending` marker on a
+ * Subscription — the provider-leg twin of `entitlementSyncPending`. When
+ * {@link syncProviderAddons} fails to reconcile a Stripe line item (e.g. a
+ * transient outage during a tier-upgrade prune), the removal is only local; this
+ * marker lets the lifecycle reconciler re-drive the removal so the customer stops
+ * being billed for a bundle they no longer have. Only Stripe-backed subs reach
+ * here with a failure (syncProviderAddons no-ops without an externalId, and the
+ * marketplace `syncAddons` is a no-op that never throws), so the marker is
+ * effectively Stripe-only. Surgical dot-path $set/$unset so a concurrent metadata
+ * write (grace/renewal/pending markers) isn't clobbered. Best-effort + swallowed:
+ * it can NOT alter syncProviderAddons's fail-open contract.
+ */
+async function setProviderAddonSyncPending(
+  subscriptionId: string | undefined,
+  orgId: string,
+  pending: boolean,
+): Promise<void> {
+  if (!subscriptionId) return;
+  try {
+    await Subscription.updateOne(
+      { _id: subscriptionId },
+      pending
+        ? { $set: { 'metadata.providerAddonSyncPending': true } }
+        : { $unset: { 'metadata.providerAddonSyncPending': '' } },
+    );
+  } catch (err) {
+    logger.warn('Failed to persist providerAddonSyncPending marker', {
+      orgId, subscriptionId, error: errorMessage(err),
+    });
   }
 }
 
@@ -392,14 +455,14 @@ export async function finalizePrunedAddons(
       ctx.subscriptionId,
       ctx.actorId,
     );
-    // Mirror to the central trail alongside the local row. Reuse the sibling
-    // `billing.addon.remove` action (a prune IS a system-driven add-on removal;
-    // the central RemoteAuditAction union has no dedicated prune verb) and tag it
-    // with `reason: 'addon_pruned'` so it's distinguishable from a user removal —
-    // actorId is 'system' on the auto-prune paths too. Id/feature whitelist only,
-    // so no card/payment secret or AWS account id can leak. Fire-and-forget.
+    // Mirror to the central trail alongside the local row via the DEDICATED
+    // `billing.addon.prune` action (distinct from the user-initiated
+    // `billing.addon.remove` sibling — a prune is a system-driven auto-removal of
+    // a tier-included bundle). Still tagged with `reason: 'addon_pruned'`;
+    // actorId is 'system' on the auto-prune paths. Id/feature whitelist only, so
+    // no card/payment secret or AWS account id can leak. Fire-and-forget.
     getAuditClient().record({
-      action: 'billing.addon.remove',
+      action: 'billing.addon.prune',
       actorId: ctx.actorId ?? 'system',
       orgId: ctx.orgId,
       targetId: p.bundleId,
@@ -408,7 +471,98 @@ export async function finalizePrunedAddons(
   }
   // Remove the dropped bundles' provider line items through the same call the
   // user-initiated removal uses (identical proration). No-op for marketplace.
-  await syncProviderAddons(ctx.externalId, reducedAddons, ctx.interval, ctx.orgId);
+  // Thread subscriptionId + source so a Stripe failure sets the durable
+  // providerAddonSyncPending marker (reconciler re-drives it) + meters under
+  // this prune source.
+  await syncProviderAddons(ctx.externalId, reducedAddons, ctx.interval, ctx.orgId, ctx.subscriptionId, ctx.source);
+}
+
+/** Minimal subscription shape the shared tier-change side-effect runner reads. */
+interface PlanTierChangeSubscription {
+  _id: { toString(): string };
+  orgId: string;
+  interval: BillingInterval;
+  externalId?: string | null;
+  addons?: Array<{ bundleId: string; quantity: number }>;
+}
+
+/** Options for {@link applyPlanTierChange}. */
+export interface PlanTierChangeOptions {
+  /** Plan id BEFORE the change (for the plan_changed event detail). */
+  oldPlanId: string;
+  /** Plan id AFTER the change. */
+  newPlanId: string;
+  /** Bundles {@link applyTierIncludedAddonPrune} dropped (pre-save), finalized here. */
+  pruned: readonly PrunedAddon[];
+  /** Acting user (JWT `sub`); undefined on system paths (webhook/SNS/cron). */
+  actorId?: string;
+  /** Short label of the triggering flow (e.g. 'plan_change', 'stripe_plan_change'). */
+  source: string;
+  /**
+   * Real bearer to thread. Undefined ⇒ a service token is minted for the org
+   * ({@link billingServiceAuth}); `''` is passed straight through to
+   * `syncEntitlements`, which mints its own — preserving each caller's original
+   * auth. Never a user credential (see the create-subscription rationale).
+   */
+  authHeader?: string;
+  /** Extra provider-specific fields merged into the default plan_changed detail
+   *  (e.g. Stripe's `provider`/`source`/`interval`, marketplace's `customerIdentifier`). */
+  eventDetails?: Record<string, unknown>;
+  /**
+   * Override the emitted billing_event entirely. Used by the Stripe webhook when
+   * ONLY the billing interval changed (same plan/tier): record it as an
+   * `interval_changed` event instead of a `plan_changed` whose oldPlanId ===
+   * newPlanId. When omitted, a `plan_changed` row is written.
+   */
+  event?: { type: BillingEventType; details: Record<string, unknown> };
+}
+
+/**
+ * Shared POST-SAVE side-effect bundle for the four tier-change sites (self-service
+ * PUT, admin override, Stripe webhook plan change, marketplace entitlement update):
+ * sync effective entitlements → write the `plan_changed` billing_events row →
+ * finalize the tier-included add-on prune (provider line-item removal + central
+ * audit, via {@link finalizePrunedAddons}).
+ *
+ * Returns a DEFERRED thunk (nothing runs inline). Callers invoke it AFTER
+ * `subscription.save()` so a failed save can't leave the quota service, event log,
+ * or provider ahead of the persisted document — the admin path already defers
+ * every side effect for exactly this reason, and this factors that pattern so no
+ * site can drift (forget `subscription.addons ?? []`, mint the wrong service
+ * token, or emit a divergent event shape). The pre-save doc mutation + prune (set
+ * planId, capture oldPlanId, {@link applyTierIncludedAddonPrune}) stay at the call
+ * site. The admin path's own `billing.tier.override` central-audit record is NOT
+ * part of this bundle — it stays inline (a distinct cross-tenant attribution).
+ */
+export function applyPlanTierChange(
+  subscription: PlanTierChangeSubscription,
+  plan: { tier: QuotaTier },
+  opts: PlanTierChangeOptions,
+): () => Promise<void> {
+  const orgId = subscription.orgId;
+  const subscriptionId = subscription._id.toString();
+  return async () => {
+    // undefined ⇒ mint a service token; '' ⇒ let syncEntitlements mint (marketplace).
+    const auth = opts.authHeader ?? billingServiceAuth(orgId);
+    await syncEntitlements(orgId, plan.tier, auth, subscriptionId, subscription.addons ?? []);
+    if (opts.event) {
+      await createBillingEvent(orgId, opts.event.type, opts.event.details, subscriptionId, opts.actorId);
+    } else {
+      await createBillingEvent(
+        orgId, 'plan_changed',
+        { oldPlanId: opts.oldPlanId, newPlanId: opts.newPlanId, ...opts.eventDetails },
+        subscriptionId, opts.actorId,
+      );
+    }
+    await finalizePrunedAddons(opts.pruned, subscription.addons ?? [], {
+      orgId,
+      subscriptionId,
+      interval: subscription.interval,
+      externalId: subscription.externalId,
+      actorId: opts.actorId,
+      source: opts.source,
+    });
+  };
 }
 
 /** A count-quota that would be over its (reduced) cap after an add-on change. */
@@ -434,7 +588,7 @@ export async function checkEntitlementOvercap(
   authHeader: string,
 ): Promise<Overage[]> {
   const { limits } = effectiveEntitlements(tier, newAddons, getBundleCatalog());
-  const auth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+  const auth = authHeader || billingServiceAuth(orgId);
   const overages: Overage[] = [];
 
   if (limits.seats !== -1) {

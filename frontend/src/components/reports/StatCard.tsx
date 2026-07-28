@@ -1,22 +1,32 @@
 import type { HTMLAttributes, ReactNode } from 'react';
 
-interface StatCardProps {
+interface StatCardBaseProps {
   label: ReactNode;
   value: ReactNode;
-  /** Detailed variant only: a secondary line rendered beneath the value. */
-  sub?: ReactNode;
-  /** Detailed variant only: node rendered at the top-right of the header row (e.g. a level badge). */
-  badge?: ReactNode;
-  /**
-   * `centered` — the summary-stat layout (big value, muted label beneath it, text-center).
-   * `detailed` — the DORA-style layout (muted label + optional badge on top, big value, sub line).
-   */
-  variant?: 'centered' | 'detailed';
   /** Extra classes appended to the card wrapper. */
   className?: string;
   /** Extra attributes spread onto the card wrapper (e.g. tabIndex/role/aria for a tooltip trigger). */
   wrapperProps?: HTMLAttributes<HTMLDivElement>;
 }
+
+/**
+ * Discriminated on `variant` so `sub`/`badge` (detailed-only slots) can't be
+ * passed to the centered layout that never renders them.
+ *
+ * `centered` — the summary-stat layout (big value, muted label beneath it, text-center).
+ * `detailed` — the DORA-style layout (muted label + optional badge on top, big value, sub line).
+ */
+type StatCardProps = StatCardBaseProps &
+  (
+    | {
+        variant: 'detailed';
+        /** Detailed variant only: a secondary line rendered beneath the value. */
+        sub?: ReactNode;
+        /** Detailed variant only: node rendered at the top-right of the header row (e.g. a level badge). */
+        badge?: ReactNode;
+      }
+    | { variant?: 'centered'; sub?: never; badge?: never }
+  );
 
 /**
  * Shared presentational stat card used by the report summary rows (centered)

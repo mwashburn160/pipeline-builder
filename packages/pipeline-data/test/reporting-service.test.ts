@@ -204,6 +204,16 @@ describe('ReportingService', () => {
 
       expect(result).toEqual([]);
     });
+
+    it('accepts an optional [from,to] window (honors the dashboard date range)', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+
+      await service.getExecutionCount('acme', undefined, { from: '2026-06-01T00:00:00Z', to: '2026-07-01T00:00:00Z' });
+
+      // The range rides the query; a distinct cache key per window keeps ranged
+      // and all-time counts from colliding.
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('getSuccessRate', () => {

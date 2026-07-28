@@ -118,9 +118,19 @@ describe('Execution Report Routes', () => {
 
       await handler(req, res);
 
-      // 2nd arg is the optional org→team rollup id-list (undefined without ?includeDescendants).
-      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', undefined);
+      // 2nd arg is the optional org→team rollup id-list (undefined without ?includeDescendants);
+      // 3rd is the optional [from,to] window (undefined when the query has no from/to → all-time).
+      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', undefined, undefined);
       expect(sendSuccess).toHaveBeenCalled();
+    });
+
+    it('passes the [from,to] window when the query supplies from+to', async () => {
+      mockGetExecutionCount.mockResolvedValue([]);
+      const handler = getHandler('/count');
+      await handler({ query: { from: '2026-06-01', to: '2026-07-01' } }, {});
+
+      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', undefined,
+        { from: '2026-06-01', to: '2026-07-01' });
     });
   });
 
@@ -168,7 +178,7 @@ describe('Execution Report Routes', () => {
       const handler = getHandler('/count');
       await handler({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
       expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
-      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', ['acme', 'team-child']);
+      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', ['acme', 'team-child'], undefined);
     });
 
     it('resolves descendants for a superadmin (implicit-all)', async () => {
@@ -186,7 +196,7 @@ describe('Execution Report Routes', () => {
       // no longer rolls up — the label alone grants nothing.
       await handler({ query: { includeDescendants: 'true' }, user: { role: 'admin', permissions: ['reports:read'] } }, {});
       expect(mockResolveOrgRollup).not.toHaveBeenCalled();
-      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', undefined);
+      expect(mockGetExecutionCount).toHaveBeenCalledWith('acme', undefined, undefined);
     });
   });
 

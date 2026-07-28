@@ -37,7 +37,7 @@ export function reportingApi(core: ApiCore) {
     // ============================================
 
     /** Pipeline execution count per pipeline with status breakdown. */
-    getExecutionCount: async (params?: { includeDescendants?: boolean }) => {
+    getExecutionCount: async (params?: { from?: string; to?: string; includeDescendants?: boolean }) => {
       return core.request<ApiResponse<{ pipelines: Array<{ id: string; project: string; organization: string; pipeline_name: string | null; total: number; succeeded: number; failed: number; canceled: number; first_execution: string | null; last_execution: string | null }> }>>(`/api/reports/execution/count${buildQuery(params)}`);
     },
 

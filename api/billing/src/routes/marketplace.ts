@@ -10,14 +10,14 @@ import {
   createLogger,
   errorMessage,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { config } from '../config.js';
 import {
+  applyPlanTierChange,
   applyTierIncludedAddonPrune,
   calculatePeriodEnd,
   createBillingEvent,
-  finalizePrunedAddons,
   syncEntitlements,
 } from '../helpers/billing-helpers.js';
 import {
@@ -151,6 +151,19 @@ async function processMarketplaceNotification(notification: MarketplaceNotificat
     const plan = await Plan.findById(subscription.planId);
     if (plan) {
       await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
+    } else {
+      // planId points at a deleted/missing plan: the sub reactivates into an
+      // entitled status but we can't resolve a tier to re-grant — the sync
+      // silently no-ops. Surface it (WARN + audit row + metric) so support can
+      // repair the dangling planId. The subscription_reactivated row below still
+      // records the reactivation; this adds the plan-missing signal.
+      logger.warn('Marketplace reactivation could not sync — subscription plan not found', {
+        orgId: subscription.orgId, customerIdentifier, planId: subscription.planId,
+      });
+      await createBillingEvent(subscription.orgId, 'subscription_updated', {
+        reason: 'reactivate_plan_missing', provider: 'aws-marketplace', planId: subscription.planId,
+      }, subscription._id.toString());
+      incCounter('billing_reactivate_plan_missing_total', { source: 'marketplace' });
     }
     await createBillingEvent(subscription.orgId, 'subscription_reactivated', {
       action,
@@ -224,29 +237,23 @@ async function handleEntitlementUpdate(customerIdentifier: string): Promise<void
     orgId: subscription.orgId, subscriptionId, source: 'marketplace_plan_change',
   });
 
-  await subscription.save();
-
-  await syncEntitlements(subscription.orgId, plan.tier, '', subscriptionId, subscription.addons ?? []);
-
-  await createBillingEvent(subscription.orgId, 'plan_changed', {
+  // Shared post-save runner: entitlement sync (preserving add-ons) → plan_changed
+  // row → addon_pruned trail. `authHeader: ''` threads through to syncEntitlements
+  // (which mints its own service token — no user context on the SNS path). System
+  // path → no actorId. Marketplace add-ons are AWS-metered, so the provider
+  // line-item removal inside finalizePrunedAddons is a no-op (local event + audit
+  // still recorded so finance can reconcile).
+  const runSideEffects = applyPlanTierChange(subscription, plan, {
     oldPlanId,
     newPlanId,
-    provider: 'aws-marketplace',
-    customerIdentifier,
-    dimension: activeEntitlement?.dimension,
-  }, subscriptionId);
-
-  // Record the addon_pruned trail for any dropped bundle. Marketplace is EXEMPT
-  // from the provider line-item removal — its add-ons are AWS-metered, so the
-  // provider's syncAddons is a no-op (finalizePrunedAddons still writes the local
-  // event + central audit so finance can reconcile). System path → no actorId.
-  await finalizePrunedAddons(pruned, subscription.addons ?? [], {
-    orgId: subscription.orgId,
-    subscriptionId,
-    interval: subscription.interval,
-    externalId: subscription.externalId,
+    pruned,
+    authHeader: '',
     source: 'marketplace_plan_change',
+    eventDetails: { provider: 'aws-marketplace', customerIdentifier, dimension: activeEntitlement?.dimension },
   });
+
+  await subscription.save();
+  await runSideEffects();
 
   logger.info('Plan updated from entitlement change', {
     customerIdentifier,

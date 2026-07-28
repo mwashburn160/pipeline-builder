@@ -25,11 +25,17 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   },
 }));
 
+// A SHARED logger stub (rather than loggerMock's fresh-spies-per-call default) so
+// the token module's `createLogger('token')` instance is capturable — the degrade
+// path must log at WARN.
+const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+
 // resolveUserFeatures is stubbed to surface exactly the account features it was
 // handed, so the JWT `features` claim IS the resolved account entitlement set —
 // letting us assert which doc (root vs. stale team) it was sourced from.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   resolveUserFeatures: (_tier: string, opts?: { accountFeatures?: readonly string[] }) => [...(opts?.accountFeatures ?? [])],
+  createLogger: () => mockLogger,
 }));
 
 const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string; parentOrgId?: string }>>();
@@ -99,6 +105,37 @@ describe('resolveMembership — featureEntitlements resolve from the account ROO
     expect(decoded.rootOrganizationId).toBe('root-1');
     expect(decoded.parentOrganizationId).toBe('root-1');
     expect(mockResolveOrgLineage).toHaveBeenCalledTimes(1);
+  });
+
+  it('degrades to the team-doc copy (not a collapsed membership) when the ROOT read REJECTS', async () => {
+    // Active team membership. The team doc's own denormalized entitlements are the
+    // graceful fallback when the authoritative ROOT read blips transiently.
+    mockUserOrgFindOne.mockReturnValue({ lean: () => Promise.resolve({ role: 'member', organizationId: 'team-1' }) });
+    mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1', parentOrgId: 'root-1' });
+    // The team doc resolves; the ROOT read (root-1) REJECTS — a transient blip.
+    mockOrgFindById.mockImplementation((id: string) => ({
+      select: () => ({
+        lean: () =>
+          id === 'root-1'
+            ? Promise.reject(new Error('root read blip'))
+            : Promise.resolve({ name: 'Team', tier: 'team', parentOrgId: 'root-1', featureEntitlements: ['team_copy'], deletedAt: null }),
+      }),
+    }));
+
+    const { accessToken } = await issueTokens(mockUser(), 'team-1');
+    const decoded = jwt.decode(accessToken) as Record<string, unknown>;
+
+    // Graceful degrade: the JWT carries the team doc's own (possibly stale) copy —
+    // NOT a collapsed/undefined membership that strands the member with no org.
+    expect(decoded.features).toEqual(['team_copy']);
+    expect(decoded.organizationId).toBe('team-1');
+    expect(decoded.role).toBe('member');
+    // Hierarchy claims still ride the lineage walk (which succeeded).
+    expect(decoded.rootOrganizationId).toBe('root-1');
+    expect(decoded.parentOrganizationId).toBe('root-1');
+    // The degrade is logged at WARN for observability.
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+    expect(mockLogger.warn.mock.calls[0][0]).toMatch(/root featureEntitlements read failed/i);
   });
 
   it('a FLAT/root org uses its OWN featureEntitlements (no lineage walk, no extra read)', async () => {

@@ -5,7 +5,7 @@ import { createLogger, createSafeClient, createScheduler, type Scheduler, errorM
 import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
-import { createBillingEvent, effectiveEntitlements, getBundleCatalog, syncEntitlements } from './billing-helpers.js';
+import { billingServiceAuth, createBillingEvent, effectiveEntitlements, getBundleCatalog, syncEntitlements, syncProviderAddons } from './billing-helpers.js';
 import { computeEntitlementDrift, readActualEntitlements } from './entitlement-drift.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -45,6 +45,7 @@ async function runLifecycleCheck(): Promise<void> {
   await checkExpiredSubscriptions();
   await sendRenewalReminders();
   await reconcileFailedEntitlementSyncs();
+  await reconcileFailedProviderAddonSyncs();
   // Runs LAST: the low-frequency, bounded silent-drift pass. Kept at the end so
   // it doesn't disturb the earlier legs' sequential-mock ordering in tests.
   await reconcileEntitlementDrift();
@@ -77,8 +78,7 @@ async function checkGracePeriodExpiry(): Promise<void> {
       // the seat leg runs too — a lapsed sub must lose paid seats — and so the
       // billing_quota_sync_failed_total metric + error log fire on failure. Empty
       // addons: a lapsed sub loses bundle entitlements as well.
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
-      await syncEntitlements(subscription.orgId, 'developer', serviceAuth, subscription._id.toString(), []);
+      await syncEntitlements(subscription.orgId, 'developer', billingServiceAuth(subscription.orgId), subscription._id.toString(), []);
 
       // Lifecycle cron — no request user, so actorId is omitted (undefined).
       // We never fabricate an actor for system-initiated downgrades.
@@ -205,8 +205,7 @@ async function checkExpiredSubscriptions(): Promise<void> {
         // Provider confirms the sub is gone. Route through syncEntitlements (empty
         // add-ons) so the seat leg + sync-failure metric fire — same discipline as
         // the grace path — then flip status so the row leaves this scan.
-        const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
-        await syncEntitlements(subscription.orgId, 'developer', serviceAuth, subscription._id.toString(), []);
+        await syncEntitlements(subscription.orgId, 'developer', billingServiceAuth(subscription.orgId), subscription._id.toString(), []);
 
         await createBillingEvent(subscription.orgId, 'subscription_canceled', {
           reason: 'provider_verified_cancel_missed_webhook',
@@ -380,9 +379,8 @@ async function reconcileFailedEntitlementSyncs(): Promise<void> {
       // Re-drive the SAME two-target sync the original mutation attempted:
       // effective tier + current add-ons, root-scoped, with a fresh service
       // token. syncEntitlements clears the pending marker on success.
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
       const ok = await syncEntitlements(
-        subscription.orgId, plan.tier, serviceAuth, subscription._id.toString(), subscription.addons ?? [],
+        subscription.orgId, plan.tier, billingServiceAuth(subscription.orgId), subscription._id.toString(), subscription.addons ?? [],
       );
 
       if (ok) {
@@ -399,6 +397,61 @@ async function reconcileFailedEntitlementSyncs(): Promise<void> {
     } catch (err) {
       logger.error('Error reconciling entitlement sync', {
         orgId: subscription.orgId,
+        error: errorMessage(err),
+      });
+    }
+  }
+}
+
+// ── 4b. Provider Add-on Sync Reconciliation ───────────────
+
+/**
+ * Re-drive PROVIDER add-on line-item reconciliations that failed-open during a
+ * transient provider (Stripe) outage. When an auto-prune (tier upgrade) or a
+ * user add/remove drops a bundle, `syncProviderAddons` deletes the Stripe line
+ * item best-effort — a failure there is only local (the customer keeps being
+ * billed for the pruned bundle) and, unlike the entitlement leg, had no durable
+ * retry. `syncProviderAddons` now stamps `metadata.providerAddonSyncPending` on
+ * failure (and clears it on the next success), so this pass finds every ACTIVE
+ * marked sub and re-calls `syncProviderAddons` with the sub's CURRENT (already
+ * reduced) add-ons — idempotent: it rebuilds the provider's bundle line items
+ * from that list, dropping exactly the pruned ones. The marker clear/set happens
+ * inside syncProviderAddons, so this pass is self-clearing: a still-failing sub
+ * keeps the marker for the next tick, a recovered one drops it. Marketplace is
+ * exempt (its syncAddons is a no-op that never fails, so it never gets marked).
+ */
+async function reconcileFailedProviderAddonSyncs(): Promise<void> {
+  const pending = await Subscription.find({
+    'status': 'active',
+    'metadata.providerAddonSyncPending': true,
+  });
+
+  if (pending.length === 0) return;
+
+  logger.info('Reconciling subscriptions with a pending provider add-on sync', {
+    count: pending.length,
+    orgIds: pending.map(s => s.orgId),
+  });
+
+  for (const subscription of pending) {
+    try {
+      // Idempotent re-drive from the CURRENT reduced add-on set. syncProviderAddons
+      // clears the marker on success (and re-sets it on another failure). Threading
+      // the subscriptionId is what lets it manage the marker; source tags the metric.
+      await syncProviderAddons(
+        subscription.externalId,
+        subscription.addons ?? [],
+        subscription.interval,
+        subscription.orgId,
+        subscription._id.toString(),
+        'reconcile',
+      );
+    } catch (err) {
+      // syncProviderAddons is fail-open (never throws), but guard defensively so
+      // one sub can't abort the pass.
+      logger.error('Error reconciling provider add-on sync', {
+        orgId: subscription.orgId,
+        subscriptionId: subscription._id.toString(),
         error: errorMessage(err),
       });
     }
@@ -470,7 +523,7 @@ async function reconcileEntitlementDrift(): Promise<void> {
         continue;
       }
 
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
+      const serviceAuth = billingServiceAuth(subscription.orgId);
       const addons = subscription.addons ?? [];
 
       // EXPECTED (from the sub) vs ACTUAL (enforced) — the compare is pure; the

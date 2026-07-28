@@ -49,8 +49,15 @@ export function createExecutionReportRoutes(): Router {
   });
 
   router.get('/count', withRoute(async ({ req, res, orgId }) => {
+    // Optional [from,to] window (same parsing/cap as the sibling reports) so the
+    // count honors the dashboard date-range picker; omitted range = all-time.
+    const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
+    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const orgIds = await rollupIds(req, orgId);
-    sendSuccess(res, 200, { pipelines: await reportingService.getExecutionCount(orgId, orgIds) });
+    const hasRange = typeof req.query.from === 'string' && typeof req.query.to === 'string';
+    sendSuccess(res, 200, {
+      pipelines: await reportingService.getExecutionCount(orgId, orgIds, hasRange ? range : undefined),
+    });
   }));
 
   // Per-pipeline execution history. `pipelineId` is required (400 otherwise).

@@ -7,13 +7,13 @@ import {
   ErrorCode,
   createLogger,
   errorMessage,
-  getServiceAuthHeader,
 } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import { config } from '../config.js';
-import { applyTierIncludedAddonPrune, createBillingEvent, calculatePeriodEnd, finalizePrunedAddons, syncEntitlements } from '../helpers/billing-helpers.js';
+import { applyPlanTierChange, applyTierIncludedAddonPrune, createBillingEvent, calculatePeriodEnd, syncEntitlements } from '../helpers/billing-helpers.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
@@ -270,16 +270,21 @@ export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subsc
   const basePriceId = stripeSubscription.items?.data?.[0]?.price?.id;
   const mapped = basePriceId ? planFromStripePrice(basePriceId) : null;
   const oldPlanId = subscription.planId;
-  let syncedTier: QuotaTier | null = null;
+  const oldInterval = subscription.interval;
+  let syncedPlan: { tier: QuotaTier } | null = null;
+  // Whether the PLAN (tier) actually changed vs. ONLY the billing interval — an
+  // interval-only edit records interval_changed, not a plan_changed w/ equal ids.
+  let planChanged = false;
   // Bundles dropped because the new tier now includes their feature; their
-  // provider line-item removal + audit run AFTER save (finalizePrunedAddons).
+  // provider line-item removal + audit run AFTER save (via applyPlanTierChange).
   let prunedAddons: PrunedAddon[] = [];
   if (mapped && (mapped.planId !== subscription.planId || mapped.interval !== subscription.interval)) {
     const plan = await Plan.findOne({ _id: mapped.planId, isActive: true });
     if (plan) {
+      planChanged = mapped.planId !== oldPlanId;
       subscription.planId = mapped.planId;
       subscription.interval = mapped.interval;
-      syncedTier = plan.tier;
+      syncedPlan = plan;
       dirty = true;
 
       // Prune any PURE-FEATURE add-on the new tier now bundles in (double-billing
@@ -298,22 +303,23 @@ export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subsc
 
   if (dirty) await subscription.save();
 
-  if (syncedTier) {
-    // Preserve purchased add-ons: effective caps = tier base + addons.
-    const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId: subscription.orgId, role: 'owner' });
-    await syncEntitlements(subscription.orgId, syncedTier, serviceAuth, subscription._id.toString(), subscription.addons ?? []);
-    await createBillingEvent(subscription.orgId, 'plan_changed', {
-      provider: 'stripe', source: 'stripe_webhook', oldPlanId, newPlanId: subscription.planId, interval: subscription.interval,
-    }, subscription._id.toString());
-    // Remove the pruned bundles' Stripe line items (double-billing fix) + write
-    // the addon_pruned trail — AFTER save. System path (webhook) → no actorId.
-    await finalizePrunedAddons(prunedAddons, subscription.addons ?? [], {
-      orgId: subscription.orgId,
-      subscriptionId: subscription._id.toString(),
-      interval: subscription.interval,
-      externalId: subscription.externalId,
+  if (syncedPlan) {
+    // Shared post-save runner (service-token sync preserving add-ons → change
+    // event → pruned line-item removal + addon_pruned trail). System path
+    // (webhook) → no actorId. When ONLY the billing interval changed (same plan
+    // /tier), record interval_changed instead of a plan_changed with equal ids.
+    const runSideEffects = applyPlanTierChange(subscription, syncedPlan, {
+      oldPlanId,
+      newPlanId: subscription.planId,
+      pruned: prunedAddons,
       source: 'stripe_plan_change',
+      eventDetails: { provider: 'stripe', source: 'stripe_webhook', interval: subscription.interval },
+      event: planChanged ? undefined : {
+        type: 'interval_changed',
+        details: { provider: 'stripe', source: 'stripe_webhook', oldInterval, newInterval: subscription.interval },
+      },
     });
+    await runSideEffects();
     logger.info('Stripe subscription plan synced', {
       orgId: subscription.orgId, externalId, oldPlanId, newPlanId: subscription.planId, interval: subscription.interval,
     });
@@ -423,6 +429,19 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
     const plan = await Plan.findById(subscription.planId);
     if (plan) {
       await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
+    } else {
+      // planId points at a deleted/missing plan: the sub recovers to an entitled
+      // status but we can't resolve a tier to re-grant — without this branch the
+      // re-upgrade silently no-ops. Surface it (WARN + audit row + metric) so
+      // support can repair the dangling planId. The payment_succeeded row below
+      // still records the recovery; this adds the plan-missing signal.
+      logger.warn('Payment recovery could not re-upgrade — subscription plan not found', {
+        orgId: subscription.orgId, stripeSubscriptionId, planId: subscription.planId,
+      });
+      await createBillingEvent(subscription.orgId, 'subscription_updated', {
+        reason: 'reactivate_plan_missing', provider: 'stripe', planId: subscription.planId,
+      }, subscription._id.toString());
+      incCounter('billing_reactivate_plan_missing_total', { source: 'stripe_webhook' });
     }
   }
 

@@ -10,6 +10,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSyncEntitlements = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockSyncProviderAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 
 // EXPECTED entitlements the drift pass compares against. effectiveEntitlements is
 // mocked (billing-helpers) so tests drive the expected side deterministically.
@@ -79,8 +80,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  // The cron + entitlement-drift reader mint their service token via this helper.
+  billingServiceAuth: (_orgId: string) => 'Bearer test-service-token',
   syncEntitlements: (...args: unknown[]) => mockSyncEntitlements(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
+  // Re-driven by the provider add-on sync reconciler (Tier-4b).
+  syncProviderAddons: (...args: unknown[]) => mockSyncProviderAddons(...args),
   // Consumed by the drift pass (EXPECTED side) + the real entitlement-drift
   // read helper (timeout). effectiveEntitlements is a spy so tests drive expected.
   effectiveEntitlements: (...args: unknown[]) => mockEffectiveEntitlements(...args),
@@ -528,6 +533,46 @@ describe('Subscription Lifecycle Checker', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('provider add-on sync reconciliation', () => {
+    it('re-drives syncProviderAddons for active subs carrying the providerAddonSyncPending marker', async () => {
+      const pendingSub = {
+        _id: { toString: () => 'sub-p' },
+        orgId: 'org-p',
+        externalId: 'ext-p',
+        interval: 'monthly',
+        planId: 'pro-plan',
+        status: 'active',
+        addons: [{ bundleId: 'seat_pack', quantity: 1 }],
+        metadata: { providerAddonSyncPending: true },
+      };
+
+      // Only the provider-addon reconcile query returns the sub; the entitlement-
+      // sync reconcile / grace / expired / renewal / drift queries return [].
+      mockFind.mockImplementation(async (q: any) => (
+        q?.['metadata.providerAddonSyncPending'] === true ? [pendingSub] : []
+      ));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Re-drives from the CURRENT (reduced) add-ons; syncProviderAddons clears
+      // the marker on success. subscriptionId + source threaded so the marker is
+      // managed and the failure metric is labeled.
+      expect(mockSyncProviderAddons).toHaveBeenCalledWith(
+        'ext-p', [{ bundleId: 'seat_pack', quantity: 1 }], 'monthly', 'org-p', 'sub-p', 'reconcile',
+      );
+    });
+
+    it('does not re-drive when no subscription carries the provider-sync marker', async () => {
+      mockFind.mockResolvedValue([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncProviderAddons).not.toHaveBeenCalled();
     });
   });
 

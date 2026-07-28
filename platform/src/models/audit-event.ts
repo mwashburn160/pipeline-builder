@@ -204,6 +204,7 @@ export type AuditAction =
   | 'billing.tier.override'
   | 'billing.addon.add'
   | 'billing.addon.remove'
+  | 'billing.addon.prune'
   // Denied authorization attempt — best-effort emission from the shared
   // requirePermission / requireSystemAdmin gate on a rejected state-changing
   // request (probing/escalation signal). `outcome` is 'failure'.
@@ -325,6 +326,7 @@ export const ALL_AUDIT_ACTIONS = [
   'billing.tier.override',
   'billing.addon.add',
   'billing.addon.remove',
+  'billing.addon.prune',
   'authz.denied',
   'admin.org.ai-config.update',
   'admin.org.quota.override',

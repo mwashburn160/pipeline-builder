@@ -570,6 +570,14 @@ CREATE INDEX IF NOT EXISTS event_env_type_started_idx
     ON pipeline_events(environment, event_type, started_at)
     WHERE environment IS NOT NULL;
 
+-- started_at range scans: every Category-1 report and the default run-based
+-- DORA path filters event_type='PIPELINE' AND started_at BETWEEN ... joined on
+-- pipeline_id, but event_org_type_created_idx is on created_at, not started_at.
+-- This composite serves the join-driven scan by pipeline_id. Matches the drizzle
+-- event_pipeline_type_started_idx.
+CREATE INDEX IF NOT EXISTS event_pipeline_type_started_idx
+    ON pipeline_events(pipeline_id, event_type, started_at);
+
 -- Idempotency dedup for at-least-once EventBridge/SQS re-deliveries (and BullMQ
 -- plugin-build re-runs): the partial UNIQUE index used as the ON CONFLICT DO
 -- NOTHING arbiter in reporting-service.ingestEvents and recordBuildEvent. Without

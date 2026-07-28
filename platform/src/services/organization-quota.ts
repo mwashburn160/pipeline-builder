@@ -71,6 +71,9 @@ async function bumpActiveMembersTokenVersion(
     { $inc: { tokenVersion: 1 } },
     { session },
   );
+  // `distinct` returns `any[]` (mongoose's `distinct<T>` overload doesn't infer
+  // ObjectId cleanly for a mixed scalar/$in filter — it widens to `unknown[]`),
+  // so cast to the known `userId` element type rather than fight the typings.
   return userIds as Types.ObjectId[];
 }
 
@@ -80,6 +83,13 @@ async function bumpActiveMembersTokenVersion(
  * no-tier (`undefined`) previous, or any unknown tier on either side, is never a
  * downgrade: a stale token then under-grants, which is safe. Pure; shared by
  * setTier + setSeatLimit's billing tier-push so the rank comparison can't drift.
+ *
+ * LOAD-BEARING INVARIANT: the rank is `VALID_TIERS.indexOf(...)`, and
+ * `VALID_TIERS = Object.keys(QUOTA_TIERS)` — so downgrade semantics derive
+ * ENTIRELY from the DECLARATION ORDER of `QUOTA_TIERS`' keys (developer < pro <
+ * team < enterprise). Reordering those keys silently reorders the tier ranks and
+ * flips what counts as a downgrade (and thus which changes invalidate tokens).
+ * Keep `QUOTA_TIERS` keys in ascending-tier order.
  */
 function isTierDowngrade(prev: QuotaTier | undefined, next: QuotaTier): boolean {
   const prevRank = prev ? VALID_TIERS.indexOf(prev) : -1;
@@ -165,6 +175,10 @@ export async function setSeatLimit(
     // (a feature dropped, or a tier downgrade) before the $set overwrites them —
     // access reductions must invalidate the affected members' stale tokens.
     let featureShrink = false;
+    // Whether the passed feature set actually DIFFERS from the current one
+    // (order-independent). An idempotent re-sync of the same set need not rewrite
+    // `featureEntitlements` onto every descendant team — see the propagate guard.
+    let featuresChanged = false;
     let tierDowngrade = false;
     // The org subtree a feature/tier change propagates to (root + descendant
     // teams). Defaults to the root alone; widened below once the descendant
@@ -178,18 +192,41 @@ export async function setSeatLimit(
       : null;
 
     if (features !== undefined) {
+      const currentFeatures = new Set(current?.featureEntitlements ?? []);
       const nextFeatures = new Set(features);
-      featureShrink = (current?.featureEntitlements ?? []).some((f) => !nextFeatures.has(f));
+      featureShrink = [...currentFeatures].some((f) => !nextFeatures.has(f));
+      // Set inequality: a removal (shrink) OR a differing size (an add). A
+      // reorder of the same members leaves both false → no descendant rewrite.
+      featuresChanged = featureShrink || currentFeatures.size !== nextFeatures.size;
     }
     // Billing pushes the account tier alongside seats/features so a plan
     // DOWNGRADE invalidates stale tokens here (the JWT re-derives tier-included
-    // features from `org.tier`, so a stale tier would keep granting them). We set
-    // ONLY the tier label — never reseed `org.quotas` (billing owns the effective
-    // limits and syncs them to the quota service separately; the sysadmin
-    // `setTier` path is the one that reseeds).
+    // features from `org.tier`, so a stale tier would keep granting them).
     if (tier !== undefined && current && current.tier !== tier) {
       set.tier = tier;
       tierDowngrade = isTierDowngrade(current.tier, tier);
+      // Keep `org.tier` and the org-doc `quotas` CONSISTENT for the degraded read.
+      // `getQuotas`' quota-service-down fallback reports limits straight off
+      // `org.quotas`; if we bumped only the tier LABEL it would surface the OLD
+      // tier's non-seat limits under the NEW tier label — a persistent mismatch.
+      // So reseed the org-doc's NON-SEAT quota dimensions from the new tier's base
+      // (mirrors `setTier`'s reseed). This changes ONLY the degraded fallback — the
+      // quota SERVICE stays authoritative for the happy path.
+      //
+      // `seats` is PRESERVED: it is the one dim a bundle raises directly on the org
+      // doc, and `set['quotas.seats']` above already carries billing's effective
+      // (tier base + bundles) seat entitlement — clobbering it with the bare tier
+      // base would silently discard paid-for seats. Every OTHER dim is synced to
+      // the quota SERVICE (billing's `syncTierToQuotaService`), so reseeding the
+      // org-doc copy of those to the new tier base is correct. We write the non-seat
+      // dims via dot-notation so they don't conflict with the `quotas.seats` key.
+      const base = QUOTA_TIERS[tier]?.limits;
+      if (base) {
+        for (const [dim, value] of Object.entries(base)) {
+          if (dim === 'seats') continue;
+          set[`quotas.${dim}`] = value;
+        }
+      }
     }
 
     const result = await Organization.updateOne(
@@ -202,7 +239,11 @@ export async function setSeatLimit(
     // Propagate account-level fields (featureEntitlements and/or the tier label)
     // onto descendant teams so a team member's token carries them.
     const propagate: Record<string, unknown> = {};
-    if (features !== undefined) propagate.featureEntitlements = features;
+    // Only propagate featureEntitlements when the set actually changed — an
+    // idempotent re-sync of the same members would otherwise issue a redundant
+    // subtree updateMany writing identical values. (The root `$set` still writes
+    // it unconditionally; the token bump is already gated on a reduction.)
+    if (features !== undefined && featuresChanged) propagate.featureEntitlements = features;
     if (set.tier !== undefined) propagate.tier = tier;
     if (Object.keys(propagate).length > 0) {
       // [root, ...descendants] — the exact set the fields propagate to, so the
@@ -218,6 +259,16 @@ export async function setSeatLimit(
     // stale token held by ANY subtree member still over-grants — bump them all.
     if (featureShrink || tierDowngrade) {
       bumpedMemberIds = await bumpActiveMembersTokenVersion(subtreeIds, session);
+      // Security-relevant outcome: how many members were invalidated across how
+      // many subtree orgs, and why — so incident review can reconstruct the blast
+      // radius of an access reduction.
+      logger.info('setSeatLimit: invalidated active members after access reduction', {
+        bumpedMembers: bumpedMemberIds.length,
+        subtreeOrgs: subtreeIds.length,
+        reason: featureShrink && tierDowngrade
+          ? 'feature_shrink+tier_downgrade'
+          : featureShrink ? 'feature_shrink' : 'tier_downgrade',
+      });
     }
     return { rootOrgId, seats };
   });
@@ -281,9 +332,14 @@ export async function checkTierOvercap(
   // behavior — same underlying Mongo counters) so a transient outage doesn't
   // silently under-count and wave a stranding downgrade through.
   const COUNT_QUOTAS = ['plugins', 'pipelines', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'] as const;
+  // Only the dims the NEW tier actually caps (limit !== -1) can be over-cap; a
+  // field left unlimited is `continue`-skipped below and contributes nothing. So
+  // pre-filter BEFORE the round-trips — an unlimited dim shouldn't cost a
+  // quota-service call. Result is identical (skipped dims added no overage).
+  const guardedFields = COUNT_QUOTAS.filter((field) => limits[field] !== -1);
   const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: rootOrgId, role: 'owner' });
   const statuses = await Promise.all(
-    COUNT_QUOTAS.map((field) => getOrganizationQuotaStatus(rootOrgId, field as QuotaType, auth)),
+    guardedFields.map((field) => getOrganizationQuotaStatus(rootOrgId, field as QuotaType, auth)),
   );
 
   let fallbackRows: Array<{ usage?: unknown }> | null = null;
@@ -301,9 +357,8 @@ export async function checkTierOvercap(
     }, 0);
   };
 
-  for (let i = 0; i < COUNT_QUOTAS.length; i++) {
-    const field = COUNT_QUOTAS[i];
-    if (limits[field] === -1) continue;
+  for (let i = 0; i < guardedFields.length; i++) {
+    const field = guardedFields[i];
     const used = await usageFor(field, i);
     if (used > limits[field]) {
       overages.push({ quotaType: field, currentUsage: used, targetCap: limits[field], overage: used - limits[field] });
@@ -404,6 +459,14 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
     // transaction as the tier write. No bump on an upgrade.
     if (isDowngrade) {
       bumpedMemberIds = await bumpActiveMembersTokenVersion(subtreeIds, session);
+      // Security-relevant outcome: how many members were invalidated across how
+      // many subtree orgs, and why — so incident review can reconstruct the blast
+      // radius of the downgrade.
+      logger.info('setTier: invalidated active members after tier downgrade', {
+        bumpedMembers: bumpedMemberIds.length,
+        subtreeOrgs: subtreeIds.length,
+        reason: 'tier_downgrade',
+      });
     }
   });
   // Post-commit: publish the affected members' now-current tokenVersion so the

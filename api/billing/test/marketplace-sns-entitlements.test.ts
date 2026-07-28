@@ -37,7 +37,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAuth: () => (_req: any, _res: any, next: () => void) => next(),
 }));
 
+const mockIncCounter = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
   withRoute: (handler: Function) => async (req: any, res: any) =>
     handler({ req, res, ctx: { log: jest.fn() }, orgId: req.orgId }),
 }));
@@ -54,7 +56,23 @@ const mockApplyTierIncludedAddonPrune = jest.fn(
   (_sub: { addons?: Array<{ bundleId: string; quantity: number }> }) => [] as Array<{ bundleId: string; features: string[] }>,
 );
 const mockFinalizePrunedAddons = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+// Faithful re-implementation of applyPlanTierChange (deferred sync → plan_changed
+// event → prune finalize) so the entitlement-update path's downstream calls stay
+// observable on the existing spies. Marketplace threads authHeader `''`.
+const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string }, opts: any) => async () => {
+  const auth = opts.authHeader ?? 'Bearer service-token';
+  await mockSyncEntitlements(subscription.orgId, plan.tier, auth, subscription._id.toString(), subscription.addons ?? []);
+  if (opts.event) {
+    await mockCreateBillingEvent(subscription.orgId, opts.event.type, opts.event.details, subscription._id.toString(), opts.actorId);
+  } else {
+    await mockCreateBillingEvent(subscription.orgId, 'plan_changed', { oldPlanId: opts.oldPlanId, newPlanId: opts.newPlanId, ...opts.eventDetails }, subscription._id.toString(), opts.actorId);
+  }
+  await mockFinalizePrunedAddons(opts.pruned, subscription.addons ?? [], {
+    orgId: subscription.orgId, subscriptionId: subscription._id.toString(), interval: subscription.interval, externalId: subscription.externalId, actorId: opts.actorId, source: opts.source,
+  });
+});
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  applyPlanTierChange: mockApplyPlanTierChange,
   calculatePeriodEnd: (...a: unknown[]) => mockCalculatePeriodEnd(...a),
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),
   syncEntitlements: (...a: unknown[]) => mockSyncEntitlements(...a),
@@ -348,6 +366,28 @@ describe('POST /marketplace/sns — Notification status changes', () => {
     );
   });
 
+  it('a reactivation with a missing plan writes a WARN billing_events row + metric and does NOT sync (Fix 2)', async () => {
+    const doc = subDoc({ status: 'canceled', planId: 'ghost-plan', addons: [] });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    mockPlanFindById.mockResolvedValue(null);
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: notification('subscribe-success') }) }, res);
+
+    expect(doc.status).toBe('active');
+    // No entitlement sync (no tier to grant) — but the gap is now observable.
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'subscription_updated',
+      expect.objectContaining({ reason: 'reactivate_plan_missing', provider: 'aws-marketplace', planId: 'ghost-plan' }),
+      'sub-1',
+    );
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_reactivate_plan_missing_total', { source: 'marketplace' });
+    // The subscription_reactivated row still fires alongside the gap signal.
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'subscription_reactivated', expect.any(Object), 'sub-1',
+    );
+  });
+
   it('an ordinary status change (active → subscribe-success) logs subscription_updated only', async () => {
     const doc = subDoc({ status: 'active' });
     mockSubscriptionFindOne.mockReturnValue(query(doc));
@@ -404,10 +444,12 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     expect(doc.planId).toBe('team');
     expect(doc.save).toHaveBeenCalledTimes(1);
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'team', '', 'sub-1', []);
+    // Routed through applyPlanTierChange now — the plan_changed row carries a
+    // trailing (undefined) actorId on the system SNS path.
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'plan_changed',
       expect.objectContaining({ oldPlanId: 'developer', newPlanId: 'team' }),
-      'sub-1',
+      'sub-1', undefined,
     );
     expect(res.status).toHaveBeenCalledWith(200);
   });

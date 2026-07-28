@@ -124,8 +124,31 @@ const mockApplyTierIncludedAddonPrune = jest.fn(
 // + audit); the route just wires it, so we assert the call shape here and unit-test
 // the actual provider removal in addon-prune.test.ts.
 const mockFinalizePrunedAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+// applyPlanTierChange is a FAITHFUL re-implementation of the real helper (the
+// deferred sync → event → finalize sequence) so the route's downstream calls
+// stay observable on the existing spies. The route just wires it + invokes the
+// returned thunk after save.
+const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string }, opts: any) => async () => {
+  const auth = opts.authHeader ?? 'Bearer service-token';
+  await mockSyncTierToQuotaService(subscription.orgId, plan.tier, auth, subscription._id.toString(), subscription.addons ?? []);
+  if (opts.event) {
+    await mockCreateBillingEvent(subscription.orgId, opts.event.type, opts.event.details, subscription._id.toString(), opts.actorId);
+  } else {
+    await mockCreateBillingEvent(subscription.orgId, 'plan_changed', { oldPlanId: opts.oldPlanId, newPlanId: opts.newPlanId, ...opts.eventDetails }, subscription._id.toString(), opts.actorId);
+  }
+  await mockFinalizePrunedAddons(opts.pruned, subscription.addons ?? [], {
+    orgId: subscription.orgId,
+    subscriptionId: subscription._id.toString(),
+    interval: subscription.interval,
+    externalId: subscription.externalId,
+    actorId: opts.actorId,
+    source: opts.source,
+  });
+});
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  applyPlanTierChange: mockApplyPlanTierChange,
+  billingServiceAuth: (_orgId: string) => 'Bearer service-token',
   buildSubscriptionResponse: mockBuildSubscriptionResponse,
   calculatePeriodEnd: mockCalculatePeriodEnd,
   createBillingEvent: mockCreateBillingEvent,

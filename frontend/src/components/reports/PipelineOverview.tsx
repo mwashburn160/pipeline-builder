@@ -5,8 +5,8 @@ import type { ExecutionCountRow } from '@/types';
 import type { DoraMetrics, DoraTrendPoint } from '@/lib/api/domains/reporting';
 import {
   fmtDate, fmtSeconds, fmtWindow, ReportEmpty, SectionHeading,
-  StatCardSkeleton, SectionCardSkeleton,
-  DoraCard, DoraTrendSparkline, DoraUpsell, DoraScopeControls,
+  StatCardSkeleton, SectionCardSkeleton, StackedTimelineBar,
+  DoraCard, DoraTrendSparkline, DoraUpsell, DoraScopeControls, type DoraScope,
 } from './ReportHelpers';
 import { StatCard } from './StatCard';
 import type { TimelineEntry } from './types';
@@ -18,21 +18,13 @@ interface PipelineOverviewProps {
   dora: DoraMetrics | null;
   doraTrend: DoraTrendPoint[];
   doraEnabled: boolean;
-  // DORA scope state + wiring (owned by the page).
-  doraPipelineId: string;
-  doraEnvironment: string;
-  doraDeploysOnly: boolean;
-  onDoraPipelineChange: (v: string) => void;
-  onDoraEnvironmentChange: (v: string) => void;
-  onDoraEnvironmentCommit: (v: string) => void;
-  onDoraDeploysOnlyChange: (v: boolean) => void;
+  /** DORA scope value + callbacks (owned by the page), forwarded to DoraScopeControls. */
+  doraScope: DoraScope;
 }
 
 /** Pipelines → Overview tab: summary stats, DORA section, execution + success-rate timelines. */
 export function PipelineOverview({
-  loading, executions, timeline, dora, doraTrend, doraEnabled,
-  doraPipelineId, doraEnvironment, doraDeploysOnly,
-  onDoraPipelineChange, onDoraEnvironmentChange, onDoraEnvironmentCommit, onDoraDeploysOnlyChange,
+  loading, executions, timeline, dora, doraTrend, doraEnabled, doraScope,
 }: PipelineOverviewProps) {
   const totalExec = executions.reduce((s, p) => s + p.total, 0);
   const totalPass = executions.reduce((s, p) => s + p.succeeded, 0);
@@ -42,7 +34,6 @@ export function PipelineOverview({
 
   if (loading && !hasOverviewData) return <><StatCardSkeleton count={4} /><SectionCardSkeleton lines={5} /></>;
   if (!loading && !hasOverviewData) return <EmptyState icon={GitBranch} title="No pipeline data yet" description="Run some pipelines to see execution analytics here." illustration="pipelines" />;
-  if (!hasOverviewData) return null;
 
   return (
     <>
@@ -66,13 +57,7 @@ export function PipelineOverview({
           <SectionHeading>DORA Metrics</SectionHeading>
           <DoraScopeControls
             pipelines={executions.map((p) => ({ id: p.id, name: p.pipeline_name || p.project }))}
-            pipelineId={doraPipelineId}
-            environment={doraEnvironment}
-            deploysOnly={doraDeploysOnly}
-            onPipelineChange={onDoraPipelineChange}
-            onEnvironmentChange={onDoraEnvironmentChange}
-            onEnvironmentCommit={onDoraEnvironmentCommit}
-            onDeploysOnlyChange={onDoraDeploysOnlyChange}
+            {...doraScope}
           />
           {dora ? (
             <>
@@ -132,23 +117,15 @@ export function PipelineOverview({
         <SectionHeading>Execution Timeline</SectionHeading>
         {timeline.length > 0 ? (
           <div className="space-y-1.5">
-            {timeline.map((entry) => {
-              const total = entry.succeeded + entry.failed + entry.canceled;
-              const sPct = total > 0 ? (entry.succeeded / total) * 100 : 0;
-              const fPct = total > 0 ? (entry.failed / total) * 100 : 0;
-              const cPct = total > 0 ? (entry.canceled / total) * 100 : 0;
-              return (
-                <div key={entry.period} className="flex items-center gap-3">
-                  <span className="text-xs text-gray-400 dark:text-gray-500 w-16 shrink-0 tabular-nums">{fmtDate(entry.period)}</span>
-                  <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden flex">
-                    {sPct > 0 && <div className="h-full bg-green-500" style={{ width: `${sPct}%` }} />}
-                    {fPct > 0 && <div className="h-full bg-red-500" style={{ width: `${fPct}%` }} />}
-                    {cPct > 0 && <div className="h-full bg-yellow-400" style={{ width: `${cPct}%` }} />}
-                  </div>
-                  <span className="text-xs text-gray-400 dark:text-gray-500 w-12 text-right tabular-nums">{total}</span>
-                </div>
-              );
-            })}
+            {timeline.map((entry) => (
+              <StackedTimelineBar
+                key={entry.period}
+                period={entry.period}
+                succeeded={entry.succeeded}
+                failed={entry.failed}
+                canceled={entry.canceled}
+              />
+            ))}
             <div className="flex items-center gap-2 mt-2"><Badge color="green">Pass</Badge><Badge color="red">Fail</Badge><Badge color="yellow">Canceled</Badge></div>
           </div>
         ) : <ReportEmpty text="No execution data for this period" />}

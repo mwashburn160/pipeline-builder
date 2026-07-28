@@ -19,14 +19,38 @@ const mockSyncTier = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockRes
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-04-01'));
 const mockFinalizePrunedAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+// Faithful re-implementation of applyPlanTierChange (deferred sync → change
+// event → prune finalize) so the webhook's downstream calls stay observable on
+// the existing spies — including the interval_changed event override.
+const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string }, opts: any) => async () => {
+  const auth = opts.authHeader ?? 'Bearer service-token';
+  await mockSyncTier(subscription.orgId, plan.tier, auth, subscription._id.toString(), subscription.addons ?? []);
+  if (opts.event) {
+    await mockCreateBillingEvent(subscription.orgId, opts.event.type, opts.event.details, subscription._id.toString(), opts.actorId);
+  } else {
+    await mockCreateBillingEvent(subscription.orgId, 'plan_changed', { oldPlanId: opts.oldPlanId, newPlanId: opts.newPlanId, ...opts.eventDetails }, subscription._id.toString(), opts.actorId);
+  }
+  await mockFinalizePrunedAddons(opts.pruned, subscription.addons ?? [], {
+    orgId: subscription.orgId, subscriptionId: subscription._id.toString(), interval: subscription.interval, externalId: subscription.externalId, actorId: opts.actorId, source: opts.source,
+  });
+});
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  applyPlanTierChange: mockApplyPlanTierChange,
+  billingServiceAuth: (_orgId: string) => 'Bearer service-token',
   syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
   syncEntitlements: (...args: unknown[]) => mockSyncTier(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
   calculatePeriodEnd: (...args: unknown[]) => mockCalculatePeriodEnd(),
-  // Double-billing prune: no-op passthrough (this suite doesn't exercise prune).
+  // Double-billing prune: no-op passthrough (nothing to prune on an interval change).
   applyTierIncludedAddonPrune: () => [],
   finalizePrunedAddons: (...args: unknown[]) => mockFinalizePrunedAddons(...args),
+}));
+
+// stripe-webhook now emits incCounter on the reactivate-plan-missing gap; stub it
+// so no real Prometheus registry loads at module import.
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
 }));
 
 // Capture the real `mapStripeStatus` before the stripe-helpers module is mocked.
@@ -47,6 +71,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
     stripe: {
       priceToPlanMap: {
         team_monthly: 'price_team_m',
+        team_annual: 'price_team_a',
         pro_annual: 'price_pro_a',
         seat_pack_monthly: 'price_bundle_seat',
       },
@@ -56,8 +81,14 @@ jest.unstable_mockModule('../src/config.js', () => ({
 
 // Mock Plan model
 const mockPlanFindById = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ tier: 'pro', name: 'Pro' });
+// A plan/interval change made directly in Stripe reverses the price map then
+// looks the plan up via findOne (isActive gated).
+const mockPlanFindOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', isActive: true });
 jest.unstable_mockModule('../src/models/plan.js', () => ({
-  Plan: { findById: (...args: unknown[]) => mockPlanFindById(...args) },
+  Plan: {
+    findById: (...args: unknown[]) => mockPlanFindById(...args),
+    findOne: (...args: unknown[]) => mockPlanFindOne(...args),
+  },
 }));
 
 // Mock Subscription model
@@ -324,5 +355,77 @@ describe('handleSubscriptionUpdated past_due grace clock', () => {
 
     // No status/clock change — the in-progress grace window must not reset.
     expect(sub.firstFailedAt).toBe(existing);
+  });
+});
+
+// ============================================
+// handleSubscriptionUpdated → interval-only change (mislabel fix)
+// ============================================
+
+describe('handleSubscriptionUpdated interval-only change', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPlanFindOne.mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', isActive: true });
+  });
+
+  function makeSub(overrides: Record<string, unknown> = {}) {
+    return {
+      _id: { toString: () => 'sub-1' },
+      orgId: 'org-1',
+      planId: 'team',
+      interval: 'monthly',
+      status: 'active',
+      cancelAtPeriodEnd: false,
+      firstFailedAt: undefined as Date | undefined,
+      addons: [],
+      externalId: 'ext-sub-1',
+      metadata: { provider: 'stripe' },
+      save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      ...overrides,
+    };
+  }
+
+  // Stripe base line item now carries the SAME plan at a DIFFERENT interval
+  // (team monthly → team annual): price_team_a reverses to {planId:'team',
+  // interval:'annual'}.
+  function stripeIntervalChange() {
+    return { id: 'sub_ext', status: 'active', cancel_at_period_end: false, items: { data: [{ price: { id: 'price_team_a' } }] } } as any;
+  }
+
+  it('emits interval_changed (NOT a plan_changed with equal ids) when only the interval changed', async () => {
+    const sub = makeSub();
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeIntervalChange());
+
+    // The local record re-cadences to annual and persists.
+    expect(sub.interval).toBe('annual');
+    expect(sub.save).toHaveBeenCalled();
+    // Same tier re-synced (idempotent), with a service token.
+    expect(mockSyncTier).toHaveBeenCalledWith('org-1', 'team', 'Bearer service-token', 'sub-1', []);
+
+    // The distinguishing fix: an interval_changed event, never a plan_changed
+    // whose oldPlanId === newPlanId.
+    const types = mockCreateBillingEvent.mock.calls.map((c) => c[1]);
+    expect(types).toContain('interval_changed');
+    expect(types).not.toContain('plan_changed');
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'interval_changed',
+      expect.objectContaining({ provider: 'stripe', oldInterval: 'monthly', newInterval: 'annual' }),
+      'sub-1', undefined,
+    );
+  });
+
+  it('still emits plan_changed when the plan (tier) actually changed', async () => {
+    // team monthly → team ... no: switch to a real plan change. price_team_m maps
+    // to team/monthly; start the sub on pro/monthly so the plan differs.
+    const sub = makeSub({ planId: 'pro', interval: 'monthly' });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated({ id: 'sub_ext', status: 'active', cancel_at_period_end: false, items: { data: [{ price: { id: 'price_team_m' } }] } } as any);
+
+    const types = mockCreateBillingEvent.mock.calls.map((c) => c[1]);
+    expect(types).toContain('plan_changed');
+    expect(types).not.toContain('interval_changed');
   });
 });

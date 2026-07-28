@@ -32,6 +32,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: jest.fn(),
   withRoute: (handler: Function) => async (req: any, res: any) =>
     handler({ req, res, ctx: { log: jest.fn() }, orgId: req.orgId }),
 }));
@@ -49,6 +50,7 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   syncEntitlements: (...a: unknown[]) => mockSyncEntitlements(...a),
   // Double-billing prune: no-op passthrough (this suite doesn't exercise prune).
   applyTierIncludedAddonPrune: () => [],
+  applyPlanTierChange: () => async () => undefined,
   finalizePrunedAddons: async () => undefined,
 }));
 

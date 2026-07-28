@@ -53,6 +53,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: jest.fn(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     try {
       await handler({ req, res, ctx: { log: jest.fn() }, orgId: req.orgId });
@@ -85,6 +86,8 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   // Double-billing prune wiring — this suite only asserts read-route gating, so
   // both are no-ops (prune returns [], the finalizer + provider removal do nothing).
   applyTierIncludedAddonPrune: () => [],
+  applyPlanTierChange: () => async () => undefined,
+  billingServiceAuth: () => 'Bearer service-token',
   finalizePrunedAddons: async () => undefined,
   syncProviderAddons: async () => undefined,
   effectiveEntitlements: () => ({ limits: {} }),

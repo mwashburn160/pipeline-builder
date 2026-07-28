@@ -11,7 +11,6 @@ import {
   ErrorCode,
   createLogger,
   getParam,
-  getServiceAuthHeader,
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -19,12 +18,13 @@ import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { config } from '../config.js';
 import {
+  applyPlanTierChange,
   applyTierIncludedAddonPrune,
+  billingServiceAuth,
   buildSubscriptionResponse,
   calculatePeriodEnd,
   checkEntitlementOvercap,
   createBillingEvent,
-  finalizePrunedAddons,
   MANAGEABLE_SUBSCRIPTION_STATUSES,
   syncEntitlements,
 } from '../helpers/billing-helpers.js';
@@ -183,8 +183,7 @@ export function createSubscriptionRoutes(): Router {
     // service.
     const entitlementWorthy = subscription.status === 'active' || subscription.status === 'trialing';
     if (entitlementWorthy) {
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-      await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString());
+      await syncEntitlements(orgId, plan.tier, billingServiceAuth(orgId), subscription._id.toString());
     }
 
     // Log billing event
@@ -257,12 +256,14 @@ export function createSubscriptionRoutes(): Router {
       await getPaymentProvider().updateSubscription(subscription.externalId || '', effectivePlanId, effectiveInterval);
     }
 
+    // Deferred post-save side effects for a plan change (sync + plan_changed
+    // event + prune finalize), built pre-save but INVOKED after save so a failed
+    // save can't leave the quota service / event log / provider ahead.
+    let runPlanSideEffects: (() => Promise<void>) | undefined;
+
     if (planChanged) {
       const oldPlanId = subscription.planId;
       subscription.planId = effectivePlanId;
-      await createBillingEvent(orgId, 'plan_changed', {
-        oldPlanId, newPlanId: effectivePlanId,
-      }, subscriptionId, req.user?.sub);
 
       // Prune any PURE-FEATURE add-on the new tier now bundles in (e.g. an
       // `advanced_reporting` bundle absorbed by an Enterprise upgrade). Without
@@ -270,11 +271,19 @@ export function createSubscriptionRoutes(): Router {
       // tier-filtered catalog hides it, so they can't self-service-remove it.
       // This mutates subscription.addons in memory (persisted by the save below);
       // the provider line-item removal + audit run post-save via
-      // finalizePrunedAddons. Hybrid bundles (e.g. `sso`→idpConfigs) are kept.
-      // `plan` is always set when planChanged (fetched above); guard for TS.
+      // applyPlanTierChange → finalizePrunedAddons. Hybrid bundles (e.g.
+      // `sso`→idpConfigs) are kept. `plan` is always set when planChanged
+      // (fetched above); guard for TS.
       if (plan) {
         prunedAddons = applyTierIncludedAddonPrune(subscription, plan.tier, {
           orgId, subscriptionId: subscription._id.toString(), source: 'plan_change',
+        });
+        runPlanSideEffects = applyPlanTierChange(subscription, plan, {
+          oldPlanId,
+          newPlanId: effectivePlanId,
+          pruned: prunedAddons,
+          actorId: req.user?.sub,
+          source: 'plan_change',
         });
       }
     }
@@ -291,25 +300,12 @@ export function createSubscriptionRoutes(): Router {
 
     await subscription.save();
 
-    // Sync tier if plan changed. Use a service token rather than forwarding
-    // the caller's bearer (see create-subscription comment for rationale).
-    // Pass the current add-ons so a plan change preserves purchased bundle
-    // grants instead of resetting to tier-base-only limits.
-    if (plan) {
-      const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
-      await syncEntitlements(orgId, plan.tier, serviceAuth, subscriptionId, subscription.addons ?? []);
-    }
-
-    // Remove any pruned bundles' provider line items (double-billing fix) +
-    // write the addon_pruned audit trail — AFTER save so state can't drift.
-    await finalizePrunedAddons(prunedAddons, subscription.addons ?? [], {
-      orgId,
-      subscriptionId: subscription._id.toString(),
-      interval: subscription.interval,
-      externalId: subscription.externalId,
-      actorId: req.user?.sub,
-      source: 'plan_change',
-    });
+    // Post-save side effects for a plan change: sync effective entitlements
+    // (service token — never the caller's bearer; see create-subscription
+    // rationale), write the plan_changed row, and remove any pruned bundles'
+    // provider line items + audit trail. Runs AFTER save so a failed save can't
+    // drift the quota service / event log / provider ahead of the document.
+    if (runPlanSideEffects) await runPlanSideEffects();
 
     logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
 

@@ -107,6 +107,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   'billing.tier.override',
   'billing.addon.add',
   'billing.addon.remove',
+  // System-initiated removal of a tier-included add-on on a plan upgrade (the
+  // account's new tier now bundles the feature) — distinct from a user-initiated
+  // `remove` so finance can tell an auto-prune from a customer action.
+  'billing.addon.prune',
   // Denied authorization attempt — emitted best-effort by the shared
   // `requirePermission` / `requireSystemAdmin` gate when a state-changing
   // (non-GET) request is rejected, so probing/escalation attempts are visible

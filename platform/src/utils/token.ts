@@ -210,10 +210,28 @@ async function accountContext(
   // Parented org (team): resolve lineage ONCE, then read the ROOT's authoritative
   // entitlements (drift-proof) and derive the hierarchy claims from the same walk.
   const lineage = await resolveOrgLineage(orgId);
-  const root = await Organization.findById(toOrgId(lineage.rootOrgId))
-    .select('featureEntitlements').lean();
+  // The ROOT read is a NEWLY-INTRODUCED failure surface for a team login (before
+  // drift-proofing a team never read the root). A transient root-read blip must
+  // NOT propagate out — resolveMembership's caller (`issueTokens`) would then
+  // swallow it and strand the member with NO org context (default developer /
+  // no-perms), a far worse outcome than slightly-stale entitlements. So GRACEFULLY
+  // DEGRADE to the team doc's own denormalized `featureEntitlements` (already in
+  // hand) — the JWT carries the possibly-stale team-doc set rather than collapsing
+  // the whole membership. The hierarchy claims still ride the same lineage walk.
+  let featureEntitlements: readonly string[] = org.featureEntitlements ?? [];
+  try {
+    const root = await Organization.findById(toOrgId(lineage.rootOrgId))
+      .select('featureEntitlements').lean();
+    featureEntitlements = (root as { featureEntitlements?: string[] })?.featureEntitlements ?? [];
+  } catch (error) {
+    logger.warn('accountContext: root featureEntitlements read failed; degrading to team-doc copy', {
+      orgId,
+      rootOrgId: lineage.rootOrgId,
+      error,
+    });
+  }
   return {
-    featureEntitlements: (root as { featureEntitlements?: string[] })?.featureEntitlements ?? [],
+    featureEntitlements,
     ...(lineage.parentOrgId && { parentOrganizationId: lineage.parentOrgId }),
     ...(lineage.rootOrgId !== orgId && { rootOrganizationId: lineage.rootOrgId }),
   };

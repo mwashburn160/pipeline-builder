@@ -84,8 +84,31 @@ const mockApplyTierIncludedAddonPrune = jest.fn(
 // finalizePrunedAddons owns the post-save provider removal + audit; the route wires
 // it. We assert the call shape here and unit-test the provider removal elsewhere.
 const mockFinalizePrunedAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+// Faithful re-implementation of the real applyPlanTierChange (deferred
+// sync → plan_changed event → prune finalize) so the route's downstream calls
+// stay observable on the existing spies. The admin route's own
+// billing.tier.override central-audit record stays inline (asserted separately).
+const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string }, opts: any) => async () => {
+  const auth = opts.authHeader ?? 'Bearer service-token';
+  await mockSyncTierToQuotaService(subscription.orgId, plan.tier, auth, subscription._id.toString(), subscription.addons ?? []);
+  if (opts.event) {
+    await mockCreateBillingEvent(subscription.orgId, opts.event.type, opts.event.details, subscription._id.toString(), opts.actorId);
+  } else {
+    await mockCreateBillingEvent(subscription.orgId, 'plan_changed', { oldPlanId: opts.oldPlanId, newPlanId: opts.newPlanId, ...opts.eventDetails }, subscription._id.toString(), opts.actorId);
+  }
+  await mockFinalizePrunedAddons(opts.pruned, subscription.addons ?? [], {
+    orgId: subscription.orgId,
+    subscriptionId: subscription._id.toString(),
+    interval: subscription.interval,
+    externalId: subscription.externalId,
+    actorId: opts.actorId,
+    source: opts.source,
+  });
+});
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  applyPlanTierChange: mockApplyPlanTierChange,
+  billingServiceAuth: (_orgId: string) => 'Bearer service-token',
   buildSubscriptionResponse: mockBuildSubscriptionResponse,
   syncTierToQuotaService: mockSyncTierToQuotaService,
   syncEntitlements: mockSyncTierToQuotaService,
@@ -108,7 +131,9 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: mockAuditRecord }),
 }));
 
+const mockIncCounter = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
   withRoute: (handler: any, _opts?: any) => async (req: any, res: any) => {
     const ctx = {
       identity: { orgId: req.user?.organizationId, userId: req.user?.sub },
@@ -256,7 +281,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     expect(mockSyncTierToQuotaService).toHaveBeenCalled();
   });
 
-  it('updates status and logs subscription_updated event', async () => {
+  it('updates status and logs subscription_updated event with the providerUntouched note (admin override trust boundary)', async () => {
     const sub = makeSubscription({ status: 'active' });
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { status: 'canceled' } });
@@ -265,11 +290,50 @@ describe('PUT /admin/subscriptions/:id', () => {
     const res = mockRes();
     await handler(req, res);
 
+    // active→canceled crosses INTO a terminal status: the row is tagged
+    // providerUntouched:true so finance can see provider billing was deliberately
+    // left running (admin override does NOT call provider.cancelSubscription).
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'subscription_updated',
-      { status: 'canceled' },
+      { status: 'canceled', providerUntouched: true },
       'sub-1', 'admin-1',
     );
+  });
+
+  it('does NOT tag providerUntouched on an entitled→entitled status change', async () => {
+    // active→trialing stays entitled (no terminal crossing) → no providerUntouched note.
+    const sub = makeSubscription({ status: 'active', planId: 'pro' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockValidateBody.mockReturnValue({ ok: true, value: { status: 'trialing' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'subscription_updated', { status: 'trialing' }, 'sub-1', 'admin-1',
+    );
+  });
+
+  it('reactivation with a missing plan writes a WARN billing_events row + metric and does NOT sync (Fix 2)', async () => {
+    // canceled→active crosses into an entitled status, but the subscription's
+    // planId points at a deleted/missing plan: without the else-branch the org
+    // would silently get no sync/event. Assert the observable gap instead.
+    const sub = makeSubscription({ status: 'canceled', planId: 'ghost-plan', addons: [] });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindById.mockResolvedValue(null);
+    mockValidateBody.mockReturnValue({ ok: true, value: { status: 'active' } });
+
+    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+
+    // No entitlement sync fired (no tier to grant).
+    expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
+    // A dedicated billing_events row records the gap.
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'subscription_updated',
+      { reason: 'reactivate_plan_missing', status: 'active', planId: 'ghost-plan' },
+      'sub-1', 'admin-1',
+    );
+    // And a counter so SRE can alert.
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_reactivate_plan_missing_total', { source: 'admin' });
   });
 
   it('downgrades entitlements to the baseline tier when admin cancels (status → canceled)', async () => {
