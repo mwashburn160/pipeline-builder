@@ -11,7 +11,7 @@
 # used, so the built site is byte-for-byte the same — this is a transport change,
 # not a content change. NOTE: this is a hand-authored workflow (not projen-managed);
 # projen regen will leave it untouched.
-name: Deploy Jekyll site to Pages
+name: pages
 
 on:
   push:
