@@ -20,7 +20,6 @@ import type {
   ComplianceExemptionFilter,
   ComplianceAuditFilter,
   ComplianceScanFilter,
-  ComplianceRuleSubscriptionFilter,
 } from '../core/query-filters.js';
 import {
   schema,
@@ -99,6 +98,14 @@ export function buildPipelineConditions(
 
   if (filter.organization !== undefined) {
     conditions.push(eq(schema.pipeline.organization, normalizeStringFilter(filter.organization)));
+  }
+
+  // Exact-match name filter (mirrors the sibling `project`/`organization`
+  // predicates). The CLI's `--pipeline-name` is documented as an exact filter,
+  // so this uses `eq` rather than an ILIKE contains. Null-safe: absent
+  // pipelineName ⇒ no predicate.
+  if (filter.pipelineName !== undefined) {
+    conditions.push(eq(schema.pipeline.pipelineName, normalizeStringFilter(filter.pipelineName)));
   }
 
   if (filter.keyword !== undefined) {
@@ -397,34 +404,6 @@ export function buildPublishedRuleCatalogConditions(
 
   // The catalog is always active-only (no single-id exemption here).
   activeDefault(conditions, schema.complianceRule.isActive, filter.isActive, false);
-
-  return conditions;
-}
-
-/**
- * Build SQL conditions for compliance rule subscription queries.
- */
-export function buildComplianceRuleSubscriptionConditions(
-  filter: Partial<ComplianceRuleSubscriptionFilter>,
-  orgId?: string,
-): SQL[] {
-  const conditions: SQL[] = [];
-
-  if (orgId) {
-    conditions.push(eq(schema.complianceRuleSubscription.orgId, orgId));
-  } else {
-    conditions.push(IMPOSSIBLE);
-  }
-
-  if (filter.ruleId !== undefined) {
-    conditions.push(eq(schema.complianceRuleSubscription.ruleId, filter.ruleId));
-  }
-
-  if (filter.isActive !== undefined) {
-    conditions.push(eq(schema.complianceRuleSubscription.isActive, parseBooleanFilter(filter.isActive)));
-  } else {
-    conditions.push(eq(schema.complianceRuleSubscription.isActive, true));
-  }
 
   return conditions;
 }

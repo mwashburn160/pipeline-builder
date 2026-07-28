@@ -10,31 +10,16 @@ import {
   parseDateRange,
   parseQueryIntClamped,
   isSystemAdmin,
-  userHasPermission,
   requireFeature,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import type { Request } from 'express';
-import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubErrorMessage, resolveOrgRollup } from '../helpers.js';
+import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubErrorMessage, rollupIds } from '../helpers.js';
 
 export function createExecutionReportRoutes(): Router {
   const router = Router();
-
-  // `?includeDescendants=true` rolls a parent org's report up over its team
-  // subtree (best-effort; falls back to single-org — see resolveOrgRollup).
-  // SECURITY: downward (parent → child) visibility is a granted capability —
-  // org members get no inherited view of their teams (matches the RBAC model),
-  // so the flag is honored only for callers holding `reports:rollup` (built-in
-  // Admin/Owner bundles + superadmin-implicit-all; grantable to a custom Role).
-  // Everyone else silently gets their own-org report.
-  const rollupIds = (req: Request, orgId: string): Promise<string[] | undefined> => {
-    const canRollup = userHasPermission(req, 'reports:rollup');
-    return req.query.includeDescendants === 'true' && canRollup
-      ? resolveOrgRollup(orgId)
-      : Promise.resolve(undefined);
-  };
 
   // Optional DORA scoping from the query string (shared by /dora + /dora/trend).
   // Length-cap the free-form values (they concatenate into report cache keys —

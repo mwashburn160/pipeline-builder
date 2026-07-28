@@ -3,6 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
+import { authService } from './auth-service.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization } from '../models/index.js';
@@ -217,16 +218,24 @@ class UserProfileService {
   }
 
   /**
-   * "Sign out everywhere" — calls the model's `invalidateAllSessions()`
-   * which bumps tokenVersion. Returns the user (still with tokenVersion
-   * selected) so the caller can issue a fresh replacement token.
+   * "Sign out everywhere" — routes through `authService.invalidateAllSessions`,
+   * the SAME path auth logout uses, so the profile "revoke all" behaves
+   * identically: bump `tokenVersion`, CLEAR the stored `refreshToken` hash, AND
+   * publish the revocation to the stateless services. (It previously called the
+   * model's `invalidateAllSessions()`, which only bumped `tokenVersion` and left
+   * the stored refresh-token hash valid — a divergence masked only because the
+   * refresh path also re-checks `tokenVersion`.) Returns the user with
+   * `tokenVersion` selected so the caller can issue a fresh replacement token.
    */
   async revokeAllSessions(userId: string) {
     const user = await User.findById(userId).select('+tokenVersion issuedTokens');
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
-    await user.invalidateAllSessions();
-    // Post-commit: publish the now-current tokenVersion (best-effort).
-    await publishUserRevocation(String(userId));
+    // Authoritative "sign out everywhere": $inc tokenVersion + $unset refreshToken
+    // in the DB and publish the revocation (best-effort) — all inside the service.
+    await authService.invalidateAllSessions(String(userId));
+    // The service bumped tokenVersion via $inc in the DB; mirror that on the doc
+    // we return so the caller mints the replacement token at the new version.
+    user.tokenVersion += 1;
     return user;
   }
 }

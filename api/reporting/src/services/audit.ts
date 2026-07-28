@@ -26,8 +26,9 @@ function svc(): ServiceAuditClient {
   return audit;
 }
 
-/** The underlying spool-backed remote client — passed to `wireAuthzDenialAuditor`
- *  and called directly by route files via `getAuditClient().record(...)`. */
+/** The underlying spool-backed remote client — passed to `wireAuthzDenialAuditor`.
+ *  Reporting's routes don't emit remote audit directly; this client's only
+ *  consumer is that denial-auditor wiring (the shared gate's `authz.denied`). */
 export function getAuditClient(): RemoteAuditClient {
   return svc().client;
 }

@@ -77,38 +77,6 @@ export function getOrgId(req: Request): string | undefined {
 }
 
 /**
- * Get the authorization header from request.
- *
- * @param req - Express request object
- * @returns Authorization header value or empty string
- */
-export function getAuthHeader(req: Request): string {
-  return getHeaderString(req.headers.authorization) ?? '';
-}
-
-/**
- * Parse a query parameter as a boolean.
- *
- * @param value - Query parameter value
- * @returns Parsed boolean or undefined
- *
- * @example
- * ```typescript
- * const isActive = parseQueryBoolean(req.query.isActive);
- * ```
- */
-export function parseQueryBoolean(value: unknown): boolean | undefined {
-  if (value === undefined || value === null || value === '') return undefined;
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const lower = value.toLowerCase();
-    if (lower === 'true' || lower === '1') return true;
-    if (lower === 'false' || lower === '0') return false;
-  }
-  return undefined;
-}
-
-/**
  * Parse a query parameter as an integer.
  *
  * @param value - Query parameter value

@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, fetchOrgDescendants } from '@pipeline-builder/api-core';
+import { createLogger, fetchOrgDescendants, userHasPermission } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
+import type { Request } from 'express';
 
 const _descLogger = createLogger('reporting-rollup');
 
@@ -12,7 +13,7 @@ const _descLogger = createLogger('reporting-rollup');
 // check is defense-in-depth — the route is the security boundary.
 
 export const MAX_REPORT_LIMIT = 1000;
-export const MAX_REPORT_RANGE_DAYS = 365;
+const MAX_REPORT_RANGE_DAYS = 365;
 export const MAX_REPORT_RANGE_MS = MAX_REPORT_RANGE_DAYS * 24 * 60 * 60 * 1000;
 
 /** Patterns that match common credential leakage in error messages. */
@@ -53,4 +54,25 @@ export async function resolveOrgRollup(orgId: string): Promise<string[] | undefi
     _descLogger.warn('Org rollup resolution failed; falling back to single-org report', { orgId, err: String(err) });
     return undefined;
   }
+}
+
+/**
+ * Resolve the org-id set a rollup-aware report should span for this request.
+ *
+ * `?includeDescendants=true` rolls a parent org's report up over its team
+ * subtree (via {@link resolveOrgRollup}). SECURITY: downward (parent → child)
+ * visibility is a granted capability — org members get no inherited view of
+ * their teams (matches the RBAC model), so the flag is honored only for callers
+ * holding `reports:rollup` (built-in Admin/Owner bundles + superadmin-implicit-all;
+ * grantable to a custom Role). Everyone else silently gets their own-org report
+ * (returns `undefined` → single-org).
+ *
+ * Shared by the execution + plugin report routers so the two authz gates can
+ * never drift — a divergence would be an authorization bug.
+ */
+export function rollupIds(req: Request, orgId: string): Promise<string[] | undefined> {
+  const canRollup = userHasPermission(req, 'reports:rollup');
+  return req.query.includeDescendants === 'true' && canRollup
+    ? resolveOrgRollup(orgId)
+    : Promise.resolve(undefined);
 }

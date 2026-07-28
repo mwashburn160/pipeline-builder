@@ -146,25 +146,3 @@ export function resolveUserFeatures(
   // Return in canonical order
   return ALL_FEATURE_FLAGS.filter(f => features.has(f));
 }
-
-/**
- * Check if a specific feature is enabled for a user. Delegates to
- * {@link resolveUserFeatures} so it stays in lockstep — including account-level
- * entitlements purchased via add-on bundles (`accountFeatures`).
- *
- * @param tier - The organization's quota tier
- * @param feature - The feature flag to check
- * @param featureOverrides - Per-user overrides
- * @param isSuperAdmin - Whether the user has the global super-admin flag
- * @param accountFeatures - Account-level entitlements (e.g. bundle-granted)
- * @returns true if the feature is enabled
- */
-export function hasFeature(
-  tier: QuotaTier,
-  feature: FeatureFlag,
-  featureOverrides?: Record<string, boolean> | null,
-  isSuperAdmin?: boolean,
-  accountFeatures?: readonly string[] | null,
-): boolean {
-  return resolveUserFeatures(tier, { overrides: featureOverrides, isSuperAdmin, accountFeatures }).includes(feature);
-}

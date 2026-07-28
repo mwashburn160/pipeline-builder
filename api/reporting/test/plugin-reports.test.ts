@@ -16,6 +16,11 @@ const mockGetBuildDuration = jest.fn();
 const mockGetBuildFailures = jest.fn();
 const mockResolveOrgRollup = jest.fn();
 
+// The single reports:rollup predicate — shared by the api-core `userHasPermission`
+// mock and the helpers `rollupIds` mock so the two can't diverge in-test.
+const permCheck = (req: any, perm: string) =>
+  req?.user?.isSuperAdmin === true || (req?.user?.permissions ?? []).includes(perm);
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn(),
   sendError: jest.fn(),
@@ -32,8 +37,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
   // Build reports gate their ?includeDescendants rollup on reports:rollup (the
   // plugin INVENTORY reports stay single-org), so the route needs this helper.
-  userHasPermission: jest.fn((req: any, perm: string) =>
-    req?.user?.isSuperAdmin === true || (req?.user?.permissions ?? []).includes(perm)),
+  userHasPermission: jest.fn(permCheck),
   parseQueryIntClamped: jest.fn((val: any, def: number, max: number) =>
     Math.min(Math.max(1, parseInt(String(val ?? def), 10) || def), max)),
   validateBulkArray: jest.fn((value: any, _name: string, max?: number) =>
@@ -59,14 +63,21 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
-// resolveOrgRollup is mocked at the helpers layer (the build reports call it via
-// the route's rollupIds helper). Keep the rest of helpers.js real (MAX_* caps,
-// scrubErrorMessage).
+// `rollupIds` now lives in helpers.js (shared by both report routers). Since it
+// calls `resolveOrgRollup` intra-module, overriding only the resolveOrgRollup
+// export can't intercept it, so override `rollupIds` too — reproducing its gate
+// (reports:rollup + ?includeDescendants) against the mocked resolveOrgRollup so
+// the mockResolveOrgRollup assertions still hold. Keep the rest of helpers.js
+// real (MAX_* caps, scrubErrorMessage).
 jest.unstable_mockModule('../src/helpers.js', () => {
   const actual = jest.requireActual('../src/helpers.js') as Record<string, unknown>;
   return {
     ...actual,
     resolveOrgRollup: (...a: unknown[]) => mockResolveOrgRollup(...a),
+    rollupIds: (req: any, orgId: string) =>
+      req?.query?.includeDescendants === 'true' && permCheck(req, 'reports:rollup')
+        ? mockResolveOrgRollup(orgId)
+        : Promise.resolve(undefined),
   };
 });
 

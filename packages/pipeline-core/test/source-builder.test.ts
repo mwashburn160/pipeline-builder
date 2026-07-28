@@ -203,6 +203,29 @@ describe('SourceBuilder', () => {
         PollForSourceChanges: false,
       });
     });
+
+    it('uses EventBridge (S3Trigger.EVENTS) for an AUTO trigger', () => {
+      const template = synthSource({
+        type: 's3',
+        options: { bucketName: 'my-source-bucket', trigger: 'AUTO' as any },
+      });
+
+      // EVENTS wires an EventBridge rule that starts the pipeline on object change.
+      template.resourceCountIs('AWS::Events::Rule', 1);
+      expectSourceAction(template, 'S3', { PollForSourceChanges: false });
+    });
+
+    it('disables source triggers (S3Trigger.NONE) for a SCHEDULE trigger', () => {
+      const template = synthSource({
+        type: 's3',
+        options: { bucketName: 'my-source-bucket', trigger: 'SCHEDULE' as any },
+      });
+
+      // NONE means no source-level EventBridge rule (the schedule rule, if any,
+      // is created by PipelineBuilder, not the source).
+      template.resourceCountIs('AWS::Events::Rule', 0);
+      expectSourceAction(template, 'S3', { PollForSourceChanges: false });
+    });
   });
 
   describe('CodeStar connection source', () => {

@@ -333,11 +333,6 @@ export const ALL_AUDIT_ACTIONS = [
   'admin.user.features.update',
 ] as const satisfies ReadonlyArray<AuditAction>;
 
-/** Runtime predicate: type-narrowing check used by the ingest route. */
-export function isAuditAction(value: string): value is AuditAction {
-  return (ALL_AUDIT_ACTIONS as ReadonlyArray<string>).includes(value);
-}
-
 /**
  * Audit event document stored in MongoDB.
  *

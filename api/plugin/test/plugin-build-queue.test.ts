@@ -10,6 +10,9 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+// `intFromEnv` lives in the dependency-free leaf module env-int.js; import it
+// directly rather than through the plugin-build-queue re-export.
+import { intFromEnv } from '../src/queue/env-int.js';
 
 // Mock state  must be hoisted before imports
 
@@ -618,23 +621,23 @@ describe('plugin-build-queue', () => {
 
     it('falls back to the default for a non-numeric env value', () => {
       process.env.PLUGIN_TEST_INT = 'not-a-number';
-      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 42)).toBe(42);
+      expect(intFromEnv('PLUGIN_TEST_INT', 42)).toBe(42);
     });
 
     it('falls back for unset, empty, zero, and negative values', () => {
       delete process.env.PLUGIN_TEST_INT;
-      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
+      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
       process.env.PLUGIN_TEST_INT = '';
-      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
+      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
       process.env.PLUGIN_TEST_INT = '0';
-      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
+      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
       process.env.PLUGIN_TEST_INT = '-5';
-      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
+      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
     });
 
     it('parses a valid positive integer', () => {
       process.env.PLUGIN_TEST_INT = '99';
-      expect(queueModule.intFromEnv('PLUGIN_TEST_INT', 7)).toBe(99);
+      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(99);
     });
 
     it('TIER_CACHE_TTL_MS is a real positive number even when the env is garbage', async () => {

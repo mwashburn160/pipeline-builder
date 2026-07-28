@@ -14,7 +14,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
-import { api, ApiError } from '@/lib/api';
+import { api, getErrorMessage } from '@/lib/api';
 import type { AlertDestination, AlertDestinationWrite } from '@/types/observability';
 
 /**
@@ -75,7 +75,7 @@ export default function AlertDestinationsPage() {
       toast.success('Destination deleted');
       await refresh();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+      toast.error(getErrorMessage(err));
     }
   };
 
@@ -88,7 +88,7 @@ export default function AlertDestinationsPage() {
       await api.testAlertDestination(d.id);
       toast.success('Test sent');
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+      toast.error(getErrorMessage(err));
     } finally {
       setTestingId(null);
     }
@@ -336,7 +336,7 @@ function DestinationModal(props: {
       }
       await onSaved();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+      toast.error(getErrorMessage(err));
     } finally {
       setSaving(false);
     }

@@ -7,7 +7,6 @@ import { z } from 'zod';
 import {
   validateQuery,
   validateBody,
-  validateParams,
 } from '../src/validation/middleware.js';
 
 // Mock Request / Response / Next
@@ -69,24 +68,5 @@ describe('validateBody', () => {
     const req = mockReq({ body: {} });
     const result = validateBody(req, TestSchema);
     expect(result.ok).toBe(false);
-  });
-});
-
-describe('validateParams', () => {
-  const IdSchema = z.object({ id: z.string().uuid() });
-
-  it('should return ok with parsed value for valid params', () => {
-    const req = mockReq({ params: { id: '550e8400-e29b-41d4-a716-446655440000' } });
-    const result = validateParams(req, IdSchema);
-    expect(result.ok).toBe(true);
-  });
-
-  it('should return error for invalid params', () => {
-    const req = mockReq({ params: { id: 'not-uuid' } });
-    const result = validateParams(req, IdSchema);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toContain('id');
-    }
   });
 });

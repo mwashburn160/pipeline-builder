@@ -8,7 +8,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { api, ApiError } from '@/lib/api';
+import { api, getErrorMessage } from '@/lib/api';
 
 /**
  * Create-dashboard page. Captures the metadata (name / description /
@@ -45,7 +45,7 @@ export default function NewDashboardPage() {
       toast.success('Dashboard created');
       void router.push(`/dashboard/observability/${id}/edit`);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+      toast.error(getErrorMessage(err));
     } finally {
       setSubmitting(false);
     }

@@ -9,7 +9,6 @@ import {
   FEATURE_METADATA,
   isValidFeatureFlag,
   resolveUserFeatures,
-  hasFeature,
 } from '../src/types/feature-flags.js';
 
 // ALL_FEATURE_FLAGS
@@ -192,41 +191,5 @@ describe('resolveUserFeatures', () => {
   it('removing a feature not in the tier via override is a no-op', () => {
     const features = resolveUserFeatures('developer', { overrides: { audit_log: false } });
     expect(features).toEqual([]);
-  });
-});
-
-// hasFeature
-
-describe('hasFeature', () => {
-  it('returns true for tier-included features', () => {
-    expect(hasFeature('pro', 'ai_generation')).toBe(true);
-    expect(hasFeature('enterprise', 'audit_log')).toBe(true);
-  });
-
-  it('returns false for tier-excluded features', () => {
-    expect(hasFeature('developer', 'ai_generation')).toBe(false);
-    expect(hasFeature('pro', 'audit_log')).toBe(false);
-  });
-
-  it('system org always returns true', () => {
-    expect(hasFeature('developer', 'audit_log', undefined, true)).toBe(true);
-    expect(hasFeature('developer', 'ai_generation', undefined, true)).toBe(true);
-  });
-
-  it('override true enables a feature', () => {
-    expect(hasFeature('developer', 'audit_log', { audit_log: true })).toBe(true);
-  });
-
-  it('override false disables a feature', () => {
-    expect(hasFeature('pro', 'ai_generation', { ai_generation: false })).toBe(false);
-  });
-
-  it('falls back to tier default when no override', () => {
-    expect(hasFeature('pro', 'ai_generation', {})).toBe(true);
-    expect(hasFeature('pro', 'audit_log', {})).toBe(false);
-  });
-
-  it('null overrides fall back to tier default', () => {
-    expect(hasFeature('pro', 'ai_generation', null)).toBe(true);
   });
 });

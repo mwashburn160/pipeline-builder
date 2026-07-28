@@ -135,11 +135,6 @@ export function computeAuditHash(f: AuditHashFields): string {
   return createHash('sha256').update(canonical).digest('hex');
 }
 
-/** Resolve the chain key for an event from its org context. */
-export function chainKeyForEvent(e: { affectedOrgId?: string | null; orgId?: string | null }): string {
-  return e.affectedOrgId ?? e.orgId ?? GENESIS_CHAIN_KEY;
-}
-
 /**
  * Mongo filter selecting exactly one chain. Because the stored `affectedOrgId`
  * always equals the chain key (append re-applies the `?? orgId` defaulting), the

@@ -6,7 +6,6 @@ import { describe, it, expect } from '@jest/globals';
 import {
   effectiveRootOrgId,
   isValidQuotaType,
-  validateQuotaType,
   VALID_QUOTA_TYPES,
 } from '../src/types/common.js';
 
@@ -55,30 +54,5 @@ describe('isValidQuotaType', () => {
     expect(isValidQuotaType(null)).toBe(false);
     expect(isValidQuotaType(undefined)).toBe(false);
     expect(isValidQuotaType(true)).toBe(false);
-  });
-});
-
-describe('validateQuotaType', () => {
-  it('should return valid quota type', () => {
-    expect(validateQuotaType('plugins')).toBe('plugins');
-    expect(validateQuotaType('pipelines')).toBe('pipelines');
-    expect(validateQuotaType('apiCalls')).toBe('apiCalls');
-  });
-
-  it('should throw for invalid values', () => {
-    expect(() => validateQuotaType('invalid')).toThrow(
-      'Invalid quotaType: "invalid". Must be one of: plugins, pipelines, apiCalls, aiCalls, storageBytes, dashboards, alertRules, alertDestinations, idpConfigs',
-    );
-  });
-
-  it('should use custom field name in error message', () => {
-    expect(() => validateQuotaType('bad', 'type')).toThrow(
-      'Invalid type: "bad". Must be one of: plugins, pipelines, apiCalls, aiCalls, storageBytes, dashboards, alertRules, alertDestinations, idpConfigs',
-    );
-  });
-
-  it('should throw for null/undefined', () => {
-    expect(() => validateQuotaType(null)).toThrow();
-    expect(() => validateQuotaType(undefined)).toThrow();
   });
 });

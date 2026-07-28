@@ -12,7 +12,7 @@ import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
-import { api, ApiError } from '@/lib/api';
+import { api, getErrorMessage } from '@/lib/api';
 import type { DashboardWithPanels, DashboardPanel, CatalogEntry, DashboardWrite } from '@/types/observability';
 import type { LayoutPanelInput, PanelCoords } from '@/components/observability/DashboardLayoutGrid';
 
@@ -121,7 +121,7 @@ export default function DashboardEditPage() {
         setLayoutJson(d.layoutJson ?? {});
         setCatalog(cRes.data?.entries ?? []);
       } catch (err) {
-        if (!cancelled) setError(err instanceof ApiError ? err.message: (err as Error).message);
+        if (!cancelled) setError(getErrorMessage(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -218,7 +218,7 @@ export default function DashboardEditPage() {
       allowNavigation();
       void router.push(`/dashboard/observability/${original.id}`);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message: (err as Error).message);
+      toast.error(getErrorMessage(err));
     } finally {
       setSaving(false);
     }

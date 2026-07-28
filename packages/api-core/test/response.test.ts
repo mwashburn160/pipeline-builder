@@ -8,7 +8,6 @@ import {
   sendSuccess,
   sendError,
   sendQuotaExceeded,
-  sendPaginated,
   sendPaginatedNested,
   extractDbError,
   errorMessage,
@@ -138,50 +137,6 @@ describe('sendQuotaExceeded', () => {
 
     expect(res.body.message).toContain('pipelines');
     expect(res.body.message).toContain('5/5');
-  });
-});
-
-describe('sendPaginated', () => {
-  it('should send paginated response', () => {
-    const res = mockRes();
-    sendPaginated(res, [1, 2, 3], { limit: 10, offset: 0 });
-
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data).toEqual([1, 2, 3]);
-    expect(res.body.count).toBe(3);
-    expect(res.body.limit).toBe(10);
-    expect(res.body.offset).toBe(0);
-  });
-
-  it('should include total when provided', () => {
-    const res = mockRes();
-    sendPaginated(res, [1], { limit: 10, offset: 0, total: 50 });
-
-    expect(res.body.total).toBe(50);
-  });
-
-  it('should include message when provided', () => {
-    const res = mockRes();
-    sendPaginated(res, [], { limit: 10, offset: 0, message: 'OK' });
-
-    expect(res.body.message).toBe('OK');
-  });
-
-  it('should use custom statusCode', () => {
-    const res = mockRes();
-    sendPaginated(res, [], { limit: 10, offset: 0, statusCode: 206 });
-
-    expect(res.statusCode).toBe(206);
-    expect(res.body.statusCode).toBe(206);
-  });
-
-  it('should omit total and message when not provided', () => {
-    const res = mockRes();
-    sendPaginated(res, [], { limit: 10, offset: 0 });
-
-    expect(res.body.total).toBeUndefined();
-    expect(res.body.message).toBeUndefined();
   });
 });
 

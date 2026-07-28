@@ -12,7 +12,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
-import { api, ApiError } from '@/lib/api';
+import { api, getErrorMessage } from '@/lib/api';
 import type { AlertRule, AlertRuleWrite } from '@/types/observability';
 
 /**
@@ -65,7 +65,7 @@ export default function AlertRulesPage() {
       setDeleting(null);
       await refresh();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+      toast.error(getErrorMessage(err));
     } finally {
       setDeleteBusy(false);
     }
@@ -229,7 +229,7 @@ function RuleModal(props: {
     } catch (err) {
       // The backend returns a descriptive 400 for PromQL / tenancy / duration
       // validation failures; surface it verbatim so operators can fix the expr.
-      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+      toast.error(getErrorMessage(err));
     } finally {
       setSaving(false);
     }

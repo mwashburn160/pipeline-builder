@@ -96,13 +96,3 @@ export const AI_PROVIDER_ENV_VARS: Record<string, string> = {
 export function getAIProviderModels(providerId: string): AIModelInfo[] {
   return AI_PROVIDER_CATALOG[providerId]?.models ?? [];
 }
-
-/**
- * Get the display name for a provider ID.
- *
- * @param providerId - Provider identifier (e.g. "anthropic")
- * @returns Display name, or the raw ID if the provider is unknown
- */
-export function getAIProviderName(providerId: string): string {
-  return AI_PROVIDER_CATALOG[providerId]?.name ?? providerId;
-}

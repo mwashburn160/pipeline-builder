@@ -10,32 +10,20 @@ import {
   parseDateRange,
   parseQueryIntClamped,
   isSystemAdmin,
-  userHasPermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import type { Request } from 'express';
-import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubErrorMessage, resolveOrgRollup } from '../helpers.js';
+import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubErrorMessage, rollupIds } from '../helpers.js';
 
 export function createPluginReportRoutes(): Router {
   const router = Router();
 
-  // Org→team rollup for the BUILD reports (build-success-rate/duration/failures
-  // are build-activity reports a rollup admin expects to aggregate). Identical
-  // gate to the execution reports: `?includeDescendants=true` is honored only
-  // for callers holding `reports:rollup` (built-in Admin/Owner + superadmin;
-  // grantable to a custom Role); everyone else silently gets their own-org
-  // report. The plugin INVENTORY reports (summary/distribution/versions) stay
-  // single-org by design (see ReportingService.getPluginSummary), so they don't
-  // resolve a rollup. Resolving to the caller's subtree means this is never a
-  // cross-tenant leak (an under-report fix only).
-  const rollupIds = (req: Request, orgId: string): Promise<string[] | undefined> => {
-    const canRollup = userHasPermission(req, 'reports:rollup');
-    return req.query.includeDescendants === 'true' && canRollup
-      ? resolveOrgRollup(orgId)
-      : Promise.resolve(undefined);
-  };
+  // The BUILD reports (build-success-rate/duration/failures) are rollup-aware
+  // via the shared `rollupIds` gate (`?includeDescendants=true` honored only for
+  // `reports:rollup` holders). The plugin INVENTORY reports
+  // (summary/distribution/versions) stay single-org by design (see
+  // ReportingService.getPluginSummary), so they don't resolve a rollup.
 
   router.get('/summary', withRoute(async ({ res, orgId }) => {
     sendSuccess(res, 200, { summary: await reportingService.getPluginSummary(orgId) });

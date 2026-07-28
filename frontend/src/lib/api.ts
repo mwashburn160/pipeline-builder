@@ -44,5 +44,5 @@ export const api = Object.assign(
 
 export default api;
 
-export { ApiError, ConflictError, StepUpRequiredError } from './api/errors';
+export { ApiError, ConflictError, StepUpRequiredError, getErrorMessage } from './api/errors';
 export { base64UrlDecode } from './api/util';

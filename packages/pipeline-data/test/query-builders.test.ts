@@ -41,6 +41,23 @@ describe('buildPipelineConditions', () => {
     // access control + project + organization + isActive
     expect(conditions.length).toBeGreaterThanOrEqual(4);
   });
+
+  it('wires the CLI pipelineName filter to a pipeline_name predicate', () => {
+    // Regression: PipelineFilter.pipelineName (set by `list-pipelines
+    // --pipeline-name`) was silently ignored server-side. It must now emit an
+    // extra condition that references the `pipeline_name` column.
+    const withName = buildPipelineConditions({ pipelineName: 'my-pipeline' }, 'org-1');
+    const withoutName = buildPipelineConditions({}, 'org-1');
+    expect(withName.length).toBe(withoutName.length + 1);
+
+    // Assert the added predicate targets the pipeline_name column (not just a
+    // count bump) — a drizzle Column chunk carries its DB column name.
+    const refsPipelineName = withName.some((cond) => {
+      const chunks = (cond as { queryChunks?: Array<{ name?: string }> }).queryChunks ?? [];
+      return chunks.some((chunk) => chunk && typeof chunk === 'object' && chunk.name === 'pipeline_name');
+    });
+    expect(refsPipelineName).toBe(true);
+  });
 });
 
 describe('buildPluginConditions', () => {

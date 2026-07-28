@@ -6,8 +6,6 @@ import { describe, it, expect } from '@jest/globals';
 import {
   getParam,
   getOrgId,
-  getAuthHeader,
-  parseQueryBoolean,
   parseQueryInt,
   parseQueryString,
   parseQueryIntClamped,
@@ -90,52 +88,6 @@ describe('getOrgId', () => {
   it('should trim whitespace from header org id', () => {
     const req = mockReq({ headers: { 'x-org-id': '  org-1  ' } });
     expect(getOrgId(req)).toBe('org-1');
-  });
-});
-
-describe('getAuthHeader', () => {
-  it('should return authorization header', () => {
-    const req = mockReq({ headers: { authorization: 'Bearer token123' } });
-    expect(getAuthHeader(req)).toBe('Bearer token123');
-  });
-
-  it('should return empty string when missing', () => {
-    const req = mockReq();
-    expect(getAuthHeader(req)).toBe('');
-  });
-});
-
-describe('parseQueryBoolean', () => {
-  it('should parse "true" string', () => {
-    expect(parseQueryBoolean('true')).toBe(true);
-    expect(parseQueryBoolean('TRUE')).toBe(true);
-    expect(parseQueryBoolean('True')).toBe(true);
-  });
-
-  it('should parse "false" string', () => {
-    expect(parseQueryBoolean('false')).toBe(false);
-    expect(parseQueryBoolean('FALSE')).toBe(false);
-  });
-
-  it('should parse "1" and "0"', () => {
-    expect(parseQueryBoolean('1')).toBe(true);
-    expect(parseQueryBoolean('0')).toBe(false);
-  });
-
-  it('should return boolean values as-is', () => {
-    expect(parseQueryBoolean(true)).toBe(true);
-    expect(parseQueryBoolean(false)).toBe(false);
-  });
-
-  it('should return undefined for empty/null/undefined', () => {
-    expect(parseQueryBoolean(undefined)).toBeUndefined();
-    expect(parseQueryBoolean(null)).toBeUndefined();
-    expect(parseQueryBoolean('')).toBeUndefined();
-  });
-
-  it('should return undefined for invalid strings', () => {
-    expect(parseQueryBoolean('yes')).toBeUndefined();
-    expect(parseQueryBoolean('no')).toBeUndefined();
   });
 });
 

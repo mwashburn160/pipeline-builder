@@ -54,12 +54,6 @@ export const totalAttemptBudget = () => mainBudget() + dlqBudget();
 
 const COMPLETED_JOB_RETENTION_SECS = CoreConstants.PLUGIN_BUILD_COMPLETED_RETENTION_SECS;
 
-// `intFromEnv` moved to ./env-int.js (a dependency-free leaf module) so the
-// other queue modules can share the same NaN-guarding env parse without an
-// import cycle. Re-exported here to keep existing
-// `import { intFromEnv } from './plugin-build-queue.js'` call sites resolving.
-export { intFromEnv };
-
 // Queue name & singleton state
 
 const QUEUE_NAME = CoreConstants.PLUGIN_BUILD_QUEUE_NAME;

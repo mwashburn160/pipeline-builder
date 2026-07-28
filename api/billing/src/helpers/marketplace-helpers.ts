@@ -35,8 +35,6 @@ export interface MarketplaceNotification {
     | 'entitlement-updated';
   'customer-identifier': string;
   'product-code': string;
-  'offer-identifier'?: string;
-  'isFree-trial'?: boolean;
 }
 
 // SNS Signature Verification

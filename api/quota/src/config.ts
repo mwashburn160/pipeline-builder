@@ -29,10 +29,6 @@ export interface AppConfig {
   mongodb: {
     uri: string;
   };
-  rateLimit: {
-    windowMs: number;
-    max: number;
-  };
   quota: {
     defaults: QuotaDefaults;
     resetDays: number;
@@ -49,10 +45,6 @@ export const config: AppConfig = {
   port: parseInt(process.env.PORT || '3000', 10),
   mongodb: {
     uri: process.env.MONGODB_URI,
-  },
-  rateLimit: {
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
-    max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
   },
   quota: {
     defaults: {

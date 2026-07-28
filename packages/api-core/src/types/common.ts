@@ -67,34 +67,6 @@ export function isValidQuotaType(value: unknown): value is QuotaType {
 }
 
 /**
- * Validate and assert that a value is a valid QuotaType.
- * Throws an error if validation fails.
- *
- * @param value - Value to validate
- * @param fieldName - Name of the field being validated (for error messages)
- * @returns The validated QuotaType
- * @throws Error if value is not a valid QuotaType
- *
- * @example
- * ```typescript
- * try {
- *   const quotaType = validateQuotaType(req.body.quotaType, 'quotaType');
- *   // Use quotaType safely
- * } catch (err) {
- *   return sendError(res, 400, err.message);
- * }
- * ```
- */
-export function validateQuotaType(value: unknown, fieldName = 'quotaType'): QuotaType {
-  if (!isValidQuotaType(value)) {
-    throw new Error(
-      `Invalid ${fieldName}: "${value}". Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
-    );
-  }
-  return value;
-}
-
-/**
  * Result from quota check operation.
  */
 export interface QuotaCheckResult {

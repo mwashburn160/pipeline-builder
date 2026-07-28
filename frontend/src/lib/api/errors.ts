@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { toError } from '../../hooks/internal/fetchCore';
+
 export class ApiError extends Error {
   statusCode: number;
   code?: string;
@@ -69,4 +71,16 @@ export function toRegistryError(message: string, statusCode: number, code: strin
     return new ConflictError(message, statusCode, code, details ?? {});
   }
   return new ApiError(message, statusCode, code, details);
+}
+
+/**
+ * Extract a display message from an unknown thrown value.
+ *
+ * Since `ApiError extends Error`, reading `.message` off a normalized `Error`
+ * yields the same string as the old inline
+ * `err instanceof ApiError ? err.message : (err as Error).message` idiom, while
+ * also handling non-`Error` throwables safely via `String(err)`.
+ */
+export function getErrorMessage(err: unknown): string {
+  return toError(err).message;
 }

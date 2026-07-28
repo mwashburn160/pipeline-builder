@@ -91,6 +91,9 @@ const CATALOG = [
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   bundlesEnabled: mockBundlesEnabled,
   bundleSelfServiceAllowed: mockBundleSelfServiceAllowed,
+  // The add/remove routes now mint their service token via billingServiceAuth
+  // (was an inline getServiceAuthHeader) — provide it so the module link resolves.
+  billingServiceAuth: jest.fn(() => 'Bearer service-token'),
   buildSubscriptionResponse: (sub: any, planName?: string, tier?: string) => ({ id: sub._id?.toString(), planName, tier, addons: sub.addons }),
   checkEntitlementOvercap: mockCheckEntitlementOvercap,
   createBillingEvent: mockCreateBillingEvent,

@@ -20,6 +20,11 @@ const mockGetDoraMetrics = jest.fn();
 const mockGetDoraTrend = jest.fn();
 const mockResolveOrgRollup = jest.fn();
 
+// The single reports:rollup predicate — shared by the api-core `userHasPermission`
+// mock and the helpers `rollupIds` mock so the two can't diverge in-test.
+const permCheck = (req: any, perm: string) =>
+  req?.user?.isSuperAdmin === true || (req?.user?.permissions ?? []).includes(perm);
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn(),
   sendError: jest.fn(),
@@ -39,8 +44,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       : { error: 'interval must be one of: day, week, month' };
   }),
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
-  userHasPermission: jest.fn((req: any, perm: string) =>
-    req?.user?.isSuperAdmin === true || (req?.user?.permissions ?? []).includes(perm)),
+  userHasPermission: jest.fn(permCheck),
   parseQueryIntClamped: jest.fn((val: any, def: number, max: number) =>
     Math.min(Math.max(1, parseInt(String(val ?? def), 10) || def), max)),
   validateBulkArray: jest.fn((value: any, _name: string, max?: number) =>
@@ -67,11 +71,20 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
   },
 }));
 
+// `rollupIds` now lives in helpers.js (shared by both report routers). Because it
+// calls `resolveOrgRollup` intra-module, overriding only the resolveOrgRollup
+// export can't intercept it, so override `rollupIds` too — reproducing its gate
+// (reports:rollup + ?includeDescendants) against the mocked resolveOrgRollup, so
+// the existing mockResolveOrgRollup assertions still hold.
 jest.unstable_mockModule('../src/helpers.js', () => {
   const actual = jest.requireActual('../src/helpers.js') as Record<string, unknown>;
   return {
     ...actual,
     resolveOrgRollup: (...a: unknown[]) => mockResolveOrgRollup(...a),
+    rollupIds: (req: any, orgId: string) =>
+      req?.query?.includeDescendants === 'true' && permCheck(req, 'reports:rollup')
+        ? mockResolveOrgRollup(orgId)
+        : Promise.resolve(undefined),
   };
 });
 

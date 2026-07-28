@@ -83,7 +83,6 @@ export interface UserDocument extends Document {
   featureOverrides?: Map<string, boolean>;
   oauth?: OAuthProviders;
   comparePassword(password: string): Promise<boolean>;
-  invalidateAllSessions(): Promise<UserDocument>;
 }
 
 const oauthProviderSchema = new Schema<OAuthProviderData>(
@@ -240,14 +239,6 @@ userSchema.pre<UserDocument>('save', async function () {
 userSchema.methods.comparePassword = async function (password: string): Promise<boolean> {
   if (!this.password) return false;
   return bcrypt.compare(password, this.password);
-};
-
-/**
- * Invalidate all user sessions by incrementing token version
- */
-userSchema.methods.invalidateAllSessions = async function (): Promise<UserDocument> {
-  this.tokenVersion += 1;
-  return this.save();
 };
 
 /**

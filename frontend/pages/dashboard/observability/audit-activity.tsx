@@ -22,7 +22,7 @@ import Link from 'next/link';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { api, ApiError } from '@/lib/api';
+import { api, getErrorMessage } from '@/lib/api';
 
 /** Name of the seeded dashboard we redirect to. Matches the seeder in
  * platform/src/services/dashboard-seeder.ts. */
@@ -65,7 +65,7 @@ export default function AuditActivityRedirect() {
         );
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof ApiError ? err.message : (err as Error).message);
+          setError(getErrorMessage(err));
         }
       }
     })();

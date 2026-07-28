@@ -18,7 +18,7 @@ import { TablePanel } from '@/components/observability/TablePanel';
 import { RangePicker } from '@/components/observability/RangePicker';
 import type { RangeKey } from '@/types/observability';
 import type { DashboardWithPanels, DashboardPanel } from '@/types/observability';
-import { api, ApiError } from '@/lib/api';
+import { api, getErrorMessage } from '@/lib/api';
 import { isSystemAdmin } from '@/lib/auth-helpers';
 
 // Read-side: lazy-load the grid driver so the ~120 KB bundle only ships
@@ -159,7 +159,7 @@ export default function DashboardPage() {
         void router.push(`/dashboard/observability/${newId}`);
       }
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message: (err as Error).message);
+      toast.error(getErrorMessage(err));
     }
   };
 
@@ -171,7 +171,7 @@ export default function DashboardPage() {
       toast.success('Dashboard deleted');
       void router.push('/dashboard/observability');
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message: (err as Error).message);
+      toast.error(getErrorMessage(err));
     }
   };
 

@@ -218,17 +218,6 @@ export interface ComplianceRuleFilter extends CommonFilter {
 }
 
 /**
- * Filter for compliance rule subscriptions.
- */
-export interface ComplianceRuleSubscriptionFilter {
-  readonly orgId?: string;
-  readonly ruleId?: string;
-  readonly isActive?: boolean;
-  readonly limit?: number;
-  readonly offset?: number;
-}
-
-/**
  * Filter for compliance exemptions.
  */
 export interface ComplianceExemptionFilter {

@@ -9,7 +9,6 @@ import {
   ErrorCode,
   createLogger,
   getParam,
-  getServiceAuthHeader,
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -21,6 +20,7 @@ import {
   bundlesEnabled,
   buildSubscriptionResponse,
   checkEntitlementOvercap,
+  billingServiceAuth,
   createBillingEvent,
   effectiveEntitlements,
   getBundleCatalog,
@@ -216,7 +216,7 @@ export function createAddonRoutes(): Router {
 
     // Recompute + push EFFECTIVE entitlements (tier + all add-ons) to both
     // targets (quota + platform). Root-scoped service token.
-    const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+    const serviceAuth = billingServiceAuth(orgId);
     await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
     await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId, subscription._id.toString(), 'addon_add');
     await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_added', bundleId, quantity: qty }, subscription._id.toString(), req.user?.sub);
@@ -267,7 +267,7 @@ export function createAddonRoutes(): Router {
     subscription.addons = next;
     await subscription.save();
 
-    const serviceAuth = getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'owner' });
+    const serviceAuth = billingServiceAuth(orgId);
     await syncEntitlements(orgId, plan.tier, serviceAuth, subscription._id.toString(), next);
     await syncProviderAddons(subscription.externalId, next, subscription.interval, orgId, subscription._id.toString(), 'addon_remove');
     await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId }, subscription._id.toString(), req.user?.sub);

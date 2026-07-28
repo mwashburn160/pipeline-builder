@@ -56,38 +56,3 @@ export function getIdentity(req: HttpRequest): RequestIdentity {
     role: user?.role || getHeaderString(req.headers['x-user-role']),
   };
 }
-
-/**
- * Validate that required identity fields are present.
- *
- * @param identity - Identity object to validate
- * @param required - Array of required field names
- * @returns Object with isValid boolean and missing fields array
- *
- * @example
- * ```typescript
- * const identity = getIdentity(req);
- * const validation = validateIdentity(identity, ['orgId', 'userId']);
- *
- * if (!validation.isValid) {
- *   return sendError(res, 400, `Missing required headers: ${validation.missing.join(', ')}`);
- * }
- * ```
- */
-export function validateIdentity(
-  identity: RequestIdentity,
-  required: (keyof RequestIdentity)[],
-): { isValid: boolean; missing: string[] } {
-  const missing: string[] = [];
-
-  for (const field of required) {
-    if (!identity[field]) {
-      missing.push(`x-${field.replace(/([A-Z])/g, '-$1').toLowerCase()}`);
-    }
-  }
-
-  return {
-    isValid: missing.length === 0,
-    missing,
-  };
-}

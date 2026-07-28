@@ -8,7 +8,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { useToast } from '@/components/ui/Toast';
 import { ModalPortal } from '@/components/ui/ModalPortal';
-import { api, ApiError } from '@/lib/api';
+import { api, getErrorMessage } from '@/lib/api';
 import type { Alert, Silence } from '@/types/observability';
 import { formatRelativeTime } from '@/lib/relative-time';
 
@@ -69,7 +69,7 @@ export default function AlertsPage() {
       setAlerts(alertsRes.data?.alerts ?? []);
       setSilences(silencesRes.data?.silences ?? []);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -106,7 +106,7 @@ export default function AlertsPage() {
       setSilenceTarget(null);
       await refresh();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+      toast.error(getErrorMessage(err));
     }
   };
 
@@ -116,7 +116,7 @@ export default function AlertsPage() {
       toast.success('Silence expired.');
       await refresh();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : (err as Error).message);
+      toast.error(getErrorMessage(err));
     }
   };
 

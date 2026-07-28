@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool, type PoolConfig, type PoolClient } from 'pg';
+import { Pool, type PoolConfig } from 'pg';
 import { schema } from './drizzle-schema.js';
 import { ConnectionRetryStrategy } from './retry-strategy.js';
 
@@ -257,76 +256,6 @@ export class Connection {
       idleCount: this.pool.idleCount,
       waitingCount: this.pool.waitingCount,
     };
-  }
-
-  /**
-   * Executes a database transaction.
-   *
-   * DEAD PATH — no production callers. Every real transaction goes through
-   * `withTenantTx` (tenancy.ts), which now sets `statement_timeout` alongside
-   * the RLS GUCs, so THIS wrapper's `SET LOCAL statement_timeout` guard is no
-   * longer the server-side timeout mechanism. `getClient()` below is likewise
-   * caller-less. Both are safe to remove; kept for now to avoid churn.
-   *
-   * @param callback - Function to execute within the transaction
-   * @returns Result of the transaction
-   *
-   * @example
-   * ```typescript
-   * const result = await connection.transaction(async (tx) => {
-   *   await tx.insert(schema.plugin).values({ ... });
-   *   await tx.insert(schema.metadata).values({ ... });
-   *   return { success: true };
-   * });
-   * ```
-   */
-  public async transaction<T>(
-    callback: Parameters<typeof this.db.transaction>[0],
-    timeoutMs: number = parseIntEnv(process.env.DB_TRANSACTION_TIMEOUT_MS, 30000),
-  ): Promise<T> {
-    let timer: ReturnType<typeof setTimeout>;
-    // Wrap callback to set PostgreSQL statement_timeout as a server-side guard.
-    // The Promise.race timeout below handles the JS side, but statement_timeout
-    // ensures the DB itself cancels long-running queries if the JS timeout fires
-    // but the connection isn't cleaned up.
-    const wrappedCallback: typeof callback = async (tx) => {
-      // `SET LOCAL statement_timeout = ${n}` parameterizes to `= $1`, which
-      // Postgres rejects for SET — use set_config (accepts a bound value, is_local
-      // = true ⇒ transaction-scoped), matching tenancy.ts.
-      await tx.execute(sql`SELECT set_config('statement_timeout', ${String(timeoutMs)}, true)`);
-      return callback(tx);
-    };
-    const txPromise = this.db.transaction(wrappedCallback) as Promise<T>;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Transaction timeout after ${timeoutMs}ms`)), timeoutMs);
-    });
-    try {
-      return await Promise.race([txPromise, timeoutPromise]);
-    } finally {
-      clearTimeout(timer!);
-    }
-  }
-
-  /**
-   * Acquires a client from the pool for manual query execution
-   * Remember to release the client when done
-   *
-   * @returns PostgreSQL client from the pool
-   *
-   * @example
-   * ```typescript
-   * const client = await connection.getClient();
-   * try {
-   *   await client.query('BEGIN');
-   *   await client.query('INSERT INTO ...');
-   *   await client.query('COMMIT');
-   * } finally {
-   *   client.release();
-   * }
-   * ```
-   */
-  public async getClient(): Promise<PoolClient> {
-    return this.pool.connect();
   }
 
   /**

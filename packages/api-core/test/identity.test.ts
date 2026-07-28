@@ -4,7 +4,7 @@
 import { describe, it, expect } from '@jest/globals';
 
 import type { HttpRequest } from '../src/types/http.js';
-import { getIdentity, validateIdentity } from '../src/utils/identity.js';
+import { getIdentity } from '../src/utils/identity.js';
 
 // Helpers
 function mockRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
@@ -86,43 +86,5 @@ describe('getIdentity', () => {
     expect(identity.userId).toBeUndefined();
     expect(identity.requestId).toBeUndefined();
     expect(identity.role).toBeUndefined();
-  });
-});
-
-describe('validateIdentity', () => {
-  it('should pass when all required fields are present', () => {
-    const identity = { orgId: 'org-1', userId: 'user-1', requestId: 'req-1', role: 'admin' };
-    const result = validateIdentity(identity, ['orgId', 'userId']);
-    expect(result.isValid).toBe(true);
-    expect(result.missing).toEqual([]);
-  });
-
-  it('should fail when required fields are missing', () => {
-    const identity = { orgId: 'org-1' };
-    const result = validateIdentity(identity, ['orgId', 'userId']);
-    expect(result.isValid).toBe(false);
-    expect(result.missing).toContain('x-user-id');
-  });
-
-  it('should report all missing fields', () => {
-    const identity = {};
-    const result = validateIdentity(identity, ['orgId', 'userId', 'requestId']);
-    expect(result.isValid).toBe(false);
-    expect(result.missing).toHaveLength(3);
-    expect(result.missing).toContain('x-org-id');
-    expect(result.missing).toContain('x-user-id');
-    expect(result.missing).toContain('x-request-id');
-  });
-
-  it('should pass with no required fields', () => {
-    const result = validateIdentity({}, []);
-    expect(result.isValid).toBe(true);
-    expect(result.missing).toEqual([]);
-  });
-
-  it('should convert camelCase field names to header format', () => {
-    const identity = {};
-    const result = validateIdentity(identity, ['requestId']);
-    expect(result.missing).toContain('x-request-id');
   });
 });

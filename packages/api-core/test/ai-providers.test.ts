@@ -7,7 +7,6 @@ import {
   AI_PROVIDER_CATALOG,
   AI_PROVIDER_ENV_VARS,
   getAIProviderModels,
-  getAIProviderName,
   type AIProviderInfo,
   type AIModelInfo,
 } from '../src/constants/ai-providers.js';
@@ -93,21 +92,5 @@ describe('getAIProviderModels', () => {
     for (const [id, info] of Object.entries(AI_PROVIDER_CATALOG)) {
       expect(getAIProviderModels(id)).toEqual(info.models);
     }
-  });
-});
-
-// getAIProviderName
-
-describe('getAIProviderName', () => {
-  it('returns display name for valid providers', () => {
-    expect(getAIProviderName('anthropic')).toBe('Anthropic');
-    expect(getAIProviderName('openai')).toBe('OpenAI');
-    expect(getAIProviderName('google')).toBe('Google');
-    expect(getAIProviderName('xai')).toBe('xAI (Grok)');
-    expect(getAIProviderName('amazon-bedrock')).toBe('Amazon Bedrock');
-  });
-
-  it('falls back to raw ID for unknown provider', () => {
-    expect(getAIProviderName('unknown-provider')).toBe('unknown-provider');
   });
 });

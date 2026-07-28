@@ -8,6 +8,7 @@ import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
+import { type OAuthProviderName } from '../types/oauth-provider.js';
 import { issueTokens } from '../utils/token.js';
 import { validateBody, oauthCallbackSchema } from '../utils/validation.js';
 
@@ -161,17 +162,16 @@ function createGitHubProvider(): OAuthProvider {
   };
 }
 
-// Provider registry
+// Provider registry — keyed by the shared `OAuthProviderName` union
+// (src/types/oauth-provider.ts) rather than a locally-redeclared alias.
 
-type ProviderName = 'google' | 'github';
-
-const providers: Record<ProviderName, OAuthProvider> = {
+const providers: Record<OAuthProviderName, OAuthProvider> = {
   google: createGoogleProvider(),
   github: createGitHubProvider(),
 };
 
 function getProvider(name: string): OAuthProvider | null {
-  return providers[name as ProviderName] ?? null;
+  return providers[name as OAuthProviderName] ?? null;
 }
 
 // Shared verification

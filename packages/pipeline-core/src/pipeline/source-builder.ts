@@ -30,8 +30,9 @@ const SECRETS_MANAGER_REF_PREFIX = 'secretsmanager:';
  * that starts the pipeline on a cron schedule. The source trigger is set to NONE
  * (no polling/webhook). The EventBridge rule must be created separately as a
  * pipeline-level construct, not at the source level. The `schedule` field on
- * source options captures the cron expression for API/frontend use, but the
- * actual EventBridge rule creation is not yet implemented in this builder.
+ * source options captures the cron expression for API/frontend use. The actual
+ * EventBridge rule creation is implemented in `PipelineBuilder` (the
+ * `ScheduleRule` `events.Rule` targeting the pipeline), not at the source level.
  *
  * @example
  * ```typescript
@@ -77,12 +78,8 @@ export class SourceBuilder {
       options.bucketName,
     );
 
-    let trigger: S3Trigger;
-    switch (options.trigger) {
-      case TriggerType.AUTO: trigger = S3Trigger.EVENTS; break;
-      case TriggerType.SCHEDULE: trigger = S3Trigger.NONE; break;
-      default: trigger = S3Trigger.NONE;
-    }
+    const trigger =
+      options.trigger === TriggerType.AUTO ? S3Trigger.EVENTS : S3Trigger.NONE;
 
     return CodePipelineSource.s3(bucket, options.objectKey, { trigger });
   }

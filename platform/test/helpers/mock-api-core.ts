@@ -150,12 +150,37 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
   return {
     createLogger: loggerMock,
     SYSTEM_ORG_ID: '000000000000000000000001',
+    SYSTEM_ORG_SLUG: 'system',
     // Tier identity — organization-service / validation import these at module
     // load. A suite can override QUOTA_TIERS via `overrides` for shape-specific
     // assertions; DEFAULT_TIER stays 'developer' unless a suite overrides it.
     DEFAULT_TIER: 'developer',
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     isValidTier: (t: string) => ['developer', 'pro', 'team', 'enterprise'].includes(t),
+    // Minimal default so any suite importing the real quota/service chain resolves
+    // the `QUOTA_TIERS` binding at module load; a suite override wins for
+    // shape-specific assertions. All non-seat dims are -1 (unlimited) — enough to
+    // load; tests that assert reseed shapes pass their own QUOTA_TIERS.
+    QUOTA_TIERS: (() => {
+      const limits = (seats: number) => ({
+        seats,
+        plugins: -1,
+        pipelines: -1,
+        apiCalls: -1,
+        aiCalls: -1,
+        storageBytes: -1,
+        dashboards: -1,
+        alertRules: -1,
+        alertDestinations: -1,
+        idpConfigs: -1,
+      });
+      return {
+        developer: { label: 'Developer', limits: limits(1) },
+        pro: { label: 'Pro', limits: limits(3) },
+        team: { label: 'Team', limits: limits(10) },
+        enterprise: { label: 'Enterprise', limits: limits(-1) },
+      };
+    })(),
     // Tier → default feature set (mirrors api-core TIER_FEATURES). user-admin's
     // feature-override entitlement gate reads this to decide which features an org
     // admin may enable without a purchase.

@@ -15,8 +15,8 @@ export type ValidationResult<T> =
  * Validate arbitrary data against a Zod schema.
  *
  * This is the core validation function used by the Express-specific helpers
- * (`validateBody`, `validateQuery`, `validateParams`). It can also be called
- * directly when validating data that doesn't come from a request object.
+ * (`validateBody`, `validateQuery`). It can also be called directly when
+ * validating data that doesn't come from a request object.
  *
  * @param data - Data to validate
  * @param schema - Zod schema for validation
@@ -75,11 +75,4 @@ export function validateQuery<T>(req: Request, schema: ZodSchema<T>): Validation
  */
 export function validateBody<T>(req: Request, schema: ZodSchema<T>): ValidationResult<T> {
   return validate(req.body, schema);
-}
-
-/**
- * Validate request path parameters with a Zod schema.
- */
-export function validateParams<T>(req: Request, schema: ZodSchema<T>): ValidationResult<T> {
-  return validate(req.params, schema);
 }
