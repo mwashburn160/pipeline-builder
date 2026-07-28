@@ -51,6 +51,7 @@ jest.mock('@/components/ui/DashboardLayout', () => ({
 const getDora = jest.fn();
 const getDoraTrend = jest.fn();
 const getExecutionCount = jest.fn();
+const listPipelines = jest.fn();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -58,6 +59,7 @@ jest.mock('@/lib/api', () => ({
     getSuccessRate: jest.fn().mockResolvedValue({ data: { timeline: [] } }),
     getDora: (...a: unknown[]) => getDora(...a),
     getDoraTrend: (...a: unknown[]) => getDoraTrend(...a),
+    listPipelines: (...a: unknown[]) => listPipelines(...a),
     getOrganizationDescendants: jest.fn().mockResolvedValue({ data: { orgIds: [] } }),
   },
 }));
@@ -84,6 +86,7 @@ beforeEach(() => {
   getDora.mockReset();
   getDoraTrend.mockReset().mockResolvedValue([]);
   getExecutionCount.mockReset().mockResolvedValue({ data: { pipelines: [] } });
+  listPipelines.mockReset().mockResolvedValue({ data: { pipelines: [] } });
 });
 
 describe('ReportsPage — DORA section', () => {
@@ -205,6 +208,20 @@ describe('ReportsPage — DORA section', () => {
     await screen.findByText('DORA Metrics');
     expect(getDora).toHaveBeenLastCalledWith(expect.objectContaining({ pipelineId: 'p1' }));
     expect(getDoraTrend).toHaveBeenLastCalledWith(expect.objectContaining({ pipelineId: 'p1' }));
+  });
+
+  it('lists registry pipelines in the picker even with zero execution history', async () => {
+    // No runs → getExecutionCount empty; the picker is now sourced from the
+    // pipeline registry, so a never-run pipeline is still selectable.
+    getExecutionCount.mockResolvedValue({ data: { pipelines: [] } });
+    listPipelines.mockResolvedValue({ data: { pipelines: [{ id: 'p9', project: 'proj-x', pipelineName: 'Never Run' }] } });
+    getDora.mockResolvedValue(baseDora);
+
+    render(<ReportsPage />);
+    await screen.findByText('DORA Metrics');
+
+    const picker = screen.getByLabelText(/filter dora by pipeline/i) as HTMLSelectElement;
+    expect([...picker.options].map((o) => o.textContent)).toContain('Never Run');
   });
 
   it('forwards deploysOnly when the deployments-only toggle is checked', async () => {

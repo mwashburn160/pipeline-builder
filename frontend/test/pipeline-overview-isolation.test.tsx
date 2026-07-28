@@ -27,7 +27,8 @@ const doraScope = {
 };
 
 const baseProps = {
-  executions: [] as ExecutionCountRow[], timeline: [] as TimelineEntry[],
+  executions: [] as ExecutionCountRow[], pipelineOptions: [] as { id: string; name: string }[],
+  timeline: [] as TimelineEntry[],
   dora: null, doraTrend: [], doraEnabled: false, doraScope,
 };
 

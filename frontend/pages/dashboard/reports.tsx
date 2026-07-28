@@ -116,6 +116,12 @@ export default function ReportsPage() {
   const [doraEnvironment, setDoraEnvironment] = useState('');
   const [doraEnvironmentApplied, setDoraEnvironmentApplied] = useState('');
   const [doraDeploysOnly, setDoraDeploysOnly] = useState(false);
+  // Full pipeline list for the DORA per-pipeline picker — sourced from the
+  // pipeline registry (not execution history), so a pipeline that exists but has
+  // never run is still selectable. Merged with execution-derived names in
+  // PipelineOverview so a since-deleted pipeline with historical events can also
+  // be scoped. Fetched only when DORA is entitled.
+  const [pipelineOptions, setPipelineOptions] = useState<{ id: string; name: string }[]>([]);
   const [durations, setDurations] = useState<DurationStat[]>([]);
   const [bottlenecks, setBottlenecks] = useState<StageBottleneck[]>([]);
   const [stageFailures, setStageFailures] = useState<StageFailure[]>([]);
@@ -173,17 +179,29 @@ export default function ReportsPage() {
           const doraTrendReq = doraEnabled
             ? api.getDoraTrend({ interval: timeInterval, ...dateParams, ...rollup, ...doraScope })
             : Promise.resolve<DoraTrendPoint[]>([]);
+          // Populate the per-pipeline picker from the registry (all pipelines,
+          // run or not). Ungated by date range; the picker is auxiliary, so a
+          // failure here must NOT trip the shared error banner — swallow it to
+          // `undefined` rather than letting it surface as a rejected slice.
+          const pipelineListReq = doraEnabled
+            ? api.listPipelines({ limit: '200' }).catch(() => undefined)
+            : Promise.resolve(undefined);
           const results = await Promise.allSettled([
             api.getExecutionCount({ ...dateParams, ...rollup }), api.getSuccessRate({ interval: timeInterval, ...dateParams, ...rollup }),
-            doraReq, doraTrendReq,
+            doraReq, doraTrendReq, pipelineListReq,
           ]);
           if (reqId !== reqIdRef.current) return;
           settled = results;
-          const [execRes, successRateRes, doraRes, doraTrendRes] = results;
+          const [execRes, successRateRes, doraRes, doraTrendRes, pipelineListRes] = results;
           if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
           if (successRateRes.status === 'fulfilled') setTimeline(successRateRes.value.data?.timeline || []);
           if (doraRes.status === 'fulfilled') setDora(doraRes.value ?? null);
           if (doraTrendRes.status === 'fulfilled') setDoraTrend(doraTrendRes.value ?? []);
+          if (pipelineListRes.status === 'fulfilled' && pipelineListRes.value) {
+            setPipelineOptions(
+              (pipelineListRes.value.data?.pipelines ?? []).map((p) => ({ id: p.id, name: p.pipelineName || p.project })),
+            );
+          }
         } else if (pipelineTab === 'performance') {
           const results = await Promise.allSettled([
             api.getExecutionCount({ ...dateParams, ...rollup }), api.getPipelineDuration({ ...dateParams, ...rollup }), api.getStageBottlenecks(dateParams),
@@ -336,6 +354,7 @@ export default function ReportsPage() {
               <PipelineOverview
                 loading={loading}
                 executions={executions}
+                pipelineOptions={pipelineOptions}
                 timeline={timeline}
                 dora={dora}
                 doraTrend={doraTrend}

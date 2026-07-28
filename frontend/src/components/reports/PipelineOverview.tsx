@@ -14,6 +14,8 @@ import type { TimelineEntry } from './types';
 interface PipelineOverviewProps {
   loading: boolean;
   executions: ExecutionCountRow[];
+  /** All pipelines in the org (registry-sourced), for the DORA per-pipeline picker. */
+  pipelineOptions: { id: string; name: string }[];
   timeline: TimelineEntry[];
   dora: DoraMetrics | null;
   doraTrend: DoraTrendPoint[];
@@ -24,8 +26,17 @@ interface PipelineOverviewProps {
 
 /** Pipelines → Overview tab: summary stats, DORA section, execution + success-rate timelines. */
 export function PipelineOverview({
-  loading, executions, timeline, dora, doraTrend, doraEnabled, doraScope,
+  loading, executions, pipelineOptions, timeline, dora, doraTrend, doraEnabled, doraScope,
 }: PipelineOverviewProps) {
+  // DORA picker options: the org's registry pipelines PLUS any pipeline that only
+  // appears in execution history (e.g. since-deleted), deduped by id. Registry
+  // first so a never-run pipeline is still selectable; execution-derived fills gaps.
+  const doraPipelineOptions = (() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    for (const p of pipelineOptions) byId.set(p.id, p);
+    for (const e of executions) if (!byId.has(e.id)) byId.set(e.id, { id: e.id, name: e.pipeline_name || e.project });
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  })();
   const totalExec = executions.reduce((s, p) => s + p.total, 0);
   const totalPass = executions.reduce((s, p) => s + p.succeeded, 0);
   const totalFail = executions.reduce((s, p) => s + p.failed, 0);
@@ -56,7 +67,7 @@ export function PipelineOverview({
         <div>
           <SectionHeading>DORA Metrics</SectionHeading>
           <DoraScopeControls
-            pipelines={executions.map((p) => ({ id: p.id, name: p.pipeline_name || p.project }))}
+            pipelines={doraPipelineOptions}
             {...doraScope}
           />
           {dora ? (

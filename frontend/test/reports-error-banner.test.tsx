@@ -55,6 +55,7 @@ jest.mock('@/lib/api', () => ({
     getSuccessRate: (...a: unknown[]) => getSuccessRate(...a),
     getDora: jest.fn().mockResolvedValue(null),
     getDoraTrend: (...a: unknown[]) => getDoraTrend(...a),
+    listPipelines: jest.fn().mockResolvedValue({ data: { pipelines: [] } }),
     getOrganizationDescendants: jest.fn().mockResolvedValue({ data: { orgIds: [] } }),
   },
 }));
