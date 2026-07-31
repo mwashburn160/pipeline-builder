@@ -15,6 +15,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUoFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockUoDeleteOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockRaDeleteMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockPublishUser = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const mockPublishUsers = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 
@@ -30,6 +31,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgSc
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
   seatCapacityStillWithinCap: jest.fn(async () => true),
+  userHasSeatInAccount: jest.fn(async () => false),
 }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined) }));
 
@@ -50,7 +52,9 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     findOne: (...a: unknown[]) => mockUoFindOne(...a),
     deleteOne: (...a: unknown[]) => mockUoDeleteOne(...a),
   },
-  RoleAssignment: {},
+  // removeMember now deletes the user's role assignments for the org in-tx
+  // (privilege-resurrection fix); called with the `{ session }` option form.
+  RoleAssignment: { deleteMany: (...a: unknown[]) => mockRaDeleteMany(...a) },
 }));
 
 const { orgMembersService } = await import('../src/services/org-members-service.js');
@@ -61,6 +65,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockUserUpdateOne.mockResolvedValue(undefined);
   mockUoDeleteOne.mockReturnValue({ session: () => Promise.resolve(undefined) });
+  mockRaDeleteMany.mockResolvedValue(undefined);
 });
 
 describe('OrgMembersService.removeMember → session-revocation publish', () => {

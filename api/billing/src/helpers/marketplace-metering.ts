@@ -1,14 +1,45 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
+import { createEnvRedisLock, createLogger, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
+import { createBillingEvent } from './billing-helpers.js';
+import { recordMarketplaceConsumption } from './billing-ledger.js';
+import { grantPeriodicCredits } from './discount-helpers.js';
+import { planMeteredDrawdown } from './marketplace-credit.js';
 import { Subscription } from '../models/subscription.js';
 import { AWSMarketplaceProvider, type MeterUsageResult } from '../providers/aws-marketplace-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
+import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('marketplace-metering');
+
+/** Calendar period key for the recurring re-grant — `YYYY` (annual) or `YYYY-MM`
+ *  (monthly). Deterministic + independent of possibly-stale subscription period
+ *  fields. `now` is injected so the reload/compute uses one consistent instant. */
+function periodKeyFor(interval: string, now: Date): string {
+  const y = now.getUTCFullYear();
+  if (interval === 'annual') return String(y);
+  return `${y}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** ISO hour bucket — matches AWS BatchMeterUsage's (customer, dimension, hour) dedupe. */
+function hourKeyFor(now: Date): string {
+  return now.toISOString().slice(0, 13); // e.g. 2026-07-29T14
+}
+
+/** UTC bounds of the current billing period — used for the per-period consumption
+ *  BillingInvoice row (`YYYY-MM` → that calendar month; `YYYY` → that year). */
+function periodBounds(interval: string, now: Date): { start: Date; end: Date } {
+  const y = now.getUTCFullYear();
+  if (interval === 'annual') {
+    return { start: new Date(Date.UTC(y, 0, 1)), end: new Date(Date.UTC(y + 1, 0, 1)) };
+  }
+  const m = now.getUTCMonth();
+  return { start: new Date(Date.UTC(y, m, 1)), end: new Date(Date.UTC(y, m + 1, 1)) };
+}
 
 /** Why a metering report was skipped, or the result when it ran. */
 export type MeteringOutcome =
@@ -32,12 +63,12 @@ export type MeteringOutcome =
  *
  * @param orgId The account (root) org whose add-on usage to report.
  */
-export async function reportMarketplaceAddonUsage(orgId: string): Promise<MeteringOutcome> {
+export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new Date()): Promise<MeteringOutcome> {
   if (config.billingProvider !== 'aws-marketplace') {
     return { status: 'skipped', reason: 'not-marketplace' };
   }
 
-  const subscription = await Subscription.findOne({ orgId, status: 'active' });
+  let subscription = await Subscription.findOne({ orgId, status: 'active' });
   if (!subscription) return { status: 'skipped', reason: 'no-subscription' };
 
   const customerId = (subscription.metadata?.awsCustomerIdentifier as string | undefined)
@@ -45,8 +76,7 @@ export async function reportMarketplaceAddonUsage(orgId: string): Promise<Meteri
     ?? undefined;
   if (!customerId) return { status: 'skipped', reason: 'no-customer' };
 
-  const addons = subscription.addons ?? [];
-  if (addons.length === 0) return { status: 'skipped', reason: 'no-addons' };
+  if ((subscription.addons ?? []).length === 0) return { status: 'skipped', reason: 'no-addons' };
 
   const provider = getPaymentProvider();
   if (!(provider instanceof AWSMarketplaceProvider)) {
@@ -54,13 +84,112 @@ export async function reportMarketplaceAddonUsage(orgId: string): Promise<Meteri
     return { status: 'skipped', reason: 'provider-mismatch' };
   }
 
+  // Credits realize on Marketplace only when both switches are on (see the
+  // provider's usageCreditSupport invariant). Multi-pod safety comes from the
+  // atomic conditional claims below — NOT a leader lock — so only one pod ever
+  // re-grants a given period or draws down a given hour.
+  const creditsActive = config.marketplace.creditsEnabled && config.marketplace.meteringEnabled;
+  const { bundleToDimensionMap, dimensionPriceMap, drawdownDryRun } = config.marketplace;
+
+  // 1. Re-grant recurring + combo credits once per billing period (atomic claim).
+  if (creditsActive) {
+    const periodKey = periodKeyFor(subscription.interval, now);
+    const claimed = await Subscription.findOneAndUpdate(
+      { '_id': subscription._id, 'metadata.lastCreditPeriod': { $ne: periodKey } },
+      { $set: { 'metadata.lastCreditPeriod': periodKey } },
+      { new: true },
+    );
+    if (claimed) {
+      // Won the period — re-grant onto the freshly-claimed doc and persist. If the
+      // grant/save fails, COMPENSATE the claim (unset the marker) so a later cycle
+      // retries instead of permanently losing this period's credit.
+      try {
+        await grantPeriodicCredits(claimed, periodKey);
+        await claimed.save();
+        subscription = claimed;
+      } catch (err) {
+        await Subscription.findOneAndUpdate(
+          { '_id': subscription._id, 'metadata.lastCreditPeriod': periodKey },
+          { $unset: { 'metadata.lastCreditPeriod': '' } },
+        ).catch(() => undefined);
+        throw err;
+      }
+    } else {
+      // Another pod / earlier cycle already granted this period — reload so the
+      // drawdown below sees the current balance.
+      subscription = (await Subscription.findById(subscription._id)) ?? subscription;
+    }
+  }
+
+  // 2. Plan the drawdown from the current balance → reduced quantities to report.
+  const balance = subscription.creditBalanceCents ?? 0;
+  const plan = (creditsActive && balance > 0)
+    ? planMeteredDrawdown(subscription.addons ?? [], bundleToDimensionMap, dimensionPriceMap, balance)
+    : null;
+
+  if (plan?.unrealizable) {
+    logger.warn('Marketplace credit cannot be realized — no priced meterable dimension', { orgId, balanceCents: balance });
+    incCounter('billing_marketplace_credit_unrealizable_total', {});
+  }
+  if (plan && drawdownDryRun && plan.consumedCents > 0) {
+    logger.info('Marketplace drawdown DRY-RUN — reporting full usage', { orgId, wouldConsumeCents: plan.consumedCents, wouldRemainCents: plan.remainingCents });
+  }
+
+  // Report withheld (reduced) quantities live; report full quantities in dry-run.
+  const reportAddons = (plan && !drawdownDryRun) ? plan.adjustedAddons : (subscription.addons ?? []);
+
+  // 3. Report to AWS.
+  let result: MeterUsageResult;
   try {
-    const result = await provider.meterAddonUsage(customerId, addons);
-    return { status: 'metered', result };
+    result = await provider.meterAddonUsage(customerId, reportAddons, now);
   } catch (err) {
     logger.warn('AWS Marketplace metering failed (will be retried next cycle)', { orgId, error: String(err) });
     return { status: 'error', error: String(err) };
   }
+
+  // 4. Consume the credit — only on a CLEAN report with real withholding, at most
+  //    once per AWS dedupe-hour, and only if the balance still covers it (atomic).
+  //    The consumption is recorded on a PER-PERIOD BillingInvoice row (dashboard
+  //    visibility + bounded growth) rather than a per-hour `creditLedger` entry.
+  if (plan && !drawdownDryRun && plan.consumedCents > 0 && result.unprocessed === 0) {
+    const hourKey = hourKeyFor(now);
+    const drawn = await Subscription.findOneAndUpdate(
+      { '_id': subscription._id, 'metadata.lastDrawdownHour': { $ne: hourKey }, 'creditBalanceCents': { $gte: plan.consumedCents } },
+      {
+        $set: { 'metadata.lastDrawdownHour': hourKey },
+        $inc: { creditBalanceCents: -plan.consumedCents },
+      },
+      { new: true },
+    );
+    if (drawn) {
+      const periodKey = periodKeyFor(subscription.interval, now);
+      const { start, end } = periodBounds(subscription.interval, now);
+      await recordMarketplaceConsumption(orgId, periodKey, start, end, plan.consumedCents);
+      const subId = subscription._id.toString();
+      await createBillingEvent(orgId, 'credit_consumed', { consumedCents: plan.consumedCents, dimensions: plan.perLine.length }, subId);
+      // Mirror to the central audit trail (system-initiated; no request actor).
+      getAuditClient().record({
+        action: 'billing.credit.consumed',
+        actorId: 'system',
+        orgId,
+        targetId: subId,
+        details: { consumedCents: plan.consumedCents, dimensions: plan.perLine.length, subscriptionId: subId },
+      }, 'billing');
+      incCounter('billing_marketplace_credit_consumed_total', {});
+      if ((drawn.creditBalanceCents ?? 0) === 0) {
+        await createBillingEvent(orgId, 'credit_exhausted', { previousCents: balance }, subId);
+        getAuditClient().record({
+          action: 'billing.credit.exhausted',
+          actorId: 'system',
+          orgId,
+          targetId: subId,
+          details: { previousCents: balance, subscriptionId: subId },
+        }, 'billing');
+      }
+    }
+  }
+
+  return { status: 'metered', result };
 }
 
 /**
@@ -81,9 +210,16 @@ export async function reportAllMarketplaceAddonUsage(): Promise<{ accounts: numb
   let metered = 0;
   let errors = 0;
   for (const sub of subs) {
-    const outcome = await reportMarketplaceAddonUsage(sub.orgId);
-    if (outcome.status === 'metered') metered += 1;
-    else if (outcome.status === 'error') errors += 1;
+    // Per-account isolation: a thrown DB error (atomic claim, grant, save, drawdown)
+    // must not abort the cycle and strand every remaining account.
+    try {
+      const outcome = await reportMarketplaceAddonUsage(sub.orgId);
+      if (outcome.status === 'metered') metered += 1;
+      else if (outcome.status === 'error') errors += 1;
+    } catch (err) {
+      errors += 1;
+      logger.warn('Marketplace metering: per-account cycle failed (isolated)', { orgId: sub.orgId, error: String(err) });
+    }
   }
 
   if (subs.length > 0) {
@@ -92,6 +228,14 @@ export async function reportAllMarketplaceAddonUsage(): Promise<{ accounts: numb
   return { accounts: subs.length, metered, errors };
 }
 
+// Cross-pod single-runner lock. Correctness is already guaranteed by the per-hour /
+// per-period atomic claims inside the cycle; the lock is an EFFICIENCY guard so N
+// replicas don't all redundantly walk the account set. Absent Redis it's a no-op and
+// the cycle runs on every pod (still safe). TTL comfortably exceeds one run and is
+// well under the hourly cadence so the next cycle can re-acquire.
+const LOCK_TTL_MS = 5 * 60 * 1000;
+const lockClient = createEnvRedisLock();
+
 // Periodic metering cycle. Wrapped in a sysadmin tenant scope to match the other
 // multi-org billing crons (subscription-lifecycle). Gated at start() time so the
 // timer only exists on Marketplace deployments that opted in.
@@ -99,6 +243,7 @@ const scheduler: Scheduler = createScheduler({
   name: 'marketplace-metering',
   intervalMs: config.meteringIntervalMs,
   run: async () => { await runWithTenantContext({ isSuperAdmin: true }, reportAllMarketplaceAddonUsage); },
+  ...(lockClient ? { lock: { redis: () => lockClient, key: 'marketplace-metering', ttlMs: LOCK_TTL_MS } } : {}),
 });
 
 /**
@@ -113,6 +258,14 @@ export function startMarketplaceMetering(): void {
       meteringEnabled: config.meteringEnabled,
     });
     return;
+  }
+  // Sub-hour cadence + credit drawdown is unsafe: AWS dedupes BatchMeterUsage by
+  // (customer, dimension, hour), so a second reduced report in the same hour is
+  // ignored by AWS while the local balance would still be drawn down (over-consume).
+  // The per-hour drawdown claim already bounds it to once/hour, but warn loudly if an
+  // operator sets a cadence finer than the dedupe window while credits are active.
+  if (config.marketplace.creditsEnabled && config.meteringIntervalMs < 3600000) {
+    logger.warn('Metering cadence is finer than AWS\'s 1-hour dedupe window while credits are active — credit drawdown may over-consume; use ≥ 1h', { intervalMs: config.meteringIntervalMs });
   }
   logger.info('Starting Marketplace add-on metering cycle', { intervalMs: config.meteringIntervalMs });
   scheduler.start();

@@ -26,6 +26,7 @@ import {
 } from '../agent/targets.js';
 import { TOOLS_DIR, fetchTool, isFetchable, withToolsOnPath } from '../agent/tools.js';
 import { matchIssues, sesPostDeployGuidance } from '../agent/troubleshoot.js';
+import { shellQuote } from '../config/cli.constants.js';
 import { printCommandHeader } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printSection, printKeyValue, printInfo, printWarning, printError, printSuccess } from '../utils/output-utils.js';
@@ -431,7 +432,7 @@ export async function resolveLoadsInteractively(
     const absent = sparsePathsFor(target, chosen).filter((p) => !existsSync(path.join(cwd, p)));
     if (absent.length > 0) {
       printSection('Fetching selected load folders');
-      const addCmd = `git sparse-checkout add ${absent.map((p) => `'${p}'`).join(' ')} && git checkout '${bootstrap.ref}'`;
+      const addCmd = `git sparse-checkout add ${absent.map((p) => `'${p}'`).join(' ')} && git checkout ${shellQuote(bootstrap.ref)}`;
       printInfo(addCmd);
       const { code } = await runScript(addCmd, cwd, { capture: false });
       if (code !== 0) {

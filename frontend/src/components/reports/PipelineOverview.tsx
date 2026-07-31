@@ -118,9 +118,14 @@ export function PipelineOverview({
                   <DoraTrendSparkline points={doraTrend} />
                 </div>
               )}
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                These are run-based: a &ldquo;deployment&rdquo; is a successful pipeline run, so frequency, change-failure and restore-time reflect pipeline activity rather than verified production deployments (no deploy/environment marker is captured yet). Lead time is further an approximation &mdash; median successful pipeline run time; true commit&rarr;deploy lead time requires source commit capture (roadmap).
-              </p>
+              {/* The run-based caveat only applies when counting runs — when a
+                  deploy/environment scope is active the badge above already says
+                  "Scoped to deployments", so this text would contradict it. */}
+              {dora.basis === 'run' && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                  These are run-based: a &ldquo;deployment&rdquo; is a successful pipeline run, so frequency, change-failure and restore-time reflect pipeline activity rather than verified production deployments (no deploy/environment marker is captured yet). Lead time is further an approximation &mdash; median successful pipeline run time; true commit&rarr;deploy lead time requires source commit capture (roadmap).
+                </p>
+              )}
             </>
           ) : (
             <ReportEmpty text="No DORA data for this scope" />

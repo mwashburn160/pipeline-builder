@@ -70,7 +70,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
       developer: [],
       pro: ['priority_support', 'ai_generation', 'bulk_operations'],
       team: ['priority_support', 'ai_generation', 'bulk_operations', 'audit_log', 'sso'],
-      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso', 'advanced_reporting'],
+      enterprise: ['priority_support', 'ai_generation', 'bulk_operations', 'custom_integrations', 'audit_log', 'sso', 'advanced_reporting', 'team_usage_analytics'],
     },
     // `requirePermission(...perms)` / `requirePermissionOrService(...perms)` are
     // factories that RETURN middleware, so each stub is a function producing the
@@ -83,9 +83,12 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // Remote audit client factory — kept for any module still linking it directly.
     createRemoteAuditClient: () => ({ record: () => {} }),
     createEnvRedisAuditSpool: () => null,
+    // Leader-lock redis factory (marketplace-metering scheduler) — no lock in suites.
+    createEnvRedisLock: () => null,
     // Service audit factory — src/services/audit.ts now links against this. Returns
     // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
     createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
+    createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: jest.fn() }), emit: jest.fn() }),
     // #5 failed-authz auditor registration (src/index.ts) — no-op in suites.
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},

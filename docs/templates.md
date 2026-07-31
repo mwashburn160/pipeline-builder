@@ -16,6 +16,21 @@ Pipeline Builder supports a minimal `{{ path.to.value }}` template syntax in bot
 
 ---
 
+## Overview
+
+This reference documents the `{{ path.to.value }}` template syntax available in **pipeline configs** (`pipeline.json`) and **plugin specs** (`plugin-spec.yaml`) — its grammar, scopes, filters, the plugin contract, CLI/editor tooling, and error catalog. It's for plugin and pipeline authors who want a single spec to serve many environments. Resolution is server-side, happens once at synthesis time, and never executes code.
+
+## Process overview (synth-time resolution)
+
+1. Author writes `{{ ... }}` tokens in `pipeline.json` (self-references) and/or `plugin-spec.yaml` (`pipeline.*`, `plugin.*`, `env.*`).
+2. On upload the platform parses and validates every token — unknown paths, cycles, contract gaps, and size/depth limits fail with HTTP `400`.
+3. Pass 1 resolves a pipeline config's `metadata.*` / `vars.*` self-references.
+4. At synth, each plugin spec is resolved against the invoking pipeline's assembled scope.
+5. Filters apply — `| default:` fills missing values; `| number` / `| bool` / `| json` coerce whole-field templates.
+6. Resolved text is never re-scanned (no recursive templating); `$CODEBUILD_*` shell vars stay literal for runtime.
+
+---
+
 ## Grammar
 
 ```

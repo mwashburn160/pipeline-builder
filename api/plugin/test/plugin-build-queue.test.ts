@@ -174,10 +174,11 @@ function registerMocks() {
     reserveQuota: mockReserveQuota,
     getServiceAuthHeader: () => 'Bearer test-service-token',
     createRemoteAuditClient: () => ({ record: mockAuditRecord }),
-    // services/audit.ts now builds via createServiceAuditClient; keep both the
-    // `emit` and underlying `client.record` bound to the one spy so getAuditClient()
+    // services/audit.ts builds via createRemoteAuditAccessor; keep both `emit`
+    // and the underlying `client.record` bound to the one spy so getAuditClient()
     // (client.record) and emitPluginAudit (emit) still land on it.
     createServiceAuditClient: () => ({ emit: (e: any) => mockAuditRecord(e, 'plugin'), client: { record: mockAuditRecord } }),
+    createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: mockAuditRecord }), emit: (e: any) => mockAuditRecord(e, 'plugin') }),
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     DEFAULT_TIER: 'developer',
   }));
@@ -523,7 +524,10 @@ describe('plugin-build-queue', () => {
     it('releases the reserved slot and rethrows when add() throws (no orphan slot leak)', async () => {
       const quota = makeQuotaService();
       const failedJob = makeFailedJob();
-      mockQueueGetJob.mockResolvedValue(failedJob);
+      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
+      // undefined so the manual retry isn't refused.
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       // Slot successfully reserved for the new job (quotaReleased === false).
       mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99 } });
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
@@ -541,7 +545,10 @@ describe('plugin-build-queue', () => {
     it('does not decrement when add() throws and no slot was reserved (org at cap)', async () => {
       const quota = makeQuotaService();
       const failedJob = makeFailedJob();
-      mockQueueGetJob.mockResolvedValue(failedJob);
+      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
+      // undefined so the manual retry isn't refused.
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       // Org already at cap → reserveReplaySlot returns quotaReleased = true (no slot handed over).
       mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
@@ -560,7 +567,10 @@ describe('plugin-build-queue', () => {
         // Re-check reports the job genuinely lingers in the failed set.
         isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(true),
       });
-      mockQueueGetJob.mockResolvedValue(failedJob);
+      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
+      // undefined so the manual retry isn't refused.
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-1' });
 
       const newId = await queueModule.retryFailedJob('failed-1', quota);
@@ -580,7 +590,10 @@ describe('plugin-build-queue', () => {
         // (a concurrent remove already dropped it).
         isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValueOnce(true).mockResolvedValue(false),
       });
-      mockQueueGetJob.mockResolvedValue(failedJob);
+      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
+      // undefined so the manual retry isn't refused.
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-2' });
 
       const newId = await queueModule.retryFailedJob('failed-1', quota);
@@ -592,7 +605,10 @@ describe('plugin-build-queue', () => {
     it('happy path: enqueues once and removes the original failed entry', async () => {
       const quota = makeQuotaService();
       const failedJob = makeFailedJob();
-      mockQueueGetJob.mockResolvedValue(failedJob);
+      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
+      // undefined so the manual retry isn't refused.
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-3' });
 
       const newId = await queueModule.retryFailedJob('failed-1', quota);

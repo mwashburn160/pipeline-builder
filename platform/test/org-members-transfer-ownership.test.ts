@@ -34,6 +34,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgSc
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
   seatCapacityStillWithinCap: jest.fn(async () => true),
+  userHasSeatInAccount: jest.fn(async () => false),
 }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: jest.fn(async () => undefined),

@@ -167,7 +167,7 @@ describe('DELETE /plugins/:id (delete)', () => {
     }));
   });
 
-  it('still returns 200 when delete returns null (route does not check return value)', async () => {
+  it('returns 404 when delete returns null (public/system-org row matched no rows in caller org)', async () => {
     mockFindById.mockResolvedValue(existingPlugin);
     mockDelete.mockResolvedValue(null);
 
@@ -175,11 +175,13 @@ describe('DELETE /plugins/:id (delete)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    // The delete route awaits pluginService.delete() but does not check
-    // its return value — it proceeds to sendSuccess regardless.
+    // The delete route checks pluginService.delete()'s return value: a falsy
+    // result means the row (e.g. a public/system-org plugin the read surfaced)
+    // matched zero rows pinned to the caller's org, so it 404s rather than
+    // reporting a 200 for a deletion that never happened.
     expect(mockDelete).toHaveBeenCalledWith('plugin-uuid-1', 'org-1', 'user-1');
-    expect(sendSuccess).toHaveBeenCalledWith(res, 200, undefined, 'Plugin deleted.');
-    expect(res.status).toHaveBeenCalledWith(200);
+    expect(sendSuccess).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(404);
   });
 
   it('returns 403 when requirePublicAccess returns false', async () => {
@@ -190,7 +192,7 @@ describe('DELETE /plugins/:id (delete)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, expect.objectContaining({ accessModifier: 'public' }));
+    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, expect.objectContaining({ accessModifier: 'public' }), 'plugins:publish');
     expect(mockDelete).not.toHaveBeenCalled();
   });
 

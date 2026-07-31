@@ -3,8 +3,9 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import Stripe from 'stripe';
-import type { ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
+import type { DiscountRef, ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
 import type { StripeConfig } from '../config.js';
+import type { StripeInvoiceLike } from '../helpers/billing-ledger.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
 import type { BillingInterval } from '../models/subscription.js';
 
@@ -242,6 +243,31 @@ export class StripeProvider implements PaymentProvider {
     });
     logger.info('Stripe billing portal session created', { externalCustomerId });
     return session.url;
+  }
+
+  /** Stripe realizes usage credits via the customer credit balance. */
+  readonly usageCreditSupport = 'balance' as const;
+
+  /**
+   * Post a usage credit as a NEGATIVE customer balance transaction — Stripe
+   * applies a negative balance to the customer's future invoices until
+   * exhausted. This is the single discount mechanism (no coupon objects).
+   * `idempotencyKey` dedupes a retried grant.
+   */
+  async applyUsageCredit(externalCustomerId: string, cents: number, idempotencyKey?: string): Promise<{ ref?: DiscountRef }> {
+    const txn = await this.stripe.customers.createBalanceTransaction(
+      externalCustomerId,
+      { amount: -Math.abs(cents), currency: 'usd' },
+      idempotencyKey ? { idempotencyKey: `${idempotencyKey}-credit` } : undefined,
+    );
+    logger.info('Stripe usage credit applied', { externalCustomerId, cents });
+    return { ref: { kind: 'balance', ref: txn.id } };
+  }
+
+  /** List a customer's invoices (newest first) for the ledger backfill. */
+  async listCustomerInvoices(externalCustomerId: string, limit = 100): Promise<StripeInvoiceLike[]> {
+    const resp = await this.stripe.invoices.list({ customer: externalCustomerId, limit });
+    return resp.data as unknown as StripeInvoiceLike[];
   }
 
   /** Expose the Stripe instance for webhook signature verification. */

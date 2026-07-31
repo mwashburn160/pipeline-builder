@@ -13,7 +13,17 @@ export type BillingEventType =
   | 'plan_changed'
   | 'interval_changed'
   | 'payment_succeeded'
-  | 'payment_failed';
+  | 'payment_failed'
+  | 'discount_generated'
+  | 'discount_issued'
+  | 'discount_applied'
+  | 'discount_removed'
+  | 'discount_expired'
+  | 'discount_revoked'
+  | 'credit_applied'
+  | 'credit_exhausted'
+  | 'credit_consumed'
+  | 'combo_expired';
 
 export interface BillingEventDocument extends Document {
   orgId: string;
@@ -48,6 +58,16 @@ const billingEventSchema = new Schema<BillingEventDocument>(
         'interval_changed',
         'payment_succeeded',
         'payment_failed',
+        'discount_generated',
+        'discount_issued',
+        'discount_applied',
+        'discount_removed',
+        'discount_expired',
+        'discount_revoked',
+        'credit_applied',
+        'credit_exhausted',
+        'credit_consumed',
+        'combo_expired',
       ],
       required: true,
     },

@@ -6,6 +6,10 @@ image: /assets/og-image-solution.png
 
 # Organization Benefits
 
+## Overview
+
+This document explains **why** Pipeline Builder exists and what an engineering organization gets from it — the CI/CD problems it targets and the six ways it solves them (self-service pipeline creation, a shared plugin catalog, gate-time compliance enforcement, multi-team isolation, zero AWS lock-in, and execution analytics) — plus the **organization → team → billing** model that ties tenancy, quota pooling, and subscription tiers together. It's written for engineering leaders, platform teams, and developers evaluating or adopting the platform. For the full account/team caps model, see [Organizations, Teams & Billing](#organizations-teams--billing).
+
 How Pipeline Builder transforms CI/CD for engineering organizations.
 
 ---

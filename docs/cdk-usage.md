@@ -13,6 +13,19 @@ npm install @pipeline-builder/pipeline-core
 
 **Related docs:** [Metadata Keys](metadata-keys.md) | [Samples](samples.md) | [Plugin Catalog](plugins/README.md) | [Environment Variables](environment-variables.md)
 
+## Overview
+
+This guide is for developers defining pipelines as infrastructure-as-code with the `PipelineBuilder` CDK construct from `@pipeline-builder/pipeline-core`. You declare a `synth` source and a set of `stages` whose steps reference catalog plugins, and the construct synthesizes native AWS **CodePipeline + CodeBuild** resources deployed into your own account. The key concept: each step is a containerized plugin, and fine-grained behavior (VPC, IAM roles, secrets, cross-account, scheduling, artifacts) is layered on through typed props and [metadata keys](metadata-keys.md).
+
+## Process overview
+
+1. **Install** — `npm install @pipeline-builder/pipeline-core`.
+2. **Instantiate** `PipelineBuilder` in a CDK stack with `project` and `organization`.
+3. **Configure the `synth` source** — GitHub, CodeStar, S3, or CodeCommit — plus the synth plugin.
+4. **Define `stages`**, each with one or more plugin-backed `steps` from the catalog.
+5. **Layer optional config** — VPC/network, IAM roles, secrets, cross-account, schedules, artifact passing, and metadata.
+6. **Synth + deploy** the stack (via `cdk` or `pipeline-manager`), producing native CodePipeline + CodeBuild resources.
+
 ---
 
 ## Quick Start

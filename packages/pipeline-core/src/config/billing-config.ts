@@ -15,7 +15,7 @@
  * All defaults match the original hardcoded seed data for backward compatibility.
  */
 import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
-import type { BillingConfig, BillingPlanConfig, BundleConfig } from './config-types.js';
+import type { BillingConfig, BillingPlanConfig, BundleConfig, ComboDiscountConfig } from './config-types.js';
 
 /** Per-unit quota deltas for a bundle — keys constrained to real quota fields
  *  (matches `BundleConfig.grants`), so a typo'd dimension fails to compile. */
@@ -173,7 +173,70 @@ export function loadBillingConfig(): BillingConfig {
   // Derive the array consumers read (`config.plans`) in canonical tier order.
   const plans: BillingPlanConfig[] = VALID_TIERS.map((tier) => planByTier[tier]);
 
-  return { plans, bundles: loadBundles() };
+  return { plans, bundles: loadBundles(), comboDiscounts: loadComboDiscounts() };
+}
+
+/**
+ * Combo discounts (docs/billing-bundles.md §Combo pricing). When an account owns
+ * every member bundle (each at ≥ its minimum quantity), the set is billed at the
+ * combined price instead of the sum of the members — realized as a recurring usage
+ * credit for the difference. Overlapping combos are resolved by max-weight packing
+ * (a shared add-on is never discounted twice); `sortOrder` breaks equal-total ties.
+ *
+ * Defaults:
+ *  - "Analytics Suite" — Advanced Reporting (DORA) + Team Usage Analytics, each
+ *    $30/mo, together $40/mo ($400/yr) → a $20/mo credit.
+ *  - "Team Growth Bundle" — ≥1 Seat Pack ($25) + Team Usage Analytics ($30),
+ *    together $35/mo ($350/yr) → a $20/mo credit.
+ * Prices env-overridable via `BILLING_COMBO_<ID>_MONTHLY` / `_ANNUAL`.
+ */
+function loadComboDiscounts(): ComboDiscountConfig[] {
+  const c = (
+    id: string,
+    name: string,
+    bundleIds: string[],
+    monthly: number,
+    annual: number,
+    sortOrder: number,
+    minQuantities?: Record<string, number>,
+  ): ComboDiscountConfig => ({
+    id,
+    name,
+    bundleIds,
+    ...(minQuantities ? { minQuantities } : {}),
+    prices: {
+      monthly: envCents(process.env[`BILLING_COMBO_${id.toUpperCase()}_MONTHLY`], monthly),
+      annual: envCents(process.env[`BILLING_COMBO_${id.toUpperCase()}_ANNUAL`], annual),
+    },
+    sortOrder,
+    isActive: true,
+  });
+
+  const combos = [
+    c('analytics_suite', 'Analytics Suite', ['advanced_reporting', 'team_usage_analytics'], 4000, 40000, 0),
+    c('team_growth', 'Team Growth Bundle', ['seat_pack', 'team_usage_analytics'], 3500, 35000, 1, { seat_pack: 1 }),
+  ];
+  warnOnNonDiscountCombos(combos);
+  return combos;
+}
+
+/**
+ * Guardrail: a combo whose combined price is ≥ its minimum-composition basket grants
+ * no credit (the credit clamps to $0) and is silently inert. Warn loudly instead so a
+ * misconfigured `BILLING_COMBO_*` override is caught. Non-fatal.
+ */
+function warnOnNonDiscountCombos(combos: ComboDiscountConfig[]): void {
+  // Combo members are always bundles; resolve their (env-effective) unit prices once.
+  const byId = new Map(loadBundles().map((b) => [b.id, b]));
+  for (const combo of combos) {
+    for (const interval of ['monthly', 'annual'] as const) {
+      const basket = combo.bundleIds.reduce((s, id) => s + (byId.get(id)?.prices[interval] ?? 0) * (combo.minQuantities?.[id] ?? 1), 0);
+      if (combo.prices[interval] >= basket) {
+        // eslint-disable-next-line no-console
+        console.warn(`[billing-config] Combo "${combo.id}" ${interval} price ${combo.prices[interval]} ≥ member basket ${basket}; it grants no discount.`);
+      }
+    }
+  }
 }
 
 const BUNDLE_GB = 1024 * 1024 * 1024;
@@ -271,5 +334,10 @@ function loadBundles(): BundleConfig[] {
     // between Audit Log ($20) and SSO ($40) — a higher-value, actively-used
     // analytics surface than the audit log, but below the SSO enterprise gate.
     b('advanced_reporting', 'Advanced Reporting (DORA)', 'DORA delivery metrics — deployment frequency, change failure rate, MTTR, lead-time proxy, performance bands + trend', {}, 3000, ['developer', 'pro', 'team'], 8, { features: ['advanced_reporting'], stackable: false }),
+    // Per-team usage breakdown across the org → team subtree. INCLUDED in
+    // Enterprise (TIER_FEATURES); the add-on is offered to Pro/Team (developer has
+    // no teams to break down). Priced at $30/mo ($300/yr) — parity with DORA, its
+    // analytics sibling. Overridable via BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_MONTHLY/_ANNUAL.
+    b('team_usage_analytics', 'Team Usage Analytics', 'Per-team usage breakdown across the org → team subtree (all quota dimensions)', {}, 3000, ['pro', 'team'], 9, { features: ['team_usage_analytics'], stackable: false }),
   ];
 }

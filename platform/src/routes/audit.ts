@@ -144,6 +144,14 @@ router.post('/events', requireServiceAuth, async (req: Request, res: Response) =
   // != token org), since they may legitimately ingest on behalf of any org.
   const tokenOrgId = req.user?.organizationId;
   const isSysadminService = isSystemAdmin(req);
+  // Fail CLOSED for a non-sysadmin service token with no org claim: otherwise
+  // the tenant-binding guards below (all gated on `tokenOrgId` truthiness)
+  // short-circuit and `effectiveOrgId` collapses to the caller-controlled
+  // `body.orgId` — letting an org-less service token write events into ANY
+  // tenant's tamper-evident chain.
+  if (!isSysadminService && !tokenOrgId) {
+    return sendError(res, 403, 'service token has no org claim');
+  }
   if (body.orgId && tokenOrgId && body.orgId !== tokenOrgId && !isSysadminService) {
     return sendError(res, 403, 'orgId does not match authenticated service org');
   }

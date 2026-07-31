@@ -103,31 +103,51 @@ async function checkDueSchedules(): Promise<void> {
 
   for (const schedule of dueSchedules) {
     try {
-      // Create a scan record
-      await withTenantTx(async (tx) => tx.insert(schema.complianceScan).values({
-        orgId: schedule.orgId,
-        target: schedule.target,
-        status: 'pending',
-        triggeredBy: 'scheduled',
-        userId: schedule.createdBy,
-      }));
-
-      // Update schedule: lastRunAt and calculate nextRunAt
+      // The select filters `nextRunAt <= now`, so a due row always has a
+      // non-null nextRunAt; narrow the nullable column type for the optimistic
+      // claim's equality predicate below.
+      const claimedNextRunAt = schedule.nextRunAt;
+      if (claimedNextRunAt == null) continue;
       const nextRun = calculateNextRun(schedule.cronExpression);
-      await withTenantTx(async (tx) => tx.update(schema.complianceScanSchedule)
-        .set({
-          lastRunAt: now,
-          nextRunAt: nextRun,
-          updatedAt: now,
-        })
-        .where(eq(schema.complianceScanSchedule.id, schedule.id)));
-
-      logger.info('Scheduled scan created', {
-        scheduleId: schedule.id,
-        orgId: schedule.orgId,
-        target: schedule.target,
-        nextRunAt: nextRun.toISOString(),
+      // Optimistically CLAIM then insert, in ONE transaction:
+      //   1. Advance nextRunAt only if it STILL equals the value we selected.
+      //   2. Insert the scan only when that claim won (1 row updated).
+      // The conditional update is the concurrency guard. The leader lock isn't
+      // renewed mid-sweep, so a long sweep that outlives the lock TTL lets a
+      // second pod acquire the lock and re-select the same still-due schedule.
+      // Without the `nextRunAt = <selected>` predicate both pods would advance
+      // the schedule and each insert a scan → DUPLICATE scheduled scans (double
+      // CPU + double notification fan-out). With it, exactly one pod claims the
+      // row; the loser updates 0 rows and skips the insert. Atomic with the scan
+      // means a crash/insert-failure rolls back the claim too (retried next tick,
+      // never a lost or duplicated scan).
+      const created = await withTenantTx(async (tx) => {
+        const claimed = await tx.update(schema.complianceScanSchedule)
+          .set({ lastRunAt: now, nextRunAt: nextRun, updatedAt: now })
+          .where(and(
+            eq(schema.complianceScanSchedule.id, schedule.id),
+            eq(schema.complianceScanSchedule.nextRunAt, claimedNextRunAt),
+          ))
+          .returning({ id: schema.complianceScanSchedule.id });
+        if (claimed.length === 0) return false; // lost the race — another runner claimed it
+        await tx.insert(schema.complianceScan).values({
+          orgId: schedule.orgId,
+          target: schedule.target,
+          status: 'pending',
+          triggeredBy: 'scheduled',
+          userId: schedule.createdBy,
+        });
+        return true;
       });
+
+      if (created) {
+        logger.info('Scheduled scan created', {
+          scheduleId: schedule.id,
+          orgId: schedule.orgId,
+          target: schedule.target,
+          nextRunAt: nextRun.toISOString(),
+        });
+      }
     } catch (err) {
       logger.error('Failed to process schedule', {
         scheduleId: schedule.id,

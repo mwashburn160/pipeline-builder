@@ -36,7 +36,7 @@ export function createUpdatePluginRoutes(): Router {
     if (!existing) return sendEntityNotFound(res, 'Plugin');
 
     // Only system admins can edit non-private plugins
-    if (!requirePublicAccess(req, res, existing)) return;
+    if (!requirePublicAccess(req, res, existing, 'plugins:publish')) return;
 
     // Build update data from validated body
     const updateData: Record<string, unknown> = {

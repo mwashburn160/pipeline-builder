@@ -3,6 +3,7 @@
 
 import {
   requireAuth,
+  requirePermission,
   requireSystemAdmin,
   sendSuccess,
   sendError,
@@ -310,6 +311,33 @@ export function createAdminSubscriptionRoutes(): Router {
       ctx.log('COMPLETED', 'Listed billing events', { total, limit, offset });
       return sendSuccess(res, 200, { events: result, total, limit, offset });
     }, { requireOrgId: false }),
+  );
+
+  // GET /billing/events — the CALLER's own billing events (credit/discount/combo/
+  // subscription activity), so a customer can see its usage-credit movement rather
+  // than it being sysadmin-only. Scoped to the caller's org (never a `?orgId=`).
+  router.get(
+    '/events',
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requirePermission('billing:read') as RequestHandler,
+    withRoute(async ({ req, res, orgId }) => {
+      const limit = parseQueryIntClamped(req.query.limit, 50, 200);
+      const offset = parseQueryInt(req.query.offset, 0);
+      const [events, total] = await Promise.all([
+        BillingEvent.find({ orgId }).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),
+        BillingEvent.countDocuments({ orgId }),
+      ]);
+      const result = events.map((event) => ({
+        id: event._id.toString(),
+        orgId: event.orgId,
+        subscriptionId: event.subscriptionId,
+        type: event.type,
+        actorId: event.actorId,
+        details: event.details,
+        createdAt: event.createdAt.toISOString(),
+      }));
+      return sendSuccess(res, 200, { events: result, total, limit, offset });
+    }),
   );
 
   return router;

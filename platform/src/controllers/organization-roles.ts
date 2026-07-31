@@ -130,14 +130,16 @@ export const deleteOrganizationRole = withController('Delete role', async (req, 
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
+  const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
 
-  await deleteRole(id, roleId);
+  await deleteRole(id, roleId, assignmentActor(req, admin));
   audit(req, 'org.role.delete', { targetType: 'role', targetId: roleId, affectedOrgId: id });
   sendSuccess(res, 200, undefined, 'Role deleted');
 }, {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'Role not found' },
   [RL_SYSTEM_IMMUTABLE]: { status: 400, message: 'Built-in roles cannot be deleted' },
+  [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot delete a role granting permissions you do not hold yourself' },
 });
 
 /** POST /organization/:id/roles/:roleId/members — assign an org member to a Role. */

@@ -8,7 +8,7 @@ import { PluginLookup } from './plugin-lookup.js';
 import type { StageOptions } from './step-types.js';
 import type { ArtifactManager } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
-import { createCodeBuildStep, merge } from '../core/pipeline-helpers.js';
+import { createCodeBuildStep, merge, resolveFailureBehavior } from '../core/pipeline-helpers.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
 
 /**
@@ -164,7 +164,8 @@ export class StageBuilder {
       postCommands: stepConfig.postCommands,
       env: stepConfig.env,
       timeout: stepConfig.timeout ?? plugin.timeout ?? undefined,
-      failureBehavior: (stepConfig.failureBehavior ?? plugin.failureBehavior) as 'fail' | 'warn' | 'ignore',
+      // A scan/security-category plugin can never be downgraded from 'fail' — see resolveFailureBehavior.
+      failureBehavior: resolveFailureBehavior(plugin.category, stepConfig.failureBehavior ?? plugin.failureBehavior),
       orgId: this.orgId,
       pipelineScope: this.pipelineScope,
     });

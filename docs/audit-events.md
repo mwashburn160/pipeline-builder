@@ -34,6 +34,12 @@ org, sysadmins may filter any org) or the dashboard **Audit** page at
 
 ---
 
+## Overview
+
+This reference explains how Pipeline Builder produces, secures, and queries its audit trail, and catalogs every action it records. It's for compliance reviewers and operators. It covers the emitter paths (platform-direct writes, the service-remote `POST /audit/events` ingest, and the registry's Loki structured logs), the per-tenant SHA-256 hash-chain integrity model, sensitive-data scrubbing, and the full [action catalog](#action-catalog) — platform-emitted lifecycle events plus the `REMOTE_AUDIT_ACTIONS` subset (including billing subscription, tier, `addon`, and `discount` actions). The catalog stays in sync with the `AuditAction` union in code; see [Adding a new audit event](#adding-a-new-audit-event) to extend it.
+
+---
+
 ## Integrity & tamper-evidence
 
 Every event is linked into a **per-tenant SHA-256 hash chain**: each row stores a
@@ -131,7 +137,7 @@ org's own admins can see them.
 | Compliance | `compliance.exemption.approve`, `compliance.exemption.revoke`, `compliance.rule.toggle`, `compliance.rule.create/update/delete`, `compliance.policy.create/update/delete`, `compliance.scan-schedule.create/update/delete`, `compliance.template.apply`, `compliance.scan.cancel` |
 | Image registry | `registry.gc`, `registry.image.delete` |
 | Message | `message.announcement.create`, `message.delete` (admin broadcasts + deletes only — 1:1 messages are not audited, and no message body reaches `details`) |
-| Billing | `billing.subscription.cancel`, `billing.subscription.delete`, `billing.tier.override`, `billing.addon.add`, `billing.addon.remove` (mirrored to the central trail alongside the service-local `billing_events`; `details` carry plan/tier/addon ids only — never payment secrets) |
+| Billing | `billing.subscription.cancel`, `billing.subscription.delete`, `billing.tier.override`, `billing.addon.add`, `billing.addon.remove`, `billing.addon.prune`, `billing.discount.generate`, `billing.discount.issue`, `billing.discount.apply`, `billing.discount.remove`, `billing.discount.revoke`, `billing.credit.consumed`, `billing.credit.exhausted`, `billing.combo.expired` (mirrored to the central trail alongside the service-local `billing_events`; `details` carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys) |
 | (all services) | `authz.denied` |
 
 > **Plugin build terminal outcome** — `plugin.build.failed` / `plugin.build.timeout`

@@ -101,6 +101,14 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
+// addons (real) imports combo-pricing, which loads the real pipeline-core config
+// graph. Stub it — this suite only asserts read-route gating, not combo math.
+jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
+  getComboDiscounts: () => [],
+  activeComboCredits: () => [],
+  comboBasisCents: () => 0,
+}));
+
 jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
   mapStripeStatus: (s: string) => s,
 }));

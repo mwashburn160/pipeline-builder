@@ -13,6 +13,11 @@ interface BuildMemberColumnsOptions {
   currentUserId: string | undefined;
   currentUserRole: string | undefined;
   isSuperAdmin: boolean;
+  /** Read-only-aware `can('members:manage')` — gates the destructive row actions
+   *  (reset password / (de)activate / remove) so a read-only "view-as"
+   *  impersonation session (which CAN now see the roster) doesn't show enabled
+   *  buttons that only dead-end at a backend 403. */
+  canManageMembers: boolean;
   canManageTeams: boolean;
   canManageRoles: boolean;
   rolesForMember: (m: OrganizationMember) => Array<{ id: string; name: string }>;
@@ -32,6 +37,7 @@ export function buildMemberColumns({
   currentUserId,
   currentUserRole,
   isSuperAdmin,
+  canManageMembers,
   canManageTeams,
   canManageRoles,
   rolesForMember,
@@ -149,30 +155,34 @@ export function buildMemberColumns({
                 <ShieldCheck className="w-4 h-4" />
               </IconButton>
             )}
-            <IconButton
-              tone="warn"
-              onClick={() => onResetPassword(m)}
-              title="Reset password"
-              aria-label={`Reset password for ${m.username}`}
-            >
-              <KeyRound className="w-4 h-4" />
-            </IconButton>
-            <IconButton
-              tone={m.isActive ? 'orange' : 'success'}
-              onClick={() => onToggleActive(m)}
-              title={m.isActive ? 'Deactivate member' : 'Reactivate member'}
-              aria-label={`${m.isActive ? 'Deactivate' : 'Reactivate'} ${m.username}`}
-            >
-              {m.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-            </IconButton>
-            <IconButton
-              tone="danger"
-              onClick={() => onRemove(m)}
-              title="Remove from organization"
-              aria-label={`Remove ${m.username} from the organization`}
-            >
-              <UserMinus className="w-4 h-4" />
-            </IconButton>
+            {canManageMembers && (
+              <>
+                <IconButton
+                  tone="warn"
+                  onClick={() => onResetPassword(m)}
+                  title="Reset password"
+                  aria-label={`Reset password for ${m.username}`}
+                >
+                  <KeyRound className="w-4 h-4" />
+                </IconButton>
+                <IconButton
+                  tone={m.isActive ? 'orange' : 'success'}
+                  onClick={() => onToggleActive(m)}
+                  title={m.isActive ? 'Deactivate member' : 'Reactivate member'}
+                  aria-label={`${m.isActive ? 'Deactivate' : 'Reactivate'} ${m.username}`}
+                >
+                  {m.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                </IconButton>
+                <IconButton
+                  tone="danger"
+                  onClick={() => onRemove(m)}
+                  title="Remove from organization"
+                  aria-label={`Remove ${m.username} from the organization`}
+                >
+                  <UserMinus className="w-4 h-4" />
+                </IconButton>
+              </>
+            )}
           </div>
         );
       },

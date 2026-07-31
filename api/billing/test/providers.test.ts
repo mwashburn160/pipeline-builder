@@ -45,14 +45,17 @@ const mockStripeSubscriptionsUpdate = jest.fn();
 const mockStripeSubscriptionsRetrieve = jest.fn();
 const mockStripePaymentMethodsList = jest.fn();
 const mockStripePortalCreate = jest.fn();
+const mockStripeCouponsCreate = jest.fn();
+const mockStripeBalanceTxnCreate = jest.fn();
 jest.unstable_mockModule('stripe', () => {
   const StripeMock = jest.fn().mockImplementation(() => ({
-    customers: { create: mockStripeCustomersCreate, retrieve: mockStripeCustomersRetrieve },
+    customers: { create: mockStripeCustomersCreate, retrieve: mockStripeCustomersRetrieve, createBalanceTransaction: mockStripeBalanceTxnCreate },
     subscriptions: {
       create: mockStripeSubscriptionsCreate,
       update: mockStripeSubscriptionsUpdate,
       retrieve: mockStripeSubscriptionsRetrieve,
     },
+    coupons: { create: mockStripeCouponsCreate },
     paymentMethods: { list: mockStripePaymentMethodsList },
     billingPortal: { sessions: { create: mockStripePortalCreate } },
   }));
@@ -99,6 +102,11 @@ describe('StubPaymentProvider', () => {
   it('getSubscription always reports active (stub never lapses)', async () => {
     await expect(provider.getSubscription('sub-1')).resolves.toEqual({ status: 'active' });
   });
+
+  it('realizes usage credits via balance and applyUsageCredit is a no-op', async () => {
+    expect(provider.usageCreditSupport).toBe('balance');
+    await expect(provider.applyUsageCredit('cus_1', 1000)).resolves.toEqual({});
+  });
 });
 
 // AWSMarketplaceProvider
@@ -110,6 +118,10 @@ describe('AWSMarketplaceProvider', () => {
     snsTopicArn: 'arn:aws:sns:us-east-1:123456789:test-topic',
     dimensionToPlanMap: { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },
     bundleToDimensionMap: { seat_pack: 'seats', pipeline_pack: 'pipelines' },
+    dimensionPriceMap: {},
+    creditsEnabled: false,
+    meteringEnabled: false,
+    drawdownDryRun: false,
   };
 
   let provider: AWSMarketplaceProvider;
@@ -117,6 +129,25 @@ describe('AWSMarketplaceProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     provider = new AWSMarketplaceProvider(marketplaceConfig);
+  });
+
+  it('cannot realize a usage credit by default (disallowed) and omits applyUsageCredit', () => {
+    expect(provider.usageCreditSupport).toBe('none');
+    expect((provider as { applyUsageCredit?: unknown }).applyUsageCredit).toBeUndefined();
+  });
+
+  it('realizes credits (metered) ONLY when credits, metering, AND a price map are all present', () => {
+    // The invariant: never accept a credit unless the drawdown cycle can actually
+    // run, else it banks but never reduces the AWS bill (silent money loss).
+    const priced = { ...marketplaceConfig, dimensionPriceMap: { seats: 1000 } };
+    expect(new AWSMarketplaceProvider({ ...priced, creditsEnabled: true, meteringEnabled: false }).usageCreditSupport).toBe('none');
+    expect(new AWSMarketplaceProvider({ ...priced, creditsEnabled: false, meteringEnabled: true }).usageCreditSupport).toBe('none');
+    // Both switches on but NO priced dimension → still 'none' (can't draw down).
+    expect(new AWSMarketplaceProvider({ ...marketplaceConfig, creditsEnabled: true, meteringEnabled: true, dimensionPriceMap: {} }).usageCreditSupport).toBe('none');
+    const metered = new AWSMarketplaceProvider({ ...priced, creditsEnabled: true, meteringEnabled: true });
+    expect(metered.usageCreditSupport).toBe('metered');
+    // Still no synchronous push — realization is via the metering cycle.
+    expect((metered as { applyUsageCredit?: unknown }).applyUsageCredit).toBeUndefined();
   });
 
   describe('createCustomer', () => {
@@ -292,6 +323,19 @@ describe('StripeProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     provider = new StripeProvider(stripeConfig);
+  });
+
+  describe('applyUsageCredit', () => {
+    it('realizes usage credits via the customer balance', () => {
+      expect(provider.usageCreditSupport).toBe('balance');
+    });
+
+    it('posts a NEGATIVE customer balance transaction and returns the ref', async () => {
+      mockStripeBalanceTxnCreate.mockResolvedValue({ id: 'cbtxn_9' });
+      const res = await provider.applyUsageCredit('cus_1', 3000, 'idem-2');
+      expect(mockStripeBalanceTxnCreate).toHaveBeenCalledWith('cus_1', { amount: -3000, currency: 'usd' }, { idempotencyKey: 'idem-2-credit' });
+      expect(res).toEqual({ ref: { kind: 'balance', ref: 'cbtxn_9' } });
+    });
   });
 
   describe('createCustomer', () => {

@@ -4,6 +4,7 @@
 import { Check } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { getTierMeta } from '@/lib/tiers';
+import { formatCents } from '@/lib/format';
 import type { Plan, Subscription, BillingInterval } from '@/types';
 
 // Plan badge styling comes from the shared TIER_META catalog (`getTierMeta`).
@@ -23,7 +24,7 @@ const PLAN_ACCENTS: Record<string, { border: string; bg: string }> = {
  */
 function formatPrice(cents: number): string {
   if (cents === 0) return 'Free';
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatCents(cents);
 }
 
 interface PlanGridProps {

@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
+import { createEnvRedisClient } from './env-redis.js';
+import { createLogger } from '../utils/logger.js';
+
+const lockLogger = createLogger('leader-lock');
 
 /**
  * Minimal Redis client surface needed for a leader lock (a subset of ioredis).
@@ -60,4 +64,19 @@ export async function withLeaderLock(
     }
   }
   return true;
+}
+
+/**
+ * A `LockRedis` backed by an env-configured ioredis client (`REDIS_URL` or
+ * `REDIS_HOST`) — the leader-lock counterpart to `createEnvRedisAuditSpool` /
+ * `createEnvRedisTokenRevocationStore`, for a service that has no BullMQ client to
+ * borrow. Returns `null` when Redis isn't configured, so a caller can degrade to
+ * running on every pod (the atomic guards it wraps must still make that safe).
+ * The client is a real ioredis instance; ioredis exposes `set`/`get`/`del`/`eval`,
+ * satisfying `LockRedis` including the atomic CAS release.
+ */
+export function createEnvRedisLock(): LockRedis | null {
+  const inst = createEnvRedisClient<LockRedis>('leader-lock');
+  if (inst) lockLogger.info('Redis leader-lock client initialized');
+  return inst;
 }

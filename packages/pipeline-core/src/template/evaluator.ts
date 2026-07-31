@@ -89,6 +89,8 @@ function resolveOne(tok: Extract<Token, { kind: 'expr' }>, scope: Scope, field?:
     });
   }
   const value = lookupPath(scope, tok.path);
+  // A missing path OR an empty string falls to the default (intended, tested):
+  // an unset/blank value is treated as "provide a default or fail".
   if (value == null || value === '') {
     if (tok.defaultValue !== undefined) return tok.defaultValue;
     throw makeEvalError({

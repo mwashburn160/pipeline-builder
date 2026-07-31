@@ -7,6 +7,18 @@ title: Developer Guide
 
 Practical benefits and workflows for developers using Pipeline Builder.
 
+## Overview
+
+This guide is for developers building CI/CD pipelines with Pipeline Builder. It shows what the platform replaces, the five ways to create a pipeline, and copy-paste plugin blocks for common language stacks and patterns. The key concept: every build step is a reusable, containerized plugin that runs as an isolated container inside AWS CodePipeline, so a pipeline becomes a short list of selections instead of hand-written CodeBuild, IAM, and Docker plumbing.
+
+## Process overview
+
+1. **Choose a creation method** — [dashboard](#1-dashboard-visual-builder), [AI prompt](#2-ai-prompt), [CLI](#3-cli), [REST API](#4-rest-api), or the [CDK construct](#5-cdk-construct-infrastructure-as-code).
+2. **Select plugins** for each stage from the catalog (language, test, lint, security, deploy, ...).
+3. **Assemble stages** — copy a language or [common pattern](#common-patterns) block and add steps (Docker build, Terraform, manual approval, notifications).
+4. **Tune step behavior** — `commands`, `failureBehavior`, timeouts, compute size, and metadata.
+5. **Deploy** — e.g. `pipeline-manager create-pipeline` then `deploy`; each plugin runs as an isolated container in AWS CodePipeline.
+
 ---
 
 ## What Pipeline Builder Replaces

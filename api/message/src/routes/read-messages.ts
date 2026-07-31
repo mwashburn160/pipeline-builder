@@ -97,10 +97,14 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/unread/count — Get unread count
-  router.get('/unread/count', ...protect, requirePermission('messages:read'), withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/unread/count', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     ctx.log('INFO', 'Fetching unread count', { orgId });
 
     const count = await messageService.getUnreadCount(orgId);
+
+    // Parity with every other read handler — the frontend polls this frequently,
+    // so omitting the increment systematically under-counts apiCalls.
+    incrementQuotaFromCtx(quotaService, { req, ctx, orgId }, 'apiCalls');
 
     ctx.log('COMPLETED', 'Unread count fetched', { count });
 

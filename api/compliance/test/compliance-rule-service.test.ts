@@ -229,17 +229,6 @@ describe('ComplianceRuleService', () => {
     });
   });
 
-  describe('findByPolicy', () => {
-    it('calls find with policyId + isActive filter', async () => {
-      const findSpy = jest.spyOn(svc, 'find').mockResolvedValue([{ id: 'r1' }] as never);
-
-      const result = await svc.findByPolicy('policy-1', 'org-1');
-
-      expect(findSpy).toHaveBeenCalledWith({ policyId: 'policy-1', isActive: true }, 'org-1');
-      expect(result).toHaveLength(1);
-    });
-  });
-
   describe('recordHistory', () => {
     it('inserts a history row with the change details', async () => {
       await svc.recordHistory('rule-1', 'org-1', 'updated', { name: 'old' }, 'user-1');

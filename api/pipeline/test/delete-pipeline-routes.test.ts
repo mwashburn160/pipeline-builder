@@ -221,7 +221,7 @@ describe('DELETE /pipelines/:id (delete)', () => {
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
-  it('returns 200 even when delete returns null (route does not check return value)', async () => {
+  it('returns 404 when delete returns null (public/system-org row matched no rows in caller org)', async () => {
     mockFindById.mockResolvedValue(existingPipeline);
     mockDelete.mockResolvedValue(null);
 
@@ -230,16 +230,12 @@ describe('DELETE /pipelines/:id (delete)', () => {
     await handler(req, res);
 
     expect(mockDelete).toHaveBeenCalledWith('pipeline-uuid-1', 'org-1', 'user-1');
-    // The delete route does not check the return value of pipelineService.delete();
-    // it always proceeds to sendSuccess after the await completes.
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        success: true,
-        statusCode: 200,
-        message: 'Pipeline deleted.',
-      }),
-    );
+    // The delete route checks pipelineService.delete()'s return value: a falsy
+    // result means the row (e.g. a public/system-org sample the read surfaced)
+    // matched zero rows pinned to the caller's org, so it 404s rather than
+    // reporting a 200 for a deletion that never happened.
+    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Pipeline');
+    expect(res.status).toHaveBeenCalledWith(404);
   });
 
   it('returns 403 when requirePublicAccess returns false', async () => {
@@ -250,7 +246,7 @@ describe('DELETE /pipelines/:id (delete)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, existingPipeline);
+    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, existingPipeline, 'pipelines:publish');
     // The route returns early when requirePublicAccess is false
     // (requirePublicAccess itself sends the 403 response)
     expect(mockDelete).not.toHaveBeenCalled();

@@ -24,6 +24,9 @@ const createCodeBuildStepMock = jest.fn(
 jest.unstable_mockModule('../src/core/pipeline-helpers.js', () => ({
   createCodeBuildStep: createCodeBuildStepMock,
   merge: (...sources: Array<Record<string, unknown>>) => Object.assign({}, ...sources),
+  // Real-equivalent: scan/security categories pin to 'fail', else the authored value.
+  resolveFailureBehavior: (category?: string, authored?: string) =>
+    (category && /scan|security|sast|dast|vuln|secret/i.test(category) ? 'fail' : (authored ?? 'fail')),
   // Referenced by infrastructure-config (pulled in transitively via app-config).
   getComputeType: () => 'BUILD_GENERAL1_SMALL',
 }));

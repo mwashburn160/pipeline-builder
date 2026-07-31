@@ -39,9 +39,10 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
   loadActiveOrgInfo: (...a: unknown[]) => mockLoadActiveOrgInfo(...a),
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true) }));
+jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUserRevocation: (...a: unknown[]) => mockPublishUser(...a),
+  publishUserDeletionRevocation: jest.fn(async () => undefined),
 }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),

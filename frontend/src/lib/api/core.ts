@@ -487,8 +487,11 @@ export class ApiCore {
         body: JSON.stringify({ refreshToken: this.refreshToken }),
       });
 
-      const data = await response.json().catch(() => ({ statusCode: response.status }));
-      const statusCode = data.statusCode || response.status;
+      const data = await response.json().catch(() => ({}));
+      // Decide success from the REAL HTTP status, never a body `statusCode` field —
+      // a proxy may inject/lie about it (mirrors request()). Trusting the body could
+      // clear tokens on a genuine 200 (spurious logout) or mask a real failure.
+      const statusCode = response.status;
 
       // Check for tokens in data.data (standardized response) or data directly
       const tokens = data.data || data;

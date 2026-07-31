@@ -28,6 +28,8 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId
 const mockSeatCapacity = jest.fn(async () => true);
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: (...a: unknown[]) => mockSeatCapacity(...a),
+  seatCapacityStillWithinCap: jest.fn(async () => true),
+  userHasSeatInAccount: jest.fn(async () => false),
 }));
 
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined) }));

@@ -16,6 +16,16 @@ export function fmtNum(n: number): string {
   return n === -1 ? '∞' : n.toLocaleString();
 }
 
+/**
+ * Render a cents amount as USD (locale-grouped, two decimals), e.g. 123450 →
+ * "$1,234.50". The single money formatter shared by every billing surface —
+ * previously each component reinvented `$${(cents/100).toFixed(2)}` (no
+ * thousands separators), so large amounts rendered inconsistently.
+ */
+export function formatCents(cents: number): string {
+  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
 
 /**

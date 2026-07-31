@@ -158,13 +158,15 @@ export default function DashboardPage() {
     const totalFailed = executions.reduce((s, p) => s + p.failed, 0);
     const successRate = totalExec > 0 ? Math.round((totalPass / totalExec) * 100) : null;
     return [
-      { label: 'Pipelines', value: String(executions.length || 0), icon: GitBranch, color: 'text-blue-500' },
+      // Prefer the actual pipeline total (includes never-run pipelines); fall
+      // back to the count that appear in the executions report only until it loads.
+      { label: 'Pipelines', value: String(pipelineCount ?? executions.length ?? 0), icon: GitBranch, color: 'text-blue-500' },
       { label: 'Total Executions', value: String(totalExec), icon: BarChart3, color: 'text-indigo-500' },
       { label: 'Failed Executions', value: String(totalFailed), icon: XCircle, color: totalFailed > 0 ? 'text-red-500' : 'text-gray-400' },
       { label: 'Success Rate', value: successRate !== null ? `${successRate}%` : '--', icon: CheckCircle2, color: successRate !== null && successRate >= 90 ? 'text-green-500' : successRate !== null && successRate >= 70 ? 'text-yellow-500' : 'text-red-500' },
       { label: 'Active Plugins', value: pluginSummary ? String(pluginSummary.active) : '--', icon: Puzzle, color: 'text-purple-500' },
     ];
-  }, [executions, pluginSummary]);
+  }, [executions, pluginSummary, pipelineCount]);
 
   const filteredServices = useMemo(() => {
     if (!serviceSearch) return SERVICES;

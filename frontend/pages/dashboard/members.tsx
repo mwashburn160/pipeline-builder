@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { UserPlus, Users, Search, Building2, Network } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { hasPermission } from '@/lib/auth-helpers';
 import { useAuth } from '@/hooks/useAuth';
 import { useListPage } from '@/hooks/useListPage';
 import { useFormState } from '@/hooks/useFormState';
@@ -34,9 +35,14 @@ import type { OrganizationMember } from '@/types';
 export default function MembersPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard({ requirePermission: 'members:manage' });
   // Capability to manage members — role admins/owners hold it via their bundle,
-  // and so do custom-role members granted `members:manage`. Gates the page's
-  // data fetches + controls (the page itself is guarded on this permission).
+  // and so do custom-role members granted `members:manage`. `can()` is
+  // read-only-aware (false under read-only impersonation) — use it for the WRITE
+  // controls. For READ visibility (the roster fetch) use the raw permission so a
+  // read-only "view-as" session can still SEE the roster (the backend permits
+  // GETs under impersonation); gating the fetch on the mutation-aware `can()`
+  // left the page permanently empty during an investigation.
   const canManageMembers = can('members:manage');
+  const canViewMembers = hasPermission(user, 'members:manage');
   const { refreshUser, organizations, switchOrganization } = useAuth();
   const toast = useToast();
   const router = useRouter();
@@ -61,7 +67,7 @@ export default function MembersPage() {
       });
       return { items: res.data?.members || [], pagination: res.data?.pagination };
     },
-    enabled: isAuthenticated && canManageMembers && !!orgId,
+    enabled: isAuthenticated && canViewMembers && !!orgId,
   });
   const members = list.data;
 
@@ -318,6 +324,7 @@ export default function MembersPage() {
     currentUserId: user?.id,
     currentUserRole: user?.role,
     isSuperAdmin,
+    canManageMembers,
     canManageTeams,
     canManageRoles,
     rolesForMember: memberRoles.rolesForMember,
@@ -329,7 +336,7 @@ export default function MembersPage() {
     onRemove: (m) => removeMember.open(m),
   }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, isSuperAdmin, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles]);
+    [user, isSuperAdmin, canManageMembers, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles]);
 
   if (!isReady || !user) return <LoadingPage />;
 

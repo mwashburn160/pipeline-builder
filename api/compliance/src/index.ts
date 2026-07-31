@@ -72,7 +72,7 @@ app.use('/compliance/subscriptions', ...createAuthenticatedWithOrgRoute(), creat
 app.use('/compliance/audit', ...createProtectedRoute(quotaService, 'apiCalls'), createAuditRoutes());
 
 // Exemption management (auth + org)
-app.use('/compliance/exemptions', ...createAuthenticatedWithOrgRoute(), createExemptionRoutes());
+app.use('/compliance/exemptions', ...createProtectedRoute(quotaService, 'apiCalls'), createExemptionRoutes());
 
 // Notification preferences (auth + org; PUT is gated to admins inside the router)
 app.use('/compliance/notification-preferences', ...createAuthenticatedWithOrgRoute(), createNotificationPreferenceRoutes());

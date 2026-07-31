@@ -25,6 +25,30 @@ export interface SubscriptionDocument extends Document {
   /** Purchased add-on bundles (docs/billing-bundles.md). Each stacks its grants
    *  onto the account's effective limits; defaults to `[]`. */
   addons: Array<{ bundleId: string; quantity: number }>;
+  /** The single active price DISCOUNT coupon (onetime XOR recurring), if any.
+   *  Stripe permits one coupon per subscription, so this is a scalar — usage
+   *  credits are tracked separately below and coexist with a coupon. */
+  /** A standing RECURRING discount rule — grants a usage credit EACH period until
+   *  removed (onetime/credit discounts don't persist here; they grant once into
+   *  the balance below). Price-only; realized as a customer-balance credit. */
+  recurringDiscount?: {
+    discountId: string;
+    unit: 'dollar' | 'percent';
+    value: number;
+    appliedAt: Date;
+  } | null;
+  /** Usage-credit balance available to offset future costs. On **Stripe** this is a
+   *  local MIRROR of the Stripe customer credit balance (Stripe is authoritative,
+   *  updated from invoice webhooks) — so it reflects the customer's TOTAL credit,
+   *  which may include non-discount credits (refunds, goodwill) posted in Stripe,
+   *  not only discount credit. On **AWS Marketplace** there is no provider balance,
+   *  so this value IS authoritative and is drawn down by metered withholding.
+   *  Defaults to 0. */
+  creditBalanceCents: number;
+  /** Provenance of every granted usage credit (which discount, how much, ref).
+   *  `dedupeKey` is set on per-period recurring re-grants so a redelivered
+   *  invoice webhook doesn't append a duplicate ledger row. */
+  creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string }>;
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -55,6 +79,33 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
     firstFailedAt: { type: Date, default: null },
     addons: {
       type: [{ bundleId: { type: String, required: true }, quantity: { type: Number, required: true, min: 1 } }],
+      default: [],
+    },
+    recurringDiscount: {
+      type: {
+        discountId: { type: String, required: true },
+        unit: { type: String, enum: ['dollar', 'percent'], required: true },
+        value: { type: Number, required: true },
+        appliedAt: { type: Date, required: true },
+      },
+      default: null,
+    },
+    creditBalanceCents: { type: Number, default: 0, min: 0 },
+    creditLedger: {
+      // No per-entry `_id`: entries are matched by (discountId, dedupeKey),
+      // never by ObjectId, so the auto-id is dead weight on a growing array.
+      type: [{
+        _id: false,
+        discountId: { type: String, required: true },
+        cents: { type: Number, required: true },
+        appliedAt: { type: Date, required: true },
+        fulfillmentRef: { type: { kind: String, ref: String }, default: undefined, _id: false },
+        // Set on per-period recurring/combo re-grants; a redelivered invoice
+        // webhook is deduped on (discountId, dedupeKey). Absent for a
+        // one-time grant. Must be in the schema or strict mode strips it and the
+        // idempotency guard silently double-grants.
+        dedupeKey: { type: String, default: undefined },
+      }],
       default: [],
     },
     metadata: { type: Schema.Types.Mixed, default: {} },

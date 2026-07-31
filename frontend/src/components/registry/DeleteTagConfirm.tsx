@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 
 interface DeleteTagConfirmProps {
   repo: string;
-  ref: string;
+  tagRef: string;
   onClose: () => void;
   onDeleted: (digest?: string) => void;
 }
@@ -23,7 +23,7 @@ const PARALLEL_FETCH = 8;
  * distribution deletes manifests by digest. Renders incremental progress so
  * a slow registry doesn't show a blank modal for seconds at a time.
  */
-export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagConfirmProps) {
+export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTagConfirmProps) {
   const [digest, setDigest] = useState<string | null>(null);
   const [sharedTags, setSharedTags] = useState<string[]>([]);
   const [scanned, setScanned] = useState(0);
@@ -37,7 +37,7 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
     let aborted = false;
     (async () => {
       try {
-        const manifest = await api.getImageManifest(repo, ref);
+        const manifest = await api.getImageManifest(repo, tagRef);
         if (aborted) return;
         const d = manifest.data?.digest ?? '';
         setDigest(d);
@@ -78,13 +78,13 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
       }
     })();
     return () => { aborted = true; };
-  }, [repo, ref]);
+  }, [repo, tagRef]);
 
   const submit = async () => {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await api.deleteImageManifest(repo, ref);
+      const res = await api.deleteImageManifest(repo, tagRef);
       onDeleted(res.data?.digest ?? digest ?? undefined);
     } catch (err) {
       setError((err as Error).message);
@@ -100,7 +100,7 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
           You are about to delete the manifest pointed to by:
         </div>
         <div className="font-mono text-sm text-gray-900 dark:text-gray-100 break-all">
-          {repo}:{ref}
+          {repo}:{tagRef}
         </div>
 
         {scanning && (
@@ -119,7 +119,7 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
         {!scanning && (() => {
           // `sharedTags` includes the active tag — strip it so the count + list
           // reflects *other* tags that will stop working.
-          const others = sharedTags.filter((t) => t !== ref);
+          const others = sharedTags.filter((t) => t !== tagRef);
           if (others.length === 0) return null;
           return (
             <div className="p-3 text-sm border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-200 rounded">
@@ -136,7 +136,7 @@ export function DeleteTagConfirm({ repo, ref, onClose, onDeleted }: DeleteTagCon
           );
         })()}
 
-        {!scanning && sharedTags.filter((t) => t !== ref).length === 0 && extraTagCount > 0 && (
+        {!scanning && sharedTags.filter((t) => t !== tagRef).length === 0 && extraTagCount > 0 && (
           <div className="text-xs italic text-gray-500 dark:text-gray-400">
             {extraTagCount} additional tag(s) were not scanned — they may also share this digest.
           </div>

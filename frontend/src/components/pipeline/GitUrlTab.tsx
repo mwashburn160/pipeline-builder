@@ -1,6 +1,6 @@
 import { useState, useEffect, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { GitBranch, ChevronDown, ChevronUp, Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
-import { BuilderProps, Plugin, GeneratedPluginRef, GeneratedStage, GeneratedSynth } from '@/types';
+import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { clearPluginCache } from '@/hooks/usePlugins';
@@ -61,8 +61,8 @@ interface PluginReviewSectionProps {
 /** Displays AI-selected plugins with combobox dropdowns for swapping. */
 function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSectionProps) {
   const [expanded, setExpanded] = useState(true);
-  const synth = props.synth as unknown as GeneratedSynth;
-  const stages = (props.stages ?? []) as unknown as GeneratedStage[];
+  const synth = asGeneratedSynth(props.synth);
+  const stages = asGeneratedStages(props.stages);
 
   return (
     <div className="rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
@@ -147,10 +147,10 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       let target: GeneratedPluginRef;
       if (path === 'synth') {
         if (!updated.synth) return;
-        target = (updated.synth as unknown as GeneratedSynth).plugin;
+        target = asGeneratedSynth(updated.synth).plugin;
       } else {
         const [, stageIdx, , stepIdx] = path.split('.');
-        const stages = updated.stages as unknown as GeneratedStage[];
+        const stages = asGeneratedStages(updated.stages);
         const si = Number(stageIdx);
         const stepI = Number(stepIdx);
         if (!stages?.[si]?.steps?.[stepI]) return;

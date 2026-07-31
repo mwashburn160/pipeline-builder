@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { Duration, SecretValue, Stack } from 'aws-cdk-lib';
 import { BuildEnvironmentVariableType, BuildSpec, ComputeType as CDKComputeType, LinuxBuildImage, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
@@ -68,6 +68,19 @@ function buildEnv(plugin: Plugin, metadata: MetaDataType, customEnv?: Record<str
  *
  * Only applied to build commands, not install commands (install failures should always stop the build).
  */
+/** Plugin categories whose failure must NEVER be masked. A scan/security step that
+ *  exits non-zero has to fail the pipeline (repo rule: a failed scan is red, never a
+ *  false-green `|| true`), so such a plugin's failureBehavior is forced to 'fail'
+ *  regardless of what the plugin or step authored. */
+const FAIL_FAST_CATEGORIES = /scan|security|sast|dast|vuln|secret/i;
+
+/** Resolve the effective failureBehavior: a scan/security-category plugin is pinned
+ *  to 'fail'; otherwise the authored value (default 'fail'). */
+export function resolveFailureBehavior(category?: string, authored?: 'fail' | 'warn' | 'ignore'): 'fail' | 'warn' | 'ignore' {
+  if (category && FAIL_FAST_CATEGORIES.test(category)) return 'fail';
+  return authored ?? 'fail';
+}
+
 function wrapCommandsForFailureBehavior(commands: string[], behavior?: 'fail' | 'warn' | 'ignore'): string[] {
   if (!behavior || behavior === 'fail') return commands;
 
@@ -300,10 +313,11 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   // `registry:5000` ClusterIP. Fall back to `host`/`port` for single-host /
   // in-cluster-only deploys where no separate pull host is configured.
   const { host: pullHost, portPart } = resolveExternalPullTarget(registry);
-  const SYSTEM_ORG_ID = 'system';
-  const namespace = plugin.orgId === SYSTEM_ORG_ID
-    ? 'system'
-    : `org-${plugin.orgId}`;
+  // Must match the PUSH side (api/plugin pluginUri) exactly, or a system
+  // plugin's image is pushed to `system/…` but this synth pulls from
+  // `org-<objectid>/…` → build-time pull failure. `SYSTEM_ORG_ID` is the
+  // well-known ObjectId (NOT the string 'system').
+  const namespace = plugin.orgId === SYSTEM_ORG_ID ? 'system' : `org-${plugin.orgId}`;
   const imageUri = `${pullHost}${portPart}/${namespace}/${plugin.name}:${plugin.version}`;
 
   // CodeBuild reads `pipeline-builder/<orgId>/platform` and sends its

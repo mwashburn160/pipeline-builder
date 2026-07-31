@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { toOrgId } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
-import { seatCapacityAvailable, seatCapacityStillWithinCap } from '../helpers/seats.js';
+import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
@@ -231,10 +231,7 @@ class OrgMembersService {
       // humans across the subtree, so a user who already holds a seat elsewhere in
       // the account consumes no new seat — only check capacity when they don't
       // (mirrors bulkAddMemberToTeams).
-      const subtreeIds = (await expandOrgScope(orgId)).map(toOrgId);
-      const alreadyHasSeat = await UserOrganization.exists({
-        userId: user._id, organizationId: { $in: subtreeIds }, isActive: true,
-      }).session(session);
+      const alreadyHasSeat = await userHasSeatInAccount(user._id, orgId, session);
       if (!alreadyHasSeat && !(await seatCapacityAvailable(orgId, 1, session))) {
         throw new Error(OM_SEAT_LIMIT);
       }
@@ -366,6 +363,15 @@ class OrgMembersService {
         }
         results.push({ orgId, status: 'added' });
       }
+      // Post-write re-check (the documented G5 pattern addMember/invite-accept
+      // run): the pre-check above can race a concurrent seat insert against an
+      // account one seat under cap — both pre-checks pass, both insert, the
+      // account lands over its pooled seat cap. Re-count AFTER our inserts (and
+      // abort the tx) to close that window. Skip when the user already held a
+      // seat (no net-new seat consumed).
+      if (!alreadyHasSeat && !(await seatCapacityStillWithinCap(contextOrgId, session))) {
+        throw new Error(OM_SEAT_LIMIT);
+      }
       return { results };
     });
   }
@@ -390,6 +396,14 @@ class OrgMembersService {
       if (membership.role === 'owner') throw new Error(OM_CANNOT_REMOVE_OWNER);
 
       await UserOrganization.deleteOne({ _id: membership._id }).session(session);
+      // Delete this org's RoleAssignment rows for the user in the SAME tx as the
+      // membership removal. Otherwise the assignments (e.g. a built-in Admin grant)
+      // are orphaned: re-adding the user later runs recomputeUserOrgRole, which
+      // reads ALL assignments for the org and silently re-derives the old admin
+      // role — a privilege resurrection. Orphans also inflate role member counts,
+      // defeating the last-privileged-member guard. Mirrors the user-delete /
+      // org-purge paths, which already clean assignments.
+      await RoleAssignment.deleteMany({ userId, organizationId: toOrgId(orgId) }, { session });
       await User.updateOne(
         { _id: userId },
         {
@@ -531,16 +545,20 @@ class OrgMembersService {
       // invite/add paths enforce — otherwise deactivate→reactivate churn could
       // push an account over its seat limit. A user already holding an active
       // seat elsewhere in the subtree consumes no new seat (distinct-humans).
-      const subtreeIds = (await expandOrgScope(orgId)).map(toOrgId);
-      const alreadyHasSeat = await UserOrganization.exists({
-        userId, organizationId: { $in: subtreeIds }, isActive: true,
-      }).session(session);
+      const alreadyHasSeat = await userHasSeatInAccount(userId, orgId, session);
       if (!alreadyHasSeat && !(await seatCapacityAvailable(orgId, 1, session))) {
         throw new Error(OM_SEAT_LIMIT);
       }
 
       membership.isActive = true;
       await membership.save({ session });
+
+      // Post-write re-check (G5): re-count AFTER flipping the seat active so a
+      // concurrent reactivation/add can't push the account past its pooled cap
+      // through the pre-check race. Skip when the user already held a seat.
+      if (!alreadyHasSeat && !(await seatCapacityStillWithinCap(orgId, session))) {
+        throw new Error(OM_SEAT_LIMIT);
+      }
     });
   }
 }

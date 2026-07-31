@@ -88,6 +88,18 @@ describe('quota service passes updatePipeline:true on pipeline-array updates', (
     expect(Array.isArray(update)).toBe(true);
     expect(options).toEqual(expect.objectContaining({ updatePipeline: true }));
   });
+
+  it('bypassLimit increment also sends an array (pipeline) update WITH updatePipeline:true', async () => {
+    // The sysadmin bypass path skips the limit check but still resets an expired
+    // period via the same reset-if-expired pipeline, so it too must set
+    // updatePipeline:true or the Mongoose 9 driver rejects the array update.
+    await quotaService.incrementUsage('org-1', 'plugins', 1, { bypassLimit: true });
+
+    expect(findOneAndUpdate).toHaveBeenCalledTimes(1);
+    const [, update, options] = findOneAndUpdate.mock.calls[0] as [unknown, unknown, Record<string, unknown>];
+    expect(Array.isArray(update)).toBe(true);
+    expect(options).toEqual(expect.objectContaining({ updatePipeline: true }));
+  });
 });
 
 describe('real Mongoose 9 guard — why updatePipeline is required', () => {

@@ -31,7 +31,7 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
   loadActiveOrgInfo: jest.fn(async () => ({ organizationName: 'Acme', activeOrgRole: 'admin', tier: 'developer' })),
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true) }));
+jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/utils/regex.js', () => ({ escapeRegex: (s: string) => s }));
 
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({

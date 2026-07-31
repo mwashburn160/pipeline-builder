@@ -298,7 +298,7 @@ export function DoraUpsell() {
  * has any deploy-attributed executions — so the combobox is useful on day one.
  * Merged with (and deduped against) the environments actually observed.
  */
-export const DEFAULT_ENVIRONMENTS = ['production', 'staging', 'development', 'preview', 'qa'];
+const DEFAULT_ENVIRONMENTS = ['production', 'staging', 'development', 'preview', 'qa'];
 
 interface DoraScopeControlsProps {
   /** Pipelines to offer in the picker (from the overview execution list). */

@@ -43,7 +43,12 @@ describe('resolveIdentity', () => {
   it('resolves a valid platform JWT (password)', async () => {
     const token = signPlatformJwt({ sub: 'user-1', organizationId: 'acme', isAdmin: false });
     const identity = await resolveIdentity('orgname', token);
-    expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-1', isAdmin: false, isSuperAdmin: false });
+    expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-1', isAdmin: false, isSuperAdmin: false, canWritePlugins: false });
+  });
+
+  it('sets canWritePlugins from a plugins:write permission claim', async () => {
+    const token = signPlatformJwt({ sub: 'writer-1', organizationId: 'acme', isAdmin: false, permissions: ['plugins:write'] });
+    expect(await resolveIdentity('orgname', token)).toMatchObject({ canWritePlugins: true, isAdmin: false });
   });
 
   it('resolves admin JWT with isAdmin flag preserved', async () => {
@@ -54,6 +59,7 @@ describe('resolveIdentity', () => {
       userId: 'admin-1',
       isAdmin: true,
       isSuperAdmin: false,
+      canWritePlugins: true,
     });
   });
 
@@ -70,6 +76,7 @@ describe('resolveIdentity', () => {
       userId: 'bootstrap-push',
       isAdmin: true,
       isSuperAdmin: true,
+      canWritePlugins: true,
     });
   });
 
@@ -125,7 +132,7 @@ describe('resolveIdentity — platform-user path', () => {
       { identifier: 'user@acme.com', password: 'real-password' },
       expect.objectContaining({ timeout: 5000 }),
     );
-    expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-9', isAdmin: false, isSuperAdmin: false });
+    expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-9', isAdmin: false, isSuperAdmin: false, canWritePlugins: false });
   });
 
   it('returns null when platform login returns no accessToken', async () => {

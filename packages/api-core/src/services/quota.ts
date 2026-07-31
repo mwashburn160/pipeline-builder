@@ -212,10 +212,19 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
 
       if (response.statusCode === 429) {
         const q = response.body.details?.quota;
-        return {
-          exceeded: true,
-          quota: q ?? { type: quotaType, limit: 0, used: 0, remaining: 0 },
-        };
+        // Only a GENUINE quota-exceeded 429 means "over quota". A generic 429 —
+        // the quota service's OWN rate limiter (RATE_LIMIT_EXCEEDED) or an
+        // intervening gateway during a spike — must NOT be surfaced as
+        // quota-exceeded: that would falsely block legitimate work behind a
+        // transient rate limit. Require the QUOTA_EXCEEDED error code (or the
+        // quota payload) and otherwise fall through to the non-ok
+        // fail-open/closed policy below (the right handling for a transient 429).
+        if (response.body.errorCode === 'QUOTA_EXCEEDED' || q) {
+          return {
+            exceeded: true,
+            quota: q ?? { type: quotaType, limit: 0, used: 0, remaining: 0 },
+          };
+        }
       }
 
       if (response.statusCode !== 200 || !response.body.success) {

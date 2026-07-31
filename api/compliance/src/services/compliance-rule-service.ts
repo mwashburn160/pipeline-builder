@@ -107,6 +107,9 @@ export class ComplianceRuleService extends CrudService<
             eq(schema.complianceRuleSubscription.ruleId, schema.complianceRule.id),
             eq(schema.complianceRule.target, target),
             eq(schema.complianceRule.isActive, true),
+            // Soft-delete-aware, like every other published-rule read in this file:
+            // a soft-deleted rule must stop being enforced for subscribers.
+            isNull(schema.complianceRule.deletedAt),
             eq(schema.complianceRule.scope, 'published' as RuleScope),
           ),
         )
@@ -128,6 +131,8 @@ export class ComplianceRuleService extends CrudService<
               eq(schema.complianceRule.orgId, parentOrgId),
               eq(schema.complianceRule.target, target),
               eq(schema.complianceRule.isActive, true),
+              // A soft-deleted parent rule must stop propagating to children.
+              isNull(schema.complianceRule.deletedAt),
               eq(schema.complianceRule.propagateToChildren, true),
             )))) as ComplianceRule[]
         : [];
@@ -305,11 +310,6 @@ export class ComplianceRuleService extends CrudService<
         userId,
       });
     });
-  }
-
-  /** Fetch all rules belonging to a policy. */
-  async findByPolicy(policyId: string, orgId: string): Promise<ComplianceRule[]> {
-    return this.find({ policyId, isActive: true } as Partial<ComplianceRuleFilter>, orgId);
   }
 
   /**

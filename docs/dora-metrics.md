@@ -6,6 +6,18 @@ image: /assets/og-image-solution.png
 
 # DORA Metrics
 
+## Overview
+
+This document explains Pipeline Builder's **DORA metrics** — the four DevOps Research and Assessment delivery-performance indicators — covering how each is defined, the [performance-level](#performance-levels) bands, the [run-based vs deploy-based](#deploy-based-vs-run-based) distinction, and the two read-only [endpoints](#endpoints) plus their response shape. It's for platform teams and engineering leaders tracking delivery health. DORA is an **advanced analytics** feature gated behind the `advanced_reporting` entitlement (included on Enterprise, or the [Advanced Reporting add-on](billing-bundles.md) on other tiers) and the `reports:read` permission.
+
+## Process overview
+
+1. **Ingest** — CodePipeline/CodeBuild state changes flow into the reporting service via EventBridge; deploy metadata (`environment`, `commit_sha`, `commit_ref`) is captured when the event carries it.
+2. **Select** — the query resolves a window (default last 30 days, capped at 365) and optional scoping (`pipelineId`, `environment`/`deploysOnly`, `includeDescendants`).
+3. **Compute** — DORA is derived over the **terminal** executions in the window: deployment frequency, change-failure rate, per-incident MTTR, and a lead-time proxy.
+4. **Classify** — each metric gets a `level` band (elite/high/medium/low), and the response reports its `basis` (`run` vs `deploy`).
+5. **Surface** — results render as four **Reports**-page cards (with a deployment-frequency trend sparkline) or are consumed via the `/dora` and `/dora/trend` endpoints.
+
 The four **DORA metrics** (from the DevOps Research and Assessment program) are the
 industry-standard indicators of software delivery performance. Pipeline Builder derives them
 from the pipeline execution events already flowing through the reporting service (EventBridge

@@ -23,17 +23,36 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
+// incCounter (metrics) comes from api-server — stub so no real registry loads.
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
+
 // Pass-through tenant-context wrapper (real one is AsyncLocalStorage-backed).
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
+// Credit realization collaborators — stub so this suite covers the cycle's own
+// orchestration (planning is unit-tested in marketplace-credit.test).
+const mockCreateBillingEvent = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({ createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a) }));
+const mockGrantPeriodicCredits = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => ({ grantPeriodicCredits: (...a: unknown[]) => mockGrantPeriodicCredits(...a) }));
+const mockRecordMarketplaceConsumption = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ recordMarketplaceConsumption: (...a: unknown[]) => mockRecordMarketplaceConsumption(...a) }));
+const mockAuditRecord = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: mockAuditRecord }) }));
+
 const mockSubscriptionFindOne = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockSubscriptionFind = jest.fn<(...args: unknown[]) => unknown>();
+const mockSubscriptionFindOneAndUpdate = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockSubscriptionFindById = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     findOne: (...args: unknown[]) => mockSubscriptionFindOne(...args),
     find: (...args: unknown[]) => mockSubscriptionFind(...args),
+    findOneAndUpdate: (...args: unknown[]) => mockSubscriptionFindOneAndUpdate(...args),
+    findById: (...args: unknown[]) => mockSubscriptionFindById(...args),
   },
 }));
 
@@ -54,7 +73,18 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
 }));
 
 // Config gates — mutate per test.
-const mockConfig = { billingProvider: 'aws-marketplace' as string, meteringEnabled: true, meteringIntervalMs: 3600000 };
+const mockConfig = {
+  billingProvider: 'aws-marketplace' as string,
+  meteringEnabled: true,
+  meteringIntervalMs: 3600000,
+  marketplace: {
+    creditsEnabled: false,
+    meteringEnabled: true,
+    bundleToDimensionMap: { seat_pack: 'seats' } as Record<string, string>,
+    dimensionPriceMap: { seats: 1000 } as Record<string, number>,
+    drawdownDryRun: false,
+  },
+};
 jest.unstable_mockModule('../src/config.js', () => ({ config: mockConfig }));
 
 const { reportMarketplaceAddonUsage, reportAllMarketplaceAddonUsage, startMarketplaceMetering, stopMarketplaceMetering } =
@@ -78,6 +108,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockConfig.billingProvider = 'aws-marketplace';
   mockConfig.meteringEnabled = true;
+  mockConfig.marketplace.creditsEnabled = false; // credit realization off unless a test opts in
+  mockConfig.marketplace.drawdownDryRun = false;
+  mockConfig.marketplace.bundleToDimensionMap = { seat_pack: 'seats' };
+  mockConfig.marketplace.dimensionPriceMap = { seats: 1000 };
   mockGetPaymentProvider.mockReturnValue(new FakeAWSMarketplaceProvider());
   mockMeterAddonUsage.mockResolvedValue({ metered: 1, skipped: [], unprocessed: 0 });
 });
@@ -118,14 +152,14 @@ describe('reportMarketplaceAddonUsage', () => {
   it('meters using the awsCustomerIdentifier and the current add-on set', async () => {
     mockSubscriptionFindOne.mockResolvedValue(activeSub());
     const out = await reportMarketplaceAddonUsage('org-1');
-    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-aws', [{ bundleId: 'seat_pack', quantity: 2 }]);
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-aws', [{ bundleId: 'seat_pack', quantity: 2 }], expect.any(Date));
     expect(out).toEqual({ status: 'metered', result: { metered: 1, skipped: [], unprocessed: 0 } });
   });
 
   it('falls back to externalCustomerId when metadata has no aws identifier', async () => {
     mockSubscriptionFindOne.mockResolvedValue(activeSub({ metadata: {} }));
     await reportMarketplaceAddonUsage('org-1');
-    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-ext', expect.anything());
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-ext', expect.anything(), expect.any(Date));
   });
 
   it('returns an error outcome (does not throw) when metering fails', async () => {
@@ -133,6 +167,103 @@ describe('reportMarketplaceAddonUsage', () => {
     mockMeterAddonUsage.mockRejectedValue(new Error('throttled'));
     const out = await reportMarketplaceAddonUsage('org-1');
     expect(out).toEqual({ status: 'error', error: 'Error: throttled' });
+  });
+});
+
+describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
+  const creditSub = (over: Record<string, unknown> = {}) => activeSub({
+    _id: { toString: () => 'sub-1' },
+    interval: 'monthly',
+    creditBalanceCents: 3000,
+    addons: [{ bundleId: 'seat_pack', quantity: 3 }],
+    ...over,
+  });
+
+  // Route the two atomic claims by their query shape.
+  function claims({ period, hour }: { period?: unknown; hour?: unknown }) {
+    mockSubscriptionFindOneAndUpdate.mockImplementation((query: any) => {
+      if (query['metadata.lastCreditPeriod']) return Promise.resolve(period ?? null);
+      if (query['metadata.lastDrawdownHour']) return Promise.resolve(hour ?? null);
+      return Promise.resolve(null);
+    });
+  }
+
+  beforeEach(() => { mockConfig.marketplace.creditsEnabled = true; });
+
+  it('withholds units, draws the credit down once, records consumption, emits credit_consumed', async () => {
+    mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    mockSubscriptionFindById.mockResolvedValue(creditSub()); // period already granted → reload
+    claims({ period: null, hour: { creditBalanceCents: 0 } });
+
+    await reportMarketplaceAddonUsage('org-1', new Date('2026-07-29T14:00:00Z'));
+
+    // $30 credit @ $10/seat withholds all 3 → report quantity 0.
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-aws', [{ bundleId: 'seat_pack', quantity: 0 }], expect.any(Date));
+    // B1: consumption recorded on a per-period BillingInvoice row (dashboard visibility).
+    expect(mockRecordMarketplaceConsumption).toHaveBeenCalledWith('org-1', '2026-07', new Date(Date.UTC(2026, 6, 1)), new Date(Date.UTC(2026, 7, 1)), 3000);
+    // B2: the drawdown update decrements the balance but does NOT $push a per-hour creditLedger entry.
+    const hourUpdate = mockSubscriptionFindOneAndUpdate.mock.calls.find((c: any) => c[0]['metadata.lastDrawdownHour'])?.[1] as any;
+    expect(hourUpdate.$push).toBeUndefined();
+    expect(hourUpdate.$inc).toEqual({ creditBalanceCents: -3000 });
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'credit_consumed', { consumedCents: 3000, dimensions: 1 }, 'sub-1');
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'credit_exhausted', { previousCents: 3000 }, 'sub-1');
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_credit_consumed_total', {});
+  });
+
+  it('does NOT draw down twice in the same hour (atomic hour claim lost → no event)', async () => {
+    mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    mockSubscriptionFindById.mockResolvedValue(creditSub());
+    claims({ period: null, hour: null }); // hour already claimed by another cycle/pod
+
+    await reportMarketplaceAddonUsage('org-1');
+    expect(mockMeterAddonUsage).toHaveBeenCalled(); // still reports (AWS dedupes)
+    expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
+  });
+
+  it('does NOT draw down when any record was unprocessed (all-or-nothing)', async () => {
+    mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    mockSubscriptionFindById.mockResolvedValue(creditSub());
+    claims({ period: null, hour: { creditBalanceCents: 0 } });
+    mockMeterAddonUsage.mockResolvedValue({ metered: 0, skipped: [], unprocessed: 1 });
+
+    await reportMarketplaceAddonUsage('org-1');
+    expect(mockSubscriptionFindOneAndUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ 'metadata.lastDrawdownHour': expect.anything() }), expect.anything(), expect.anything(),
+    );
+    expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
+  });
+
+  it('dry-run reports FULL quantities and touches nothing', async () => {
+    mockConfig.marketplace.drawdownDryRun = true;
+    mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    mockSubscriptionFindById.mockResolvedValue(creditSub());
+    claims({ period: null });
+
+    await reportMarketplaceAddonUsage('org-1');
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-aws', [{ bundleId: 'seat_pack', quantity: 3 }], expect.any(Date));
+    expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
+  });
+
+  it('re-grants recurring/combo credits once per period (winner runs grantPeriodicCredits)', async () => {
+    const granted = creditSub({ save: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined) });
+    mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    claims({ period: granted, hour: { creditBalanceCents: 0 } });
+
+    await reportMarketplaceAddonUsage('org-1', new Date('2026-07-29T14:00:00Z'));
+    expect(mockGrantPeriodicCredits).toHaveBeenCalledWith(granted, '2026-07'); // monthly period key
+    expect(granted.save).toHaveBeenCalled();
+  });
+
+  it('warns + counts an unrealizable balance (credit but no priced meterable dimension)', async () => {
+    mockConfig.marketplace.dimensionPriceMap = {}; // seats now unpriced
+    mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    mockSubscriptionFindById.mockResolvedValue(creditSub());
+    claims({ period: null });
+
+    await reportMarketplaceAddonUsage('org-1');
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_credit_unrealizable_total', {});
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-aws', [{ bundleId: 'seat_pack', quantity: 3 }], expect.any(Date));
+    expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
   });
 });
 

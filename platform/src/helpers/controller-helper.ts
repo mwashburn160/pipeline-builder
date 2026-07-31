@@ -228,20 +228,6 @@ export async function canAdministerOrg(req: Request, targetOrgId: string): Promi
 }
 
 /**
- * Require effective ADMIN authority over `targetOrgId` (via {@link canAdministerOrg},
- * including the org → team hierarchy). Sends 403 and returns false on failure;
- * returns true otherwise. Mirrors {@link requireSystemAdmin} for the per-org case
- * so controllers can short-circuit with `if (!(await requireOrgAdmin(req, res, id))) return;`.
- */
-export async function requireOrgAdmin(req: Request, res: Response, targetOrgId: string): Promise<boolean> {
-  if (!(await canAdministerOrg(req, targetOrgId))) {
-    sendError(res, 403, 'Forbidden: Admin access required for this organization');
-    return false;
-  }
-  return true;
-}
-
-/**
  * Effective TENANCY scope over a target org for a WRITE whose *capability* was
  * ALREADY authorized at the route by `requirePermission(...)`. Unlike
  * {@link canAdministerOrg} this does NOT re-assert the coarse `isOrgAdmin` role —
@@ -254,9 +240,10 @@ export async function requireOrgAdmin(req: Request, res: Response, targetOrgId: 
  * any DB lookup, so flat-org deployments do no extra work.
  *
  * Callers on these routes are ONLY reached after the route's `requirePermission`
- * middleware has already 403'd anyone lacking the capability — so the coarse
- * authority check that `requireOrgAdmin` used to perform is now redundant and its
- * denial is the sole reason fine-grained delegation was inert on platform.
+ * middleware has already 403'd anyone lacking the capability — so a coarse
+ * `isOrgAdmin` re-check here would be redundant AND would make fine-grained
+ * delegation inert on platform (which is why the old admin-only helper this
+ * superseded was removed).
  */
 export async function canManageOrgScope(req: Request, targetOrgId: string): Promise<boolean> {
   if (isSystemAdmin(req)) return true;

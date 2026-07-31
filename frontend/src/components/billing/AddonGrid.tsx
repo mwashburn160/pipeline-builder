@@ -4,7 +4,8 @@
 import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
-import type { Bundle, BillingInterval } from '@/types';
+import { formatCents } from '@/lib/format';
+import type { Bundle, BillingInterval, ComboDiscount } from '@/types';
 
 interface AddonGridProps {
   bundles: Bundle[];
@@ -16,6 +17,9 @@ interface AddonGridProps {
   requestAddonChange: (bundleId: string, name: string, quantity: number) => void;
   /** Feature flag to emphasize + scroll to (from `?highlight=` on billing). */
   highlightFeature?: string | null;
+  /** Combo discounts advertised for this account (bundle pairs billed together
+   *  at a reduced price). Drives the "pair to save" nudge. */
+  comboDiscounts?: ComboDiscount[];
 }
 
 /** Human labels for the feature flags a bundle grants (unknown flags pass through raw). */
@@ -35,7 +39,25 @@ export function AddonGrid({
   addonQty,
   requestAddonChange,
   highlightFeature = null,
+  comboDiscounts = [],
 }: AddonGridProps) {
+  // "Pair to save" nudge for a bundle: fires when adding this bundle would COMPLETE a
+  // combo — i.e. this member is below its minimum quantity while every OTHER member is
+  // already at its minimum. A member is *satisfied* at `addonQty(id) >= minQty(id)`.
+  // When a card completes several combos, show only the single highest-savings one
+  // (packing means overlapping combos won't both pay out).
+  const minQty = (combo: ComboDiscount, id: string) => combo.minQuantities?.[id] ?? 1;
+  const comboNudge = (bundleId: string): string | null => {
+    let best: { name: string; save: number } | null = null;
+    for (const combo of comboDiscounts) {
+      if (!combo.bundleIds.includes(bundleId) || addonQty(bundleId) >= minQty(combo, bundleId)) continue;
+      const others = combo.bundleIds.filter((id) => id !== bundleId);
+      if (others.length === 0 || !others.every((id) => addonQty(id) >= minQty(combo, id))) continue;
+      const save = billingInterval === 'annual' ? combo.savings.annual : combo.savings.monthly;
+      if (save > 0 && (!best || save > best.save)) best = { name: combo.name, save };
+    }
+    return best ? `Completes the ${best.name} — save ${formatCents(best.save)}/${billingInterval === 'annual' ? 'yr' : 'mo'}` : null;
+  };
   // Deep-link target: the first bundle that grants the highlighted feature
   // (e.g. an "Unlock Advanced Reporting" CTA lands on ?highlight=advanced_reporting).
   const highlightedId = highlightFeature
@@ -60,6 +82,7 @@ export function AddonGrid({
           const qty = addonQty(b.id);
           const price = billingInterval === 'annual' ? b.prices.annual: b.prices.monthly;
           const features = featureLabels(b.features);
+          const nudge = comboNudge(b.id);
           const isHighlighted = b.id === highlightedId;
           return (                  <div
               key={b.id}
@@ -71,7 +94,7 @@ export function AddonGrid({
               <div className="flex items-start justify-between">
                 <h3 className="font-medium text-gray-900 dark:text-gray-100">{b.name}</h3>
                 <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  ${(price / 100).toFixed(2)}/{billingInterval === 'annual' ? 'yr': 'mo'}{b.stackable ? ' ea': ''}
+                  {formatCents(price)}/{billingInterval === 'annual' ? 'yr': 'mo'}{b.stackable ? ' ea': ''}
                 </span>
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 flex-1">{b.description}</p>
@@ -87,6 +110,11 @@ export function AddonGrid({
                     </span>
                   ))}
                 </div>
+              )}
+              {nudge && (
+                <p className="mt-2 inline-flex items-center gap-1 rounded-md bg-green-50 dark:bg-green-900/30 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300">
+                  {nudge}
+                </p>
               )}
               <div className="mt-4 flex items-center gap-2">
                 {!bundleSelfService ? (                        <span className="text-sm text-gray-500 dark:text-gray-400">

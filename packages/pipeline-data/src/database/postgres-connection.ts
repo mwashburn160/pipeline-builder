@@ -231,14 +231,18 @@ export class Connection {
   public async testConnection(): Promise<boolean> {
     try {
       const client = await this.pool.connect();
-      const result = await client.query('SELECT 1');
-      client.release();
-
-      if (this.options.enableLogging) {
-        logger.info('Database connection test successful');
+      // Release even if the probe query throws — otherwise a flaky DB (the exact
+      // case this check exists for) leaks a pooled client each failure and can
+      // exhaust the pool on the retry path.
+      try {
+        const result = await client.query('SELECT 1');
+        if (this.options.enableLogging) {
+          logger.info('Database connection test successful');
+        }
+        return result.rows.length > 0;
+      } finally {
+        client.release();
       }
-
-      return result.rows.length > 0;
     } catch (error) {
       logger.error('Database connection test failed:', error);
       return false;
@@ -445,7 +449,6 @@ export function getConnection(): Connection {
 export async function closeConnection(): Promise<void> {
   const connection = Connection.getInstance();
   await connection.close();
-  await closeReplicaPool(); // tear down the read-replica pool too (services only call this)
   _dbInstance = null; // Reset lazy instance
 }
 
@@ -469,115 +472,4 @@ export async function closeConnection(): Promise<void> {
 export async function testConnection(): Promise<boolean> {
   const connection = Connection.getInstance();
   return connection.testConnection();
-}
-
-/**
- * Initialize the database connection explicitly
- * Call this during application startup after environment is configured
- *
- * @example
- * ```typescript
- * import { initializeDatabase } from './connection';
- *
- * async function bootstrap() {
- *   // Load environment variables first
- *   dotenv.config();
- *
- *   // Then initialize database
- *   await initializeDatabase();
- * }
- * ```
- */
-export async function initializeDatabase(): Promise<void> {
-  const connection = Connection.getInstance();
-  const healthy = await connection.testConnection();
-  if (!healthy) {
-    throw new Error('Database connection failed during initialization');
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Read-replica primitive
-// ---------------------------------------------------------------------------
-//
-// Opt-in read-only client. Pointed at a Postgres replica via `DB_REPLICA_HOST`
-// / `DB_REPLICA_PORT` (other DB_* vars are inherited from the primary). When
-// `DB_REPLICA_HOST` is unset, `dbReplica` resolves to the primary `db` so
-// existing callers stay correct on single-instance deploys.
-//
-// Usage pattern: route read-only queries (list endpoints, dashboards,
-// analytics) through `dbReplica` to offload the primary. Writes and
-// transactions MUST stay on `db` — replica lag would otherwise produce
-// read-after-write surprises.
-//
-// This is a primitive only — no service code has been migrated to use it.
-// Callers opt in explicitly; the migration is a per-query decision, not a
-// blanket switch (replica lag risks vary by call site).
-
-interface ReplicaPool {
-  pool: Pool;
-  db: ReturnType<typeof drizzle>;
-}
-
-let _replica: ReplicaPool | null = null;
-
-function getReplicaConfig(): PoolConfig | null {
-  const replicaHost = process.env.DB_REPLICA_HOST;
-  if (!replicaHost) return null;
-  const cfg = getDatabaseConfig();
-  return {
-    host: replicaHost,
-    port: parseIntEnv(process.env.DB_REPLICA_PORT, cfg.port),
-    database: cfg.database,
-    user: cfg.user,
-    password: cfg.password,
-    max: parseIntEnv(process.env.DB_REPLICA_MAX_POOL, cfg.maxPoolSize),
-    idleTimeoutMillis: cfg.idleTimeoutMillis,
-    connectionTimeoutMillis: cfg.connectionTimeoutMillis,
-    allowExitOnIdle: true,
-  };
-}
-
-function getReplicaPool(): ReplicaPool | null {
-  if (_replica) return _replica;
-  const cfg = getReplicaConfig();
-  if (!cfg) return null;
-  const pool = new Pool(cfg);
-  pool.on('error', (err) => logger.error('Replica pool error', { error: err.message }));
-  _replica = { pool, db: drizzle(pool, { schema }) };
-  logger.info('Read replica pool initialized', { host: cfg.host, port: cfg.port });
-  return _replica;
-}
-
-/**
- * Proxy that resolves to the read-replica `db` when `DB_REPLICA_HOST` is
- * set, and to the primary `db` otherwise. Use for read-only queries that
- * tolerate replica lag (typically tens of ms). Writes and transactions
- * MUST stay on the primary `db`.
- *
- * Same lazy-initialization pattern as `db` — the replica pool is built on
- * first use, not on module import.
- */
-export const dbReplica = new Proxy({} as ReturnType<typeof drizzle>, {
-  get(_, prop: string | symbol) {
-    const replica = getReplicaPool();
-    const target = replica ? replica.db : getDbInstance();
-    const value = target[prop as keyof typeof target];
-    if (typeof value === 'function') return value.bind(target);
-    return value;
-  },
-});
-
-/** Close the replica pool. Called from `closeConnection()` so service
- *  shutdown handlers don't have to know about both pools separately. */
-async function closeReplicaPool(): Promise<void> {
-  if (!_replica) return;
-  try {
-    await _replica.pool.end();
-    logger.info('Read replica pool closed');
-  } catch (err) {
-    logger.error('Error closing replica pool', { error: err instanceof Error ? err.message : String(err) });
-  } finally {
-    _replica = null;
-  }
 }

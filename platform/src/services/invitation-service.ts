@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/controller-helper.js';
-import { seatCapacityAvailable } from '../helpers/seats.js';
+import { seatCapacityAvailable, seatCapacityStillWithinCap } from '../helpers/seats.js';
 import { Invitation, type InvitationDocument, Organization, type OrganizationDocument, User, type UserDocument, UserOrganization } from '../models/index.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { emailService } from '../utils/email.js';
@@ -119,6 +119,19 @@ class InvitationService {
     invitation.acceptedBy = user._id;
     invitation.acceptedVia = acceptedVia;
     await invitation.save({ session });
+
+    // Seat capacity is enforced at SEND time (a pending invite reserves a seat),
+    // but a cap reduction (billing downgrade) between send and accept can leave
+    // the account over its NEW cap as reserved invites accept — the one seat path
+    // with neither a pre- nor post-write accept check. Re-count now, AFTER the
+    // invite is flipped to 'accepted' (so this invitee's reservation is no longer
+    // double-counted alongside their new membership) and abort the whole
+    // acceptance tx if over cap. seatCapacityStillWithinCap counts DISTINCT member
+    // userIds, so an invitee who already held a seat elsewhere isn't falsely
+    // blocked.
+    if (!(await seatCapacityStillWithinCap(String(org._id), session))) {
+      throw new Error(INV_SEAT_LIMIT);
+    }
 
     // Fire-and-forget acceptance notification to the inviter.
     const inviter = await User.findById(invitation.invitedBy).session(session);

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { type ClientSession } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { toOrgId } from './controller-helper.js';
 import { expandOrgScope, resolveOrgLineage } from './org-hierarchy.js';
 import { Invitation, Organization, UserOrganization } from '../models/index.js';
@@ -95,6 +95,28 @@ export async function seatCapacityStillWithinCap(
   session?: ClientSession | null,
 ): Promise<boolean> {
   return seatCapacityAvailable(orgId, 0, session);
+}
+
+/**
+ * Whether `userId` already occupies a seat somewhere in the account subtree of
+ * `orgId`. Seats count DISTINCT humans across the root's subtree, so a user
+ * already active anywhere in the account consumes NO new seat when added/
+ * reactivated/assigned elsewhere. Callers use the result to decide whether a
+ * seat-capacity check even applies (and to gate the post-write re-check).
+ *
+ * Extracted so the subtree-resolve + membership-exists pre-flight — previously
+ * copy-pasted across addMember / activateMember / the sysadmin org-assign path —
+ * lives in one place and can't drift.
+ */
+export async function userHasSeatInAccount(
+  userId: Types.ObjectId | string,
+  orgId: string,
+  session?: ClientSession | null,
+): Promise<boolean> {
+  const subtreeIds = (await expandOrgScope(orgId)).map(toOrgId);
+  return !!(await UserOrganization.exists({
+    userId, organizationId: { $in: subtreeIds }, isActive: true,
+  }).session(session ?? null));
 }
 
 /**

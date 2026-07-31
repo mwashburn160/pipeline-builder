@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Plan, Subscription, Bundle, AddonResult, BillingEvent, BillingInterval, UsageRollup } from '@/types';
+import type { ApiResponse, Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingEvent, BillingInterval, UsageRollup } from '@/types';
 
 export function billingApi(core: ApiCore) {
   return {
@@ -53,7 +53,7 @@ export function billingApi(core: ApiCore) {
 
     /** Add-on bundle catalog for the active account, filtered to its tier. */
     getBundles: async () => {
-      return core.request<ApiResponse<{ bundles: Bundle[]; selfService: boolean }>>('/api/billing/bundles');
+      return core.request<ApiResponse<{ bundles: Bundle[]; selfService: boolean; comboDiscounts?: ComboDiscount[] }>>('/api/billing/bundles');
     },
 
     /** Dry-run: effective limits + itemized price for a proposed add-on change. */
@@ -85,14 +85,67 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<{ url: string }>>('/api/billing/portal', { method: 'POST' });
     },
 
-    /** List billing events (admin only). */
+    /** List billing events (admin only) — fleet-wide, optionally filtered by `orgId`. */
     listBillingEvents: async (params?: { orgId?: string; limit?: number; offset?: number }) => {
       return core.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/admin/events${buildQuery(params)}`);
+    },
+
+    /** The caller's OWN billing events (`billing:read`) — credit applied/consumed/
+     *  exhausted, discounts, combos. Scoped to the active org (no `orgId` param). */
+    listOwnBillingEvents: async (params?: { limit?: number; offset?: number }) => {
+      return core.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/events${buildQuery(params)}`);
     },
 
     /** F-3.5 cost+usage rollup for the active org. */
     getBillingUsage: async () => {
       return core.request<ApiResponse<UsageRollup>>('/api/billing/usage');
     },
+
+    /** Dashboard summary — account totals (gross → discounts/credits → net) + per-period timeline. */
+    getBillingSummary: async (params?: { from?: string; to?: string }) => {
+      return core.request<ApiResponse<BillingSummary>>(`/api/billing/summary${buildQuery(params)}`);
+    },
+
+    /** Paginated invoice rows for the dashboard table. */
+    listBillingInvoices: async (params?: { from?: string; to?: string; limit?: number; offset?: number }) => {
+      return core.request<ApiResponse<{ invoices: BillingInvoiceRow[]; pagination: { total: number; limit: number; offset: number } }>>(`/api/billing/invoices${buildQuery(params)}`);
+    },
+
+    /** Cost-by-team showback — apportion the account's billed actuals across its subtree. */
+    getBillingAllocation: async (params?: { from?: string; to?: string; driver?: string; includeDescendants?: boolean }) => {
+      return core.request<ApiResponse<BillingAllocation>>(`/api/billing/summary/allocation${buildQuery(params)}`);
+    },
+
+    /** Per-team current usage across all quota dimensions (feature-gated: team_usage_analytics). */
+    getTeamUsage: async (params?: { includeDescendants?: boolean }) => {
+      return core.request<ApiResponse<{ teams: TeamUsageRow[] }>>(`/api/billing/summary/usage-by-team${buildQuery(params)}`);
+    },
   };
+}
+
+export interface TeamUsageRow {
+  orgId: string;
+  name?: string;
+  seats: number | null;
+  usage: Record<string, number | null>;
+}
+
+export interface BillingSummary {
+  scope: string;
+  totals: { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number; amountPaidCents: number };
+  timeline: Array<{ periodStart: string; grossCents: number; discountCents: number; creditCents: number; netCents: number }>;
+  invoiceCount: number;
+}
+
+export interface BillingInvoiceRow {
+  periodStart: string; periodEnd: string;
+  grossCents: number; discountCents: number; creditCents: number; taxCents: number; netCents: number; amountPaidCents: number;
+  status: 'paid' | 'open' | 'void' | 'uncollectible';
+}
+
+export interface BillingAllocation {
+  driver: string;
+  totals: { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number };
+  rows: Array<{ orgId: string; driverUnits: number; sharePct: number; grossCents: number; discountCents: number; creditCents: number; taxCents: number; netCents: number }>;
+  unallocated: { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number };
 }

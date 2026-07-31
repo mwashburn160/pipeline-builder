@@ -250,7 +250,7 @@ describe('PUT /plugins/:id (update)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, expect.objectContaining({ accessModifier: 'public' }));
+    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, expect.objectContaining({ accessModifier: 'public' }), 'plugins:publish');
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 

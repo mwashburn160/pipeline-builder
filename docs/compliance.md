@@ -12,6 +12,16 @@ Per-organization rule enforcement for plugins and pipelines. Validates entity at
 
 ---
 
+## Process overview (validation & scan lifecycle)
+
+1. **Inline check** — a plugin upload or pipeline create calls `/compliance/validate/...` synchronously; `error`/`critical` violations block the operation (403).
+2. **Rule merge** — the engine evaluates the org's own rules plus its active subscribed published rules (a parent rule marked `propagateToChildren` also applies to nested teams).
+3. **Async re-check** — plugin/pipeline mutations enqueue a BullMQ event; a background worker re-evaluates the changed entity under its own tenant scope.
+4. **Bulk / scheduled scans** — `POST /compliance/scans` (or a cron scan-schedule) sweeps the org's full inventory through the same engine on demand or on a recurring basis.
+5. **Record & notify** — every result is written to the audit log; blocks (and, opt-in, warnings) fan out to the in-app inbox, email, and webhook per the org's notification preferences.
+
+---
+
 ## How It Works
 
 ```

@@ -75,9 +75,9 @@ async function dispatch(
   channelName: 'in-app' | 'webhook' | 'email',
   target: ChannelTarget,
   notification: ComplianceNotification,
-): Promise<void> {
+): Promise<boolean> {
   const channel = getNotificationChannel(channelName);
-  if (!channel) return;
+  if (!channel) return false;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
@@ -98,6 +98,7 @@ async function dispatch(
     webhookResponseCode: result.code,
     webhookError: result.error,
   });
+  return result.ok;
 }
 
 /** Fan a notification out to every channel the org has enabled: in-app always,
@@ -107,16 +108,26 @@ export async function dispatchImmediate(
   orgId: string,
   preference: ComplianceNotificationPreference | null,
   notification: ComplianceNotification,
-): Promise<void> {
-  await dispatch(orgId, 'in-app', {}, notification);
+): Promise<boolean> {
+  // Returns whether EVERY enabled channel delivered. The digest scheduler marks a
+  // batch `sent` only when this is true: a PARTIAL success (e.g. in-app ok but a
+  // flaky email path fails) leaves the digest pending so the failed channel's
+  // content isn't permanently lost — earlier this returned "any channel", so one
+  // success flipped the batch to `sent` and dropped the rest. Trade-off: a retry
+  // re-delivers an already-succeeded channel (a duplicate digest message), which
+  // is acceptable versus silently losing a channel. Each `dispatch` is awaited
+  // BEFORE the `&&` so every enabled channel is always attempted (no short-circuit
+  // skips a delivery). in-app is the always-on primary.
+  let allDelivered = await dispatch(orgId, 'in-app', {}, notification);
 
   if (preference?.webhookUrl) {
-    await dispatch(orgId, 'webhook', { url: preference.webhookUrl, secret: preference.webhookSecret ?? undefined }, notification);
+    allDelivered = (await dispatch(orgId, 'webhook', { url: preference.webhookUrl, secret: preference.webhookSecret ?? undefined }, notification)) && allDelivered;
   }
 
   if (preference?.emailEnabled) {
-    await dispatch(orgId, 'email', { targetUsers: preference.targetUsers ?? null }, notification);
+    allDelivered = (await dispatch(orgId, 'email', { targetUsers: preference.targetUsers ?? null }, notification)) && allDelivered;
   }
+  return allDelivered;
 }
 
 /** Route a notification: park it for the digest scheduler when the org runs a

@@ -205,6 +205,19 @@ export type AuditAction =
   | 'billing.addon.add'
   | 'billing.addon.remove'
   | 'billing.addon.prune'
+  // Discounts (docs/billing-discounts.md) — coupon/usage-credit mint, issue,
+  // apply, remove, revoke. `details` carry the discount id + kind/value only,
+  // never the opaque token or signing key.
+  | 'billing.discount.generate'
+  | 'billing.discount.issue'
+  | 'billing.discount.apply'
+  | 'billing.discount.remove'
+  | 'billing.discount.revoke'
+  // Usage-credit realization — credit consumed (Marketplace metered drawdown),
+  // exhausted (balance hit zero), and a combo ending. `details` carry cents/ids only.
+  | 'billing.credit.consumed'
+  | 'billing.credit.exhausted'
+  | 'billing.combo.expired'
   // Denied authorization attempt — best-effort emission from the shared
   // requirePermission / requireSystemAdmin gate on a rejected state-changing
   // request (probing/escalation signal). `outcome` is 'failure'.
@@ -327,6 +340,14 @@ export const ALL_AUDIT_ACTIONS = [
   'billing.addon.add',
   'billing.addon.remove',
   'billing.addon.prune',
+  'billing.discount.generate',
+  'billing.discount.issue',
+  'billing.discount.apply',
+  'billing.discount.remove',
+  'billing.discount.revoke',
+  'billing.credit.consumed',
+  'billing.credit.exhausted',
+  'billing.combo.expired',
   'authz.denied',
   'admin.org.ai-config.update',
   'admin.org.quota.override',

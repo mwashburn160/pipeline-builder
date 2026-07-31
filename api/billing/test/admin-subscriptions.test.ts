@@ -757,3 +757,28 @@ describe('GET /admin/events', () => {
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'DB error');
   });
 });
+
+describe('GET /events (customer-scoped, billing:read)', () => {
+  const handler = getHandler('get', '/events');
+
+  it('lists ONLY the caller\'s own org events (never a cross-org ?orgId)', async () => {
+    const leanFn = jest.fn().mockResolvedValue([{
+      _id: { toString: () => 'evt-9' },
+      orgId: 'org-1',
+      subscriptionId: 'sub-1',
+      type: 'credit_consumed',
+      actorId: 'system',
+      details: { consumedCents: 2000 },
+      createdAt: new Date('2026-07-29'),
+    }]);
+    mockBillingEventFind.mockReturnValue({ sort: () => ({ skip: () => ({ limit: () => ({ lean: leanFn }) }) }) });
+    mockBillingEventCountDocuments.mockResolvedValue(1);
+
+    // A caller trying to widen scope via ?orgId must be ignored — always own org.
+    await handler(mockReq({ query: { orgId: 'org-victim' } }), mockRes());
+
+    expect(mockBillingEventFind).toHaveBeenCalledWith({ orgId: 'org-1' });
+    expect(mockBillingEventCountDocuments).toHaveBeenCalledWith({ orgId: 'org-1' });
+    expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, expect.objectContaining({ total: 1 }));
+  });
+});

@@ -49,7 +49,12 @@ export function useImageTags(name: string | null) {
 
   useEffect(() => {
     if (!name) return;
-    if (!cache.has(name)) void load();
+    // Re-fetch on mount when there's no cached entry OR the cached entry holds an
+    // error — otherwise a transient registry blip that errored one repo would be
+    // served as a permanent error on every revisit (cache.has stays true), and
+    // the only recovery was a manual refresh. A cached SUCCESS is still reused.
+    const cached = cache.get(name);
+    if (!cached || cached.error) void load();
     bump();
   }, [name, load, bump]);
 

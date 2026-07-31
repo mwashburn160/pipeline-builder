@@ -53,8 +53,19 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
   let interval: ReturnType<typeof setInterval> | null = null;
   let startup: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
+  let running = false;
 
   const cycle = async (): Promise<void> => {
+    // Same-pod re-entrancy guard: setInterval doesn't await the async cycle, so
+    // a cycle slower than intervalMs would otherwise overlap ITSELF on this pod
+    // (double-processing, duplicate side effects). The optional leader lock only
+    // guards CROSS-pod overlap; this guards same-pod. A skipped tick just runs on
+    // the next interval.
+    if (running) {
+      log.debug('Cycle skipped — previous cycle still running (same-pod re-entrancy)');
+      return;
+    }
+    running = true;
     try {
       if (opts.lock) {
         const redis = await opts.lock.redis();
@@ -65,6 +76,8 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
       }
     } catch (err) {
       log.error('Scheduler cycle failed', { error: errorMessage(err) });
+    } finally {
+      running = false;
     }
   };
 

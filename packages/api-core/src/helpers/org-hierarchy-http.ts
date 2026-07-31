@@ -40,6 +40,15 @@ export interface OrgHierarchyHttpOptions {
   headers?: Record<string, string>;
   /** Per-request timeout override in ms (falls back to the client default). */
   timeout?: number;
+  /**
+   * When true, a non-2xx response THROWS instead of resolving to `undefined`.
+   * Default false (a 4xx/5xx maps to `undefined`, the fail-soft policy the
+   * message/reporting root-resolution callers rely on). A caller for whom a
+   * failed lookup must fail-CLOSED — e.g. a compliance scan, where treating a
+   * team org as parent-less would silently skip inherited blocking rules — sets
+   * this so it can distinguish "root org" (`undefined`) from "lookup failed".
+   */
+  throwOnHttpError?: boolean;
 }
 
 function buildRequest(
@@ -62,14 +71,20 @@ function buildRequest(
 
 /**
  * Resolve an org's direct parent id via platform's
- * `GET /organization/:id/parent`. Returns `undefined` for a root org or a
- * non-2xx response. Throws on a transport failure (connection/timeout) so the
- * caller can apply its own fallback.
+ * `GET /organization/:id/parent`. Returns `undefined` for a root org. A non-2xx
+ * response resolves to `undefined` by default, or THROWS when
+ * `throwOnHttpError` is set. Always throws on a transport failure
+ * (connection/timeout) so the caller can apply its own fallback.
  */
 export async function fetchParentOrgId(orgId: string, opts: OrgHierarchyHttpOptions): Promise<string | undefined> {
   const { client, path, headers } = buildRequest(orgId, 'parent', opts);
   const res = await client.get<{ data?: { parentOrgId?: string | null } }>(path, { headers, timeout: opts.timeout });
-  if (res.statusCode >= 400) return undefined;
+  if (res.statusCode >= 400) {
+    if (opts.throwOnHttpError) {
+      throw new Error(`parent-org lookup failed for ${orgId}: HTTP ${res.statusCode}`);
+    }
+    return undefined;
+  }
   return res.body?.data?.parentOrgId ?? undefined;
 }
 

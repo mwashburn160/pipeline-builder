@@ -7,9 +7,11 @@
  * Orchestrates the destructive sweep across every store the platform owns
  * data in for a given org * - Postgres (via pipeline-core): 21 tables with `org_id`. Soft-deleted
  * where `deleted_at` exists; hard-deleted otherwise.
- * - Mongo (platform's own): UserOrganization, Invitation, AuditEvent
- * (except the `admin.org.delete` audit event for this very action,
- * which is preserved so the audit log can prove the delete happened).
+ * - Mongo (platform's own): Invitation, AuditEvent (except the
+ * `admin.org.delete` audit event for this very action, which is preserved so the
+ * audit log can prove the delete happened), and OrgIdpConfig. NOTE:
+ * `UserOrganization` membership rows are removed later by
+ * `organizationService.delete` (the purge sweep), not by this cascade.
  * - Quota service: HTTP DELETE /quotas/:orgId.
  * - Billing service: HTTP DELETE /billing/subscriptions/by-org/:orgId.
  *

@@ -7,10 +7,12 @@ import { useFeatures } from '@/hooks/useFeatures';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
-import type { Plan, Subscription, Bundle, AddonResult, BillingInterval, UsageRollup } from '@/types';
+import type { Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingInterval, UsageRollup } from '@/types';
 import api, { ApiError } from '@/lib/api';
 import { SubscriptionStatusCard } from '@/components/billing/SubscriptionStatusCard';
 import { UsageCard } from '@/components/billing/UsageCard';
+import { BillingDashboard } from '@/components/billing/BillingDashboard';
+import { TeamUsageCard } from '@/components/billing/TeamUsageCard';
 import { PlanGrid } from '@/components/billing/PlanGrid';
 import { AddonGrid } from '@/components/billing/AddonGrid';
 import { AddonPreviewModal } from '@/components/billing/AddonPreviewModal';
@@ -20,6 +22,15 @@ import { BillingHistory } from '@/components/billing/BillingHistory';
 // Plan hierarchy (low → high). Used to detect a downgrade so the confirm dialog
 // can warn that caps/features may drop.
 const PLAN_RANK = ['developer', 'pro', 'team', 'enterprise'];
+
+/** True only when BOTH plans are ranked and the target ranks below the current.
+ *  An unknown plan id (custom/enterprise → rank -1) is never treated as a
+ *  downgrade, so the caps/features warning can't fire on a false positive. */
+function isPlanDowngrade(fromPlanId: string, toPlanId: string): boolean {
+  const from = PLAN_RANK.indexOf(fromPlanId);
+  const to = PLAN_RANK.indexOf(toPlanId);
+  return from >= 0 && to >= 0 && to < from;
+}
 
 // ---------------------------------------------------------------------------
 // Page
@@ -53,6 +64,7 @@ export default function BillingPage() {
   // false for Marketplace-billed accounts: add-ons are managed in AWS, so the
   // catalog renders read-only with a note instead of purchase controls.
   const [bundleSelfService, setBundleSelfService] = useState(false);
+  const [comboDiscounts, setComboDiscounts] = useState<ComboDiscount[]>([]);
   const [usage, setUsage] = useState<UsageRollup | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -91,6 +103,7 @@ export default function BillingPage() {
       if (bundlesRes?.success && bundlesRes.data?.bundles) {
         setBundles(bundlesRes.data.bundles);
         setBundleSelfService(bundlesRes.data.selfService ?? false);
+        setComboDiscounts(bundlesRes.data.comboDiscounts ?? []);
       }
       if (subRes.success) {
         setSubscription(subRes.data?.subscription ?? null);
@@ -110,11 +123,16 @@ export default function BillingPage() {
 
   const fetchEvents = useCallback(async () => {
     try {
-      const res = await api.listBillingEvents({ limit: 50 });
+      // Sysadmins see the fleet-wide feed (/admin/events, with the org column);
+      // everyone else sees their OWN account's credit/discount/combo events
+      // (/events, billing:read) rather than getting 403 off the admin route.
+      const res = isSuperAdmin
+        ? await api.listBillingEvents({ limit: 50 })
+        : await api.listOwnBillingEvents({ limit: 50 });
       setBillingEvents(res.data?.events || []);
       setShowEvents(true);
     } catch { /* ignore */ }
-  }, []);
+  }, [isSuperAdmin]);
 
   useEffect(() => {
     if (user) fetchData();
@@ -292,6 +310,13 @@ export default function BillingPage() {
             subscription (developer-tier defaults still produce useful data). */}
         {usage && <UsageCard rollup={usage} />}
 
+        {/* Billing actuals dashboard — gross → discounts/credits → net + invoice
+            history. Self-fetches; renders nothing until there's billing history. */}
+        <BillingDashboard />
+
+        {/* Per-team usage breakdown (feature-gated: team_usage_analytics). */}
+        <TeamUsageCard />
+
         {/* Billing Interval Toggle */}
         <div className="flex justify-center">
           <div className="card inline-flex items-center p-1">
@@ -349,6 +374,7 @@ export default function BillingPage() {
             addonQty={addonQty}
             requestAddonChange={requestAddonChange}
             highlightFeature={highlightFeature}
+            comboDiscounts={comboDiscounts}
           />
         )}
 
@@ -359,7 +385,7 @@ export default function BillingPage() {
             targetPlan={pendingPlan}
             currentPlanName={subscription.planName || subscription.planId}
             interval={billingInterval}
-            isDowngrade={PLAN_RANK.indexOf(pendingPlan.id) < PLAN_RANK.indexOf(subscription.planId)}
+            isDowngrade={isPlanDowngrade(subscription.planId, pendingPlan.id)}
             loading={actionLoading}
             onConfirm={() => void doSubscribe(pendingPlan.id)}
             onClose={() => { if (!actionLoading) setPendingPlan(null); }}
@@ -383,18 +409,16 @@ export default function BillingPage() {
           />
         )}
 
-        {/* Billing history. Sysadmins see fleet-wide via /admin/events;
-            org-admins see their own org's events via the same endpoint
-            (the backend gates by `orgId` query param when not sysadmin).
-            Quietly degrades to an empty section if the backend rejects. */}
-        {isAdmin && (
-          <BillingHistory
-            isSuperAdmin={isSuperAdmin}
-            showEvents={showEvents}
-            billingEvents={billingEvents}
-            onViewEvents={fetchEvents}
-          />
-        )}
+        {/* Billing history (credit applied/consumed/exhausted, discounts, combos).
+            Sysadmins see the fleet-wide feed via /admin/events (with the org column);
+            everyone else sees their own account via /events (billing:read — which the
+            page already requires). Quietly degrades to an empty section on rejection. */}
+        <BillingHistory
+          isSuperAdmin={isSuperAdmin}
+          showEvents={showEvents}
+          billingEvents={billingEvents}
+          onViewEvents={fetchEvents}
+        />
       </div>
 
     </DashboardLayout>

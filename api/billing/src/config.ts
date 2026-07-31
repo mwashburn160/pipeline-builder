@@ -17,6 +17,32 @@ export interface MarketplaceConfig {
    * are configured — an unmapped bundle is skipped (not metered).
    */
   bundleToDimensionMap: Record<string, string>;
+  /**
+   * Map of AWS Marketplace METERED dimension key → local list price in CENTS
+   * **per metered unit per metering cycle** (cycle length = meteringIntervalMs).
+   * Drives the usage-credit drawdown: `withheldUnits × price` is drawn from the
+   * account's credit balance. A dimension with no price here is never drawn down
+   * (its usage is reported in full). Set from `AWS_MARKETPLACE_DIMENSION_PRICE_MAP`.
+   */
+  dimensionPriceMap: Record<string, number>;
+  /**
+   * Whether usage-credit discounts are realized on Marketplace by withholding
+   * reported metered usage (`usageCreditSupport: 'metered'`). Set to the SAME
+   * value as the discount switch (`BILLING_DISCOUNTS_ENABLED`) — there is no
+   * separate Marketplace toggle. Approximate; only offsets metered charges. See
+   * docs/billing-discounts.md.
+   */
+  creditsEnabled: boolean;
+  /** Whether the metering cycle runs (`BILLING_METERING_ENABLED`). The credit
+   *  drawdown is only accepted when this AND `creditsEnabled` are on — otherwise
+   *  the provider reports no credit support (no banking without realization). */
+  meteringEnabled: boolean;
+  /**
+   * Shadow mode (`BILLING_METERING_DRAWDOWN_DRYRUN`): the cycle computes + logs
+   * the intended withholding but reports FULL quantities and leaves the credit
+   * balance untouched — for validating the price map before going live.
+   */
+  drawdownDryRun: boolean;
 }
 
 export interface StripeConfig {
@@ -24,6 +50,15 @@ export interface StripeConfig {
   webhookSecret: string;
   /** Map of "{planId}_{interval}" keys to Stripe Price IDs. */
   priceToPlanMap: Record<string, string>;
+}
+
+export interface DiscountConfig {
+  /** Feature flag — the discount surface 404s when off (default off, opt-in). */
+  enabled: boolean;
+  /** Mint-time ceiling on a percent discount (1-100). */
+  maxPercent: number;
+  /** Mint-time ceiling on a dollar/credit discount, in CENTS. */
+  maxCents: number;
 }
 
 export interface AppConfig {
@@ -47,6 +82,7 @@ export interface AppConfig {
   };
   marketplace: MarketplaceConfig;
   stripe: StripeConfig;
+  discounts: DiscountConfig;
   /** Public frontend base URL — the fallback return target for the Stripe billing
    *  portal when the request carries no Origin header (`PLATFORM_FRONTEND_URL`). */
   frontendUrl: string;
@@ -94,6 +130,15 @@ function safeJsonParse<T>(value: string | undefined, fallback: T, envVarName: st
 
 const billingEnabled = (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false';
 
+// Single discount switch (on by default). It governs the discount surface AND
+// Marketplace metered-credit realization, so the two are the SAME value — there
+// is no separate Marketplace opt-in.
+const discountsEnabled = (process.env.BILLING_DISCOUNTS_ENABLED || 'true').toLowerCase() !== 'false';
+// Parsed ONCE — the top-level `meteringEnabled` (scheduler gate) and
+// `marketplace.meteringEnabled` (credit-drawdown gate + provider invariant) MUST be
+// the same value, so they read this single const rather than re-parsing the env.
+const meteringEnabled = (process.env.BILLING_METERING_ENABLED || '').toLowerCase() === 'true';
+
 if (billingEnabled && !process.env.MONGODB_URI) {
   throw new Error('MONGODB_URI environment variable is required when BILLING_ENABLED=true');
 }
@@ -127,7 +172,7 @@ export const config: AppConfig = {
   lifecycleCheckIntervalMs: parseInt(process.env.BILLING_LIFECYCLE_CHECK_INTERVAL_MS || '3600000', 10),
   entitlementDriftMaxPerTick: parseInt(process.env.BILLING_ENTITLEMENT_DRIFT_MAX_PER_TICK || '100', 10),
   entitlementDriftIntervalMs: parseInt(process.env.BILLING_ENTITLEMENT_DRIFT_INTERVAL_MS || '86400000', 10),
-  meteringEnabled: (process.env.BILLING_METERING_ENABLED || '').toLowerCase() === 'true',
+  meteringEnabled,
   meteringIntervalMs: parseInt(process.env.BILLING_METERING_INTERVAL_MS || '3600000', 10),
   frontendUrl: process.env.PLATFORM_FRONTEND_URL || '',
 
@@ -157,6 +202,19 @@ export const config: AppConfig = {
       } as Record<string, string>,
       'AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP',
     ),
+    // Dimension → local list price in CENTS per metered unit per cycle. Empty by
+    // default: an unpriced dimension is never drawn down (reported in full).
+    dimensionPriceMap: safeJsonParse(
+      process.env.AWS_MARKETPLACE_DIMENSION_PRICE_MAP,
+      {} as Record<string, number>,
+      'AWS_MARKETPLACE_DIMENSION_PRICE_MAP',
+    ),
+    // Same value as the discount switch — one toggle for both providers.
+    creditsEnabled: discountsEnabled,
+    // Same single-parsed value as the top-level flag so the provider can enforce
+    // the "no banking a credit without a drawdown cycle" invariant on its own.
+    meteringEnabled,
+    drawdownDryRun: (process.env.BILLING_METERING_DRAWDOWN_DRYRUN || '').toLowerCase() === 'true',
   },
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY || '',
@@ -166,5 +224,13 @@ export const config: AppConfig = {
       {} as Record<string, string>,
       'STRIPE_PRICE_MAP',
     ),
+  },
+  discounts: {
+    // On by default (mirrors BILLING_ENABLED's opt-out style); set
+    // BILLING_DISCOUNTS_ENABLED=false to hide the discount surface. The SAME
+    // switch drives Marketplace metered credits (marketplace.creditsEnabled).
+    enabled: discountsEnabled,
+    maxPercent: Math.min(100, parseInt(process.env.BILLING_DISCOUNT_MAX_PERCENT || '100', 10) || 100),
+    maxCents: parseInt(process.env.BILLING_DISCOUNT_MAX_CENTS || '10000000', 10) || 10000000,
   },
 };

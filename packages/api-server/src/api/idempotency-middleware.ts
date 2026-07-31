@@ -69,47 +69,6 @@ export interface IdempotencyStore {
   delete(key: string): Promise<void>;
 }
 
-/**
- * Minimal interface a Redis client must satisfy. Compatible with
- * `ioredis` and `redis` v4+ — both expose `get`/`set` and accept `EX`
- * for expiry. Pass your real client in via `idempotencyMiddleware({
- * store: createRedisIdempotencyStore(client) })`.
- */
-export interface RedisLike {
-  get(key: string): Promise<string | null>;
-  // Variadic to fit ioredis (`set(k, v, 'EX', ttl, 'NX')`) — `reserve` needs the
-  // `NX` flag for an atomic set-if-absent, which the fixed 4-arg form can't express.
-  set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
-  del?(key: string): Promise<unknown>;
-}
-
-/** Redis-backed idempotency store — share state across replicas. */
-export function createRedisIdempotencyStore(client: RedisLike, prefix = 'idemp:'): IdempotencyStore {
-  return {
-    async get(key) {
-      const raw = await client.get(prefix + key);
-      if (!raw) return null;
-      try {
-        return JSON.parse(raw) as CachedEntry;
-      } catch {
-        return null;
-      }
-    },
-    async set(key, entry, ttlSeconds) {
-      await client.set(prefix + key, JSON.stringify(entry), 'EX', ttlSeconds);
-    },
-    async reserve(key, entry, ttlSeconds) {
-      // SET key val EX ttl NX — atomic across replicas. Redis returns 'OK' when
-      // it set the key and null when the key already existed.
-      const res = await client.set(prefix + key, JSON.stringify(entry), 'EX', ttlSeconds, 'NX');
-      return res !== null && res !== undefined;
-    },
-    async delete(key) {
-      if (client.del) await client.del(prefix + key);
-    },
-  };
-}
-
 /** Default in-memory store. Single-replica only. Exported for testing. */
 export function createMemoryStore(): IdempotencyStore {
   const map = new Map<string, CachedEntry>();
@@ -180,8 +139,9 @@ export interface IdempotencyMiddlewareOptions {
  * - First call: processes normally, caches the response
  * - Subsequent calls with same key: returns cached response (prevents duplicate mutations)
  *
- * Pass `{ store: createRedisIdempotencyStore(redisClient) }` to dedupe
- * across replicas.
+ * Defaults to an in-memory store (single-replica). Pass a custom
+ * cross-replica `{ store }` implementing `IdempotencyStore` to dedupe across
+ * replicas.
  */
 export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}) {
   const store = options.store ?? memoryStore;

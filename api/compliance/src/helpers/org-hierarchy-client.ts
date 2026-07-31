@@ -14,13 +14,17 @@ const logger = createLogger('org-hierarchy-client');
 
 /**
  * Resolve an org's direct parent id via platform's internal
- * `GET /organization/:id/parent`. Returns `undefined` for a root org OR when the
- * lookup fails — a resolve failure must NOT block the scan; it degrades to
- * "evaluate the org's own rules only" (exactly the pre-parent-propagation
- * behavior), and the miss is logged so operators can see it.
+ * `GET /organization/:id/parent`. Returns `undefined` ONLY for a genuine root
+ * org (a 200 whose parent is null). A lookup FAILURE (transport error, or a
+ * non-2xx via `throwOnHttpError`) is RE-THROWN — it must NOT be silently
+ * degraded to "own rules only": a team org whose parent lookup failed would then
+ * skip the parent's `propagateToChildren` blocking rules and stamp a false-pass
+ * green scan. The scan executor's try/catch turns the throw into a `failed`
+ * scan (honest gating), which is the correct fail-CLOSED posture for a
+ * compliance-enforcement service — mirroring `fetchEntities`/`fetchExemptions`.
  *
  * The HTTP mechanics (URL, signed service-token auth, timeout+retry) live in
- * the shared api-core helper; this function keeps compliance's fallback policy.
+ * the shared api-core helper.
  */
 export async function resolveParentOrgId(orgId: string): Promise<string | undefined> {
   try {
@@ -29,12 +33,13 @@ export async function resolveParentOrgId(orgId: string): Promise<string | undefi
       service: { host: services.platformHost, port: services.platformPort },
       serviceName: 'compliance',
       authOrgId: SYSTEM_ORG_ID,
+      throwOnHttpError: true,
     });
   } catch (err) {
-    logger.warn('Failed to resolve parent org for scan; evaluating own rules only', {
+    logger.error('Failed to resolve parent org for scan; failing scan (inherited rules must not be skipped)', {
       orgId,
       error: errorMessage(err),
     });
-    return undefined;
+    throw err;
   }
 }

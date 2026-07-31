@@ -59,6 +59,12 @@ export async function handleNotifyEmail(req: Request, res: Response) {
   // may legitimately target any org.
   const tokenOrgId = req.user?.organizationId;
   const isSysadminService = isSystemAdmin(req);
+  // Fail CLOSED for an org-less non-sysadmin service token: the guard below is
+  // gated on `tokenOrgId`, so without this an org-less token could email ANY
+  // org's admins/owners an arbitrary subject/body.
+  if (!isSysadminService && !tokenOrgId) {
+    return sendError(res, 403, 'service token has no org claim');
+  }
   if (tokenOrgId && body.orgId !== tokenOrgId && !isSysadminService) {
     return sendError(res, 403, 'orgId does not match authenticated service org');
   }

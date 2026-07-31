@@ -31,7 +31,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { invitation: { expirationDays: 7, maxPendingPerOrg: 10 } },
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({ toOrgId: (id: string) => id }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true) }));
+jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
   assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),

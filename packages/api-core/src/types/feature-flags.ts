@@ -22,7 +22,10 @@ export type FeatureFlag =
   | 'audit_log'
   | 'sso'
   // DORA / advanced delivery analytics (paid tiers only).
-  | 'advanced_reporting';
+  | 'advanced_reporting'
+  // Per-team usage breakdown across the org→team subtree. INCLUDED in Enterprise;
+  // sold as an add-on bundle to Pro/Team (see billing-config `team_usage_analytics`).
+  | 'team_usage_analytics';
 
 /** All valid feature flags (order determines display order). */
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
@@ -33,6 +36,7 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   'audit_log',
   'sso',
   'advanced_reporting',
+  'team_usage_analytics',
 ];
 
 /** Check whether a string is a valid FeatureFlag. */
@@ -85,6 +89,10 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   advanced_reporting: {
     label: 'Advanced Reporting',
     description: 'DORA / advanced delivery analytics',
+  },
+  team_usage_analytics: {
+    label: 'Team Usage Analytics',
+    description: 'Per-team usage breakdown across the org → team subtree',
   },
 };
 

@@ -1,8 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createRequire } from 'module';
-
+import { createEnvRedisClient } from './env-redis.js';
 import type { RemoteAuditEvent } from './remote-audit-client.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
@@ -130,33 +129,14 @@ export function createRedisAuditSpool(
 
 /**
  * Build a Redis-backed audit spool from the ambient `REDIS_URL` / `REDIS_HOST`
- * env (mirrors `createEnvRedisTokenRevocationStore`). Returns `null` when Redis
- * is not configured or the client can't be constructed — the caller then runs
- * without a spool (pre-spool best-effort behavior), never crashing. ioredis is a
- * runtime-only optional dep loaded via `createRequire`, so this stays importable
- * where Redis isn't present.
+ * env via the shared `createEnvRedisClient`. Returns `null` when Redis is not
+ * configured or the client can't be constructed — the caller then runs without a
+ * spool (pre-spool best-effort behavior), never crashing. The shared helper loads
+ * ioredis via `createRequire`, so this stays importable where Redis isn't present.
  */
 export function createEnvRedisAuditSpool(opts: { maxDepth?: number; key?: string } = {}): AuditSpool | null {
-  try {
-    const url = process.env.REDIS_URL;
-    const host = process.env.REDIS_HOST;
-    if (!url && !host) return null;
-    const req = createRequire(import.meta.url);
-    const mod = req('ioredis') as {
-      Redis?: new (...args: unknown[]) => unknown;
-      default?: new (...args: unknown[]) => unknown;
-    };
-    const RedisCtor = (mod.Redis ?? mod.default ?? mod) as new (...args: unknown[]) => RedisListClient;
-    const redisOpts = { maxRetriesPerRequest: 1, enableOfflineQueue: false };
-    const inst = url
-      ? new RedisCtor(url, redisOpts)
-      : new RedisCtor({ host, port: parseInt(process.env.REDIS_PORT ?? '6379', 10), ...redisOpts });
-    (inst as unknown as { on: (evt: string, cb: (e: unknown) => void) => void })
-      .on('error', (e) => logger.warn('Redis audit-spool client error', { error: errMsg(e) }));
-    logger.info('Redis audit spool initialized');
-    return createRedisAuditSpool(inst, opts);
-  } catch (err) {
-    logger.warn('Redis unavailable for audit spool; audit delivery is best-effort only', { error: errMsg(err) });
-    return null;
-  }
+  const inst = createEnvRedisClient<RedisListClient>('audit-spool');
+  if (!inst) return null;
+  logger.info('Redis audit spool initialized');
+  return createRedisAuditSpool(inst, opts);
 }

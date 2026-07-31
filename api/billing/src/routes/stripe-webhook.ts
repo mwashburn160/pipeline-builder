@@ -15,6 +15,8 @@ import type Stripe from 'stripe';
 import { config } from '../config.js';
 import { applyPlanTierChange, applyTierIncludedAddonPrune, createBillingEvent, calculatePeriodEnd, syncEntitlements } from '../helpers/billing-helpers.js';
 import type { PrunedAddon } from '../helpers/billing-helpers.js';
+import { ingestStripeInvoice } from '../helpers/billing-ledger.js';
+import { clearDiscountsOnCancel, reconcileDiscountsOnInvoice } from '../helpers/discount-helpers.js';
 import { findSubscriptionByStripeId, mapStripeStatus } from '../helpers/stripe-helpers.js';
 import { Plan } from '../models/plan.js';
 import { claimWebhookEvent, releaseWebhookEvent } from '../models/webhook-dedupe.js';
@@ -360,6 +362,9 @@ async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription
   const previousStatus = subscription.status;
   subscription.status = 'canceled';
   subscription.cancelAtPeriodEnd = false;
+  // Detach any coupon + forfeit the local usage-credit mirror (Stripe balance
+  // persists for a future reactivation). Price-only; entitlements handled below.
+  clearDiscountsOnCancel(subscription);
   await subscription.save();
 
   // Downgrade to developer tier
@@ -445,7 +450,18 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
     }
   }
 
+  // Reconcile discounts against this settled invoice (Stripe = source of truth):
+  // draw the usage-credit mirror down from the customer balance and re-grant a
+  // recurring discount. Price-only; mutates the sub in place before the save below.
+  await reconcileDiscountsOnInvoice(subscription, invoice);
+
   await subscription.save();
+
+  // Mirror the settled invoice into the billing ledger (dashboard actuals).
+  // Idempotent + best-effort — a ledger hiccup must not fail the webhook.
+  await ingestStripeInvoice(subscription.orgId, invoice as unknown as Parameters<typeof ingestStripeInvoice>[1]).catch((err) => {
+    logger.warn('Billing ledger ingest failed', { orgId: subscription.orgId, invoiceId: invoice.id, error: String(err) });
+  });
 
   await createBillingEvent(subscription.orgId, 'payment_succeeded', {
     provider: 'stripe',

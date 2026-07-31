@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { StripeInvoiceLike } from '../helpers/billing-ledger.js';
 import type { BillingInterval, SubscriptionStatus } from '../models/subscription.js';
 
 /**
@@ -34,6 +35,25 @@ export interface ExternalSubscriptionResult {
    * until the later `customer.subscription.updated`→active webhook confirms it.
    */
   status: string;
+}
+
+// ─── Discounts (docs/billing-discounts.md) ──────────────────────────
+
+/**
+ * How a provider realizes a USAGE CREDIT — the single mechanism every discount
+ * kind (onetime/recurring/credit) resolves to. A discount is NOT a provider
+ * coupon object; it is a temporary price reduction billing owns, applied as a
+ * credit against future charges.
+ *   'balance'  — post to the customer's credit balance (Stripe)
+ *   'metered'  — withhold reported metered usage (AWS Marketplace)
+ *   'none'     — provider can't realize a credit (discounts disallowed)
+ */
+export type UsageCreditSupport = 'balance' | 'metered' | 'none';
+
+/** A provider-agnostic reference to a realized credit (e.g. a balance txn id). */
+export interface DiscountRef {
+  kind: 'balance' | 'metered';
+  ref: string;
 }
 
 /** Payment provider interface (Stripe, AWS Marketplace, or stub for dev). */
@@ -95,6 +115,28 @@ export interface PaymentProvider {
    * manage cards (marketplace, stub) omit it (treated as "no gate").
    */
   hasPaymentMethod?(externalCustomerId: string): Promise<boolean>;
+
+  /**
+   * Realize a USAGE CREDIT of `cents` for the customer — the ONE discount
+   * mechanism (docs/billing-discounts.md). Every discount kind resolves to a
+   * credit billing computes; the provider only posts it (Stripe → negative
+   * customer balance). `idempotencyKey` dedupes a retried grant. Returns the
+   * provider ref (for reconciliation). Only called when {@link usageCreditSupport}
+   * is not `none` and a customer handle exists. There is NO coupon push and NO
+   * remove — credits already granted persist; a recurring discount is stopped by
+   * clearing its standing rule locally.
+   */
+  applyUsageCredit?(externalCustomerId: string, cents: number, idempotencyKey?: string): Promise<{ ref?: DiscountRef }>;
+
+  /** How this provider realizes a usage credit. Absent = none. */
+  readonly usageCreditSupport?: UsageCreditSupport;
+
+  /**
+   * List a customer's historical invoices (newest first) for the billing-ledger
+   * BACKFILL — invoices weren't persisted before the ledger existed. Optional:
+   * providers without an invoice API (stub, marketplace) omit it.
+   */
+  listCustomerInvoices?(externalCustomerId: string, limit?: number): Promise<StripeInvoiceLike[]>;
 
   /**
    * Create a hosted session where the customer can add/update a payment method,

@@ -19,6 +19,12 @@ Every key is consumed by one of three mechanisms — see [How keys are consumed]
 
 ---
 
+## Overview
+
+This reference catalogs the `MetadataKeys` constants (and their interchangeable raw string values) that customize CodePipeline and CodeBuild resources at synth time, imported from `@pipeline-builder/pipeline-core`. It's for authors building pipelines who need to override defaults — compute, VPC networking, IAM roles, security groups, notifications, operations, and encryption — at the pipeline, stage, or step scope. Keys are grouped by the construct they target; each group states which of the three consumption mechanisms (**construct prop**, **typed config**, or **custom synth**) applies. See [How keys are consumed](#how-keys-are-consumed) for the routing details and [Scope Levels](#scope-levels) for override precedence.
+
+---
+
 ## CodePipeline Configuration
 
 Control pipeline-level behavior and defaults. **Wiring:** Construct prop — passed to `CodePipelineProps` via `metadataForCodePipeline()`.

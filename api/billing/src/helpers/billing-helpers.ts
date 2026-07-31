@@ -218,6 +218,10 @@ export function bundlesEnabled(): boolean {
   return (process.env.BILLING_BUNDLES_ENABLED || '').toLowerCase() === 'true';
 }
 
+// Combo-discount pricing (getComboDiscounts / activeComboCredits / packing) lives
+// in ./combo-pricing.js — isolated so the packing logic can grow independently and
+// so suites that mock billing-helpers don't need to stub it.
+
 /**
  * Whether in-app bundle *self-service* is allowed. AWS Marketplace is
  * entitlement/SNS-driven — the app can't push add-on line items (its lifecycle
@@ -690,6 +694,8 @@ export function buildSubscriptionResponse(
     currentPeriodEnd: Date;
     cancelAtPeriodEnd: boolean;
     addons?: Array<{ bundleId: string; quantity: number }>;
+    recurringDiscount?: { discountId: string; unit: string; value: number } | null;
+    creditBalanceCents?: number;
     createdAt: Date;
     updatedAt: Date;
   },
@@ -709,6 +715,12 @@ export function buildSubscriptionResponse(
     cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
     // Purchased add-on bundles — the billing UI reads these on load.
     addons: (subscription.addons ?? []).map((a) => ({ bundleId: a.bundleId, quantity: a.quantity })),
+    // Applied discounts (usage-credit model): the standing recurring rule (if any)
+    // and the remaining usage-credit balance the UI renders on the billing page.
+    recurringDiscount: subscription.recurringDiscount
+      ? { discountId: subscription.recurringDiscount.discountId, unit: subscription.recurringDiscount.unit, value: subscription.recurringDiscount.value }
+      : null,
+    creditRemainingCents: subscription.creditBalanceCents ?? 0,
     createdAt: subscription.createdAt.toISOString(),
     updatedAt: subscription.updatedAt.toISOString(),
   };

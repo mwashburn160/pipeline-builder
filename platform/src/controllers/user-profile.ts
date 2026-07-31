@@ -12,6 +12,7 @@ import {
   PROFILE_EMAIL_TAKEN,
   PROFILE_INVALID_CREDENTIALS,
   PROFILE_OWNER_HAS_ORGS,
+  PROFILE_LAST_PRIVILEGED_MEMBER,
 } from '../services/index.js';
 import { issueTokens } from '../utils/token.js';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation.js';
@@ -23,6 +24,7 @@ const profileErrorMap = {
   [PROFILE_EMAIL_TAKEN]: { status: 409, message: 'Email already in use' },
   [PROFILE_INVALID_CREDENTIALS]: { status: 401, message: 'Current password incorrect' },
   [PROFILE_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete account while you own an organization. Transfer ownership first.' },
+  [PROFILE_LAST_PRIVILEGED_MEMBER]: { status: 409, message: 'Cannot delete your account while you are the last member of an admin or super-admin role.' },
 };
 
 /** Compact organization summary included in user responses. */

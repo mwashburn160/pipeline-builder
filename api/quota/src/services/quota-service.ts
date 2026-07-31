@@ -289,7 +289,11 @@ export class QuotaService {
 
     type UsageRow = { quotas?: Record<string, number>; usage?: Record<string, { used?: number; resetAt?: Date }> };
     const root = await Organization.findById(toOrgId(rootOrgId)).select(`quotas.${quotaType} usage.${quotaType}`).lean() as unknown as UsageRow | null;
-    const limit = root?.quotas?.[quotaType];
+    // Fall back to the tier default (same as the per-org path, :182) when the root
+    // has no explicit stored limit — otherwise pooled enforcement is silently
+    // skipped and each team independently enforces the default, letting the subtree
+    // exceed the intended pooled cap.
+    const limit = root?.quotas?.[quotaType] ?? config.quota.defaults[quotaType];
     if (limit === undefined) return null;
 
     // Sum current usage across the subtree. A period whose `resetAt` has passed
@@ -346,19 +350,45 @@ export class QuotaService {
   ): Promise<QuotaReserveResult> {
     const usagePath = `usage.${quotaType}`;
 
-    // ----- Sysadmin bypass: simple $inc, no limit check -----
+    // ----- Sysadmin bypass: increment without the limit check, but STILL
+    // reset an expired period first. A plain `$inc` on an expired period piles
+    // the new amount onto a stale `used` (and never advances `resetAt`), so the
+    // period never rolls over for bypass traffic and `used` reads inflated. Use
+    // the same reset-if-expired aggregation pipeline as the normal path, minus
+    // the limit `$expr` guard. `updatePipeline:true` is REQUIRED for array
+    // (pipeline) updates on Mongoose 9 — see increment-pipeline-update.test.ts.
     if (bypassLimit) {
       logger.info('Quota bypass increment', { orgId, quotaType, amount });
+      const resetDays = config.quota.resetDays;
       const org = await Organization.findOneAndUpdate(
         { _id: toOrgId(orgId) },
-        { $inc: { [`${usagePath}.used`]: amount } },
-        { returnDocument: 'after' },
+        [
+          {
+            $set: {
+              [`${usagePath}.used`]: {
+                $cond: {
+                  if: { $lte: [`$${usagePath}.resetAt`, '$$NOW'] },
+                  then: amount,
+                  else: { $add: [{ $ifNull: [`$${usagePath}.used`, 0] }, amount] },
+                },
+              },
+              [`${usagePath}.resetAt`]: {
+                $cond: {
+                  if: { $lte: [`$${usagePath}.resetAt`, '$$NOW'] },
+                  then: { $dateAdd: { startDate: '$$NOW', unit: 'day', amount: resetDays } },
+                  else: `$${usagePath}.resetAt`,
+                },
+              },
+            },
+          },
+        ],
+        { returnDocument: 'after', updatePipeline: true },
       );
       if (!org) throw new OrgNotFoundError(orgId);
 
       const limit = org.quotas[quotaType];
       const usage = org.usage[quotaType] ?? {
-        used: 0,
+        used: amount,
         resetAt: getNextResetDate(config.quota.resetDays),
       };
       return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, false);

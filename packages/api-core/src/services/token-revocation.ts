@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createRequire } from 'module';
 import type { RedisCacheClient } from './cache-service.js';
+import { createEnvRedisClient } from './env-redis.js';
 import type { TokenRevocationStore } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -72,36 +72,12 @@ export function createEnvRedisTokenRevocationStore(): TokenRevocationStore {
   let cached: RedisCacheClient | null | undefined;
 
   function build(): RedisCacheClient | null {
-    try {
-      const url = process.env.REDIS_URL;
-      const host = process.env.REDIS_HOST;
-      if (!url && !host) return null; // Redis not configured — no-op reader.
-      // Dynamic require: ioredis is a runtime-only optional dep, never a static
-      // import, so this module loads cleanly wherever Redis isn't present.
-      const req = createRequire(import.meta.url);
-      const mod = req('ioredis') as {
-        Redis?: new (...args: unknown[]) => unknown;
-        default?: new (...args: unknown[]) => unknown;
-      };
-      const RedisCtor = (mod.Redis ?? mod.default ?? mod) as new (...args: unknown[]) => RedisCacheClient;
-      const opts = { maxRetriesPerRequest: 1, enableOfflineQueue: false };
-      const inst = url
-        ? new RedisCtor(url, opts)
-        : new RedisCtor({ host, port: parseInt(process.env.REDIS_PORT ?? '6379', 10), ...opts });
-      // Swallow connection errors (ioredis auto-reconnects) so an unhandled
-      // 'error' can't crash the process; the reader stays fail-open meanwhile.
-      (inst as unknown as { on: (evt: string, cb: (e: unknown) => void) => void })
-        .on('error', (e) => logger.warn('Redis revocation-reader client error', {
-          error: e instanceof Error ? e.message : String(e),
-        }));
-      logger.info('Redis token-revocation reader initialized');
-      return inst;
-    } catch (err) {
-      logger.warn('Redis unavailable for revocation reader; falling back to token expiry', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return null;
-    }
+    // Shared env-configured ioredis construction (fail-open, error-listener
+    // attached, null when Redis isn't configured/available); the reader stays
+    // fail-open — a null client just falls back to natural token expiry.
+    const inst = createEnvRedisClient<RedisCacheClient>('revocation-reader');
+    if (inst) logger.info('Redis token-revocation reader initialized');
+    return inst;
   }
 
   return {

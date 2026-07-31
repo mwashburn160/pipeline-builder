@@ -13,6 +13,20 @@ Observability is the native `/dashboard/observability` page across all deploymen
 
 **Related docs:** [Environment Variables](environment-variables.md) | [API Reference](api-reference.md) | [Plugin Catalog](plugins/README.md)
 
+## Overview
+
+This guide is for operators standing up Pipeline Builder on AWS. It covers the two targets — **EC2** (single Minikube instance) and **EKS** (managed Kubernetes, Auto Mode) — deployed in either **public** (internet-facing ALB) or **private** (internal ALB, the default) mode, plus email (SES), platform initialization, execution reporting, and drift detection. Both targets keep the compute in private subnets behind a TLS-terminating ALB using a DNS-validated ACM cert, so a domain and public Route 53 zone are always required. The recommended entry point is the AI-assisted [`provision`](#ai-assisted-install-provision) command, which wraps the underlying `bin/setup.sh` scripts that remain the source of truth.
+
+## Process overview
+
+1. **Pick a target and mode** — EC2 or EKS; public or private. Both need `--domain` + `--hosted-zone-id`.
+2. **Provision** — run [`pipeline-manager provision`](#ai-assisted-install-provision) (recommended) or `bin/setup.sh` / raw CloudFormation directly; it requests a DNS-validated ACM cert and fronts the private compute with an ALB.
+3. **Wait for the URL** — the cert validates mid-deploy, then instances/pods pass health checks a few minutes later; the URL is `https://<your-domain>` (public, or in-VPC only for private mode).
+4. **Initialize the platform** — register the admin and load plugins/compliance/samples via [`init-platform.sh`](#1-initialize-the-platform) (runs automatically by default; use `--init manual` to set real admin creds yourself).
+5. **Store service credentials** — [`store-token`](#2-store-service-credentials) writes a platform JWT to Secrets Manager for the lookup and event-ingestion Lambdas.
+6. **Deploy reporting** — wire up the [EventBridge → SQS → Lambda](#3-deploy-eventbridge-reporting-infrastructure) stack for execution and plugin analytics.
+7. **Operate** — monitor via `/dashboard/observability`, reconcile registry vs live stacks with [`audit-stacks`](#drift-detection-audit-stacks), and tear down with `--teardown` when done.
+
 ## Table of Contents
 
 - [AI-assisted install (`provision`)](#ai-assisted-install-provision) -- The recommended way to install the platform

@@ -16,6 +16,7 @@ jest.mock('@/hooks/useAuthGuard', () => ({
     isReady: true,
     isAuthenticated: true,
     user: { id: 'u1', organizationId: 'org-1', role: 'member' },
+    can: () => false,
   }),
 }));
 

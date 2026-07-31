@@ -50,7 +50,10 @@ export default function TriagePage() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [replaying, setReplaying] = useState<Set<string | number>>(new Set());
-  const [replayMsg, setReplayMsg] = useState<{ id: string | number; text: string; isError: boolean } | null>(null);
+  // Per-job replay outcome, keyed by job id — a single shared message would be
+  // overwritten when a second job is replayed, hiding the first's result during a
+  // bulk triage session.
+  const [replayMsgs, setReplayMsgs] = useState<Map<string | number, { text: string; isError: boolean }>>(new Map());
 
   useEffect(() => {
     if (!isReady || !isSuperAdmin) return;
@@ -82,17 +85,25 @@ export default function TriagePage() {
     });
   }
 
+  function setReplayMsg(jobId: string | number, entry: { text: string; isError: boolean } | null): void {
+    setReplayMsgs(prev => {
+      const next = new Map(prev);
+      if (entry) next.set(jobId, entry); else next.delete(jobId);
+      return next;
+    });
+  }
+
   async function handleReplay(jobId: string | number): Promise<void> {
     setReplaying(prev => new Set(prev).add(jobId));
-    setReplayMsg(null);
+    setReplayMsg(jobId, null);
     try {
       const res = await api.replayDlqJob(String(jobId));
       const newJobId = res.data?.newJobId ?? '?';
-      setReplayMsg({ id: jobId, text: `Re-enqueued as job ${newJobId}`, isError: false });
+      setReplayMsg(jobId, { text: `Re-enqueued as job ${newJobId}`, isError: false });
       // Refresh so the replayed sample disappears.
       void load();
     } catch (err) {
-      setReplayMsg({ id: jobId, text: err instanceof Error ? err.message : String(err), isError: true });
+      setReplayMsg(jobId, { text: err instanceof Error ? err.message : String(err), isError: true });
     } finally {
       setReplaying(prev => {
         const next = new Set(prev);
@@ -194,7 +205,7 @@ export default function TriagePage() {
                     <div className="space-y-2">
                       {g.samples.map(s => {
                         const isReplaying = replaying.has(s.id);
-                        const msg = replayMsg && replayMsg.id === s.id ? replayMsg : null;
+                        const msg = replayMsgs.get(s.id) ?? null;
                         return (
                           <div key={`${s.source}-${s.id}`} className="p-2 bg-white/50 dark:bg-gray-900/30 rounded border border-current/20 text-xs font-mono">
                             <div className="flex items-center justify-between mb-1 text-[10px] uppercase tracking-wider opacity-60">

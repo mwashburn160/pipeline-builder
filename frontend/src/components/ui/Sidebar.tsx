@@ -8,7 +8,8 @@ import {
   PanelLeftOpen,
   ChevronDown,
 } from 'lucide-react';
-import { hasPermission } from '@/lib/auth-helpers';
+import { hasPermission, isMutationPermission } from '@/lib/auth-helpers';
+import { useAuth } from '@/hooks/useAuth';
 import { type User } from '@/types';
 import { useFeatures } from '@/hooks/useFeatures';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible, type NavItem } from '@/lib/nav';
@@ -47,6 +48,11 @@ export function Sidebar({
   onToggleCollapsed,
 }: SidebarProps) {
   const features = useFeatures();
+  const { isReadOnly } = useAuth();
+  // A quick action is available only if permitted AND not a write blocked by a
+  // read-only impersonation session (matches nav.ts's documented `can()` intent).
+  const quickActionAllowed = (perm?: string) =>
+    !perm || (hasPermission(user, perm) && !(isReadOnly && isMutationPermission(perm)));
 
   // Collapsible nav sections (persisted to localStorage). With 6 sections the
   // rail can get long for admins; users hide groups they don't use. Ignored in
@@ -99,7 +105,7 @@ export function Sidebar({
             duplicated nav and pushed the rail down). Tooltips name each. */}
         {!collapsed && (
           <div className="px-3 pt-1 pb-2 flex items-center gap-1.5">
-            {QUICK_ACTIONS.filter((qa) => !qa.requiredPermission || hasPermission(user, qa.requiredPermission)).map(({ href, label, icon: Icon, color }) => (
+            {QUICK_ACTIONS.filter((qa) => quickActionAllowed(qa.requiredPermission)).map(({ href, label, icon: Icon, color }) => (
               <Tooltip key={href} content={label}>
                 <Link
                   href={href}

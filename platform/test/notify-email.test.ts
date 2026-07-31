@@ -81,7 +81,7 @@ describe('handleNotifyEmail', () => {
     mockUserFind.mockResolvedValue([{ email: 'a@x.com' }, { email: 'o@x.com' }]);
 
     const res = mockRes();
-    await handleNotifyEmail({ body: { orgId: 'org-1', targetUsers: null, subject: 'S', text: 'T' } } as any, res);
+    await handleNotifyEmail({ body: { orgId: 'org-1', targetUsers: null, subject: 'S', text: 'T' }, user: { sub: 'service:compliance', organizationId: 'org-1', isSuperAdmin: false } } as any, res);
 
     // only the admin + owner userIds are looked up (member filtered out)
     const userIdArg = (mockUserFind.mock.calls[0][0] as { _id: { $in: string[] } })._id.$in;
@@ -98,7 +98,7 @@ describe('handleNotifyEmail', () => {
     mockUserFind.mockResolvedValue([{ email: 'u1@x.com' }]);
 
     const res = mockRes();
-    await handleNotifyEmail({ body: { orgId: 'org-1', targetUsers: ['u1', 'u-outsider'], subject: 'S', text: 'T' } } as any, res);
+    await handleNotifyEmail({ body: { orgId: 'org-1', targetUsers: ['u1', 'u-outsider'], subject: 'S', text: 'T' }, user: { sub: 'service:compliance', organizationId: 'org-1', isSuperAdmin: false } } as any, res);
 
     const userIdArg = (mockUserFind.mock.calls[0][0] as { _id: { $in: string[] } })._id.$in;
     expect(userIdArg).toEqual(['u1']); // u-outsider not a member → dropped
@@ -107,7 +107,7 @@ describe('handleNotifyEmail', () => {
   it('returns ok with recipientCount 0 when no recipients resolve (no send)', async () => {
     mockMembershipFind.mockResolvedValue([]);
     const res = mockRes();
-    await handleNotifyEmail({ body: { orgId: 'org-1', targetUsers: null, subject: 'S', text: 'T' } } as any, res);
+    await handleNotifyEmail({ body: { orgId: 'org-1', targetUsers: null, subject: 'S', text: 'T' }, user: { sub: 'service:compliance', organizationId: 'org-1', isSuperAdmin: false } } as any, res);
     expect(mockSend).not.toHaveBeenCalled();
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { ok: true, recipientCount: 0 } }));
   });
@@ -115,7 +115,7 @@ describe('handleNotifyEmail', () => {
   it('500s when the resolution/send throws', async () => {
     mockMembershipFind.mockRejectedValue(new Error('mongo down'));
     const res = mockRes();
-    await handleNotifyEmail({ body: { orgId: 'org-1', subject: 'S', text: 'T' } } as any, res);
+    await handleNotifyEmail({ body: { orgId: 'org-1', subject: 'S', text: 'T' }, user: { sub: 'service:compliance', organizationId: 'org-1', isSuperAdmin: false } } as any, res);
     expect(res.status).toHaveBeenCalledWith(500);
   });
 
@@ -124,6 +124,18 @@ describe('handleNotifyEmail', () => {
     await handleNotifyEmail({
       body: { orgId: 'org-victim', subject: 'S', text: 'T' },
       user: { sub: 'service:compliance', organizationId: 'org-attacker', isSuperAdmin: false },
+    } as any, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockMembershipFind).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('403s an org-less non-sysadmin service token (fail-closed — cannot spoof any org)', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({
+      body: { orgId: 'org-victim', subject: 'S', text: 'T' },
+      user: { sub: 'service:compliance', isSuperAdmin: false }, // no organizationId claim
     } as any, res);
 
     expect(res.status).toHaveBeenCalledWith(403);

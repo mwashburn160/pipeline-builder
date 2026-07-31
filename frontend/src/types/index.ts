@@ -348,6 +348,22 @@ export interface GeneratedSynth {
 }
 
 /**
+ * Narrow a loosely-typed `BuilderProps.synth` / `.stages` (arbitrary plugin-
+ * config JSON, `Record<string, unknown>`) to the AI-generated view. The wire
+ * shape is genuinely untyped, so this is an unavoidable assertion — centralized
+ * and documented here instead of scattering `as unknown as GeneratedSynth` at
+ * each read in the AI-generation UI (which only renders AFTER generation
+ * produces this shape). Prefer these over inline casts.
+ */
+export function asGeneratedSynth(synth: Record<string, unknown>): GeneratedSynth {
+  return synth as unknown as GeneratedSynth;
+}
+
+export function asGeneratedStages(stages: Record<string, unknown>[] | undefined): GeneratedStage[] {
+  return (stages ?? []) as unknown as GeneratedStage[];
+}
+
+/**
  * Create pipeline request data
  * Only props (based on BuilderProps) and accessModifier are required
  */
@@ -490,6 +506,25 @@ export interface Bundle {
   availableForTiers: QuotaTier[];
 }
 
+/** A combo discount advertised in the bundle catalog: owning every member bundle
+ *  bills the set at a reduced combined price (realized as a recurring usage
+ *  credit). `savings` is the per-interval reduction vs buying the members apart. */
+export interface ComboDiscount {
+  id: string;
+  name: string;
+  bundleIds: string[];
+  /** Per-member minimum quantity (bundleId → count; absent ⇒ 1). */
+  minQuantities?: Record<string, number>;
+  savings: { monthly: number; annual: number };
+}
+
+/** A combo discount gained or lost by a proposed add-on change. */
+export interface ComboChange {
+  comboId: string;
+  name: string;
+  creditCents: number;
+}
+
 /** An itemized price line + total returned by the add-on preview/mutation. */
 export interface AddonPriceBreakdown {
   interval: string;
@@ -503,6 +538,9 @@ export interface AddonResult {
   effectiveLimits: Record<string, number>;
   priceBreakdown: AddonPriceBreakdown;
   subscription?: Subscription;
+  /** Combo discounts this change would end / unlock (drives the removal warning). */
+  lostCombos?: ComboChange[];
+  gainedCombos?: ComboChange[];
 }
 
 /**

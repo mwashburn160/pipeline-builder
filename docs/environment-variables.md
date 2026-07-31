@@ -15,6 +15,12 @@ Complete reference for all environment variables used across Pipeline Builder se
 
 ---
 
+## Overview
+
+This reference documents every environment variable across the Pipeline Builder services, grouped by concern (core, authentication, databases, plugin builds, quotas, compliance, email, billing, AWS/Lambda, timeouts, caching, and more) with each variable's default and effect. It's for anyone deploying or operating the platform; pair it with the per-target `.env.example` templates noted above and set only what your target needs. Defaults mirror the code, and feature switches are called out where they interact — for example the billing master switch `BILLING_DISCOUNTS_ENABLED` and the per-tier `QUOTA_TIER_*` / `JWT_EXPIRES_IN_*` overrides. Use the [Table of Contents](#table-of-contents) below to jump to a section.
+
+---
+
 ## Table of Contents
 
 - [Core](#core) -- Server basics (port, logging, URLs)
@@ -322,8 +328,42 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `S
 | `BILLING_LIFECYCLE_CHECK_INTERVAL_MS` | `3600000` | Subscription lifecycle check interval (1 hour) |
 | `PAYMENT_GRACE_PERIOD_DAYS` | `7` | Grace period for overdue payments |
 | `RENEWAL_REMINDER_DAYS` | `7` | Days before expiry to send renewal reminder |
+| `BILLING_BUNDLES_ENABLED` | `false` | Master switch for purchasable [add-on bundles](billing-bundles.md) — hidden unless set |
 
 Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, where `{TIER}` is `DEVELOPER`, `PRO`, `TEAM`, or `ENTERPRISE`) is in cents. Defaults: Developer free, Pro $49/mo ($490/yr), Team $149/mo ($1,490/yr), Enterprise $399/mo ($3,990/yr). Per-plan `_NAME` (display name), `_DESCRIPTION` (string), and `_FEATURES` (JSON array) can also be overridden.
+
+Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#configuration--overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), and `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), where `<ID>` is the bundle id upper-cased (`SEAT_PACK`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `AUDIT_LOG`, `SSO`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE` or `TEAM_GROWTH`.
+
+### Discounts
+
+Discount codes + usage credits ([docs/billing-discounts.md](billing-discounts.md)) — Stripe only, on by default.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BILLING_DISCOUNTS_ENABLED` | `true` | Master switch — set `false` to 404 the discount routes. Also governs Marketplace metered-credit realization (same value for both providers) |
+| `BILLING_DISCOUNT_KEYS` | — | **Secret.** AES-256-GCM signing keys for discount tokens, `v1:<base64-32B>,v2:…`; the highest version mints, older keys still decode (rotation). Required to issue Mode-B tokens |
+| `BILLING_DISCOUNT_MAX_PERCENT` | `100` | Mint-time ceiling on a percent discount (1-100) |
+| `BILLING_DISCOUNT_MAX_CENTS` | `10000000` | Mint-time ceiling on a dollar/credit discount, in cents ($100k) |
+
+`BILLING_DISCOUNT_KEYS` is a secret — provision it via a sealed secret / SSM, never commit a real value. Losing it makes previously issued Mode-B tokens undecodable (already-applied discounts on subscriptions are unaffected).
+
+### AWS Marketplace metering & credit realization
+
+For `BILLING_PROVIDER=aws-marketplace`: add-on charges are reported as metered usage, and usage-credit discounts realize by **withholding** metered units (see [docs/billing-discounts.md](billing-discounts.md#aws-marketplace--private-offers-handled-in-aws-not-in-app)). Metering is **default-off** and the two switches (`BILLING_DISCOUNTS_ENABLED` + `BILLING_METERING_ENABLED`) must both be on before a Marketplace credit is accepted — otherwise a credit would bank but never reduce the AWS bill.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BILLING_METERING_ENABLED` | `false` | Run the metering cycle (report add-on usage + realize credits). Off = no metering, and Marketplace credits are rejected |
+| `BILLING_METERING_INTERVAL_MS` | `3600000` | Metering cycle cadence (1 hour). AWS `BatchMeterUsage` dedupes by (customer, dimension, hour) |
+| `BILLING_METERING_DRAWDOWN_DRYRUN` | `false` | Shadow mode — compute + log the intended credit withholding but report FULL quantities and leave the balance untouched. Validate the price map before going live |
+| `AWS_MARKETPLACE_PRODUCT_CODE` | — | The Marketplace product code |
+| `AWS_MARKETPLACE_REGION` | `AWS_REGION` or `us-east-1` | Region for the Metering/Entitlement clients |
+| `AWS_MARKETPLACE_SNS_TOPIC_ARN` | — | SNS topic for entitlement/subscription notifications |
+| `AWS_MARKETPLACE_DIMENSION_MAP` | identity | JSON map of Marketplace dimension → local plan id |
+| `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | identity | JSON map of add-on bundle id → metered dimension key |
+| `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` | `{}` | JSON map of metered dimension → local list price in **cents per metered unit per metering cycle** (cycle = `BILLING_METERING_INTERVAL_MS`). Drives the credit drawdown; an unpriced dimension is never drawn against (reported in full). **A wrong value directly mis-draws credit** — mirror it to your AWS listing and cadence |
+
+> **Money-movement caution:** the credit drawdown is real billing behavior. Keep `BILLING_METERING_ENABLED=false` until `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` is validated (use the dry-run), and note that withholding offsets **metered add-on usage only** — plan-level reductions belong to AWS Marketplace private offers.
 
 ---
 

@@ -25,7 +25,7 @@ Assembles the standardized HTTP runtime shared by every backend service: a confi
 | `requireOrgId` | Validate the `x-org-id` header is present |
 | `checkQuota` | Quota enforcement middleware |
 | `etagMiddleware` | Conditional GET (304 Not Modified) support |
-| `idempotencyMiddleware`, `createMemoryStore`, `createRedisIdempotencyStore` | Idempotency-key handling with pluggable stores |
+| `idempotencyMiddleware`, `createMemoryStore` | Idempotency-key handling with a pluggable `IdempotencyStore` (in-memory default) |
 
 ### Route helpers (`./api`)
 | Export | Purpose |

@@ -146,7 +146,17 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
           organization,
         );
 
-        if (inserted) results.created++; else results.updated++;
+        if (inserted) {
+          results.created++;
+        } else {
+          // The upsert UPDATED an existing default (not a net-new pipeline), so
+          // the `pipelines` create-quota slot reserved above wasn't actually
+          // consumed — give it back. Without this, re-running a bulk create for
+          // the same org/project silently burns per-period create quota for
+          // pipelines that already existed.
+          results.updated++;
+          decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+        }
         results.items.push({ index: i, accessModifier, id: pipeline.id });
 
         // Best-effort attributed audit per successful item — emitted only

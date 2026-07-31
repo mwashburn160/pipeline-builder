@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { jest } from '@jest/globals';
 import { VALID_TIERS } from '@pipeline-builder/api-core';
 import { loadBillingConfig } from '../src/config/billing-config.js';
 
@@ -227,6 +228,46 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'pipeline_pack')?.availableForTiers).toEqual(all);
       expect(bundles.find((x) => x.id === 'plugin_pack')?.availableForTiers).toEqual(all);
       expect(bundles.find((x) => x.id === 'seat_pack')?.availableForTiers).toEqual(all);
+    });
+
+    it('defines the Analytics Suite combo (DORA + Team Usage Analytics) at $40/$400', () => {
+      const { comboDiscounts } = loadBillingConfig();
+      const suite = comboDiscounts.find((c) => c.id === 'analytics_suite');
+      expect(suite).toMatchObject({
+        id: 'analytics_suite',
+        bundleIds: ['advanced_reporting', 'team_usage_analytics'],
+        prices: { monthly: 4000, annual: 40000 },
+        isActive: true,
+      });
+    });
+
+    it('overrides a combo price from the environment', () => {
+      process.env.BILLING_COMBO_ANALYTICS_SUITE_MONTHLY = '3500';
+      process.env.BILLING_COMBO_ANALYTICS_SUITE_ANNUAL = '35000';
+      const { comboDiscounts } = loadBillingConfig();
+      expect(comboDiscounts.find((c) => c.id === 'analytics_suite')?.prices).toEqual({ monthly: 3500, annual: 35000 });
+    });
+
+    it('defines the Team Growth combo (≥1 Seat Pack + Team Usage Analytics) at $35/$350', () => {
+      const { comboDiscounts } = loadBillingConfig();
+      const tg = comboDiscounts.find((c) => c.id === 'team_growth');
+      expect(tg).toMatchObject({
+        id: 'team_growth',
+        bundleIds: ['seat_pack', 'team_usage_analytics'],
+        minQuantities: { seat_pack: 1 },
+        prices: { monthly: 3500, annual: 35000 },
+        sortOrder: 1,
+        isActive: true,
+      });
+    });
+
+    it('warns when a combo is configured with no actual discount (combined ≥ basket)', () => {
+      // Force the Team Growth combined price above its $55 member basket.
+      process.env.BILLING_COMBO_TEAM_GROWTH_MONTHLY = '999999';
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      loadBillingConfig();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('team_growth'));
+      warn.mockRestore();
     });
   });
 });

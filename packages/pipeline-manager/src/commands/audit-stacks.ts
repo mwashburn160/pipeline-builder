@@ -12,7 +12,6 @@ interface RegistryEntry {
   pipelineArn: string;
   pipelineName: string;
   stackName?: string;
-  accountId?: string;
   region?: string;
 }
 

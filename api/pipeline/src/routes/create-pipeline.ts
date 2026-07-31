@@ -115,7 +115,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
           return sendError(res, 503, 'Compliance service unavailable — pipeline creation rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
         }
 
-        const result = await pipelineService.createAsDefault( {
+        const { pipeline: result, inserted } = await pipelineService.createAsDefaultReportInserted( {
           orgId,
           project,
           organization,
@@ -131,9 +131,15 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         organization,
         );
 
-        // Quota was already reserved at the top of the handler; no post-hoc
-        // increment needed. On unexpected save failure, the catch block
+        // Quota was reserved at the top of the handler. If the upsert UPDATED an
+        // existing default for this org/project rather than inserting a net-new
+        // pipeline, no create actually happened — give the reserved slot back so
+        // repeated creates for the same org/project don't over-count the
+        // per-period `pipelines` create quota. On save failure, the catch block
         // below rolls the reservation back.
+        if (!inserted) {
+          decrementQuota(quotaService, orgId, 'pipelines', serviceAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
+        }
 
         ctx.log('COMPLETED', 'Pipeline created', { id: result.id });
 

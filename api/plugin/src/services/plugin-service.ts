@@ -177,6 +177,17 @@ export class PluginService extends CrudService<
     userId: string,
   ): Promise<Plugin> {
     return withTenantTx(async (tx) => {
+      // Serialize ALL deploys for the same (org, name) — including the FIRST,
+      // when no default row exists yet for the `FOR UPDATE` below to lock. Two
+      // concurrent first-time deploys of a brand-new plugin name would otherwise
+      // each lock zero rows, each unset zero defaults, and each insert
+      // isDefault=true → TWO defaults (ambiguous "the default" resolution). A
+      // transaction-scoped advisory lock keyed on (orgId, name) makes them run
+      // one-at-a-time regardless of whether any row exists.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${data.orgId} || ':' || ${data.name}))`,
+      );
+
       // Lock existing defaults by name+org to prevent concurrent races
       await tx.execute(
         sql`SELECT id FROM ${schema.plugin}

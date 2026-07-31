@@ -26,6 +26,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     __mockSetDefault: mockSetDefault,
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_ENTITY: 60 },
+    AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     buildPipelineConditions: jest.fn(() => []),
     getTenantContext: jest.fn(() => undefined),
     schema: {
@@ -68,6 +69,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     __mockSetDefault: mockSetDefault,
     CrudService: MockCrudService,
     CoreConstants: { CACHE_TTL_ENTITY: 60 },
+    AccessModifier: { PUBLIC: 'public', PRIVATE: 'private' },
     buildPipelineConditions: jest.fn(() => []),
     getTenantContext: jest.fn(() => undefined),
     schema: {

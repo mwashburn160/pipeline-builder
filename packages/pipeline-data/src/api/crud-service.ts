@@ -103,6 +103,18 @@ export interface PaginatedResult<T> {
  * }
  * ```
  */
+/** Structural view of the subclass table's columns the base class touches
+ *  directly. `id`/`isActive`/`isDefault` are always present on a CRUD entity;
+ *  `accessModifier` only on public-visibility entities; the index signature
+ *  covers dynamic (sparse-fieldset) column access. */
+interface CrudColumns {
+  id: AnyColumn;
+  isActive: AnyColumn;
+  isDefault: AnyColumn;
+  accessModifier?: AnyColumn;
+  [key: string]: AnyColumn | undefined;
+}
+
 export abstract class CrudService<
   TEntity extends BaseEntity,
   TFilter,
@@ -111,6 +123,17 @@ export abstract class CrudService<
 > {
   /** Drizzle schema table for this entity */
   protected abstract get schema(): PgTable;
+
+  /**
+   * Typed column view of {@link schema}. `PgTable` exposes no static columns, so
+   * the base class previously reached for `(this.schema as any).id` etc. at each
+   * use; centralize that single unavoidable cast here so callers get structured,
+   * typed access instead. `accessModifier` is optional (not every entity has it)
+   * and the index signature covers dynamic sparse-fieldset column lookup.
+   */
+  private get cols(): CrudColumns {
+    return this.schema as unknown as CrudColumns;
+  }
 
   /**
    * Build SQL conditions for filtering entities.
@@ -171,7 +194,22 @@ export abstract class CrudService<
     // (getOrgColumn, asserted non-null in the constructor) — consistent with
     // setDefault and without the old silent fail-open when the property was absent.
     if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
+    // Force EXACT id equality on the mutation path. `idConditions` reuses the
+    // list-filter clause, whose `buildIdFilter` PREFIX-matches (`id::text LIKE
+    // 'val%'`) any non-full-UUID value — so a partial id (`DELETE /x/ab`) would
+    // soft-delete/mutate EVERY own-org row whose id starts with `ab` and report
+    // touching one. ANDing an exact `id = val` collapses the prefix clause to at
+    // most the single exact row; a malformed/partial id then matches nothing
+    // (→ 404 via the callers' `if (!deleted)` guard) instead of mass-mutating.
+    conditions.push(this.exactIdCondition(id));
     return conditions;
+  }
+
+  /** Exact id equality, lower-cased to match `buildIdFilter`'s full-UUID branch.
+   *  `schema` is typed `PgTable` (no static `.id`), so cast — same pattern the
+   *  sort/default helpers use for column access. */
+  private exactIdCondition(id: string): SQL {
+    return eq(this.cols.id, String(id).toLowerCase());
   }
 
   // Lifecycle hooks — override in subclasses to react to mutations
@@ -319,11 +357,11 @@ export abstract class CrudService<
 
     const columns: Record<string, unknown> = {};
     // Always include id for entity identity
-    columns.id = (this.schema as any).id;
+    columns.id = this.cols.id;
 
     for (const field of fields) {
       if (field === 'id') continue; // Already included
-      const col = (this.schema as any)[field];
+      const col = this.cols[field];
       if (col) columns[field] = col;
     }
 
@@ -365,6 +403,11 @@ export abstract class CrudService<
    */
   async findById(id: string, orgId?: string, parentOrgId?: string): Promise<TEntity | null> {
     const conditions = this.idConditions(id, orgId, parentOrgId);
+    // Exact id — `findById` means THE row with this id, not a prefix match. The
+    // shared `buildIdFilter` prefix-matches non-full-UUID values (a list-search
+    // feature), which here would return an arbitrary first prefix hit for a
+    // partial id; pin it to exact so a malformed id returns null.
+    conditions.push(this.exactIdCondition(id));
 
     const results = await this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
       .select()
@@ -443,10 +486,15 @@ export abstract class CrudService<
   ): Promise<TEntity | null> {
     const conditions = this.writeConditions(id, orgId);
 
+    // Scrub a caller-supplied `orgId` in the update payload (as create does): the
+    // WHERE only pins which rows you can TARGET, not what you can set — without this
+    // a tenant could re-home a row it owns into another org via `data.orgId`.
+    const safeData = this.enforceOrgId(data as unknown as TInsert) as unknown as Partial<TUpdate>;
+
     const [updated] = await withTenantTx(async (tx) => tx
       .update(this.schema)
       .set({
-        ...data,
+        ...safeData,
         updatedAt: new Date(),
         updatedBy: userId || 'system',
       } as any)
@@ -516,7 +564,7 @@ export abstract class CrudService<
       // Build scoping conditions for clearing defaults
       const scopeConditions = [
         eq(orgColumn, org),
-        eq((this.schema as any).isDefault, true),
+        eq(this.cols.isDefault, true),
       ];
       if (projectColumn) {
         scopeConditions.push(eq(projectColumn, project));
@@ -526,7 +574,7 @@ export abstract class CrudService<
       await tx.execute(
         sql`SELECT id FROM ${this.schema}
             WHERE ${orgColumn} = ${org}
-              AND ${(this.schema as any).isDefault} = true
+              AND ${this.cols.isDefault} = true
             ${projectColumn ? sql`AND ${projectColumn} = ${project}` : sql``}
             FOR UPDATE`,
       );
@@ -551,7 +599,7 @@ export abstract class CrudService<
         } as any)
         .where(
           and(
-            eq((this.schema as any).id, id),
+            eq(this.cols.id, id),
             eq(orgColumn, org),
           ),
         )
@@ -582,10 +630,14 @@ export abstract class CrudService<
     // full access.
     if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
 
+    // Scrub a caller-supplied orgId (see update()) so a filter-based update can't
+    // re-home rows into another tenant.
+    const safeData = this.enforceOrgId(data as unknown as TInsert) as unknown as Partial<TUpdate>;
+
     return withTenantTx(async (tx) => tx
       .update(this.schema)
       .set({
-        ...data,
+        ...safeData,
         updatedAt: new Date(),
         updatedBy: userId || 'system',
       } as any)
@@ -686,9 +738,9 @@ export abstract class CrudService<
     // Owner-scope the bulk soft-delete: buildConditions also matches system/other
     // -org PUBLIC rows, so without the strict orgId pin a tenant could delete
     // shared records by id. (See writeConditions.)
-    const accessCol = (this.schema as any).accessModifier as AnyColumn | undefined;
+    const accessCol = this.cols.accessModifier;
     const conditions = [
-      inArray((this.schema as any).id, ids),
+      inArray(this.cols.id, ids),
       ...this.buildConditions({} as Partial<TFilter>, orgId),
       // Tenant column (getOrgColumn, asserted non-null) — consistent with
       // writeConditions; no silent fail-open when the property is absent.

@@ -17,7 +17,9 @@ export type FeatureFlag =
   | 'bulk_operations'
   | 'audit_log'
   // DORA / advanced delivery analytics (paid tiers only).
-  | 'advanced_reporting';
+  | 'advanced_reporting'
+  // Per-team usage breakdown (Enterprise-included; add-on for Pro/Team).
+  | 'team_usage_analytics';
 
 export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
   'priority_support',
@@ -26,6 +28,7 @@ export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
   'custom_integrations',
   'audit_log',
   'advanced_reporting',
+  'team_usage_analytics',
 ];
 
 export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description: string }> = {
@@ -35,4 +38,5 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   custom_integrations: { label: 'Custom Integrations', description: 'Connect to external services and custom webhook endpoints' },
   audit_log: { label: 'Audit Log', description: 'Detailed audit trail of all user and system actions' },
   advanced_reporting: { label: 'Advanced Reporting', description: 'DORA / advanced delivery analytics' },
+  team_usage_analytics: { label: 'Team Usage Analytics', description: 'Per-team usage breakdown across the org → team subtree' },
 };

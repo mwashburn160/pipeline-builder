@@ -187,9 +187,9 @@ export async function recomputeUserOrgRole(
   // G1: a real privilege change must take effect immediately, not at token
   // expiry. Bumping tokenVersion makes `requireAuth` reject the user's existing
   // access tokens; a refresh then reissues a JWT carrying the new role/flag.
-  // Mirrors org-members-service.updateRole/removeMember, which already do this
-  // for direct edits. No bump when nothing flipped (e.g. assigned a member-only
-  // Role, or a no-op re-assign).
+  // Mirrors org-members-service.removeMember/transferOwnership, which already do
+  // this for direct membership edits. No bump when nothing flipped (e.g. assigned
+  // a member-only Role, or a no-op re-assign).
   if (privilegeChanged) {
     await User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } }, { session });
   }
@@ -610,11 +610,18 @@ export async function updateRole(
  * affected member. Seeded (`system`) Roles can't be deleted.
  * Throws `RL_ROLE_NOT_FOUND`, `RL_SYSTEM_IMMUTABLE`.
  */
-export async function deleteRole(orgId: string, roleId: string): Promise<void> {
+export async function deleteRole(orgId: string, roleId: string, actor: RoleAssignmentActor): Promise<void> {
   const oid = toOrgId(orgId);
-  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('system');
+  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('system permissions');
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
   if (role.system) throw new Error(RL_SYSTEM_IMMUTABLE);
+  // Apply the same actor ceiling as add/remove-member and create/update: a
+  // delegated non-admin (e.g. a custom `roles:manage` holder) must not delete a
+  // Role granting permissions beyond their own set — otherwise they could strip
+  // capabilities they don't hold (e.g. billing:manage) from every member, a
+  // griefing/privilege vector the symmetric remove-member path already blocks.
+  // Superadmins and org admins/owners bypass (they hold the full bundle).
+  assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
 
   let bumpedMemberIds: mongoose.Types.ObjectId[] = [];
   await withMongoTransaction(async (session) => {

@@ -249,7 +249,7 @@ describe('PUT /pipelines/:id (update)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, existingPipeline);
+    expect(requirePublicAccess).toHaveBeenCalledWith(req, res, existingPipeline, 'pipelines:publish');
     // The route returns early when requirePublicAccess is false
     // (requirePublicAccess itself sends the 403 response)
     expect(mockUpdate).not.toHaveBeenCalled();

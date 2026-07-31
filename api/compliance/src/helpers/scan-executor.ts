@@ -75,8 +75,11 @@ async function executeScanInternal(scanId: string): Promise<void> {
     // Resolve the org's parent once for the whole scan so rule lookup includes
     // the parent's `propagateToChildren` rules — matching the live validation
     // and entity-event paths (which read it off the request JWT). Scans are
-    // detached from any request, so this is an internal platform lookup;
-    // fail-soft to undefined (own-rules-only) if platform is unreachable.
+    // detached from any request, so this is an internal platform lookup.
+    // Fail-CLOSED: a resolve FAILURE throws here (caught below → scan marked
+    // `failed`) rather than degrading to own-rules-only, which would skip a
+    // team's inherited blocking rules and stamp a false-pass. A genuine root
+    // org resolves to undefined (no parent) and proceeds normally.
     const parentOrgId = await resolveParentOrgId(scan.orgId);
 
     // Fetch entities based on target

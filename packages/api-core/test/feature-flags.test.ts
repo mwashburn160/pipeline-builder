@@ -15,7 +15,7 @@ import {
 
 describe('ALL_FEATURE_FLAGS', () => {
   it('should contain all 7 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(7);
+    expect(ALL_FEATURE_FLAGS).toHaveLength(8);
     expect(ALL_FEATURE_FLAGS).toContain('priority_support');
     expect(ALL_FEATURE_FLAGS).toContain('ai_generation');
     expect(ALL_FEATURE_FLAGS).toContain('bulk_operations');
@@ -23,6 +23,7 @@ describe('ALL_FEATURE_FLAGS', () => {
     expect(ALL_FEATURE_FLAGS).toContain('audit_log');
     expect(ALL_FEATURE_FLAGS).toContain('sso');
     expect(ALL_FEATURE_FLAGS).toContain('advanced_reporting');
+    expect(ALL_FEATURE_FLAGS).toContain('team_usage_analytics');
   });
 });
 
@@ -56,6 +57,13 @@ describe('TIER_FEATURES', () => {
     expect(TIER_FEATURES.team).not.toContain('advanced_reporting');
     expect(TIER_FEATURES.pro).not.toContain('advanced_reporting');
     expect(TIER_FEATURES.developer).not.toContain('advanced_reporting');
+  });
+
+  it('team_usage_analytics is Enterprise-only as a tier feature (Pro/Team add-on bundle)', () => {
+    expect(TIER_FEATURES.enterprise).toContain('team_usage_analytics');
+    expect(TIER_FEATURES.team).not.toContain('team_usage_analytics');
+    expect(TIER_FEATURES.pro).not.toContain('team_usage_analytics');
+    expect(TIER_FEATURES.developer).not.toContain('team_usage_analytics');
   });
 
   it('enterprise tier has all features', () => {

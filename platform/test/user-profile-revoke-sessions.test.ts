@@ -40,6 +40,7 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUserRevocation: (...a: unknown[]) => mockPublishUser(...a),
   publishUsersRevocation: jest.fn(async () => undefined),
+  publishUserDeletionRevocation: jest.fn(async () => undefined),
 }));
 
 // auth-service deps (the real auth-service is imported below and must load).
@@ -62,6 +63,11 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
   Organization: {},
   UserOrganization: {},
+  // user-profile-service imports these at module load (used by deleteAccount's
+  // transactional cleanup); the revoke-sessions path doesn't exercise them, so
+  // empty stubs satisfy the import binding.
+  Role: {},
+  RoleAssignment: {},
 }));
 
 const { userProfileService, PROFILE_USER_NOT_FOUND } = await import('../src/services/user-profile-service.js');

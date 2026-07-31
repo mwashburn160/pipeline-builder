@@ -6,8 +6,8 @@ import { Types } from 'mongoose';
 import { RL_ROLE_NOT_FOUND, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole, removeBuiltinAdminRole } from './roles-service.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/controller-helper.js';
-import { seatCapacityAvailable } from '../helpers/seats.js';
-import { publishUserRevocation } from '../helpers/session-revocation.js';
+import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
+import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, Role, RoleAssignment, type OrgMemberRole } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
@@ -18,6 +18,7 @@ export const UA_USER_NOT_FOUND = 'UA_USER_NOT_FOUND';
 export const UA_USERNAME_TAKEN = 'UA_USERNAME_TAKEN';
 export const UA_EMAIL_TAKEN = 'UA_EMAIL_TAKEN';
 export const UA_OWNER_HAS_ORGS = 'UA_OWNER_HAS_ORGS';
+export const UA_LAST_PRIVILEGED_MEMBER = 'UA_LAST_PRIVILEGED_MEMBER';
 export const UA_ORG_NOT_FOUND = 'UA_ORG_NOT_FOUND';
 /** Refused an attempt to change the role of an org OWNER's membership. The owner
  *  role can only move via `transferOwnership` (which atomically re-homes it);
@@ -350,9 +351,9 @@ class UserAdminService {
           }).session(session);
           if (membership) {
             // Owner guard: refuse to change the role of an org OWNER's membership
-            // (mirrors org-members-service.updateRole). The controller only blocks
-            // SETTING role:'owner' — without this an admin could DEMOTE the owner
-            // here and orphan the org.
+            // (mirrors the owner protection in org-members-service.removeMember /
+            // transferOwnership). The controller only blocks SETTING role:'owner' —
+            // without this an admin could DEMOTE the owner here and orphan the org.
             if (membership.role === 'owner') throw new Error(UA_CANNOT_CHANGE_OWNER);
             if (membership.role !== body.role) {
               // Single-source RBAC: route the coarse-role change THROUGH Role
@@ -393,6 +394,10 @@ class UserAdminService {
       if (!options.isOrgAdmin && body.organizationId !== undefined) {
         if (body.organizationId === null || body.organizationId === '') {
           await UserOrganization.deleteMany({ userId: user._id }).session(session);
+          // Removing the user from EVERY org also strips every RoleAssignment —
+          // otherwise the grants are orphaned and a later re-add resurrects the
+          // old role (see removeMember). Mirrors the user-delete cleanup below.
+          await RoleAssignment.deleteMany({ userId: user._id }, { session });
           user.lastActiveOrgId = undefined;
           changes.push('organizationId (removed)');
         } else {
@@ -403,14 +408,27 @@ class UserAdminService {
           }).session(session);
           if (!existingMembership) {
             // Enforce the account's pooled seat cap even for a sysadmin assignment
-            // (resolved at the root by the helper).
-            if (!(await seatCapacityAvailable(String(body.organizationId), 1, session))) {
+            // (resolved at the root). Seats count DISTINCT humans across the subtree,
+            // so a user who already holds a seat elsewhere in the account consumes no
+            // new seat — only check capacity when they don't (mirrors addMember).
+            const alreadyHasSeat = await userHasSeatInAccount(user._id, String(body.organizationId), session);
+            if (!alreadyHasSeat && !(await seatCapacityAvailable(String(body.organizationId), 1, session))) {
               throw new Error(UA_SEAT_LIMIT);
             }
             await UserOrganization.create(
               [{ userId: user._id, organizationId: toOrgId(body.organizationId), role: 'member' }],
               { session },
             );
+            // Post-write re-check (the documented G5 pattern that addMember /
+            // bulkAddMemberToTeams / activateMember run): the pre-check above can
+            // race a concurrent invite-accept against an account one seat under
+            // cap — both pre-checks pass, both insert, account lands over its
+            // pooled seat cap. Re-counting AFTER our insert (and aborting the tx)
+            // closes that window. Skip when the user already held a seat (no new
+            // seat consumed).
+            if (!alreadyHasSeat && !(await seatCapacityStillWithinCap(String(body.organizationId), session))) {
+              throw new Error(UA_SEAT_LIMIT);
+            }
             // Single-source RBAC: give the newly-assigned plain member the
             // built-in Member Role floor.
             await ensureBaselineRole(user._id, toOrgId(body.organizationId), session);
@@ -440,20 +458,43 @@ class UserAdminService {
    * Caller is responsible for the self-delete check.
    */
   async deleteUserById(id: string): Promise<void> {
-    const user = await User.findById(id);
+    const user = await User.findById(id).select('+tokenVersion');
     if (!user) throw new Error(UA_USER_NOT_FOUND);
-
-    const ownerCount = await UserOrganization.countDocuments({ userId: user._id, role: 'owner' });
-    if (ownerCount > 0) throw new Error(UA_OWNER_HAS_ORGS);
+    // Capture before deletion — the doc is gone after the tx, so we can't read
+    // tokenVersion back to revoke the deleted user's outstanding tokens.
+    const capturedTokenVersion = user.tokenVersion ?? 0;
 
     // Delete memberships + role assignments + the user atomically so a partial
     // failure can't leave orphaned RoleAssignment docs behind (which would
-    // corrupt the last-privileged-member guard).
+    // corrupt the last-privileged-member guard). The guard READS also run inside
+    // the tx (was a check-then-act TOCTOU when read before it): the owner and
+    // last-privileged-member checks now see a snapshot consistent with the
+    // delete. (Residual: distinct-doc deletes don't write-conflict under
+    // WiredTiger, so a fully-concurrent double-delete of a 2-member privileged
+    // role can still slip through; the in-tx read closes the common window.)
     await withMongoTransaction(async (session) => {
+      const ownerCount = await UserOrganization.countDocuments({ userId: user._id, role: 'owner' }).session(session);
+      if (ownerCount > 0) throw new Error(UA_OWNER_HAS_ORGS);
+
+      // Never delete the last member of an admin/superadmin-granting Role (mirrors
+      // removeUserFromRole's G3 guard) — otherwise deleting the sole Super Admin,
+      // or an org's last Admin, silently empties a privilege-granting Role → lockout.
+      const assignments = await RoleAssignment.find({ userId: user._id }).select('roleId').session(session).lean();
+      for (const a of assignments) {
+        const role = await Role.findById(a.roleId).select('grantsRole').session(session).lean();
+        if (role && role.grantsRole !== 'member') {
+          const memberCount = await RoleAssignment.countDocuments({ roleId: a.roleId }).session(session);
+          if (memberCount <= 1) throw new Error(UA_LAST_PRIVILEGED_MEMBER);
+        }
+      }
+
       await UserOrganization.deleteMany({ userId: user._id }, { session });
       await RoleAssignment.deleteMany({ userId: user._id }, { session });
       await User.findByIdAndDelete(id, { session });
     });
+    // Revoke the deleted user's outstanding tokens on the stateless services
+    // (platform's requireAuth already rejects the missing user). Best-effort.
+    await publishUserDeletionRevocation(id, capturedTokenVersion);
     logger.info('User deleted by admin', { userId: id });
   }
 

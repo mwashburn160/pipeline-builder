@@ -12,6 +12,8 @@ import { seedPlans } from './helpers/seed-plans.js';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
 import { createAddonRoutes } from './routes/addons.js';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
+import { createBillingSummaryRoutes } from './routes/billing-summary.js';
+import { createDiscountRoutes } from './routes/discounts.js';
 import { createMarketplaceRoutes } from './routes/marketplace.js';
 import { createReadPlanRoutes } from './routes/read-plans.js';
 import { createStripeWebhookRoutes } from './routes/stripe-webhook.js';
@@ -53,6 +55,8 @@ if (config.enabled) {
   app.use('/billing', createReadPlanRoutes());
   app.use('/billing', createSubscriptionRoutes());
   app.use('/billing', createAddonRoutes());
+  app.use('/billing', createDiscountRoutes());
+  app.use('/billing', createBillingSummaryRoutes());
   app.use('/billing', createUsageRoutes());
   app.use('/billing', createAdminSubscriptionRoutes());
 

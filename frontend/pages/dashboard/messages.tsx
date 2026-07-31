@@ -206,7 +206,7 @@ export default function MessagesPage() {
                 onSelect={handleSelectMessage}
                 selectedId={selectedMessage?.id}
                 currentOrgId={currentOrgId}
-                onDelete={handleDelete}
+                onDelete={canWrite ? handleDelete : undefined}
               />
             )}
           </div>
@@ -219,7 +219,7 @@ export default function MessagesPage() {
                 currentOrgId={currentOrgId}
                 onBack={handleBack}
                 onThreadRead={markThreadAsRead}
-                onDelete={handleDelete}
+                onDelete={canWrite ? handleDelete : undefined}
               />
             ) : (
               <EmptyChat />

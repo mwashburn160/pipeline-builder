@@ -418,7 +418,7 @@ export function buildComplianceExemptionConditions(
   const conditions: SQL[] = [];
 
   if (orgId) {
-    conditions.push(eq(schema.complianceExemption.orgId, orgId));
+    conditions.push(eq(schema.complianceExemption.orgId, orgId.toLowerCase()));
   } else {
     conditions.push(IMPOSSIBLE);
   }
@@ -452,7 +452,7 @@ export function buildComplianceAuditConditions(
   const conditions: SQL[] = [];
 
   if (orgId) {
-    conditions.push(eq(schema.complianceAuditLog.orgId, orgId));
+    conditions.push(eq(schema.complianceAuditLog.orgId, orgId.toLowerCase()));
   } else {
     conditions.push(IMPOSSIBLE);
   }
@@ -494,7 +494,7 @@ export function buildComplianceScanConditions(
   const conditions: SQL[] = [];
 
   if (orgId) {
-    conditions.push(eq(schema.complianceScan.orgId, orgId));
+    conditions.push(eq(schema.complianceScan.orgId, orgId.toLowerCase()));
   } else {
     conditions.push(IMPOSSIBLE);
   }

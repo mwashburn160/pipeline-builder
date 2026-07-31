@@ -40,10 +40,26 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
   syncEntitlements: (...args: unknown[]) => mockSyncTier(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
+  // Transitively required by discount-helpers (imported by stripe-webhook for
+  // the Phase 6 invoice/cancel reconciliation). getBundleCatalog feeds the combo
+  // reconcile step (combo math itself is mocked via combo-pricing below).
+  getBundleCatalog: () => [],
+  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   calculatePeriodEnd: (...args: unknown[]) => mockCalculatePeriodEnd(),
   // Double-billing prune: no-op passthrough (nothing to prune on an interval change).
   applyTierIncludedAddonPrune: () => [],
   finalizePrunedAddons: (...args: unknown[]) => mockFinalizePrunedAddons(...args),
+}));
+
+// discount-helpers (real, for invoice reconciliation) imports combo-pricing, which
+// loads the real pipeline-core config graph. Stub it so no real combo math / config
+// loads — reconcile just needs an empty combo set here.
+jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
+  getComboDiscounts: () => [],
+  activeComboCredits: () => [],
+  comboBasisCents: () => 0,
+  priceForInterval: (prices: { monthly: number; annual: number }, interval: string) => (interval === 'annual' ? prices.annual : prices.monthly),
+  comboLedgerId: (comboId: string) => `combo:${comboId}`,
 }));
 
 // stripe-webhook now emits incCounter on the reactivate-plan-missing gap; stub it

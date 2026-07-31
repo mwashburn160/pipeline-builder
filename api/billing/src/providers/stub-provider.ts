@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import type { ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
+import type { DiscountRef, ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
 import type { BillingInterval } from '../models/subscription.js';
 
 const logger = createLogger('stub-provider');
@@ -48,5 +48,12 @@ export class StubPaymentProvider implements PaymentProvider {
   async getSubscription(externalId: string): Promise<ProviderSubscriptionView | null> {
     logger.debug('Stub: getSubscription', { externalId });
     return { status: 'active' };
+  }
+
+  readonly usageCreditSupport = 'balance' as const;
+
+  async applyUsageCredit(externalCustomerId: string, cents: number): Promise<{ ref?: DiscountRef }> {
+    logger.debug('Stub: applyUsageCredit', { externalCustomerId, cents });
+    return {};
   }
 }

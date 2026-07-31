@@ -44,7 +44,7 @@ export function createUpdatePipelineRoutes(): Router {
     if (!existing) return sendEntityNotFound(res, 'Pipeline');
 
     // Only system admins can edit non-private pipelines
-    if (!requirePublicAccess(req, res, existing)) return;
+    if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
 
     // Build update data from validated body
     const updateData: Record<string, unknown> = {

@@ -27,10 +27,14 @@ export function createDeletePluginRoutes(): Router {
 
     if (!existing) return sendEntityNotFound(res, 'Plugin');
 
-    // Only system admins can delete non-private (public) plugins
-    if (!requirePublicAccess(req, res, existing)) return;
+    // System admins or publish-permission holders can delete non-private (public) plugins
+    if (!requirePublicAccess(req, res, existing, 'plugins:publish')) return;
 
-    await pluginService.delete(id, orgId, userId || 'system');
+    // The delete is pinned to the caller's org, so a public/system-org sample the
+    // read surfaced matches zero rows → falsy. Don't 200 or emit a `plugin.delete`
+    // audit for a deletion that never happened.
+    const deleted = await pluginService.delete(id, orgId, userId || 'system');
+    if (!deleted) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Deleted plugin', { id, name: existing.name });
 

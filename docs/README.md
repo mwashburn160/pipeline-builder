@@ -8,6 +8,10 @@ permalink: /docs/
 
 Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting Started](#getting-started) below, then jump into [Creating Pipelines](#creating-pipelines).
 
+## Overview
+
+This is the documentation index for **Pipeline Builder**, a multi-tenant platform for building AWS CodePipeline CI/CD pipelines from reusable, containerized plugins. It links every setup, usage, and reference guide — deployment, pipeline and plugin authoring (dashboard, CLI, API, CDK, or AI), organizations and RBAC, compliance, billing, and architecture. First time? Work through [Getting Started](#getting-started) then [Creating Pipelines](#creating-pipelines); if you're evaluating for a team, skip ahead to [Architecture](#architecture) and [Organizations](#organizations).
+
 ## Getting Started
 
 1. **Deploy** — choose [Local](../deploy/local/docker/), [Minikube](../deploy/local/minikube/), [EC2, or EKS](aws-deployment.md)
@@ -55,6 +59,7 @@ Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting 
 | [Plugin Catalog](plugins/README.md) | 119 pre-built plugins across 10 categories |
 | [Org → Team Hierarchy](#teams-org--team-hierarchy) | Teams nested one level under a parent org — RBAC, visibility, quota, and compliance inheritance |
 | [Billing Add-on Bundles](billing-bundles.md) | Stackable add-ons that raise an account's pooled caps (seats, pipelines, plugins, storage) and unlock features |
+| [Billing Discounts](billing-discounts.md) | Coupon codes + usage credits — unforgeable tokens, one-time/recurring/credit, system-grant or self-service redemption |
 
 ---
 
@@ -288,6 +293,7 @@ A user can belong to several organizations and teams at once and acts within one
 | Bulk operations | - | yes | yes | yes |
 | Audit log | - | - | yes | yes |
 | Advanced Reporting (DORA) | add-on | add-on | add-on | yes |
+| Team Usage Analytics | - | add-on | add-on | yes |
 | Custom integrations | - | - | - | yes |
 | Priority support | - | yes | yes | yes |
 | Plugins | 25 | 50 | 100 | 250 |

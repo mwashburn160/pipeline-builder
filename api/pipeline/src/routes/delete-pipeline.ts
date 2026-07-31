@@ -27,10 +27,14 @@ export function createDeletePipelineRoutes(): Router {
 
     if (!existing) return sendEntityNotFound(res, 'Pipeline');
 
-    // Only system admins can delete non-private (public) pipelines
-    if (!requirePublicAccess(req, res, existing)) return;
+    // System admins or publish-permission holders can delete non-private (public) pipelines
+    if (!requirePublicAccess(req, res, existing, 'pipelines:publish')) return;
 
-    await pipelineService.delete(id, orgId, userId || 'system');
+    // The delete write is pinned to the caller's org, so a public/system-org
+    // sample the read surfaced matches zero rows → returns falsy. Don't report a
+    // 200 or emit a `pipeline.delete` audit for a deletion that never happened.
+    const deleted = await pipelineService.delete(id, orgId, userId || 'system');
+    if (!deleted) return sendEntityNotFound(res, 'Pipeline');
 
     ctx.log('COMPLETED', 'Deleted pipeline', { id, name: existing.pipelineName });
 

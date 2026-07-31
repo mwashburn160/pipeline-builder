@@ -116,12 +116,23 @@ export class AccessControlQueryBuilder<
     const accessModifier = filter.accessModifier as string | undefined;
 
     if (accessModifier !== undefined) {
-      // Explicit filter: scope to user's org + requested access modifier
       const normalized = typeof accessModifier === 'string'
         ? accessModifier.toLowerCase()
         : String(accessModifier).toLowerCase();
-      conditions.push(eq(this.schema.orgId, normalizedOrgId));
-      conditions.push(eq(this.schema.accessModifier, normalized));
+      if (normalized === AccessModifier.PUBLIC) {
+        // Explicit "public" filter must STILL surface the system org's (and parent
+        // org's) public content — the standing rule that orgId='system' samples are
+        // visible from any org. Scoping to the caller's own org alone would hide them.
+        const ownPublic = and(eq(this.schema.orgId, normalizedOrgId), eq(this.schema.accessModifier, AccessModifier.PUBLIC))!;
+        const otherOrgScopes = [eq(this.schema.orgId, SYSTEM_ORG_ID)];
+        if (parentOrgId) otherOrgScopes.push(eq(this.schema.orgId, parentOrgId.toLowerCase()));
+        const otherOrgsPublic = and(eq(this.schema.accessModifier, AccessModifier.PUBLIC), or(...otherOrgScopes)!)!;
+        conditions.push(or(ownPublic, otherOrgsPublic)!);
+      } else {
+        // Explicit non-public (e.g. private): you can only ever see your own org's rows.
+        conditions.push(eq(this.schema.orgId, normalizedOrgId));
+        conditions.push(eq(this.schema.accessModifier, normalized));
+      }
     } else {
       // Default catalog view: ALL of the caller's own-org records (any access
       // modifier — you always see what you own, including private), PLUS the

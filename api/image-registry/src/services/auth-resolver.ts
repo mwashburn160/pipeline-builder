@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, isAccessTokenRevoked } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
@@ -24,7 +24,7 @@ const PlatformLoginResponseSchema = z.object({
  * producible via any external auth path.
  */
 export type Identity =
-  | { type: 'jwt'; orgId: string; userId: string; isAdmin: boolean; isSuperAdmin: boolean }
+  | { type: 'jwt'; orgId: string; userId: string; isAdmin: boolean; isSuperAdmin: boolean; canWritePlugins: boolean }
   | { type: 'management' };
 
 /**
@@ -38,6 +38,10 @@ interface PlatformJwtPayload {
   organizationId?: string;
   isAdmin?: boolean;
   isSuperAdmin?: boolean;
+  /** Resolved permission ids on the access token — gates raw-namespace push. */
+  permissions?: string[];
+  /** Per-user version stamp; a bump on the platform revokes older tokens. */
+  tokenVersion?: number;
   type?: string;
 }
 
@@ -61,7 +65,7 @@ interface PlatformJwtPayload {
 export async function resolveIdentity(username: string, password: string): Promise<Identity | null> {
   // Path 1: JWT — most common (CodeBuild / Lambda via Secrets Manager,
   // and api/plugin minting service tokens for its own pushes).
-  const fromJwt = verifyPlatformJwt(password);
+  const fromJwt = await verifyPlatformJwt(password);
   if (fromJwt) return fromJwt;
 
   // Path 2: platform user — `docker login` flow.
@@ -76,7 +80,7 @@ export async function resolveIdentity(username: string, password: string): Promi
  * Returns null on any verification failure (caller falls through to other
  * paths). Logged at debug only — Path 2/3 inputs always fail Path 1.
  */
-function verifyPlatformJwt(token: string): Identity | null {
+async function verifyPlatformJwt(token: string): Promise<Identity | null> {
   try {
     const decoded = jwt.verify(token, config.platformJwt.secret, {
       ...(config.platformJwt.issuer && { issuer: config.platformJwt.issuer }),
@@ -92,12 +96,26 @@ function verifyPlatformJwt(token: string): Identity | null {
       logger.warn('JWT organizationId failed format validation', { sub: decoded.sub });
       return null;
     }
+    // Honor token revocation on the /token MINT path too. `/api/images` and
+    // `/api/admin` go through `requireAuth` (which consults the revocation store),
+    // but this resolver runs outside it — without this check a user whose
+    // tokenVersion was bumped (permissions removed / offboarded) could still mint
+    // `docker push` tokens until their JWT naturally expires. Fail-open on store
+    // outage, matching requireAuth.
+    if (await isAccessTokenRevoked({ sub: decoded.sub, tokenVersion: decoded.tokenVersion })) {
+      logger.warn('Rejecting revoked platform JWT (tokenVersion behind current)', { sub: decoded.sub });
+      return null;
+    }
     return {
       type: 'jwt',
       orgId: decoded.organizationId,
       userId: decoded.sub,
       isAdmin: !!decoded.isAdmin,
       isSuperAdmin: !!decoded.isSuperAdmin,
+      // Push to the org's own namespace requires plugins:write (or admin, who holds
+      // it implicitly) — otherwise any member could overwrite a plugin image. Pull
+      // stays open to all members.
+      canWritePlugins: !!decoded.isAdmin || (decoded.permissions?.includes('plugins:write') ?? false),
     };
   } catch {
     // Error contents may include the raw decode string (which is the user's
@@ -138,7 +156,7 @@ async function resolvePlatformUser(identifier: string, password: string): Promis
       });
       return null;
     }
-    return verifyPlatformJwt(parsed.data.accessToken);
+    return await verifyPlatformJwt(parsed.data.accessToken);
   } catch {
     // Never interpolate err.message — axios error messages can include the
     // outbound request body, which contains the user's password.

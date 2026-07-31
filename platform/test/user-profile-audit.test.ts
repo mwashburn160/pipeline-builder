@@ -52,6 +52,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   PROFILE_EMAIL_TAKEN: 'PROFILE_EMAIL_TAKEN',
   PROFILE_INVALID_CREDENTIALS: 'PROFILE_INVALID_CREDENTIALS',
   PROFILE_OWNER_HAS_ORGS: 'PROFILE_OWNER_HAS_ORGS',
+  PROFILE_LAST_PRIVILEGED_MEMBER: 'PROFILE_LAST_PRIVILEGED_MEMBER',
   userProfileService: {
     updateProfile: (...a: unknown[]) => mockUpdateProfile(...a),
     changePassword: (...a: unknown[]) => mockChangePassword(...a),

@@ -278,23 +278,24 @@ export class CacheService {
     if (cached !== null) return cached;
 
     const fk = this.fullKey(key);
-    // Coalesce concurrent cold callers onto a single factory() invocation.
-    const existing = this.inflight.get(fk);
-    if (existing) return existing as Promise<T>;
+    // Coalesce concurrent cold callers onto a single factory() invocation. The
+    // in-flight promise resolves to the RAW value; each awaiter (the primary
+    // caller below AND every coalesced caller here) clones it INDEPENDENTLY.
+    // Cloning inside the flight instead would hand one shared clone to all N
+    // coalesced callers, so one caller mutating its "independent" result would
+    // corrupt what the others read — the exact footgun get()'s clone-on-read
+    // prevents. (Redis backend is unaffected: set serializes, get JSON.parses.)
+    const existing = this.inflight.get(fk) as Promise<T> | undefined;
+    if (existing) return cloneValue(await existing);
 
     const flight = (async () => {
       const value = await factory();
       await this.set(key, value, ttlSeconds);
-      // Hand callers an INDEPENDENT clone, matching get()'s clone-on-read
-      // contract. Without this the first caller (and every coalesced concurrent
-      // caller) would get a mutable reference to the same object the memory
-      // backend just stored, so mutating the result corrupts the cached entry.
-      // The redis backend is unaffected (set serializes and get JSON.parses).
-      return cloneValue(value);
+      return value;
     })();
     this.inflight.set(fk, flight);
     try {
-      return await flight;
+      return cloneValue(await flight);
     } finally {
       this.inflight.delete(fk);
     }

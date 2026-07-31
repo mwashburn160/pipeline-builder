@@ -91,6 +91,7 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // Service audit factory — src/services/audit.ts now links against this. Returns
     // the ServiceAuditClient shape: `emit` + a spool-backed `client` (RemoteAuditClient).
     createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
+    createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: jest.fn() }), emit: jest.fn() }),
     // Denied-authz auditor sink registered at service boot (src/index.ts).
     // No-op in tests — nothing asserts on the registration.
     setAuthzDenialAuditor: () => {},
@@ -99,6 +100,10 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     // for parity so suites that transitively load the boot module still link.
     setTokenRevocationStore: () => {},
     createRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
+    // Revocation check used by the /token mint path (auth-resolver). Default:
+    // not revoked, so existing resolveIdentity suites are unaffected; a suite
+    // exercising revocation overrides this via apiCoreMock({ isAccessTokenRevoked }).
+    isAccessTokenRevoked: async () => false,
     createEnvRedisTokenRevocationStore: () => ({ getCurrentVersion: async () => null }),
     NotFoundError,
     createCacheService: () => ({

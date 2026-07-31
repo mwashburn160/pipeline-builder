@@ -80,7 +80,10 @@ interface TestUpdate {
   name?: string;
 }
 
-const mockSchema = {} as PgTable;
+// `id` is a (fake) column so writeConditions/findById can build the exact-id
+// equality that neutralizes prefix matching on the single-entity paths — same
+// empty-object column stand-in used for mockOrgColumn.
+const mockSchema = { id: {} } as unknown as PgTable;
 const mockProjectColumn = {} as AnyColumn;
 const mockOrgColumn = {} as AnyColumn;
 const mockConflictTarget = [{} as AnyColumn, {} as AnyColumn];

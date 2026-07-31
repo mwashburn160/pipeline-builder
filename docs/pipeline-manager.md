@@ -12,6 +12,26 @@ title: Pipeline Manager (CLI)
 
 The CLI talks to the platform's REST API for resource operations and drives AWS CDK / CloudFormation for deploys.
 
+## Overview
+
+`pipeline-manager` is the command-line interface for Pipeline Builder, serving both operators who install the platform and developers who manage pipelines against a running one. It talks to the platform's REST API for resource operations and drives AWS CDK / CloudFormation for deploys. This page covers installation, the [`provision`](#installing-the-platform-provision) installer, the full [command reference](#command-reference), [configuration](#configuration) precedence, and [typical workflows](#typical-workflows).
+
+## Process overview
+
+Two flows, depending on the job:
+
+**Install the platform**
+
+1. `npm install -g @pipeline-builder/pipeline-manager`.
+2. `provision --target <docker|minikube|ec2|eks>` — prereq checks, plan, gated deploy, health verify, and post-install loads.
+3. Tear down later with `provision --teardown`.
+
+**Build and ship a pipeline**
+
+1. `login` against your platform.
+2. `bootstrap` a CDK project, then `synth`.
+3. `deploy` to AWS (auto-registers the pipeline); check `status`, and run `audit-stacks` / `audit-tokens` on a schedule to catch drift.
+
 ---
 
 ## Install

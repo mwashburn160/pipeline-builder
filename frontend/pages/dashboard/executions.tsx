@@ -34,7 +34,7 @@ import type { ExecutionCountRow } from '@/types';
 type StatusFilter = 'all' | 'failing' | 'succeeding';
 
 export default function ExecutionsPage() {
-  const { isReady, user } = useAuthGuard();
+  const { isReady, user, can } = useAuthGuard();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -43,7 +43,8 @@ export default function ExecutionsPage() {
   // see no extra control). Backend independently gates the rollup to admins.
   const [includeDescendants, setIncludeDescendants] = useState(false);
   const [hasTeams, setHasTeams] = useState(false);
-  const canRollup = user?.role === 'admin' || user?.role === 'owner';
+  // Gate on the `reports:rollup` permission, not a hardcoded role (parity with reports.tsx).
+  const canRollup = can('reports:rollup');
 
   // Read-only fetch via the shared useFetch hook (loading/error/cancel-on-unmount
   // handled there). Refetches whenever the rollup toggle or auth-readiness changes.

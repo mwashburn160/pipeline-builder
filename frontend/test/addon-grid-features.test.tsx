@@ -64,3 +64,64 @@ describe('AddonGrid — feature discoverability', () => {
     expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
   });
 });
+
+describe('AddonGrid — combo "pair to save" nudge', () => {
+  const tuaBundle = {
+    id: 'bundle-tua', name: 'Team Usage Analytics', description: 'Per-team usage.',
+    grants: {}, features: ['team_usage_analytics'], prices: { monthly: 3000, annual: 30000 },
+    stackable: false, availableForTiers: [],
+  } as unknown as Bundle;
+  const combo = {
+    id: 'analytics_suite', name: 'Analytics Suite',
+    bundleIds: ['bundle-dora', 'bundle-tua'], savings: { monthly: 2000, annual: 20000 },
+  };
+
+  it('nudges on the UN-owned member when the other member is already owned', () => {
+    // TUA owned (qty 1), DORA not → the DORA card prompts to complete the suite.
+    render(
+      <AddonGrid
+        {...baseProps}
+        bundles={[doraBundle, tuaBundle]}
+        addonQty={(id) => (id === 'bundle-tua' ? 1 : 0)}
+        comboDiscounts={[combo]}
+      />,
+    );
+    expect(screen.getByText(/Completes the Analytics Suite — save \$20\.00\/mo/i)).toBeInTheDocument();
+  });
+
+  it('does not nudge when neither member is owned', () => {
+    render(<AddonGrid {...baseProps} bundles={[doraBundle, tuaBundle]} addonQty={() => 0} comboDiscounts={[combo]} />);
+    expect(screen.queryByText(/Completes the/i)).not.toBeInTheDocument();
+  });
+
+  it('does not nudge a member that is already owned (combo already complete)', () => {
+    render(<AddonGrid {...baseProps} bundles={[doraBundle, tuaBundle]} addonQty={() => 1} comboDiscounts={[combo]} />);
+    expect(screen.queryByText(/Completes the/i)).not.toBeInTheDocument();
+  });
+
+  it('is quantity-aware: fires below a member minimum, clears once met', () => {
+    // Seat Pack combo needs qty ≥ 2; TUA owned. seat card at qty 1 → still nudged.
+    const seatCombo = { id: 'seaty', name: 'Seat Combo', bundleIds: ['bundle-seats', 'bundle-tua'], minQuantities: { 'bundle-seats': 2 }, savings: { monthly: 1500, annual: 15000 } };
+    const props = { ...baseProps, bundles: [seatBundle, tuaBundle], comboDiscounts: [seatCombo] };
+    const { rerender } = render(<AddonGrid {...props} addonQty={(id) => (id === 'bundle-tua' ? 1 : 1)} />);
+    expect(screen.getByText(/Completes the Seat Combo/i)).toBeInTheDocument();
+    rerender(<AddonGrid {...props} addonQty={() => 2} />); // seats now meet min → no nudge
+    expect(screen.queryByText(/Completes the Seat Combo/i)).not.toBeInTheDocument();
+  });
+
+  it('shows only the higher-savings combo when a card completes two', () => {
+    // The DORA card completes both combos (TUA + seats owned); show the bigger one.
+    const small = { id: 'small', name: 'Small', bundleIds: ['bundle-dora', 'bundle-tua'], savings: { monthly: 1000, annual: 10000 } };
+    const big = { id: 'big', name: 'Big', bundleIds: ['bundle-dora', 'bundle-seats'], savings: { monthly: 2500, annual: 25000 } };
+    render(
+      <AddonGrid
+        {...baseProps}
+        bundles={[doraBundle, tuaBundle, seatBundle]}
+        addonQty={(id) => (id === 'bundle-dora' ? 0 : 1)}
+        comboDiscounts={[small, big]}
+      />,
+    );
+    expect(screen.getByText(/Completes the Big — save \$25\.00\/mo/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Completes the Small/i)).not.toBeInTheDocument();
+  });
+});

@@ -108,3 +108,25 @@ export async function publishUsersRevocation(userIds: Array<string | { toString(
     });
   }
 }
+
+/**
+ * Publish a revocation for a user being DELETED. Unlike {@link publishUserRevocation},
+ * this takes the tokenVersion explicitly because the user doc is (about to be)
+ * gone and can't be read back. Publishing `tokenVersion + 1` makes the stateless
+ * services reject EVERY outstanding token for the user (each minted at version
+ * <= the captured tokenVersion) immediately, rather than letting a deleted
+ * user's token keep working on plugin/compliance until natural expiry (~15 min).
+ * Platform's own `requireAuth` already rejects the missing user; this closes the
+ * stateless-service gap. Best-effort — swallows every error.
+ */
+export async function publishUserDeletionRevocation(userId: string, tokenVersion: number): Promise<void> {
+  try {
+    const redis = await getRedisClient();
+    if (!redis) return; // no Redis configured — services fall back to token expiry
+    await publishTokenRevocation(redis, String(userId), tokenVersion + 1, await revocationTtlSeconds());
+  } catch (err) {
+    logger.warn('publishUserDeletionRevocation failed (best-effort; falling back to token expiry)', {
+      userId, error: errorMessage(err),
+    });
+  }
+}

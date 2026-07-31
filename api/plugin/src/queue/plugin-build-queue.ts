@@ -257,6 +257,20 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService):
   const failedJob = await findFailedJob(jobId);
   if (!failedJob) return null;
 
+  // Refuse a manual retry when this job has already been handed to the DLQ for
+  // retry (a retryable final attempt creates `dlq-${jobId}` while its original
+  // entry lingers in the tier `failed` set). Without this guard, retrying the
+  // lingering entry reserves a SECOND slot and enqueues a SECOND build while the
+  // DLQ independently re-queues the same plugin — two concurrent buildkit builds
+  // for one plugin, both holding a slot, both calling deployVersion. The DLQ is
+  // the single retry vehicle for these; return null (→ 404) so the caller
+  // doesn't double-run it.
+  const dlqTwin = await getDeadLetterQueue().getJob(`dlq-${jobId}`);
+  if (dlqTwin) {
+    logger.info('Refusing manual retry — job is already being retried via the DLQ', { jobId });
+    return null;
+  }
+
   const { orgId } = failedJob.data;
   const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
   const quotaReleased = await reserveReplaySlot(quotaService, orgId, authHeader, jobId);
@@ -419,6 +433,19 @@ function recordBuildEvent(orgId: string, status: 'completed' | 'failed', job: Jo
         logger.warn('Failed to record build event', { error: errorMessage(insertErr) });
       },
     );
+}
+
+/**
+ * Record a terminal `failed` build event under a tenant context (the RLS insert
+ * in `recordBuildEvent` needs one). Exposed for the DLQ terminal paths, which
+ * run detached from the tier worker's `runWithTenantContext`. Keeping the
+ * context-wrapping here means the DLQ module depends only on plugin-build-queue
+ * (not directly on pipeline-data). Fire-and-forget, mirroring recordBuildEvent.
+ */
+export function recordTerminalFailedBuildEvent(orgId: string, job: Job, detail: Record<string, unknown>): void {
+  void runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
+    recordBuildEvent(orgId, 'failed', job, detail);
+  });
 }
 
 /**
@@ -617,12 +644,6 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         maxAttempts,
       });
 
-      recordBuildEvent(orgId, 'failed', job, {
-        pluginName: pluginRecord.name,
-        pluginVersion: pluginRecord.version,
-        errorMessage: error.message,
-      });
-
       const action = isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed';
       logger.info('Plugin build event', {
         eventCategory: 'plugin-build',
@@ -658,6 +679,16 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       if (category === 'permanent' || totalAttempts >= budget) {
         cleanupContextDir(buildRequest.contextDir);
         releasePluginQuota(job, quotaService);
+
+        // Record the terminal `failed` build event HERE (not on every attempt): a
+        // retryable failure handed to the DLQ may still succeed, and the dedup index
+        // keys on status, so a per-attempt `failed` row would survive alongside a
+        // later `completed` — miscounting a succeeded-after-retry build as failed.
+        recordBuildEvent(orgId, 'failed', job, {
+          pluginName: pluginRecord.name,
+          pluginVersion: pluginRecord.version,
+          errorMessage: error.message,
+        });
 
         // TRUE terminal at the tier level: a permanent failure never reaches
         // the DLQ, and a retryable one that has burned the whole main+DLQ

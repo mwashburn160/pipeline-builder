@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { createLogger, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { createLogger, decrementQuota, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Queue, Worker } from 'bullmq';
@@ -19,6 +19,7 @@ import {
   cleanupContextDir,
   releasePluginQuota,
   reserveReplaySlot,
+  recordTerminalFailedBuildEvent,
 } from './plugin-build-queue.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { emitPluginAudit } from '../services/audit.js';
@@ -40,8 +41,10 @@ const logger = createLogger('plugin-build-queue');
  */
 function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMessage: string | undefined): void {
   const { orgId, userId, pluginRecord } = job.data;
-  const errorMessage = causeMessage ?? 'Build failed after exhausting all retries';
-  const isTimeout = /timed out|timeout/i.test(errorMessage);
+  // Named causeText (not errorMessage) to avoid shadowing the imported
+  // errorMessage() helper used in the replay/catch paths.
+  const causeText = causeMessage ?? 'Build failed after exhausting all retries';
+  const isTimeout = /timed out|timeout/i.test(causeText);
   emitPluginAudit({
     action: isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed',
     actorId: userId ?? 'system',
@@ -51,9 +54,24 @@ function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMessage: st
       pluginName: pluginRecord.name,
       pluginVersion: pluginRecord.version,
       jobId: job.id,
-      errorMessage,
+      errorMessage: causeText,
       isTimeout,
     },
+  });
+
+  // Record the terminal `failed` build event for DORA metrics. The tier worker
+  // deliberately SKIPS the failed event for retryable (DLQ-bound) jobs — a DLQ
+  // retry may still succeed — so for a build that ultimately dies in the DLQ,
+  // this is the ONLY place a `failed` build event is written. Without it,
+  // change-failure-rate / build-failure metrics silently undercount every
+  // DLQ-abandoned build. executionId keys on the DLQ job id (distinct from the
+  // never-recorded original tier job), so this can't double-count. The helper
+  // wraps the RLS insert in tenant context; fire-and-forget.
+  recordTerminalFailedBuildEvent(orgId, job, {
+    pluginName: pluginRecord.name,
+    pluginVersion: pluginRecord.version,
+    errorMessage: causeText,
+    isTimeout,
   });
 }
 
@@ -72,7 +90,11 @@ export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
     dlq = new Queue<PluginBuildJobData>(DLQ_NAME, {
       connection: getConnectionForDb(0) as ConnectionOptions,
       defaultJobOptions: {
-        removeOnComplete: false,
+        // BOUNDED (was `false`): a DLQ job that re-queues on its first attempt has
+        // attemptsMade < maxAttempts, so enforceDlqMaxSize never classifies it
+        // terminal and never purges it — with `false` these completed jobs pile up
+        // in Redis forever. Cap the retained-completed set so growth is bounded.
+        removeOnComplete: { count: 1000 },
         removeOnFail: false,
       },
     });
@@ -164,7 +186,23 @@ export async function replayDlqJob(jobId: string, quotaService: QuotaService): P
   delete (freshData as { failureCategory?: string }).failureCategory;
 
   const tier = await getOrgTier(quotaService, orgId, authHeader);
-  const replayed = await getTierQueue(tier).add(`replay-${dlqJob.name}`, freshData);
+
+  let replayed;
+  try {
+    replayed = await getTierQueue(tier).add(`replay-${dlqJob.name}`, freshData);
+  } catch (err) {
+    // Enqueue failed AFTER reserveReplaySlot handed the new job a slot
+    // (quotaReleased === false ⇒ a slot was reserved). Nothing owns it now — the
+    // DLQ job already released its own slot on terminal failure — so release it
+    // here or it leaks until the quota period resets. Mirrors retryFailedJob.
+    if (!quotaReleased) {
+      decrementQuota(quotaService, orgId, 'plugins', authHeader, logger.warn.bind(logger));
+    }
+    logger.error('DLQ replay enqueue failed; released reserved quota slot', {
+      jobId, orgId, error: errorMessage(err),
+    });
+    throw err;
+  }
   await dlqJob.remove();
   return String(replayed.id);
 }

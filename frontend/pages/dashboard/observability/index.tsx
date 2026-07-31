@@ -22,7 +22,8 @@ import type { Dashboard } from '@/types/observability';
  * at cold start, so they show up here automatically.
  */
 export default function ObservabilityIndexPage() {
-  const { isReady, isAuthenticated } = useAuthGuard();
+  const { isReady, isAuthenticated, can } = useAuthGuard();
+  const canCreateDashboard = can('dashboards:write');
   const ready = isReady && isAuthenticated;
   const { data, loading, error } = useFetch(
     async () => (ready ? (await api.listDashboards()).data?.dashboards ?? [] : []),
@@ -53,12 +54,18 @@ export default function ObservabilityIndexPage() {
       title="Observability"
       subtitle="Native operator dashboards over Prometheus + Loki"
       actions={
-        <Link
-          href="/dashboard/observability/new"
-          className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
-          <Plus className="w-3.5 h-3.5" /> New dashboard
-        </Link>
+        // Only surface the create entry point to users who can actually create a
+        // dashboard (the destination already disables its Create button, but a
+        // read-only/no-write user shouldn't be led to a dead end). Mirrors the
+        // Pipelines page hiding "Create Pipeline" when !canWrite.
+        canCreateDashboard ? (
+          <Link
+            href="/dashboard/observability/new"
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+          >
+            <Plus className="w-3.5 h-3.5" /> New dashboard
+          </Link>
+        ) : undefined
       }
     >
       {error && (

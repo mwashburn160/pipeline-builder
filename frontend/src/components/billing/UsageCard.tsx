@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { formatBytes, fmtNum } from '@/lib/format';
+import { formatBytes, fmtNum, formatCents } from '@/lib/format';
 import { statusInfo, barStyles } from '@/lib/quota-helpers';
 import type { UsageRollup } from '@/types';
 import { formatDate } from './helpers';
@@ -19,7 +19,7 @@ const QUOTA_LABELS: Record<string, { label: string; unit?: 'bytes' }> = {
 
 /** Read-only "this period" cost + usage rollup.. */
 export function UsageCard({ rollup }: { rollup: UsageRollup }) {
-  const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const dollars = formatCents;
 
   return (    <div className="card">
       <div className="flex items-baseline justify-between mb-4">

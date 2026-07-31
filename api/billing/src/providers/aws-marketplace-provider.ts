@@ -52,8 +52,24 @@ export class AWSMarketplaceProvider implements PaymentProvider {
   private readonly entitlementClient: MarketplaceEntitlementServiceClient;
   private readonly marketplaceConfig: MarketplaceConfig;
 
+  // Marketplace has no customer-balance primitive. When discounts are enabled
+  // (BILLING_DISCOUNTS_ENABLED — the same switch as Stripe), usage credits are
+  // allowed and realized by WITHHOLDING reported metered usage (the metering job
+  // draws the balance down); otherwise discounts are disallowed for these
+  // accounts. There is no synchronous `applyUsageCredit` push — the credit is
+  // banked locally and the metering cycle realizes it.
+  readonly usageCreditSupport: 'metered' | 'none';
+
   constructor(marketplaceConfig: MarketplaceConfig) {
     this.marketplaceConfig = marketplaceConfig;
+    // Realize usage-credit discounts by WITHHOLDING reported metered usage (the
+    // metering cycle draws the balance down via `planMeteredDrawdown`). Enabled
+    // ONLY when credits + metering are on AND at least one dimension is priced —
+    // advertising 'metered' without a running drawdown cycle OR without a price map
+    // would BANK a credit that never reduces the AWS bill (silent money loss). So a
+    // credit is accepted only when the mechanism that realizes it can actually run.
+    const priced = Object.keys(marketplaceConfig.dimensionPriceMap ?? {}).length > 0;
+    this.usageCreditSupport = (marketplaceConfig.creditsEnabled && marketplaceConfig.meteringEnabled && priced) ? 'metered' : 'none';
     this.meteringClient = new MarketplaceMeteringClient({ region: marketplaceConfig.region });
     this.entitlementClient = new MarketplaceEntitlementServiceClient({
       region: marketplaceConfig.region,

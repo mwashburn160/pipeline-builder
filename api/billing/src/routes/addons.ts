@@ -12,6 +12,7 @@ import {
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
+import type { BundleConfig, ComboDiscountConfig } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import type { Request, RequestHandler } from 'express';
 import { config } from '../config.js';
@@ -28,6 +29,7 @@ import {
   syncEntitlements,
   syncProviderAddons,
 } from '../helpers/billing-helpers.js';
+import { activeComboCredits, comboBasisCents, getComboDiscounts } from '../helpers/combo-pricing.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
@@ -46,11 +48,24 @@ function applyAddon(addons: Addon[], bundleId: string, quantity: number): Addon[
   return rest;
 }
 
-/** Itemized price breakdown: base plan line + one line per add-on. */
+/** Catalog-time combo savings (`min-composition basket − combined price`, ≥ 0) for
+ *  an interval — ownership-independent, for the "pair to save" nudge. Shares
+ *  `comboBasisCents` with the credit math so the two can't drift. */
+function comboSavings(combo: ComboDiscountConfig, bundles: readonly BundleConfig[], interval: 'monthly' | 'annual'): number {
+  return Math.max(0, comboBasisCents(combo, bundles, interval) - combo.prices[interval]);
+}
+
+/**
+ * Itemized price breakdown: base plan line + one line per add-on, then a NEGATIVE
+ * line per active combo discount (e.g. Analytics Suite −$20/mo when both DORA and
+ * Team Usage Analytics are held). The combo credit is realized as a recurring
+ * usage credit at invoice time; this line shows the customer the net up front so
+ * `totalCents` matches what they'll effectively pay.
+ */
 function priceBreakdown(
   plan: { name: string; prices: { monthly: number; annual: number } },
   addons: Addon[],
-  bundles: readonly { id: string; name: string; prices: { monthly: number; annual: number } }[],
+  bundles: readonly BundleConfig[],
   interval: 'monthly' | 'annual',
 ): { interval: string; items: { label: string; quantity: number; cents: number }[]; totalCents: number } {
   const key = interval === 'annual' ? 'annual' : 'monthly';
@@ -60,7 +75,35 @@ function priceBreakdown(
     const b = byId.get(a.bundleId);
     if (b) items.push({ label: b.name, quantity: a.quantity, cents: b.prices[key] * a.quantity });
   }
+  for (const combo of activeComboCredits(addons, bundles, getComboDiscounts(), interval)) {
+    items.push({ label: `${combo.name} discount`, quantity: 1, cents: -combo.creditCents });
+  }
   return { interval, items, totalCents: items.reduce((s, i) => s + i.cents, 0) };
+}
+
+/** A combo gained/lost by a proposed add-on change (drives the removal warning + the
+ *  `combo_expired` event). */
+type ComboChange = { comboId: string; name: string; creditCents: number };
+
+/**
+ * The combo discounts LOST and GAINED moving from `current` → `next` add-ons. Diffed
+ * on the packed active set (so it reflects real max-weight packing, not raw membership).
+ */
+function comboDelta(
+  current: Addon[],
+  next: Addon[],
+  bundles: readonly BundleConfig[],
+  interval: 'monthly' | 'annual',
+): { lostCombos: ComboChange[]; gainedCombos: ComboChange[] } {
+  const combos = getComboDiscounts();
+  const before = activeComboCredits(current, bundles, combos, interval);
+  const after = activeComboCredits(next, bundles, combos, interval);
+  const afterIds = new Set(after.map((c) => c.comboId));
+  const beforeIds = new Set(before.map((c) => c.comboId));
+  return {
+    lostCombos: before.filter((c) => !afterIds.has(c.comboId)),
+    gainedCombos: after.filter((c) => !beforeIds.has(c.comboId)),
+  };
 }
 
 /**
@@ -100,14 +143,30 @@ export function createAddonRoutes(): Router {
 
   // GET /billing/bundles — the add-on catalog filtered to the account's tier
   router.get('/bundles', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
-    if (!bundlesEnabled()) return sendSuccess(res, 200, { bundles: [], selfService: false });
+    if (!bundlesEnabled()) return sendSuccess(res, 200, { bundles: [], selfService: false, comboDiscounts: [] });
     const loaded = await loadSubAndPlan(orgId);
     const tier = loaded?.plan.tier;
     const bundles = getBundleCatalog().filter((b) => b.isActive && (!tier || b.availableForTiers.includes(tier)));
+    // Only advertise a combo whose every member is purchasable on this tier —
+    // otherwise the "pair them to save" nudge points at a bundle the account
+    // can't buy. Expose the per-interval savings so the UI needn't recompute it.
+    const offered = new Set(bundles.map((b) => b.id));
+    const comboDiscounts = getComboDiscounts()
+      .filter((c) => c.bundleIds.length >= 2 && c.bundleIds.every((id) => offered.has(id)))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        bundleIds: c.bundleIds,
+        ...(c.minQuantities ? { minQuantities: c.minQuantities } : {}),
+        savings: {
+          monthly: comboSavings(c, bundles, 'monthly'),
+          annual: comboSavings(c, bundles, 'annual'),
+        },
+      }));
     // selfService=false for Marketplace-billed accounts: the catalog is still
     // returned (so the UI can explain add-ons are managed in AWS) but the
     // add/remove mutations are 403-gated. See bundleSelfServiceAllowed().
-    return sendSuccess(res, 200, { bundles, selfService: bundleSelfServiceAllowed() });
+    return sendSuccess(res, 200, { bundles, selfService: bundleSelfServiceAllowed(), comboDiscounts });
   }));
 
   // POST /billing/portal — hosted session to add/update a payment method. Powers
@@ -134,7 +193,7 @@ export function createAddonRoutes(): Router {
   }));
 
   // POST /billing/subscriptions/:id/addons/preview
-  router.post('/subscriptions/:id/addons/preview', requireAuth(AUTH_OPTS) as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  router.post('/subscriptions/:id/addons/preview', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled');
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace');
     const validation = validateBody(req, AddonMutateSchema);
@@ -162,6 +221,7 @@ export function createAddonRoutes(): Router {
       addons: next,
       effectiveLimits: limits,
       priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval),
+      ...comboDelta(current, next, bundles, subscription.interval),
     });
   }));
 
@@ -187,12 +247,13 @@ export function createAddonRoutes(): Router {
 
     // Stackable packs take a quantity (>=1); boolean feature bundles are qty 1.
     const qty = bundle.stackable ? Math.max(1, Math.trunc(quantity ?? 1)) : 1;
-    const next = applyAddon((subscription.addons ?? []) as Addon[], bundleId, qty);
+    const current = (subscription.addons ?? []) as Addon[];
+    const next = applyAddon(current, bundleId, qty);
 
     // Payment-method gate: a paid INCREASE needs a card on file so the charge can
     // settle. Matters most on the free (developer) tier, which may have no card
     // yet. Providers that don't manage cards (stub) expose no check → allowed.
-    const currentQty = ((subscription.addons ?? []) as Addon[]).find((a) => a.bundleId === bundleId)?.quantity ?? 0;
+    const currentQty = current.find((a) => a.bundleId === bundleId)?.quantity ?? 0;
     const unitPrice = subscription.interval === 'annual' ? bundle.prices.annual : bundle.prices.monthly;
     if (qty > currentQty && unitPrice > 0) {
       const provider = getPaymentProvider();
@@ -234,12 +295,27 @@ export function createAddonRoutes(): Router {
 
     logger.info('Add-on applied', { orgId, bundleId, quantity: qty });
 
+    // A combo can end even on an ADD when the new packing drops a lower-value combo
+    // that shared a member. Record combo_expired for any combo the change lost.
+    const delta = comboDelta(current, next, bundles, subscription.interval);
+    for (const c of delta.lostCombos) {
+      await createBillingEvent(orgId, 'combo_expired', { comboId: c.comboId }, subscription._id.toString(), req.user?.sub);
+      getAuditClient().record({
+        action: 'billing.combo.expired',
+        actorId: req.user?.sub ?? 'system',
+        orgId,
+        targetId: c.comboId,
+        details: { comboId: c.comboId, creditCents: c.creditCents, subscriptionId: subscription._id.toString() },
+      }, 'billing');
+    }
+
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
     return sendSuccess(res, 200, {
       subscription: buildSubscriptionResponse(subscription, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
       priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval),
+      ...delta,
     });
   }));
 
@@ -257,7 +333,8 @@ export function createAddonRoutes(): Router {
     const { subscription, plan } = loaded;
     if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
-    const next = applyAddon((subscription.addons ?? []) as Addon[], bundleId, 0);
+    const current = (subscription.addons ?? []) as Addon[];
+    const next = applyAddon(current, bundleId, 0);
 
     const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
     if (overages.length > 0) {
@@ -286,12 +363,26 @@ export function createAddonRoutes(): Router {
     logger.info('Add-on removed', { orgId, bundleId });
 
     const bundles = getBundleCatalog();
+    // Record combo_expired for any combo this removal ended.
+    const delta = comboDelta(current, next, bundles, subscription.interval);
+    for (const c of delta.lostCombos) {
+      await createBillingEvent(orgId, 'combo_expired', { comboId: c.comboId }, subscription._id.toString(), req.user?.sub);
+      getAuditClient().record({
+        action: 'billing.combo.expired',
+        actorId: req.user?.sub ?? 'system',
+        orgId,
+        targetId: c.comboId,
+        details: { comboId: c.comboId, creditCents: c.creditCents, subscriptionId: subscription._id.toString() },
+      }, 'billing');
+    }
+
     const { limits } = effectiveEntitlements(plan.tier, next, bundles);
     return sendSuccess(res, 200, {
       subscription: buildSubscriptionResponse(subscription, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
       priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval),
+      ...delta,
     });
   }));
 

@@ -5,8 +5,9 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { authService } from './auth-service.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
-import { publishUserRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization } from '../models/index.js';
+import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment } from '../models/index.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('user-profile-service');
 
@@ -15,6 +16,7 @@ export const PROFILE_USER_NOT_FOUND = 'PROFILE_USER_NOT_FOUND';
 export const PROFILE_EMAIL_TAKEN = 'PROFILE_EMAIL_TAKEN';
 export const PROFILE_INVALID_CREDENTIALS = 'PROFILE_INVALID_CREDENTIALS';
 export const PROFILE_OWNER_HAS_ORGS = 'PROFILE_OWNER_HAS_ORGS';
+export const PROFILE_LAST_PRIVILEGED_MEMBER = 'PROFILE_LAST_PRIVILEGED_MEMBER';
 
 interface OrgInfo {
   id: string;
@@ -146,16 +148,39 @@ class UserProfileService {
    * PROFILE_OWNER_HAS_ORGS in that case, PROFILE_USER_NOT_FOUND if the user is already gone.
    */
   async deleteAccount(userId: string): Promise<void> {
-    const ownerCount = await UserOrganization.countDocuments({
-      userId: new Types.ObjectId(userId),
-      role: 'owner',
+    const uid = new Types.ObjectId(userId);
+    let capturedTokenVersion = 0;
+    // Membership + role assignments + user deleted atomically (mirrors admin
+    // deleteUserById) — otherwise a partial failure orphans RoleAssignment rows,
+    // which the last-privileged-member guard counts and would then wrongly block
+    // removing the last real member of a privileged role. The owner and
+    // last-privileged-member guard READS also run inside the tx (was a
+    // check-then-act TOCTOU when read before it), so they see a snapshot
+    // consistent with the delete.
+    const existed = await withMongoTransaction(async (session) => {
+      const ownerCount = await UserOrganization.countDocuments({ userId: uid, role: 'owner' }).session(session);
+      if (ownerCount > 0) throw new Error(PROFILE_OWNER_HAS_ORGS);
+
+      // Don't let self-delete empty an admin/superadmin-granting Role (last member).
+      const assignments = await RoleAssignment.find({ userId: uid }).select('roleId').session(session).lean();
+      for (const a of assignments) {
+        const role = await Role.findById(a.roleId).select('grantsRole').session(session).lean();
+        if (role && role.grantsRole !== 'member' && (await RoleAssignment.countDocuments({ roleId: a.roleId }).session(session)) <= 1) {
+          throw new Error(PROFILE_LAST_PRIVILEGED_MEMBER);
+        }
+      }
+
+      // Capture tokenVersion from the deleted doc to revoke outstanding tokens.
+      const result = await User.findByIdAndDelete(userId, { session }).select('+tokenVersion');
+      if (!result) return false;
+      capturedTokenVersion = result.tokenVersion ?? 0;
+      await UserOrganization.deleteMany({ userId: uid }, { session });
+      await RoleAssignment.deleteMany({ userId: uid }, { session });
+      return true;
     });
-    if (ownerCount > 0) throw new Error(PROFILE_OWNER_HAS_ORGS);
-
-    const result = await User.findByIdAndDelete(userId);
-    if (!result) throw new Error(PROFILE_USER_NOT_FOUND);
-
-    await UserOrganization.deleteMany({ userId: new Types.ObjectId(userId) });
+    if (!existed) throw new Error(PROFILE_USER_NOT_FOUND);
+    // Revoke the deleted user's outstanding tokens on the stateless services.
+    await publishUserDeletionRevocation(userId, capturedTokenVersion);
     logger.info('Account deleted', { userId });
   }
 

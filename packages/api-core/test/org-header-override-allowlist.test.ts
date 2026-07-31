@@ -30,6 +30,8 @@ const ALLOWLIST = new Set([
   'api/billing/src/routes/marketplace.ts',
   'api/billing/src/routes/subscriptions.ts',
   'api/billing/src/routes/addons.ts',
+  'api/billing/src/routes/discounts.ts',
+  'api/billing/src/routes/billing-summary.ts',
 ]);
 
 /** Matches an actual enablement (`allowOrgHeaderOverride: true`), not the

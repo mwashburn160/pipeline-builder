@@ -111,6 +111,20 @@ export const REMOTE_AUDIT_ACTIONS = [
   // account's new tier now bundles the feature) — distinct from a user-initiated
   // `remove` so finance can tell an auto-prune from a customer action.
   'billing.addon.prune',
+  // Discounts (docs/billing-discounts.md) — mint/issue/apply/remove/revoke of a
+  // price coupon or usage credit. `details` carry the discount id + kind/value
+  // only, never the opaque token or signing key.
+  'billing.discount.generate',
+  'billing.discount.issue',
+  'billing.discount.apply',
+  'billing.discount.remove',
+  'billing.discount.revoke',
+  // Usage-credit realization — a customer/compliance-visible record of credit
+  // movement: `consumed` (Marketplace metered drawdown), `exhausted` (balance hit
+  // zero), and a combo ending. `details` carry cents/ids only, no payment secrets.
+  'billing.credit.consumed',
+  'billing.credit.exhausted',
+  'billing.combo.expired',
   // Denied authorization attempt — emitted best-effort by the shared
   // `requirePermission` / `requireSystemAdmin` gate when a state-changing
   // (non-GET) request is rejected, so probing/escalation attempts are visible
@@ -376,5 +390,34 @@ export function createServiceAuditClient(serviceName: string, config: RemoteAudi
   return {
     emit: (event) => client.record(event, serviceName),
     client,
+  };
+}
+
+/**
+ * Lazily-constructed remote-audit accessor for a service. Every service's
+ * `services/audit.ts` used to hand-roll the same module singleton (a `let audit`
+ * + `svc()` that builds a {@link ServiceAuditClient} on first use, then a
+ * `getAuditClient()` returning `.client` and an `emit(event)` forwarding to
+ * `.emit`). This packages that pattern in ONE place so each service's audit
+ * wiring is a one-liner and can't drift.
+ *
+ * Lazy on purpose: the underlying client wires an env-Redis audit spool, so
+ * building it at import time would force that connection wherever the module is
+ * merely imported (e.g. tests). `getAuditClient` is passed to
+ * `wireAuthzDenialAuditor`; `emit` backs the per-service `emitXAudit` helpers.
+ * Both stay FIRE-AND-FORGET (record never throws / is not awaited).
+ */
+export function createRemoteAuditAccessor(serviceName: string): {
+  getAuditClient: () => RemoteAuditClient;
+  emit: (event: RemoteAuditEvent) => void;
+} {
+  let audit: ServiceAuditClient | null = null;
+  const svc = (): ServiceAuditClient => {
+    if (!audit) audit = createServiceAuditClient(serviceName);
+    return audit;
+  };
+  return {
+    getAuditClient: () => svc().client,
+    emit: (event) => svc().emit(event),
   };
 }

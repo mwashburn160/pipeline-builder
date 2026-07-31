@@ -14,6 +14,11 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockCreateAsDefault = jest.fn();
+// The route calls createAsDefaultReportInserted, which returns {pipeline, inserted}.
+// Existing tests set the resolved *pipeline* on mockCreateAsDefault, so the mock
+// below wraps it; `insertedResult` controls the inserted flag (default: a fresh
+// create) and the over-count test flips it to exercise the quota refund path.
+let insertedResult = true;
 const mockIncrement = jest.fn().mockResolvedValue(undefined);
 const mockReserveQuota = jest.fn<(...args: any[]) => any>().mockResolvedValue({ exceeded: false, quota: { type: 'pipelines', limit: 100, used: 1, remaining: 99 } });
 const mockDecrementQuota = jest.fn();
@@ -23,7 +28,10 @@ const mockSendQuotaExceeded = jest.fn((res: any, _t: string, q: any) => {
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
-    createAsDefault: mockCreateAsDefault,
+    createAsDefaultReportInserted: async (...args: unknown[]) => ({
+      pipeline: await mockCreateAsDefault(...args),
+      inserted: insertedResult,
+    }),
   },
 }));
 
@@ -170,7 +178,7 @@ function mockRes(): any {
 describe('POST /pipelines (create)', () => {
   const handler = getHandler('post', '/');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); insertedResult = true; });
 
   it('creates a pipeline and returns 201', async () => {
     const createdPipeline = {
@@ -316,6 +324,32 @@ describe('POST /pipelines (create)', () => {
     // right args.
     expect(mockReserveQuota).toHaveBeenCalledWith( mockQuotaService, 'org-1', 'pipelines', expect.any(String),
     );
+  });
+
+  it('refunds the reserved pipelines slot when the upsert updated an existing pipeline (inserted=false)', async () => {
+    insertedResult = false;
+    mockCreateAsDefault.mockResolvedValue({
+      id: 'uuid-upsert',
+      project: 'p',
+      organization: 'o',
+      pipelineName: 'pipe',
+      accessModifier: 'private',
+      isDefault: true,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      createdBy: 'user-1',
+    });
+
+    const req = mockReq();
+    const res = mockRes();
+    await handler(req, res);
+
+    // The upsert UPDATED an existing default (not a net-new pipeline), so the
+    // reserved `pipelines` create-quota slot is given back rather than consumed.
+    expect(mockDecrementQuota).toHaveBeenCalledWith(
+      mockQuotaService, 'org-1', 'pipelines', expect.any(String), expect.any(Function), 1, undefined,
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
   });
 
   it('returns 500 on service error', async () => {

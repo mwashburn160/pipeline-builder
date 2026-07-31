@@ -51,6 +51,8 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
+  seatCapacityStillWithinCap: jest.fn(async () => true),
+  userHasSeatInAccount: jest.fn(async () => false),
 }));
 
 jest.unstable_mockModule('../src/utils/regex.js', () => ({

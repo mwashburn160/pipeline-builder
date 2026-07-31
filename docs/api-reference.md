@@ -11,6 +11,12 @@ REST API for managing pipelines, plugins, and reporting. All services run behind
 
 ---
 
+## Overview
+
+This reference catalogs the REST endpoints exposed by the Pipeline Builder services — pipeline, plugin, compliance, quota, organization/access, and reporting — with each route's method, path, description, and (where applicable) the fine-grained permission or quota it consumes. It's for API integrators and operators calling the platform directly: every request goes through the Nginx gateway and needs a `Bearer` JWT plus an `x-org-id` tenant header. Endpoints are grouped by service, followed by common query parameters, worked `curl` examples, and the shared success / paginated / error response envelope. For the permission names in the Organization table, see **[Roles & Permissions](permissions.md)**.
+
+---
+
 ## Authentication
 
 All requests require two headers:

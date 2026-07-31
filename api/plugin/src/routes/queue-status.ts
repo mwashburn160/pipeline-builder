@@ -78,7 +78,9 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // for org-scoped ops. System admins see all orgs; other holders of
   // plugins:write see only their own org's jobs (tenant-isolation filter below).
   router.get('/failed', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
-    const limit = parseQueryInt(req.query.limit, 50);
+    // Clamp: an unbounded limit feeds queue.getJobs(0, N-1) across every tier queue —
+    // a caller could force a massive Redis range read. Max 200 (parity with read routes).
+    const limit = Math.min(parseQueryInt(req.query.limit, 50), 200);
     // Read a smaller per-tier slice (limit / tierCount, rounded up) then
     // oversample by 1 so we never return less than `limit` after filtering.
     // Truncate after the tenant-isolation filter so a noisy tier can't
@@ -149,7 +151,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // same org-scoped gate as GET /failed. System admins see all orgs; other
   // plugins:write holders see only their own org (tenant-isolation filter below).
   router.get('/dlq', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
-    const limit = parseQueryInt(req.query.limit, 50);
+    const limit = Math.min(parseQueryInt(req.query.limit, 50), 200); // clamp — see /failed
     const dlq = getDeadLetterQueue();
     // Oversample (2x) so per-tenant filtering for non-system admins still
     // returns up to `limit` rows in the common case where most DLQ entries

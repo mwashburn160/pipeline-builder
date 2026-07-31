@@ -51,7 +51,7 @@ const PLUGIN_TABS: { id: PluginSubTab; label: string }[] = [
 
 // ─── Page ───────────────────────────────────────────────
 export default function ReportsPage() {
-  const { user, isReady, isAuthenticated } = useAuthGuard({ requirePermission: 'reports:read' });
+  const { user, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'reports:read' });
   const router = useRouter();
   // DORA / advanced delivery analytics is a paid-tier entitlement. Gates both the
   // section render and the fetches (skip the request to avoid a pointless 403).
@@ -95,7 +95,9 @@ export default function ReportsPage() {
   // extra control). Backend independently gates the rollup to admins.
   const [includeDescendants, setIncludeDescendants] = useState(false);
   const [hasTeams, setHasTeams] = useState(false);
-  const canRollup = user?.role === 'admin' || user?.role === 'owner';
+  // Gate on the actual `reports:rollup` permission (a read-visibility scope), not a
+  // hardcoded role — so a custom role granting it works and admins without it don't.
+  const canRollup = can('reports:rollup');
 
   // Pipeline data
   const [executions, setExecutions] = useState<ExecutionCountRow[]>([]);

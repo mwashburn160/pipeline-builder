@@ -13,6 +13,12 @@ All sample files are located in [`deploy/samples/`](../deploy/samples/).
 
 ---
 
+## Overview
+
+This catalog indexes the ready-to-use pipeline configs and CDK examples shipped in [`deploy/samples/`](../deploy/samples/). It covers seven language-specific CI/CD pipelines (React, Spring Boot, Django, Gin, Axum, Rails, ASP.NET Core) and six `PipelineBuilder` CDK stack examples — VPC isolation, multi-account, monorepo, custom IAM roles, and secrets management — plus how to bulk-load them into a running instance. Use them as starting points for your own pipelines or as reference implementations for advanced patterns.
+
+---
+
 ## Pipeline Samples
 
 Language-specific CI/CD pipelines based on well-known open source repos. Each sample demonstrates idiomatic build, test, security, and packaging stages for its language.

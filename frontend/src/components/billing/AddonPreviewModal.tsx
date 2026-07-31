@@ -4,6 +4,7 @@
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { formatCents } from '@/lib/format';
 import type { AddonResult } from '@/types';
 
 interface AddonPreviewModalProps {
@@ -70,17 +71,26 @@ export function AddonPreviewModal({
                   <span className="text-gray-600 dark:text-gray-400">
                     {item.label}{item.quantity > 1 ? ` × ${item.quantity}` : ''}
                   </span>
-                  <span className="tabular-nums text-gray-900 dark:text-gray-100">${(item.cents / 100).toFixed(2)}</span>
+                  <span className="tabular-nums text-gray-900 dark:text-gray-100">{formatCents(item.cents)}</span>
                 </li>
               ))}
             </ul>
             <div className="flex justify-between border-t border-gray-200 dark:border-gray-700 mt-1 pt-2 text-sm font-semibold">
               <span className="text-gray-900 dark:text-gray-100">Total</span>
               <span className="tabular-nums text-gray-900 dark:text-gray-100">
-                ${(addonPreview.priceBreakdown.totalCents / 100).toFixed(2)}/{addonPreview.priceBreakdown.interval === 'annual' ? 'yr' : 'mo'}
+                {formatCents(addonPreview.priceBreakdown.totalCents)}/{addonPreview.priceBreakdown.interval === 'annual' ? 'yr' : 'mo'}
               </span>
             </div>
           </div>
+          {addonPreview.lostCombos && addonPreview.lostCombos.length > 0 && (
+            <div className="rounded-md bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+              {addonPreview.lostCombos.map((c) => (
+                <p key={c.comboId}>
+                  Ends your {c.name} discount — {formatCents(c.creditCents)}/{addonPreview.priceBreakdown.interval === 'annual' ? 'yr' : 'mo'} off.
+                </p>
+              ))}
+            </div>
+          )}
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Changes are prorated and pool across your organization&apos;s teams. You can adjust or remove add-ons anytime.
           </p>

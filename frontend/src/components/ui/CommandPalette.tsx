@@ -5,7 +5,7 @@ import { Search, Sun, Moon } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useFeatures } from '@/hooks/useFeatures';
 import { useAuth } from '@/hooks/useAuth';
-import { hasPermission } from '@/lib/auth-helpers';
+import { hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible } from '@/lib/nav';
 
 interface CommandItem {
@@ -54,7 +54,7 @@ export function CommandPalette({
   }, [router, runAndClose]);
 
   const features = useFeatures();
-  const { user } = useAuth();
+  const { user, isReadOnly } = useAuth();
 
   const commands: CommandItem[] = useMemo(() => {
     // Quick actions first — these are the primary "start something" flows
@@ -63,7 +63,8 @@ export function CommandPalette({
     // them at the top means a user can fire "Create Pipeline" without leaving
     // the keyboard, and they stay reachable when the sidebar is collapsed.
     const actionItems: CommandItem[] = QUICK_ACTIONS
-      .filter((qa) => !qa.requiredPermission || hasPermission(user, qa.requiredPermission))
+      // Permitted AND not a write blocked by read-only impersonation (nav.ts intent).
+      .filter((qa) => !qa.requiredPermission || (hasPermission(user, qa.requiredPermission) && !(isReadOnly && isMutationPermission(qa.requiredPermission))))
       .map((qa) => ({
       id: qa.href,
       label: qa.label,
@@ -96,7 +97,7 @@ export function CommandPalette({
       ...navItems,
       { id: 'toggle-dark', label: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode', icon: isDark ? Sun : Moon, section: 'Settings', keywords: 'theme', action: () => runAndClose(onToggleDark) },
     ];
-  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose, features, user]);
+  }, [navigate, isSuperAdmin, isAdmin, isDark, onToggleDark, runAndClose, features, user, isReadOnly]);
 
   const filtered = useMemo(() => {
     if (!query) return commands;

@@ -295,8 +295,34 @@ export interface BundleConfig {
   readonly sortOrder: number;
 }
 
+/**
+ * A combo discount: when an account holds EVERY bundle in `bundleIds`, the pair
+ * is billed at `prices` (the combined price) instead of the sum of the members'
+ * individual prices. Realized as a recurring usage credit for the difference —
+ * never a provider coupon — consistent with the usage-credit discount model. See
+ * docs/billing-bundles.md §Combo pricing.
+ */
+export interface ComboDiscountConfig {
+  readonly id: string;
+  readonly name: string;
+  /** The member bundle ids that must ALL be present for the combo to apply. */
+  readonly bundleIds: readonly string[];
+  /** Per-member minimum quantity (bundleId → count; absent ⇒ 1). Lets a stackable
+   *  capacity pack anchor a combo — e.g. `{ seat_pack: 1 }` = "≥ 1 Seat Pack". The
+   *  credit basis uses this minimum, so extra packs never inflate the discount. */
+  readonly minQuantities?: Readonly<Record<string, number>>;
+  /** The combined price for the minimum set (cents). The credit is
+   *  `Σ member unit price × minQty − prices`, clamped ≥ 0. */
+  readonly prices: BillingPlanPrices;
+  /** Deterministic tie-break among equal-total optimal packings when combos overlap
+   *  (lower wins). */
+  readonly sortOrder: number;
+  readonly isActive: boolean;
+}
+
 /** Billing plans + add-on bundle configuration. */
 export interface BillingConfig {
   readonly plans: readonly BillingPlanConfig[];
   readonly bundles: readonly BundleConfig[];
+  readonly comboDiscounts: readonly ComboDiscountConfig[];
 }

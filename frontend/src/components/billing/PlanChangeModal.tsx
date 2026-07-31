@@ -4,6 +4,7 @@
 import { AlertTriangle } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
+import { formatCents } from '@/lib/format';
 import type { Plan, BillingInterval } from '@/types';
 
 interface PlanChangeModalProps {
@@ -22,7 +23,7 @@ interface PlanChangeModalProps {
 /** Formats a price in cents as a dollar string (0 → "Free"). */
 function formatPrice(cents: number): string {
   if (cents === 0) return 'Free';
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatCents(cents);
 }
 
 /**

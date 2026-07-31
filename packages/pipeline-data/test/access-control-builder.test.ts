@@ -11,7 +11,8 @@
  * - No orgId: system org public only (2 conditions)
  * - With orgId, no accessModifier: own org (any modifier) OR system/parent public,
  *   folded into a single OR (1 condition)
- * - With orgId, accessModifier='public': own org public only (2 conditions)
+ * - With orgId, accessModifier='public': own public OR system/parent public,
+ *   folded into a single OR (1 condition) — system-org samples stay visible
  * - With orgId, accessModifier='private': own org private only (2 conditions)
  */
 
@@ -129,10 +130,11 @@ describe('AccessControlQueryBuilder - parentOrgId (team → parent inheritance)'
     expect(withParent.length).toBe(2);
   });
 
-  it('ignores parentOrgId when an explicit accessModifier filter is set (own-org scoped)', () => {
+  it('folds own + system/parent public into one OR for an explicit public filter (system samples stay visible)', () => {
     const withParent = builder.buildCommonConditions({ accessModifier: 'public' }, ORG_ID, PARENT_ID);
-    // explicit public → orgId=$org + accessModifier='public' (2) + isActive (1) = 3; parent not added.
-    expect(withParent.length).toBe(3);
+    // explicit public → or(ownPublic, and(public, or(system, parent))) (1) + isActive (1) = 2.
+    // The parent is an extra OR branch, not a new condition — and system/parent public is INCLUDED.
+    expect(withParent.length).toBe(2);
   });
 
   it('ignores parentOrgId for anonymous (no orgId) access', () => {
@@ -187,8 +189,9 @@ describe('AccessControlQueryBuilder - combined common conditions', () => {
       { accessModifier: 'public' },
       ORG_ID,
     );
-    // access control for explicit 'public' (2: orgId=$org + accessModifier='public') + isActive default (1) = 3
-    expect(withPublic.length).toBe(3);
+    // Explicit 'public' folds own-public + system/parent-public into a single OR
+    // (1 condition — system-org samples must stay visible) + isActive default (1) = 2.
+    expect(withPublic.length).toBe(2);
   });
 
   it('should handle all common filters together', () => {
@@ -213,8 +216,9 @@ describe('AccessControlQueryBuilder - combined common conditions', () => {
     const withoutOrg = builder.buildCommonConditions(
       { isDefault: true },
     );
-    // Both have 2 access control conditions + isActive (1) + isDefault (1) = 4
-    expect(withOrg.length).toBe(4);
+    // withOrg explicit public: 1 OR access condition + isActive (1) + isDefault (1) = 3.
+    // withoutOrg (anonymous): 2 access conditions (system + public) + isActive + isDefault = 4.
+    expect(withOrg.length).toBe(3);
     expect(withoutOrg.length).toBe(4);
   });
 });

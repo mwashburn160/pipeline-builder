@@ -123,9 +123,13 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
     return requested.actions.filter((a) => a === 'pull');
   }
 
-  // Org-prefixed repo: only the matching org can pull/push.
+  // Org-prefixed repo: the matching org can always pull; PUSH additionally requires
+  // plugins:write (or admin) — otherwise any member with a valid token could
+  // `docker push` and overwrite an existing plugin image, poisoning pipelines that
+  // resolve it. `plugins:write` gates the plugin *record*; this gates the raw image.
   if (requested.name.startsWith(orgPrefix)) {
-    return requested.actions.filter((a) => ['pull', 'push'].includes(a));
+    const allowed = identity.canWritePlugins ? ['pull', 'push'] : ['pull'];
+    return requested.actions.filter((a) => allowed.includes(a));
   }
 
   return [];

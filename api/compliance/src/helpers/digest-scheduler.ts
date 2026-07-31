@@ -77,7 +77,14 @@ async function flushOrg(orgId: string, preference: ComplianceNotificationPrefere
   const entries = await getPendingDigests(orgId);
   if (entries.length === 0) return;
 
-  await dispatchImmediate(orgId, preference, buildDigest(orgId, entries));
+  // Only mark the batch `sent` when delivery actually reached a channel — otherwise
+  // a failed webhook/email flips the digest to `sent` and the batched notifications
+  // are lost. On total failure, leave them pending to retry on the next sweep.
+  const delivered = await dispatchImmediate(orgId, preference, buildDigest(orgId, entries));
+  if (!delivered) {
+    logger.warn('Compliance digest delivery failed on all channels — leaving pending for retry', { orgId, count: entries.length });
+    return;
+  }
   await markDigestsSent(entries.map((e) => e.id));
   await touchLastDigestAt(orgId, now);
 

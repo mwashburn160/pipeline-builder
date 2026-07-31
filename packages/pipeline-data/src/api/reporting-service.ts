@@ -501,9 +501,21 @@ export class ReportingService {
           eventSource: event.eventSource,
           eventType: event.eventType,
           status: event.status,
+          // executionId is an AWS-ASSIGNED identifier (a UUID), not free-form
+          // user text, so it can't carry an account id — and scrubbing a UUID
+          // that happens to contain a 12-digit run would corrupt the correlation
+          // key. Left intact by design.
           executionId: event.executionId,
-          stageName: event.stageName,
-          actionName: event.actionName,
+          // stageName/actionName are USER-AUTHORED pipeline-structure names
+          // promoted from the CodePipeline detail — same untrusted-AWS-derived
+          // origin as errorMessage below, so scrub them at this persistence
+          // boundary too (a stage named with an ARN/12-digit id must not persist).
+          stageName: event.stageName !== undefined
+            ? scrubAwsIdentifiersFromString(event.stageName)
+            : undefined,
+          actionName: event.actionName !== undefined
+            ? scrubAwsIdentifiersFromString(event.actionName)
+            : undefined,
           // HARD CONSTRAINT: an AWS account id must NEVER be persisted. This is
           // the DURABLE persistence boundary and must not trust upstream:
           // CodePipeline/CodeBuild failure detail & messages routinely carry

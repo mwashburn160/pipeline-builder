@@ -181,6 +181,18 @@ async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
   }
 }
 
+/**
+ * Public revocation check for routes that verify a platform JWT OUTSIDE
+ * `requireAuth` (e.g. the image-registry `/token` mint path, which resolves
+ * identity itself). Returns true when the token's `tokenVersion` is strictly
+ * behind the store's current version. Fail-open (never throws) — a store outage
+ * or a token/store without a usable version yields false (allow), matching
+ * `requireAuth`. Pass the verified JWT claims (`sub`, `tokenVersion`).
+ */
+export async function isAccessTokenRevoked(claims: { sub?: string; tokenVersion?: number }): Promise<boolean> {
+  return isTokenRevoked(claims as JwtPayload);
+}
+
 function _requireAuth(
   options: RequireAuthOptions,
   req: Request,
@@ -292,10 +304,6 @@ function _requireAuth(
   }
 }
 
-/**
- * Requires admin role. Use after requireAuth.
- * Permits users whose per-org role is 'admin' or 'owner'.
- */
 /**
  * Whether the request's user holds `permission`. Superadmins implicitly hold
  * every permission. Reads the resolved `permissions` claim (set at token issue,
@@ -450,7 +458,9 @@ export function requirePermissionOrService(...permissions: Permission[]) {
  */
 export function requireServicePrincipal(req: Request, res: Response, next: NextFunction): void {
   if (!isServicePrincipal(req)) {
-    return sendError(res, HttpStatus.BAD_REQUEST, 'Internal service calls only', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    // 403 (not 400) — this is an authorization refusal; status must match the
+    // INSUFFICIENT_PERMISSIONS code and the sibling gates (requirePermission, etc.).
+    return sendError(res, HttpStatus.FORBIDDEN, 'Internal service calls only', ErrorCode.INSUFFICIENT_PERMISSIONS);
   }
   next();
 }
@@ -501,7 +511,8 @@ export function hasScope(req: Request, scope: string): boolean {
   return req.user?.scope === scope;
 }
 
-/** Requires system admin (admin role + system organization). */
+/** Requires a system admin — granted solely by the `isSuperAdmin` token claim
+ *  (the org-membership path was removed). Use after requireAuth. */
 export function requireSystemAdmin(
   req: Request,
   res: Response,
@@ -590,7 +601,9 @@ const DEFAULT_SERVICE_TOKEN_TTL_SECONDS = 300;
 export interface ServiceTokenOptions {
   /** Calling service identifier (e.g. 'billing', 'platform'). Embedded as `sub: service:<name>`. */
   serviceName: string;
-  /** Active org context for the call. Use the target tenant's org ID, or 'system' for system-wide ops. */
+  /** Active org context for the call. Use the target tenant's org id, or the
+   *  well-known `SYSTEM_ORG_ID` (an ObjectId) for system-wide ops — NOT the string
+   *  'system', which id-based system-org checks won't recognize. */
   orgId?: string;
   /** Active org name. Defaults to orgId. */
   orgName?: string;

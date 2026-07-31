@@ -175,22 +175,19 @@ export default function RegistryPage() {
   }, []);
 
   /**
-   * 403 mid-session handler. If any registry call returns 403 (sysadmin
-   * demoted while the page was open), toast + redirect. We observe via
-   * `unhandledrejection` since the page's hooks each surface errors
-   * inline; we don't need a separate error bus.
+   * 403 mid-session handler. If any registry call returns 403 (sysadmin demoted
+   * while the page was open), toast + redirect. The page's data hooks each CATCH
+   * their fetch error into an `error` state (so nothing ever reaches a `window`
+   * `unhandledrejection` — the old listener here was dead code that never fired).
+   * Observe the hooks' surfaced errors directly instead.
    */
   useEffect(() => {
-    const onRejection = (e: PromiseRejectionEvent) => {
-      const err = e.reason;
-      if (err instanceof ApiError && err.statusCode === 403) {
-        toast.error('System-admin access required. Your session no longer has it — returning to the dashboard.');
-        void router.push('/dashboard');
-      }
-    };
-    window.addEventListener('unhandledrejection', onRejection);
-    return () => window.removeEventListener('unhandledrejection', onRejection);
-  }, [router, toast]);
+    const is403 = (e: unknown): boolean => e instanceof ApiError && e.statusCode === 403;
+    if (is403(error) || is403(tagsError) || is403(manifestError)) {
+      toast.error('System-admin access required. Your session no longer has it — returning to the dashboard.');
+      void router.push('/dashboard');
+    }
+  }, [error, tagsError, manifestError, router, toast]);
 
   // Track narrow viewports — the 3-column layout doesn't reflow below ~1024px.
   useEffect(() => {
@@ -480,7 +477,7 @@ export default function RegistryPage() {
       {deleteTag && repo && (
         <DeleteTagConfirm
           repo={repo}
-          ref={deleteTag}
+          tagRef={deleteTag}
           onClose={() => setDeleteTag(null)}
           onDeleted={onDeleted}
         />
