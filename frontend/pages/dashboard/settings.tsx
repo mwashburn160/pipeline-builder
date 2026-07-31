@@ -157,9 +157,9 @@ export default function SettingsPage() {
                   <CheckCircle className="w-3.5 h-3.5" /> Email verified
                 </p>
               ) : (
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400 bg-amber-100 px-3 py-2 text-xs font-medium text-amber-900 dark:border-amber-600 dark:bg-amber-900/40 dark:text-amber-100">
                   <span className="inline-flex items-center gap-1.5">
-                    <MailWarning className="w-4 h-4 shrink-0" /> Your email address is unverified.
+                    <MailWarning className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" /> Your email address is unverified.
                   </span>
                   <div className="flex items-center gap-2">
                     {canMarkVerified && (

@@ -117,7 +117,11 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Roles', href: '/dashboard/roles', icon: ShieldCheck, requiredPermission: 'roles:manage' },
       { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, requiredPermission: 'invitations:manage' },
       { title: 'Quotas', href: '/dashboard/quotas', icon: Gauge, requiredPermission: 'quotas:read' },
-      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredPermission: 'billing:read', requiredFeature: 'billing' },
+      // Billing is a core org capability gated by the `billing:read` permission,
+      // NOT a feature flag — `'billing'` is not a FeatureFlag, so a `requiredFeature`
+      // here made `isFeatureEnabled('billing')` always false and hid the item for
+      // everyone.
+      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredPermission: 'billing:read' },
     ],
   },
   {
