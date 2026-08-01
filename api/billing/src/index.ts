@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, ErrorCode, mongoSanitize, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, ErrorCode, mongoSanitize, wireAuthzDenialAuditor, setTokenRevocationStore, createEnvRedisTokenRevocationStore } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, mongoHealthCheck, connectMongo } from '@pipeline-builder/api-server';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -49,6 +49,16 @@ const { app, sseManager } = createApp({
 // sees the already-sanitised payload, not the raw operator-laden one.
 app.use(mongoSanitize());
 app.use(attachRequestContext(sseManager));
+
+// Deployment-config probe — registered UNCONDITIONALLY so it answers in BOTH
+// enabled and disabled mode (the gated `/billing/*` routes below only exist when
+// enabled). The frontend reads this to auto-hide the Billing nav when billing is
+// off, instead of showing a link that dead-ends at a 503. Exposes only the
+// enabled flag + provider name — no secrets, no DB access, so it's safe with no
+// auth (any authed caller reaching the gateway can read it).
+app.get('/billing/config', (_req, res) => {
+  sendSuccess(res, 200, { enabled: config.enabled, provider: config.billingProvider });
+});
 
 if (config.enabled) {
 

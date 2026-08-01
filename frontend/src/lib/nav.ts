@@ -48,6 +48,11 @@ export interface NavItem {
    *  items so custom-group grants reveal the right nav. */
   requiredPermission?: string;
   requiredFeature?: string;
+  /** Hide unless the billing SERVICE is enabled in this deployment
+   *  (`BILLING_ENABLED`), so the Billing link doesn't show when it would only
+   *  dead-end at a 503. Distinct from `requiredFeature` (a per-user feature flag);
+   *  this is deployment config sourced from `/api/billing/config`. */
+  requiresBillingEnabled?: boolean;
   /** Extra path prefixes that should also mark this item active (e.g. a sibling
    *  route folded into the same nav entry, like /triage under "Builds"). */
   extraActivePaths?: string[];
@@ -117,11 +122,12 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Roles', href: '/dashboard/roles', icon: ShieldCheck, requiredPermission: 'roles:manage' },
       { title: 'Invitations', href: '/dashboard/invitations', icon: Mail, requiredPermission: 'invitations:manage' },
       { title: 'Quotas', href: '/dashboard/quotas', icon: Gauge, requiredPermission: 'quotas:read' },
-      // Billing is a core org capability gated by the `billing:read` permission,
-      // NOT a feature flag — `'billing'` is not a FeatureFlag, so a `requiredFeature`
-      // here made `isFeatureEnabled('billing')` always false and hid the item for
-      // everyone.
-      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredPermission: 'billing:read' },
+      // Gated by the `billing:read` permission AND by whether the billing SERVICE
+      // is enabled in this deployment (`requiresBillingEnabled` → /api/billing/config).
+      // NOT a feature flag — `'billing'` isn't a FeatureFlag, so the old
+      // `requiredFeature: 'billing'` made `isFeatureEnabled('billing')` always
+      // false and hid the item for everyone.
+      { title: 'Billing', href: '/dashboard/billing', icon: CreditCard, requiredPermission: 'billing:read', requiresBillingEnabled: true },
     ],
   },
   {
@@ -154,11 +160,12 @@ export const NAV_SECTIONS: NavSection[] = [
  */
 export function isNavItemVisible(
   item: NavItem,
-  ctx: { isAdmin: boolean; isSuperAdmin: boolean; isFeatureEnabled: (name: string) => boolean; hasPermission: (perm: string) => boolean },
+  ctx: { isAdmin: boolean; isSuperAdmin: boolean; isFeatureEnabled: (name: string) => boolean; hasPermission: (perm: string) => boolean; billingEnabled?: boolean },
 ): boolean {
   if (item.systemAdminOnly && !ctx.isSuperAdmin) return false;
   if (item.adminOnly && !ctx.isAdmin) return false;
   if (item.requiredPermission && !ctx.hasPermission(item.requiredPermission)) return false;
   if (item.requiredFeature && !ctx.isFeatureEnabled(item.requiredFeature)) return false;
+  if (item.requiresBillingEnabled && !ctx.billingEnabled) return false;
   return true;
 }

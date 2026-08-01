@@ -11,6 +11,14 @@ export function billingApi(core: ApiCore) {
     // Billing endpoints (billing service — nginx proxies /api/billing → billing:3000/billing)
     // ============================================
 
+    /** Deployment-config probe: whether the billing service is enabled (and which
+     *  provider). Answers in BOTH enabled and disabled mode, so the sidebar can
+     *  auto-hide the Billing link when the service is off instead of showing a
+     *  link that dead-ends at a 503. */
+    getBillingConfig: async () => {
+      return core.request<ApiResponse<{ enabled: boolean; provider: string }>>('/api/billing/config');
+    },
+
     /** Get all available plans (public, no auth required). */
     getPlans: async () => {
       return core.request<ApiResponse<{ plans: Plan[]; total: number }>>('/api/billing/plans');

@@ -33,6 +33,9 @@ const ctx = (user: FakeUser | null) => ({
   isAdmin: false,
   isSuperAdmin: !!user?.isSuperAdmin,
   isFeatureEnabled: () => true,
+  // Billing SERVICE is enabled in this deployment, so the `requiresBillingEnabled`
+  // gate is satisfied and these tests exercise the permission gate in isolation.
+  billingEnabled: true,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   hasPermission: (p: string) => hasPermission(user as any, p),
 });
