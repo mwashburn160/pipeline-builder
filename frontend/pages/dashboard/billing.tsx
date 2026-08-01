@@ -3,7 +3,7 @@ import { formatError } from '@/lib/constants';
 import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
-import { useFeatures } from '@/hooks/useFeatures';
+import { useBillingEnabledState } from '@/hooks/useBillingEnabled';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
@@ -41,7 +41,12 @@ export default function BillingPage() {
   const router = useRouter();
   const { user, isReady, isAdmin, isSuperAdmin, can, isReadOnly } = useAuthGuard({ requirePermission: 'billing:read' });
   const { organizations } = useAuth();
-  const features = useFeatures();
+  // Whether the billing SERVICE is enabled in this deployment (`/api/billing/config`
+  // probe). Replaces the old `features.isEnabled('billing')` gate — `'billing'` is
+  // NOT a FeatureFlag, so that check was always false and this page redirected/span
+  // forever for everyone. Tri-state so the redirect below only fires on a definitive
+  // `false`, not while the probe is still resolving.
+  const billingEnabled = useBillingEnabledState();
   const toast = useToast();
   // Billing lives at the ROOT org (pooled-at-root): the subscription, tier,
   // quota pool and add-ons all belong to the account boundary. A team (child
@@ -77,12 +82,14 @@ export default function BillingPage() {
   const highlightRaw = router.query.highlight;
   const highlightFeature = Array.isArray(highlightRaw) ? highlightRaw[0] : highlightRaw ?? null;
 
-  // Billing not available (disabled or system org)  redirect to dashboard
+  // Billing service disabled in this deployment → redirect to dashboard. Only on a
+  // DEFINITIVE `false` (probe resolved + reported disabled); while `undefined`
+  // (probe in flight/failed) we wait rather than bounce the user out prematurely.
   useEffect(() => {
-    if (isReady && !features.isEnabled('billing')) {
+    if (isReady && billingEnabled === false) {
       router.replace('/dashboard');
     }
-  }, [isReady, features, router]);
+  }, [isReady, billingEnabled, router]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -289,7 +296,9 @@ export default function BillingPage() {
     }
   };
 
-  if (!isReady || loading || !features.isEnabled('billing')) return <LoadingPage />;
+  // Render the billing UI only once billing is DEFINITIVELY enabled; while the probe
+  // is unknown (`undefined`) or disabled (`false` → redirect in flight) show loading.
+  if (!isReady || loading || billingEnabled !== true) return <LoadingPage />;
 
   return (    <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
       <div className="page-section space-y-8">

@@ -54,3 +54,39 @@ export function useBillingEnabled(): boolean {
 
   return enabled;
 }
+
+/**
+ * Tri-state variant: `true` (enabled) / `false` (definitively disabled) /
+ * `undefined` (not yet known — probe in flight or failed). Callers that take an
+ * IRREVERSIBLE action on the answer — e.g. the Billing page redirecting away when
+ * billing is off — must use this and act only on the definitive `false`, never on
+ * `undefined`, so the page doesn't bounce before the probe resolves. (The boolean
+ * `useBillingEnabled` collapses unknown→false, which is right for hide/show but
+ * wrong for a redirect.)
+ */
+export function useBillingEnabledState(): boolean | undefined {
+  const [state, setState] = useState<boolean | undefined>(cached);
+
+  useEffect(() => {
+    if (cached !== undefined) {
+      setState(cached);
+      return;
+    }
+    let active = true;
+    inflight = inflight ?? fetchBillingEnabled();
+    void inflight
+      .then((v) => {
+        cached = v;
+        if (active) setState(v);
+      })
+      .catch(() => {
+        // Unknown (not disabled) — leave `cached` undefined so a later mount retries
+        // and callers keep waiting rather than treating a blip as "disabled".
+        if (active) setState(undefined);
+      })
+      .finally(() => { inflight = null; });
+    return () => { active = false; };
+  }, []);
+
+  return state;
+}
