@@ -18,15 +18,14 @@ import { api } from '@/lib/api';
 let cached: boolean | undefined;
 let inflight: Promise<boolean> | null = null;
 
+// Resolves to the probe's `enabled` flag. THROWS on an unreachable/errored probe
+// so the caller can distinguish a *definitive* answer (cache it) from a transient
+// failure (don't cache — retry on the next mount). Caching a transient failure
+// would hide Billing for the whole page-session even after the service recovers
+// (e.g. the tab loaded while billing was mid-restart).
 async function fetchBillingEnabled(): Promise<boolean> {
-  try {
-    const res = await api.getBillingConfig();
-    return res.data?.enabled === true;
-  } catch {
-    // Probe unreachable → treat as disabled (hide the link rather than show a
-    // link that may 502/503).
-    return false;
-  }
+  const res = await api.getBillingConfig();
+  return res.data?.enabled === true;
 }
 
 export function useBillingEnabled(): boolean {
@@ -39,11 +38,17 @@ export function useBillingEnabled(): boolean {
     }
     let active = true;
     inflight = inflight ?? fetchBillingEnabled();
-    void inflight.then((v) => {
-      cached = v;
-      inflight = null;
-      if (active) setEnabled(v);
-    });
+    void inflight
+      .then((v) => {
+        cached = v; // only a successful probe is memoised for the session
+        if (active) setEnabled(v);
+      })
+      .catch(() => {
+        // Transient failure: leave `cached` undefined so a later mount/navigation
+        // retries; stay hidden for now rather than flash a link that may 502/503.
+        if (active) setEnabled(false);
+      })
+      .finally(() => { inflight = null; });
     return () => { active = false; };
   }, []);
 
