@@ -49,6 +49,28 @@ const PLUGIN_TABS: { id: PluginSubTab; label: string }[] = [
   { id: 'versions', label: 'Versions' },
 ];
 
+// Quick date-range presets. Each maps to a rolling window ending today; the
+// bounds are computed client-side as `YYYY-MM-DD` (the format the native date
+// inputs / backend from|to expect).
+const DATE_PRESETS: { label: string; days: number }[] = [
+  { label: 'Last 7d', days: 7 },
+  { label: 'Last 30d', days: 30 },
+  { label: 'Last 90d', days: 90 },
+];
+
+/** Format a Date as a local `YYYY-MM-DD` string (matches the native date input value). */
+function isoDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Rolling window ending today, `days` back. */
+function presetRange(days: number): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - days);
+  return { from: isoDay(from), to: isoDay(to) };
+}
+
 // ─── Page ───────────────────────────────────────────────
 export default function ReportsPage() {
   const { user, isReady, isAuthenticated, can } = useAuthGuard({ requirePermission: 'reports:read' });
@@ -316,6 +338,31 @@ export default function ReportsPage() {
               Include child teams
             </label>
           )}
+          {/* Quick presets — set the same dateFrom/dateTo the manual picker drives.
+              The active preset (whose rolling window matches the current bounds) is
+              highlighted. */}
+          <div className="flex items-center gap-1">
+            {DATE_PRESETS.map((p) => {
+              const range = presetRange(p.days);
+              const active = dateFrom === range.from && dateTo === range.to;
+              return (
+                <button
+                  key={p.days}
+                  type="button"
+                  onClick={() => { setDateFrom(range.from); setDateTo(range.to); }}
+                  aria-pressed={active}
+                  className={`px-2 py-1 text-xs font-medium rounded-lg transition-colors ${
+                    active
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                  title={`Show the last ${p.days} days`}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
           <DateRangePicker from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
           <select value={timeInterval} onChange={(e) => setTimeInterval(e.target.value as 'day' | 'week' | 'month')} className="filter-select">
             <option value="day">Daily</option>

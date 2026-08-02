@@ -97,6 +97,8 @@ export default function DashboardPage() {
   // Stats
   const [executions, setExecutions] = useState<ExecutionCountRow[]>([]);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  // Execution Trend window (days). Drives the getSuccessRate from/to range.
+  const [trendRange, setTrendRange] = useState<7 | 30 | 90>(7);
   const [pluginSummary, setPluginSummary] = useState<PluginSummary | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
   const [pipelineCount, setPipelineCount] = useState<number | null>(null);
@@ -114,9 +116,8 @@ export default function DashboardPage() {
       ? api.getOrganizationMembers(user.organizationId, { limit: 1 }).catch(() => null)
       : Promise.resolve(null);
 
-    const [execRes, timelineRes, pluginRes, pipelineRes, unreadRes, memberRes] = await Promise.allSettled([
+    const [execRes, pluginRes, pipelineRes, unreadRes, memberRes] = await Promise.allSettled([
       api.getExecutionCount(),
-      api.getSuccessRate({ interval: 'day' }),
       api.getPluginSummary(),
       api.listPipelines({ limit: '1' }),
       api.getUnreadCount(),
@@ -124,7 +125,6 @@ export default function DashboardPage() {
     ]);
 
     if (execRes.status === 'fulfilled') setExecutions(execRes.value.data?.pipelines || []);
-    if (timelineRes.status === 'fulfilled') setTimeline((timelineRes.value.data?.timeline || []).slice(-7));
     if (pluginRes.status === 'fulfilled') setPluginSummary(pluginRes.value.data?.summary || null);
     if (pipelineRes.status === 'fulfilled') setPipelineCount(pipelineRes.value.data?.pagination?.total ?? 0);
     if (unreadRes.status === 'fulfilled') setUnreadMessageCount(unreadRes.value.data?.count ?? 0);
@@ -136,6 +136,26 @@ export default function DashboardPage() {
   useEffect(() => {
     if (isAuthenticated) fetchData();
   }, [isAuthenticated, fetchData]);
+
+  // Execution Trend timeline — fetched separately so changing the range window
+  // only re-hits the success-rate report, not the whole dashboard.
+  const fetchTimeline = useCallback(async () => {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - trendRange);
+    try {
+      const res = await api.getSuccessRate({
+        interval: 'day',
+        from: from.toISOString().slice(0, 10),
+        to: to.toISOString().slice(0, 10),
+      });
+      setTimeline((res.data?.timeline || []).slice(-trendRange));
+    } catch { /* best-effort — leave the previous timeline in place */ }
+  }, [trendRange]);
+
+  useEffect(() => {
+    if (isAuthenticated) fetchTimeline();
+  }, [isAuthenticated, fetchTimeline]);
 
   useEffect(() => {
     setRecent(loadRecent());
@@ -440,11 +460,28 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 <Activity className="w-4 h-4 inline mr-1.5 text-gray-400" />
-                Execution Trend (last 7 days)
+                Execution Trend (last {trendRange} days)
               </h3>
-              <Link href="/dashboard/reports" className="action-link text-xs">
-                Full reports →
-              </Link>
+              <div className="flex items-center gap-3">
+                <div className="inline-flex items-center gap-1" role="group" aria-label="Trend range">
+                  {([7, 30, 90] as const).map((days) => (
+                    <button
+                      key={days}
+                      type="button"
+                      onClick={() => setTrendRange(days)}
+                      aria-pressed={trendRange === days}
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${trendRange === days
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                    >
+                      {days}d
+                    </button>
+                  ))}
+                </div>
+                <Link href="/dashboard/reports" className="action-link text-xs">
+                  Full reports →
+                </Link>
+              </div>
             </div>
 
             <div className="flex items-end gap-1.5 h-20">

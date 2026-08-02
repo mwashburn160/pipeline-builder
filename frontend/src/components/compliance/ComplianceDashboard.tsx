@@ -70,6 +70,10 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   // Audit log filters & pagination
   const [auditTarget, setAuditTarget] = useState('');
   const [auditResult, setAuditResult] = useState('');
+  // Date-range scope (empty = unbounded). `getComplianceAuditLog` accepts
+  // dateFrom/dateTo; the result filter already exists as a select above.
+  const [auditDateFrom, setAuditDateFrom] = useState('');
+  const [auditDateTo, setAuditDateTo] = useState('');
   const [auditPagination, setAuditPagination] = useState<PaginationState>({ limit: 20, offset: 0, total: 0 });
 
   const fetchAudit = useCallback(async (offset = auditPagination.offset, limit = auditPagination.limit) => {
@@ -77,6 +81,8 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
       const params: Record<string, string | number> = { limit, offset };
       if (auditTarget) params.target = auditTarget;
       if (auditResult) params.result = auditResult;
+      if (auditDateFrom) params.dateFrom = auditDateFrom;
+      if (auditDateTo) params.dateTo = auditDateTo;
       const res = await api.getComplianceAuditLog(params);
       if (res.success && res.data) {
         setAudit(res.data.entries);
@@ -90,7 +96,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
     } catch {
       setAuditError('Failed to load audit log');
     }
-  }, [auditTarget, auditResult, auditPagination.offset, auditPagination.limit]);
+  }, [auditTarget, auditResult, auditDateFrom, auditDateTo, auditPagination.offset, auditPagination.limit]);
 
   // Pass/warn/block counts come from dedicated `result=` queries that ask
   // for `limit:1` and read `pagination.total`. We can't derive the totals
@@ -119,7 +125,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   // Reset to page 1 when filters change.
   useEffect(() => {
     setAuditPagination(prev => ({ ...prev, offset: 0 }));
-  }, [auditTarget, auditResult]);
+  }, [auditTarget, auditResult, auditDateFrom, auditDateTo]);
 
   // Refetch the audit log when the filters change. The previous
   // `filtersActive` truthy-string indirection skipped fetches when both
@@ -129,7 +135,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
     // fetchAudit closes over the same deps; we want to fire only when the
     // user-facing filters change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auditTarget, auditResult]);
+  }, [auditTarget, auditResult, auditDateFrom, auditDateTo]);
 
   const handleAuditPageChange = (offset: number) => { fetchAudit(offset, auditPagination.limit); };
   const handleAuditPageSizeChange = (limit: number) => { fetchAudit(0, limit); };
@@ -197,6 +203,10 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
             auditResult={auditResult}
             onTargetChange={setAuditTarget}
             onResultChange={setAuditResult}
+            auditDateFrom={auditDateFrom}
+            auditDateTo={auditDateTo}
+            onDateFromChange={setAuditDateFrom}
+            onDateToChange={setAuditDateTo}
             auditPagination={auditPagination}
             onAuditPageChange={handleAuditPageChange}
             onAuditPageSizeChange={handleAuditPageSizeChange}
@@ -239,12 +249,16 @@ interface OverviewProps {
   auditResult: string;
   onTargetChange: (v: string) => void;
   onResultChange: (v: string) => void;
+  auditDateFrom: string;
+  auditDateTo: string;
+  onDateFromChange: (v: string) => void;
+  onDateToChange: (v: string) => void;
   auditPagination: PaginationState;
   onAuditPageChange: (offset: number) => void;
   onAuditPageSizeChange: (limit: number) => void;
 }
 
-function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditResult, onTargetChange, onResultChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
+function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditResult, onTargetChange, onResultChange, auditDateFrom, auditDateTo, onDateFromChange, onDateToChange, auditPagination, onAuditPageChange, onAuditPageSizeChange }: OverviewProps) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -271,7 +285,7 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Activity className="h-4 w-4" /> Recent Checks
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Filter className="h-3.5 w-3.5 text-gray-400" />
             <select
               value={auditTarget}
@@ -292,6 +306,24 @@ function Overview({ stats, audit, auditError, onRetryAudit, auditTarget, auditRe
               <option value="warn">Warn</option>
               <option value="block">Block</option>
             </select>
+            {/* Date-range scope (empty = unbounded). */}
+            <input
+              type="date"
+              value={auditDateFrom}
+              onChange={e => onDateFromChange(e.target.value)}
+              className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs tabular-nums"
+              title="From date"
+              aria-label="Audit log from date"
+            />
+            <span className="text-xs text-gray-400">→</span>
+            <input
+              type="date"
+              value={auditDateTo}
+              onChange={e => onDateToChange(e.target.value)}
+              className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs tabular-nums"
+              title="To date"
+              aria-label="Audit log to date"
+            />
           </div>
         </div>
         {auditError ? (

@@ -53,6 +53,11 @@ export default function AuditPage() {
   const [affectedOrgId, setAffectedOrgId] = useState<string>('');
   const [requestId, setRequestId] = useState<string>('');
   const [outcome, setOutcome] = useState<'' | 'success' | 'failure'>('');
+  // Target-type scope (e.g. pipeline / plugin / user). Empty = any target.
+  const [targetType, setTargetType] = useState<string>('');
+  // createdAt range bounds (ISO date strings from <input type="date">, or empty).
+  const [from, setFrom] = useState<string>('');
+  const [to, setTo] = useState<string>('');
   const [offset, setOffset] = useState(0);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
 
@@ -69,6 +74,10 @@ export default function AuditPage() {
     // lets a dashboard panel link straight to failed logins.
     if (typeof router.query.requestId === 'string') setRequestId(router.query.requestId);
     if (router.query.outcome === 'success' || router.query.outcome === 'failure') setOutcome(router.query.outcome);
+    if (typeof router.query.targetType === 'string') setTargetType(router.query.targetType);
+    // createdAt range deep-links (e.g. "events since <incident time>").
+    if (typeof router.query.from === 'string') setFrom(router.query.from);
+    if (typeof router.query.to === 'string') setTo(router.query.to);
   }, [router.isReady, router.query, isSuperAdmin]);
 
   const [events, setEvents] = useState<AuditLogEvent[]>([]);
@@ -113,12 +122,15 @@ export default function AuditPage() {
     ...(actorId && { actorId }),
     ...(requestId && { requestId }),
     ...(outcome && { outcome }),
+    ...(targetType && { targetType }),
+    ...(from && { from }),
+    ...(to && { to }),
     // Org admins are forced to their own org by the backend; this filter
     // is sysadmin-only. UI still sends it, server ignores for non-sysadmins.
     ...(isSuperAdmin && affectedOrgId && { affectedOrgId }),
     offset,
     limit,
-  }), [action, actorId, requestId, outcome, affectedOrgId, isSuperAdmin, offset, limit]);
+  }), [action, actorId, requestId, outcome, targetType, from, to, affectedOrgId, isSuperAdmin, offset, limit]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -259,6 +271,45 @@ export default function AuditPage() {
           <option value="success">Success</option>
           <option value="failure">Failure</option>
         </select>
+        <select
+          aria-label="Filter by target type"
+          value={targetType}
+          onChange={(e) => { setTargetType(e.target.value); setOffset(0); }}
+          className="filter-input"
+        >
+          <option value="">Any target type</option>
+          <option value="pipeline">Pipeline</option>
+          <option value="plugin">Plugin</option>
+          <option value="user">User</option>
+          <option value="organization">Organization</option>
+          <option value="role">Role</option>
+          <option value="invitation">Invitation</option>
+          <option value="policy">Policy</option>
+          <option value="rule">Rule</option>
+          <option value="dashboard">Dashboard</option>
+        </select>
+        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <span className="shrink-0">From</span>
+          <input
+            type="date"
+            aria-label="Filter events created on or after"
+            value={from}
+            max={to || undefined}
+            onChange={(e) => { setFrom(e.target.value); setOffset(0); }}
+            className="filter-input"
+          />
+        </label>
+        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <span className="shrink-0">To</span>
+          <input
+            type="date"
+            aria-label="Filter events created on or before"
+            value={to}
+            min={from || undefined}
+            onChange={(e) => { setTo(e.target.value); setOffset(0); }}
+            className="filter-input"
+          />
+        </label>
         {isSuperAdmin && (
           <input
             type="text"

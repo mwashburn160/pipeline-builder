@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Search, ScrollText, RefreshCw, ChevronRight, Download } from 'lucide-react';
+import { Search, ScrollText, RefreshCw, ChevronRight, Download, AlertCircle, AlertTriangle } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -194,6 +194,40 @@ export default function LogsPage() {
       <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="logs" orgName={user.organizationName} />
 
       <ErrorAlert message={error} onDismiss={() => setError(null)} />
+
+      {/* Level quick-filters — one-click jumps to a single severity. The backend
+          `level` param is single-value, so these set (or toggle off) levelFilter
+          rather than stacking. */}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setLevelFilter((prev) => (prev === 'error' ? '' : 'error'))}
+          aria-pressed={levelFilter === 'error'}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+            levelFilter === 'error'
+              ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300'
+              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+          }`}
+          title="Show only error-level logs"
+        >
+          <AlertCircle className="w-3.5 h-3.5" />
+          Errors only
+        </button>
+        <button
+          type="button"
+          onClick={() => setLevelFilter((prev) => (prev === 'warn' ? '' : 'warn'))}
+          aria-pressed={levelFilter === 'warn'}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+            levelFilter === 'warn'
+              ? 'border-yellow-300 bg-yellow-50 text-yellow-700 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
+              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+          }`}
+          title="Show only warning-level logs"
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Warnings
+        </button>
+      </div>
 
       {/* Filters */}
       <div className="filter-bar">

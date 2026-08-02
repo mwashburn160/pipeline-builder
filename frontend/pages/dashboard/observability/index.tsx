@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes, Plus, Lock, Building2, Globe, ScrollText } from 'lucide-react';
+import { Activity, BarChart3, Bell, LayoutDashboard, ListChecks, Boxes, Plus, Lock, Building2, Globe, ScrollText, Search } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
@@ -30,6 +31,26 @@ export default function ObservabilityIndexPage() {
     [ready],
   );
   const dashboards: Dashboard[] = data ?? [];
+
+  // Client-side grid filters over the already-fetched dashboards (no backend
+  // call): free-text over the name + a visibility quick-filter.
+  const [search, setSearch] = useState('');
+  const [visibility, setVisibility] = useState<'all' | Dashboard['visibility']>('all');
+  const filteredDashboards = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return dashboards.filter((d) => {
+      if (visibility !== 'all' && d.visibility !== visibility) return false;
+      if (q && !d.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [dashboards, search, visibility]);
+
+  const VISIBILITY_CHIPS: { id: 'all' | Dashboard['visibility']; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'public', label: 'Public' },
+    { id: 'org', label: 'Org' },
+    { id: 'private', label: 'Private' },
+  ];
 
   if (!isReady || !isAuthenticated) return <LoadingPage />;
 
@@ -73,6 +94,41 @@ export default function ObservabilityIndexPage() {
           {error.message}
         </div>
       )}
+
+      {/* Client-side filters over the dashboard tiles below (the fixed
+          Alerts/Rules/Logs links are always shown). */}
+      <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+          <input
+            type="text"
+            placeholder="Search dashboards..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="filter-input"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          {VISIBILITY_CHIPS.map((c) => {
+            const active = visibility === c.id;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setVisibility(c.id)}
+                aria-pressed={active}
+                className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                  active
+                    ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                }`}
+              >
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Alerts page — not a Prom dashboard but lives in the same section. */}
@@ -140,8 +196,8 @@ export default function ObservabilityIndexPage() {
           </div>
         ))}
 
-        {/* DB-stored dashboards (seeded defaults + org-created). */}
-        {dashboards.map((d) => {
+        {/* DB-stored dashboards (seeded defaults + org-created), after client filters. */}
+        {filteredDashboards.map((d) => {
           const Icon = ICON_BY_NAME[d.name] ?? LayoutDashboard;
           const VisIcon = visibilityIcon(d.visibility);
           return (
@@ -161,6 +217,13 @@ export default function ObservabilityIndexPage() {
             </Link>
           );
         })}
+
+        {/* No-match state — dashboards exist but the active filters hide them all. */}
+        {!loading && dashboards.length > 0 && filteredDashboards.length === 0 && (
+          <div className="col-span-full rounded border border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
+            No dashboards match your filters.
+          </div>
+        )}
 
         {/* Empty state */}
         {!loading && dashboards.length === 0 && !error && (

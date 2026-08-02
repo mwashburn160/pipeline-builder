@@ -48,20 +48,29 @@ export default function MembersPage() {
   const router = useRouter();
   const orgId = user?.organizationId;
 
-  // Server-paginated, server-filtered roster. Search + role filter are pushed
-  // to the backend (never an in-memory scan of a whole roster), and each member
-  // arrives with its assigned Role names embedded — so role chips render without
-  // fetching all roles and running an O(members×roles) membership scan.
+  // Server-paginated, server-filtered roster. Search + role + status filters and
+  // the sort are pushed to the backend (never an in-memory scan of a whole
+  // roster), and each member arrives with its assigned Role names embedded — so
+  // role chips render without fetching all roles and running an O(members×roles)
+  // membership scan.
   const list = useListPage<OrganizationMember>({
     fields: [
       { key: 'search', type: 'text', defaultValue: '', primary: true },
       { key: 'role', type: 'select', defaultValue: 'all' },
+      { key: 'status', type: 'select', defaultValue: 'all' },
     ],
+    // Server-side sort — the roster spans pages, so ordering must happen on the
+    // backend (a client sort would only order the visible page). Defaults to the
+    // username column shown selected in the table.
+    initialSort: { sortBy: 'username', sortOrder: 'asc' },
     fetcher: async (params) => {
       if (!orgId) return { items: [] };
       const res = await api.getOrganizationMembers(orgId, {
         ...(params.search ? { search: params.search } : {}),
         ...(params.role && params.role !== 'all' ? { role: params.role as 'admin' | 'member' } : {}),
+        ...(params.status && params.status !== 'all' ? { status: params.status as 'active' | 'inactive' } : {}),
+        ...(params.sortBy ? { sortBy: params.sortBy } : {}),
+        ...(params.sortOrder ? { sortOrder: params.sortOrder as 'asc' | 'desc' } : {}),
         offset: Number(params.offset || 0),
         limit: Number(params.limit || 25),
       });
@@ -69,6 +78,10 @@ export default function MembersPage() {
     },
     enabled: isAuthenticated && canViewMembers && !!orgId,
   });
+  // Maps a sortable DataTable column id to the backend `sortBy` whitelist key.
+  // `username`/`role`/`status` map through; the "Joined" column orders by the
+  // membership `joinedAt`.
+  const MEMBER_SORT_MAP: Record<string, string> = { username: 'username', role: 'role', status: 'status', joined: 'joinedAt' };
   const members = list.data;
 
   // Add member
@@ -454,11 +467,18 @@ export default function MembersPage() {
             </div>
           }
           right={
-            <select value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} className="filter-select">
-              <option value="all">All Roles</option>
-              <option value="member">Members</option>
-              <option value="admin">Admins</option>
-            </select>
+            <div className="flex gap-2">
+              <select value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)} className="filter-select" aria-label="Filter by status">
+                <option value="all">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <select value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} className="filter-select" aria-label="Filter by role">
+                <option value="all">All Roles</option>
+                <option value="member">Members</option>
+                <option value="admin">Admins</option>
+              </select>
+            </div>
           }
         />
       </div>
@@ -479,6 +499,11 @@ export default function MembersPage() {
           ),
         }}
         defaultSortColumn="username"
+        serverSort
+        onSortChange={(columnId, direction) => {
+          const field = MEMBER_SORT_MAP[columnId];
+          if (field) list.setSort(field, direction);
+        }}
       />
 
       {!list.isLoading && list.pagination.total > 0 && (

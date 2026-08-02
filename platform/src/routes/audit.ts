@@ -11,6 +11,16 @@ import { auditService, type AuditFilter } from '../services/audit-service.js';
 const logger = createLogger('audit-routes');
 const router: Router = Router();
 
+/** Parse an optional ISO date query param; returns undefined if absent, or null
+ *  if malformed (caller answers a malformed value with a 400). Mirrors the
+ *  billing-summary `parseOptionalDate` pattern. */
+function parseOptionalDate(raw: unknown): Date | undefined | null {
+  const s = parseQueryString(raw);
+  if (!s) return undefined;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** Actions whose name marks them a failure outcome (e.g. `plugin.build.failed`,
  *  `plugin.build.timeout`). Hoisted so the ingest path doesn't recompile it. */
 const FAILURE_ACTION = /\.(failed|timeout)$/;
@@ -36,6 +46,13 @@ router.get('/', requireAuth, withController('List audit events', async (req, res
   const impersonatorId = parseQueryString(req.query.impersonatorId);
   const requestId = parseQueryString(req.query.requestId);
   const outcomeQuery = parseQueryString(req.query.outcome);
+  // Read-time createdAt range. Malformed (non-parseable) values are rejected
+  // with a 400 BEFORE any query is issued, mirroring billing-summary.
+  const from = parseOptionalDate(req.query.from);
+  const to = parseOptionalDate(req.query.to);
+  if (from === null || to === null) {
+    return sendError(res, 400, 'from/to must be ISO dates');
+  }
   const { offset, limit: limitNum } = parsePaginationParams(req.query);
 
   const filter: AuditFilter = {};
@@ -59,6 +76,8 @@ router.get('/', requireAuth, withController('List audit events', async (req, res
   if (impersonatorId) filter.impersonatorId = impersonatorId;
   if (requestId) filter.requestId = requestId;
   if (outcomeQuery === 'success' || outcomeQuery === 'failure') filter.outcome = outcomeQuery;
+  if (from) filter.createdFrom = from;
+  if (to) filter.createdTo = to;
 
   const result = await auditService.findEvents(filter, offset, limitNum);
 

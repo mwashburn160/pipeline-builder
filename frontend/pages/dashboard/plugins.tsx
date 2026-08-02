@@ -28,6 +28,26 @@ import { visitedPluginsKey } from '@/lib/onboarding';
 import { loadFavorites, toggleFavorite } from '@/lib/favorites';
 import type { Plugin } from '@/types';
 
+// Maps a DataTable column id to the server-side sort field the plugins list
+// endpoint honors (via parsePaginationParams → sortBy). Columns absent here
+// fall back to their own id.
+const PLUGIN_SORT_FIELD: Record<string, string> = {
+  name: 'name',
+  id: 'id',
+  version: 'version',
+  category: 'category',
+  type: 'pluginType',
+  compute: 'computeType',
+  access: 'accessModifier',
+  uri: 'uri',
+  timeout: 'timeout',
+  failureBehavior: 'failureBehavior',
+  status: 'isActive',
+  createdBy: 'createdBy',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+};
+
 /**
  * Parse a Plugin URI of shape `<repo-path>:<tag>` (optionally prefixed with
  * a registry host like `registry.example.com/...`) into the repo path and
@@ -106,6 +126,7 @@ export default function PluginsPage() {
       { key: 'id', type: 'text', defaultValue: '' },
       { key: 'orgId', type: 'text', defaultValue: '' },
       { key: 'version', type: 'text', defaultValue: '' },
+      { key: 'keyword', type: 'text', defaultValue: '' },
       { key: 'category', type: 'select', defaultValue: 'all' },
       { key: 'pluginType', type: 'select', defaultValue: 'all' },
       { key: 'computeType', type: 'select', defaultValue: 'all' },
@@ -113,6 +134,9 @@ export default function PluginsPage() {
       { key: 'status', type: 'select', defaultValue: 'all' },
       { key: 'default', type: 'select', defaultValue: 'all' },
     ],
+    // Server-side default sort mirrors the previous client-side default
+    // (name ascending) so the initial view is unchanged.
+    initialSort: { sortBy: 'name', sortOrder: 'asc' },
     fetcher: async (params) => {
       const p: Record<string, string> = {
         ...mapCommonParams(params),
@@ -124,9 +148,13 @@ export default function PluginsPage() {
       if (params.id) p.id = params.id;
       if (params.orgId) p.orgId = params.orgId;
       if (params.version) p.version = params.version;
+      if (params.keyword) p.keyword = params.keyword;
       if (params.category && params.category !== 'all') p.category = params.category;
       if (params.pluginType) p.pluginType = params.pluginType;
-      if (params.computeType) p.computeType = params.computeType;
+      // NOTE: computeType is intentionally NOT forwarded — PluginFilterSchema
+      // strips it server-side, so it's applied as a client-side filter below.
+      if (params.sortBy) p.sortBy = params.sortBy;
+      if (params.sortOrder) p.sortOrder = params.sortOrder;
       const response = await api.listPlugins(p);
       return { items: response.data?.plugins || [], pagination: response.data?.pagination };
     },
@@ -139,9 +167,41 @@ export default function PluginsPage() {
     (err) => list.setError(formatError(err, 'Failed to delete plugin')),
   );
 
-  // Backend already returns the right scope (own org + system-public catalog)
-  // for non-admins. No client-side filter — see resource-helpers.mapCommonParams.
-  const filteredPlugins = list.data;
+  // "Show favorites only" quick-chip (client-side over the fetched page).
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
+  // Server-side sort: translate a column click into sortBy/sortOrder query
+  // params, instead of an in-memory reorder of one page.
+  const { setSort, clearFilters } = list;
+  const handleServerSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
+    setSort(PLUGIN_SORT_FIELD[columnId] ?? columnId, direction);
+  }, [setSort]);
+
+  // Clear both the useListPage filters and the favorites-only chip (the chip
+  // is page-local state the hook doesn't know about).
+  const clearAllFilters = useCallback(() => {
+    clearFilters();
+    setShowFavoritesOnly(false);
+  }, [clearFilters]);
+
+  // Backend returns the right scope (own org + system-public catalog). The
+  // remaining client-side filters compose over that page: `computeType`
+  // (PluginFilterSchema strips it, so there's no server support) and the
+  // localStorage-backed "favorites only" chip.
+  const computeTypeFilter = list.filters.computeType;
+  const filteredPlugins = useMemo(() => {
+    let result = list.data;
+    if (computeTypeFilter && computeTypeFilter !== 'all') {
+      result = result.filter((p) => p.computeType === computeTypeFilter);
+    }
+    if (showFavoritesOnly) {
+      result = result.filter((p) => favorites.has(p.id));
+    }
+    return result;
+  }, [list.data, computeTypeFilter, showFavoritesOnly, favorites]);
+
+  // Either an advanced/search filter or the favorites chip narrows the page.
+  const hasActiveFilters = list.hasActiveFilters || showFavoritesOnly;
 
   // ── Bulk Operations ──
 
@@ -459,10 +519,11 @@ export default function PluginsPage() {
           showAdvanced={showAdvanced}
           onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
           advancedFilterCount={list.advancedFilterCount}
-          onClearAll={list.clearFilters}
-          summary={!list.isLoading && list.hasActiveFilters ? `Showing ${filteredPlugins.length} of ${list.pagination.total} plugins` : undefined}
+          onClearAll={clearAllFilters}
+          summary={!list.isLoading && hasActiveFilters ? `Showing ${filteredPlugins.length} of ${list.pagination.total} plugins` : undefined}
           advancedContent={
             <>
+              <input type="text" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="filter-input max-w-[160px]" />
               <select value={list.filters.category} onChange={(e) => list.updateFilter('category', e.target.value)} className="filter-select">
                 <option value="all">All Categories</option>
                 {PLUGIN_CATEGORIES.map((cat) => (
@@ -487,6 +548,10 @@ export default function PluginsPage() {
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
               </select>
+              <select value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)} className="filter-select">
+                <option value="all">All Plugins</option>
+                <option value="default">Default only</option>
+              </select>
               {canViewPublic && (
                 <select value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)} className="filter-select">
                   <option value="all">All Access</option>
@@ -497,6 +562,24 @@ export default function PluginsPage() {
             </>
           }
         />
+
+        {/* Quick-chip: narrow the fetched page to this org's favorited
+            plugins (localStorage-backed, same source as the star toggles). */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowFavoritesOnly((v) => !v)}
+            aria-pressed={showFavoritesOnly}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+              showFavoritesOnly
+                ? 'border-yellow-300 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+            }`}
+          >
+            <Star className={`w-3.5 h-3.5 ${showFavoritesOnly ? 'fill-current' : ''}`} aria-hidden="true" />
+            Favorites only
+          </button>
+        </div>
 
         {/* Spacer when sticky bulk bar is visible */}
         {canWrite && selectedIds.size > 0 && <div className="h-16" />}
@@ -517,11 +600,11 @@ export default function PluginsPage() {
           onPageChange={list.handlePageChange}
           onPageSizeChange={list.handlePageSizeChange}
           errorTitle="Failed to load plugins"
-          emptyState={list.hasActiveFilters ? {
+          emptyState={hasActiveFilters ? {
             icon: Search,
             title: 'No plugins match your filters',
             description: 'Try adjusting your search or filter criteria.',
-            action: <Button variant="secondary" onClick={list.clearFilters}>Clear filters</Button>,
+            action: <Button variant="secondary" onClick={clearAllFilters}>Clear filters</Button>,
           } : {
             icon: Puzzle,
             title: 'No plugins yet',
@@ -542,6 +625,8 @@ export default function PluginsPage() {
             getRowKey={(p) => p.id}
             defaultSortColumn="name"
             showColumnToggle
+            serverSort
+            onSortChange={handleServerSort}
           />
         </ResourceList>
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import api from '@/lib/api';
 import { StatCard } from '@/components/reports/StatCard';
 import { formatCents as money } from '@/lib/format';
@@ -24,34 +24,89 @@ export function BillingDashboard() {
   const [invoices, setInvoices] = useState<BillingInvoiceRow[]>([]);
   const [allocation, setAllocation] = useState<BillingAllocation | null>(null);
   const [loading, setLoading] = useState(true);
+  // Latch: once we've seen ANY billing history, keep the section (and its range
+  // picker) mounted — so a range filter that yields nothing can still be widened
+  // again. Brand-new accounts with no history ever stay invisible (return null).
+  const [hasHistory, setHasHistory] = useState(false);
+  // Applied historical range (ISO `yyyy-mm-dd`); empty string = unbounded on that side.
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const [s, inv, alloc] = await Promise.all([
-        api.getBillingSummary().catch(() => null),
-        api.listBillingInvoices({ limit: 24 }).catch(() => null),
-        // Cost-by-team showback — only meaningful for a rollup-capable admin of a
-        // parent org with teams; 400s / single-org silently yield nothing.
-        api.getBillingAllocation({ includeDescendants: true }).catch(() => null),
-      ]);
-      if (!active) return;
-      if (s?.data) setSummary(s.data);
-      if (inv?.data) setInvoices(inv.data.invoices);
-      if (alloc?.data) setAllocation(alloc.data);
-      setLoading(false);
-    })();
-    return () => { active = false; };
+  const load = useCallback(async (f: string, t: string) => {
+    setLoading(true);
+    const range = { ...(f ? { from: f } : {}), ...(t ? { to: t } : {}) };
+    const [s, inv, alloc] = await Promise.all([
+      api.getBillingSummary(range).catch(() => null),
+      api.listBillingInvoices({ ...range, limit: 24 }).catch(() => null),
+      // Cost-by-team showback — only meaningful for a rollup-capable admin of a
+      // parent org with teams; 400s / single-org silently yield nothing.
+      api.getBillingAllocation({ ...range, includeDescendants: true }).catch(() => null),
+    ]);
+    setSummary(s?.data ?? null);
+    setInvoices(inv?.data?.invoices ?? []);
+    setAllocation(alloc?.data ?? null);
+    if ((s?.data?.invoiceCount ?? 0) > 0) setHasHistory(true);
+    setLoading(false);
   }, []);
 
-  if (loading || !summary || summary.invoiceCount === 0) return null;
+  useEffect(() => { void load(from, to); }, [load, from, to]);
+
+  // Hide entirely until this account has had billing history at least once.
+  if (!hasHistory && (loading || !summary || summary.invoiceCount === 0)) return null;
+
+  const isFiltered = !!(from || to);
+
+  // Historical date-range filter — drives the summary, per-period bars, invoice
+  // table, and cost-by-team allocation (all backend from/to aware). Rendered in
+  // both the empty and data states so an over-narrow range can always be widened.
+  const rangeToolbar = (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Amounts billed</h2>
+      <div className="flex items-center gap-2 text-sm">
+        <label className="text-gray-500 dark:text-gray-400" htmlFor="billing-from">From</label>
+        <input
+          id="billing-from" type="date" value={from} max={to || undefined}
+          onChange={(e) => setFrom(e.target.value)}
+          className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-gray-100"
+        />
+        <label className="text-gray-500 dark:text-gray-400" htmlFor="billing-to">To</label>
+        <input
+          id="billing-to" type="date" value={to} min={from || undefined}
+          onChange={(e) => setTo(e.target.value)}
+          className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-gray-900 dark:text-gray-100"
+        />
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={() => { setFrom(''); setTo(''); }}
+            className="text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  // Direct `summary` checks (not a derived boolean) so TS narrows it to non-null
+  // for the data render below.
+  if (!summary || summary.invoiceCount === 0) {
+    return (
+      <div className="space-y-4">
+        {rangeToolbar}
+        <div className="card text-sm text-gray-500 dark:text-gray-400">
+          {loading ? 'Loading…' : isFiltered ? 'No billing activity in the selected range.' : 'No billing activity yet.'}
+        </div>
+      </div>
+    );
+  }
 
   const t = summary.totals;
   const maxGross = Math.max(1, ...summary.timeline.map((p) => p.grossCents));
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Amounts billed</h2>
+      {rangeToolbar}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <StatCard label="Total Billed" value={money(t.grossBilledCents)} />

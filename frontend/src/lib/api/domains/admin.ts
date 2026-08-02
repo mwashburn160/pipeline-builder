@@ -22,6 +22,9 @@ export function adminApi(core: ApiCore) {
       impersonatorId?: string;
       requestId?: string;
       outcome?: 'success' | 'failure';
+      /** Inclusive createdAt range bounds (ISO date strings). */
+      from?: string;
+      to?: string;
       offset?: number;
       limit?: number;
     }) => {

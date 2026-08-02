@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { formatError } from '@/lib/constants';
 import { Search, Users, Trash2, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -32,11 +32,16 @@ export default function UsersPage() {
     fields: [
       { key: 'search', type: 'text', defaultValue: '', primary: true },
       { key: 'role', type: 'select', defaultValue: 'all' },
+      // Org scope. The backend only applies the `role` filter when a specific
+      // org is selected (cross-org role filtering is a no-op server-side), so
+      // scoping to an org here also makes the Role filter meaningful.
+      { key: 'organizationId', type: 'select', defaultValue: 'all' },
     ],
     fetcher: async (params) => {
       const response = await api.listUsers({
         ...(params.search && { search: params.search }),
         ...(params.role && params.role !== 'all' && { role: params.role }),
+        ...(params.organizationId && params.organizationId !== 'all' && { organizationId: params.organizationId }),
         offset: Number(params.offset || 0),
         limit: Number(params.limit || 25),
       });
@@ -57,8 +62,22 @@ export default function UsersPage() {
     (err) => list.setError(formatError(err, 'Failed to delete user')),
   );
 
-  // Shared org picker for both the create- and edit-user modals.
+  // Shared org picker for both the create- and edit-user modals — reused to
+  // populate the cross-org "Organization" filter dropdown below.
   const { orgOptions, loadOrgOptions } = useOrgOptions();
+
+  // Populate the org filter dropdown once the page is authorized.
+  useEffect(() => {
+    if (isAuthenticated && isSuperAdmin) loadOrgOptions();
+  }, [isAuthenticated, isSuperAdmin, loadOrgOptions]);
+
+  // Client-side "Super Admins only" facet over the current page (no backend
+  // param — platform-admin isn't a server-side list filter).
+  const [superAdminsOnly, setSuperAdminsOnly] = useState(false);
+  const displayedUsers = useMemo(
+    () => (superAdminsOnly ? list.data.filter((u) => u.isSuperAdmin) : list.data),
+    [list.data, superAdminsOnly],
+  );
 
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null);
   const [editUsername, setEditUsername] = useState('');
@@ -334,11 +353,29 @@ export default function UsersPage() {
             </div>
           }
           right={
-            <select value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} className="filter-select">
-              <option value="all">All Roles</option>
-              <option value="member">Members</option>
-              <option value="admin">Admins</option>
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={list.filters.organizationId} onChange={(e) => list.updateFilter('organizationId', e.target.value)} className="filter-select" aria-label="Filter by organization">
+                <option value="all">All Organizations</option>
+                {orgOptions.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+              <select value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} className="filter-select">
+                <option value="all">All Roles</option>
+                <option value="member">Members</option>
+                <option value="admin">Admins</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setSuperAdminsOnly((v) => !v)}
+                aria-pressed={superAdminsOnly}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${superAdminsOnly
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+              >
+                Super Admins only
+              </button>
+            </div>
           }
         />
       </div>
@@ -376,7 +413,7 @@ export default function UsersPage() {
       )}
 
       <DataTable
-        data={list.data}
+        data={displayedUsers}
         columns={userColumns}
         isLoading={list.isLoading}
         emptyState={{

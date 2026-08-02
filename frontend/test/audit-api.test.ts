@@ -52,4 +52,13 @@ describe('listAuditEvents (kept intact by the type consolidation)', () => {
     expect(params.get('action')).toBe('authz.denied');
     expect(params.get('outcome')).toBe('failure');
   });
+
+  it('forwards the createdAt from/to range params', async () => {
+    const { api, calls } = makeApi();
+    await api.listAuditEvents({ from: '2026-07-01', to: '2026-07-31' });
+    const query = calls[0].split('?')[1];
+    const params = new URLSearchParams(query);
+    expect(params.get('from')).toBe('2026-07-01');
+    expect(params.get('to')).toBe('2026-07-31');
+  });
 });

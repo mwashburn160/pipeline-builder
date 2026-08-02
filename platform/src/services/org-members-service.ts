@@ -20,6 +20,25 @@ const MEMBER_LIST_DEFAULT_LIMIT = 25;
 /** Hard cap on a single member-roster page (bounds a hostile ?limit). */
 const MEMBER_LIST_MAX_LIMIT = 200;
 
+/**
+ * Whitelist of member-roster sort keys → the field they order by and which
+ * collection that field lives on. Anything NOT in this map is rejected (the
+ * roster falls back to its default join-time order) so a hostile `?sortBy`
+ * can't order by an arbitrary — or non-indexed — field.
+ *
+ * `role`/`status`/`joinedAt` are UserOrganization-native, so they sort the
+ * membership query directly. `username`/`email` live on the joined User doc,
+ * and `find().populate()` cannot order by a populated field — those resolve the
+ * ordered page from User FIRST (two-phase), then hydrate the page's memberships.
+ */
+const MEMBER_SORT_FIELDS: Record<string, { field: string; on: 'membership' | 'user' }> = {
+  joinedAt: { field: 'joinedAt', on: 'membership' },
+  role: { field: 'role', on: 'membership' },
+  status: { field: 'isActive', on: 'membership' },
+  username: { field: 'username', on: 'user' },
+  email: { field: 'email', on: 'user' },
+};
+
 export const OM_ORG_NOT_FOUND = 'OM_ORG_NOT_FOUND';
 export const OM_USER_NOT_FOUND = 'OM_USER_NOT_FOUND';
 export const OM_ALREADY_MEMBER = 'OM_ALREADY_MEMBER';
@@ -104,13 +123,26 @@ class OrgMembersService {
    * from under them.
    *
    * `search` matches username/email (case-insensitive); `role` narrows to a
-   * coarse membership role. Both are applied at the DB level (never in memory),
-   * and `total` reflects the full filtered count so the client can page. The
-   * roster is sorted by join time for a stable window across pages.
+   * coarse membership role; `isActive` narrows to active/inactive memberships.
+   * All are applied at the DB level (never in memory), and `total` reflects the
+   * full filtered count so the client can page.
+   *
+   * `sortBy`/`sortOrder` order the roster server-side, restricted to the
+   * {@link MEMBER_SORT_FIELDS} whitelist (an unknown field falls back to the
+   * default join-time order). By default the roster is sorted by join time for
+   * a stable window across pages.
    */
   async listMembers(
     orgId: string,
-    opts: { limit?: number; offset?: number; search?: string; role?: OrgMemberRole } = {},
+    opts: {
+      limit?: number;
+      offset?: number;
+      search?: string;
+      role?: OrgMemberRole;
+      isActive?: boolean;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+    } = {},
   ): Promise<OrgMembersPage | null> {
     const org = await Organization.findById(toOrgId(orgId))
       .select('name owner')
@@ -122,6 +154,7 @@ class OrgMembersService {
 
     const filter: Record<string, unknown> = { organizationId: toOrgId(orgId) };
     if (opts.role) filter.role = opts.role;
+    if (opts.isActive !== undefined) filter.isActive = opts.isActive;
 
     // Search matches username/email. populate() can't be filtered at the DB
     // level, so resolve matching user ids first and constrain the membership
@@ -136,26 +169,65 @@ class OrgMembersService {
       filter.userId = { $in: matched.map((u) => u._id) };
     }
 
-    const [memberships, total] = await Promise.all([
-      UserOrganization.find(filter)
-        .populate<{
-        userId: {
-          _id: mongoose.Types.ObjectId;
-          username: string;
-          email: string;
-          isEmailVerified: boolean;
-          createdAt?: Date;
-          updatedAt?: Date;
-        };
-      }>({ path: 'userId', select: '_id username email isEmailVerified createdAt updatedAt' })
-        .sort({ joinedAt: 1, _id: 1 })
-        .skip(offset)
-        .limit(limit)
-        .lean(),
-      UserOrganization.countDocuments(filter),
-    ]);
+    // Resolve the requested sort against the whitelist; an unrecognized key is
+    // ignored so a hostile ?sortBy silently falls back to the default order.
+    const sortSpec = opts.sortBy ? MEMBER_SORT_FIELDS[opts.sortBy] : undefined;
+    const sortDir = opts.sortOrder === 'desc' ? -1 : 1;
 
-    const present = memberships.filter(m => m.userId);
+    const userSelect = '_id username email isEmailVerified createdAt updatedAt';
+    type PopulatedUser = {
+      _id: mongoose.Types.ObjectId;
+      username: string;
+      email: string;
+      isEmailVerified: boolean;
+      createdAt?: Date;
+      updatedAt?: Date;
+    };
+    type PageMembership = { userId: PopulatedUser; role: string; isActive: boolean; joinedAt?: Date };
+
+    let present: PageMembership[];
+    let total: number;
+
+    if (sortSpec?.on === 'user') {
+      // Sort key lives on the joined User doc — find().populate() can't order by
+      // it. Resolve the ordered, paged user ids from User first (constrained to
+      // this org's matching memberships), then hydrate just that page.
+      const matches = await UserOrganization.find(filter)
+        .select('userId role isActive joinedAt').lean();
+      total = matches.length;
+      if (total === 0) {
+        present = [];
+      } else {
+        const byUserId = new Map(matches.map((m) => [String(m.userId), m]));
+        const orderedUsers = await User.find({ _id: { $in: matches.map((m) => m.userId) } })
+          .select(userSelect)
+          .sort({ [sortSpec.field]: sortDir, _id: 1 })
+          .skip(offset)
+          .limit(limit)
+          .lean<PopulatedUser[]>();
+        present = orderedUsers
+          .filter((u) => byUserId.has(String(u._id)))
+          .map((u) => {
+            const m = byUserId.get(String(u._id))!;
+            return { userId: u, role: m.role as string, isActive: m.isActive as boolean, joinedAt: m.joinedAt as Date | undefined };
+          });
+      }
+    } else {
+      const membershipSort: Record<string, 1 | -1> = sortSpec
+        ? { [sortSpec.field]: sortDir, _id: 1 }
+        : { joinedAt: 1, _id: 1 };
+      const [memberships, count] = await Promise.all([
+        UserOrganization.find(filter)
+          .populate<{ userId: PopulatedUser }>({ path: 'userId', select: userSelect })
+          .sort(membershipSort)
+          .skip(offset)
+          .limit(limit)
+          .lean(),
+        UserOrganization.countDocuments(filter),
+      ]);
+      present = memberships.filter((m) => m.userId) as unknown as PageMembership[];
+      total = count;
+    }
 
     // Per-member assigned Role names — one query for the whole page, grouped by
     // user, so the client renders role chips without an O(members×roles) scan.

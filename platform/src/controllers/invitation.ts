@@ -208,12 +208,16 @@ export const listInvitations = withController('List invitations', async (req, re
     });
   }
 
-  const { status, invitationType } = req.query;
+  const { status, invitationType, role, search } = req.query;
   const { offset, limit: limitNum } = parsePaginationParams(req.query);
 
   const { invitations, total } = await invitationService.listForOrg(orgId, {
     status: status as string | undefined,
     invitationType: invitationType as string | undefined,
+    // Coarse invite role filter (service whitelists admin|member) + a
+    // case-insensitive email substring search.
+    role: typeof role === 'string' ? role : undefined,
+    search: typeof search === 'string' ? search : undefined,
     offset,
     limit: limitNum,
   });

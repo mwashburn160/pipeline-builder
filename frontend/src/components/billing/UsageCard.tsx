@@ -17,9 +17,29 @@ const QUOTA_LABELS: Record<string, { label: string; unit?: 'bytes' }> = {
   storageBytes: { label: 'Registry storage', unit: 'bytes' },
 };
 
-/** Read-only "this period" cost + usage rollup.. */
-export function UsageCard({ rollup }: { rollup: UsageRollup }) {
+/** ISO timestamp → `yyyy-mm-dd` for a native date input. */
+const toDateInput = (iso: string) => (iso ? iso.slice(0, 10) : '');
+
+interface UsageCardProps {
+  rollup: UsageRollup;
+  /** When provided, the period start/end render as editable date inputs and this
+   *  fires (with `yyyy-mm-dd` values, or `undefined` when cleared) so the caller
+   *  can re-fetch the rollup for the chosen window. The consumable bars below stay
+   *  the live current-period snapshot regardless — see the note under the dates. */
+  onPeriodChange?: (periodStart?: string, periodEnd?: string) => void;
+  /** True when a caller-supplied window is currently applied (drives the Reset
+   *  affordance, since the rollup's own dates can't reveal whether they're an
+   *  override or the derived default). */
+  overridden?: boolean;
+}
+
+/** Read-only "this period" cost + usage rollup. Period dates become editable when
+ *  `onPeriodChange` is supplied (reframes the displayed window, not the bars). */
+export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageCardProps) {
   const dollars = formatCents;
+  const editable = !!onPeriodChange;
+  const startVal = toDateInput(rollup.period.start);
+  const endVal = toDateInput(rollup.period.end);
 
   return (    <div className="card">
       <div className="flex items-baseline justify-between mb-4">
@@ -29,7 +49,7 @@ export function UsageCard({ rollup }: { rollup: UsageRollup }) {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
         <div>
           <p className="text-sm text-gray-500 dark:text-gray-400">Subscription</p>
           <p className="text-lg font-medium text-gray-900 dark:text-gray-100">
@@ -37,14 +57,51 @@ export function UsageCard({ rollup }: { rollup: UsageRollup }) {
           </p>
         </div>
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Period start</p>
-          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(rollup.period.start)}</p>
+          <label className="text-sm text-gray-500 dark:text-gray-400" htmlFor="usage-period-start">Period start</label>
+          {editable ? (
+            <input
+              id="usage-period-start"
+              type="date"
+              value={startVal}
+              max={endVal || undefined}
+              onChange={(e) => onPeriodChange?.(e.target.value || undefined, endVal || undefined)}
+              className="mt-0.5 block w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm text-gray-900 dark:text-gray-100"
+            />
+          ) : (
+            <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(rollup.period.start)}</p>
+          )}
         </div>
         <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Period end</p>
-          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(rollup.period.end)}</p>
+          <label className="text-sm text-gray-500 dark:text-gray-400" htmlFor="usage-period-end">Period end</label>
+          {editable ? (
+            <input
+              id="usage-period-end"
+              type="date"
+              value={endVal}
+              min={startVal || undefined}
+              onChange={(e) => onPeriodChange?.(startVal || undefined, e.target.value || undefined)}
+              className="mt-0.5 block w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm text-gray-900 dark:text-gray-100"
+            />
+          ) : (
+            <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(rollup.period.end)}</p>
+          )}
         </div>
       </div>
+
+      {editable && (
+        <div className="mb-6 flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+          <span>Adjusts the displayed window. Consumption below is the current live period, not the selected dates.</span>
+          {overridden && (
+            <button
+              type="button"
+              onClick={() => onPeriodChange?.(undefined, undefined)}
+              className="text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="space-y-3">
         {/* Seats — pooled across the account (root). Not a quota type, so it's

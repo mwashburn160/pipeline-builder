@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Mail, Trash2 } from 'lucide-react';
+import { Mail, Trash2, Search } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -44,11 +44,17 @@ export default function InvitationsPage() {
 
   const list = useListPage<InvitationListItem>({
     fields: [
+      { key: 'search', type: 'text', defaultValue: '', primary: true },
       { key: 'status', type: 'select', defaultValue: 'all' },
+      { key: 'invitationType', type: 'select', defaultValue: 'all' },
+      { key: 'role', type: 'select', defaultValue: 'all' },
     ],
     fetcher: async (params) => {
       const response = await api.listInvitations({
+        ...(params.search && { search: params.search }),
         ...(params.status && params.status !== 'all' && { status: params.status }),
+        ...(params.invitationType && params.invitationType !== 'all' && { invitationType: params.invitationType }),
+        ...(params.role && params.role !== 'all' && { role: params.role as 'admin' | 'member' }),
         offset: Number(params.offset || 0),
         limit: Number(params.limit || 25),
       });
@@ -360,16 +366,48 @@ export default function InvitationsPage() {
       {/* Filter */}
       <div className="filter-bar">
         <div className="flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search by email..."
+              value={list.filters.search}
+              onChange={(e) => list.updateFilter('search', e.target.value)}
+              className="filter-input w-full"
+              aria-label="Search invitations by email"
+            />
+          </div>
           <select
             value={list.filters.status}
             onChange={(e) => list.updateFilter('status', e.target.value)}
             className="filter-select"
+            aria-label="Filter by status"
           >
             <option value="all">All Statuses</option>
             <option value="pending">Pending</option>
             <option value="accepted">Accepted</option>
             <option value="expired">Expired</option>
             <option value="revoked">Revoked</option>
+          </select>
+          <select
+            value={list.filters.invitationType}
+            onChange={(e) => list.updateFilter('invitationType', e.target.value)}
+            className="filter-select"
+            aria-label="Filter by invitation type"
+          >
+            <option value="all">All Types</option>
+            <option value="email">Email</option>
+            <option value="oauth">OAuth</option>
+          </select>
+          <select
+            value={list.filters.role}
+            onChange={(e) => list.updateFilter('role', e.target.value)}
+            className="filter-select"
+            aria-label="Filter by role"
+          >
+            <option value="all">All Roles</option>
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
           </select>
         </div>
       </div>

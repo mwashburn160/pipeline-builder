@@ -25,6 +25,22 @@ import api from '@/lib/api';
 import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
 import type { Pipeline, BuilderProps } from '@/types';
 
+// Maps a DataTable column id to the server-side sort field the pipelines list
+// endpoint honors (via parsePaginationParams → sortBy). Columns absent here
+// fall back to their own id.
+const PIPELINE_SORT_FIELD: Record<string, string> = {
+  name: 'pipelineName',
+  pipelineId: 'id',
+  project: 'project',
+  organization: 'organization',
+  access: 'accessModifier',
+  status: 'isActive',
+  default: 'isDefault',
+  createdBy: 'createdBy',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+};
+
 // ─── Page ───────────────────────────────────────────────
 
 /** Pipeline management page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
@@ -46,10 +62,14 @@ export default function PipelinesPage() {
       { key: 'orgId', type: 'text', defaultValue: '' },
       { key: 'project', type: 'text', defaultValue: '' },
       { key: 'organization', type: 'text', defaultValue: '' },
+      { key: 'keyword', type: 'text', defaultValue: '' },
       { key: 'access', type: 'select', defaultValue: 'all' },
       { key: 'status', type: 'select', defaultValue: 'all' },
       { key: 'default', type: 'select', defaultValue: 'all' },
     ],
+    // Server-side default sort mirrors the previous client-side default
+    // (name ascending) so the initial view is unchanged.
+    initialSort: { sortBy: 'pipelineName', sortOrder: 'asc' },
     fetcher: async (params) => {
       const p: Record<string, string> = {
         ...mapCommonParams(params),
@@ -62,6 +82,9 @@ export default function PipelinesPage() {
       if (params.orgId) p.orgId = params.orgId;
       if (params.project) p.project = params.project;
       if (params.organization) p.organization = params.organization;
+      if (params.keyword) p.keyword = params.keyword;
+      if (params.sortBy) p.sortBy = params.sortBy;
+      if (params.sortOrder) p.sortOrder = params.sortOrder;
       const response = await api.listPipelines(p);
       return { items: response.data?.pipelines || [], pagination: response.data?.pagination };
     },
@@ -160,6 +183,13 @@ export default function PipelinesPage() {
   // ── Filters ──
 
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Server-side sort: translate a column click into sortBy/sortOrder query
+  // params the backend honors, instead of an in-memory reorder of one page.
+  const { setSort } = list;
+  const handleServerSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
+    setSort(PIPELINE_SORT_FIELD[columnId] ?? columnId, direction);
+  }, [setSort]);
 
   // ── Columns ──
 
@@ -325,10 +355,15 @@ export default function PipelinesPage() {
             <>
               <input type="text" value={list.filters.project} onChange={(e) => list.updateFilter('project', e.target.value)} placeholder="Project..." className="filter-input max-w-[160px]" />
               <input type="text" value={list.filters.organization} onChange={(e) => list.updateFilter('organization', e.target.value)} placeholder="Organization..." className="filter-input max-w-[160px]" />
+              <input type="text" value={list.filters.keyword} onChange={(e) => list.updateFilter('keyword', e.target.value)} placeholder="Keyword..." className="filter-input max-w-[160px]" />
               <select value={list.filters.status} onChange={(e) => list.updateFilter('status', e.target.value)} className="filter-select">
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
+              </select>
+              <select value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)} className="filter-select">
+                <option value="all">All Pipelines</option>
+                <option value="default">Default only</option>
               </select>
               {canViewPublic && (
                 <select value={list.filters.access} onChange={(e) => list.updateFilter('access', e.target.value)} className="filter-select">
@@ -385,6 +420,8 @@ export default function PipelinesPage() {
             getRowKey={(p) => p.id}
             defaultSortColumn="name"
             showColumnToggle
+            serverSort
+            onSortChange={handleServerSort}
           />
         </ResourceList>
       </div>

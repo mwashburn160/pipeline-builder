@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { Building2, AlertTriangle, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus } from 'lucide-react';
+import { Building2, AlertTriangle, Search, KeyRound, FileDown, ShieldCheck, ExternalLink, Plus, Layers } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage } from '@/hooks/useListPage';
@@ -40,6 +40,9 @@ export default function OrganizationsPage() {
       // pages — the cost of the extra Mongo join isn't justified.
       { key: 'kms', type: 'select', defaultValue: 'all' },
       { key: 'idp', type: 'select', defaultValue: 'all' },
+      // Top-level vs. team (nested) facet — also applied client-side via
+      // `parentOrgId` in `filteredOrgs`.
+      { key: 'scope', type: 'select', defaultValue: 'all' },
     ],
     fetcher: async (params) => {
       const tierParam = String(params.tier || 'all');
@@ -65,14 +68,17 @@ export default function OrganizationsPage() {
   const filteredOrgs = useMemo(() => {
     const kmsFacet = String(list.filters.kms || 'all');
     const idpFacet = String(list.filters.idp || 'all');
+    const scopeFacet = String(list.filters.scope || 'all');
     return list.data.filter((org) => {
       if (kmsFacet === 'yes' && !org.kmsConfigured) return false;
       if (kmsFacet === 'no' && org.kmsConfigured) return false;
       if (idpFacet === 'yes' && !org.idpConfigured) return false;
       if (idpFacet === 'no' && org.idpConfigured) return false;
+      if (scopeFacet === 'team' && !org.parentOrgId) return false;
+      if (scopeFacet === 'top' && org.parentOrgId) return false;
       return true;
     });
-  }, [list.data, list.filters.kms, list.filters.idp]);
+  }, [list.data, list.filters.kms, list.filters.idp, list.filters.scope]);
 
   // Two-phase delete: the existing DeleteConfirmModal collects intent, then
   // a StepUpModal collects password reverify. Backend requires the step-up
@@ -94,6 +100,25 @@ export default function OrganizationsPage() {
   const [kmsOrg, setKmsOrg] = useState<Organization | null>(null);
   const [idpOrg, setIdpOrg] = useState<Organization | null>(null);
   const [pendingYamlOrg, setPendingYamlOrg] = useState<Organization | null>(null);
+
+  // Inline per-row tier change. Two-phase like delete: pick the new tier in a
+  // small modal, then re-verify via StepUpModal (the backend PATCH is step-up
+  // gated because a tier change reseeds quota limits / affects billing).
+  const [tierOrg, setTierOrg] = useState<Organization | null>(null);
+  const [newTier, setNewTier] = useState<'developer' | 'pro' | 'team' | 'enterprise'>('developer');
+  const [pendingTierChange, setPendingTierChange] = useState<{ org: Organization; tier: 'developer' | 'pro' | 'team' | 'enterprise' } | null>(null);
+
+  const openTier = useCallback((org: Organization) => {
+    setTierOrg(org);
+    setNewTier((org.tier as 'developer' | 'pro' | 'team' | 'enterprise') ?? 'developer');
+  }, []);
+
+  // Advance from tier-picker to the step-up prompt (no-op if unchanged).
+  const confirmTierSelection = useCallback(() => {
+    if (!tierOrg) return;
+    if (newTier !== tierOrg.tier) setPendingTierChange({ org: tierOrg, tier: newTier });
+    setTierOrg(null);
+  }, [tierOrg, newTier]);
 
   // Create a new top-level organization (sysadmin). The creator becomes the
   // initial owner; ownership can be transferred from the org's detail page.
@@ -232,6 +257,13 @@ export default function OrganizationsPage() {
               <ShieldCheck className="w-3.5 h-3.5" /> IdP
             </button>
             <button
+              onClick={() => openTier(org)}
+              className="action-link inline-flex items-center gap-1"
+              title="Change pricing tier"
+            >
+              <Layers className="w-3.5 h-3.5" /> Tier
+            </button>
+            <button
               onClick={() => setPendingYamlOrg(org)}
               className="action-link inline-flex items-center gap-1"
               title="Download k8s namespace YAML"
@@ -245,7 +277,7 @@ export default function OrganizationsPage() {
         )
       ),
     },
-  ], [del]);
+  ], [del, openTier]);
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -305,6 +337,21 @@ export default function OrganizationsPage() {
           <option value="yes">SSO: configured</option>
           <option value="no">SSO: not configured</option>
         </select>
+        <div className="inline-flex items-center gap-1" role="group" aria-label="Filter by org scope">
+          {([['all', 'All'], ['top', 'Top-level'], ['team', 'Teams']] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => list.updateFilter('scope', value)}
+              aria-pressed={String(list.filters.scope) === value}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${String(list.filters.scope) === value
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <DataTable
@@ -464,6 +511,56 @@ export default function OrganizationsPage() {
           action={`Download k8s namespace YAML for ${pendingYamlOrg.name}`}
           onConfirmed={(stepUpToken) => downloadNamespaceYaml(pendingYamlOrg, stepUpToken)}
           onClose={() => setPendingYamlOrg(null)}
+        />
+      )}
+
+      {tierOrg && (
+        <Modal
+          title={`Change tier — ${tierOrg.name}`}
+          onClose={() => setTierOrg(null)}
+          footer={
+            <ModalFooter
+              onCancel={() => setTierOrg(null)}
+              onConfirm={confirmTierSelection}
+              confirmLabel="Continue"
+              confirmDisabled={newTier === tierOrg.tier}
+            />
+          }
+        >
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Changing the tier reseeds this organization’s quota limits and affects billing.
+            You’ll be asked to re-verify before the change is applied.
+          </p>
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">Tier</label>
+            <Select
+              value={newTier}
+              onChange={(e) => setNewTier(e.target.value as 'developer' | 'pro' | 'team' | 'enterprise')}
+              className="text-sm"
+            >
+              <option value="developer">Developer</option>
+              <option value="pro">Pro</option>
+              <option value="team">Team</option>
+              <option value="enterprise">Enterprise</option>
+            </Select>
+          </div>
+        </Modal>
+      )}
+
+      {pendingTierChange && (
+        <StepUpModal
+          action={`Change ${pendingTierChange.org.name} to the ${pendingTierChange.tier} tier`}
+          onConfirmed={async (stepUpToken) => {
+            try {
+              const res = await api.updateOrganizationTier(pendingTierChange.org.id, pendingTierChange.tier, stepUpToken);
+              if (!res.success) throw new Error(res.message || 'Tier change failed');
+              list.refresh();
+              toast.success(`${pendingTierChange.org.name} moved to ${pendingTierChange.tier}`);
+            } catch (err) {
+              list.setError(formatError(err, 'Failed to change tier'));
+            }
+          }}
+          onClose={() => setPendingTierChange(null)}
         />
       )}
     </DashboardLayout>

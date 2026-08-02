@@ -16,6 +16,8 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockCreateEvent = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockFindEvents = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockRequireAdminContext = jest.fn<(...a: unknown[]) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, message: string) => res.status(status).json({ success: false, message }),
@@ -37,12 +39,15 @@ jest.unstable_mockModule('../src/helpers/audit-chain.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_name: string, fn: unknown) => fn,
-  requireAdminContext: jest.fn(),
+  requireAdminContext: (...a: unknown[]) => mockRequireAdminContext(...a),
   requireSystemAdmin: jest.fn(),
 }));
 
 jest.unstable_mockModule('../src/services/audit-service.js', () => ({
-  auditService: { createEvent: (...a: unknown[]) => mockCreateEvent(...a) },
+  auditService: {
+    createEvent: (...a: unknown[]) => mockCreateEvent(...a),
+    findEvents: (...a: unknown[]) => mockFindEvents(...a),
+  },
 }));
 
 const router = (await import('../src/routes/audit.js')).default as any;
@@ -76,9 +81,72 @@ function post(body: unknown, headers: Record<string, string> = {}): Promise<any>
   });
 }
 
+/** Drive the express router for a GET / (list) request with the given query. */
+function get(query: Record<string, unknown>): Promise<any> {
+  const res = mockRes();
+  const req: any = {
+    method: 'GET',
+    url: '/',
+    originalUrl: '/',
+    query,
+    headers: {},
+    header: () => undefined,
+    user: { sub: 'admin', organizationId: 'org-1', isSuperAdmin: true },
+  };
+  return new Promise((resolve) => {
+    router(req, res, () => undefined);
+    setImmediate(() => resolve(res));
+  });
+}
+
 beforeEach(() => {
   mockCreateEvent.mockReset();
   mockCreateEvent.mockResolvedValue(undefined);
+  mockFindEvents.mockReset();
+  mockFindEvents.mockResolvedValue({ events: [], pagination: { total: 0, offset: 0, limit: 10, hasMore: false } });
+  mockRequireAdminContext.mockReset();
+  // Default to a sysadmin admin context (isOrgAdmin=false) so the list handler
+  // takes the cross-tenant branch and reads the org/actor/date query filters.
+  mockRequireAdminContext.mockReturnValue({ isOrgAdmin: false });
+});
+
+describe('GET /audit — createdAt from/to range filter', () => {
+  it('threads a valid from/to range into findEvents as Dates (narrows results)', async () => {
+    const res = await get({ from: '2026-07-01', to: '2026-07-31' });
+    expect(res.status).toHaveBeenCalledWith(200);
+    const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
+    expect(filter.createdFrom).toBeInstanceOf(Date);
+    expect(filter.createdTo).toBeInstanceOf(Date);
+    expect((filter.createdFrom as Date).toISOString()).toBe(new Date('2026-07-01').toISOString());
+    expect((filter.createdTo as Date).toISOString()).toBe(new Date('2026-07-31').toISOString());
+  });
+
+  it('threads a one-sided range (only from) into findEvents', async () => {
+    await get({ from: '2026-07-01' });
+    const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
+    expect(filter.createdFrom).toBeInstanceOf(Date);
+    expect(filter.createdTo).toBeUndefined();
+  });
+
+  it('400-rejects a malformed from date BEFORE querying', async () => {
+    const res = await get({ from: 'not-a-date' });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'from/to must be ISO dates' }));
+    expect(mockFindEvents).not.toHaveBeenCalled();
+  });
+
+  it('400-rejects a malformed to date BEFORE querying', async () => {
+    const res = await get({ to: 'garbage' });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockFindEvents).not.toHaveBeenCalled();
+  });
+
+  it('omits the createdAt bounds from the filter when from/to are absent', async () => {
+    await get({});
+    const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
+    expect(filter.createdFrom).toBeUndefined();
+    expect(filter.createdTo).toBeUndefined();
+  });
 });
 
 describe('POST /audit/events — remote-action allow-list', () => {

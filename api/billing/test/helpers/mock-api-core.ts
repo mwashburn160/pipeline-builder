@@ -100,6 +100,11 @@ export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<str
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
     ErrorCode,
+    // Query-param + error helpers the route modules import at load time. Faithful
+    // enough for linking + the happy path; suites asserting on them override.
+    parseQueryString: (v: unknown) => (typeof v === 'string' ? v : Array.isArray(v) && typeof v[0] === 'string' ? v[0] : undefined),
+    sendError: (res: { status: (n: number) => { json: (b: unknown) => unknown } }, status: number, message: string, code?: string) =>
+      res.status(status).json({ success: false, statusCode: status, message, code }),
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
     NotFoundError,
     createCacheService: () => ({

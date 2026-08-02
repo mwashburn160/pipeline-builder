@@ -44,8 +44,16 @@ export const getOrganizationMembers = withController('Get members', async (req, 
   const search = typeof req.query.search === 'string' ? req.query.search : undefined;
   const roleRaw = typeof req.query.role === 'string' ? req.query.role : undefined;
   const role = roleRaw === 'owner' || roleRaw === 'admin' || roleRaw === 'member' ? roleRaw : undefined;
+  // Active/inactive status filter: map the `active|inactive` query value to the
+  // membership `isActive` flag; anything else leaves the filter off.
+  const statusRaw = typeof req.query.status === 'string' ? req.query.status : undefined;
+  const isActive = statusRaw === 'active' ? true : statusRaw === 'inactive' ? false : undefined;
+  // Server-side sort — the service whitelists `sortBy`, so an unknown field is
+  // harmless (falls back to the default join-time order).
+  const sortBy = typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined;
+  const sortOrder = req.query.sortOrder === 'desc' ? 'desc' : req.query.sortOrder === 'asc' ? 'asc' : undefined;
 
-  const result = await orgMembersService.listMembers(id, { offset, limit, search, role });
+  const result = await orgMembersService.listMembers(id, { offset, limit, search, role, isActive, sortBy, sortOrder });
   if (!result) return sendError(res, 404, 'Organization not found');
 
   const { members, total, offset: off, limit: lim, organizationId, organizationName, ownerId } = result;

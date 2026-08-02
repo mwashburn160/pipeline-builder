@@ -26,6 +26,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { DateRangePicker } from '@/components/reports/ReportHelpers';
 import { downloadCsv } from '@/lib/csv-export';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
@@ -37,6 +38,10 @@ export default function ExecutionsPage() {
   const { isReady, user, can } = useAuthGuard();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
+  // Date-range scope (empty = all-time). Both bounds are optional and forwarded
+  // to the `getExecutionCount` fetch as `from`/`to`.
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   // Org → team rollup: only admins/owners can aggregate child-team data, and we
   // only surface the toggle when the org actually parents teams (so flat orgs
@@ -51,11 +56,15 @@ export default function ExecutionsPage() {
   const { data, loading, error: fetchError, refetch } = useFetch(
     async (): Promise<ExecutionCountRow[]> => {
       if (!isReady || !user) return [];
-      const res = await api.getExecutionCount(includeDescendants ? { includeDescendants: true } : undefined);
+      const params: { from?: string; to?: string; includeDescendants?: boolean } = {};
+      if (dateFrom) params.from = dateFrom;
+      if (dateTo) params.to = dateTo;
+      if (includeDescendants) params.includeDescendants = true;
+      const res = await api.getExecutionCount(Object.keys(params).length ? params : undefined);
       if (!res.success || !res.data) throw new Error(res.message || 'Failed to load executions');
       return res.data.pipelines;
     },
-    [isReady, user?.id, includeDescendants],
+    [isReady, user?.id, includeDescendants, dateFrom, dateTo],
   );
   const rows = useMemo(() => data ?? [], [data]);
   const error = fetchError ? formatError(fetchError, 'Failed to load executions') : null;
@@ -218,8 +227,8 @@ export default function ExecutionsPage() {
         searchPlaceholder="Search pipelines... (press /)"
         showAdvanced={showAdvanced}
         onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
-        advancedFilterCount={(status !== 'all' ? 1 : 0) + (includeDescendants ? 1 : 0)}
-        onClearAll={() => { setSearch(''); setStatus('all'); setIncludeDescendants(false); }}
+        advancedFilterCount={(status !== 'all' ? 1 : 0) + (includeDescendants ? 1 : 0) + (dateFrom || dateTo ? 1 : 0)}
+        onClearAll={() => { setSearch(''); setStatus('all'); setIncludeDescendants(false); setDateFrom(''); setDateTo(''); }}
         advancedContent={
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
@@ -234,6 +243,8 @@ export default function ExecutionsPage() {
                 <option value="succeeding">All-clean</option>
               </select>
             </div>
+            {/* Date-range scope — empty bounds mean all-time. */}
+            <DateRangePicker from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
             {canRollup && hasTeams && (
               <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300" title="Aggregate executions across this organization and its teams">
                 <input
@@ -256,7 +267,7 @@ export default function ExecutionsPage() {
         emptyState={{
           icon: Activity,
           title: 'No executions yet',
-          description: search || status !== 'all' ? 'Try clearing filters.' : 'Run a pipeline to see results here.',
+          description: search || status !== 'all' || dateFrom || dateTo ? 'Try clearing filters.' : 'Run a pipeline to see results here.',
         }}
         getRowKey={(r) => r.id}
         defaultSortColumn="last"

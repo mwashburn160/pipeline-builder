@@ -180,6 +180,13 @@ export default function TokensPage() {
     [history],
   );
 
+  // Client-side status facet over the already-loaded token history.
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expired' | 'revoked'>('all');
+  const filteredHistory = useMemo(
+    () => (statusFilter === 'all' ? history : history.filter((t) => t.status === statusFilter)),
+    [history, statusFilter],
+  );
+
   const loadHistory = useCallback(async () => {
     try {
       const res = await api.listTokenHistory();
@@ -300,6 +307,25 @@ export default function TokensPage() {
           {history.length === 0 ? (
             <p className="text-sm text-gray-500 dark:text-gray-400 italic">No tokens issued yet.</p>
           ) : (
+            <>
+            <div className="flex flex-wrap items-center gap-1 mb-3" role="group" aria-label="Filter tokens by status">
+              {([['all', 'All'], ['active', 'Active'], ['expired', 'Expired'], ['revoked', 'Revoked']] as const).map(([value, label]) => {
+                const count = value === 'all' ? history.length : history.filter((t) => t.status === value).length;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setStatusFilter(value)}
+                    aria-pressed={statusFilter === value}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${statusFilter === value
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                  >
+                    {label} ({count})
+                  </button>
+                );
+              })}
+            </div>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -310,7 +336,9 @@ export default function TokensPage() {
                 </tr>
               </thead>
               <tbody>
-                {history.map((t) => (
+                {filteredHistory.length === 0 ? (
+                  <tr><td colSpan={4} className="py-3 text-sm text-gray-500 dark:text-gray-400 italic">No {statusFilter} tokens.</td></tr>
+                ) : filteredHistory.map((t) => (
                   <tr key={t.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
                     <td className="py-2 pr-4 font-mono text-xs text-gray-500 dark:text-gray-500">{t.id}</td>
                     <td className="py-2 pr-4 text-gray-700 dark:text-gray-300"><RelativeTime value={t.createdAt} /></td>
@@ -324,6 +352,7 @@ export default function TokensPage() {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </motion.div>
       </div>

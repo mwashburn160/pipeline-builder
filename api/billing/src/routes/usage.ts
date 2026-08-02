@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, requireAuth, requirePermission, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, requirePermission, sendSuccess, sendError, ErrorCode, parseQueryString } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
@@ -13,6 +13,15 @@ import { Subscription } from '../models/subscription.js';
 const logger = createLogger('billing-usage');
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
+/** Parse an optional ISO date query param; `undefined` if absent, `null` if malformed
+ *  (mirrors billing-summary's parser so the two routes validate dates identically). */
+function parseOptionalDate(raw: unknown): Date | undefined | null {
+  const s = parseQueryString(raw);
+  if (!s) return undefined;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 /**
  * Cost-and-usage rollup for the active org.
@@ -39,6 +48,19 @@ export function createUsageRoutes(): Router {
     // like every sibling route: a trialing or past_due org is paying/dunning on
     // a real plan, so resolving only status:'active' wrongly showed them the
     // developer defaults ($0 cost, wrong window).
+    // Optional caller-supplied display window (editable period start/end in the
+    // UI). Reframes the DISPLAYED period + day math only — the usage bars remain
+    // the live current-period quota snapshot. Malformed → 400 (never silently
+    // ignored, so a bad date can't masquerade as the default window).
+    const periodStart = parseOptionalDate(req.query.periodStart);
+    const periodEnd = parseOptionalDate(req.query.periodEnd);
+    if (periodStart === null || periodEnd === null) {
+      return sendError(res, 400, 'periodStart/periodEnd must be ISO dates', ErrorCode.VALIDATION_ERROR);
+    }
+    const periodOverride = (periodStart || periodEnd)
+      ? { start: periodStart ?? undefined, end: periodEnd ?? undefined }
+      : null;
+
     const subscription = await Subscription.findOne({
       orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
     }).lean();
@@ -57,6 +79,7 @@ export function createUsageRoutes(): Router {
         }
         : null,
       plan ? { name: plan.name, tier: plan.tier, prices: plan.prices }: null,
+      periodOverride,
     );
 
     logger.debug('Built usage rollup', {

@@ -46,6 +46,15 @@ export interface DataTableProps<T> {
    *  Keyboard users use the focusable cell controls; opt-in, so only use it on
    *  tables whose rows have no conflicting per-cell actions. */
   onRowClick?: (item: T, index: number) => void;
+  /**
+   * Opt into server-side sorting. When true, the table does NOT sort `data`
+   * in-memory (the parent is expected to fetch already-sorted rows); header
+   * clicks still update the visible sort indicator and fire `onSortChange`.
+   * Default `false` keeps the existing client-side sort for all other consumers.
+   */
+  serverSort?: boolean;
+  /** Called on header click when `serverSort` is set, with the resolved column + direction. */
+  onSortChange?: (columnId: string, direction: 'asc' | 'desc') => void;
 }
 
 interface SortState {
@@ -96,6 +105,8 @@ export function DataTable<T>({
   showColumnToggle = false,
   skeletonRows = 5,
   onRowClick,
+  serverSort = false,
+  onSortChange,
 }: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState>({
     columnId: defaultSortColumn ?? null,
@@ -131,6 +142,8 @@ export function DataTable<T>({
   };
 
   const sortedData = useMemo(() => {
+    // Server-side sort: rows arrive already ordered — never re-sort in-memory.
+    if (serverSort) return data;
     if (!sort.columnId) return data;
     const col = columns.find((c) => c.id === sort.columnId);
     if (!col?.sortValue) return data;
@@ -139,13 +152,15 @@ export function DataTable<T>({
       const result = compare(accessor(a), accessor(b));
       return sort.direction === 'asc' ? result : -result;
     });
-  }, [data, sort, columns]);
+  }, [data, sort, columns, serverSort]);
 
   const handleSort = (columnId: string) => {
-    setSort((prev) => ({
-      columnId,
-      direction: prev.columnId === columnId && prev.direction === 'asc' ? 'desc' : 'asc',
-    }));
+    const direction: 'asc' | 'desc' =
+      sort.columnId === columnId && sort.direction === 'asc' ? 'desc' : 'asc';
+    setSort({ columnId, direction });
+    // In server-sort mode the visible indicator still updates above, but the
+    // actual re-order is delegated to the parent via the query params it sends.
+    if (serverSort) onSortChange?.(columnId, direction);
   };
 
   // Skeleton loading state

@@ -35,6 +35,11 @@ export interface AuditFilter {
   outcome?: 'success' | 'failure';
   /** Correlation id — pull every audited action from one HTTP request. */
   requestId?: string;
+  /** Inclusive lower bound on the event's ingest `createdAt` timestamp
+   *  (read-time range filter). Either bound may be set independently. */
+  createdFrom?: Date;
+  /** Inclusive upper bound on the event's ingest `createdAt` timestamp. */
+  createdTo?: Date;
 }
 
 export interface AuditCreateInput {
@@ -109,6 +114,16 @@ class AuditService {
     if (filter.impersonatorId) query.impersonatorId = filter.impersonatorId;
     if (filter.outcome) query.outcome = filter.outcome;
     if (filter.requestId) query.requestId = filter.requestId;
+    // Read-time createdAt range predicate. `createdAt` is the ingest timestamp
+    // (mongoose `timestamps`) and the chain-ordering field — filtering on it
+    // never touches audit record semantics or the hash chain. Either bound may
+    // be present independently.
+    if (filter.createdFrom || filter.createdTo) {
+      const range: Record<string, Date> = {};
+      if (filter.createdFrom) range.$gte = filter.createdFrom;
+      if (filter.createdTo) range.$lte = filter.createdTo;
+      query.createdAt = range;
+    }
 
     const [events, total] = await Promise.all([
       AuditEvent.find(query).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),

@@ -97,17 +97,23 @@ export function buildUsageRollup(
   quotaSnapshot: QuotaSnapshot | null,
   now: Date = new Date(),
   seats: SeatUsage | null = null,
+  // Caller-supplied display window (from the UI's editable period start/end).
+  // Highest priority for the DISPLAYED period + day math; the consumable usage
+  // rows still come from the live current-period quota snapshot (the quota
+  // service tracks only the current period), so an override reframes the window
+  // shown, not the counts. Absent fields fall through to the subscription/fallback.
+  periodOverride: { start?: Date; end?: Date } | null = null,
 ): UsageRollup {
-  // Period: prefer the subscription's window. If there's no active sub
-  // (free / unsubscribed orgs), default to a 30-day window anchored at now
-  // so the UI can still show usage progress against the developer-tier caps.
-  // Fallback window for orgs with no active subscription. Default 30 days
-  // either side gives free-tier orgs a recognizable "this month / next month"
-  // shape on the dashboard. Override via `BILLING_USAGE_FALLBACK_DAYS`.
+  // Period precedence: explicit override → subscription window → fallback. If
+  // there's no active sub (free / unsubscribed orgs) and no override, default to
+  // a 30-day window anchored at now so the UI can still show usage progress
+  // against the developer-tier caps. Default 30 days either side gives free-tier
+  // orgs a recognizable "this month / next month" shape. Override the fallback
+  // width via `BILLING_USAGE_FALLBACK_DAYS`.
   const fallbackDays = parseInt(process.env.BILLING_USAGE_FALLBACK_DAYS || '30', 10);
   const MS_PER_DAY = 24 * 3600_000;
-  const periodStart = subscription?.currentPeriodStart ?? new Date(now.getTime() - fallbackDays * MS_PER_DAY);
-  const periodEnd = subscription?.currentPeriodEnd ?? new Date(now.getTime() + fallbackDays * MS_PER_DAY);
+  const periodStart = periodOverride?.start ?? subscription?.currentPeriodStart ?? new Date(now.getTime() - fallbackDays * MS_PER_DAY);
+  const periodEnd = periodOverride?.end ?? subscription?.currentPeriodEnd ?? new Date(now.getTime() + fallbackDays * MS_PER_DAY);
   const daysElapsed = Math.max(0, Math.floor((now.getTime() - periodStart.getTime()) / MS_PER_DAY));
   const daysRemaining = Math.max(0, Math.floor((periodEnd.getTime() - now.getTime()) / MS_PER_DAY));
 
@@ -157,6 +163,7 @@ export async function buildUsageRollupFor(
   authHeader: string,
   subscription: Parameters<typeof buildUsageRollup>[0],
   plan: Parameters<typeof buildUsageRollup>[1],
+  periodOverride: { start?: Date; end?: Date } | null = null,
 ): Promise<UsageRollup> {
   // Fetch the quota snapshot (core payload) and pooled seat usage (enrichment)
   // in parallel. Seat usage lives on platform, not the quota service, because
@@ -173,5 +180,5 @@ export async function buildUsageRollupFor(
   const seats = seatSnapshot && seatSnapshot.limit !== null && seatSnapshot.used !== null
     ? { limit: seatSnapshot.limit, used: seatSnapshot.used }
     : null;
-  return buildUsageRollup(subscription, plan, snapshot, new Date(), seats);
+  return buildUsageRollup(subscription, plan, snapshot, new Date(), seats, periodOverride);
 }

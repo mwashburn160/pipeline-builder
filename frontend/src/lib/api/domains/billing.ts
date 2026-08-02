@@ -104,9 +104,11 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<{ events: BillingEvent[]; total: number }>>(`/api/billing/events${buildQuery(params)}`);
     },
 
-    /** F-3.5 cost+usage rollup for the active org. */
-    getBillingUsage: async () => {
-      return core.request<ApiResponse<UsageRollup>>('/api/billing/usage');
+    /** F-3.5 cost+usage rollup for the active org. Optional `periodStart`/`periodEnd`
+     *  (ISO) reframe the DISPLAYED period window + day math; the usage bars stay the
+     *  live current-period snapshot (the quota service tracks only the current period). */
+    getBillingUsage: async (params?: { periodStart?: string; periodEnd?: string }) => {
+      return core.request<ApiResponse<UsageRollup>>(`/api/billing/usage${buildQuery(params)}`);
     },
 
     /** Dashboard summary — account totals (gross → discounts/credits → net) + per-period timeline. */

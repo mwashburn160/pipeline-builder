@@ -11,6 +11,7 @@ import { Invitation, type InvitationDocument, Organization, type OrganizationDoc
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { emailService } from '../utils/email.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
+import { escapeRegex } from '../utils/regex.js';
 
 const logger = createLogger('invitation-service');
 
@@ -403,13 +404,15 @@ class InvitationService {
   }
 
   /**
-   * List invitations for an org with optional status / type filters and
-   * pagination. Populates the invitedBy + acceptedBy user references for
-   * the dashboard's "who invited whom" UI.
+   * List invitations for an org with optional status / type / role filters, a
+   * case-insensitive email `search`, and pagination. Populates the invitedBy +
+   * acceptedBy user references for the dashboard's "who invited whom" UI.
    */
   async listForOrg(orgId: string, opts: {
     status?: string;
     invitationType?: string;
+    role?: string;
+    search?: string;
     offset: number;
     limit: number;
   }) {
@@ -419,6 +422,15 @@ class InvitationService {
     }
     if (opts.invitationType && ['email', 'oauth', 'any'].includes(opts.invitationType)) {
       query.invitationType = opts.invitationType;
+    }
+    if (opts.role && ['admin', 'member'].includes(opts.role)) {
+      query.role = opts.role;
+    }
+    // Email search — a case-insensitive substring match on the invitee address,
+    // escaped so metacharacters can't change the query semantics (ReDoS/search
+    // correctness), mirroring the member-roster search.
+    if (opts.search && opts.search.trim()) {
+      query.email = new RegExp(escapeRegex(opts.search.trim()), 'i');
     }
 
     const [invitations, total] = await Promise.all([

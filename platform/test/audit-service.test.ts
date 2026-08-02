@@ -144,6 +144,39 @@ describe('auditService.findEvents', () => {
     });
   });
 
+  it('should add a createdAt $gte/$lte range when createdFrom/createdTo are set', async () => {
+    mockLean.mockResolvedValue([]);
+    mockCountDocuments.mockResolvedValue(0);
+
+    const createdFrom = new Date('2026-07-01T00:00:00.000Z');
+    const createdTo = new Date('2026-07-31T23:59:59.000Z');
+    await auditService.findEvents({ createdFrom, createdTo }, 0, 10);
+
+    expect(mockFind).toHaveBeenCalledWith({
+      createdAt: { $gte: createdFrom, $lte: createdTo },
+    });
+  });
+
+  it('should add a one-sided createdAt range when only createdFrom is set', async () => {
+    mockLean.mockResolvedValue([]);
+    mockCountDocuments.mockResolvedValue(0);
+
+    const createdFrom = new Date('2026-07-01T00:00:00.000Z');
+    await auditService.findEvents({ createdFrom }, 0, 10);
+
+    expect(mockFind).toHaveBeenCalledWith({ createdAt: { $gte: createdFrom } });
+  });
+
+  it('should add a one-sided createdAt range when only createdTo is set', async () => {
+    mockLean.mockResolvedValue([]);
+    mockCountDocuments.mockResolvedValue(0);
+
+    const createdTo = new Date('2026-07-31T23:59:59.000Z');
+    await auditService.findEvents({ createdTo }, 0, 10);
+
+    expect(mockFind).toHaveBeenCalledWith({ createdAt: { $lte: createdTo } });
+  });
+
   it('should escape regex metacharacters in the action filter', async () => {
     mockLean.mockResolvedValue([]);
     mockCountDocuments.mockResolvedValue(0);

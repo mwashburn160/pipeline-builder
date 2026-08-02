@@ -113,7 +113,11 @@ describe('GET /usage — authorization', () => {
 });
 
 describe('GET /usage — rollup wiring', () => {
-  const handler = getHandler('get', '/usage');
+  const rawHandler = getHandler('get', '/usage');
+  // Real Express requests always carry `req.query`; these minimal unit reqs don't,
+  // so default it here (a case can still pass its own `query` to exercise the
+  // period-override params). Keeps every call site free of boilerplate.
+  const handler = (req: any, res: any) => rawHandler({ query: {}, ...req }, res);
 
   it('threads the active subscription + plan into the rollup builder and returns it with 200', async () => {
     const res = mockRes();
@@ -134,6 +138,7 @@ describe('GET /usage — rollup wiring', () => {
         planId: 'plan-pro',
       },
       { name: 'Pro', tier: 'pro', prices: { monthly: 4900, annual: 49000 } },
+      null, // no period override (no query params)
     );
 
     expect(res.status).toHaveBeenCalledWith(200);
@@ -167,7 +172,7 @@ describe('GET /usage — rollup wiring', () => {
     await handler({ headers: { authorization: 'Bearer user-tok' }, orgId: 'org-free' }, res);
 
     expect(mockPlanFindById).not.toHaveBeenCalled();
-    expect(mockBuildUsageRollupFor).toHaveBeenCalledWith('org-free', 'Bearer user-tok', null, null);
+    expect(mockBuildUsageRollupFor).toHaveBeenCalledWith('org-free', 'Bearer user-tok', null, null, null);
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
@@ -185,6 +190,29 @@ describe('GET /usage — rollup wiring', () => {
     const res = mockRes();
     await handler({ headers: {}, orgId: 'org-1' }, res);
 
-    expect(mockBuildUsageRollupFor).toHaveBeenCalledWith('org-1', '', expect.anything(), expect.anything());
+    expect(mockBuildUsageRollupFor).toHaveBeenCalledWith('org-1', '', expect.anything(), expect.anything(), null);
+  });
+
+  it('threads a caller-supplied period override from periodStart/periodEnd query params', async () => {
+    const res = mockRes();
+    await handler(
+      { headers: { authorization: 'Bearer user-tok' }, orgId: 'org-1', query: { periodStart: '2026-01-01', periodEnd: '2026-02-01' } },
+      res,
+    );
+
+    const override = mockBuildUsageRollupFor.mock.calls[0][4];
+    expect(override).toEqual({ start: new Date('2026-01-01'), end: new Date('2026-02-01') });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('rejects a malformed period date with 400 and never builds the rollup', async () => {
+    const res = mockRes();
+    await handler(
+      { headers: { authorization: 'Bearer user-tok' }, orgId: 'org-1', query: { periodStart: 'not-a-date' } },
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockBuildUsageRollupFor).not.toHaveBeenCalled();
   });
 });

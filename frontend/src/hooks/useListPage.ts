@@ -36,6 +36,12 @@ export interface UseListPageOptions<T> {
   debounceMs?: number;
   /** Build additional params from current filter values */
   buildParams?: (filters: Record<string, string>) => Record<string, string>;
+  /**
+   * Initial server-side sort. When set, `sortBy`/`sortOrder` are sent with the
+   * very first fetch (and reflected in the returned sort state). Consumers that
+   * don't opt into server-side sorting omit this and no sort params are sent.
+   */
+  initialSort?: { sortBy: string; sortOrder: string };
 }
 
 export interface UseListPageResult<T> {
@@ -52,6 +58,12 @@ export interface UseListPageResult<T> {
   handlePageChange: (offset: number) => void;
   handlePageSizeChange: (limit: number) => void;
   refresh: () => void;
+  /** Current server-side sort field ('' when unset). */
+  sortBy: string;
+  /** Current server-side sort direction ('' when unset). */
+  sortOrder: string;
+  /** Set the server-side sort. Triggers a refetch and resets to page 0. */
+  setSort: (sortBy: string, sortOrder: string) => void;
 }
 
 // ─── Hook ───────────────────────────────────────────────
@@ -76,7 +88,7 @@ export interface UseListPageResult<T> {
  * ```
  */
 export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResult<T> {
-  const { fields, fetcher, enabled = true, pageSize = 25, debounceMs = 300, buildParams } = options;
+  const { fields, fetcher, enabled = true, pageSize = 25, debounceMs = 300, buildParams, initialSort } = options;
 
   // Build initial filter state from field definitions
   const initialFilters: Record<string, string> = {};
@@ -92,6 +104,11 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   // keep them split so we don't bounce pagination state on every fetch.
   const [total, setTotal] = useState(0);
   const [pageState, setPageState] = useState<{ limit: number; offset: number }>({ limit: pageSize, offset: 0 });
+  // Server-side sort. Empty strings mean "unset" — no sort params are sent,
+  // preserving behavior for consumers that don't opt in.
+  const [sortState, setSortState] = useState<{ sortBy: string; sortOrder: string }>(
+    initialSort ?? { sortBy: '', sortOrder: '' },
+  );
   const pagination: PaginationState = useMemo(
     () => ({ ...pageState, total }),
     [pageState, total],
@@ -120,11 +137,11 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     return result;
   }, [debouncedTextValues, textFieldKeys, filters]);
 
-  // Reset to page 0 when filters change
+  // Reset to page 0 when filters or sort change
   useEffect(() => {
     setPageState(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; only filter values matter
-  }, [debouncedTextValues, ...selectFieldKeys.map(k => filters[k])]);
+  }, [debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), sortState.sortBy, sortState.sortOrder]);
 
   // Fetch data when debounced filters, pagination, or fetchKey change. Shares
   // the cancellable-fetch core with useFetch/useServerPagination so the
@@ -148,6 +165,10 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     finalParams.limit = String(pageState.limit);
     finalParams.offset = String(pageState.offset);
 
+    // Add server-side sort (only when opted into — empty means unset)
+    if (sortState.sortBy) finalParams.sortBy = sortState.sortBy;
+    if (sortState.sortOrder) finalParams.sortOrder = sortState.sortOrder;
+
     return runCancellableFetch(() => fetcher(finalParams), {
       onStart: () => setIsLoading(true),
       onSuccess: (result) => {
@@ -168,7 +189,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
       onSettled: () => setIsLoading(false),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; dynamic filter values are spread individually
-  }, [enabled, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), pageState.limit, pageState.offset, fetchKey]);
+  }, [enabled, debouncedTextValues, ...selectFieldKeys.map(k => filters[k]), pageState.limit, pageState.offset, sortState.sortBy, sortState.sortOrder, fetchKey]);
 
   const updateFilter = useCallback((key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -200,6 +221,10 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
 
   const refresh = useCallback(() => setFetchKey(k => k + 1), []);
 
+  const setSort = useCallback((sortBy: string, sortOrder: string) => {
+    setSortState(prev => (prev.sortBy === sortBy && prev.sortOrder === sortOrder ? prev : { sortBy, sortOrder }));
+  }, []);
+
   return {
     data,
     isLoading,
@@ -214,5 +239,8 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     handlePageChange,
     handlePageSizeChange,
     refresh,
+    sortBy: sortState.sortBy,
+    sortOrder: sortState.sortOrder,
+    setSort,
   };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -71,6 +71,12 @@ export default function BillingPage() {
   const [bundleSelfService, setBundleSelfService] = useState(false);
   const [comboDiscounts, setComboDiscounts] = useState<ComboDiscount[]>([]);
   const [usage, setUsage] = useState<UsageRollup | null>(null);
+  // Editable "Usage this period" window. Empty = derived (subscription/fallback).
+  // A ref mirrors it so full-page reloads (`fetchData`) honour an active override
+  // without `fetchData` taking `usagePeriod` as a dependency (which would double-fetch).
+  const [usagePeriod, setUsagePeriod] = useState<{ periodStart?: string; periodEnd?: string }>({});
+  const usagePeriodRef = useRef(usagePeriod);
+  usagePeriodRef.current = usagePeriod;
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [billingInterval, setBillingInterval] = useState<BillingInterval>('monthly');
@@ -100,7 +106,7 @@ export default function BillingPage() {
       const [plansRes, subRes, usageRes, bundlesRes] = await Promise.all([
         api.getPlans(),
         api.getSubscription(),
-        api.getBillingUsage().catch(() => null),
+        api.getBillingUsage(usagePeriodRef.current).catch(() => null),
         api.getBundles().catch(() => null),
       ]);
 
@@ -126,6 +132,14 @@ export default function BillingPage() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Re-fetch ONLY the usage rollup for a chosen display window (no full-page
+  // reload). `undefined` values clear the override → derived period.
+  const handleUsagePeriodChange = useCallback(async (periodStart?: string, periodEnd?: string) => {
+    setUsagePeriod({ periodStart, periodEnd });
+    const res = await api.getBillingUsage({ periodStart, periodEnd }).catch(() => null);
+    if (res?.success && res.data) setUsage(res.data);
   }, []);
 
   const fetchEvents = useCallback(async () => {
@@ -317,7 +331,13 @@ export default function BillingPage() {
 
         {/* Cost & usage rollup. Renders even without an active
             subscription (developer-tier defaults still produce useful data). */}
-        {usage && <UsageCard rollup={usage} />}
+        {usage && (
+          <UsageCard
+            rollup={usage}
+            onPeriodChange={handleUsagePeriodChange}
+            overridden={!!(usagePeriod.periodStart || usagePeriod.periodEnd)}
+          />
+        )}
 
         {/* Billing actuals dashboard — gross → discounts/credits → net + invoice
             history. Self-fetches; renders nothing until there's billing history. */}

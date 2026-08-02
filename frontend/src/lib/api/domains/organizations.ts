@@ -72,12 +72,22 @@ export function organizationsApi(core: ApiCore) {
     },
 
     /** A bounded, filterable page of an org's members. `search` matches
-     *  username/email and `role` narrows the coarse role — both applied
-     *  server-side. Each member carries its assigned Role names, so the UI needs
-     *  no all-roles O(members×roles) scan to render chips. */
+     *  username/email, `role` narrows the coarse role, and `status`
+     *  (active|inactive) narrows the membership active flag — all applied
+     *  server-side. `sortBy`/`sortOrder` drive server-side ordering (the backend
+     *  whitelists sortable fields). Each member carries its assigned Role names,
+     *  so the UI needs no all-roles O(members×roles) scan to render chips. */
     getOrganizationMembers: async (
       orgId: string,
-      params?: { limit?: number; offset?: number; search?: string; role?: 'owner' | 'admin' | 'member' },
+      params?: {
+        limit?: number;
+        offset?: number;
+        search?: string;
+        role?: 'owner' | 'admin' | 'member';
+        status?: 'active' | 'inactive';
+        sortBy?: string;
+        sortOrder?: 'asc' | 'desc';
+      },
     ) => {
       return core.request<ApiResponse<{
         members: OrganizationMember[];
@@ -215,7 +225,7 @@ export function organizationsApi(core: ApiCore) {
     // ============================================
     // Invitation endpoints
     // ============================================
-    listInvitations: async (params?: { status?: string; offset?: number; limit?: number }) => {
+    listInvitations: async (params?: { status?: string; invitationType?: string; role?: 'admin' | 'member'; search?: string; offset?: number; limit?: number }) => {
       return core.request<ApiResponse<{ invitations: Invitation[]; pagination?: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/invitation${buildQuery(params)}`);
     },
 

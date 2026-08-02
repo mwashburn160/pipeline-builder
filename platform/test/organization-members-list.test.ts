@@ -69,10 +69,12 @@ const raQuery = (rows: unknown[]) => ({ populate: () => ({ lean: () => Promise.r
  *  recording the skip/limit args so the pagination bound can be asserted. */
 let capturedSkip: number | undefined;
 let capturedLimit: number | undefined;
+let capturedSort: unknown;
 const uoQuery = (rows: unknown[]) => {
   const q: Record<string, (...a: unknown[]) => unknown> = {};
   q.populate = () => q;
-  q.sort = () => q;
+  q.select = () => q;
+  q.sort = (s: unknown) => { capturedSort = s; return q; };
   q.skip = (n: unknown) => { capturedSkip = n as number; return q; };
   q.limit = (n: unknown) => { capturedLimit = n as number; return q; };
   q.lean = () => Promise.resolve(rows);
@@ -93,6 +95,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   capturedSkip = undefined;
   capturedLimit = undefined;
+  capturedSort = undefined;
   mockOrgFindById.mockReturnValue(orgQuery(org));
   mockUoFind.mockReturnValue(uoQuery(memberships));
   mockUoCount.mockResolvedValue(42);
@@ -144,5 +147,67 @@ describe('OrgMembersService.listMembers', () => {
   it('returns null when the org does not exist', async () => {
     mockOrgFindById.mockReturnValue(orgQuery(null));
     expect(await orgMembersService.listMembers('ghost', {})).toBeNull();
+  });
+
+  it('pushes the status (isActive) filter into the DB query', async () => {
+    await orgMembersService.listMembers('org-1', { isActive: false });
+    const filterArg = mockUoFind.mock.calls[0][0] as Record<string, unknown>;
+    expect(filterArg).toMatchObject({ isActive: false });
+
+    // An omitted status leaves the flag off the filter entirely (both states).
+    jest.clearAllMocks();
+    mockUoFind.mockReturnValue(uoQuery(memberships));
+    mockUoCount.mockResolvedValue(42);
+    mockRaFind.mockReturnValue(raQuery(assignments));
+    await orgMembersService.listMembers('org-1', {});
+    expect(mockUoFind.mock.calls[0][0]).not.toHaveProperty('isActive');
+  });
+
+  it('applies a whitelisted sort field to the query', async () => {
+    await orgMembersService.listMembers('org-1', { sortBy: 'role', sortOrder: 'desc' });
+    // Native (UserOrganization) field → sorts the membership query directly,
+    // descending, with a stable _id tiebreak.
+    expect(capturedSort).toEqual({ role: -1, _id: 1 });
+  });
+
+  it('rejects an unknown sort field, falling back to the default join-time order', async () => {
+    await orgMembersService.listMembers('org-1', { sortBy: 'password', sortOrder: 'asc' });
+    expect(capturedSort).toEqual({ joinedAt: 1, _id: 1 });
+  });
+
+  it('sorts by a populated User field (username) via the two-phase path', async () => {
+    // Phase 1: the matching memberships (plain-id userId + native fields).
+    const matchRows = [
+      { userId: 'u1', role: 'admin', isActive: true, joinedAt: new Date() },
+      { userId: 'u2', role: 'member', isActive: false, joinedAt: new Date() },
+    ];
+    mockUoFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(matchRows) }) });
+
+    // Phase 2: User ordered by the requested field — records the sort spec and
+    // returns the page in the resolved order.
+    let capturedUserSort: unknown;
+    const orderedUsers = [
+      { _id: 'u2', username: 'aaron', email: 'aaron@x.com', isEmailVerified: true },
+      { _id: 'u1', username: 'zed', email: 'zed@x.com', isEmailVerified: false },
+    ];
+    mockUserFind.mockReturnValue({
+      select: () => ({
+        sort: (s: unknown) => {
+          capturedUserSort = s; return {
+            skip: () => ({ limit: () => ({ lean: () => Promise.resolve(orderedUsers) }) }),
+          };
+        },
+      }),
+    });
+
+    const result = await orgMembersService.listMembers('org-1', { sortBy: 'username', sortOrder: 'asc' });
+
+    expect(capturedUserSort).toEqual({ username: 1, _id: 1 });
+    // Total is the full match count (not countDocuments — the two-phase path
+    // derives it from the resolved membership set).
+    expect(result!.total).toBe(2);
+    expect(mockUoCount).not.toHaveBeenCalled();
+    // The page preserves the User-collection order (aaron before zed).
+    expect(result!.members.map((m) => m.id)).toEqual(['u2', 'u1']);
   });
 });
