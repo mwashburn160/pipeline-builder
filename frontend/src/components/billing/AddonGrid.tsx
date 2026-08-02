@@ -11,6 +11,10 @@ interface AddonGridProps {
   bundles: Bundle[];
   billingInterval: BillingInterval;
   bundleSelfService: boolean;
+  /** Whether the account has an active subscription. `false` renders the catalog
+   *  as a read-only PREVIEW (packs stack on a plan, so there's nothing to attach
+   *  them to yet) with a "Subscribe to add" affordance. Defaults `true`. */
+  subscribed?: boolean;
   actionLoading: boolean;
   previewLoading: boolean;
   addonQty: (bundleId: string) => number;
@@ -34,6 +38,7 @@ export function AddonGrid({
   bundles,
   billingInterval,
   bundleSelfService,
+  subscribed = true,
   actionLoading,
   previewLoading,
   addonQty,
@@ -41,6 +46,10 @@ export function AddonGrid({
   highlightFeature = null,
   comboDiscounts = [],
 }: AddonGridProps) {
+  // Packs can only be purchased when self-service is allowed AND there's a plan to
+  // stack them on. Otherwise the catalog renders read-only (a preview / marketplace-
+  // managed view).
+  const canBuy = bundleSelfService && subscribed;
   // "Pair to save" nudge for a bundle: fires when adding this bundle would COMPLETE a
   // combo — i.e. this member is below its minimum quantity while every OTHER member is
   // already at its minimum. A member is *satisfied* at `addonQty(id) >= minQty(id)`.
@@ -73,7 +82,9 @@ export function AddonGrid({
   return (    <div className="mt-10">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Add-ons</h2>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-        {bundleSelfService
+        {!subscribed
+          ? 'Preview of the add-on packs available on your plan. Subscribe to a plan to buy extra capacity that stacks on it and pools across your teams.'
+          : bundleSelfService
           ? 'Buy extra capacity that stacks on your plan and pools across your teams.'
           : 'Extra capacity that stacks on your plan and pools across your teams. This account is billed through AWS Marketplace — add or remove add-ons from your AWS Marketplace subscription.'}
       </p>
@@ -117,8 +128,10 @@ export function AddonGrid({
                 </p>
               )}
               <div className="mt-4 flex items-center gap-2">
-                {!bundleSelfService ? (                        <span className="text-sm text-gray-500 dark:text-gray-400">
-                    {qty > 0 ? `${qty} active` : 'Managed in AWS Marketplace'}
+                {!canBuy ? (                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                    {!subscribed
+                      ? 'Subscribe to add'
+                      : qty > 0 ? `${qty} active` : 'Managed in AWS Marketplace'}
                   </span>
                 ): b.stackable ? (                        <>
                     <Button

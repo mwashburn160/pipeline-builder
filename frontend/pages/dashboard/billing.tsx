@@ -5,6 +5,8 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAuth } from '@/hooks/useAuth';
 import { useBillingEnabledState } from '@/hooks/useBillingEnabled';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
+import { Card } from '@/components/ui/Card';
+import ReportTabs from '@/components/reports/ReportTabs';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import type { Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingInterval, UsageRollup } from '@/types';
@@ -22,6 +24,16 @@ import { BillingHistory } from '@/components/billing/BillingHistory';
 // Plan hierarchy (low → high). Used to detect a downgrade so the confirm dialog
 // can warn that caps/features may drop.
 const PLAN_RANK = ['developer', 'pro', 'team', 'enterprise'];
+
+// Billing page is organized into tabs (same bar as the Reports page). Each is
+// deep-linkable via `?tab=` so links/back-forward land on the right section.
+const BILLING_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'plans', label: 'Plans & Add-ons' },
+  { id: 'history', label: 'Billing History' },
+] as const;
+type BillingTab = (typeof BILLING_TABS)[number]['id'];
+const BILLING_TAB_IDS = BILLING_TABS.map((t) => t.id) as readonly string[];
 
 /** True only when BOTH plans are ranked and the target ranks below the current.
  *  An unknown plan id (custom/enterprise → rank -1) is never treated as a
@@ -82,6 +94,25 @@ export default function BillingPage() {
   const [billingInterval, setBillingInterval] = useState<BillingInterval>('monthly');
   const [billingEvents, setBillingEvents] = useState<Array<{ id: string; type: string; orgId: string; createdAt: string; detail?: Record<string, unknown> }>>([]);
   const [showEvents, setShowEvents] = useState(false);
+
+  // Active tab, hydrated from `?tab=` and kept in sync (shallow) so tab state is
+  // shareable/back-forward-friendly — same pattern as the Reports page.
+  const [activeTab, setActiveTab] = useState<BillingTab>('overview');
+  useEffect(() => {
+    const raw = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
+    if (raw && BILLING_TAB_IDS.includes(raw)) {
+      if (raw !== activeTab) setActiveTab(raw as BillingTab);
+      return;
+    }
+    // A `?highlight=<feature>` upsell link (no explicit tab) targets an add-on,
+    // which lives on the Plans & Add-ons tab — land there.
+    if (router.query.highlight && activeTab !== 'plans') setActiveTab('plans');
+  }, [router.query.tab, router.query.highlight]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changeTab = (id: string) => {
+    setActiveTab(id as BillingTab);
+    // A DORA upsell deep-link (`?highlight=`) lands on Plans & Add-ons; preserve it.
+    void router.replace({ query: { ...router.query, tab: id } }, undefined, { shallow: true });
+  };
 
   // Deep-link: `?highlight=<feature>` (e.g. from the Reports DORA upsell CTA)
   // emphasizes + scrolls to the add-on bundle that grants that feature.
@@ -316,99 +347,126 @@ export default function BillingPage() {
 
   return (    <DashboardLayout title="Billing" subtitle="Plans, invoices, and payment details">
       <div className="page-section space-y-8">
-        {/* Current Subscription Status */}
-        {subscription && (
-          <SubscriptionStatusCard
-            subscription={subscription}
-            canChangePlan={canChangePlan}
-            actionLoading={actionLoading}
-            portalLoading={portalLoading}
-            onReactivate={handleReactivate}
-            onCancel={handleCancel}
-            onManageBilling={openBillingPortal}
-          />
-        )}
+        <ReportTabs tabs={[...BILLING_TABS]} activeTab={activeTab} onTabChange={changeTab} />
 
-        {/* Cost & usage rollup. Renders even without an active
-            subscription (developer-tier defaults still produce useful data). */}
-        {usage && (
-          <UsageCard
-            rollup={usage}
-            onPeriodChange={handleUsagePeriodChange}
-            overridden={!!(usagePeriod.periodStart || usagePeriod.periodEnd)}
-          />
-        )}
+        {activeTab === 'overview' && (
+          <div className="space-y-8">
+            {/* Current subscription status */}
+            {subscription && (
+              <SubscriptionStatusCard
+                subscription={subscription}
+                canChangePlan={canChangePlan}
+                actionLoading={actionLoading}
+                portalLoading={portalLoading}
+                onReactivate={handleReactivate}
+                onCancel={handleCancel}
+                onManageBilling={openBillingPortal}
+              />
+            )}
 
-        {/* Billing actuals dashboard — gross → discounts/credits → net + invoice
-            history. Self-fetches; renders nothing until there's billing history. */}
-        <BillingDashboard />
+            {/* Cost & usage rollup. Renders even without an active subscription
+                (developer-tier defaults still produce useful data). */}
+            {usage && (
+              <UsageCard
+                rollup={usage}
+                onPeriodChange={handleUsagePeriodChange}
+                overridden={!!(usagePeriod.periodStart || usagePeriod.periodEnd)}
+              />
+            )}
 
-        {/* Per-team usage breakdown (feature-gated: team_usage_analytics). */}
-        <TeamUsageCard />
-
-        {/* Billing Interval Toggle */}
-        <div className="flex justify-center">
-          <div className="card inline-flex items-center p-1">
-            <button
-              onClick={() => setBillingInterval('monthly')}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                billingInterval === 'monthly'
-                  ? 'bg-blue-600 text-white'
-: 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-              }`}
-            >
-              Monthly
-            </button>
-            <button
-              onClick={() => setBillingInterval('annual')}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                billingInterval === 'annual'
-                  ? 'bg-blue-600 text-white'
-: 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-              }`}
-            >
-              Annual
-              <span className="ml-1 text-xs text-green-500">Save ~17%</span>
-            </button>
+            {/* Per-team usage breakdown (feature-gated: team_usage_analytics). */}
+            <TeamUsageCard />
           </div>
-        </div>
-
-        {/* Plan Cards */}
-        <PlanGrid
-          plans={plans}
-          subscription={subscription}
-          billingInterval={billingInterval}
-          actionLoading={actionLoading}
-          canChangePlan={canChangePlan}
-          onSubscribe={requestPlanChange}
-        />
-
-        {!canChangePlan && (          <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
-            {activeOrgIsTeam
-              ? 'This is a team. Its plan, add-ons and billing are managed by an admin at the parent organization.'
-              : 'Contact an organization admin to change your plan.'}
-          </p>
         )}
 
-        {/* Add-on bundles — extra capacity that stacks on the base plan and
-            pools across the account's teams. Admin + active subscription only;
-            the server rejects Marketplace-billed accounts with guidance. */}
-        {canChangePlan && subscription && bundles.length > 0 && (
-          <AddonGrid
-            bundles={bundles}
-            billingInterval={billingInterval}
-            bundleSelfService={bundleSelfService}
-            actionLoading={actionLoading}
-            previewLoading={previewLoading}
-            addonQty={addonQty}
-            requestAddonChange={requestAddonChange}
-            highlightFeature={highlightFeature}
-            comboDiscounts={comboDiscounts}
-          />
+        {activeTab === 'plans' && (
+          <div className="space-y-8">
+            {/* Billing interval toggle */}
+            <div className="flex justify-center">
+              <div className="card inline-flex items-center p-1">
+                <button
+                  onClick={() => setBillingInterval('monthly')}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                    billingInterval === 'monthly'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                  }`}
+                >
+                  Monthly
+                </button>
+                <button
+                  onClick={() => setBillingInterval('annual')}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                    billingInterval === 'annual'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                  }`}
+                >
+                  Annual
+                  <span className="ml-1 text-xs text-green-500">Save ~17%</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Plan cards (tier pricing) */}
+            <PlanGrid
+              plans={plans}
+              subscription={subscription}
+              billingInterval={billingInterval}
+              actionLoading={actionLoading}
+              canChangePlan={canChangePlan}
+              onSubscribe={requestPlanChange}
+            />
+
+            {!canChangePlan && (
+              <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
+                {activeOrgIsTeam
+                  ? 'This is a team. Its plan, add-ons and billing are managed by an admin at the parent organization.'
+                  : 'Contact an organization admin to change your plan.'}
+              </p>
+            )}
+
+            {/* Add-on bundles — extra capacity that stacks on the base plan and
+                pools across the account's teams. Shown to plan managers even without
+                an active subscription (read-only preview via `subscribed={false}`);
+                purchase controls unlock once subscribed. */}
+            {canChangePlan && bundles.length > 0 && (
+              <AddonGrid
+                bundles={bundles}
+                billingInterval={billingInterval}
+                bundleSelfService={bundleSelfService}
+                subscribed={!!subscription}
+                actionLoading={actionLoading}
+                previewLoading={previewLoading}
+                addonQty={addonQty}
+                requestAddonChange={requestAddonChange}
+                highlightFeature={highlightFeature}
+                comboDiscounts={comboDiscounts}
+              />
+            )}
+          </div>
         )}
 
-        {/* Confirm a plan switch before it commits (parity with add-ons, which
-            get a preview + confirm). A downgrade shows a caps/features warning. */}
+        {activeTab === 'history' && (
+          <div className="space-y-8">
+            {/* Billing actuals — gross → discounts/credits → net + invoice history.
+                Self-fetches; renders nothing until there's billing history. */}
+            <BillingDashboard />
+
+            {/* Billing history events (credit applied/consumed/exhausted, discounts,
+                combos). Sysadmins see the fleet-wide feed via /admin/events (with the
+                org column); everyone else sees their own account via /events
+                (billing:read). Quietly degrades to an empty section on rejection. */}
+            <BillingHistory
+              isSuperAdmin={isSuperAdmin}
+              showEvents={showEvents}
+              billingEvents={billingEvents}
+              onViewEvents={fetchEvents}
+            />
+          </div>
+        )}
+
+        {/* Modals — available on any tab */}
         {pendingPlan && subscription && (
           <PlanChangeModal
             targetPlan={pendingPlan}
@@ -421,8 +479,6 @@ export default function BillingPage() {
           />
         )}
 
-        {/* Preview-and-confirm: show the itemized new price (and any over-cap
-            note) before committing an add-on change. */}
         {pendingAddon && (
           <AddonPreviewModal
             pendingAddon={pendingAddon}
@@ -437,17 +493,6 @@ export default function BillingPage() {
             onOpenBillingPortal={openBillingPortal}
           />
         )}
-
-        {/* Billing history (credit applied/consumed/exhausted, discounts, combos).
-            Sysadmins see the fleet-wide feed via /admin/events (with the org column);
-            everyone else sees their own account via /events (billing:read — which the
-            page already requires). Quietly degrades to an empty section on rejection. */}
-        <BillingHistory
-          isSuperAdmin={isSuperAdmin}
-          showEvents={showEvents}
-          billingEvents={billingEvents}
-          onViewEvents={fetchEvents}
-        />
       </div>
 
     </DashboardLayout>

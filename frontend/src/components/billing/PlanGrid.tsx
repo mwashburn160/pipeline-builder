@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Check } from 'lucide-react';
+import { Card } from '@/components/ui/Card';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { getTierMeta } from '@/lib/tiers';
 import { formatCents } from '@/lib/format';
@@ -52,9 +53,9 @@ export function PlanGrid({
         const isCurrent = subscription?.planId === plan.id;
         const price = billingInterval === 'annual' ? plan.prices.annual: plan.prices.monthly;
 
-        return (              <div
+        return (              <Card
             key={plan.id}
-            className={`card relative p-6 transition-all ${
+            className={`relative p-6 transition-all ${
               isCurrent
                 ? `border-2 ${accents.border} ${accents.bg} shadow-lg`
 : 'hover:shadow-md'
@@ -104,7 +105,7 @@ export function PlanGrid({
               ): (                    'Get Started'
               )}
             </button>
-          </div>
+          </Card>
         );
       })}
     </div>

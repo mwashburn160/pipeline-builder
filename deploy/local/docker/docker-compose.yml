@@ -834,7 +834,7 @@ services:
       BILLING_DISCOUNT_MAX_PERCENT: ${BILLING_DISCOUNT_MAX_PERCENT:-100}
       BILLING_DISCOUNT_MAX_CENTS: ${BILLING_DISCOUNT_MAX_CENTS:-10000000}
       # Add-on bundles (docs/billing-bundles.md) — off by default
-      BILLING_BUNDLES_ENABLED: ${BILLING_BUNDLES_ENABLED:-false}
+      BILLING_BUNDLES_ENABLED: ${BILLING_BUNDLES_ENABLED:-true}
       # Per-bundle price (cents) + single-dimension grant overrides. Defaults
       # live in packages/pipeline-core billing-config; unset = default.
       BILLING_BUNDLE_SEAT_PACK_MONTHLY: ${BILLING_BUNDLE_SEAT_PACK_MONTHLY:-}

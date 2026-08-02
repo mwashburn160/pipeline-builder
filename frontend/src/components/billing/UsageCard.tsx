@@ -4,6 +4,7 @@
 import { formatBytes, fmtNum, formatCents } from '@/lib/format';
 import { statusInfo, barStyles } from '@/lib/quota-helpers';
 import type { UsageRollup } from '@/types';
+import { Card } from '@/components/ui/Card';
 import { formatDate } from './helpers';
 
 /** Quota-type → human label. Keep in sync with the keys returned by
@@ -41,7 +42,7 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
   const startVal = toDateInput(rollup.period.start);
   const endVal = toDateInput(rollup.period.end);
 
-  return (    <div className="card">
+  return (    <Card>
       <div className="flex items-baseline justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Usage this period</h2>
         <span className="text-xs text-gray-500 dark:text-gray-400">
@@ -164,6 +165,6 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }

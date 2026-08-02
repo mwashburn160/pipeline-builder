@@ -213,9 +213,12 @@ export function getBundleCatalog(): readonly BundleConfig[] {
   return (Config.get('billing') as BillingConfig | undefined)?.bundles ?? [];
 }
 
-/** Whether purchasable add-on bundles are enabled (`BILLING_BUNDLES_ENABLED`). */
+/** Whether purchasable add-on bundles are enabled (`BILLING_BUNDLES_ENABLED`).
+ *  Default ON (opt-out) across all environments — mirrors `BILLING_ENABLED`'s
+ *  style; set `'false'` to hide the add-on catalog. Self-service is still gated
+ *  separately for AWS Marketplace (see `bundleSelfServiceAllowed`). */
 export function bundlesEnabled(): boolean {
-  return (process.env.BILLING_BUNDLES_ENABLED || '').toLowerCase() === 'true';
+  return (process.env.BILLING_BUNDLES_ENABLED || 'true').toLowerCase() !== 'false';
 }
 
 // Combo-discount pricing (getComboDiscounts / activeComboCredits / packing) lives
