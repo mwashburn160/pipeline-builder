@@ -397,7 +397,7 @@ export class Workflow extends Component {
                     // QEMU registers binfmt handlers so the amd64 runner can
                     // build the non-native (arm64) leg of the multi-arch image.
                     name: 'Setup QEMU',
-                    uses: 'docker/setup-qemu-action@v3',
+                    uses: 'docker/setup-qemu-action@v4',
                 },
                 {
                     name: 'Setup buildx',
