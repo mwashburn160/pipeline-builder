@@ -110,6 +110,8 @@ root.npmrc.addConfig('@pipeline-builder:registry', 'https://registry.npmjs.org/'
 // Redis DB, the local docker daemon, the same per-org KMS keys); serializing
 // trades wall-clock for reliability.
 root.npmrc.addConfig('workspace-concurrency', '1');
+// NOTE: pnpm 11's `verifyDepsBeforeRun` is disabled in pnpm-workspace.yaml
+// (projenrc/pnpm.ts) — `.npmrc` is ignored for it in pnpm 11.
 
 // =============================================================================
 // Shared Defaults & Helpers

@@ -28,3 +28,4 @@ allowBuilds:
   protobufjs: true
   sharp: true
   unrs-resolver: true
+verifyDepsBeforeRun: false

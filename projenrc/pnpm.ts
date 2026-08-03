@@ -63,6 +63,12 @@ export class PnpmWorkspace extends Component {
           sharp: true,
           'unrs-resolver': true,
         },
+        // pnpm 11 otherwise auto-installs before every `pnpm run/exec/nx`. In CI that
+        // pre-run install reconciles node_modules in prod mode — pruning devDeps (incl.
+        // `nx`) → `Command "nx" not found` in the docker:verify job. Deps are installed
+        // explicitly in the bootstrap step, so this pre-run check is redundant + harmful.
+        // (This is a pnpm-workspace.yaml setting — `.npmrc` is ignored for it in pnpm 11.)
+        verifyDepsBeforeRun: false,
       },
     });
   }
