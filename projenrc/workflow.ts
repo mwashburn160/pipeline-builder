@@ -205,6 +205,10 @@ export class Workflow extends Component {
                 actions: JobPermission.READ,
                 contents: JobPermission.WRITE,
                 packages: JobPermission.READ,
+                // pnpm 11 attempts npm OIDC ("trusted publishing") and needs an
+                // id-token; without this it warns (ERR_PNPM_ID_TOKEN_GITHUB_WORKFLOW_INCORRECT_PERMISSIONS)
+                // before falling back to NPM_TOKEN.
+                idToken: JobPermission.WRITE,
             },
             if: '${{ needs.init.outputs.AFFECTED_PROJECTS != \'[]\' || needs.init.outputs.AFFECTED_IMAGES != \'[]\' }}',
             steps: [
@@ -245,8 +249,15 @@ export class Workflow extends Component {
                 },
                 {
                     name: 'Publish npm packages',
-                    if: '${{ steps.check.outputs.AFFECTED_LIBS != \'[]\' }}',
-                    run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && pnpm publish --access public $FILTERS --no-git-checks --verbose',
+                    // Skip on both the empty-array `[]` and the empty-string case:
+                    // if `nx show projects --json` emits nothing (or a warning that
+                    // corrupts the JSON), AFFECTED_LIBS is '' (not '[]'), which would
+                    // otherwise pass this guard and run `pnpm publish` with no filter —
+                    // publishing the private root package (E403).
+                    if: '${{ steps.check.outputs.AFFECTED_LIBS != \'[]\' && steps.check.outputs.AFFECTED_LIBS != \'\' }}',
+                    // Belt-and-suspenders: if FILTERS resolves empty, skip rather than
+                    // let `pnpm publish` fall back to the current (root) package.
+                    run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --verbose; fi',
                 },
                 {
                     // `nx affected` only builds frontend when it's in the affected set,

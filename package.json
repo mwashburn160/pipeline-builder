@@ -1,5 +1,6 @@
 {
   "name": "root",
+  "private": true,
   "scripts": {
     "build": "pnpm dlx projen build",
     "clobber": "pnpm dlx projen clobber",

@@ -96,6 +96,11 @@ root.addScripts({ 'npm-check': 'npx npm-check-updates' });
 root.package.addField('packageManager', `pnpm@${pnpmVersion}`);
 root.package.addField('devEngines', { packageManager: { name: 'pnpm', version: pnpmVersion, onFail: 'ignore' } });
 
+// The workspace root (`root@0.0.0`) is a container, never an npm package. Mark it
+// private so `pnpm publish` (which falls back to the CWD package when no --filter
+// matches) can never try to publish it — the E403 the release workflow hit.
+root.package.addField('private', true);
+
 // All internal packages publish to npmjs.org under @pipeline-builder scope
 root.npmrc.addConfig('@pipeline-builder:registry', 'https://registry.npmjs.org/');
 
