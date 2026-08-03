@@ -114,8 +114,10 @@ export class Nx extends Component {
                     // Independent versioning (each package has own version)
                     projectsRelationship: 'independent',
 
-                    // Git tag format for releases
-                    releaseTagPattern: 'release/{projectName}/{version}',
+                    // Git tag format for releases. Nx 23 removed the top-level
+                    // `releaseTagPattern` — it now lives under the nested `releaseTag`
+                    // object (moved in Nx 22, removed in Nx 23).
+                    releaseTag: { pattern: 'release/{projectName}/{version}' },
 
                     // Changelog generation disabled
                     changelog: false,
