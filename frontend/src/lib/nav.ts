@@ -25,6 +25,7 @@ import {
   History,
   SlidersHorizontal,
   Bell,
+  Ticket,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -138,6 +139,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'All Organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
       { title: 'All Users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
       { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
+      { title: 'Discounts', href: '/dashboard/discounts', icon: Ticket, systemAdminOnly: true },
       { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
       { title: 'Platform Settings', href: '/dashboard/admin/platform-settings', icon: SlidersHorizontal, systemAdminOnly: true },
     ],

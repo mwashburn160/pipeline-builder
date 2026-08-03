@@ -3,7 +3,23 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingEvent, BillingInterval, UsageRollup } from '@/types';
+import type { ApiResponse, Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingEvent, BillingInterval, UsageRollup, Discount } from '@/types';
+
+/** Itemized price effect returned by a discount preview/apply (shape is provider-
+ *  dependent; the UI renders it generically). */
+export type DiscountPriceBreakdown = Record<string, unknown>;
+
+/** Authoring input for minting a discount. `code` is the compact authoring form
+ *  `value:unit:kind[:campaign]` (e.g. `50:percent:onetime`, `100:dollar:credit`). */
+export interface DiscountMintInput {
+  code: string;
+  targetOrgId?: string;
+  alias?: string;
+  maxRedemptions?: number;
+  redeemBy?: string;
+  appliesToTiers?: string[];
+  campaign?: string;
+}
 
 export function billingApi(core: ApiCore) {
   return {
@@ -129,6 +145,89 @@ export function billingApi(core: ApiCore) {
     /** Per-team current usage across all quota dimensions (feature-gated: team_usage_analytics). */
     getTeamUsage: async (params?: { includeDescendants?: boolean }) => {
       return core.request<ApiResponse<{ teams: TeamUsageRow[] }>>(`/api/billing/summary/usage-by-team${buildQuery(params)}`);
+    },
+
+    // ============================================
+    // Discounts — self-service redemption (docs/billing-discounts.md)
+    // ============================================
+
+    /** Dry-run a discount code against the active subscription (billing:read). */
+    previewDiscountCode: async (subscriptionId: string, code: string) => {
+      return core.request<ApiResponse<{ applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/subscriptions/${subscriptionId}/discounts/preview`, {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      });
+    },
+
+    /** Redeem a discount code (token or public alias) onto the subscription (billing:manage). */
+    redeemDiscountCode: async (subscriptionId: string, code: string) => {
+      return core.request<ApiResponse<{ discount: Discount; applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/subscriptions/${subscriptionId}/discounts`, {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      });
+    },
+
+    /** Stop a standing recurring discount (already-granted credit persists) (billing:manage). */
+    removeSubscriptionDiscount: async (subscriptionId: string, discountId: string) => {
+      return core.request<ApiResponse<{ discountId: string }>>(`/api/billing/subscriptions/${subscriptionId}/discounts/${discountId}`, {
+        method: 'DELETE',
+      });
+    },
+
+    // ============================================
+    // Discounts — admin authoring (system-admin only)
+    // ============================================
+
+    /** List discount records (filtered + paginated). Never returns a token. */
+    listDiscounts: async (params?: { campaign?: string; targetOrgId?: string; active?: 'true' | 'false'; limit?: number; offset?: number }) => {
+      return core.request<ApiResponse<{ discounts: Discount[]; pagination: { total: number; limit: number; offset: number } }>>(`/api/billing/admin/discounts${buildQuery(params)}`);
+    },
+
+    /** Mint a discount record from the authoring form. */
+    createDiscount: async (body: DiscountMintInput) => {
+      return core.request<ApiResponse<{ discount: Discount }>>('/api/billing/admin/discounts', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** Inspect one discount. */
+    getDiscount: async (id: string) => {
+      return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${id}`);
+    },
+
+    /** Issue (mint/re-issue) an opaque redeemable token for a discount. */
+    issueDiscountToken: async (id: string) => {
+      return core.request<ApiResponse<{ token: string }>>(`/api/billing/admin/discounts/${id}/token`, { method: 'POST' });
+    },
+
+    /** Direct-grant a discount to a target org (Mode A). */
+    applyDiscountToOrg: async (id: string, targetOrgId: string) => {
+      return core.request<ApiResponse<{ discount: Discount; applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/admin/discounts/${id}/apply`, {
+        method: 'POST',
+        body: JSON.stringify({ targetOrgId }),
+      });
+    },
+
+    /** Dry-run a direct grant on a target org. */
+    previewDiscountForOrg: async (id: string, targetOrgId: string) => {
+      return core.request<ApiResponse<{ applied: string; priceBreakdown: DiscountPriceBreakdown }>>(`/api/billing/admin/discounts/${id}/preview`, {
+        method: 'POST',
+        body: JSON.stringify({ targetOrgId }),
+      });
+    },
+
+    /** Edit / revoke (isActive:false) a discount. */
+    updateDiscount: async (id: string, body: { isActive?: boolean; maxRedemptions?: number; redeemBy?: string; appliesToTiers?: string[] }) => {
+      return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** Hard-revoke a discount (isActive:false). */
+    deleteDiscount: async (id: string) => {
+      return core.request<ApiResponse<{ discount: Discount }>>(`/api/billing/admin/discounts/${id}`, { method: 'DELETE' });
     },
   };
 }

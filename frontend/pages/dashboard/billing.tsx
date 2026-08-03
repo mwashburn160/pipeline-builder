@@ -17,6 +17,7 @@ import { BillingDashboard } from '@/components/billing/BillingDashboard';
 import { TeamUsageCard } from '@/components/billing/TeamUsageCard';
 import { PlanGrid } from '@/components/billing/PlanGrid';
 import { AddonGrid } from '@/components/billing/AddonGrid';
+import { DiscountRedeem } from '@/components/billing/DiscountRedeem';
 import { AddonPreviewModal } from '@/components/billing/AddonPreviewModal';
 import { PlanChangeModal } from '@/components/billing/PlanChangeModal';
 import { BillingHistory } from '@/components/billing/BillingHistory';
@@ -442,6 +443,18 @@ export default function BillingPage() {
                 requestAddonChange={requestAddonChange}
                 highlightFeature={highlightFeature}
                 comboDiscounts={comboDiscounts}
+              />
+            )}
+
+            {/* Discount-code redemption — attaches to the active subscription as a
+                usage credit. Only rendered with a subscription in scope (a discount
+                needs something to attach to). Fails soft (hides itself) when the
+                discounts feature is disabled. */}
+            {subscription && (
+              <DiscountRedeem
+                subscription={subscription}
+                canManage={canChangePlan}
+                onApplied={fetchData}
               />
             )}
           </div>

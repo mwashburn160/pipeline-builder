@@ -490,8 +490,32 @@ export interface Subscription {
   cancelAtPeriodEnd: boolean;
   /** Purchased add-on bundles (docs/billing-bundles.md). */
   addons?: Array<{ bundleId: string; quantity: number }>;
+  /** A standing recurring operator discount attached to this subscription (a
+   *  per-period usage credit). `null`/absent when none. One-time/credit discounts
+   *  aren't stored here — they apply once and show up in Billing History. */
+  recurringDiscount?: { discountId: string; value?: number; unit?: 'dollar' | 'percent'; kind?: string } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** An operator-granted discount record (docs/billing-discounts.md). Price-only —
+ *  never changes quotas/tier. `value` is percent-points when `unit==='percent'`,
+ *  else whole cents. Tokens are issued separately and never returned here. */
+export interface Discount {
+  id: string;
+  value: number;
+  unit: 'dollar' | 'percent';
+  kind: 'onetime' | 'recurring' | 'credit';
+  campaign?: string;
+  alias?: string;
+  targetOrgId?: string;
+  maxRedemptions?: number;
+  timesRedeemed: number;
+  redeemBy?: string;
+  appliesToTiers?: string[];
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /** A purchasable add-on bundle (expansion revenue). */
